@@ -1,6 +1,7 @@
-name: Claude PR Review
+name: Claude Code
 
 on:
+  # Auto-review on PR open/update
   pull_request:
     types:
       - opened
@@ -8,13 +9,22 @@ on:
       - reopened
       - ready_for_review
 
+  # Interactive @claude mentions in PR/issue comments
+  issue_comment:
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+
 concurrency:
-  group: claude-pr-review-${{ github.event.pull_request.number }}
+  group: claude-${{ github.event.pull_request.number || github.event.issue.number }}
   cancel-in-progress: true
 
 jobs:
+  # Auto-review on PR events
   review:
-    if: github.event.pull_request.draft == false
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -47,5 +57,26 @@ jobs:
             - Leave a concise top-level summary comment.
             - If no meaningful issues are found, say so explicitly.
             - Do not post speculative or low-confidence findings.
-          claude_args: |
-            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*)"
+
+  # Interactive @claude mentions
+  claude:
+    if: >
+      (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+      contains(github.event.comment.body, '@claude')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          track_progress: true
