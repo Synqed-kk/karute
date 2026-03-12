@@ -16,8 +16,8 @@ on:
     types: [created, edited]
 
 concurrency:
-  group: claude-${{ github.event.pull_request.number || github.event.issue.number }}
-  cancel-in-progress: true
+  group: claude-${{ github.event.pull_request.number || github.event.issue.number || github.run_id }}
+  cancel-in-progress: false
 
 jobs:
   # Auto-review on PR events
