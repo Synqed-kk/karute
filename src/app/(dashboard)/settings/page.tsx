@@ -144,7 +144,7 @@ export default function SettingsPage() {
             </label>
             <Select
               value={settings.businessType}
-              onValueChange={(value) => updateSetting('businessType', value)}
+              onValueChange={(value) => value && updateSetting('businessType', value)}
             >
               <SelectTrigger id="businessType">
                 <SelectValue placeholder="業種を選択" />
@@ -185,7 +185,7 @@ export default function SettingsPage() {
             </label>
             <Select
               value={settings.aiProvider}
-              onValueChange={(value) => updateSetting('aiProvider', value)}
+              onValueChange={(value) => value && updateSetting('aiProvider', value)}
             >
               <SelectTrigger id="aiProvider">
                 <SelectValue />
@@ -203,7 +203,7 @@ export default function SettingsPage() {
             </label>
             <Select
               value={settings.aiModel}
-              onValueChange={(value) => updateSetting('aiModel', value)}
+              onValueChange={(value) => value && updateSetting('aiModel', value)}
             >
               <SelectTrigger id="aiModel">
                 <SelectValue />
@@ -221,7 +221,7 @@ export default function SettingsPage() {
             </label>
             <Select
               value={settings.recordingLanguage}
-              onValueChange={(value) => updateSetting('recordingLanguage', value)}
+              onValueChange={(value) => value && updateSetting('recordingLanguage', value)}
             >
               <SelectTrigger id="recordingLanguage">
                 <SelectValue />
@@ -283,7 +283,7 @@ export default function SettingsPage() {
             </label>
             <Select
               value={settings.audioQuality}
-              onValueChange={(value) => updateSetting('audioQuality', value)}
+              onValueChange={(value) => value && updateSetting('audioQuality', value)}
             >
               <SelectTrigger id="audioQuality">
                 <SelectValue />

@@ -82,7 +82,7 @@ export async function transcribeRecording(
 
   // 4. Parse response into segments
   const segments: TranscriptionSegmentResult[] = (
-    (response as Record<string, unknown>).segments as Array<{
+    (response as unknown as Record<string, unknown>).segments as Array<{
       text: string
       start: number
       end: number

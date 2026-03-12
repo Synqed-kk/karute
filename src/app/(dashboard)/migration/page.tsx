@@ -329,9 +329,9 @@ export default function MigrationPage() {
                     {totalRows} 件のレコードが正常にインポートされました
                   </p>
                 </div>
-                <Button asChild>
-                  <a href="/dashboard">ダッシュボードへ</a>
-                </Button>
+                <a href="/dashboard">
+                  <Button>ダッシュボードへ</Button>
+                </a>
               </div>
             )}
           </CardContent>

@@ -62,7 +62,7 @@ export default function RecordingPage() {
         <label className="mb-1.5 block text-sm font-medium text-muted-foreground">
           顧客を選択
         </label>
-        <Select value={selectedCustomer} onValueChange={setSelectedCustomer}>
+        <Select value={selectedCustomer} onValueChange={(v) => setSelectedCustomer(v ?? '')}>
           <SelectTrigger className="w-full">
             <SelectValue placeholder="顧客を選択してください" />
           </SelectTrigger>
