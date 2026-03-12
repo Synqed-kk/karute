@@ -29,7 +29,8 @@ export function Sidebar() {
     setLoggingOut(true)
     try {
       const supabase = createClient()
-      await supabase.auth.signOut()
+      const { error } = await supabase.auth.signOut()
+      if (error) throw error
       router.push('/login')
       router.refresh()
     } catch {
@@ -91,6 +92,8 @@ export function Sidebar() {
           className="w-full justify-start text-muted-foreground"
           onClick={handleLogout}
           disabled={loggingOut}
+          aria-label="ログアウト"
+          title={collapsed ? 'ログアウト' : undefined}
         >
           {collapsed ? '←' : loggingOut ? 'ログアウト中...' : 'ログアウト'}
         </Button>

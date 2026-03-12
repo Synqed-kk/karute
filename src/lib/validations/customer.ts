@@ -9,9 +9,13 @@ export const createCustomerSchema = z.object({
   tags: z.array(z.string()).default([]),
 })
 
-export const updateCustomerSchema = createCustomerSchema.partial().extend({
-  id: z.string().uuid(),
-})
+export const updateCustomerSchema = createCustomerSchema
+  .omit({ tags: true })
+  .partial()
+  .extend({
+    id: z.string().uuid(),
+    tags: z.array(z.string()).optional(),
+  })
 
 export type CreateCustomerInput = z.input<typeof createCustomerSchema>
 export type UpdateCustomerInput = z.input<typeof updateCustomerSchema>

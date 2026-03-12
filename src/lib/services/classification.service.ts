@@ -23,17 +23,26 @@ export type ClassificationResult = {
   entries: ClassifiedEntry[]
 }
 
+const ALLOWED_BUSINESS_TYPES = ['サロン', 'クリニック', '整体院', 'エステ'] as const
+type BusinessType = (typeof ALLOWED_BUSINESS_TYPES)[number]
+
 type ClassifyTranscriptParams = {
   transcript: string
   businessType?: string
 }
 
+function validateBusinessType(value?: string): BusinessType {
+  if (value && (ALLOWED_BUSINESS_TYPES as readonly string[]).includes(value)) {
+    return value as BusinessType
+  }
+  return 'サロン'
+}
+
 /**
- * Returns the system prompt for classification, tailored to the business type.
+ * Returns the system prompt for classification.
  */
-export function getClassificationPrompt(businessType: string): string {
+export function getClassificationPrompt(): string {
   return `あなたはサロン・クリニックの会話記録を分析する専門AIアシスタントです。
-業種: ${businessType}
 
 以下の会話テキストを分析し、カルテに記載すべき重要な情報を分類してください。
 
@@ -120,20 +129,21 @@ const CLASSIFICATION_JSON_SCHEMA = {
 export async function classifyTranscript(
   params: ClassifyTranscriptParams
 ): Promise<ClassificationResult> {
-  const { transcript, businessType = 'サロン' } = params
+  const { transcript, businessType: rawBusinessType } = params
+  const businessType = validateBusinessType(rawBusinessType)
 
   if (!transcript.trim()) {
     throw new Error('Transcript is empty')
   }
 
   const openai = getOpenAI()
-  const systemPrompt = getClassificationPrompt(businessType)
+  const systemPrompt = getClassificationPrompt()
 
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: transcript },
+      { role: 'user', content: `業種: ${businessType}\n\n${transcript}` },
     ],
     response_format: {
       type: 'json_schema',

@@ -9,18 +9,32 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 
 // Mock customer data
-const mockCustomer = {
-  id: '1',
-  name: '山田 花子',
-  nameKana: 'ヤマダ ハナコ',
-  phone: '090-1234-5678',
-  email: 'hanako@example.com',
-  notes: 'カラーのアレルギーあり。ジアミン系不可。',
-  tags: ['VIP', '常連'],
-  createdAt: '2025-06-15',
-  lastVisit: '2026-03-08',
-  visitCount: 24,
-}
+const mockCustomers = [
+  {
+    id: '1',
+    name: '山田 花子',
+    nameKana: 'ヤマダ ハナコ',
+    phone: '090-1234-5678',
+    email: 'hanako@example.com',
+    notes: 'カラーのアレルギーあり。ジアミン系不可。',
+    tags: ['VIP', '常連'],
+    createdAt: '2025-06-15',
+    lastVisit: '2026-03-08',
+    visitCount: 24,
+  },
+  {
+    id: '2',
+    name: '佐藤 美咲',
+    nameKana: 'サトウ ミサキ',
+    phone: '080-9876-5432',
+    email: 'misaki@example.com',
+    notes: '',
+    tags: ['常連'],
+    createdAt: '2025-09-01',
+    lastVisit: '2026-03-05',
+    visitCount: 12,
+  },
+]
 
 const tagColors: Record<string, string> = {
   VIP: 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400',
@@ -33,7 +47,7 @@ export default function CustomerDetailPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = use(params)
-  const customer = mockCustomer // TODO: fetch by id
+  const customer = mockCustomers.find((c) => c.id === id) ?? mockCustomers[0]
 
   return (
     <div className="space-y-6">

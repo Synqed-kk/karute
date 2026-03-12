@@ -29,7 +29,7 @@ export type TranscriptionRequestInput = z.input<typeof transcriptionRequestSchem
 export const classificationRequestSchema = z
   .object({
     recordingSessionId: z.string().uuid('録音セッションIDが無効です').optional(),
-    transcript: z.string().min(1, '文字起こしテキストを入力してください').optional(),
+    transcript: z.string().trim().min(1, '文字起こしテキストを入力してください').optional(),
     businessType: z.string().optional(),
   })
   .refine((data) => data.recordingSessionId || data.transcript, {

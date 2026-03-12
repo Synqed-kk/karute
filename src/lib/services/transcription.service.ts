@@ -2,6 +2,16 @@ import { getOpenAI } from '@/lib/ai/openai'
 import { prisma } from '@/lib/db/client'
 import { getServiceClient } from '@/lib/supabase/storage'
 
+export class ResourceNotFoundError extends Error {
+  constructor(
+    public readonly resourceId: string,
+    public readonly resourceType: string
+  ) {
+    super(`${resourceType} not found: ${resourceId}`)
+    this.name = 'ResourceNotFoundError'
+  }
+}
+
 const BUCKET_NAME = 'recordings'
 
 export type TranscriptionSegmentResult = {
@@ -34,11 +44,11 @@ export async function transcribeRecording(
   })
 
   if (!session) {
-    throw new Error(`Recording session not found: ${recordingSessionId}`)
+    throw new ResourceNotFoundError(recordingSessionId, 'Recording session')
   }
 
   if (!session.audioStoragePath) {
-    throw new Error(`No audio file for recording session: ${recordingSessionId}`)
+    throw new ResourceNotFoundError(recordingSessionId, 'Audio file for recording session')
   }
 
   // 2. Download audio from Supabase Storage
@@ -54,9 +64,10 @@ export async function transcribeRecording(
     )
   }
 
-  // Convert Blob to File for OpenAI SDK
-  const audioFile = new File([audioData], 'audio.webm', {
-    type: 'audio/webm',
+  // Convert Blob to File for OpenAI SDK, preserving original MIME type
+  const extension = session.audioStoragePath.split('.').pop() || 'webm'
+  const audioFile = new File([audioData], `audio.${extension}`, {
+    type: audioData.type || 'application/octet-stream',
   })
 
   // 3. Call OpenAI Whisper with verbose_json for timestamps

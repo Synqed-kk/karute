@@ -1,16 +1,26 @@
 import { NextResponse } from 'next/server'
 import { classifyTranscript } from '@/lib/services/classification.service'
-import { transcribeRecording } from '@/lib/services/transcription.service'
+import { transcribeRecording, ResourceNotFoundError } from '@/lib/services/transcription.service'
 import { classificationRequestSchema } from '@/lib/validations/recording'
 
 export async function POST(request: Request): Promise<NextResponse> {
+  let body: unknown
   try {
-    const body = await request.json()
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
 
+  try {
     const parsed = classificationRequestSchema.safeParse(body)
     if (!parsed.success) {
+      const { fieldErrors, formErrors } = parsed.error.flatten()
       return NextResponse.json(
-        { error: 'Invalid request', details: parsed.error.flatten().fieldErrors },
+        {
+          error: formErrors[0] ?? 'Invalid request',
+          details: fieldErrors,
+          formErrors,
+        },
         { status: 400 }
       )
     }
@@ -39,12 +49,11 @@ export async function POST(request: Request): Promise<NextResponse> {
       entries: result.entries,
     })
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Classification failed'
-
-    if (message.includes('not found')) {
-      return NextResponse.json({ error: message }, { status: 404 })
+    if (error instanceof ResourceNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 })
     }
 
+    const message = error instanceof Error ? error.message : 'Classification failed'
     console.error('[POST /api/classifications]', error)
     return NextResponse.json({ error: message }, { status: 500 })
   }

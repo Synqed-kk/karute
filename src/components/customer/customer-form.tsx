@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,6 +30,13 @@ export function CustomerForm({ open, onOpenChange, onSaved }: CustomerFormProps)
     notes: '',
   })
 
+  useEffect(() => {
+    if (!open) {
+      setForm({ name: '', nameKana: '', phone: '', email: '', notes: '' })
+      setErrors({})
+    }
+  }, [open])
+
   function updateField(field: keyof CreateCustomerInput, value: string) {
     setForm((prev) => ({ ...prev, [field]: value }))
     setErrors((prev) => ({ ...prev, [field]: '' }))
@@ -51,14 +58,16 @@ export function CustomerForm({ open, onOpenChange, onSaved }: CustomerFormProps)
     }
 
     setSaving(true)
-    // TODO: replace with API call
-    console.log('[CustomerForm] Create customer:', result.data)
-    await new Promise((r) => setTimeout(r, 500))
-    setSaving(false)
-
-    setForm({ name: '', nameKana: '', phone: '', email: '', notes: '' })
-    onOpenChange(false)
-    onSaved?.()
+    try {
+      // TODO: replace with API call
+      await new Promise((r) => setTimeout(r, 500))
+      onOpenChange(false)
+      onSaved?.()
+    } catch {
+      // TODO: surface error to user
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
