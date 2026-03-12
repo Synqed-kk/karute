@@ -1,9 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import { Separator } from '@/components/ui/separator'
 
 const navItems = [
   { href: '/dashboard', label: 'ダッシュボード', icon: '◻' },
@@ -18,7 +21,21 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const [collapsed, setCollapsed] = useState(false)
+  const [loggingOut, setLoggingOut] = useState(false)
+
+  async function handleLogout() {
+    setLoggingOut(true)
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      router.push('/login')
+      router.refresh()
+    } catch {
+      setLoggingOut(false)
+    }
+  }
 
   return (
     <aside
@@ -56,8 +73,33 @@ export function Sidebar() {
         })}
       </nav>
 
-      {/* Collapse toggle */}
+      {/* User section */}
       <div className="border-t p-2">
+        <div className={cn('flex items-center gap-3 px-3 py-2', collapsed && 'justify-center')}>
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-medium text-primary-foreground">
+            S
+          </div>
+          {!collapsed && (
+            <div className="flex-1 truncate">
+              <p className="truncate text-sm font-medium">スタッフ</p>
+            </div>
+          )}
+        </div>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="w-full justify-start text-muted-foreground"
+          onClick={handleLogout}
+          disabled={loggingOut}
+        >
+          {collapsed ? '←' : loggingOut ? 'ログアウト中...' : 'ログアウト'}
+        </Button>
+      </div>
+
+      <Separator />
+
+      {/* Collapse toggle */}
+      <div className="p-2">
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="w-full rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent/50"
