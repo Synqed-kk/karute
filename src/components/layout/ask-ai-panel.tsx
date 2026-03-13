@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState, useEffect } from 'react'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { motion, AnimatePresence } from 'framer-motion'
 import { X, Send, Sparkles, Loader2 } from 'lucide-react'
 import { useAskAiPanel } from '@/components/providers/ask-ai-panel-provider'
@@ -15,7 +15,7 @@ type Message = {
   content: string
 }
 
-const MOCK_RESPONSES: Record<string, string> = {
+const MOCK_RESPONSES_JA: Record<string, string> = {
   default:
     'ご質問ありがとうございます。現在、AIアシスタント機能は開発中です。近日中にカルテデータを活用した回答が可能になります。',
   カルテ:
@@ -24,17 +24,28 @@ const MOCK_RESPONSES: Record<string, string> = {
     '今月の来店数上位の顧客は以下の通りです：\n1. 佐藤花子様 - 4回\n2. 田中一郎様 - 3回\n3. 鈴木美咲様 - 3回',
 }
 
-function getMockResponse(message: string): string {
-  for (const [keyword, response] of Object.entries(MOCK_RESPONSES)) {
-    if (keyword !== 'default' && message.includes(keyword)) {
+const MOCK_RESPONSES_EN: Record<string, string> = {
+  default:
+    'Thank you for your question. The AI assistant feature is currently under development. Soon it will be able to provide answers using your karute data.',
+  karute:
+    "I've checked the most recent karute. The session on March 5th showed tension around the shoulder blades, and treatment focused on acupressure and stretching.",
+  visits:
+    'Top visitors this month:\n1. Customer A - 4 visits\n2. Customer B - 3 visits\n3. Customer C - 3 visits',
+}
+
+function getMockResponse(message: string, locale: string): string {
+  const responses = locale === 'en' ? MOCK_RESPONSES_EN : MOCK_RESPONSES_JA
+  for (const [keyword, response] of Object.entries(responses)) {
+    if (keyword !== 'default' && message.toLowerCase().includes(keyword)) {
       return response
     }
   }
-  return MOCK_RESPONSES.default
+  return responses.default
 }
 
 function ChatUI() {
   const t = useTranslations('askAi')
+  const locale = useLocale()
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -65,7 +76,7 @@ function ChatUI() {
     const assistantMessage: Message = {
       id: crypto.randomUUID(),
       role: 'assistant',
-      content: getMockResponse(content),
+      content: getMockResponse(content, locale),
     }
 
     setMessages((prev) => [...prev, assistantMessage])

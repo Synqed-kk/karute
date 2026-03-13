@@ -26,6 +26,7 @@ export async function POST(request: Request): Promise<NextResponse> {
     }
 
     const { recordingSessionId, transcript: directTranscript, businessType } = parsed.data
+    const locale = (body as Record<string, unknown>).locale as string | undefined
 
     // Get transcript: either directly provided or via transcription
     let transcript: string
@@ -42,7 +43,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       )
     }
 
-    const result = await classifyTranscript({ transcript, businessType })
+    const result = await classifyTranscript({ transcript, businessType, locale })
 
     return NextResponse.json({
       summary: result.summary,

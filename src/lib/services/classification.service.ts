@@ -29,6 +29,7 @@ type BusinessType = (typeof ALLOWED_BUSINESS_TYPES)[number]
 type ClassifyTranscriptParams = {
   transcript: string
   businessType?: string
+  locale?: string
 }
 
 function validateBusinessType(value?: string): BusinessType {
@@ -41,7 +42,30 @@ function validateBusinessType(value?: string): BusinessType {
 /**
  * Returns the system prompt for classification.
  */
-export function getClassificationPrompt(): string {
+export function getClassificationPrompt(locale?: string): string {
+  if (locale === 'en') {
+    return `You are a specialist AI assistant that analyzes salon/clinic conversation recordings.
+
+Analyze the conversation text below and classify important information for the treatment record.
+
+Classify each piece of information into these categories:
+- SYMPTOM: Symptoms, complaints, conditions (e.g., shoulder stiffness, headache, skin irritation)
+- TREATMENT: Treatment content, procedures (e.g., haircut, coloring, massage)
+- BODY_AREA: Body areas, locations (e.g., right shoulder, bangs, neck area)
+- PREFERENCE: Preferences, requests (e.g., shorter, lighter color, firmer pressure)
+- LIFESTYLE: Lifestyle habits (e.g., desk work, lack of exercise)
+- NEXT_VISIT: Next appointment, follow-up (e.g., in 2 weeks, next coloring)
+- PRODUCT: Products, home care recommendations (e.g., shampoo, stretching)
+- OTHER: Other important information
+
+Rules:
+1. Extract only specific information from the conversation
+2. Include the original quote (originalQuote) for each entry
+3. Set confidence from 0.0 to 1.0 indicating certainty of the information
+4. Include relevant keywords in tags
+5. Write the summary as a concise overview of the entire conversation in English`
+  }
+
   return `あなたはサロン・クリニックの会話記録を分析する専門AIアシスタントです。
 
 以下の会話テキストを分析し、カルテに記載すべき重要な情報を分類してください。
@@ -129,7 +153,7 @@ const CLASSIFICATION_JSON_SCHEMA = {
 export async function classifyTranscript(
   params: ClassifyTranscriptParams
 ): Promise<ClassificationResult> {
-  const { transcript, businessType: rawBusinessType } = params
+  const { transcript, businessType: rawBusinessType, locale } = params
   const businessType = validateBusinessType(rawBusinessType)
 
   if (!transcript.trim()) {
@@ -137,13 +161,14 @@ export async function classifyTranscript(
   }
 
   const openai = getOpenAI()
-  const systemPrompt = getClassificationPrompt()
+  const systemPrompt = getClassificationPrompt(locale)
 
+  const businessLabel = locale === 'en' ? 'Business type' : '業種'
   const response = await openai.chat.completions.create({
     model: 'gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: `業種: ${businessType}\n\n${transcript}` },
+      { role: 'user', content: `${businessLabel}: ${businessType}\n\n${transcript}` },
     ],
     response_format: {
       type: 'json_schema',

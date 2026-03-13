@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { useLocale } from 'next-intl'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Mic, Pause, Play, Square, X } from 'lucide-react'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -55,6 +56,7 @@ function PulseRings({ active }: { active: boolean }) {
 
 function RecordingUI() {
   const t = useTranslations('recording')
+  const locale = useLocale()
   const { staff, org } = useOrg()
   const { startRecordingBar, stopRecordingBar, recordingBarId } = useTimetableStore()
   const didStopRef = useRef(false)
@@ -133,6 +135,7 @@ function RecordingUI() {
         setProcessingLabel('Transcribing...')
         const formData = new FormData()
         formData.append('audio', new File([blob], 'recording.webm', { type: blob.type }))
+        formData.append('locale', locale)
         const transcribeRes = await fetch('/api/transcriptions', { method: 'POST', body: formData })
 
         if (!transcribeRes.ok) {
@@ -159,7 +162,7 @@ function RecordingUI() {
         const classifyRes = await fetch('/api/classifications', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript: transcription.text }),
+          body: JSON.stringify({ transcript: transcription.text, locale }),
         })
 
         let classification = { summary: '', entries: [] }

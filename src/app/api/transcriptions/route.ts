@@ -19,11 +19,14 @@ export async function POST(request: Request): Promise<NextResponse> {
         )
       }
 
+      const locale = (formData.get('locale') as string) || 'ja'
+      const whisperLang = locale === 'en' ? 'en' : 'ja'
+
       const openai = getOpenAI()
       const response = await openai.audio.transcriptions.create({
         model: 'whisper-1',
         file: audioFile,
-        language: 'ja',
+        language: whisperLang,
         response_format: 'verbose_json',
       })
 
@@ -45,7 +48,7 @@ export async function POST(request: Request): Promise<NextResponse> {
       return NextResponse.json({
         text: response.text,
         segments,
-        language: 'ja',
+        language: whisperLang,
       })
     } catch (error) {
       const message =
