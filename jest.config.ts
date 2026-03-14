@@ -15,6 +15,11 @@ const config: Config = {
 
   // Run global setup after Jest test framework is initialized (has access to beforeAll/afterAll)
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/integration/setup/jest.setup.ts'],
+
+  // Resolve @/* path aliases from tsconfig (next/jest may not auto-detect with moduleResolution: bundler)
+  moduleNameMapper: {
+    '^@/(.*)$': '<rootDir>/src/$1',
+  },
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async
