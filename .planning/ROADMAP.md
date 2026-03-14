@@ -16,7 +16,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 2: AI Pipeline** - Whisper transcription, GPT entry extraction, session summary, human review screen
 - [ ] **Phase 3: Customer Management** - Create, edit, list, and view customers with karute history
 - [x] **Phase 4: Karute Records** - Karute detail view, categorized entries, manual entry addition, save to Supabase
-- [ ] **Phase 5: Staff Profiles** - Staff profile CRUD, header switcher, and record attribution
+- [x] **Phase 5: Staff Profiles** - Staff profile CRUD, header switcher, and record attribution
 - [ ] **Phase 6: UI/UX Polish** - Dark theme, bilingual toggle, sidebar navigation, tablet-responsive layout
 - [x] **Phase 7: Export** - PDF export with Japanese fonts and plain text export
 - [ ] **Phase 8: Integration Testing** - End-to-end integration tests for main flows and test data cleanup
@@ -168,7 +168,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 2. AI Pipeline | 0/4 | Planned | - |
 | 3. Customer Management | 0/3 | Planned | - |
 | 4. Karute Records | 4/4 | ✓ Complete | 2026-03-14 |
-| 5. Staff Profiles | 0/3 | Planned | - |
+| 5. Staff Profiles | 4/4 | ✓ Complete | 2026-03-14 |
 | 6. UI/UX Polish | 0/4 | Planned | - |
 | 7. Export | 2/2 | ✓ Complete | 2026-03-14 |
 | 8. Integration Testing | 0/3 | Not started | - |
