@@ -3,12 +3,24 @@ import { TopBar } from '@/components/layout/top-bar'
 import { StaffSwitcher } from '@/components/staff/StaffSwitcher'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
 import { setActiveStaff } from '@/actions/staff'
+import { createClient } from '@/lib/supabase/server'
+import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
   children,
+  params,
 }: {
   children: React.ReactNode
+  params: Promise<{ locale: string }>
 }) {
+  const { locale } = await params
+
+  const supabase = await createClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  if (!user || error) {
+    redirect(`/${locale}/login`)
+  }
+
   const staffList = await getStaffList()
 
   // Normalize to simple name-keyed shape for the switcher
