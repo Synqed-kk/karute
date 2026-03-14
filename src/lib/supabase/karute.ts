@@ -30,6 +30,7 @@ const _karuteWithRelationsQuery = (supabase: SyncSupabaseClient) =>
       customer_id,
       client_id,
       staff_profile_id,
+      profiles:staff_profile_id ( id, full_name ),
       customers:client_id ( id, name ),
       entries (
         id,
@@ -75,6 +76,7 @@ export async function getKaruteRecord(
       customer_id,
       client_id,
       staff_profile_id,
+      profiles:staff_profile_id ( id, full_name ),
       customers:client_id ( id, name ),
       entries (
         id,

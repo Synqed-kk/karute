@@ -17,6 +17,10 @@ export function KaruteHeader({ karute }: KaruteHeaderProps) {
   const customerName =
     (karute as { customers?: { name: string } | null }).customers?.name ?? '—'
 
+  // profiles aliased from staff_profile_id in PostgREST query
+  const staffName =
+    (karute as { profiles?: { full_name: string } | null }).profiles?.full_name ?? '—'
+
   const dateSource = (karute as { session_date?: string | null }).session_date ?? karute.created_at
   const formattedDate = new Intl.DateTimeFormat('ja-JP', {
     year: 'numeric',
@@ -37,6 +41,12 @@ export function KaruteHeader({ karute }: KaruteHeaderProps) {
           {t('date')}
         </p>
         <p className="text-sm text-foreground">{formattedDate}</p>
+      </div>
+      <div>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+          {t('staff')}
+        </p>
+        <p className="text-sm text-foreground">{staffName}</p>
       </div>
     </div>
   )

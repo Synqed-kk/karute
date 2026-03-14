@@ -11,6 +11,7 @@ interface KaruteRecord {
   summary: string | null
   session_date?: string
   staff_profile_id?: string | null
+  profiles?: { full_name: string } | null
 }
 
 interface KaruteHistoryListProps {
@@ -77,8 +78,9 @@ export function KaruteHistoryList({ records, currentPage, totalPages }: KaruteHi
                   {formatDate(record.session_date ?? record.created_at)}
                 </span>
 
-                {/* Staff name placeholder — Phase 5 will add actual staff attribution */}
-                <span className="text-sm text-muted-foreground shrink-0 w-20">{t('profile.staff')}</span>
+                <span className="text-sm text-muted-foreground shrink-0 w-20">
+                  {record.profiles?.full_name ?? t('profile.staff')}
+                </span>
 
                 {/* AI summary snippet */}
                 <span className="text-sm text-muted-foreground flex-1 min-w-0 truncate">

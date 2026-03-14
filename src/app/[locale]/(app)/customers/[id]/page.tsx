@@ -33,7 +33,7 @@ export default async function CustomerProfilePage({
     // Filters karute records for this specific client's sessions
     supabase
       .from('karute_records')
-      .select('id, created_at, summary, staff_profile_id, session_date', { count: 'exact' })
+      .select('id, created_at, summary, staff_profile_id, session_date, profiles:staff_profile_id ( full_name )', { count: 'exact' })
       .eq('client_id', id)
       .order('session_date', { ascending: false })
       .range((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE - 1),
@@ -50,6 +50,7 @@ export default async function CustomerProfilePage({
     summary: string | null
     staff_profile_id: string | null
     session_date: string
+    profiles: { full_name: string } | null
   }>
   const totalKaruteCount = karuteResult.count ?? 0
   const totalPages = Math.max(1, Math.ceil(totalKaruteCount / HISTORY_PAGE_SIZE))
