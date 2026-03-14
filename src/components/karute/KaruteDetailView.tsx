@@ -4,6 +4,7 @@ import { KaruteHeader } from '@/components/karute/KaruteHeader'
 import { EntryCard } from '@/components/karute/EntryCard'
 import { AddEntryForm } from '@/components/karute/AddEntryForm'
 import { TranscriptSection } from '@/components/karute/TranscriptSection'
+import { ExportButtons } from '@/components/karute/ExportButtons'
 
 interface KaruteDetailViewProps {
   karute: KaruteWithRelations
@@ -25,6 +26,9 @@ export function KaruteDetailView({ karute }: KaruteDetailViewProps) {
     <div className="space-y-6">
       {/* Header */}
       <KaruteHeader karute={karute} />
+
+      {/* Export buttons */}
+      <ExportButtons karuteId={karute.id} />
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
