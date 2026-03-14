@@ -89,6 +89,58 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 }
 
 // ---------------------------------------------------------------------------
+// createQuickCustomer
+// ---------------------------------------------------------------------------
+
+/**
+ * Minimal customer creation for the inline "Quick Create" flow in SaveKaruteFlow.
+ * Only requires a name — all other fields are optional and left null.
+ *
+ * Returns { id, name } so the caller can immediately select the new customer.
+ */
+export async function createQuickCustomer(
+  name: string,
+): Promise<{ success: true; id: string; name: string } | { success: false; error: string }> {
+  const trimmedName = name.trim()
+  if (!trimmedName) {
+    return { success: false, error: 'Name is required' }
+  }
+  if (trimmedName.length > 100) {
+    return { success: false, error: 'Name must be 100 characters or fewer' }
+  }
+
+  const supabase = await createClient()
+
+  try {
+    const { data, error } = await supabase
+      .from('customers')
+      .insert([
+        {
+          name: trimmedName,
+          furigana: null,
+          phone: null,
+          email: null,
+          contact_info: null,
+          notes: null,
+        },
+      ])
+      .select('id, name')
+      .single()
+
+    if (error) {
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/customers')
+
+    return { success: true, id: data.id, name: data.name }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error: message }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // updateCustomer
 // ---------------------------------------------------------------------------
 
