@@ -51,7 +51,7 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
         </div>
         <div className="flex flex-col items-center gap-4 rounded-xl border border-dashed py-12 text-center">
           <p className="text-sm text-muted-foreground">No staff members yet</p>
-          <Button onClick={() => setShowCreateForm(true)}>Add Staff Member</Button>
+          <Button onClick={() => setShowCreateForm(true)} className="min-h-[44px]">Add Staff Member</Button>
         </div>
         {showCreateForm && (
           <StaffForm
@@ -67,7 +67,7 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-medium">Staff Members</h2>
-        <Button size="sm" onClick={() => setShowCreateForm(true)}>
+        <Button size="sm" onClick={() => setShowCreateForm(true)} className="min-h-[44px]">
           Add Staff
         </Button>
       </div>
@@ -103,6 +103,7 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
                   variant="outline"
                   size="sm"
                   onClick={() => setEditingStaff(staff)}
+                  className="min-h-[44px]"
                 >
                   Edit
                 </Button>
@@ -110,6 +111,7 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
                   variant="destructive"
                   size="sm"
                   onClick={() => handleDelete(staff)}
+                  className="min-h-[44px]"
                 >
                   Delete
                 </Button>

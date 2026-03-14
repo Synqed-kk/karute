@@ -47,7 +47,7 @@ export function StaffSwitcher({ staffList, activeStaff }: StaffSwitcherProps) {
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="inline-flex items-center rounded-lg px-2 py-1 text-sm font-medium hover:bg-white/10 dark:hover:bg-white/10 transition-colors">
+      <DropdownMenuTrigger className="inline-flex min-h-[44px] items-center rounded-lg px-2 py-1 text-sm font-medium hover:bg-white/10 dark:hover:bg-white/10 transition-colors">
         {activeStaff?.name ?? 'Select Staff'}
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">

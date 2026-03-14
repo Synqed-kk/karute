@@ -63,7 +63,7 @@ export function AddEntryForm({ karuteRecordId }: AddEntryFormProps) {
               )
             }
             className={cn(
-              'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium transition-all',
+              'inline-flex min-h-[44px] items-center rounded-full border px-3 py-1 text-xs font-medium transition-all',
               cat.color,
               selectedCategory === cat.value
                 ? 'ring-2 ring-offset-1 ring-offset-card ring-current opacity-100'
@@ -93,7 +93,7 @@ export function AddEntryForm({ karuteRecordId }: AddEntryFormProps) {
         <button
           type="submit"
           disabled={!selectedCategory || !content.trim() || isPending}
-          className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-40 hover:opacity-90"
+          className="min-h-[44px] rounded-md bg-primary px-4 py-2 text-xs font-medium text-primary-foreground transition-opacity disabled:opacity-40 hover:opacity-90"
         >
           {isPending ? t('saving') : t('addEntry')}
         </button>
