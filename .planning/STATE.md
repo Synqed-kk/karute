@@ -46,6 +46,7 @@ Progress: [████████░░] ~88%
 | Phase 07-export P01 | 17 min | 2 tasks | 4 files |
 | Phase 07-export P02 | 3 min | 2 tasks | 4 files |
 | Phase 07-export P02 | 7 | 2 tasks | 4 files |
+| Phase 04-karute-records P04 | 3 | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -96,6 +97,7 @@ Recent decisions affecting current work:
 - [Phase 05-staff-profiles]: window.confirm() for delete confirmation in StaffList — v1 acceptable; server-side guards enforce safety via deleteStaff throwing errors shown as toasts
 - [Phase 07-02]: ExportButtons uses buttonVariants applied directly to <a> tags — Button component uses @base-ui/react/button which has no asChild prop
 - [Phase 07-02]: ExportButtons placed between KaruteHeader and two-column layout in KaruteDetailView
+- [Phase 04-karute-records]: ReviewConfirmStep uses useRef draftSavedRef guard — prevents saveDraft() from being called multiple times on re-renders
 
 ### Pending Todos
 
@@ -108,5 +110,5 @@ None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 07-02-PLAN.md (plain text export route + ExportButtons component)
+Stopped at: Completed 04-04-PLAN.md (AI review→save integration + karute list page)
 Resume file: None
