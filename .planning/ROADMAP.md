@@ -122,13 +122,14 @@ Plans:
   2. User can toggle the language between EN and JP in the header and all UI text and AI outputs switch immediately
   3. Sidebar navigation links to Recording, Customers, Karute, and Settings pages and shows the active page
   4. App is fully usable on a tablet viewport (1024px) — no broken layouts, touch-friendly tap targets
-**Plans**: 4 plans
+**Plans**: 5 plans
 
 Plans:
 - [ ] 06-01-PLAN.md — Dark theme infrastructure (ThemeProvider, OKLCH tokens, Inter + Noto Sans JP fonts) and dashboard layout shell matching reference app
 - [ ] 06-02-PLAN.md — Custom 90px sidebar with active state detection, TopBar with locale toggle and theme toggle
 - [ ] 06-03-PLAN.md — Wire sidebar and TopBar into dashboard layout, complete EN/JP translation files for all pages
 - [ ] 06-04-PLAN.md — Tablet responsive audit and fixes (touch targets, scrollable tables, stacked layouts), human verification
+- [ ] 06-05-PLAN.md — Gap closure: strip old layout collision from root layout, add locale middleware, fix settings heading
 
 ### Phase 7: Export
 **Goal**: A staff member can export any karute record as a formatted PDF (with Japanese character support) or as plain text for use outside the app.
