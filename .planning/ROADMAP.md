@@ -150,12 +150,12 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. Automated integration tests cover the full record → transcribe → extract → save → view karute flow and pass in CI
   2. Test runs do not leave any data in the Supabase test database — teardown cleans up all created customers, karute records, and entries
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 08-01: Integration test setup — test environment config, Supabase test project connection, test auth helpers, mock for OpenAI API calls
-- [ ] 08-02: Core flow integration tests — record (mock audio) → transcribe → extract → review → save → view karute record
-- [ ] 08-03: Test teardown and cleanup — afterEach/afterAll hooks that delete all test-created records from Supabase
+- [ ] 08-01-PLAN.md — Jest config with next/jest, test helpers (Supabase test client, OpenAI mock factory, server action mocks), npm scripts
+- [ ] 08-02-PLAN.md — API route integration tests for transcribe, extract, and summarize using NTARH with mocked OpenAI
+- [ ] 08-03-PLAN.md — Core flow integration test: create customer + save karute record against real Supabase + ID-tracked teardown
 
 ## Progress
 
