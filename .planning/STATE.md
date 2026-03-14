@@ -56,6 +56,9 @@ Recent decisions affecting current work:
 - 03-01: listCustomers default sort: updated_at desc (proxy for last visit until karute_records linked)
 - 03-01: checkDuplicateName non-fatal — Supabase errors return { exists: false } so creation never blocked
 - 03-01: No redirect() in Server Actions — caller (sheet UI) handles navigation after success
+- 04-01: Database type uses Supabase CLI format (explicit Insert/Update fields, not Omit<Row>) — Omit<> pattern caused GenericTable constraint to resolve Insert as never in Supabase 2.99+
+- 04-01: staffId falls back to first profiles row with TODO for Phase 5 staff switcher wiring
+- 04-01: getKaruteRecord returns null (not throws) on PGRST116 so page can call notFound() cleanly
 
 ### Pending Todos
 
@@ -63,10 +66,10 @@ None.
 
 ### Blockers/Concerns
 
-Pre-existing TypeScript errors in backend files (actions/entries.ts, actions/staff.ts, lib/supabase) — Supabase client typing issues unrelated to Phase 06-01.
+None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in 04-01.)
 
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 06-02-PLAN.md (sidebar navigation + TopBar with locale/theme toggles)
+Stopped at: Completed 04-01-PLAN.md (karute data layer: categories, types, Server Actions, query helpers)
 Resume file: None
