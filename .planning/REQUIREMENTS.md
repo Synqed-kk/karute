@@ -145,8 +145,8 @@
 | STAFF-01 | Phase 5 | Pending |
 | STAFF-02 | Phase 5 | Pending |
 | STAFF-03 | Phase 5 | Pending |
-| EXP-01 | Phase 7 | Pending |
-| EXP-02 | Phase 7 | Pending |
+| EXP-01 | Phase 7 | ✓ Done |
+| EXP-02 | Phase 7 | ✓ Done |
 | UI-01 | Phase 6 | Pending |
 | UI-02 | Phase 6 | Pending |
 | UI-03 | Phase 6 | Pending |

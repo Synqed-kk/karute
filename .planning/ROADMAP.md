@@ -18,7 +18,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 - [ ] **Phase 4: Karute Records** - Karute detail view, categorized entries, manual entry addition, save to Supabase
 - [ ] **Phase 5: Staff Profiles** - Staff profile CRUD, header switcher, and record attribution
 - [ ] **Phase 6: UI/UX Polish** - Dark theme, bilingual toggle, sidebar navigation, tablet-responsive layout
-- [ ] **Phase 7: Export** - PDF export with Japanese fonts and plain text export
+- [x] **Phase 7: Export** - PDF export with Japanese fonts and plain text export
 - [ ] **Phase 8: Integration Testing** - End-to-end integration tests for main flows and test data cleanup
 
 ## Phase Details
@@ -139,8 +139,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 07-01-PLAN.md — PDF export: @react-pdf/renderer with Noto Sans JP font embedding, KarutePdfDocument component, PDF route handler with auth and streaming
-- [ ] 07-02-PLAN.md — Plain text export: formatKaruteAsText formatter, text route handler, ExportButtons client component for karute detail view
+- [x] 07-01-PLAN.md — PDF export: @react-pdf/renderer with Noto Sans JP font embedding, KarutePdfDocument component, PDF route handler with auth and streaming
+- [x] 07-02-PLAN.md — Plain text export: formatKaruteAsText formatter, text route handler, ExportButtons client component for karute detail view
 
 ### Phase 8: Integration Testing
 **Goal**: The core end-to-end flow (record → transcribe → extract → review → save → view) is covered by automated integration tests that clean up after themselves, giving confidence in future changes.
@@ -169,5 +169,5 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 4. Karute Records | 0/4 | Planned | - |
 | 5. Staff Profiles | 0/3 | Planned | - |
 | 6. UI/UX Polish | 0/4 | Planned | - |
-| 7. Export | 0/2 | Planned | - |
+| 7. Export | 2/2 | ✓ Complete | 2026-03-14 |
 | 8. Integration Testing | 0/3 | Not started | - |
