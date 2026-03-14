@@ -5,16 +5,16 @@
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Service providers can record a client session conversation and instantly get a structured, categorized digital karute without writing anything down.
-**Current focus:** Phase 8 — Integration Testing
+**Current focus:** Phase 8 — Integration Testing (COMPLETE)
 
 ## Current Position
 
 Phase: 8 of 8 (Integration Testing)
-Plan: 2 of 3 in current phase
-Status: In progress
-Last activity: 2026-03-14 — Completed 08-02: AI route integration tests (transcribe, extract, summarize — 12 tests)
+Plan: 3 of 3 in current phase
+Status: Complete
+Last activity: 2026-03-14 — Completed 08-03: Core flow integration test (15 tests total, 4 suites, all passing)
 
-Progress: [████████░░] ~90%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -55,6 +55,7 @@ Progress: [████████░░] ~90%
 | Phase 01-foundation-recording P07 | 12 | 2 tasks | 2 files |
 | Phase 08-integration-testing P01 | 4 min | 2 tasks | 9 files |
 | Phase 08-integration-testing P02 | 4 min | 2 tasks | 4 files |
+| Phase 08-integration-testing P03 | 30 min | 2 tasks | 1 files |
 | Phase 01-foundation-recording P03 | 4 | 1 tasks | 6 files |
 
 ## Accumulated Context
@@ -130,6 +131,9 @@ Recent decisions affecting current work:
 - [Phase 08-01]: Service role key used for testSupabase to bypass RLS in teardown; FK-safe teardown order: entries -> karute_records -> customers -> profiles
 - [Phase 08-02]: moduleNameMapper added explicitly to jest.config.ts — next/jest auto-detect of tsconfig @/* paths fails with moduleResolution: bundler
 - [Phase 08-02]: zodResponseFormat not mocked separately — mocking openai.chat.completions.parse at call level is sufficient for extract/summarize routes
+- [Phase 08-03]: profiles.id FK to auth.users.id requires real auth user UUID — fabricated UUIDs fail constraint; TEST_STAFF_PROFILE_ID must be a real auth user in the test project
+- [Phase 08-03]: Test Supabase schema required 4 corrections vs production: real auth UUID for profile FK, gen_random_uuid() defaults on customer_id columns, entries.title renamed to entries.content, category CHECK constraint updated to match app categories
+- [Phase 08-03]: Teardown written as explicit test case 3 (not only afterAll) — makes cleanup verification visible in test output and satisfies TEST-02 directly
 - [Phase 01-03]: (app)/layout.tsx auth guard uses getUser() server-side; middleware.ts rewired to proxy() activating getClaims() token refresh that was deferred in 01-04
 
 ### Pending Todos
@@ -143,5 +147,5 @@ None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 08-02-PLAN.md (AI route integration tests: transcribe/extract/summarize, 12 tests)
+Stopped at: Completed 08-03-PLAN.md (core flow integration test — 15 tests, 4 suites, all passing, teardown verified)
 Resume file: None
