@@ -1,0 +1,51 @@
+{
+  "customers": {
+    "title": "顧客",
+    "newCustomer": "+ 新規顧客",
+    "search": {
+      "placeholder": "名前・読み・電話・メールで検索..."
+    },
+    "form": {
+      "name": "名前",
+      "namePlaceholder": "顧客名",
+      "furigana": "読み（ふりがな）",
+      "furiganaPlaceholder": "たなか たろう",
+      "phone": "電話番号",
+      "phonePlaceholder": "090-1234-5678",
+      "email": "メールアドレス",
+      "emailPlaceholder": "email@example.com",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "create": "顧客を作成",
+      "saving": "保存中...",
+      "duplicateWarning": "「{name}」という名前の顧客が既に存在します"
+    },
+    "table": {
+      "name": "名前",
+      "contact": "連絡先",
+      "lastVisit": "最終来店",
+      "visitCount": "来店回数",
+      "noCustomers": "顧客がまだいません",
+      "noResults": "顧客が見つかりませんでした"
+    },
+    "profile": {
+      "edit": "編集",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "visits": "{count}回来店",
+      "lastVisit": "最終来店: {date}",
+      "noVisits": "まだ来店がありません",
+      "karuteHistory": "施術履歴",
+      "back": "戻る"
+    },
+    "toast": {
+      "created": "顧客を作成しました",
+      "updated": "顧客を更新しました",
+      "error": "エラーが発生しました"
+    },
+    "empty": {
+      "title": "顧客がまだいません",
+      "description": "最初の顧客を作成しましょう"
+    }
+  }
+}

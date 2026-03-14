@@ -1,0 +1,51 @@
+{
+  "customers": {
+    "title": "Customers",
+    "newCustomer": "+ New Customer",
+    "search": {
+      "placeholder": "Search by name, reading, phone, or email..."
+    },
+    "form": {
+      "name": "Name",
+      "namePlaceholder": "Customer name",
+      "furigana": "Reading (furigana)",
+      "furiganaPlaceholder": "たなか たろう",
+      "phone": "Phone",
+      "phonePlaceholder": "090-1234-5678",
+      "email": "Email",
+      "emailPlaceholder": "email@example.com",
+      "save": "Save",
+      "cancel": "Cancel",
+      "create": "Create Customer",
+      "saving": "Saving...",
+      "duplicateWarning": "A customer named \"{name}\" already exists"
+    },
+    "table": {
+      "name": "Name",
+      "contact": "Contact",
+      "lastVisit": "Last Visit",
+      "visitCount": "Visits",
+      "noCustomers": "No customers yet",
+      "noResults": "No customers found"
+    },
+    "profile": {
+      "edit": "Edit",
+      "save": "Save",
+      "cancel": "Cancel",
+      "visits": "{count} visits",
+      "lastVisit": "Last visit: {date}",
+      "noVisits": "No visits yet",
+      "karuteHistory": "Session History",
+      "back": "Back"
+    },
+    "toast": {
+      "created": "Customer created",
+      "updated": "Customer updated",
+      "error": "Something went wrong"
+    },
+    "empty": {
+      "title": "No customers yet",
+      "description": "Create your first customer to get started"
+    }
+  }
+}
