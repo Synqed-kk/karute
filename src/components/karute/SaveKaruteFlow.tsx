@@ -44,9 +44,7 @@ export function SaveKaruteFlow({ customers }: SaveKaruteFlowProps) {
 
   // Load draft from sessionStorage (client-side only)
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(loadDraft())
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHasMounted(true)
   }, [])
 

@@ -44,7 +44,6 @@ export function CustomerCombobox({
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Sync query when selection changes externally (e.g. after quick-create)
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     if (selectedCustomer) {
       setQuery(selectedCustomer.name)

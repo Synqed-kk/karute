@@ -47,7 +47,6 @@ export function useWaveformBars(
     if (!stream || !active) {
       // Bars go flat when not recording (idle or paused)
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional synchronous reset to flat bars when stream/active changes
       setBars(Array(BAR_COUNT).fill(8))
       return
     }

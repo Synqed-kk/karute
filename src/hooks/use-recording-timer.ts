@@ -16,7 +16,6 @@ export function useRecordingTimer(isRunning: boolean) {
     if (isRunning) {
       // Reset if starting fresh (was not running before)
       if (!wasRunningRef.current) {
-        // eslint-disable-next-line react-hooks/set-state-in-effect -- intentional reset on isRunning false→true transition
         setElapsedSeconds(0)
       }
       wasRunningRef.current = true
