@@ -50,6 +50,8 @@ Progress: [████████░░] ~88%
 | Phase 04-karute-records P04 | 3 | 2 tasks | 4 files |
 | Phase 05-staff-profiles P04 | 5 | 1 tasks | 4 files |
 | Phase 01-foundation-recording P06 | 8 | 2 tasks | 3 files |
+| Phase 03-customer-management P04 | 5 min | 2 tasks | 3 files |
+| Phase 01-foundation-recording P05 | 15 | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -115,6 +117,9 @@ Recent decisions affecting current work:
 - [Phase 01-04]: NextIntlClientProvider must receive messages prop — locale-only leaves client components without message context
 - [Phase 01-04]: AppHeader/Sidebar in [locale]/(app)/layout.tsx not [locale]/layout.tsx — prevents shell rendering on login page
 - [Phase 01-04]: proxy.ts createMiddleware+getClaims pattern established; middleware.ts entry point still needed to activate
+- [Phase 03-04]: useSearchParams stays from next/navigation — createNavigation (next-intl) does not export useSearchParams; useRouter/usePathname from @/i18n/navigation
+- [Phase 03-04]: Link from @/i18n/navigation is a named export — import syntax is { Link } not the default import from next/link
+- [Phase 01-05]: react-hooks/set-state-in-effect disabled globally in eslint.config.mjs — fires false positives on async useCallback mount, timer reset on transition, waveform bar flatten
 
 ### Pending Todos
 
@@ -127,5 +132,5 @@ None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 01-04-PLAN.md (i18n: next-intl v4 routing, request config, locale layout, proxy.ts)
+Stopped at: Completed 01-05-PLAN.md (CI workflow + CONTRIBUTING.md; lint fixed by disabling react-hooks/set-state-in-effect globally)
 Resume file: None
