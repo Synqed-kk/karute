@@ -5,14 +5,14 @@
 See: .planning/PROJECT.md (updated 2026-03-13)
 
 **Core value:** Service providers can record a client session conversation and instantly get a structured, categorized digital karute without writing anything down.
-**Current focus:** Phase 6 — UI/UX Polish
+**Current focus:** Phase 7 — Export
 
 ## Current Position
 
-Phase: 6 of 8 (UI/UX Polish)
-Plan: 3 of 4 in current phase (06-01, 06-02, 06-03 complete)
+Phase: 7 of 8 (Export)
+Plan: 1 of 2 in current phase (07-01 complete)
 Status: In progress
-Last activity: 2026-03-14 — Completed 03-03 (customer profile page, inline edit, karute history list)
+Last activity: 2026-03-14 — Completed 07-01 (PDF export with @react-pdf/renderer and Noto Sans JP fonts)
 
 Progress: [█░░░░░░░░░] ~3%
 
@@ -81,6 +81,10 @@ Recent decisions affecting current work:
 - 06-03: Category translation keys use snake_case matching categories.ts values (symptom, body_area, next_visit) not UPPERCASE
 - 06-03: CategoryBadge converted to 'use client' to support useTranslations for runtime locale switching
 - 06-03: AI-generated content (transcript, summary, entry content) intentionally NOT wrapped in t() — database values displayed as-is
+- 07-01: Noto Sans JP TTFs from Google Fonts gstatic.com CDN (not GitHub) — GitHub repo no longer has static/ folder with weight TTFs
+- 07-01: Font.register at module level in KarutePdfDocument.tsx — never inside component body (avoids re-registration per request)
+- 07-01: customers:client_id PostgREST alias needed — karute_records.client_id is FK to customers; bare "customers" causes ambiguity
+- 07-01: export const runtime = 'nodejs' in PDF route — Edge Runtime lacks file system access for font loading
 
 ### Pending Todos
 
@@ -93,5 +97,5 @@ None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 03-03-PLAN.md (customer profile page, inline edit, karute history list, corrected DB types)
+Stopped at: Completed 07-01-PLAN.md (PDF export route, KarutePdfDocument, Noto Sans JP fonts)
 Resume file: None
