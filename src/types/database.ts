@@ -19,18 +19,21 @@ export type Database = {
       profiles: {
         Row: {
           id: string
+          customer_id: string  // business tenant UUID
           full_name: string | null
           role: string
           created_at: string
         }
         Insert: {
           id?: string
+          customer_id?: string  // auto-set by handle_new_user trigger from auth metadata
           full_name?: string | null
           role?: string
           created_at?: string
         }
         Update: {
           id?: string
+          customer_id?: string
           full_name?: string | null
           role?: string
           created_at?: string

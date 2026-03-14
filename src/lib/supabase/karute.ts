@@ -10,7 +10,13 @@ type SyncSupabaseClient = ReturnType<typeof createServerClient<Database>>
  * Reference query used to derive the KaruteWithRelations type.
  * Uses the synchronous client type for QueryData inference.
  * Not called directly — createClient() is called per-request inside getKaruteRecord().
+ *
+ * Column names match database.ts (Supabase CLI format):
+ *  - client_id       = FK → customers.id (the individual salon client)
+ *  - staff_profile_id = FK → profiles.id (the staff who ran the session)
+ *  - session_date    = actual appointment date (timestamptz)
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _karuteWithRelationsQuery = (supabase: SyncSupabaseClient) =>
   supabase
     .from('karute_records')
@@ -18,12 +24,13 @@ const _karuteWithRelationsQuery = (supabase: SyncSupabaseClient) =>
       `
       id,
       created_at,
+      session_date,
       summary,
       transcript,
       customer_id,
-      staff_id,
-      duration,
-      customers ( id, name ),
+      client_id,
+      staff_profile_id,
+      customers:client_id ( id, name ),
       entries (
         id,
         category,
@@ -62,12 +69,13 @@ export async function getKaruteRecord(
       `
       id,
       created_at,
+      session_date,
       summary,
       transcript,
       customer_id,
-      staff_id,
-      duration,
-      customers ( id, name ),
+      client_id,
+      staff_profile_id,
+      customers:client_id ( id, name ),
       entries (
         id,
         category,

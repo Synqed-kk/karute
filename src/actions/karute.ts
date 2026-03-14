@@ -16,6 +16,11 @@ import type { SaveKaruteInput } from '@/types/karute'
  * IMPORTANT: redirect() is called OUTSIDE the try/catch block.
  * redirect() throws a Next.js control-flow exception that would be swallowed
  * by try/catch, silently preventing navigation.
+ *
+ * Schema note (001_initial_schema.sql):
+ * - client_id: FK → customers.id (the individual salon client)
+ * - customer_id: business tenant UUID (for RLS, from profiles.customer_id)
+ * - staff_profile_id: FK → profiles.id
  */
 export async function saveKaruteRecord(
   input: SaveKaruteInput,
@@ -25,27 +30,29 @@ export async function saveKaruteRecord(
   let recordId: string
 
   try {
-    // Resolve staff_id: use provided value or fall back to first profile row.
+    // Resolve staff profile: use provided staffId or fall back to first profile row.
     // TODO (Phase 5): Wire up the real staff switcher — remove this fallback.
-    let staffId = input.staffId ?? null
+    let staffProfileId = input.staffId ?? null
 
-    if (!staffId) {
+    if (!staffProfileId) {
       const { data: profile } = await supabase
         .from('profiles')
         .select('id')
         .limit(1)
         .single()
 
-      staffId = profile?.id ?? null
+      staffProfileId = profile?.id ?? null
     }
 
-    // Step 1: Insert the karute record and get its generated ID
+    // Step 1: Insert the karute record and get its generated ID.
+    // customer_id = business tenant UUID (for RLS) — use input.customerId as proxy until Phase 5.
+    // client_id   = FK → customers.id (the individual salon client).
     const { data: record, error: recordError } = await supabase
       .from('karute_records')
       .insert({
         customer_id: input.customerId,
         client_id: input.customerId,
-        staff_profile_id: staffId,
+        staff_profile_id: staffProfileId,
         transcript: input.transcript,
         summary: input.summary,
       })

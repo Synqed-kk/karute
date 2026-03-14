@@ -47,12 +47,14 @@ export async function GET(
     },
   })
 
-  // Build a safe filename: sanitize customer name, use ISO date
-  const customerName = (karute.customers?.name ?? 'karute').replace(
-    /[^a-zA-Z0-9\u3000-\u9fff\s-]/g,
-    '',
-  ).trim()
-  const date = new Date(karute.created_at).toISOString().split('T')[0]
+  // Build a safe filename: sanitize customer name, use ISO date.
+  // customers is aliased via PostgREST as customers:client_id — cast to any for field access.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const customerName = ((karute as any).customers?.name ?? 'karute')
+    .replace(/[^a-zA-Z0-9\u3000-\u9fff\s-]/g, '')
+    .trim()
+  const dateSource = (karute as { session_date?: string; created_at: string }).session_date ?? karute.created_at
+  const date = new Date(dateSource).toISOString().split('T')[0]
   const filename = `karute-${customerName}-${date}.pdf`
 
   return new Response(webStream, {

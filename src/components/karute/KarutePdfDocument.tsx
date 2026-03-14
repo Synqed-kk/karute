@@ -83,8 +83,10 @@ interface KarutePdfDocumentProps {
 }
 
 export function KarutePdfDocument({ karute }: KarutePdfDocumentProps) {
-  const customerName = karute.customers?.name ?? '—'
-  const date = new Date(karute.created_at).toLocaleDateString('ja-JP')
+  // customers is aliased as `customers:client_id` in the PostgREST query
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const customerName = (karute as any).customers?.name ?? '—'
+  const date = new Date(karute.session_date ?? karute.created_at).toLocaleDateString('ja-JP')
 
   return (
     <Document>
