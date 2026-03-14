@@ -52,6 +52,7 @@ Progress: [████████░░] ~88%
 | Phase 01-foundation-recording P06 | 8 | 2 tasks | 3 files |
 | Phase 03-customer-management P04 | 5 min | 2 tasks | 3 files |
 | Phase 01-foundation-recording P05 | 15 | 2 tasks | 8 files |
+| Phase 01-foundation-recording P07 | 12 | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -120,6 +121,7 @@ Recent decisions affecting current work:
 - [Phase 03-04]: useSearchParams stays from next/navigation — createNavigation (next-intl) does not export useSearchParams; useRouter/usePathname from @/i18n/navigation
 - [Phase 03-04]: Link from @/i18n/navigation is a named export — import syntax is { Link } not the default import from next/link
 - [Phase 01-05]: react-hooks/set-state-in-effect disabled globally in eslint.config.mjs — fires false positives on async useCallback mount, timer reset on transition, waveform bar flatten
+- [Phase 01-07]: Sessions page superseded by RecordingFlow (Phase 2 evolution) — RecordingPanel exists as Phase 1 standalone artifact; Sheet side=left pattern established for panel overlays
 
 ### Pending Todos
 
