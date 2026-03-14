@@ -27,8 +27,8 @@ interface PipelineContainerProps {
   audioBlob: Blob
   /** BCP-47 locale string, e.g. 'ja' or 'en' — passed through to AI prompts for locale-aware output */
   locale: string
-  /** Called when the user reviews and confirms the AI results; receives final entries + summary */
-  onConfirm: (data: { entries: Entry[]; summary: string }) => void
+  /** Called when the user reviews and confirms the AI results; receives final entries, summary, and transcript */
+  onConfirm: (data: { entries: Entry[]; summary: string; transcript: string }) => void
   /** Optional cancel handler — reserved for future use (e.g., discard and re-record) */
   onCancel?: () => void
 }

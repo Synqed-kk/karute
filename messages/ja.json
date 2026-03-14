@@ -41,9 +41,12 @@
     "discard": "破棄",
     "useRecording": "録音を使用",
     "recordingInProgress": "録音中...",
+    "paused": "一時停止中",
+    "resume": "再開",
     "idle": "録音待機中",
     "newSession": "新しいセッション",
-    "recordDescription": "セッションを録音してカルテを自動生成します"
+    "recordDescription": "セッションを録音してカルテを自動生成します",
+    "micError": "マイクへのアクセスが拒否されました。マイクへのアクセスを許可してもう一度お試しください。"
   },
   "customers": {
     "title": "顧客",

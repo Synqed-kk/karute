@@ -41,9 +41,12 @@
     "discard": "Discard",
     "useRecording": "Use recording",
     "recordingInProgress": "Recording in progress...",
+    "paused": "Paused",
+    "resume": "Resume",
     "idle": "Ready to record",
     "newSession": "New session",
-    "recordDescription": "Record a session to generate a karute automatically"
+    "recordDescription": "Record a session to generate a karute automatically",
+    "micError": "Microphone access denied. Please allow microphone access and try again."
   },
   "customers": {
     "title": "Customers",

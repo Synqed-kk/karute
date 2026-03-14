@@ -18,7 +18,7 @@ interface ReviewScreenProps {
   transcript: string
   entries: Entry[]
   summary: string
-  onConfirm: (data: { entries: Entry[]; summary: string }) => void
+  onConfirm: (data: { entries: Entry[]; summary: string; transcript: string }) => void
 }
 
 export function ReviewScreen({ transcript, entries, summary, onConfirm }: ReviewScreenProps) {
@@ -42,7 +42,7 @@ export function ReviewScreen({ transcript, entries, summary, onConfirm }: Review
   }
 
   function handleConfirm(data: ReviewFormValues) {
-    onConfirm({ entries: data.entries, summary: data.summary })
+    onConfirm({ entries: data.entries, summary: data.summary, transcript })
   }
 
   return (
