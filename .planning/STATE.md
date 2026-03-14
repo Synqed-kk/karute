@@ -10,9 +10,9 @@ See: .planning/PROJECT.md (updated 2026-03-13)
 ## Current Position
 
 Phase: 6 of 8 (UI/UX Polish)
-Plan: 1 of 4 in current phase (06-01 complete)
+Plan: 2 of 4 in current phase (06-01, 06-02 complete)
 Status: In progress
-Last activity: 2026-03-14 — Completed 06-01 (dark theme infrastructure + dashboard layout shell)
+Last activity: 2026-03-14 — Completed 06-02 (custom sidebar + TopBar with locale/theme toggles)
 
 Progress: [█░░░░░░░░░] ~3%
 
@@ -49,6 +49,9 @@ Recent decisions affecting current work:
 - 06-01: ThemeProvider in root layout (not [locale] layout) — ensures dark mode works on login and all routes
 - 06-01: Noto Sans JP subsets=['latin'] only — next.js 16.1.6 types don't expose 'japanese' subset; Japanese glyphs load at runtime via unicode-range
 - 06-01: Dashboard layout shell uses hardcoded hex (#2a2a2a, #3a3a3a) matching reference app exactly, not shadcn tokens
+- 06-02: Custom sidebar (not shadcn Sidebar primitive) matching reference app exactly at 90px width
+- 06-02: usePathname and useRouter imported from @/i18n/navigation to prevent locale URL stacking bug
+- 06-02: sidebar namespace added to en.json and ja.json for translated nav labels
 - 03-01: Duplicate name detection warns but does not block creation — duplicateWarning on ActionResult success case
 - 03-01: listCustomers default sort: updated_at desc (proxy for last visit until karute_records linked)
 - 03-01: checkDuplicateName non-fatal — Supabase errors return { exists: false } so creation never blocked
@@ -65,5 +68,5 @@ Pre-existing TypeScript errors in backend files (actions/entries.ts, actions/sta
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 03-01-PLAN.md (customer data layer: migration, Server Actions, queries, utils, i18n)
+Stopped at: Completed 06-02-PLAN.md (sidebar navigation + TopBar with locale/theme toggles)
 Resume file: None
