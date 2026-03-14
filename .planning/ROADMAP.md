@@ -88,13 +88,13 @@ Plans:
   2. User can open any past karute record and see the AI summary, full transcript, and all categorized entries
   3. Entries display with color-coded category tags and confidence scores
   4. User can add a manual entry to any karute record via a + Add Entry button
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 04-01: Karute record data layer — save karute record (with transcript, summary, entries) to Supabase linked to customer + staff member
-- [ ] 04-02: Karute detail view — AI summary section, transcript section, categorized entries with color-coded tags and confidence scores
-- [ ] 04-03: Manual entry addition — + Add Entry form (category selector, title, notes), saves entry to Supabase linked to karute record
-- [ ] 04-04: Save flow — connect AI review screen (Phase 2) → customer selector → save → redirect to karute detail view
+- [ ] 04-01-PLAN.md — Category constants, karute types, Server Actions (save record, add/delete entry), query helpers
+- [ ] 04-02-PLAN.md — Karute detail view with two-column layout, entry cards, category badges, confidence dots, collapsible transcript, inline add entry form
+- [ ] 04-03-PLAN.md — Save flow components: sessionStorage draft helpers, customer combobox, quick-create customer, SaveKaruteFlow
+- [ ] 04-04-PLAN.md — Wire AI review screen to save flow, karute list page for browsing past records
 
 ### Phase 5: Staff Profiles
 **Goal**: Multiple staff members can be represented in the system, a staff member can be selected in the header without re-authenticating, and every karute record shows which staff member created it.
@@ -165,7 +165,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8
 | 1. Foundation + Recording | 0/7 | Planned | - |
 | 2. AI Pipeline | 0/4 | Planned | - |
 | 3. Customer Management | 0/3 | Not started | - |
-| 4. Karute Records | 0/4 | Not started | - |
+| 4. Karute Records | 0/4 | Planned | - |
 | 5. Staff Profiles | 0/3 | Planned | - |
 | 6. UI/UX Polish | 0/4 | Not started | - |
 | 7. Export | 0/2 | Not started | - |
