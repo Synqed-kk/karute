@@ -35,6 +35,7 @@ Progress: [████████░░] ~88%
 - Trend: -
 
 *Updated after each plan completion*
+| Phase 01-foundation-recording P04 | 15 min | 2 tasks | 9 files |
 | Phase 03-customer-management P03 | 8 min | 2 tasks | 8 files |
 | Phase 03-customer-management P02 | 2 min | 2 tasks | 9 files |
 | Phase 05-staff-profiles P01 | 14 | 2 tasks | 4 files |
@@ -110,6 +111,10 @@ Recent decisions affecting current work:
 - [Phase 01-06]: Format negotiation via isTypeSupported(): webm;codecs=opus → webm → mp4 (iOS Safari) → ogg → wav
 - [Phase 01-06]: AudioContext created inside useEffect (not module load) — browser requires user gesture; stream arrival IS the gesture
 - [Phase 01-06]: useRecordingTimer FREEZES (not resets) on pause — paused state preserves elapsed display
+- [Phase 01-04]: request.ts locale field REQUIRED in next-intl v4 — omitting causes runtime error (was optional in v3)
+- [Phase 01-04]: NextIntlClientProvider must receive messages prop — locale-only leaves client components without message context
+- [Phase 01-04]: AppHeader/Sidebar in [locale]/(app)/layout.tsx not [locale]/layout.tsx — prevents shell rendering on login page
+- [Phase 01-04]: proxy.ts createMiddleware+getClaims pattern established; middleware.ts entry point still needed to activate
 
 ### Pending Todos
 
@@ -122,5 +127,5 @@ None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 01-06-PLAN.md (recording hooks: useMediaRecorder, useWaveformBars, useRecordingTimer)
+Stopped at: Completed 01-04-PLAN.md (i18n: next-intl v4 routing, request config, locale layout, proxy.ts)
 Resume file: None
