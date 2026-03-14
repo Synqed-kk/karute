@@ -47,6 +47,7 @@ Progress: [████████░░] ~88%
 | Phase 07-export P02 | 3 min | 2 tasks | 4 files |
 | Phase 07-export P02 | 7 | 2 tasks | 4 files |
 | Phase 04-karute-records P04 | 3 | 2 tasks | 4 files |
+| Phase 05-staff-profiles P04 | 5 | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase 07-02]: ExportButtons uses buttonVariants applied directly to <a> tags — Button component uses @base-ui/react/button which has no asChild prop
 - [Phase 07-02]: ExportButtons placed between KaruteHeader and two-column layout in KaruteDetailView
 - [Phase 04-karute-records]: ReviewConfirmStep uses useRef draftSavedRef guard — prevents saveDraft() from being called multiple times on re-renders
+- [Phase 05-staff-profiles]: 05-04: PostgREST profiles:staff_profile_id join wired into getKaruteRecord and customer history queries — staff name displayed in KaruteHeader and KaruteHistoryList
 
 ### Pending Todos
 
@@ -114,5 +116,5 @@ None. (Pre-existing TypeScript errors from Supabase 2.99 type format resolved in
 ## Session Continuity
 
 Last session: 2026-03-14
-Stopped at: Completed 02-04-PLAN.md (AI pipeline end-to-end wiring: runAIPipeline + ProcessingModal + PipelineContainer)
+Stopped at: Completed 05-04-PLAN.md (Staff attribution display: profiles join + KaruteHeader + KaruteHistoryList)
 Resume file: None
