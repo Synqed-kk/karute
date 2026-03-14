@@ -5,7 +5,7 @@ import { ChevronLeft } from 'lucide-react'
 import { createClient } from '@/lib/supabase/server'
 import { CustomerProfileHeader } from '@/components/customers/CustomerProfileHeader'
 import { KaruteHistoryList } from '@/components/customers/KaruteHistoryList'
-import type { Customer, KaruteRecord } from '@/types/database'
+import type { Customer } from '@/types/database'
 
 const HISTORY_PAGE_SIZE = 10
 
@@ -42,10 +42,16 @@ export default async function CustomerProfilePage({
   }
 
   const customer = customerResult.data as Customer
-  const karuteRecords = (karuteResult.data ?? []) as Pick<
-    KaruteRecord,
-    'id' | 'created_at' | 'summary' | 'session_date'
-  >[]
+
+  interface KaruteHistoryItem {
+    id: string
+    created_at: string
+    summary: string | null
+    staff_profile_id: string | null
+    session_date: string
+  }
+
+  const karuteRecords = (karuteResult.data ?? []) as KaruteHistoryItem[]
   const totalKaruteCount = karuteResult.count ?? 0
   const totalPages = Math.max(1, Math.ceil(totalKaruteCount / HISTORY_PAGE_SIZE))
 
