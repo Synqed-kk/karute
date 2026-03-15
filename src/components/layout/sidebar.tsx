@@ -72,6 +72,26 @@ function ClipboardIcon() {
   )
 }
 
+function HomeIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+      <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </svg>
+  )
+}
+
 function SettingsIcon() {
   return (
     <svg
@@ -95,12 +115,13 @@ function SettingsIcon() {
 type NavRoute = {
   id: string
   href: string
-  labelKey: 'recording' | 'customers' | 'karute' | 'settings'
+  labelKey: 'recording' | 'dashboard' | 'customers' | 'karute' | 'settings'
   icon: () => React.ReactElement
 }
 
 const NAV_ROUTES: NavRoute[] = [
   { id: 'recording', href: '/sessions', labelKey: 'recording', icon: MicIcon },
+  { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', icon: HomeIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', icon: UsersIcon },
   { id: 'karute', href: '/karute', labelKey: 'karute', icon: ClipboardIcon },
   { id: 'settings', href: '/settings', labelKey: 'settings', icon: SettingsIcon },
@@ -133,7 +154,7 @@ export function Sidebar() {
             aria-current={isActive ? 'page' : undefined}
           >
             <Icon />
-            <span className="text-[10px] font-medium">{t(route.labelKey)}</span>
+            <span className="w-full truncate text-center text-[10px] font-medium">{t(route.labelKey)}</span>
           </Link>
         )
       })}
