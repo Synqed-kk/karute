@@ -120,7 +120,7 @@ type NavRoute = {
 }
 
 const NAV_ROUTES: NavRoute[] = [
-  { id: 'recording', href: '/sessions', labelKey: 'recording', icon: MicIcon },
+  { id: 'recording', href: '/dashboard?record=true', labelKey: 'recording', icon: MicIcon },
   { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', icon: HomeIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', icon: UsersIcon },
   { id: 'karute', href: '/karute', labelKey: 'karute', icon: ClipboardIcon },
@@ -131,7 +131,11 @@ export function Sidebar() {
   const pathname = usePathname()
   const t = useTranslations('sidebar')
 
-  const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
+  // Match active route by pathname prefix (strip query params from href for matching)
+  const activeId = NAV_ROUTES.find((r) => {
+    const hrefPath = r.href.split('?')[0]
+    return pathname.startsWith(hrefPath) && r.id !== 'recording'
+  })?.id
 
   return (
     <nav

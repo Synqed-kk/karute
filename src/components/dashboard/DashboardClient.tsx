@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
+import { useSearchParams } from 'next/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
 import { RecordingPanel } from '@/components/dashboard/RecordingPanel'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -42,8 +43,18 @@ export function DashboardClient({ staff, activeStaffId, customers, locale }: Das
   const router = useRouter()
   const { minute: currentMinute, label: currentTimeLabel, date: today } = useCurrentTime()
 
+  const searchParams = useSearchParams()
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [recordingOpen, setRecordingOpen] = useState(false)
+
+  // Open recording panel when ?record=true is in URL (from sidebar Recording link)
+  useEffect(() => {
+    if (searchParams.get('record') === 'true' && !recordingOpen && activeStaffId) {
+      setRecordingOpen(true)
+      // Clean up URL without navigation
+      window.history.replaceState({}, '', window.location.pathname)
+    }
+  }, [searchParams, recordingOpen, activeStaffId])
 
   const bars = useTimetableStore((s) => s.bars)
   const setBars = useTimetableStore((s) => s.setBars)
@@ -86,10 +97,6 @@ export function DashboardClient({ staff, activeStaffId, customers, locale }: Das
     [router]
   )
 
-  const handleRecord = () => {
-    setRecordingOpen(true)
-  }
-
   const handleCloseRecording = () => {
     setRecordingOpen(false)
   }
@@ -104,7 +111,7 @@ export function DashboardClient({ staff, activeStaffId, customers, locale }: Das
   return (
     <>
       {/* Date navigation */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center mb-4">
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -133,18 +140,6 @@ export function DashboardClient({ staff, activeStaffId, customers, locale }: Das
             </button>
           )}
         </div>
-
-        <button
-          type="button"
-          onClick={handleRecord}
-          disabled={recordingOpen || !activeStaffId}
-          className="flex items-center gap-2 rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
-            <circle cx="12" cy="12" r="8" />
-          </svg>
-          {t('record')}
-        </button>
       </div>
 
       {/* Timetable */}

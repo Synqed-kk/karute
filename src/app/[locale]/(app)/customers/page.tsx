@@ -1,5 +1,7 @@
 import { Suspense } from 'react'
 import { getTranslations } from 'next-intl/server'
+import { Link } from '@/i18n/navigation'
+import { ChevronLeft } from 'lucide-react'
 import { listCustomers } from '@/lib/customers/queries'
 import { CustomerSearch } from '@/components/customers/CustomerSearch'
 import { CustomerTable } from '@/components/customers/CustomerTable'
@@ -58,6 +60,14 @@ export default async function CustomersPage({
 
   return (
     <div className="space-y-4">
+      <Link
+        href={'/dashboard' as Parameters<typeof Link>[0]['href']}
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        Dashboard
+      </Link>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>

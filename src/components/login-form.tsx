@@ -23,7 +23,7 @@ export function LoginForm({ locale }: { locale: string }) {
       setError(error.message)
       setLoading(false)
     } else {
-      router.push(`/${locale}/sessions`)
+      router.push(`/${locale}/dashboard`)
       router.refresh()
     }
   }
