@@ -29,6 +29,7 @@
   },
   "sidebar": {
     "recording": "録音",
+    "dashboard": "ダッシュボード",
     "customers": "顧客",
     "karute": "カルテ",
     "settings": "設定"
@@ -110,6 +111,7 @@
     "date": "日付",
     "customer": "顧客",
     "exportPdf": "PDFエクスポート",
+    "exportText": "テキストエクスポート",
     "noKarute": "カルテがまだありません",
     "saveKarute": "カルテを保存",
     "saving": "保存中...",
@@ -125,6 +127,14 @@
       "product": "製品",
       "other": "その他"
     }
+  },
+  "dashboard": {
+    "title": "ダッシュボード",
+    "today": "今日",
+    "record": "録音",
+    "customersServed": "対応済み顧客",
+    "recordingsThisWeek": "今週の録音",
+    "karuteGenerated": "カルテ生成数"
   },
   "settings": {
     "title": "設定",

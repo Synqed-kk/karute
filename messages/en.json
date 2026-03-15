@@ -29,6 +29,7 @@
   },
   "sidebar": {
     "recording": "Recording",
+    "dashboard": "Dashboard",
     "customers": "Customers",
     "karute": "Karute",
     "settings": "Settings"
@@ -110,6 +111,7 @@
     "date": "Date",
     "customer": "Customer",
     "exportPdf": "Export PDF",
+    "exportText": "Export Text",
     "noKarute": "No karute records yet",
     "saveKarute": "Save karute",
     "saving": "Saving...",
@@ -125,6 +127,14 @@
       "product": "Product",
       "other": "Other"
     }
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "today": "Today",
+    "record": "Record",
+    "customersServed": "Customers Served",
+    "recordingsThisWeek": "Recordings This Week",
+    "karuteGenerated": "Karute Generated"
   },
   "settings": {
     "title": "Settings",
