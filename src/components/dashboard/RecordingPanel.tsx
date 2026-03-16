@@ -4,7 +4,6 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { useMediaRecorder } from '@/hooks/use-media-recorder'
-import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { useRecordingTimer } from '@/hooks/use-recording-timer'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { runAIPipeline, type PipelineStep, type PipelineResult } from '@/lib/ai-pipeline'
@@ -53,8 +52,105 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
     discardRecording,
   } = useMediaRecorder()
 
-  const bars = useWaveformBars(stream, recState === 'recording')
   const { formatted: timerFormatted } = useRecordingTimer(recState === 'recording')
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const audioCtxRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
+  const vizFrameRef = useRef<number | undefined>(undefined)
+
+  // Canvas audio visualizer — draws directly from mic stream
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !stream || recState !== 'recording') {
+      // Clear canvas when not recording
+      if (canvas) {
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          ctx.clearRect(0, 0, canvas.width, canvas.height)
+          // Draw flat line
+          ctx.strokeStyle = 'rgba(132, 162, 170, 0.3)'
+          ctx.lineWidth = 2
+          ctx.beginPath()
+          ctx.moveTo(0, canvas.height / 2)
+          ctx.lineTo(canvas.width, canvas.height / 2)
+          ctx.stroke()
+        }
+      }
+      if (vizFrameRef.current) cancelAnimationFrame(vizFrameRef.current)
+      return
+    }
+
+    const ctx = canvas.getContext('2d')!
+    const audioCtx = new AudioContext()
+    audioCtxRef.current = audioCtx
+    if (audioCtx.state === 'suspended') audioCtx.resume()
+
+    const analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 512
+    analyser.smoothingTimeConstant = 0.4
+    analyserRef.current = analyser
+
+    const source = audioCtx.createMediaStreamSource(stream)
+    source.connect(analyser)
+
+    const bufferLength = analyser.frequencyBinCount
+    const dataArray = new Uint8Array(bufferLength)
+    const W = canvas.width
+    const H = canvas.height
+
+    function draw() {
+      vizFrameRef.current = requestAnimationFrame(draw)
+      analyser.getByteTimeDomainData(dataArray)
+
+      ctx.clearRect(0, 0, W, H)
+
+      // Main waveform line
+      ctx.lineWidth = 2.5
+      ctx.strokeStyle = '#84a2aa'
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.beginPath()
+
+      const sliceWidth = W / bufferLength
+      let x = 0
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0
+        const y = (v * H) / 2
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+        x += sliceWidth
+      }
+      ctx.stroke()
+
+      // Mirror line (fainter)
+      ctx.lineWidth = 1.5
+      ctx.strokeStyle = 'rgba(132, 162, 170, 0.25)'
+      ctx.beginPath()
+      x = 0
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0
+        const y = H - (v * H) / 2
+        if (i === 0) ctx.moveTo(x, y)
+        else ctx.lineTo(x, y)
+        x += sliceWidth
+      }
+      ctx.stroke()
+
+      // Glow effect on center
+      const gradient = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, W * 0.4)
+      gradient.addColorStop(0, 'rgba(132, 162, 170, 0.08)')
+      gradient.addColorStop(1, 'rgba(132, 162, 170, 0)')
+      ctx.fillStyle = gradient
+      ctx.fillRect(0, 0, W, H)
+    }
+
+    draw()
+
+    return () => {
+      if (vizFrameRef.current) cancelAnimationFrame(vizFrameRef.current)
+      audioCtx.close()
+    }
+  }, [stream, recState])
   const tickIntervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined)
 
   const startBar = useTimetableStore((s) => s.startRecordingBar)
@@ -243,24 +339,13 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
             </div>
           )}
 
-          {/* Waveform — synqdev/karute style */}
-          <div className="flex h-24 items-center justify-center gap-[3px]">
-            {bars.map((h, i) => {
-              const barHeight = recState === 'recording' ? Math.max(6, h) : 6
-
-              return (
-                <div
-                  key={i}
-                  className={`w-1.5 rounded-full transition-all duration-150 ease-out ${
-                    recState === 'recording'
-                      ? 'bg-[#84a2aa]'
-                      : 'bg-gray-400/30 dark:bg-gray-600/30'
-                  }`}
-                  style={{ height: `${barHeight}px` }}
-                />
-              )
-            })}
-          </div>
+          {/* Audio waveform canvas */}
+          <canvas
+            ref={canvasRef}
+            width={280}
+            height={96}
+            className="w-full h-24 rounded-lg"
+          />
 
           {/* Timer */}
           <div className="text-4xl font-light tracking-widest tabular-nums font-mono text-foreground">
