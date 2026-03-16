@@ -48,15 +48,13 @@ const AUTO_STOP_OPTIONS = [
   { value: 0, label: 'Off' },
 ]
 
-type TabId = 'organization' | 'ai' | 'recording' | 'staff' | 'language' | 'look'
+type TabId = 'organization' | 'ai' | 'recording' | 'staff'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'organization', label: 'Organization', icon: '🏢' },
   { id: 'ai', label: 'AI Settings', icon: '🧠' },
   { id: 'recording', label: 'Recording Settings', icon: '🎙️' },
   { id: 'staff', label: 'Staff Management', icon: '👥' },
-  { id: 'language', label: 'Language', icon: '🌐' },
-  { id: 'look', label: 'Look & Feel', icon: '🎨' },
 ]
 
 export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: SettingsTabsProps) {
@@ -255,37 +253,6 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: 
           </div>
         )}
 
-        {/* Language */}
-        {activeTab === 'language' && (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold">Language</h3>
-              <p className="text-sm text-muted-foreground">Configure language preferences</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">App Language</label>
-              <p className="text-sm text-muted-foreground">
-                Use the locale toggle in the header (EN/JP) to switch languages. Current: <strong>{locale === 'ja' ? 'Japanese' : 'English'}</strong>
-              </p>
-            </div>
-          </div>
-        )}
-
-        {/* Look & Feel */}
-        {activeTab === 'look' && (
-          <div className="space-y-6">
-            <div>
-              <h3 className="text-lg font-semibold">Look & Feel</h3>
-              <p className="text-sm text-muted-foreground">Customize appearance</p>
-            </div>
-            <div>
-              <label className="text-sm font-medium mb-1.5 block">Theme</label>
-              <p className="text-sm text-muted-foreground">
-                Use the theme toggle in the header to switch between light and dark mode.
-              </p>
-            </div>
-          </div>
-        )}
       </div>
 
       {saving && (
