@@ -294,7 +294,11 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
   const canClose = phase === 'record' && (recState === 'idle' || recState === 'recorded')
 
   return (
-    <div className="fixed left-[102px] top-[12px] bottom-[12px] z-50 w-[400px] flex flex-col rounded-2xl bg-gradient-to-b from-[#1a2332] to-[#0f1923] shadow-2xl transition-all duration-500 ease-out animate-in slide-in-from-left-8 fade-in-0">
+    <>
+    {/* Grey overlay behind panel */}
+    <div className="fixed inset-0 z-40 bg-black/40 animate-in fade-in-0 duration-300" onClick={canClose ? onClose : undefined} />
+
+    <div className="fixed left-[105px] top-[48px] bottom-[12px] z-50 w-[400px] flex flex-col rounded-2xl bg-gradient-to-b from-[#1a2332] to-[#0f1923] shadow-2xl transition-all duration-500 ease-out animate-in slide-in-from-left-8 fade-in-0">
       {/* Close button */}
       {(canClose || phase === 'done') && (
         <button
@@ -540,5 +544,6 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
         </div>
       )}
     </div>
+    </>
   )
 }
