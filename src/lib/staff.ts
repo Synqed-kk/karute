@@ -4,6 +4,7 @@ import { cookies } from 'next/headers'
 export interface StaffMember {
   id: string
   full_name: string | null
+  display_role?: string | null
   created_at: string
 }
 
@@ -18,9 +19,11 @@ export interface StaffMemberBasic {
  */
 export async function getStaffList(): Promise<StaffMember[]> {
   const supabase = await createClient()
-  const { data, error } = await supabase
+  // display_role not in generated types yet — cast to any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
     .from('profiles')
-    .select('id, full_name, created_at')
+    .select('id, full_name, created_at, display_role')
     .order('full_name', { ascending: true })
 
   if (error) {
@@ -28,7 +31,7 @@ export async function getStaffList(): Promise<StaffMember[]> {
     return []
   }
 
-  return data ?? []
+  return (data ?? []) as StaffMember[]
 }
 
 /**

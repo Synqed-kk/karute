@@ -27,6 +27,7 @@ export default async function DashboardLayout({
   const staffItems = staffList.map((s) => ({
     id: s.id,
     name: s.full_name ?? 'Unknown',
+    displayRole: (s as { display_role?: string }).display_role ?? 'staff',
   }))
 
   // Resolve active staff from cookie, falling back to first alphabetical member

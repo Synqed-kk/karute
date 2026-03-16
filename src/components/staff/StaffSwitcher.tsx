@@ -16,6 +16,7 @@ import { createClient } from '@/lib/supabase/client'
 type StaffItem = {
   id: string
   name: string
+  displayRole?: string
 }
 
 type StaffSwitcherProps = {
@@ -93,9 +94,8 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
         <div className="py-1">
           {staffList.map((staff) => {
             const isActive = activeStaff?.id === staff.id
-            const isOwner = authProfileId === staff.id
             const initials = getInitials(staff.name)
-            const role = isOwner ? 'OWNER' : 'STYLIST'
+            const role = (staff.displayRole === 'owner' ? 'OWNER' : 'STYLIST')
 
             return (
               <DropdownMenuItem
