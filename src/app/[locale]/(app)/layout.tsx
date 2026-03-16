@@ -2,7 +2,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { TopBar } from '@/components/layout/top-bar'
 import { StaffSwitcher } from '@/components/staff/StaffSwitcher'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
-import { setActiveStaff } from '@/actions/staff'
+
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 
@@ -35,16 +35,15 @@ export default async function DashboardLayout({
 
   if (!activeStaff && staffItems.length > 0) {
     // No cookie or cookie ID not found — auto-select first alphabetical member
+    // Cookie will be set by StaffSwitcher on client mount (can't set cookies during render)
     activeStaff = staffItems[0]
-    // Set the cookie so subsequent requests don't repeat this resolution
-    await setActiveStaff(staffItems[0].id)
   }
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#e8e8e8] p-3 dark:bg-[#2a2a2a]">
       <div className="flex items-center justify-end px-4 py-1">
         <TopBar />
-        <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} />
+        <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} authProfileId={user.id} />
       </div>
       <div className="flex flex-1 gap-3 min-h-0 overflow-hidden">
         <div className="relative">

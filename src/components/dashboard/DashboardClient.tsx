@@ -5,9 +5,11 @@ import { useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
 import { RecordingPanel } from '@/components/dashboard/RecordingPanel'
+import { AppointmentPopout } from '@/components/dashboard/AppointmentPopout'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { useRecordingUIStore } from '@/stores/recording-store'
 import { getBarsByDate } from '@/actions/dashboard'
+import { getAppointmentsByDate } from '@/actions/appointments'
 import type { TimelineBarItem } from '@/components/calendar/prototype-calendar-view'
 import type { TimelineBar } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
@@ -41,7 +43,6 @@ function formatDate(date: Date, locale: string) {
   return date.toLocaleDateString(locale, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
 }
 
-/** Format date as YYYY-MM-DD in local timezone (not UTC) */
 function toLocalDateStr(date: Date): string {
   const y = date.getFullYear()
   const m = String(date.getMonth() + 1).padStart(2, '0')
@@ -49,13 +50,19 @@ function toLocalDateStr(date: Date): string {
   return `${y}-${m}-${d}`
 }
 
+interface SlotClickState {
+  rowId: string
+  startMinute: number
+}
+
 export function DashboardClient({ staff, activeStaffId, authProfileId, customers, locale }: DashboardClientProps) {
   const t = useTranslations('dashboard')
   const router = useRouter()
-  const { minute: currentMinute, label: currentTimeLabel, date: today } = useCurrentTime()
+  const { minute: currentMinute, label: currentTimeLabel } = useCurrentTime()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [recordingOpen, setRecordingOpen] = useState(false)
+  const [slotClick, setSlotClick] = useState<SlotClickState | null>(null)
 
   // Listen for recording panel open signal from sidebar
   const shouldOpenPanel = useRecordingUIStore((s) => s.shouldOpenPanel)
@@ -71,9 +78,8 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   // In-progress recording bars from zustand (temp rec_* bars)
   const liveBars = useTimetableStore((s) => s.bars)
   const setBars = useTimetableStore((s) => s.setBars)
-  const recordingBarId = useTimetableStore((s) => s.recordingBarId)
 
-  // Saved karute records as timeline bars (fetched from DB by date)
+  // Saved bars (karute records + appointments) fetched from DB by date
   const [savedBars, setSavedBars] = useState<TimelineBar[]>([])
 
   const isToday = useMemo(() => {
@@ -85,24 +91,58 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     )
   }, [selectedDate])
 
-  // Fetch saved bars when date changes
-  useEffect(() => {
+  // Fetch saved bars + appointments when date changes
+  const refreshBars = useCallback(() => {
     const dateStr = toLocalDateStr(selectedDate)
     const tzOffset = new Date().getTimezoneOffset()
-    getBarsByDate(dateStr, tzOffset).then((dbBars) => {
-      setSavedBars(
-        dbBars.map((b) => ({
-          id: b.id,
-          rowId: b.staffId,
-          startMinute: b.startMinute,
-          durationMinute: b.durationMinute,
-          title: b.title,
-          subtitle: b.subtitle,
-          type: 'booking' as const,
-        }))
-      )
+
+    Promise.all([
+      getBarsByDate(dateStr, tzOffset),
+      getAppointmentsByDate(dateStr, tzOffset),
+    ]).then(([karuteBars, appointments]) => {
+      const karute: TimelineBar[] = karuteBars.map((b) => ({
+        id: b.id,
+        rowId: b.staffId,
+        startMinute: b.startMinute,
+        durationMinute: b.durationMinute,
+        title: b.title,
+        subtitle: b.subtitle,
+        type: 'booking' as const,
+      }))
+
+      // Appointments that don't have a linked karute yet show as 'open' type
+      // Appointments with linked karute are already covered by karuteBars
+      const karuteIds = new Set(karuteBars.map((b) => b.id))
+      const appt: TimelineBar[] = appointments
+        .filter((a) => !a.karute_record_id || !karuteIds.has(a.karute_record_id))
+        .map((a) => {
+          const startAt = new Date(a.start_time)
+          const startMin = startAt.getHours() * 60 + startAt.getMinutes()
+          const customerName = a.customers?.name ?? ''
+          const h1 = Math.floor(startMin / 60)
+          const m1 = startMin % 60
+          const endMin = startMin + a.duration_minutes
+          const h2 = Math.floor(endMin / 60)
+          const m2 = endMin % 60
+          const title = `${h1}:${String(m1).padStart(2, '0')}-${h2}:${String(m2).padStart(2, '0')}`
+          return {
+            id: `appt_${a.id}`,
+            rowId: a.staff_profile_id,
+            startMinute: startMin,
+            durationMinute: a.duration_minutes,
+            title,
+            subtitle: customerName,
+            type: 'open' as const,
+          }
+        })
+
+      setSavedBars([...karute, ...appt])
     })
   }, [selectedDate])
+
+  useEffect(() => {
+    refreshBars()
+  }, [refreshBars])
 
   // Merge saved bars with live recording bars (only show live bars on today)
   const bars = useMemo(() => {
@@ -119,6 +159,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       next.setDate(next.getDate() - 1)
       return next
     })
+    setSlotClick(null)
   }
 
   const handleNextDay = () => {
@@ -127,13 +168,16 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       next.setDate(next.getDate() + 1)
       return next
     })
+    setSlotClick(null)
   }
 
-  const handleToday = () => setSelectedDate(new Date())
+  const handleToday = () => {
+    setSelectedDate(new Date())
+    setSlotClick(null)
+  }
 
   const handleBarClick = useCallback(
     (bar: TimelineBarItem) => {
-      // Only navigate for real persisted bars — temp IDs (rec_*) have no karute record
       if (bar.type === 'booking' && !bar.id.startsWith('rec_')) {
         router.push(`/karute/${bar.id}` as Parameters<typeof router.push>[0])
       }
@@ -141,24 +185,21 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     [router]
   )
 
+  const handleTimeSlotClick = useCallback(
+    (payload: { rowId: string; startMinute: number }) => {
+      setSlotClick(payload)
+    },
+    []
+  )
+
   const handleCloseRecording = () => {
     setRecordingOpen(false)
-    // Refresh saved bars in case a new karute was saved
-    const dateStr = toLocalDateStr(selectedDate)
-    const tzOffset = new Date().getTimezoneOffset()
-    getBarsByDate(dateStr, tzOffset).then((dbBars) => {
-      setSavedBars(
-        dbBars.map((b) => ({
-          id: b.id,
-          rowId: b.staffId,
-          startMinute: b.startMinute,
-          durationMinute: b.durationMinute,
-          title: b.title,
-          subtitle: b.subtitle,
-          type: 'booking' as const,
-        }))
-      )
-    })
+    refreshBars()
+  }
+
+  const handleAppointmentCreated = () => {
+    setSlotClick(null)
+    refreshBars()
   }
 
   const timetableStaff = useMemo(
@@ -168,42 +209,24 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
 
   const tabs = useMemo(() => [{ id: 'dashboard', label: t('title') }], [t])
 
+  const slotClickStaff = slotClick ? staff.find((s) => s.id === slotClick.rowId) : null
+
   return (
     <>
       {/* Date navigation */}
       <div className="flex items-center mb-4">
         <div className="flex items-center gap-3">
-          <button
-            type="button"
-            onClick={handlePrevDay}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
-          >
-            &larr;
-          </button>
-          <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">
-            {formatDate(selectedDate, 'en')}
-          </span>
-          <button
-            type="button"
-            onClick={handleNextDay}
-            className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700"
-          >
-            &rarr;
-          </button>
+          <button type="button" onClick={handlePrevDay} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&larr;</button>
+          <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">{formatDate(selectedDate, 'en')}</span>
+          <button type="button" onClick={handleNextDay} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&rarr;</button>
           {!isToday && (
-            <button
-              type="button"
-              onClick={handleToday}
-              className="rounded-lg bg-[#84a2aa] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#6d8d96]"
-            >
-              {t('today')}
-            </button>
+            <button type="button" onClick={handleToday} className="rounded-lg bg-[#84a2aa] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#6d8d96]">{t('today')}</button>
           )}
         </div>
       </div>
 
       {/* Timetable */}
-      <div className="min-h-0 flex-1" style={{ minHeight: `${staff.length * 84 + 100}px` }}>
+      <div className="relative min-h-0 flex-1" style={{ minHeight: `${staff.length * 84 + 100}px` }}>
         <TimetableWithTabs
           tabs={tabs}
           activeTabId="dashboard"
@@ -211,12 +234,35 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           bars={bars}
           onBarsChange={setBars}
           onBarClick={handleBarClick}
+          onTimeSlotClick={handleTimeSlotClick}
           startHour={10}
           endHour={24}
           currentTimeLabel={isToday ? currentTimeLabel : ''}
           currentMinute={isToday ? currentMinute : 0}
           activeRowId={authProfileId ?? activeStaffId ?? undefined}
         />
+
+        {/* Appointment creation popout */}
+        {slotClick && slotClickStaff && (
+          <div
+            className="absolute z-50"
+            style={{
+              top: `${staff.indexOf(slotClickStaff) * 84 + 90}px`,
+              left: '50%',
+              transform: 'translateX(-50%)',
+            }}
+          >
+            <AppointmentPopout
+              staffId={slotClick.rowId}
+              staffName={slotClickStaff.name}
+              startMinute={slotClick.startMinute}
+              selectedDate={selectedDate}
+              customers={customers}
+              onCreated={handleAppointmentCreated}
+              onClose={() => setSlotClick(null)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Stats cards */}
@@ -235,7 +281,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         </div>
       </div>
 
-      {/* Recording panel overlay — slides from left (next to sidebar) */}
+      {/* Recording panel */}
       {recordingOpen && activeStaffId && (
         <RecordingPanel
           activeStaffId={activeStaffId}

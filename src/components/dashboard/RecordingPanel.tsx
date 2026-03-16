@@ -221,24 +221,23 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
             </div>
           )}
 
-          {/* Waveform — matching synqdev/karute style */}
+          {/* Waveform — synqdev/karute style */}
           <div className="flex h-24 items-center justify-center gap-[3px]">
             {bars.map((h, i) => {
-              const isRecording = recState === 'recording'
-              // Cosine envelope centered on middle bars for natural wave shape
-              const center = (bars.length - 1) / 2
-              const dist = Math.abs(i - center) / center
-              const envelope = Math.cos(dist * Math.PI * 0.5) ** 2
-              // Jitter for organic feel
-              const jitter = Math.sin(i * 2.1) * 0.15 + Math.cos(i * 3.7) * 0.1
-              const amplitude = isRecording ? ((h - 8) / 92) : 0
-              const barHeight = Math.max(6, (amplitude * envelope + jitter * amplitude) * 96)
+              // h is 8-100 from useWaveformBars
+              // When recording: use actual amplitude. When idle: flat 6px.
+              const barHeight = recState === 'recording' ? Math.max(6, h) : 6
 
               return (
                 <div
                   key={i}
-                  className="w-1.5 rounded-full bg-primary/40 transition-all duration-150 ease-out"
-                  style={{ height: `${barHeight}px` }}
+                  className="w-1.5 rounded-full transition-all duration-150 ease-out"
+                  style={{
+                    height: `${barHeight}px`,
+                    backgroundColor: recState === 'recording'
+                      ? 'hsl(var(--primary) / 0.5)'
+                      : 'hsl(var(--muted-foreground) / 0.3)',
+                  }}
                 />
               )
             })}
