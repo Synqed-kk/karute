@@ -16,11 +16,20 @@ import type { EntryCategory } from '@/lib/karute/categories'
 
 type PanelPhase = 'record' | 'pipeline' | 'review' | 'save' | 'done'
 
+export interface ActiveAppointment {
+  id: string
+  clientId: string
+  customerName: string
+  barId: string // the appt_* bar ID on the timeline
+}
+
 interface RecordingPanelProps {
   activeStaffId: string
   customers: CustomerOption[]
   locale: string
   onClose: () => void
+  /** If recording is started during an active appointment, auto-assign customer */
+  activeAppointment?: ActiveAppointment | null
 }
 
 const STEP_LABELS: Record<PipelineStep, string> = {
@@ -31,7 +40,7 @@ const STEP_LABELS: Record<PipelineStep, string> = {
   error: 'Error',
 }
 
-export function RecordingPanel({ activeStaffId, customers: initialCustomers, locale, onClose }: RecordingPanelProps) {
+export function RecordingPanel({ activeStaffId, customers: initialCustomers, locale, onClose, activeAppointment }: RecordingPanelProps) {
   const t = useTranslations('recording')
   const tKarute = useTranslations('karute')
   const {
@@ -64,9 +73,11 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
   const [pipelineError, setPipelineError] = useState<string | null>(null)
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null)
 
-  // Save state
+  // Save state — auto-assign customer from active appointment
   const [customerList, setCustomerList] = useState<CustomerOption[]>(initialCustomers)
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
+    activeAppointment?.clientId ?? null
+  )
   const [showQuickCreate, setShowQuickCreate] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
 
@@ -84,14 +95,25 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
 
   const handleStart = useCallback(async () => {
     await startRecording()
-    startBar(activeStaffId)
-  }, [startRecording, startBar, activeStaffId])
+    if (activeAppointment) {
+      // Use the existing appointment bar — don't create a new one
+      setBarId(activeAppointment.barId)
+      setBarType(activeAppointment.barId, 'recording', 'Recording...')
+    } else {
+      startBar(activeStaffId)
+    }
+  }, [startRecording, startBar, activeStaffId, activeAppointment, setBarType])
 
   const handleStop = useCallback(() => {
     stopRecording()
-    const id = stopBar()
-    if (id) setBarId(id)
-  }, [stopRecording, stopBar])
+    if (activeAppointment) {
+      // Keep the appointment bar ID, just update its visual
+      setBarType(activeAppointment.barId, 'recording', 'Stopped')
+    } else {
+      const id = stopBar()
+      if (id) setBarId(id)
+    }
+  }, [stopRecording, stopBar, activeAppointment, setBarType])
 
   const handleDiscard = useCallback(() => {
     if (barId) removeBar(barId)
@@ -224,20 +246,17 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
           {/* Waveform — synqdev/karute style */}
           <div className="flex h-24 items-center justify-center gap-[3px]">
             {bars.map((h, i) => {
-              // h is 8-100 from useWaveformBars
-              // When recording: use actual amplitude. When idle: flat 6px.
               const barHeight = recState === 'recording' ? Math.max(6, h) : 6
 
               return (
                 <div
                   key={i}
-                  className="w-1.5 rounded-full transition-all duration-150 ease-out"
-                  style={{
-                    height: `${barHeight}px`,
-                    backgroundColor: recState === 'recording'
-                      ? 'hsl(var(--primary) / 0.5)'
-                      : 'hsl(var(--muted-foreground) / 0.3)',
-                  }}
+                  className={`w-1.5 rounded-full transition-all duration-150 ease-out ${
+                    recState === 'recording'
+                      ? 'bg-[#84a2aa]'
+                      : 'bg-gray-400/30 dark:bg-gray-600/30'
+                  }`}
+                  style={{ height: `${barHeight}px` }}
                 />
               )
             })}
