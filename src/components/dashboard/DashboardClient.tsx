@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
-import { useSearchParams } from 'next/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
 import { RecordingPanel } from '@/components/dashboard/RecordingPanel'
 import { useTimetableStore } from '@/stores/timetable-store'
+import { useRecordingUIStore } from '@/stores/recording-store'
 import { getBarsByDate } from '@/actions/dashboard'
 import type { TimelineBarItem } from '@/components/calendar/prototype-calendar-view'
 import type { TimelineBar } from '@/stores/timetable-store'
@@ -46,18 +46,19 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const router = useRouter()
   const { minute: currentMinute, label: currentTimeLabel, date: today } = useCurrentTime()
 
-  const searchParams = useSearchParams()
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [recordingOpen, setRecordingOpen] = useState(false)
 
-  // Open recording panel when ?record=true is in URL (from sidebar Recording link)
+  // Listen for recording panel open signal from sidebar
+  const shouldOpenPanel = useRecordingUIStore((s) => s.shouldOpenPanel)
+  const clearOpenRequest = useRecordingUIStore((s) => s.clearOpenRequest)
+
   useEffect(() => {
-    if (searchParams.get('record') === 'true' && !recordingOpen && activeStaffId) {
+    if (shouldOpenPanel && !recordingOpen && activeStaffId) {
       setRecordingOpen(true)
-      // Clean up URL without navigation
-      window.history.replaceState({}, '', window.location.pathname)
+      clearOpenRequest()
     }
-  }, [searchParams, recordingOpen, activeStaffId])
+  }, [shouldOpenPanel, recordingOpen, activeStaffId, clearOpenRequest])
 
   // In-progress recording bars from zustand (temp rec_* bars)
   const liveBars = useTimetableStore((s) => s.bars)

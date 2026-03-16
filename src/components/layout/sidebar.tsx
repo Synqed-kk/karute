@@ -1,8 +1,9 @@
 'use client'
 
 import React from 'react'
-import { usePathname, Link } from '@/i18n/navigation'
+import { usePathname, Link, useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
+import { useRecordingUIStore } from '@/stores/recording-store'
 
 // SVG icon components
 function MicIcon() {
@@ -129,9 +130,11 @@ const NAV_ROUTES: NavRoute[] = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const router = useRouter()
   const t = useTranslations('sidebar')
+  const requestOpenPanel = useRecordingUIStore((s) => s.requestOpenPanel)
 
-  // Match active route by pathname prefix (strip query params from href for matching)
+  // Match active route by pathname prefix (recording maps to dashboard)
   const activeId = NAV_ROUTES.find((r) => {
     const hrefPath = r.href.split('?')[0]
     return pathname.startsWith(hrefPath) && r.id !== 'recording'
@@ -145,6 +148,26 @@ export function Sidebar() {
       {NAV_ROUTES.map((route) => {
         const isActive = route.id === activeId
         const Icon = route.icon
+
+        // Recording link: navigate to dashboard + signal to open panel
+        if (route.id === 'recording') {
+          return (
+            <button
+              key={route.id}
+              type="button"
+              onClick={() => {
+                requestOpenPanel()
+                if (!pathname.startsWith('/dashboard')) {
+                  router.push('/dashboard' as Parameters<typeof router.push>[0])
+                }
+              }}
+              className="flex w-full flex-col items-center gap-1 px-2 py-3 transition min-h-[44px] min-w-[44px] text-white/60 hover:text-white/90"
+            >
+              <Icon />
+              <span className="w-full truncate text-center text-[10px] font-medium">{t(route.labelKey)}</span>
+            </button>
+          )
+        }
 
         return (
           <Link
