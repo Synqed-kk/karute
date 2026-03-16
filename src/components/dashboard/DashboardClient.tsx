@@ -240,6 +240,22 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
 
   return (
     <>
+      {/* Stats cards */}
+      <div className="grid grid-cols-3 gap-4 mb-4">
+        <div className="rounded-2xl bg-[#7d9ea7] p-4 text-white">
+          <div className="text-3xl font-bold">0</div>
+          <div className="text-sm opacity-90">{t('customersServed')}</div>
+        </div>
+        <div className="rounded-2xl bg-[#c4888e] p-4 text-white">
+          <div className="text-3xl font-bold">0</div>
+          <div className="text-sm opacity-90">{t('recordingsThisWeek')}</div>
+        </div>
+        <div className="rounded-2xl bg-[#5a9a6e] p-4 text-white">
+          <div className="text-3xl font-bold">0</div>
+          <div className="text-sm opacity-90">{t('karuteGenerated')}</div>
+        </div>
+      </div>
+
       {/* Date navigation */}
       <div className="flex items-center mb-4">
         <div className="flex items-center gap-3">
@@ -295,22 +311,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       {/* AI Recommended Actions */}
       <div className="mt-4">
         <AIRecommendedActions locale={locale} />
-      </div>
-
-      {/* Stats cards */}
-      <div className="grid grid-cols-3 gap-4 pb-2 mt-4">
-        <div className="rounded-2xl bg-[#7d9ea7] p-4 text-white">
-          <div className="text-3xl font-bold">0</div>
-          <div className="text-sm opacity-90">{t('customersServed')}</div>
-        </div>
-        <div className="rounded-2xl bg-[#c4888e] p-4 text-white">
-          <div className="text-3xl font-bold">0</div>
-          <div className="text-sm opacity-90">{t('recordingsThisWeek')}</div>
-        </div>
-        <div className="rounded-2xl bg-[#5a9a6e] p-4 text-white">
-          <div className="text-3xl font-bold">0</div>
-          <div className="text-sm opacity-90">{t('karuteGenerated')}</div>
-        </div>
       </div>
 
       {/* Recording panel */}
