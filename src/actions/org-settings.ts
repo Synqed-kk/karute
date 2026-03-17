@@ -2,6 +2,11 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import {
+  type OperatingHours,
+  normalizeOperatingHours,
+  validateOperatingHours,
+} from '@/lib/operating-hours'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseAny = any
@@ -15,6 +20,7 @@ export interface OrgSettings {
   confidence_threshold: number
   audio_quality: string
   auto_stop_minutes: number
+  operating_hours: OperatingHours
 }
 
 export async function getOrgSettings(): Promise<OrgSettings | null> {
@@ -25,7 +31,13 @@ export async function getOrgSettings(): Promise<OrgSettings | null> {
     .limit(1)
     .single()
 
-  return data as OrgSettings | null
+  if (!data) return null
+
+  const settings = data as Omit<OrgSettings, 'operating_hours'> & { operating_hours?: unknown }
+  return {
+    ...settings,
+    operating_hours: normalizeOperatingHours(settings.operating_hours),
+  }
 }
 
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
@@ -33,19 +45,29 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: 'Not authenticated' }
 
+  const nextSettings: Partial<OrgSettings> = { ...settings }
+
+  if (settings.operating_hours) {
+    const normalizedHours = normalizeOperatingHours(settings.operating_hours)
+    const validationErrors = validateOperatingHours(normalizedHours)
+    const firstError = Object.values(validationErrors).find(Boolean)
+    if (firstError) return { error: firstError }
+    nextSettings.operating_hours = normalizedHours
+  }
+
   // Check if settings exist
   const existing = await getOrgSettings()
 
   if (existing) {
     const { error } = await (supabase as SupabaseAny)
       .from('organization_settings')
-      .update(settings)
+      .update(nextSettings)
       .eq('id', existing.id)
     if (error) return { error: (error as { message: string }).message }
   } else {
     const { error } = await (supabase as SupabaseAny)
       .from('organization_settings')
-      .insert({ ...settings, owner_profile_id: user.id })
+      .insert({ ...nextSettings, owner_profile_id: user.id })
     if (error) return { error: (error as { message: string }).message }
   }
 

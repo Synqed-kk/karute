@@ -1,15 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createAppointment } from '@/actions/appointments'
 import { createCustomer } from '@/actions/customers'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { type DailyOperatingHours, formatMinuteOfDay } from '@/lib/operating-hours'
 
 interface AppointmentPopoutProps {
   staffId: string
   staffName: string
   startMinute: number
   selectedDate: Date
+  operatingHours: DailyOperatingHours
   customers: CustomerOption[]
   onCreated: () => void
   onClose: () => void
@@ -26,6 +28,7 @@ export function AppointmentPopout({
   staffName,
   startMinute,
   selectedDate,
+  operatingHours,
   customers,
   onCreated,
   onClose,
@@ -39,12 +42,22 @@ export function AppointmentPopout({
   const [newCustomerName, setNewCustomerName] = useState('')
   const [customerList, setCustomerList] = useState(customers)
 
+  const durationOptions = [30, 60, 90, 120]
+  const allowedDurations = durationOptions.filter((option) => startMinute + option <= operatingHours.closeMinute)
+  const isDurationValid = startMinute + duration <= operatingHours.closeMinute
   const endMinute = startMinute + duration
   const timeLabel = `${formatTime(startMinute)} - ${formatTime(endMinute)}`
 
   const filteredCustomers = searchQuery
     ? customerList.filter((c) => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : customerList
+
+  useEffect(() => {
+    if (allowedDurations.length === 0) return
+    if (!allowedDurations.includes(duration)) {
+      setDuration(allowedDurations[0])
+    }
+  }, [allowedDurations, duration])
 
   async function handleCreate() {
     if (!selectedCustomerId) return
@@ -54,11 +67,18 @@ export function AppointmentPopout({
     const startDate = new Date(selectedDate)
     startDate.setHours(Math.floor(startMinute / 60), startMinute % 60, 0, 0)
 
+    if (startMinute < operatingHours.openMinute || !isDurationValid) {
+      setError(`Appointment must be within operating hours (${formatMinuteOfDay(operatingHours.openMinute)}-${formatMinuteOfDay(operatingHours.closeMinute)}).`)
+      setSaving(false)
+      return
+    }
+
     const result = await createAppointment({
       staffProfileId: staffId,
       clientId: selectedCustomerId,
       startTime: startDate.toISOString(),
       durationMinutes: duration,
+      tzOffsetMinutes: startDate.getTimezoneOffset(),
     })
 
     if ('error' in result) {
@@ -108,12 +128,24 @@ export function AppointmentPopout({
 
         {/* Duration */}
         <div className="flex gap-1.5">
-          {[30, 60, 90, 120].map((d) => (
-            <button key={d} type="button" onClick={() => setDuration(d)}
-              className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-colors ${duration === d ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+          {durationOptions.map((d) => {
+            const disabled = startMinute + d > operatingHours.closeMinute
+            return (
+            <button key={d} type="button" onClick={() => setDuration(d)} disabled={disabled}
+              className={`flex-1 rounded-lg py-1.5 text-xs font-medium transition-colors ${
+                duration === d
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
+              } disabled:cursor-not-allowed disabled:opacity-40`}
             >{d}m</button>
-          ))}
+            )
+          })}
         </div>
+        {allowedDurations.length === 0 ? (
+          <p className="text-xs text-destructive">
+            No valid duration fits within operating hours ({formatMinuteOfDay(operatingHours.openMinute)}-{formatMinuteOfDay(operatingHours.closeMinute)}).
+          </p>
+        ) : null}
 
         {/* Customer */}
         <div>
@@ -178,7 +210,7 @@ export function AppointmentPopout({
         {error && <p className="text-xs text-destructive">{error}</p>}
 
         {!creatingCustomer && (
-          <button type="button" onClick={handleCreate} disabled={saving || !selectedCustomerId}
+          <button type="button" onClick={handleCreate} disabled={saving || !selectedCustomerId || !isDurationValid || allowedDurations.length === 0}
             className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed">
             {saving ? 'Creating...' : 'Create Appointment'}
           </button>

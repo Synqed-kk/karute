@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
 import { DashboardClient } from '@/components/dashboard/DashboardClient'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { getOrgSettings } from '@/actions/org-settings'
 
 export default async function DashboardPage({
   params,
@@ -15,8 +16,11 @@ export default async function DashboardPage({
   const { data: { user } } = await supabase.auth.getUser()
   const authProfileId = user?.id ?? null
 
-  const staffList = await getStaffList()
-  const activeStaffId = await getActiveStaffId()
+  const [staffList, activeStaffId, orgSettings] = await Promise.all([
+    getStaffList(),
+    getActiveStaffId(),
+    getOrgSettings(),
+  ])
 
   const staff = staffList.map((s) => ({
     id: s.id,
@@ -41,6 +45,7 @@ export default async function DashboardPage({
       authProfileId={authProfileId}
       customers={customers}
       locale={locale}
+      orgSettings={orgSettings}
     />
   )
 }

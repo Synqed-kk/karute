@@ -5,6 +5,15 @@ import { toast } from 'sonner'
 import { upsertOrgSettings, type OrgSettings } from '@/actions/org-settings'
 import { StaffList } from '@/components/staff/StaffList'
 import type { StaffMember } from '@/lib/staff'
+import {
+  type OperatingHours,
+  type WeekdayKey,
+  WEEKDAY_KEYS,
+  DEFAULT_OPERATING_HOURS,
+  formatMinuteOfDay,
+  normalizeOperatingHours,
+  validateDailyOperatingHours,
+} from '@/lib/operating-hours'
 
 interface SettingsTabsProps {
   orgSettings: OrgSettings | null
@@ -48,6 +57,18 @@ const AUTO_STOP_OPTIONS = [
   { value: 0, label: 'Off' },
 ]
 
+const DAY_LABELS: Record<WeekdayKey, { en: string; ja: string }> = {
+  mon: { en: 'Mon', ja: '月' },
+  tue: { en: 'Tue', ja: '火' },
+  wed: { en: 'Wed', ja: '水' },
+  thu: { en: 'Thu', ja: '木' },
+  fri: { en: 'Fri', ja: '金' },
+  sat: { en: 'Sat', ja: '土' },
+  sun: { en: 'Sun', ja: '日' },
+}
+
+const TIME_OPTIONS = Array.from({ length: 49 }, (_, idx) => idx * 30)
+
 type TabId = 'organization' | 'ai' | 'recording' | 'staff'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
@@ -59,6 +80,7 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
 
 export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: SettingsTabsProps) {
   const [activeTab, setActiveTab] = useState<TabId>('organization')
+  const initialOperatingHours = normalizeOperatingHours(orgSettings?.operating_hours ?? DEFAULT_OPERATING_HOURS)
   const [settings, setSettings] = useState({
     salon_name: orgSettings?.salon_name ?? '',
     business_type: orgSettings?.business_type ?? 'other',
@@ -67,8 +89,10 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: 
     confidence_threshold: orgSettings?.confidence_threshold ?? 0.7,
     audio_quality: orgSettings?.audio_quality ?? 'standard',
     auto_stop_minutes: orgSettings?.auto_stop_minutes ?? 30,
+    operating_hours: initialOperatingHours,
   })
   const [saving, setSaving] = useState(false)
+  const [hoursErrors, setHoursErrors] = useState<Partial<Record<WeekdayKey, string>>>({})
 
   const handleSave = useCallback(async (partial: Partial<typeof settings>) => {
     setSaving(true)
@@ -82,6 +106,36 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: 
     }
     setSaving(false)
   }, [settings])
+
+  const handleOperatingHourChange = useCallback(async (
+    dayKey: WeekdayKey,
+    field: 'openMinute' | 'closeMinute',
+    value: number
+  ) => {
+    const nextHours: OperatingHours = {
+      ...settings.operating_hours,
+      [dayKey]: {
+        ...settings.operating_hours[dayKey],
+        [field]: value,
+      },
+    }
+
+    setSettings((prev) => ({ ...prev, operating_hours: nextHours }))
+
+    const error = validateDailyOperatingHours(nextHours[dayKey])
+    setHoursErrors((prev) => {
+      const next = { ...prev }
+      if (error) {
+        next[dayKey] = error
+      } else {
+        delete next[dayKey]
+      }
+      return next
+    })
+
+    if (error) return
+    await handleSave({ operating_hours: nextHours })
+  }, [handleSave, settings.operating_hours])
 
   return (
     <div className="space-y-6">
@@ -139,6 +193,57 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: 
                     </option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            <div className="border-t border-border/30 pt-6">
+              <div>
+                <h4 className="text-sm font-semibold">Hours of operation</h4>
+                <p className="text-xs text-muted-foreground mt-1">Set open and close times for each day.</p>
+              </div>
+              <div className="mt-4 space-y-2">
+                {WEEKDAY_KEYS.map((dayKey) => {
+                  const dayHours = settings.operating_hours[dayKey]
+                  const dayLabel = locale === 'ja' ? DAY_LABELS[dayKey].ja : DAY_LABELS[dayKey].en
+                  const dayError = hoursErrors[dayKey]
+                  return (
+                    <div key={dayKey}>
+                      <div className="grid grid-cols-[56px_1fr_20px_1fr] items-center gap-2">
+                        <span className="text-sm font-medium text-foreground">{dayLabel}</span>
+                        <select
+                          value={dayHours.openMinute}
+                          onChange={(e) => handleOperatingHourChange(dayKey, 'openMinute', parseInt(e.target.value, 10))}
+                          className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none ${
+                            dayError ? 'border-destructive/60' : 'border-border'
+                          }`}
+                        >
+                          {TIME_OPTIONS.map((minute) => (
+                            <option key={`open-${dayKey}-${minute}`} value={minute}>
+                              {formatMinuteOfDay(minute)}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-center text-muted-foreground">-</span>
+                        <select
+                          value={dayHours.closeMinute}
+                          onChange={(e) => handleOperatingHourChange(dayKey, 'closeMinute', parseInt(e.target.value, 10))}
+                          className={`w-full rounded-lg border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none ${
+                            dayError ? 'border-destructive/60' : 'border-border'
+                          }`}
+                        >
+                          {TIME_OPTIONS.map((minute) => (
+                            <option key={`close-${dayKey}-${minute}`} value={minute}>
+                              {formatMinuteOfDay(minute)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      {dayError ? (
+                        <p className="mt-1 text-xs text-destructive">{dayError}</p>
+                      ) : null}
+                    </div>
+                  )
+                })}
               </div>
             </div>
 

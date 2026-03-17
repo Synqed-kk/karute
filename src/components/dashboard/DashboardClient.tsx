@@ -11,9 +11,11 @@ import { useTimetableStore } from '@/stores/timetable-store'
 import { useRecordingUIStore } from '@/stores/recording-store'
 import { getBarsByDate } from '@/actions/dashboard'
 import { getAppointmentsByDate, type AppointmentRow } from '@/actions/appointments'
+import type { OrgSettings } from '@/actions/org-settings'
 import type { TimelineBarItem } from '@/components/calendar/prototype-calendar-view'
 import type { TimelineBar } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { getOperatingHoursForDate } from '@/lib/operating-hours'
 
 interface StaffItem {
   id: string
@@ -27,6 +29,7 @@ interface DashboardClientProps {
   authProfileId: string | null
   customers: CustomerOption[]
   locale: string
+  orgSettings: OrgSettings | null
 }
 
 function useCurrentTime() {
@@ -58,7 +61,7 @@ interface SlotClickState {
   clickY: number
 }
 
-export function DashboardClient({ staff, activeStaffId, authProfileId, customers, locale }: DashboardClientProps) {
+export function DashboardClient({ staff, activeStaffId, authProfileId, customers, locale, orgSettings }: DashboardClientProps) {
   const t = useTranslations('dashboard')
   const router = useRouter()
   const { minute: currentMinute, label: currentTimeLabel } = useCurrentTime()
@@ -230,9 +233,13 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const tabs = useMemo(() => [] as { id: string; label: string }[], [])
 
   const slotClickStaff = slotClick ? staff.find((s) => s.id === slotClick.rowId) : null
+  const selectedDayHours = useMemo(
+    () => getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate),
+    [orgSettings?.operating_hours, selectedDate]
+  )
 
   // Find active appointment for current staff at current time
-  const activeAppt = useMemo((): ActiveAppointment | null => {
+  const activeAppt: ActiveAppointment | null = (() => {
     if (!isToday || !activeStaffId) return null
     const now = new Date()
     const nowMin = now.getHours() * 60 + now.getMinutes()
@@ -253,7 +260,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       }
     }
     return null
-  }, [isToday, activeStaffId, rawAppointments])
+  })()
 
   return (
     <>
@@ -295,8 +302,8 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           onBarsChange={setBars}
           onBarClick={handleBarClick}
           onTimeSlotClick={handleTimeSlotClick}
-          startHour={10}
-          endHour={24}
+          startMinute={selectedDayHours.openMinute}
+          endMinute={selectedDayHours.closeMinute}
           currentTimeLabel={isToday ? currentTimeLabel : ''}
           currentMinute={isToday ? currentMinute : 0}
           activeRowId={authProfileId ?? activeStaffId ?? undefined}
@@ -316,6 +323,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
               staffName={slotClickStaff.name}
               startMinute={slotClick.startMinute}
               selectedDate={selectedDate}
+              operatingHours={selectedDayHours}
               customers={customers}
               onCreated={handleAppointmentCreated}
               onClose={() => setSlotClick(null)}

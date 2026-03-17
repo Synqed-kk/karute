@@ -2,12 +2,19 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getOrgSettings } from '@/actions/org-settings'
+import {
+  formatMinuteOfDay,
+  normalizeOperatingHours,
+  utcToLocalDayAndMinute,
+} from '@/lib/operating-hours'
 
 export interface AppointmentInput {
   staffProfileId: string
   clientId: string
   startTime: string
   durationMinutes: number
+  tzOffsetMinutes?: number
   title?: string
   notes?: string
 }
@@ -28,7 +35,33 @@ export interface AppointmentRow {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseAny = any
 
+export function validateAppointmentTime(input: AppointmentInput, operatingHours: unknown): string | null {
+  if (!Number.isInteger(input.durationMinutes) || input.durationMinutes <= 0) {
+    return 'Duration must be a positive number of minutes.'
+  }
+
+  const startDate = new Date(input.startTime)
+  if (Number.isNaN(startDate.getTime())) {
+    return 'Invalid appointment start time.'
+  }
+
+  const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes) ? (input.tzOffsetMinutes as number) : 0
+  const { dayKey, minuteOfDay } = utcToLocalDayAndMinute(startDate, tzOffsetMinutes)
+  const hours = normalizeOperatingHours(operatingHours)[dayKey]
+  const endMinute = minuteOfDay + input.durationMinutes
+
+  if (minuteOfDay < hours.openMinute || endMinute > hours.closeMinute) {
+    return `Appointment must be within operating hours (${formatMinuteOfDay(hours.openMinute)}-${formatMinuteOfDay(hours.closeMinute)}).`
+  }
+
+  return null
+}
+
 export async function createAppointment(input: AppointmentInput) {
+  const orgSettings = await getOrgSettings()
+  const hoursError = validateAppointmentTime(input, orgSettings?.operating_hours)
+  if (hoursError) return { error: hoursError }
+
   const supabase = await createClient()
 
   const { data, error } = await (supabase as SupabaseAny)

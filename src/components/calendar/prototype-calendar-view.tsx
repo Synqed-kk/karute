@@ -46,6 +46,8 @@ export interface TimetableWithTabsProps {
   renderBarPopover?: (bar: TimelineBarItem) => ReactNode
   startHour?: number
   endHour?: number
+  startMinute?: number
+  endMinute?: number
   currentTimeLabel?: string
   currentMinute?: number
   rowHeight?: number
@@ -66,6 +68,8 @@ export function TimetableWithTabs({
   renderBarPopover,
   startHour = 10,
   endHour = 18,
+  startMinute,
+  endMinute,
   currentTimeLabel = '12:24',
   currentMinute = 12 * 60 + 24,
   rowHeight = 84,
@@ -107,6 +111,8 @@ export function TimetableWithTabs({
       renderBarPopover={renderBarPopover}
       startHour={startHour}
       endHour={endHour}
+      startMinute={startMinute}
+      endMinute={endMinute}
       currentTimeLabel={currentTimeLabel}
       currentMinute={currentMinute}
       rowHeight={rowHeight}

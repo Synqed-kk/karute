@@ -45,6 +45,8 @@ export interface TimetableProps {
   renderBarPopover?: (bar: EmployeeTimelineBarData) => ReactNode
   startHour?: number
   endHour?: number
+  startMinute?: number
+  endMinute?: number
   currentTimeLabel?: string
   currentMinute?: number
   rowHeight?: number
@@ -65,6 +67,12 @@ const minutesToPercent = (value: number, startMinute: number, totalMinutes: numb
   ((value - startMinute) / totalMinutes) * 100
 const intervalsOverlap = (aStart: number, aEnd: number, bStart: number, bEnd: number) =>
   aStart < bEnd && bStart < aEnd
+const formatMinuteLabel = (minute: number) => {
+  if (minute === 24 * 60) return '24:00'
+  const hour = Math.floor(minute / 60)
+  const min = minute % 60
+  return `${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}`
+}
 
 export function TimePassedOverlay({
   startMinute,
@@ -114,6 +122,8 @@ export function Timetable({
   renderBarPopover,
   startHour = 10,
   endHour = 18,
+  startMinute,
+  endMinute,
   currentTimeLabel = '12:24',
   currentMinute = 12 * 60 + 24,
   rowHeight = DEFAULT_ROW_HEIGHT,
@@ -128,9 +138,10 @@ export function Timetable({
   const [popoverBarId, setPopoverBarId] = useState<string | null>(null)
 
   const effectiveEmployees = onEmployeesChange ? employees : localEmployees
-  const startMinuteVal = startHour * 60
-  const endMinuteVal = endHour * 60
+  const startMinuteVal = startMinute ?? startHour * 60
+  const endMinuteVal = endMinute ?? endHour * 60
   const totalMinutes = endMinuteVal - startMinuteVal
+  const maxSlotStart = Math.max(startMinuteVal, endMinuteVal - snapMinutes)
   const timelineContentHeight = effectiveEmployees.length * rowHeight
   const currentTimeLeft = clamp(minutesToPercent(currentMinute, startMinuteVal, totalMinutes), 0, 100)
 
@@ -140,9 +151,12 @@ export function Timetable({
 
   const hourMarkers = useMemo(() => {
     const list: number[] = []
-    for (let h = startHour; h <= endHour; h += 1) list.push(h)
+    const firstHourMinute = Math.ceil(startMinuteVal / 60) * 60
+    for (let minute = firstHourMinute; minute <= endMinuteVal; minute += 60) {
+      list.push(minute)
+    }
     return list
-  }, [startHour, endHour])
+  }, [startMinuteVal, endMinuteVal])
 
   const slotStarts = useMemo(() => {
     const slots: number[] = []
@@ -174,10 +188,10 @@ export function Timetable({
     const fraction = relX / rect.width
     const rawMinute = startMinuteVal + fraction * totalMinutes
     const snapped = Math.round((rawMinute - startMinuteVal) / snapMinutes) * snapMinutes + startMinuteVal
-    const clampedMinute = clamp(snapped, startMinuteVal, endMinuteVal - snapMinutes)
+    const clampedMinute = clamp(snapped, startMinuteVal, maxSlotStart)
 
     return { rowId, startMinute: clampedMinute }
-  }, [effectiveEmployees, rowHeight, startMinuteVal, totalMinutes, snapMinutes, endMinuteVal])
+  }, [effectiveEmployees, rowHeight, startMinuteVal, totalMinutes, snapMinutes, maxSlotStart])
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
@@ -293,14 +307,18 @@ export function Timetable({
         <div className="relative flex h-full min-h-0 flex-col rounded-[18px] rounded-tl-none rounded-tr-none border border-white/15 bg-[#78949c]/60 p-1">
           {!customBody ? (
             <div className="relative h-[50px] border-b border-white/20">
-              <div className="absolute top-[6px] text-[20px] font-semibold text-white/78" style={{ left: `${AVATAR_WIDTH}px` }}>{`${String(startHour).padStart(2, '0')}:00`}</div>
               <div
                 className="absolute top-[6px] text-[20px] font-semibold text-white/78"
                 style={{ left: `calc(${AVATAR_WIDTH}px + (100% - ${AVATAR_WIDTH + 16}px) * ${currentTimeLeft / 100})`, transform: 'translateX(-50%)' }}
               >
                 {currentTimeLabel}
               </div>
-              <div className="absolute right-4 top-[6px] text-[20px] font-semibold text-white/82">{`${String(endHour).padStart(2, '0')}:00`}</div>
+              <div className="absolute top-[6px] text-[20px] font-semibold text-white/78" style={{ left: `${AVATAR_WIDTH}px` }}>
+                {formatMinuteLabel(startMinuteVal)}
+              </div>
+              <div className="absolute right-4 top-[6px] text-[20px] font-semibold text-white/82">
+                {formatMinuteLabel(endMinuteVal)}
+              </div>
             </div>
           ) : null}
 
@@ -310,11 +328,11 @@ export function Timetable({
             ) : (
               <>
             <div className="pointer-events-none absolute top-0 bottom-0 right-4 z-10" style={{ left: `${AVATAR_WIDTH}px` }}>
-              {hourMarkers.map((hour) => {
-                const left = minutesToPercent(hour * 60, startMinuteVal, totalMinutes)
+              {hourMarkers.map((markerMinute) => {
+                const left = minutesToPercent(markerMinute, startMinuteVal, totalMinutes)
                 return (
                   <div
-                    key={hour}
+                    key={markerMinute}
                     className="absolute top-0 h-full w-px bg-white/50"
                     style={{ left: `${left}%` }}
                   />
