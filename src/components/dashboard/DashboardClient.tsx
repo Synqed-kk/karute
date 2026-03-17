@@ -273,11 +273,12 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         </div>
       </div>
 
-      {/* Date navigation — centered */}
-      <div className="flex items-center justify-center mb-4">
+      {/* Header: Appointments left, date picker right */}
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-2xl font-semibold text-gray-800 dark:text-gray-200">{t('title')}</h1>
         <div className="flex items-center gap-3">
           <button type="button" onClick={handlePrevDay} className="rounded-lg border border-gray-300 px-3 py-2 text-base hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&larr;</button>
-          <span className="text-xl font-semibold text-gray-800 dark:text-gray-200">{formatDate(selectedDate, 'en')}</span>
+          <span className="text-base font-medium text-gray-800 dark:text-gray-200">{formatDate(selectedDate, 'en')}</span>
           <button type="button" onClick={handleNextDay} className="rounded-lg border border-gray-300 px-3 py-2 text-base hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&rarr;</button>
           {!isToday && (
             <button type="button" onClick={handleToday} className="rounded-lg bg-[#84a2aa] px-3 py-2 text-sm font-medium text-white hover:bg-[#6d8d96]">{t('today')}</button>
