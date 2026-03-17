@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
@@ -54,6 +54,8 @@ function toLocalDateStr(date: Date): string {
 interface SlotClickState {
   rowId: string
   startMinute: number
+  clickX: number
+  clickY: number
 }
 
 export function DashboardClient({ staff, activeStaffId, authProfileId, customers, locale }: DashboardClientProps) {
@@ -64,6 +66,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const [selectedDate, setSelectedDate] = useState(() => new Date())
   const [recordingOpen, setRecordingOpen] = useState(false)
   const [slotClick, setSlotClick] = useState<SlotClickState | null>(null)
+  const lastClickRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
 
   // Listen for recording panel open signal from sidebar
   const shouldOpenPanel = useRecordingUIStore((s) => s.shouldOpenPanel)
@@ -188,11 +191,23 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     [router]
   )
 
+  // Capture mouse position for popout placement
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      lastClickRef.current = { x: e.clientX, y: e.clientY }
+    }
+    window.addEventListener('click', handler)
+    return () => window.removeEventListener('click', handler)
+  }, [])
+
   const handleTimeSlotClick = useCallback(
     (payload: { rowId: string; startMinute: number }) => {
-      // Only allow creating appointments for the active staff member
       if (activeStaffId && payload.rowId !== activeStaffId) return
-      setSlotClick(payload)
+      setSlotClick({
+        ...payload,
+        clickX: lastClickRef.current.x,
+        clickY: lastClickRef.current.y,
+      })
     },
     [activeStaffId]
   )
@@ -258,14 +273,14 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         </div>
       </div>
 
-      {/* Date navigation */}
-      <div className="flex items-center mb-4">
+      {/* Date navigation — centered */}
+      <div className="flex items-center justify-center mb-4">
         <div className="flex items-center gap-3">
-          <button type="button" onClick={handlePrevDay} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&larr;</button>
-          <span className="text-lg font-semibold text-gray-800 dark:text-gray-200">{formatDate(selectedDate, 'en')}</span>
-          <button type="button" onClick={handleNextDay} className="rounded-lg border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&rarr;</button>
+          <button type="button" onClick={handlePrevDay} className="rounded-lg border border-gray-300 px-3 py-2 text-base hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&larr;</button>
+          <span className="text-xl font-semibold text-gray-800 dark:text-gray-200">{formatDate(selectedDate, 'en')}</span>
+          <button type="button" onClick={handleNextDay} className="rounded-lg border border-gray-300 px-3 py-2 text-base hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700">&rarr;</button>
           {!isToday && (
-            <button type="button" onClick={handleToday} className="rounded-lg bg-[#84a2aa] px-3 py-1.5 text-sm font-medium text-white hover:bg-[#6d8d96]">{t('today')}</button>
+            <button type="button" onClick={handleToday} className="rounded-lg bg-[#84a2aa] px-3 py-2 text-sm font-medium text-white hover:bg-[#6d8d96]">{t('today')}</button>
           )}
         </div>
       </div>
@@ -287,14 +302,13 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           activeRowId={authProfileId ?? activeStaffId ?? undefined}
         />
 
-        {/* Appointment creation popout */}
+        {/* Appointment creation popout — positioned at click location */}
         {slotClick && slotClickStaff && (
           <div
-            className="absolute z-50"
+            className="fixed z-[60]"
             style={{
-              top: `${staff.indexOf(slotClickStaff) * 84 + 90}px`,
-              left: '50%',
-              transform: 'translateX(-50%)',
+              top: `${Math.min(slotClick.clickY, window.innerHeight - 400)}px`,
+              left: `${Math.min(slotClick.clickX, window.innerWidth - 340)}px`,
             }}
           >
             <AppointmentPopout
