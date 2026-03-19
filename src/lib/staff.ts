@@ -23,7 +23,7 @@ export async function getStaffList(): Promise<StaffMember[]> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('profiles')
-    .select('id, full_name, created_at, display_role')
+    .select('id, full_name, created_at, display_role, position, email, phone')
     .not('full_name', 'is', null)
     .not('full_name', 'ilike', '_system_%')
     .order('full_name', { ascending: true })

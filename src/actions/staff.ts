@@ -31,11 +31,15 @@ export async function createStaff(data: StaffProfileInput): Promise<void> {
 
   if (!ownerProfile) throw new Error('Business profile not found')
 
-  const { error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
     .from('profiles')
     .insert([{
       full_name: parsed.data.name,
       customer_id: ownerProfile.customer_id,
+      position: parsed.data.position ?? '',
+      email: parsed.data.email ?? '',
+      phone: parsed.data.phone ?? '',
     }])
 
   if (error) throw new Error(error.message)
@@ -54,9 +58,15 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
   }
 
   const supabase = await createClient()
-  const { error } = await supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
     .from('profiles')
-    .update({ full_name: parsed.data.name })
+    .update({
+      full_name: parsed.data.name,
+      position: parsed.data.position ?? '',
+      email: parsed.data.email ?? '',
+      phone: parsed.data.phone ?? '',
+    })
     .eq('id', id)
 
   if (error) throw new Error(error.message)

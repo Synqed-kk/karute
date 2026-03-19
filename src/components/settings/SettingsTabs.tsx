@@ -248,6 +248,29 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: 
             </div>
 
             <div className="border-t border-border/30 pt-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-medium">Solo Mode</h4>
+                  <p className="text-xs text-muted-foreground mt-0.5">Enable if you are the only staff member. Hides staff switcher and simplifies the UI.</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = settings.business_type === 'solo' ? 'other' : 'solo'
+                    handleSave({ business_type: next })
+                  }}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                    settings.business_type === 'solo' ? 'bg-primary' : 'bg-muted'
+                  }`}
+                >
+                  <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                    settings.business_type === 'solo' ? 'translate-x-6' : 'translate-x-1'
+                  }`} />
+                </button>
+              </div>
+            </div>
+
+            <div className="border-t border-border/30 pt-6">
               <label className="text-sm font-medium mb-1.5 block">Webhook URL</label>
               <input
                 type="url"
@@ -361,7 +384,7 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale }: 
       </div>
 
       {saving && (
-        <div className="fixed bottom-4 right-4 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground shadow-lg animate-in fade-in-0 duration-200">
+        <div className="fixed top-4 right-4 z-50 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-200">
           Saving...
         </div>
       )}

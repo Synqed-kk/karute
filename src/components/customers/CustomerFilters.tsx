@@ -7,6 +7,7 @@ const SORT_OPTIONS = [
   { value: 'name', label: 'Name' },
   { value: 'updated_at', label: 'Recent' },
   { value: 'created_at', label: 'Newest' },
+  { value: 'created_at_asc', label: 'Oldest' },
 ]
 
 export function CustomerFilters() {
@@ -17,7 +18,14 @@ export function CustomerFilters() {
 
   function handleSort(sort: string) {
     const params = new URLSearchParams(searchParams.toString())
-    params.set('sort', sort)
+    // Handle _asc suffix for ascending order
+    if (sort.endsWith('_asc')) {
+      params.set('sort', sort.replace('_asc', ''))
+      params.set('order', 'asc')
+    } else {
+      params.set('sort', sort)
+      params.set('order', 'desc')
+    }
     params.delete('page')
     router.push(`${pathname}?${params.toString()}` as Parameters<typeof router.push>[0])
   }

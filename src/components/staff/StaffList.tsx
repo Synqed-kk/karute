@@ -9,6 +9,10 @@ import { StaffForm } from './StaffForm'
 interface StaffMember {
   id: string
   full_name: string | null
+  display_role?: string | null
+  position?: string | null
+  email?: string | null
+  phone?: string | null
   created_at: string
 }
 
@@ -92,9 +96,16 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    {formatAddedDate(staff.created_at)}
-                  </p>
+                  {(staff as { position?: string }).position && (
+                    <p className="text-xs text-muted-foreground">{(staff as { position: string }).position}</p>
+                  )}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
+                    {(staff as { email?: string }).email && <span>{(staff as { email: string }).email}</span>}
+                    {(staff as { phone?: string }).phone && <span>{(staff as { phone: string }).phone}</span>}
+                    {!(staff as { email?: string }).email && !(staff as { phone?: string }).phone && (
+                      <span>{formatAddedDate(staff.created_at)}</span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -131,7 +142,13 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
       {editingStaff && (
         <StaffForm
           mode="edit"
-          staff={{ id: editingStaff.id, name: editingStaff.full_name ?? '' }}
+          staff={{
+            id: editingStaff.id,
+            name: editingStaff.full_name ?? '',
+            position: (editingStaff as { position?: string }).position ?? '',
+            email: (editingStaff as { email?: string }).email ?? '',
+            phone: (editingStaff as { phone?: string }).phone ?? '',
+          }}
           onClose={() => setEditingStaff(null)}
         />
       )}

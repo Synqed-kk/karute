@@ -46,7 +46,7 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
     if (!newName.trim()) return
     setSaving(true)
     try {
-      await createStaff({ name: newName.trim() })
+      await createStaff({ name: newName.trim(), position: '', email: '', phone: '' })
       setNewName('')
       setAdding(false)
     } catch {
