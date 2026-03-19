@@ -6,7 +6,6 @@ import { useRouter } from '@/i18n/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
 import { RecordingPanel, type ActiveAppointment } from '@/components/dashboard/RecordingPanel'
 import { AppointmentPopout } from '@/components/dashboard/AppointmentPopout'
-import { AIRecommendedActions } from '@/components/dashboard/AIRecommendedActions'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { useRecordingUIStore } from '@/stores/recording-store'
 import { getBarsByDate } from '@/actions/dashboard'
@@ -264,23 +263,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
 
   return (
     <>
-      {/* Stats cards */}
-      <div className="grid grid-cols-3 gap-4 mb-4">
-        <div className="rounded-2xl bg-[#7d9ea7] p-4 text-white">
-          <div className="text-3xl font-bold">0</div>
-          <div className="text-sm opacity-90">{t('customersServed')}</div>
-        </div>
-        <div className="rounded-2xl bg-[#c4888e] p-4 text-white">
-          <div className="text-3xl font-bold">0</div>
-          <div className="text-sm opacity-90">{t('recordingsThisWeek')}</div>
-        </div>
-        <div className="rounded-2xl bg-[#5a9a6e] p-4 text-white">
-          <div className="text-3xl font-bold">0</div>
-          <div className="text-sm opacity-90">{t('karuteGenerated')}</div>
-        </div>
-      </div>
-
-
       {/* Timetable header: Appointments left, date picker center */}
       <div className="relative flex items-center rounded-t-[22px] bg-[#7d9ea7]/88 px-5 py-2.5">
         <span className="text-sm font-semibold text-white/90">{t('title')}</span>
@@ -313,14 +295,10 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         {slotClick && slotClickStaff && (
           <div className="fixed inset-0 z-[55]" onClick={() => setSlotClick(null)} />
         )}
-        {/* Appointment creation popout — centered on click, clamped to viewport */}
+        {/* Appointment creation popout — always centered in viewport */}
         {slotClick && slotClickStaff && (
           <div
-            className="fixed z-[60]"
-            style={{
-              top: `${Math.max(12, Math.min(slotClick.clickY - 120, window.innerHeight - 460))}px`,
-              left: `${Math.max(120, Math.min(slotClick.clickX - 160, window.innerWidth - 340))}px`,
-            }}
+            className="fixed z-[60] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
           >
             <AppointmentPopout
               staffId={slotClick.rowId}
@@ -334,11 +312,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
             />
           </div>
         )}
-      </div>
-
-      {/* AI Recommended Actions */}
-      <div className="mt-4">
-        <AIRecommendedActions locale={locale} />
       </div>
 
       {/* Recording panel */}

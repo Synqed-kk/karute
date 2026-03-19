@@ -17,7 +17,7 @@ export function LocaleToggle() {
     <button
       onClick={toggleLocale}
       type="button"
-      className="min-h-[44px] rounded-md border border-white/20 px-3 py-1.5 text-sm font-medium text-white/80 transition hover:text-white"
+      className="min-h-[44px] rounded-md border border-gray-300 dark:border-white/20 px-3 py-1.5 text-sm font-medium text-gray-600 dark:text-white/80 transition hover:text-gray-900 dark:hover:text-white"
       aria-label={locale === 'en' ? 'Switch to Japanese' : '英語に切り替え'}
     >
       {locale === 'en' ? 'EN' : 'JP'}

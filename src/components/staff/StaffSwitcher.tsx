@@ -75,7 +75,7 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
 
   return (
     <DropdownMenu onOpenChange={(open) => { if (!open) { setAdding(false); setNewName('') } }}>
-      <DropdownMenuTrigger className="inline-flex items-center gap-2 rounded-full px-1.5 py-1 hover:bg-white/10 transition-colors min-h-[44px]">
+      <DropdownMenuTrigger className="inline-flex items-center gap-2 rounded-full px-1.5 py-1 hover:bg-black/5 dark:hover:bg-white/10 transition-colors min-h-[44px]">
         {/* Active staff avatar */}
         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
           {activeInitials}

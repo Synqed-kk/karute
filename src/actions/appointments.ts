@@ -59,7 +59,7 @@ export async function validateAppointmentTime(input: AppointmentInput, operating
 
 export async function createAppointment(input: AppointmentInput) {
   const orgSettings = await getOrgSettings()
-  const hoursError = validateAppointmentTime(input, orgSettings?.operating_hours)
+  const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
   if (hoursError) return { error: hoursError }
 
   const supabase = await createClient()
