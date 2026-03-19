@@ -7,7 +7,7 @@ import { useMediaRecorder } from '@/hooks/use-media-recorder'
 import { useRecordingTimer } from '@/hooks/use-recording-timer'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { runAIPipeline, type PipelineStep, type PipelineResult } from '@/lib/ai-pipeline'
-import { saveKaruteRecord } from '@/actions/karute'
+import { saveKaruteRecordInline } from '@/actions/karute'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 import type { Entry } from '@/types/ai'
@@ -238,52 +238,35 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
     setPhase('save')
   }, [])
 
-  // Save karute — stay on dashboard, finalize the bar
+  // Save karute — stay on appointments page, finalize the bar
   const handleSaveAndStay = useCallback(async () => {
     if (!pipelineResult || !selectedCustomerId || !barId) return
 
     setIsSaving(true)
-    try {
-      // Call the save action but we'll handle the redirect error
-      const saveResult = await saveKaruteRecord({
-        customerId: selectedCustomerId,
-        transcript: pipelineResult.transcript,
-        summary: pipelineResult.summary,
-        entries: pipelineResult.entries.map((e) => ({
-          category: e.category as EntryCategory,
-          content: e.title,
-          sourceQuote: e.source_quote,
-          confidenceScore: e.confidence_score,
-        })),
-        duration: result ? Math.round(result.durationMs / 1000) : undefined,
-      })
+    const saveResult = await saveKaruteRecordInline({
+      customerId: selectedCustomerId,
+      transcript: pipelineResult.transcript,
+      summary: pipelineResult.summary,
+      entries: pipelineResult.entries.map((e) => ({
+        category: e.category as EntryCategory,
+        content: e.title,
+        sourceQuote: e.source_quote,
+        confidenceScore: e.confidence_score,
+      })),
+      duration: result ? Math.round(result.durationMs / 1000) : undefined,
+    })
 
-      if (saveResult && 'error' in saveResult) {
-        toast.error(saveResult.error)
-        setIsSaving(false)
-        return
-      }
-    } catch (err: unknown) {
-      // The save action calls redirect() which throws a special error with digest
-      // digest format: "NEXT_REDIRECT;type;destination;statusCode;..."
-      const digest = (err as { digest?: string })?.digest
-      if (typeof digest === 'string' && digest.startsWith('NEXT_REDIRECT')) {
-        const parts = digest.split(';')
-        const destination = parts.slice(2, -2).join(';')
-        const match = destination.match(/\/karute\/([a-f0-9-]+)/)
-        if (match) {
-          finalizeBar(barId, match[1])
-        } else {
-          setBarType(barId, 'booking')
-        }
-        setPhase('done')
-        setIsSaving(false)
-        return
-      }
-      toast.error(err instanceof Error ? err.message : 'Save failed')
+    if ('error' in saveResult) {
+      toast.error(saveResult.error)
       setIsSaving(false)
+      return
     }
-  }, [pipelineResult, selectedCustomerId, barId, result, finalizeBar, setBarType])
+
+    // Success — finalize the timeline bar with the real karute ID
+    finalizeBar(barId, saveResult.id)
+    setPhase('done')
+    setIsSaving(false)
+  }, [pipelineResult, selectedCustomerId, barId, result, finalizeBar])
 
   const handleCustomerCreated = useCallback((newCustomer: CustomerOption) => {
     setCustomerList((prev) => [newCustomer, ...prev])

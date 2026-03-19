@@ -89,3 +89,51 @@ export async function saveKaruteRecord(
   revalidatePath(`/customers/${input.customerId}`)
   redirect(`/karute/${recordId}`)
 }
+
+/**
+ * Same as saveKaruteRecord but returns the record ID instead of redirecting.
+ * Used by the RecordingPanel which stays on the appointments page.
+ */
+export async function saveKaruteRecordInline(
+  input: SaveKaruteInput,
+): Promise<{ id: string } | { error: string }> {
+  const supabase = await createClient()
+
+  const staffProfileId = await getActiveStaffId()
+  if (!staffProfileId) {
+    return { error: 'No active staff member selected.' }
+  }
+
+  const { data: record, error: recordError } = await supabase
+    .from('karute_records')
+    .insert({
+      customer_id: input.customerId,
+      client_id: input.customerId,
+      staff_profile_id: staffProfileId,
+      transcript: input.transcript,
+      summary: input.summary,
+    })
+    .select('id')
+    .single()
+
+  if (recordError) return { error: recordError.message }
+
+  const { error: entriesError } = await supabase.from('entries').insert(
+    input.entries.map((entry) => ({
+      karute_record_id: record.id,
+      category: entry.category,
+      content: entry.content,
+      source_quote: entry.sourceQuote ?? null,
+      confidence_score: entry.confidenceScore,
+      is_manual: false,
+    })),
+  )
+
+  if (entriesError) {
+    await supabase.from('karute_records').delete().eq('id', record.id)
+    return { error: entriesError.message }
+  }
+
+  revalidatePath(`/customers/${input.customerId}`)
+  return { id: record.id }
+}

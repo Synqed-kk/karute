@@ -97,8 +97,8 @@ export function Sidebar() {
               type="button"
               onClick={() => {
                 requestOpenPanel()
-                if (!pathname.startsWith('/dashboard')) {
-                  router.push('/dashboard' as Parameters<typeof router.push>[0])
+                if (!pathname.startsWith('/appointments')) {
+                  router.push('/appointments' as Parameters<typeof router.push>[0])
                 }
               }}
               className="flex w-full flex-col items-center gap-1 px-2 py-2.5 transition min-h-[44px] min-w-[44px] text-white/60 hover:text-white/90"

@@ -24,6 +24,7 @@ export async function getStaffList(): Promise<StaffMember[]> {
   const { data, error } = await (supabase as any)
     .from('profiles')
     .select('id, full_name, created_at, display_role')
+    .not('full_name', 'like', '_system_%')
     .order('full_name', { ascending: true })
 
   if (error) {
