@@ -4,10 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
-import { RecordingPanel, type ActiveAppointment } from '@/components/dashboard/RecordingPanel'
 import { AppointmentPopout } from '@/components/dashboard/AppointmentPopout'
 import { useTimetableStore } from '@/stores/timetable-store'
-import { useRecordingUIStore } from '@/stores/recording-store'
 import { getBarsByDate } from '@/actions/dashboard'
 import { getAppointmentsByDate, type AppointmentRow } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -66,20 +64,8 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const { minute: currentMinute, label: currentTimeLabel } = useCurrentTime()
 
   const [selectedDate, setSelectedDate] = useState(() => new Date())
-  const [recordingOpen, setRecordingOpen] = useState(false)
   const [slotClick, setSlotClick] = useState<SlotClickState | null>(null)
   const lastClickRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
-
-  // Listen for recording panel open signal from sidebar
-  const shouldOpenPanel = useRecordingUIStore((s) => s.shouldOpenPanel)
-  const clearOpenRequest = useRecordingUIStore((s) => s.clearOpenRequest)
-
-  useEffect(() => {
-    if (shouldOpenPanel && !recordingOpen && activeStaffId) {
-      setRecordingOpen(true)
-      clearOpenRequest()
-    }
-  }, [shouldOpenPanel, recordingOpen, activeStaffId, clearOpenRequest])
 
   // In-progress recording bars from zustand (temp rec_* bars)
   const liveBars = useTimetableStore((s) => s.bars)
@@ -214,11 +200,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     [activeStaffId]
   )
 
-  const handleCloseRecording = () => {
-    setRecordingOpen(false)
-    refreshBars()
-  }
-
   const handleAppointmentCreated = () => {
     setSlotClick(null)
     refreshBars()
@@ -237,29 +218,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     [orgSettings?.operating_hours, selectedDate]
   )
 
-  // Find active appointment for current staff at current time
-  const activeAppt: ActiveAppointment | null = (() => {
-    if (!isToday || !activeStaffId) return null
-    const now = new Date()
-    const nowMin = now.getHours() * 60 + now.getMinutes()
-
-    for (const appt of rawAppointments) {
-      if (appt.staff_profile_id !== activeStaffId) continue
-      if (appt.karute_record_id) continue // already has a karute linked
-      const startAt = new Date(appt.start_time)
-      const startMin = startAt.getHours() * 60 + startAt.getMinutes()
-      const endMin = startMin + appt.duration_minutes
-      if (nowMin >= startMin && nowMin < endMin) {
-        return {
-          id: appt.id,
-          clientId: appt.client_id,
-          customerName: appt.customers?.name ?? '',
-          barId: `appt_${appt.id}`,
-        }
-      }
-    }
-    return null
-  })()
 
   return (
     <>
@@ -314,16 +272,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         )}
       </div>
 
-      {/* Recording panel */}
-      {recordingOpen && activeStaffId && (
-        <RecordingPanel
-          activeStaffId={activeStaffId}
-          customers={customers}
-          locale={locale}
-          onClose={handleCloseRecording}
-          activeAppointment={activeAppt}
-        />
-      )}
     </>
   )
 }

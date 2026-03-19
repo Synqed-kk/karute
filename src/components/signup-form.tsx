@@ -31,7 +31,7 @@ export function SignupForm({ locale }: { locale: string }) {
       setLoading(false)
     } else {
       // After signup, redirect to sessions (Supabase auto-confirms in dev if email confirm is off)
-      router.push(`/${locale}/dashboard`)
+      router.push(`/${locale}/sessions`)
       router.refresh()
     }
   }

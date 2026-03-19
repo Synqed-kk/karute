@@ -3,7 +3,6 @@
 import React from 'react'
 import { usePathname, Link, useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
-import { useRecordingUIStore } from '@/stores/recording-store'
 
 function MicIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
@@ -37,11 +36,10 @@ type NavRoute = {
   href: string
   labelKey: SidebarLabelKey
   icon: () => React.ReactElement
-  isRecordingAction?: boolean
 }
 
 const NAV_ROUTES: NavRoute[] = [
-  { id: 'recording', href: '/sessions', labelKey: 'recording', icon: MicIcon, isRecordingAction: true },
+  { id: 'recording', href: '/sessions', labelKey: 'recording', icon: MicIcon },
   { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', icon: HomeIcon },
   { id: 'appointments', href: '/appointments', labelKey: 'appointments', icon: CalendarIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', icon: UsersIcon },
@@ -66,12 +64,7 @@ export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const t = useTranslations('sidebar')
-  const requestOpenPanel = useRecordingUIStore((s) => s.requestOpenPanel)
-
-  const activeId = NAV_ROUTES.find((r) => {
-    if (r.isRecordingAction) return false
-    return pathname.startsWith(r.href)
-  })?.id
+  const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
 
   function getLabel(key: SidebarLabelKey): string {
     try {
@@ -89,25 +82,6 @@ export function Sidebar() {
       {NAV_ROUTES.map((route) => {
         const isActive = route.id === activeId
         const Icon = route.icon
-
-        if (route.isRecordingAction) {
-          return (
-            <button
-              key={route.id}
-              type="button"
-              onClick={() => {
-                requestOpenPanel()
-                if (!pathname.startsWith('/appointments')) {
-                  router.push('/appointments' as Parameters<typeof router.push>[0])
-                }
-              }}
-              className="flex w-full flex-col items-center gap-1 px-2 py-2.5 transition min-h-[44px] min-w-[44px] text-white/60 hover:text-white/90"
-            >
-              <Icon />
-              <span className="w-full truncate text-center text-[10px] font-medium">{getLabel(route.labelKey)}</span>
-            </button>
-          )
-        }
 
         return (
           <Link
