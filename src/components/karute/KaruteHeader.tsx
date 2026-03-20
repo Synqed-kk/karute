@@ -1,4 +1,11 @@
+'use client'
+
+import { useState } from 'react'
+import { useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
+import { Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
+import { deleteKaruteRecord } from '@/actions/karute'
 import type { KaruteWithRelations } from '@/lib/supabase/karute'
 
 interface KaruteHeaderProps {
@@ -12,6 +19,21 @@ interface KaruteHeaderProps {
  */
 export function KaruteHeader({ karute }: KaruteHeaderProps) {
   const t = useTranslations('karute')
+  const router = useRouter()
+  const [deleting, setDeleting] = useState(false)
+
+  async function handleDelete() {
+    if (!window.confirm('Delete this karute? This cannot be undone.')) return
+    setDeleting(true)
+    const result = await deleteKaruteRecord(karute.id)
+    if ('error' in result) {
+      toast.error(result.error)
+      setDeleting(false)
+    } else {
+      toast.success('Karute deleted')
+      router.push('/karute' as Parameters<typeof router.push>[0])
+    }
+  }
 
   // customers aliased from client_id in PostgREST query
   const customerName =
@@ -29,7 +51,7 @@ export function KaruteHeader({ karute }: KaruteHeaderProps) {
   }).format(new Date(dateSource))
 
   return (
-    <div className="flex flex-wrap items-center gap-4 border-b border-border pb-4">
+    <div className="flex flex-wrap items-center gap-4 border-b border-border pb-4 group">
       <div>
         <p className="text-xs uppercase tracking-wide text-muted-foreground">
           {t('customer')}
@@ -47,6 +69,17 @@ export function KaruteHeader({ karute }: KaruteHeaderProps) {
           {t('staff')}
         </p>
         <p className="text-sm text-foreground">{staffName}</p>
+      </div>
+      <div className="ml-auto">
+        <button
+          type="button"
+          onClick={handleDelete}
+          disabled={deleting}
+          className="p-1.5 rounded-md text-muted-foreground hover:text-red-500 hover:bg-red-500/10 transition-all disabled:opacity-50"
+          aria-label="Delete karute"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
     </div>
   )
