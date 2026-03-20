@@ -131,29 +131,7 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
 
   // --- Idle / Recording / Recorded phases ---
   return (
-    <div className="flex flex-col items-center pt-12 min-h-[60vh] gap-6">
-      {/* Header — always visible at top */}
-      <div className="text-center space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('recordDescription')}</p>
-      </div>
-
-      {/* Next appointment info */}
-      {nextAppointment && (
-        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4">
-          <p className="text-xs font-medium text-muted-foreground mb-2">Recording for</p>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold text-foreground">{nextAppointment.customerName}</p>
-              <p className="text-xs text-muted-foreground">
-                {appointmentTime} &middot; {nextAppointment.durationMinutes}min
-              </p>
-            </div>
-            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          </div>
-        </div>
-      )}
-
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-6">
       {/* Microphone error */}
       {micError && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500 dark:text-red-300 max-w-md text-center">
@@ -248,6 +226,28 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
           </>
         )}
       </div>
+
+      {/* Title + subtitle below buttons */}
+      <div className="text-center space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('recordDescription')}</p>
+      </div>
+
+      {/* Next appointment info */}
+      {nextAppointment && (
+        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4">
+          <p className="text-xs font-medium text-muted-foreground mb-2">Recording for</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{nextAppointment.customerName}</p>
+              <p className="text-xs text-muted-foreground">
+                {appointmentTime} &middot; {nextAppointment.durationMinutes}min
+              </p>
+            </div>
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }
