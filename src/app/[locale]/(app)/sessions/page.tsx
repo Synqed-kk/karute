@@ -32,13 +32,11 @@ export default async function SessionsPage({
     durationMinutes: number
   } | null = null
 
-  // Find the nearest unlinked appointment today — includes ones currently in progress
-  // (start_time may be in the past but start_time + duration hasn't passed yet)
+  // Find the nearest unlinked appointment — look back 12h and forward 24h
+  // to handle any timezone. Server runs in UTC but appointments are in local time.
   const now = new Date()
-  const todayStart = new Date(now)
-  todayStart.setHours(0, 0, 0, 0)
-  const todayEnd = new Date(now)
-  todayEnd.setHours(23, 59, 59, 999)
+  const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
+  const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
@@ -46,8 +44,8 @@ export default async function SessionsPage({
     .from('appointments')
     .select('id, start_time, duration_minutes, client_id, customers:client_id ( name )')
     .is('karute_record_id', null)
-    .gte('start_time', todayStart.toISOString())
-    .lte('start_time', todayEnd.toISOString())
+    .gte('start_time', windowStart.toISOString())
+    .lte('start_time', windowEnd.toISOString())
     .order('start_time', { ascending: true })
 
   if (activeStaffId) {
