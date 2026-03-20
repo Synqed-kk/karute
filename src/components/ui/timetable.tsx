@@ -303,8 +303,8 @@ export function Timetable({
         })}
       </div>
 
-      <div className="relative min-h-0 flex-1 rounded-[22px] rounded-tl-none rounded-tr-none bg-white/40 dark:bg-white/10 p-3">
-        <div className="relative flex h-full min-h-0 flex-col rounded-[18px] rounded-tl-none rounded-tr-none border border-black/5 dark:border-white/15 bg-white/50 dark:bg-white/5 p-1">
+      <div className="relative min-h-0 flex-1 rounded-[22px] rounded-tl-none rounded-tr-none bg-gray-300/70 dark:bg-gray-700/70 p-3">
+        <div className="relative flex h-full min-h-0 flex-col rounded-[18px] rounded-tl-none rounded-tr-none border border-gray-400/20 dark:border-white/15 bg-gray-300/50 dark:bg-gray-700/50 p-1">
           {!customBody ? (
             <div className="relative h-[50px] border-b border-white/20">
               <div
