@@ -32,7 +32,7 @@ export function useWaveformBars(
 
     const analyser = audioCtx.createAnalyser()
     analyser.fftSize = 256
-    analyser.smoothingTimeConstant = 0.3
+    analyser.smoothingTimeConstant = 0.15
 
     const source = audioCtx.createMediaStreamSource(stream)
     source.connect(analyser)
@@ -49,7 +49,7 @@ export function useWaveformBars(
         sum += val * val
       }
       const rms = Math.sqrt(sum / dataArray.length)
-      const normalized = Math.min(1, rms * 3)
+      const normalized = Math.min(1, rms * 5)
       setAudioLevel(normalized)
     }
 

@@ -38,7 +38,7 @@
     "settings": "Settings"
   },
   "recording": {
-    "title": "Recording",
+    "title": "Record",
     "selectStaff": "Select staff",
     "start": "Start recording",
     "stop": "Stop recording",

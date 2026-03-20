@@ -131,14 +131,15 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
 
   // --- Idle / Recording / Recorded phases ---
   return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-8">
-      <div className="text-center space-y-2">
+    <div className="flex flex-col items-center pt-12 min-h-[60vh] gap-6">
+      {/* Header — always visible at top */}
+      <div className="text-center space-y-1">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-sm text-muted-foreground">{t('recordDescription')}</p>
       </div>
 
       {/* Next appointment info */}
-      {nextAppointment && phase === 'idle' && (
+      {nextAppointment && (
         <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4">
           <p className="text-xs font-medium text-muted-foreground mb-2">Recording for</p>
           <div className="flex items-center justify-between">
@@ -153,13 +154,6 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         </div>
       )}
 
-      {/* Show appointment badge while recording */}
-      {nextAppointment && phase === 'recording' && (
-        <div className="rounded-full border border-border bg-card px-4 py-1.5 text-xs text-muted-foreground">
-          {nextAppointment.customerName} &middot; {appointmentTime}
-        </div>
-      )}
-
       {/* Microphone error */}
       {micError && (
         <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500 dark:text-red-300 max-w-md text-center">
@@ -167,29 +161,31 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         </div>
       )}
 
-      {/* Waveform visualization */}
-      {phase === 'recording' && (
-        <div className="flex items-end justify-center gap-[3px] h-[100px] w-full max-w-xs">
-          {bars.map((height, i) => (
-            <div
-              key={i}
-              className="w-[6px] rounded-full bg-primary/60 transition-[height] duration-75"
-              style={{ height: `${height}px` }}
-            />
-          ))}
-        </div>
-      )}
+      {/* Fixed-height area for waveform + timer so buttons don't jump */}
+      <div className="flex flex-col items-center justify-center h-[160px] w-full max-w-xs">
+        {phase === 'recording' && (
+          <>
+            <div className="flex items-end justify-center gap-[3px] h-[100px] w-full">
+              {bars.map((height, i) => (
+                <div
+                  key={i}
+                  className="w-[6px] rounded-full bg-red-500/70 transition-[height] duration-100 ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+                  style={{ height: `${height}px` }}
+                />
+              ))}
+            </div>
+            <div className="mt-2">
+              <RecordingTimer paused={recState === 'paused'} />
+            </div>
+            {recState === 'paused' && (
+              <p className="text-sm text-muted-foreground mt-1">{t('paused')}</p>
+            )}
+          </>
+        )}
+      </div>
 
-      {/* Timer */}
-      {phase === 'recording' && <RecordingTimer paused={recState === 'paused'} />}
-
-      {/* Status text */}
-      {phase === 'recording' && recState === 'paused' && (
-        <p className="text-sm text-muted-foreground">{t('paused')}</p>
-      )}
-
-      {/* Action buttons */}
-      <div className="flex items-center gap-4">
+      {/* Action buttons — always in the same vertical position */}
+      <div className="flex items-center justify-center gap-4 h-16">
         {phase === 'idle' && (
           <button
             type="button"
@@ -252,11 +248,6 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
           </>
         )}
       </div>
-
-      {phase === 'idle' && !nextAppointment && (
-        <p className="text-xs text-muted-foreground">{t('idle')}</p>
-      )}
-
     </div>
   )
 }
