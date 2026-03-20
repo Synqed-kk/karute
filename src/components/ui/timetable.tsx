@@ -293,7 +293,7 @@ export function Timetable({
               type="button"
               onClick={() => onTabChange?.(tab.id)}
               className={`flex h-[44px] flex-1 items-center justify-center gap-2 rounded-t-2xl px-3 text-[16px] font-semibold transition ${
-                active ? 'bg-gray-700 text-white dark:bg-gray-600' : 'bg-gray-400 text-white/95 hover:bg-gray-500 dark:bg-gray-700 dark:hover:bg-gray-600'
+                active ? 'bg-gray-400/80 text-gray-800 dark:bg-gray-600 dark:text-white' : 'bg-gray-300/60 text-gray-600 hover:bg-gray-400/60 dark:bg-gray-700 dark:text-white/80 dark:hover:bg-gray-600'
               }`}
             >
               {tab.icon}

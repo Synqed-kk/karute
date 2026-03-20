@@ -141,3 +141,25 @@ export async function deleteAppointment(appointmentId: string) {
   revalidatePath('/dashboard')
   return { success: true }
 }
+
+export async function updateAppointment(
+  appointmentId: string,
+  updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number }
+) {
+  const supabase = await createClient()
+
+  const updateData: Record<string, unknown> = {}
+  if (updates.staffProfileId) updateData.staff_profile_id = updates.staffProfileId
+  if (updates.startTime) updateData.start_time = updates.startTime
+  if (updates.durationMinutes) updateData.duration_minutes = updates.durationMinutes
+
+  const { error } = await (supabase as SupabaseAny)
+    .from('appointments')
+    .update(updateData)
+    .eq('id', appointmentId)
+
+  if (error) return { error: (error as { message: string }).message }
+
+  revalidatePath('/appointments')
+  return { success: true }
+}

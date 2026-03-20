@@ -7,7 +7,8 @@ import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view
 import { AppointmentPopout } from '@/components/dashboard/AppointmentPopout'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { getBarsByDate } from '@/actions/dashboard'
-import { getAppointmentsByDate, type AppointmentRow } from '@/actions/appointments'
+import { getAppointmentsByDate, updateAppointment, deleteAppointment, type AppointmentRow } from '@/actions/appointments'
+import { toast } from 'sonner'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { TimelineBarItem } from '@/components/calendar/prototype-calendar-view'
 import type { TimelineBar } from '@/stores/timetable-store'
@@ -170,15 +171,6 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     setSlotClick(null)
   }
 
-  const handleBarClick = useCallback(
-    (bar: TimelineBarItem) => {
-      if (bar.type === 'booking' && !bar.id.startsWith('rec_')) {
-        router.push(`/karute/${bar.id}` as Parameters<typeof router.push>[0])
-      }
-    },
-    [router]
-  )
-
   // Capture mouse position for popout placement
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -205,6 +197,89 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     refreshBars()
   }
 
+  // Drag and drop — update appointment time/staff in DB
+  const handleBarDragEnd = useCallback(
+    async (payload: { bar: TimelineBarItem; previousRowId: string; previousStartMinute: number }) => {
+      const { bar } = payload
+      // Only handle appointment bars (appt_*) and saved karute bars
+      const isAppt = bar.id.startsWith('appt_')
+      if (!isAppt) return
+
+      const appointmentId = bar.id.replace('appt_', '')
+      const newDate = new Date(selectedDate)
+      newDate.setHours(Math.floor(bar.startMinute / 60), bar.startMinute % 60, 0, 0)
+
+      const result = await updateAppointment(appointmentId, {
+        staffProfileId: bar.rowId,
+        startTime: newDate.toISOString(),
+      })
+
+      if ('error' in result) {
+        toast.error(result.error)
+      } else {
+        toast.success('Appointment moved')
+      }
+      refreshBars()
+    },
+    [selectedDate, refreshBars]
+  )
+
+  // Delete appointment from bar popover
+  const handleDeleteAppointment = useCallback(
+    async (barId: string) => {
+      const isAppt = barId.startsWith('appt_')
+      if (!isAppt) return
+
+      const appointmentId = barId.replace('appt_', '')
+      if (!window.confirm('Delete this appointment?')) return
+
+      const result = await deleteAppointment(appointmentId)
+      if ('error' in result) {
+        toast.error(result.error)
+      } else {
+        toast.success('Appointment deleted')
+      }
+      refreshBars()
+    },
+    [refreshBars]
+  )
+
+  // Bar popover — show details + delete for appointments, link for karute
+  const renderBarPopover = useCallback(
+    (bar: TimelineBarItem) => {
+      const isAppt = bar.id.startsWith('appt_')
+      return (
+        <div className="space-y-2">
+          <div>
+            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{bar.title}</p>
+            {bar.subtitle && <p className="text-xs text-gray-500">{bar.subtitle}</p>}
+          </div>
+          <div className="flex gap-2">
+            {!isAppt && (
+              <button
+                type="button"
+                onClick={() => router.push(`/karute/${bar.id}` as Parameters<typeof router.push>[0])}
+                className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                View Karute
+              </button>
+            )}
+            {isAppt && (
+              <button
+                type="button"
+                onClick={() => handleDeleteAppointment(bar.id)}
+                className="flex-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        </div>
+      )
+    },
+    [router, handleDeleteAppointment]
+  )
+
   const timetableStaff = useMemo(
     () => staff.map((s) => ({ id: s.id, name: s.name, avatarInitials: s.avatarInitials })),
     [staff]
@@ -222,14 +297,14 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   return (
     <>
       {/* Timetable header: Appointments left, date picker center */}
-      <div className="relative flex items-center rounded-t-[22px] bg-gray-700 dark:bg-gray-600 px-5 py-2.5">
-        <span className="text-sm font-semibold text-white/90">{t('title')}</span>
+      <div className="relative flex items-center rounded-t-[22px] bg-gray-300/70 dark:bg-gray-700/70 px-5 py-2.5">
+        <span className="text-sm font-semibold text-gray-700 dark:text-white/90">{t('title')}</span>
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-          <button type="button" onClick={handlePrevDay} className="rounded-md px-2 py-1 text-white/70 hover:text-white hover:bg-white/10 transition-colors">&larr;</button>
-          <span className="text-sm font-medium text-white">{formatDate(selectedDate, 'en')}</span>
-          <button type="button" onClick={handleNextDay} className="rounded-md px-2 py-1 text-white/70 hover:text-white hover:bg-white/10 transition-colors">&rarr;</button>
+          <button type="button" onClick={handlePrevDay} className="rounded-md px-2 py-1 text-gray-500 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors">&larr;</button>
+          <span className="text-sm font-medium text-gray-700 dark:text-white">{formatDate(selectedDate, 'en')}</span>
+          <button type="button" onClick={handleNextDay} className="rounded-md px-2 py-1 text-gray-500 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors">&rarr;</button>
           {!isToday && (
-            <button type="button" onClick={handleToday} className="rounded-md bg-white/20 px-2 py-1 text-xs font-medium text-white hover:bg-white/30 transition-colors">{t('today')}</button>
+            <button type="button" onClick={handleToday} className="rounded-md bg-gray-500/20 dark:bg-white/20 px-2 py-1 text-xs font-medium text-gray-700 dark:text-white hover:bg-gray-500/30 dark:hover:bg-white/30 transition-colors">{t('today')}</button>
           )}
         </div>
       </div>
@@ -240,7 +315,8 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           staff={timetableStaff}
           bars={bars}
           onBarsChange={setBars}
-          onBarClick={handleBarClick}
+          onBarDragEnd={handleBarDragEnd}
+          renderBarPopover={renderBarPopover}
           onTimeSlotClick={handleTimeSlotClick}
           startMinute={selectedDayHours.openMinute}
           endMinute={selectedDayHours.closeMinute}
