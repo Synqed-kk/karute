@@ -1,10 +1,9 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
-import { saveDraft } from '@/lib/karute/draft'
 import { SaveKaruteFlow } from '@/components/karute/SaveKaruteFlow'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { Entry } from '@/types/ai'
+import type { KaruteDraftEntry } from '@/lib/karute/draft'
 
 interface ReviewConfirmStepProps {
   transcript: string
@@ -25,25 +24,12 @@ export function ReviewConfirmStep({
   appointmentId,
   appointmentCustomerId,
 }: ReviewConfirmStepProps) {
-  const draftSavedRef = useRef(false)
-
-  useEffect(() => {
-    if (draftSavedRef.current) return
-    draftSavedRef.current = true
-
-    saveDraft({
-      transcript,
-      summary,
-      entries: entries.map((e) => ({
-        category: e.category,
-        content: e.title,
-        sourceQuote: e.source_quote,
-        confidenceScore: e.confidence_score,
-      })),
-      duration,
-      appointmentId,
-    })
-  }, [transcript, summary, entries, duration, appointmentId])
+  const draftEntries: KaruteDraftEntry[] = entries.map((e) => ({
+    category: e.category,
+    content: e.title,
+    sourceQuote: e.source_quote,
+    confidenceScore: e.confidence_score,
+  }))
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,6 +46,13 @@ export function ReviewConfirmStep({
         <SaveKaruteFlow
           customers={customers}
           appointmentCustomerId={appointmentCustomerId}
+          directDraft={{
+            transcript,
+            summary,
+            entries: draftEntries,
+            duration,
+            appointmentId,
+          }}
         />
       </div>
     </div>

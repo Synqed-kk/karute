@@ -38,21 +38,22 @@ export default async function SessionsPage({
   const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
   const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 
+  // Only look for appointments if we know which staff member is active
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  let query = sb
-    .from('appointments')
-    .select('id, start_time, duration_minutes, client_id, customers:client_id ( name )')
-    .is('karute_record_id', null)
-    .gte('start_time', windowStart.toISOString())
-    .lte('start_time', windowEnd.toISOString())
-    .order('start_time', { ascending: true })
-
+  let appointments: any[] | null = null
   if (activeStaffId) {
-    query = query.eq('staff_profile_id', activeStaffId)
+    const sb = supabase as any
+    const { data } = await sb
+      .from('appointments')
+      .select('id, start_time, duration_minutes, client_id, customers:client_id ( name )')
+      .is('karute_record_id', null)
+      .eq('staff_profile_id', activeStaffId)
+      .gte('start_time', windowStart.toISOString())
+      .lte('start_time', windowEnd.toISOString())
+      .order('start_time', { ascending: true })
+      .limit(1)
+    appointments = data
   }
-
-  const { data: appointments } = await query.limit(1)
 
   if (appointments && appointments.length > 0) {
     const a = appointments[0]

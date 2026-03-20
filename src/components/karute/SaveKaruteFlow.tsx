@@ -6,20 +6,29 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { CustomerCombobox } from './CustomerCombobox'
 import { QuickCreateCustomer } from './QuickCreateCustomer'
-import { loadDraft, clearDraft } from '@/lib/karute/draft'
+import { loadDraft, type KaruteDraft, type KaruteDraftEntry } from '@/lib/karute/draft'
 import { saveKaruteRecord } from '@/actions/karute'
 import type { CustomerOption } from './CustomerCombobox'
+
+type DirectDraft = {
+  transcript: string
+  summary: string
+  entries: KaruteDraftEntry[]
+  duration?: number
+  appointmentId?: string
+}
 
 type SaveKaruteFlowProps = {
   customers: CustomerOption[]
   appointmentCustomerId?: string
+  directDraft?: DirectDraft
 }
 
 type FlowState = 'combobox' | 'quick-create'
 
-export function SaveKaruteFlow({ customers, appointmentCustomerId }: SaveKaruteFlowProps) {
+export function SaveKaruteFlow({ customers, appointmentCustomerId, directDraft }: SaveKaruteFlowProps) {
   const t = useTranslations('karute')
-  const [draft, setDraft] = useState<ReturnType<typeof loadDraft>>(null)
+  const [sessionDraft, setSessionDraft] = useState<KaruteDraft | null>(null)
   const [hasMounted, setHasMounted] = useState(false)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
     appointmentCustomerId ?? null
@@ -28,13 +37,17 @@ export function SaveKaruteFlow({ customers, appointmentCustomerId }: SaveKaruteF
   const [customerList, setCustomerList] = useState<CustomerOption[]>(customers)
   const [isSaving, setIsSaving] = useState(false)
 
-  // Load draft from sessionStorage (client-side only)
+  // Load draft from sessionStorage as fallback (client-side only)
   useEffect(() => {
-    setDraft(loadDraft())
+    if (!directDraft) {
+      setSessionDraft(loadDraft())
+    }
     setHasMounted(true)
-  }, [])
+  }, [directDraft])
 
-  // Handle customer created inline
+  // Use direct props if available, otherwise fall back to sessionStorage
+  const draft = directDraft ?? sessionDraft
+
   function handleCustomerCreated(newCustomer: CustomerOption) {
     setCustomerList((prev) => [newCustomer, ...prev])
     setSelectedCustomerId(newCustomer.id)
@@ -51,8 +64,6 @@ export function SaveKaruteFlow({ customers, appointmentCustomerId }: SaveKaruteF
     setIsSaving(true)
 
     try {
-      clearDraft()
-
       const result = await saveKaruteRecord({
         customerId: selectedCustomerId,
         transcript: draft.transcript,
@@ -67,7 +78,6 @@ export function SaveKaruteFlow({ customers, appointmentCustomerId }: SaveKaruteF
         appointmentId: draft.appointmentId,
       })
 
-      // If result is returned (not redirected), it's an error
       if (result && 'error' in result) {
         toast.error(result.error)
         setIsSaving(false)
@@ -81,7 +91,7 @@ export function SaveKaruteFlow({ customers, appointmentCustomerId }: SaveKaruteF
     }
   }
 
-  if (!hasMounted) {
+  if (!hasMounted && !directDraft) {
     return (
       <div className="flex flex-col gap-4">
         <div className="h-8 w-full animate-pulse rounded-lg bg-muted" />
