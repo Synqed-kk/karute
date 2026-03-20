@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
-import { Clock } from 'lucide-react'
 import { useMediaRecorder } from '@/hooks/use-media-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { PipelineContainer } from '@/components/review/PipelineContainer'
@@ -15,6 +14,7 @@ type FlowPhase = 'idle' | 'recording' | 'recorded' | 'pipeline' | 'confirm'
 interface NextAppointment {
   id: string
   customerName: string
+  customerId: string
   startTime: string
   durationMinutes: number
 }
@@ -106,7 +106,7 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
           <button
             type="button"
             onClick={handleNewSession}
-            className="text-sm text-white/50 hover:text-white/70 transition-colors"
+            className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
             {t('newSession')}
           </button>
@@ -117,10 +117,17 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
           entries={confirmData.entries}
           customers={customers}
           duration={confirmData.duration}
+          appointmentId={nextAppointment?.id}
+          appointmentCustomerId={nextAppointment?.customerId}
         />
       </div>
     )
   }
+
+  // Format appointment time
+  const appointmentTime = nextAppointment
+    ? new Date(nextAppointment.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    : null
 
   // --- Idle / Recording / Recorded phases ---
   return (
@@ -129,6 +136,29 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="text-sm text-muted-foreground">{t('recordDescription')}</p>
       </div>
+
+      {/* Next appointment info */}
+      {nextAppointment && phase === 'idle' && (
+        <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4">
+          <p className="text-xs font-medium text-muted-foreground mb-2">Recording for</p>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-semibold text-foreground">{nextAppointment.customerName}</p>
+              <p className="text-xs text-muted-foreground">
+                {appointmentTime} &middot; {nextAppointment.durationMinutes}min
+              </p>
+            </div>
+            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+          </div>
+        </div>
+      )}
+
+      {/* Show appointment badge while recording */}
+      {nextAppointment && phase === 'recording' && (
+        <div className="rounded-full border border-border bg-card px-4 py-1.5 text-xs text-muted-foreground">
+          {nextAppointment.customerName} &middot; {appointmentTime}
+        </div>
+      )}
 
       {/* Microphone error */}
       {micError && (
@@ -223,30 +253,10 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         )}
       </div>
 
-      {phase === 'idle' && (
+      {phase === 'idle' && !nextAppointment && (
         <p className="text-xs text-muted-foreground">{t('idle')}</p>
       )}
 
-      {/* Next upcoming appointment */}
-      {phase === 'idle' && nextAppointment && (
-        <div className="w-full max-w-sm rounded-xl border border-border/30 bg-card p-4 mt-2">
-          <div className="flex items-center gap-2 mb-2">
-            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs font-medium text-muted-foreground">Next Appointment</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-semibold">{nextAppointment.customerName}</p>
-              <p className="text-xs text-muted-foreground">
-                {new Date(nextAppointment.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                {' · '}
-                {nextAppointment.durationMinutes}min
-              </p>
-            </div>
-            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-          </div>
-        </div>
-      )}
     </div>
   )
 }

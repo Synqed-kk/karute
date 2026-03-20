@@ -28,6 +28,7 @@ export type KaruteDraft = {
   summary: string
   entries: KaruteDraftEntry[]
   duration?: number
+  appointmentId?: string
   /** Unix timestamp (ms) when the draft was saved */
   savedAt: number
 }

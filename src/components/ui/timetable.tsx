@@ -229,9 +229,10 @@ export function Timetable({
           })
         }
       } else if (!drag.activated) {
-        if (onBarClick && drag.bar.type === 'booking') {
+        const clickable = drag.bar.type === 'booking' || drag.bar.type === 'open' || drag.bar.type === 'completed'
+        if (onBarClick && clickable) {
           onBarClick(drag.bar)
-        } else if (drag.bar.type === 'booking' && renderBarPopover) {
+        } else if (clickable && renderBarPopover) {
           setPopoverBarId((current) => (current === drag.bar.id ? null : drag.bar.id))
         }
       }
@@ -249,7 +250,7 @@ export function Timetable({
   }, [mouseToGrid, canPlaceBar, onBarDragEnd, onBarClick, renderBarPopover])
 
   const handleBarMouseDown = useCallback((e: React.MouseEvent, bar: EmployeeTimelineBarData) => {
-    if (bar.type !== 'booking') return
+    if (bar.type !== 'booking' && bar.type !== 'open' && bar.type !== 'completed') return
     e.preventDefault()
     dragRef.current = {
       bar,
@@ -263,8 +264,6 @@ export function Timetable({
   }, [])
 
   const handleSlotClick = (rowId: string, slotStart: number, segments: EmployeeTimelineBarData[]) => {
-    setPopoverBarId(null)
-
     if (!onTimeSlotClick) return
     const slotEnd = slotStart + snapMinutes
     const isOccupied = segments.some((segment) => {
@@ -272,6 +271,7 @@ export function Timetable({
       return intervalsOverlap(slotStart, slotEnd, segment.startMinute, segmentEnd)
     })
     if (isOccupied) return
+    setPopoverBarId(null)
     onTimeSlotClick({ rowId, startMinute: slotStart })
   }
 
@@ -340,7 +340,7 @@ export function Timetable({
               })}
             </div>
 
-            <div className="relative z-10" ref={gridRef} style={{ marginLeft: `${AVATAR_WIDTH}px`, marginRight: '16px' }}>
+            <div className={`relative ${popoverBarId ? 'z-30' : 'z-10'}`} ref={gridRef} style={{ marginLeft: `${AVATAR_WIDTH}px`, marginRight: '16px' }}>
               {effectiveEmployees.map((member) => {
                 const isActiveRow = activeRowId === member.id
                 return (
@@ -393,7 +393,7 @@ export function Timetable({
                           item={item}
                           className="cursor-pointer"
                         />
-                        {renderBarPopover && item.type === 'booking' && isPopoverOpen ? (
+                        {renderBarPopover && (item.type === 'booking' || item.type === 'open' || item.type === 'completed') && isPopoverOpen ? (
                           <div
                             className="absolute left-1/2 top-full z-[60] mt-2 w-64 -translate-x-1/2 rounded-xl border border-gray-200 bg-white p-3 shadow-xl"
                             onClick={(e) => e.stopPropagation()}
@@ -475,6 +475,11 @@ export function Timetable({
           </div>
         </div>
       </div>
+
+      {/* Click-outside dismiss for popover */}
+      {popoverBarId && (
+        <div className="fixed inset-0 z-[25]" onClick={() => setPopoverBarId(null)} />
+      )}
     </section>
   )
 }

@@ -31,8 +31,21 @@ export async function saveKaruteRecord(
   let recordId: string
 
   try {
-    // Read staff_id from the active-staff cookie — never accept it from client.
-    const staffProfileId = await getActiveStaffId()
+    // Determine staff: if linked to an appointment, use the appointment's staff.
+    // Otherwise fall back to the active-staff cookie.
+    let staffProfileId = await getActiveStaffId()
+
+    if (input.appointmentId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: appt } = await (supabase as any)
+        .from('appointments')
+        .select('staff_profile_id')
+        .eq('id', input.appointmentId)
+        .single()
+      if (appt?.staff_profile_id) {
+        staffProfileId = appt.staff_profile_id
+      }
+    }
 
     if (!staffProfileId) {
       return { error: 'No active staff member selected. Please select a staff member from the header.' }
@@ -85,8 +98,18 @@ export async function saveKaruteRecord(
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
 
+  // Link karute to appointment if provided
+  if (input.appointmentId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any)
+      .from('appointments')
+      .update({ karute_record_id: recordId })
+      .eq('id', input.appointmentId)
+  }
+
   // revalidate and redirect OUTSIDE try/catch — redirect() throws internally
   revalidatePath(`/customers/${input.customerId}`)
+  revalidatePath('/dashboard')
   redirect(`/karute/${recordId}`)
 }
 

@@ -104,12 +104,16 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         type: 'booking' as const,
       }))
 
-      // Appointments that don't have a linked karute yet show as 'open' type
-      // Appointments with linked karute are already covered by karuteBars
-      const karuteIds = new Set(karuteBars.map((b) => b.id))
-      const appt: TimelineBar[] = appointments
-        .filter((a) => !a.karute_record_id || !karuteIds.has(a.karute_record_id))
-        .map((a) => {
+      // Show all appointments on the timetable:
+      // - Linked to karute → 'completed' type (green, has View Karute + Delete)
+      // - Not linked → 'open' type (blue-gray, has Delete)
+      // Filter out karute bars that overlap with appointments to avoid duplicates
+      const appointmentKaruteIds = new Set(
+        appointments.filter((a) => a.karute_record_id).map((a) => a.karute_record_id)
+      )
+      const filteredKarute = karute.filter((b) => !appointmentKaruteIds.has(b.id))
+
+      const appt: TimelineBar[] = appointments.map((a) => {
           const startAt = new Date(a.start_time)
           const startMin = startAt.getHours() * 60 + startAt.getMinutes()
           const customerName = a.customers?.name ?? ''
@@ -126,11 +130,11 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
             durationMinute: a.duration_minutes,
             title,
             subtitle: customerName,
-            type: 'open' as const,
+            type: (a.karute_record_id ? 'completed' : 'open') as 'completed' | 'open',
           }
         })
 
-      setSavedBars([...karute, ...appt])
+      setSavedBars([...filteredKarute, ...appt])
       setRawAppointments(appointments)
     })
   }, [selectedDate])
@@ -244,31 +248,48 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     [refreshBars]
   )
 
-  // Bar popover — show details + delete for appointments, link for karute
+  // Bar popover — show details + actions based on type
   const renderBarPopover = useCallback(
     (bar: TimelineBarItem) => {
       const isAppt = bar.id.startsWith('appt_')
+      const appointmentId = isAppt ? bar.id.replace('appt_', '') : null
+      const linkedAppt = appointmentId
+        ? rawAppointments.find((a) => a.id === appointmentId)
+        : null
+      const karuteId = linkedAppt?.karute_record_id
+
       return (
         <div className="space-y-2">
           <div>
-            <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{bar.title}</p>
-            {bar.subtitle && <p className="text-xs text-gray-500">{bar.subtitle}</p>}
+            <p className="text-sm font-semibold text-gray-900">{bar.title}</p>
+            {bar.subtitle && <p className="text-sm text-gray-700">{bar.subtitle}</p>}
           </div>
-          <div className="flex gap-2">
-            {!isAppt && (
+          <div className="flex flex-col gap-2">
+            {/* View Karute — for completed appointments or standalone karute bars */}
+            {karuteId && (
               <button
                 type="button"
-                onClick={() => router.push(`/karute/${bar.id}` as Parameters<typeof router.push>[0])}
-                className="flex-1 rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                onClick={() => router.push(`/karute/${karuteId}` as Parameters<typeof router.push>[0])}
+                className="w-full rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
               >
                 View Karute
               </button>
             )}
+            {!isAppt && (
+              <button
+                type="button"
+                onClick={() => router.push(`/karute/${bar.id}` as Parameters<typeof router.push>[0])}
+                className="w-full rounded-lg bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+              >
+                View Karute
+              </button>
+            )}
+            {/* Delete — for all appointment bars */}
             {isAppt && (
               <button
                 type="button"
                 onClick={() => handleDeleteAppointment(bar.id)}
-                className="flex-1 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
+                className="w-full rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-600"
               >
                 Delete
               </button>
@@ -277,7 +298,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         </div>
       )
     },
-    [router, handleDeleteAppointment]
+    [router, handleDeleteAppointment, rawAppointments]
   )
 
   const timetableStaff = useMemo(

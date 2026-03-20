@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type BarType = 'booking' | 'blocked' | 'open' | 'recording' | 'processing'
+export type BarType = 'booking' | 'blocked' | 'open' | 'completed' | 'recording' | 'processing'
 
 export interface TimelineBar {
   id: string

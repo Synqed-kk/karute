@@ -50,15 +50,15 @@ export function ReviewScreen({ transcript, entries, summary, onConfirm }: Review
       {/* Two-column layout: transcript left, entries right */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
         {/* Left column: Transcript (read-only) */}
-        <div className="flex flex-col min-h-0 rounded-lg border border-white/10 bg-[#2a2a2a] overflow-hidden">
-          <div className="px-4 py-3 border-b border-white/10">
-            <h2 className="text-xs font-semibold uppercase tracking-wider text-white/50">
+        <div className="flex flex-col min-h-0 rounded-lg border border-border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Transcript
             </h2>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
-            <pre className="text-sm text-white/70 whitespace-pre-wrap font-sans leading-relaxed">
-              {transcript || <span className="text-white/30 italic">No transcript available.</span>}
+            <pre className="text-sm text-foreground/80 whitespace-pre-wrap font-sans leading-relaxed">
+              {transcript || <span className="text-muted-foreground italic">No transcript available.</span>}
             </pre>
           </div>
         </div>
@@ -84,7 +84,7 @@ export function ReviewScreen({ transcript, entries, summary, onConfirm }: Review
           <button
             type="button"
             onClick={handleAddEntry}
-            className="flex items-center justify-center gap-2 w-full rounded-lg border border-dashed border-white/20 py-2.5 text-sm text-white/50 hover:border-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+            className="flex items-center justify-center gap-2 w-full rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:border-foreground/30 hover:text-foreground/70 hover:bg-muted/50 transition-colors"
           >
             <svg
               xmlns="http://www.w3.org/2000/svg"
@@ -106,11 +106,11 @@ export function ReviewScreen({ transcript, entries, summary, onConfirm }: Review
       </div>
 
       {/* Confirm button */}
-      <div className="flex justify-end pt-2 border-t border-white/10">
+      <div className="flex justify-end pt-2 border-t border-border">
         <button
           type="button"
           onClick={handleSubmit(handleConfirm)}
-          className="px-6 py-2.5 rounded-lg bg-white text-black text-sm font-semibold hover:bg-white/90 transition-colors"
+          className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
         >
           Confirm &amp; Save
         </button>

@@ -17,7 +17,7 @@ export interface TimelineStaff {
   avatarSrc?: string
 }
 
-export type TimelineBarType = 'booking' | 'open' | 'blocked' | 'recording' | 'processing'
+export type TimelineBarType = 'booking' | 'open' | 'completed' | 'blocked' | 'recording' | 'processing'
 
 export interface TimelineBarItem {
   id: string

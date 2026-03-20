@@ -11,33 +11,19 @@ import { saveKaruteRecord } from '@/actions/karute'
 import type { CustomerOption } from './CustomerCombobox'
 
 type SaveKaruteFlowProps = {
-  /**
-   * Pre-fetched customer list. Pass from a Server Component to avoid
-   * a client-side fetch on mount.
-   */
   customers: CustomerOption[]
+  appointmentCustomerId?: string
 }
 
 type FlowState = 'combobox' | 'quick-create'
 
-/**
- * Save flow: customer selection + save to karute record.
- *
- * Placed on the AI review screen after the user confirms extracted entries.
- * Reads the karute draft from sessionStorage (written by Phase 2).
- *
- * Flow:
- *   1. Load draft from sessionStorage on mount
- *   2. User selects a customer via inline combobox (or creates one)
- *   3. User clicks Save — no confirmation dialog (per user decision)
- *   4. saveKaruteRecord is called; on success it redirects to /karute/[newId]
- *   5. clearDraft() is called to clean up sessionStorage
- */
-export function SaveKaruteFlow({ customers }: SaveKaruteFlowProps) {
+export function SaveKaruteFlow({ customers, appointmentCustomerId }: SaveKaruteFlowProps) {
   const t = useTranslations('karute')
   const [draft, setDraft] = useState<ReturnType<typeof loadDraft>>(null)
   const [hasMounted, setHasMounted] = useState(false)
-  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
+    appointmentCustomerId ?? null
+  )
   const [flowState, setFlowState] = useState<FlowState>('combobox')
   const [customerList, setCustomerList] = useState<CustomerOption[]>(customers)
   const [isSaving, setIsSaving] = useState(false)
@@ -65,8 +51,6 @@ export function SaveKaruteFlow({ customers }: SaveKaruteFlowProps) {
     setIsSaving(true)
 
     try {
-      // Clear draft before the action so it doesn't persist on error re-render
-      // The save action will redirect on success; we clear optimistically.
       clearDraft()
 
       const result = await saveKaruteRecord({
@@ -80,18 +64,15 @@ export function SaveKaruteFlow({ customers }: SaveKaruteFlowProps) {
           confidenceScore: e.confidenceScore,
         })),
         duration: draft.duration,
+        appointmentId: draft.appointmentId,
       })
 
       // If result is returned (not redirected), it's an error
       if (result && 'error' in result) {
         toast.error(result.error)
-        // Restore draft on failure so user doesn't lose data
         setIsSaving(false)
       }
-      // On success, saveKaruteRecord calls redirect() which throws — React handles it
     } catch (err) {
-      // redirect() throws a special Next.js error — let it propagate
-      // Any other error is a genuine failure
       if (err instanceof Error && err.message.includes('NEXT_REDIRECT')) {
         throw err
       }
@@ -100,7 +81,6 @@ export function SaveKaruteFlow({ customers }: SaveKaruteFlowProps) {
     }
   }
 
-  // Avoid rendering sessionStorage-dependent content on server
   if (!hasMounted) {
     return (
       <div className="flex flex-col gap-4">
@@ -125,7 +105,11 @@ export function SaveKaruteFlow({ customers }: SaveKaruteFlowProps) {
           {t('customer')}
         </label>
 
-        {flowState === 'quick-create' ? (
+        {appointmentCustomerId ? (
+          <div className="rounded-lg border border-border bg-muted px-3 py-2 text-sm font-medium text-foreground">
+            {customerList.find((c) => c.id === appointmentCustomerId)?.name ?? 'Unknown'}
+          </div>
+        ) : flowState === 'quick-create' ? (
           <QuickCreateCustomer
             onCreated={handleCustomerCreated}
             onCancel={() => setFlowState('combobox')}

@@ -53,6 +53,7 @@ export type SaveKaruteInput = {
     confidenceScore: number
   }>
   duration?: number
+  appointmentId?: string
 }
 
 /**
