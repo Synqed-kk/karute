@@ -89,7 +89,7 @@ export function TimePassedOverlay({
 
   return (
     <div
-      className={`pointer-events-none absolute inset-y-0 left-0 bg-[#8a8f95]/46 ${className}`}
+      className={`pointer-events-none absolute inset-y-0 left-0 bg-foreground/10 ${className}`}
       style={{ ...style, left: `${leftOffsetPx}px`, width: `calc(${usableWidth} * ${overlayWidth / 100})` }}
       aria-hidden
     />
@@ -280,8 +280,8 @@ export function Timetable({
 
   return (
     <section
-      className={`relative overflow-hidden text-[#eef2f4] font-['Arial_Narrow','Franklin_Gothic_Medium','sans-serif'] ${
-        showFrame ? 'rounded-[32px] border border-[#b4b0a7] bg-[#c9c6bd] p-7' : 'p-0'
+      className={`relative overflow-hidden font-sans ${
+        showFrame ? 'rounded-2xl border border-border bg-muted p-4' : 'p-0'
       } flex h-full flex-col ${className}`}
     >
       <div className="relative flex w-full gap-[1px]">
@@ -303,8 +303,8 @@ export function Timetable({
         })}
       </div>
 
-      <div className="relative min-h-0 flex-1 bg-[#d5d5d5] dark:bg-[#444] p-2">
-        <div className="relative flex h-full min-h-0 flex-col border border-gray-400/20 dark:border-white/10 bg-[#ccc] dark:bg-[#4a4a4a] p-1">
+      <div className="relative min-h-0 flex-1 bg-card rounded-lg p-2">
+        <div className="relative flex h-full min-h-0 flex-col border border-border bg-background rounded-lg p-1">
           {!customBody ? (
             <div className="relative h-[40px] border-b border-white/20" style={{ marginLeft: `${AVATAR_WIDTH}px`, marginRight: '16px' }}>
               {hourMarkers.map((markerMinute) => {
@@ -335,7 +335,7 @@ export function Timetable({
                 return (
                   <div
                     key={markerMinute}
-                    className="absolute top-0 h-full w-px bg-white/50"
+                    className="absolute top-0 h-full w-px bg-border/50"
                     style={{ left: `${left}%` }}
                   />
                 )
@@ -346,9 +346,9 @@ export function Timetable({
               {effectiveEmployees.map((member) => {
                 const isActiveRow = activeRowId === member.id
                 return (
-                <div key={member.id} className="relative border-b border-white/20 last:border-b-0" style={{ height: `${rowHeight}px` }}>
-                  <div className={`absolute inset-y-0 left-0 right-0 rounded-[24px] ${
-                    isActiveRow ? 'bg-[#d0dce0]' : 'bg-[#c3c9cd]'
+                <div key={member.id} className="relative border-b border-border/30 last:border-b-0" style={{ height: `${rowHeight}px` }}>
+                  <div className={`absolute inset-y-0 left-0 right-0 rounded-[20px] ${
+                    isActiveRow ? 'bg-muted' : 'bg-muted/60'
                   }`} />
 
                   {slotStarts.map((slotStart) => {
@@ -361,11 +361,11 @@ export function Timetable({
                         key={`${member.id}-${slotStart}`}
                         type="button"
                         aria-label={`Create at ${slotTimeLabel} for ${member.name}`}
-                        className="group absolute inset-y-0 z-20 rounded-[20px] border border-transparent bg-transparent transition-all hover:border-white/30 hover:bg-white/10"
+                        className="group absolute inset-y-0 z-20 rounded-[20px] border border-transparent bg-transparent transition-all hover:border-border hover:bg-muted/50"
                         style={{ left: `${slotLeft}%`, width: `${slotWidth}%` }}
                         onClick={() => handleSlotClick(member.id, slotStart, member.segments)}
                       >
-                        <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-medium text-white/0 group-hover:text-white/50 transition-colors">
+                        <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-medium text-transparent group-hover:text-muted-foreground transition-colors">
                           {slotTimeLabel}
                         </span>
                       </button>
@@ -446,17 +446,17 @@ export function Timetable({
                 return (
                 <div key={member.id} className="relative" style={{ height: `${rowHeight}px` }}>
                   <div className="absolute left-0 top-1/2 -translate-y-1/2">
-                    <div className={`h-[78px] w-[78px] overflow-hidden rounded-[24px] border bg-[#f5f6f8] text-[#4f5962] ${
-                      isActiveRow ? 'border-gray-400' : 'border-white/70'
+                    <div className={`h-[78px] w-[78px] overflow-hidden rounded-[24px] border bg-card text-foreground ${
+                      isActiveRow ? 'border-border' : 'border-border/50'
                     }`}>
-                      <div className="h-[56px] bg-gradient-to-br from-[#f7f7f7] to-[#dadde3]">
+                      <div className="h-[56px] bg-muted">
                         {member.avatarSrc ? (
                           <img src={member.avatarSrc} alt={member.name} className="h-full w-full object-cover" />
                         ) : (
                           <div className="flex h-full items-center justify-center text-3xl font-semibold">{member.avatarInitials}</div>
                         )}
                       </div>
-                      <div className="bg-white/78 px-1 text-center text-[14px] font-semibold leading-5 text-[#5b6268]">{member.name}</div>
+                      <div className="bg-card px-1 text-center text-[14px] font-semibold leading-5 text-foreground/70">{member.name}</div>
                     </div>
                   </div>
                 </div>

@@ -329,14 +329,14 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   return (
     <>
       {/* Timetable header: Appointments left, date picker center */}
-      <div className="relative flex items-center bg-[#d5d5d5] dark:bg-[#444] px-5 py-2.5">
-        <span className="text-sm font-semibold text-gray-700 dark:text-white/90">{t('title')}</span>
+      <div className="relative flex items-center bg-card border-b border-border px-5 py-2.5">
+        <span className="text-sm font-semibold text-foreground">{t('title')}</span>
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
-          <button type="button" onClick={handlePrevDay} className="rounded-md px-2 py-1 text-gray-500 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors">&larr;</button>
-          <span className="text-sm font-medium text-gray-700 dark:text-white">{formatDate(selectedDate, 'en')}</span>
-          <button type="button" onClick={handleNextDay} className="rounded-md px-2 py-1 text-gray-500 dark:text-white/70 hover:text-gray-800 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-colors">&rarr;</button>
+          <button type="button" onClick={handlePrevDay} className="rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">&larr;</button>
+          <span className="text-sm font-medium text-foreground">{formatDate(selectedDate, 'en')}</span>
+          <button type="button" onClick={handleNextDay} className="rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">&rarr;</button>
           {!isToday && (
-            <button type="button" onClick={handleToday} className="rounded-md bg-gray-500/20 dark:bg-white/20 px-2 py-1 text-xs font-medium text-gray-700 dark:text-white hover:bg-gray-500/30 dark:hover:bg-white/30 transition-colors">{t('today')}</button>
+            <button type="button" onClick={handleToday} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors">{t('today')}</button>
           )}
         </div>
       </div>
