@@ -11,58 +11,78 @@ interface KaruteDetailViewProps {
   karute: KaruteWithRelations
 }
 
-/**
- * Two-column karute detail view.
- * Per user decision:
- *  - Left column: AddEntryForm at top, then flat list of EntryCards (not grouped)
- *  - Right column: AI summary section, then collapsible transcript
- *  - Stacks vertically on mobile/tablet (lg:grid-cols-2)
- */
+type EntryItem = {
+  id: string
+  category: string
+  content: string
+  source_quote: string | null
+  confidence_score: number | null
+  is_manual: boolean
+  created_at: string
+  title?: string
+}
+
 export function KaruteDetailView({ karute }: KaruteDetailViewProps) {
   const t = useTranslations('karute')
+  const locale = useLocale()
 
-  const entries = (karute as { entries?: unknown[] }).entries ?? []
+  const entries = (karute as { entries?: EntryItem[] }).entries ?? []
+
+  // Group entries by category
+  const grouped = entries.reduce<Record<string, EntryItem[]>>((acc, entry) => {
+    const cat = entry.category || 'Other'
+    if (!acc[cat]) acc[cat] = []
+    acc[cat].push(entry)
+    return acc
+  }, {})
+
+  const categoryOrder = Object.keys(grouped).sort()
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <KaruteHeader karute={karute} />
 
+      {/* AI Advice — prominent at top */}
+      <AIAdvice
+        summary={karute.summary}
+        entries={entries.map((e) => ({
+          category: e.category,
+          title: e.title ?? e.content,
+        }))}
+        locale={locale}
+      />
+
       {/* Export buttons */}
       <ExportButtons karuteId={karute.id} />
 
       {/* Two-column layout */}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Left column: entries */}
-        <div className="space-y-3">
+        {/* Left column: entries grouped by category */}
+        <div className="space-y-5">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
             {t('entries')}
           </h2>
 
-          {/* Always-visible add entry form at the top */}
           <AddEntryForm karuteRecordId={karute.id} />
 
-          {/* Entry list — flat, not grouped */}
           {entries.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noEntries')}</p>
           ) : (
-            <div className="space-y-2">
-              {(entries as Array<{
-                id: string
-                category: string
-                content: string
-                source_quote: string | null
-                confidence_score: number | null
-                is_manual: boolean
-                created_at: string
-              }>).map((entry) => (
-                <EntryCard
-                  key={entry.id}
-                  entry={entry}
-                  karuteRecordId={karute.id}
-                />
-              ))}
-            </div>
+            categoryOrder.map((category) => (
+              <div key={category} className="space-y-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b border-border pb-1">
+                  {category}
+                </h3>
+                {grouped[category].map((entry) => (
+                  <EntryCard
+                    key={entry.id}
+                    entry={entry}
+                    karuteRecordId={karute.id}
+                  />
+                ))}
+              </div>
+            ))
           )}
         </div>
 
@@ -81,16 +101,6 @@ export function KaruteDetailView({ karute }: KaruteDetailViewProps) {
               <p className="text-sm text-muted-foreground italic">—</p>
             )}
           </div>
-
-          {/* AI Advice for Next Visit */}
-          <AIAdvice
-            summary={karute.summary}
-            entries={(entries as Array<{ category: string; title?: string; content: string }>).map((e) => ({
-              category: e.category,
-              title: e.title ?? e.content,
-            }))}
-            locale={useLocale()}
-          />
 
           {/* Collapsible transcript */}
           <TranscriptSection transcript={karute.transcript} />

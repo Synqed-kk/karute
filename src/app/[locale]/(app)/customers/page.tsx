@@ -1,6 +1,7 @@
 import { Suspense } from 'react'
 import { getTranslations } from 'next-intl/server'
 import { listCustomers } from '@/lib/customers/queries'
+import { getStaffList } from '@/lib/staff'
 import { CustomerSearch } from '@/components/customers/CustomerSearch'
 import { CustomerCards } from '@/components/customers/CustomerCards'
 import { CustomerFilters } from '@/components/customers/CustomerFilters'
@@ -37,7 +38,12 @@ export default async function CustomersPage({
   const sort = (params.sort ?? 'updated_at') as 'name' | 'updated_at' | 'created_at'
   const order = (params.order ?? 'desc') as 'asc' | 'desc'
 
-  const t = await getTranslations('customers')
+  const [t, staffList] = await Promise.all([
+    getTranslations('customers'),
+    getStaffList(),
+  ])
+
+  const staffItems = staffList.map((s) => ({ id: s.id, name: s.full_name ?? 'Unknown' }))
 
   const { customers, totalPages, totalCount } = await listCustomers({
     query,
@@ -65,7 +71,7 @@ export default async function CustomersPage({
         <div className="flex-1">
           <CustomerSearch />
         </div>
-        <CustomerFilters />
+        <CustomerFilters staffList={staffItems} />
       </div>
 
       {/* Content */}

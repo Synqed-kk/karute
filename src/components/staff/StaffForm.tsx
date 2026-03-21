@@ -1,6 +1,7 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { useState } from 'react'
+import { useForm, type UseFormRegister } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -14,6 +15,21 @@ import {
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
+
+const POSITION_OPTIONS = [
+  'Stylist',
+  'Manager',
+  'Assistant',
+  'Therapist',
+  'Esthetician',
+  'Nail Technician',
+  'Receptionist',
+  'Teacher',
+  'Trainer',
+  'Doctor',
+  'Nurse',
+  'Other',
+]
 
 interface StaffFormProps {
   mode: 'create' | 'edit'
@@ -77,11 +93,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">Position</label>
-              <Input
-                type="text"
-                placeholder="e.g. Stylist, Manager"
-                {...register('position')}
-              />
+              <PositionSelect register={register} defaultValue={mode === 'edit' ? (staff?.position ?? '') : ''} />
             </div>
           </div>
 
@@ -107,7 +119,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
             </div>
           </div>
 
-          <DialogFooter>
+          <DialogFooter className="pt-2">
             <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
               Cancel
             </Button>
@@ -118,5 +130,51 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+function PositionSelect({ register, defaultValue }: { register: UseFormRegister<StaffProfileInput>; defaultValue: string }) {
+  const isCustom = defaultValue && !POSITION_OPTIONS.includes(defaultValue)
+  const [showCustom, setShowCustom] = useState(isCustom)
+
+  if (showCustom) {
+    return (
+      <div className="flex gap-2">
+        <Input
+          type="text"
+          placeholder="Enter position..."
+          {...register('position')}
+        />
+        <button
+          type="button"
+          onClick={() => setShowCustom(false)}
+          className="shrink-0 text-xs text-muted-foreground hover:text-foreground px-2"
+        >
+          List
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex gap-2">
+      <select
+        {...register('position')}
+        className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+      >
+        <option value="">Select position...</option>
+        {POSITION_OPTIONS.map((p) => (
+          <option key={p} value={p}>{p}</option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => setShowCustom(true)}
+        className="shrink-0 text-xs text-muted-foreground hover:text-foreground px-2"
+        title="Type custom position"
+      >
+        Custom
+      </button>
+    </div>
   )
 }
