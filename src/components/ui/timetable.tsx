@@ -354,6 +354,7 @@ export function Timetable({
                   {slotStarts.map((slotStart) => {
                     const slotLeft = minutesToPercent(slotStart, startMinuteVal, totalMinutes)
                     const slotWidth = (snapMinutes / totalMinutes) * 100
+                    const isPastSlot = currentMinute > 0 && slotStart < currentMinute
 
                     const slotTimeLabel = `${String(Math.floor(slotStart / 60)).padStart(2, '0')}:${String(slotStart % 60).padStart(2, '0')}`
                     return (
@@ -361,11 +362,17 @@ export function Timetable({
                         key={`${member.id}-${slotStart}`}
                         type="button"
                         aria-label={`Create at ${slotTimeLabel} for ${member.name}`}
-                        className="group absolute inset-y-0 z-20 rounded-[20px] border border-transparent bg-transparent transition-all hover:border-border hover:bg-muted/50"
+                        className={`group absolute inset-y-0 z-20 rounded-[20px] border border-transparent bg-transparent transition-all ${
+                          isPastSlot
+                            ? 'cursor-not-allowed hover:border-red-500/30 hover:bg-red-500/5'
+                            : 'hover:border-border hover:bg-muted/50'
+                        }`}
                         style={{ left: `${slotLeft}%`, width: `${slotWidth}%` }}
                         onClick={() => handleSlotClick(member.id, slotStart, member.segments)}
                       >
-                        <span className="absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-medium text-transparent group-hover:text-muted-foreground transition-colors">
+                        <span className={`absolute top-1 left-1/2 -translate-x-1/2 text-[9px] font-medium transition-colors ${
+                          isPastSlot ? 'text-transparent group-hover:text-red-400/60' : 'text-transparent group-hover:text-muted-foreground'
+                        }`}>
                           {slotTimeLabel}
                         </span>
                       </button>

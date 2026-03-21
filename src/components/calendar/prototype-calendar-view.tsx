@@ -116,7 +116,7 @@ export function TimetableWithTabs({
       currentTimeLabel={currentTimeLabel}
       currentMinute={currentMinute}
       rowHeight={rowHeight}
-      snapMinutes={60}
+      snapMinutes={30}
       allowOverlap={false}
       showFrame={false}
       activeRowId={activeRowId}

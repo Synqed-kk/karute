@@ -165,16 +165,26 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     return () => window.removeEventListener('click', handler)
   }, [])
 
+  const isPastDay = useMemo(() => {
+    const now = new Date()
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
+    return selected < today
+  }, [selectedDate])
+
   const handleTimeSlotClick = useCallback(
     (payload: { rowId: string; startMinute: number }) => {
       if (activeStaffId && payload.rowId !== activeStaffId) return
+      // Block past time slots
+      if (isPastDay) return
+      if (isToday && payload.startMinute < currentMinute) return
       setSlotClick({
         ...payload,
         clickX: lastClickRef.current.x,
         clickY: lastClickRef.current.y,
       })
     },
-    [activeStaffId]
+    [activeStaffId, isPastDay, isToday, currentMinute]
   )
 
   const handleAppointmentCreated = () => {
@@ -328,13 +338,22 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
 
   return (
     <>
-      {/* Timetable header: Appointments left, date picker center */}
-      <div className="relative flex items-center bg-card border-b border-border px-5 py-2.5">
+      {/* Timetable header */}
+      <div className="relative flex items-center px-5 py-2.5">
         <span className="text-sm font-semibold text-foreground">{t('title')}</span>
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
           <button type="button" onClick={handlePrevDay} className="rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">&larr;</button>
           <span className="text-sm font-medium text-foreground">{formatDate(selectedDate, 'en')}</span>
           <button type="button" onClick={handleNextDay} className="rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">&rarr;</button>
+          <label className="relative rounded-md px-1.5 py-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+            <input
+              type="date"
+              value={toLocalDateStr(selectedDate)}
+              onChange={(e) => { if (e.target.value) { setSelectedDate(new Date(e.target.value + 'T12:00:00')); setSlotClick(null) } }}
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+            />
+          </label>
           {!isToday && (
             <button type="button" onClick={handleToday} className="rounded-md bg-muted px-2 py-1 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors">{t('today')}</button>
           )}
