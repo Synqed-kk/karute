@@ -56,9 +56,17 @@ export function CustomerCards({ customers: initialCustomers }: CustomerCardsProp
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold truncate group-hover:text-primary transition-colors">
-              {c.name}
-            </p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold truncate group-hover:text-primary transition-colors">
+                {c.name}
+              </p>
+              {/* Tags */}
+              {(c as { tags?: string[] }).tags?.map((tag: string) => (
+                <span key={tag} className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                  {tag}
+                </span>
+              ))}
+            </div>
             {c.phone && (
               <p className="text-xs text-muted-foreground mt-0.5">{c.phone}</p>
             )}

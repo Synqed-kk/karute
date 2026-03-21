@@ -30,13 +30,15 @@ function CardsSkeleton() {
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ query?: string; page?: string; sort?: string; order?: string }>
+  searchParams: Promise<{ query?: string; page?: string; sort?: string; order?: string; staff?: string; type?: string }>
 }) {
   const params = await searchParams
   const query = params.query ?? ''
   const page = params.page ?? '1'
   const sort = (params.sort ?? 'updated_at') as 'name' | 'updated_at' | 'created_at'
   const order = (params.order ?? 'desc') as 'asc' | 'desc'
+  const staffFilter = params.staff ?? ''
+  const typeFilter = params.type ?? ''
 
   const [t, staffList] = await Promise.all([
     getTranslations('customers'),
@@ -51,6 +53,8 @@ export default async function CustomersPage({
     pageSize: 12,
     sortBy: sort,
     sortOrder: order,
+    staffId: staffFilter,
+    customerType: typeFilter,
   })
 
   const isEmptyState = totalCount === 0 && !query

@@ -11,6 +11,8 @@ export interface ListCustomersOptions {
   pageSize?: number
   sortBy?: keyof Pick<Customer, 'name' | 'updated_at' | 'created_at'>
   sortOrder?: 'asc' | 'desc'
+  staffId?: string
+  customerType?: string
 }
 
 export interface ListCustomersResult {
@@ -23,26 +25,22 @@ export interface ListCustomersResult {
 // listCustomers
 // ---------------------------------------------------------------------------
 
-/**
- * Returns a paginated list of customers with optional search filtering.
- *
- * Search uses ilike across name, furigana, phone, and email columns.
- * Default sort: updated_at desc (proxy for last visit until karute_records exist).
- * Default page size: 10 (per user decision).
- */
 export async function listCustomers({
   query,
   page = 1,
   pageSize = 10,
   sortBy = 'updated_at',
   sortOrder = 'desc',
+  staffId,
+  customerType,
 }: ListCustomersOptions = {}): Promise<ListCustomersResult> {
   const supabase = await createClient()
 
   const from = (page - 1) * pageSize
   const to = from + pageSize - 1
 
-  let dbQuery = supabase
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let dbQuery = (supabase as any)
     .from('customers')
     .select('*', { count: 'exact' })
 
@@ -51,6 +49,14 @@ export async function listCustomers({
     dbQuery = dbQuery.or(
       `name.ilike.%${q}%,furigana.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`
     )
+  }
+
+  if (staffId && staffId !== 'all') {
+    dbQuery = dbQuery.eq('assigned_staff_id', staffId)
+  }
+
+  if (customerType && customerType !== 'all') {
+    dbQuery = dbQuery.eq('customer_type', customerType)
   }
 
   const { data, count, error } = await dbQuery
@@ -75,10 +81,6 @@ export async function listCustomers({
 // getCustomer
 // ---------------------------------------------------------------------------
 
-/**
- * Returns a single customer by id.
- * Throws if not found.
- */
 export async function getCustomer(id: string): Promise<Customer> {
   const supabase = await createClient()
 
@@ -99,12 +101,6 @@ export async function getCustomer(id: string): Promise<Customer> {
 // checkDuplicateName
 // ---------------------------------------------------------------------------
 
-/**
- * Checks whether a customer with the given name already exists (case-insensitive).
- *
- * Per user decision: duplicate detection warns but does not block creation.
- * Returns { exists: true, existingName } when a match is found.
- */
 export async function checkDuplicateName(
   name: string
 ): Promise<{ exists: boolean; existingName?: string }> {
@@ -117,7 +113,6 @@ export async function checkDuplicateName(
     .limit(1)
 
   if (error) {
-    // Non-fatal — return no match on error so creation is not blocked
     console.error('[checkDuplicateName] Supabase error:', error.message)
     return { exists: false }
   }

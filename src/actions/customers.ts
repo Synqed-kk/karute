@@ -150,41 +150,52 @@ export async function createQuickCustomer(
  * Validates input, updates the row, and revalidates both the list page
  * and the customer's profile page.
  */
-export async function updateCustomer(id: string, input: CustomerFormInput): Promise<ActionResult> {
-  const parsed = CustomerFormSchema.safeParse(input)
-  if (!parsed.success) {
-    return {
-      success: false,
-      error: parsed.error.issues.map((e) => e.message).join(', '),
-    }
-  }
-
-  const { name, furigana, phone, email } = parsed.data
+export async function updateCustomer(id: string, input: CustomerFormInput | Record<string, unknown>): Promise<ActionResult> {
   const supabase = await createClient()
 
-  try {
-    const { error } = await supabase
-      .from('customers')
-      .update({
-        name,
-        furigana: furigana || null,
-        phone: phone || null,
-        email: email || null,
-      })
-      .eq('id', id)
-
-    if (error) {
-      return { success: false, error: error.message }
+  // If it looks like a full form submission, validate
+  if ('name' in input && typeof input.name === 'string') {
+    const parsed = CustomerFormSchema.safeParse(input)
+    if (!parsed.success) {
+      return {
+        success: false,
+        error: parsed.error.issues.map((e) => e.message).join(', '),
+      }
     }
-
-    revalidatePath('/customers')
-    revalidatePath(`/customers/${id}`)
-
-    return { success: true, id }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    const { name, furigana, phone, email } = parsed.data
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const updateData: Record<string, any> = {
+      name,
+      furigana: furigana || null,
+      phone: phone || null,
+      email: email || null,
+    }
+    // Merge any extra fields (customer_type, notes, tags, etc.)
+    for (const key of ['customer_type', 'notes', 'tags', 'assigned_staff_id'] as const) {
+      if (key in input) {
+        updateData[key] = (input as Record<string, unknown>)[key]
+      }
+    }
+    try {
+      const { error } = await supabase.from('customers').update(updateData).eq('id', id)
+      if (error) return { success: false, error: error.message }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    }
+  } else {
+    // Partial update (e.g. just customer_type or notes)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await (supabase as any).from('customers').update(input).eq('id', id)
+      if (error) return { success: false, error: error.message }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
+    }
   }
+
+  revalidatePath('/customers')
+  revalidatePath(`/customers/${id}`)
+  return { success: true, id }
 }
 
 /**

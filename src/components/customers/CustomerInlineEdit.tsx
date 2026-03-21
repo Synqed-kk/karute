@@ -130,6 +130,36 @@ export function CustomerInlineEdit({ customer, onSave, onCancel }: CustomerInlin
         </div>
       </div>
 
+      {/* Customer type + Notes */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="space-y-1">
+          <label className="text-sm font-medium" htmlFor="edit-type">Type</label>
+          <select
+            id="edit-type"
+            defaultValue={(customer as { customer_type?: string }).customer_type ?? ''}
+            onChange={async (e) => {
+              await updateCustomer(customer.id, { customer_type: e.target.value || null } as Record<string, unknown>)
+            }}
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          >
+            <option value="">None</option>
+            <option value="nominated">Nominated</option>
+            <option value="walkin">Walk-in</option>
+          </select>
+        </div>
+        <div className="space-y-1">
+          <label className="text-sm font-medium" htmlFor="edit-notes">Notes</label>
+          <Input
+            id="edit-notes"
+            placeholder="Internal notes..."
+            defaultValue={(customer as { notes?: string }).notes ?? ''}
+            onBlur={async (e) => {
+              await updateCustomer(customer.id, { notes: e.target.value } as Record<string, unknown>)
+            }}
+          />
+        </div>
+      </div>
+
       {/* Save and Cancel buttons */}
       <div className="flex gap-2 pt-2">
         <Button type="submit" disabled={isSubmitting} size="sm">
