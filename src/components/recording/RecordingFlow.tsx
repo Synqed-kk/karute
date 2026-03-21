@@ -17,6 +17,8 @@ interface NextAppointment {
   customerId: string
   startTime: string
   durationMinutes: number
+  title: string | null
+  notes: string | null
 }
 
 interface RecordingFlowProps {
@@ -36,6 +38,8 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
   const t = useTranslations('recording')
   const [phase, setPhase] = useState<FlowPhase>('idle')
   const [confirmData, setConfirmData] = useState<ConfirmData | null>(null)
+  const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
 
   const {
     state: recState,
@@ -50,15 +54,33 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
   } = useMediaRecorder()
 
   const bars = useWaveformBars(stream, recState === 'recording')
+  // Keep frozen bars for the "recorded" phase
+  const lastBarsRef = useRef<number[]>([])
+  if (recState === 'recording') {
+    lastBarsRef.current = bars
+  }
 
-  // Sync useMediaRecorder state to flow phase
   useEffect(() => {
     if (recState === 'recording' || recState === 'paused') {
       setPhase('recording')
     } else if (recState === 'recorded' && result) {
+      setRecordingDuration(Math.round(result.durationMs / 1000))
       setPhase('recorded')
     }
   }, [recState, result])
+
+  function handleStartRecording() {
+    if (!nextAppointment) {
+      setShowNoBookingPrompt(true)
+      return
+    }
+    startRecording()
+  }
+
+  function handleStartAnywayWithoutBooking() {
+    setShowNoBookingPrompt(false)
+    startRecording()
+  }
 
   function handleDiscard() {
     discardRecording()
@@ -97,12 +119,12 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
     )
   }
 
-  // --- Confirm phase: show save flow ---
+  // --- Confirm phase: show save flow directly (no redundant "Review Complete" page) ---
   if (phase === 'confirm' && confirmData) {
     return (
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-semibold tracking-tight">Review Complete</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Save Karute</h1>
           <button
             type="button"
             onClick={handleNewSession}
@@ -124,10 +146,21 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
     )
   }
 
-  // Format appointment time
+  // Format appointment details
+  const appointmentDate = nextAppointment
+    ? new Date(nextAppointment.startTime).toLocaleDateString(undefined, {
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+      })
+    : null
   const appointmentTime = nextAppointment
     ? new Date(nextAppointment.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null
+
+  const frozenBars = lastBarsRef.current.length > 0
+    ? lastBarsRef.current.map((h) => Math.max(6, h * 0.4))
+    : []
 
   // --- Idle / Recording / Recorded phases ---
   return (
@@ -139,7 +172,7 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         </div>
       )}
 
-      {/* Fixed-height area for waveform + timer so buttons don't jump */}
+      {/* Waveform + timer area — visible during recording AND recorded phases */}
       <div className="flex flex-col items-center justify-center h-[160px] w-full max-w-xs">
         {phase === 'recording' && (
           <>
@@ -160,14 +193,32 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
             )}
           </>
         )}
+        {phase === 'recorded' && frozenBars.length > 0 && (
+          <>
+            <div className="flex items-end justify-center gap-[3px] h-[100px] w-full opacity-50">
+              {frozenBars.map((height, i) => (
+                <div
+                  key={i}
+                  className="w-[6px] rounded-full bg-muted-foreground/40"
+                  style={{ height: `${height}px` }}
+                />
+              ))}
+            </div>
+            <p className="mt-2 text-lg font-mono text-muted-foreground tabular-nums">
+              {String(Math.floor(recordingDuration / 60)).padStart(2, '0')}:
+              {String(recordingDuration % 60).padStart(2, '0')}
+            </p>
+          </>
+        )}
       </div>
 
       {/* Action buttons — always in the same vertical position */}
       <div className="flex items-center justify-center gap-4 h-16">
+        {/* IDLE: single record button */}
         {phase === 'idle' && (
           <button
             type="button"
-            onClick={startRecording}
+            onClick={handleStartRecording}
             className="flex items-center justify-center w-16 h-16 rounded-full bg-red-500 hover:bg-red-400 transition-colors shadow-lg shadow-red-500/25"
             aria-label={t('start')}
           >
@@ -175,13 +226,14 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
           </button>
         )}
 
+        {/* RECORDING: stop replaces record in center, pause beside it */}
         {phase === 'recording' && (
           <>
             {recState === 'paused' ? (
               <button
                 type="button"
                 onClick={resumeRecording}
-                className="flex items-center justify-center w-12 h-12 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                className="flex items-center justify-center w-10 h-10 rounded-full bg-muted hover:bg-muted/80 transition-colors"
                 aria-label={t('resume')}
               >
                 <PlayIcon />
@@ -190,7 +242,7 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
               <button
                 type="button"
                 onClick={pauseRecording}
-                className="flex items-center justify-center w-12 h-12 rounded-full bg-muted hover:bg-muted/80 transition-colors"
+                className="flex items-center justify-center w-10 h-10 rounded-full bg-muted hover:bg-muted/80 transition-colors"
                 aria-label={t('paused')}
               >
                 <PauseIcon />
@@ -207,6 +259,7 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
           </>
         )}
 
+        {/* RECORDED: discard / use recording */}
         {phase === 'recorded' && (
           <>
             <button
@@ -233,23 +286,60 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         <p className="text-sm text-muted-foreground">{t('recordDescription')}</p>
       </div>
 
-      {/* Next appointment info */}
+      {/* Appointment card with full details */}
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-4">
         <p className="text-xs font-medium text-muted-foreground mb-2">Recording for</p>
         {nextAppointment ? (
-          <div className="flex items-center justify-between">
-            <div>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
               <p className="text-sm font-semibold text-foreground">{nextAppointment.customerName}</p>
-              <p className="text-xs text-muted-foreground">
-                {appointmentTime} &middot; {nextAppointment.durationMinutes}min
-              </p>
+              <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
             </div>
-            <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span>{appointmentDate}</span>
+              <span>{appointmentTime}</span>
+              <span>{nextAppointment.durationMinutes}min</span>
+            </div>
+            {nextAppointment.title && (
+              <p className="text-sm text-foreground/80">{nextAppointment.title}</p>
+            )}
+            {nextAppointment.notes && (
+              <p className="text-xs text-muted-foreground italic">{nextAppointment.notes}</p>
+            )}
           </div>
         ) : (
           <p className="text-sm text-muted-foreground">No upcoming appointment</p>
         )}
       </div>
+
+      {/* No-booking prompt modal */}
+      {showNoBookingPrompt && (
+        <>
+          <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm" onClick={() => setShowNoBookingPrompt(false)} />
+          <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-sm rounded-xl border border-border bg-card p-6 shadow-xl space-y-4">
+            <h3 className="text-base font-semibold text-foreground">No booking found</h3>
+            <p className="text-sm text-muted-foreground">
+              You don&apos;t have an upcoming appointment. You can still record — it will be saved to your karute but won&apos;t be linked to any booking.
+            </p>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => setShowNoBookingPrompt(false)}
+                className="flex-1 rounded-lg border border-border px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleStartAnywayWithoutBooking}
+                className="flex-1 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+              >
+                Record anyway
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   )
 }

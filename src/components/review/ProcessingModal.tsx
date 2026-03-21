@@ -30,7 +30,6 @@ function getStepStatus(
 
   if (currentIndex === -1) return 'pending'
   if (stepIndex < currentIndex) return 'done'
-  // During 'extracting', both extracting and summarizing are active (parallel)
   if (currentStep === 'extracting' && (step === 'extracting' || step === 'summarizing')) return 'active'
   if (stepIndex === currentIndex) return 'active'
   return 'pending'
@@ -39,7 +38,7 @@ function getStepStatus(
 function Spinner() {
   return (
     <svg
-      className="animate-spin h-4 w-4 text-white"
+      className="animate-spin h-4 w-4 text-primary"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -57,7 +56,7 @@ function Spinner() {
 function CheckIcon() {
   return (
     <svg
-      className="h-4 w-4 text-green-400"
+      className="h-4 w-4 text-emerald-500"
       xmlns="http://www.w3.org/2000/svg"
       viewBox="0 0 24 24"
       fill="none"
@@ -73,15 +72,13 @@ function CheckIcon() {
 
 export function ProcessingModal({ currentStep, error, onRetry }: ProcessingModalProps) {
   return (
-    /* Full-screen blocking overlay — no pointer events on outside, no dismiss */
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="w-full max-w-sm rounded-2xl bg-[#2a2a2a] border border-white/10 shadow-2xl p-8">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/80 backdrop-blur-sm">
+      <div className="w-full max-w-sm rounded-2xl bg-card border border-border shadow-2xl p-8">
         {error ? (
-          /* Error state */
           <div className="flex flex-col items-center gap-5 text-center">
             <div className="flex items-center justify-center w-12 h-12 rounded-full bg-red-500/10 border border-red-500/30">
               <svg
-                className="h-6 w-6 text-red-400"
+                className="h-6 w-6 text-red-500"
                 xmlns="http://www.w3.org/2000/svg"
                 viewBox="0 0 24 24"
                 fill="none"
@@ -96,23 +93,22 @@ export function ProcessingModal({ currentStep, error, onRetry }: ProcessingModal
               </svg>
             </div>
             <div>
-              <h2 className="text-base font-semibold text-white mb-1">Processing failed</h2>
-              <p className="text-sm text-white/50 leading-relaxed">{error}</p>
+              <h2 className="text-base font-semibold text-foreground mb-1">Processing failed</h2>
+              <p className="text-sm text-muted-foreground leading-relaxed">{error}</p>
             </div>
             <button
               type="button"
               onClick={onRetry}
-              className="px-5 py-2 rounded-lg bg-white text-black text-sm font-semibold hover:bg-white/90 transition-colors"
+              className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
             >
               Retry
             </button>
           </div>
         ) : (
-          /* Processing state: step-by-step progress */
           <div className="flex flex-col gap-6">
             <div>
-              <h2 className="text-base font-semibold text-white mb-1">Processing recording</h2>
-              <p className="text-sm text-white/40">Please wait while AI analyzes your session...</p>
+              <h2 className="text-base font-semibold text-foreground mb-1">Processing recording</h2>
+              <p className="text-sm text-muted-foreground">Please wait while AI analyzes your session...</p>
             </div>
 
             <div className="flex flex-col gap-4">
@@ -124,16 +120,16 @@ export function ProcessingModal({ currentStep, error, onRetry }: ProcessingModal
                       {status === 'done' && <CheckIcon />}
                       {status === 'active' && <Spinner />}
                       {status === 'pending' && (
-                        <div className="w-4 h-4 rounded-full border border-white/20" />
+                        <div className="w-4 h-4 rounded-full border border-border" />
                       )}
                     </div>
                     <span
                       className={
                         status === 'active'
-                          ? 'text-sm text-white font-medium'
+                          ? 'text-sm text-foreground font-medium'
                           : status === 'done'
-                            ? 'text-sm text-white/50 line-through'
-                            : 'text-sm text-white/30'
+                            ? 'text-sm text-muted-foreground line-through'
+                            : 'text-sm text-muted-foreground/50'
                       }
                     >
                       {status === 'done' ? label.replace('...', '') : label}

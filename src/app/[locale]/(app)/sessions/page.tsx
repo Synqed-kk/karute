@@ -30,6 +30,8 @@ export default async function SessionsPage({
     customerId: string
     startTime: string
     durationMinutes: number
+    title: string | null
+    notes: string | null
   } | null = null
 
   // Find the nearest unlinked appointment — look back 12h and forward 24h
@@ -45,7 +47,7 @@ export default async function SessionsPage({
     const sb = supabase as any
     const { data } = await sb
       .from('appointments')
-      .select('id, start_time, duration_minutes, client_id, customers:client_id ( name )')
+      .select('id, start_time, duration_minutes, client_id, title, notes, customers:client_id ( name )')
       .is('karute_record_id', null)
       .eq('staff_profile_id', activeStaffId)
       .gte('start_time', windowStart.toISOString())
@@ -63,6 +65,8 @@ export default async function SessionsPage({
       customerId: a.client_id,
       startTime: a.start_time,
       durationMinutes: a.duration_minutes,
+      title: a.title ?? null,
+      notes: a.notes ?? null,
     }
   }
 
