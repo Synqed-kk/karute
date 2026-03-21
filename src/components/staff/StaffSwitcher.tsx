@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Plus, LogOut, ChevronDown } from 'lucide-react'
+import { Plus, LogOut, ChevronDown, Settings } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -161,6 +161,15 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
             <span className="text-sm">Add Staff</span>
           </DropdownMenuItem>
         )}
+
+        {/* Manage staff in settings */}
+        <DropdownMenuItem
+          onClick={() => router.push('/settings')}
+          className="flex items-center gap-3 px-4 py-2.5 cursor-pointer text-muted-foreground"
+        >
+          <Settings className="h-4 w-4" />
+          <span className="text-sm">Manage Staff</span>
+        </DropdownMenuItem>
 
         <DropdownMenuSeparator className="my-0" />
 
