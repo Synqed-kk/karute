@@ -97,6 +97,15 @@ export function Sidebar() {
           </Link>
         )
       })}
+
+      {/* Logo at bottom */}
+      <div className="mt-auto pb-2">
+        <img
+          src="/karute_logo.png"
+          alt="Karute"
+          className="w-10 h-10 object-contain opacity-40 invert"
+        />
+      </div>
     </nav>
   )
 }
