@@ -306,19 +306,21 @@ export function Timetable({
       <div className="relative min-h-0 flex-1 bg-[#d5d5d5] dark:bg-[#444] p-2">
         <div className="relative flex h-full min-h-0 flex-col border border-gray-400/20 dark:border-white/10 bg-[#ccc] dark:bg-[#4a4a4a] p-1">
           {!customBody ? (
-            <div className="relative h-[50px] border-b border-white/20">
-              <div
-                className="absolute top-[6px] text-[20px] font-semibold text-white/78"
-                style={{ left: `calc(${AVATAR_WIDTH}px + (100% - ${AVATAR_WIDTH + 16}px) * ${currentTimeLeft / 100})`, transform: 'translateX(-50%)' }}
-              >
-                {currentTimeLabel}
-              </div>
-              <div className="absolute top-[6px] text-[20px] font-semibold text-white/78" style={{ left: `${AVATAR_WIDTH}px` }}>
-                {formatMinuteLabel(startMinuteVal)}
-              </div>
-              <div className="absolute right-4 top-[6px] text-[20px] font-semibold text-white/82">
-                {formatMinuteLabel(endMinuteVal)}
-              </div>
+            <div className="relative h-[40px] border-b border-white/20" style={{ marginLeft: `${AVATAR_WIDTH}px`, marginRight: '16px' }}>
+              {hourMarkers.map((markerMinute) => {
+                const left = minutesToPercent(markerMinute, startMinuteVal, totalMinutes)
+                const hour = Math.floor(markerMinute / 60)
+                const displayHour = hour > 12 ? hour - 12 : hour === 0 ? 12 : hour
+                return (
+                  <div
+                    key={markerMinute}
+                    className="absolute top-[8px] text-[16px] font-semibold text-gray-500 dark:text-white/60 -translate-x-1/2"
+                    style={{ left: `${left}%` }}
+                  >
+                    {displayHour}
+                  </div>
+                )
+              })}
             </div>
           ) : null}
 

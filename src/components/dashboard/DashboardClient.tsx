@@ -6,7 +6,6 @@ import { useRouter } from '@/i18n/navigation'
 import { TimetableWithTabs } from '@/components/calendar/prototype-calendar-view'
 import { AppointmentPopout } from '@/components/dashboard/AppointmentPopout'
 import { useTimetableStore } from '@/stores/timetable-store'
-import { getBarsByDate } from '@/actions/dashboard'
 import { getAppointmentsByDate, updateAppointment, deleteAppointment, type AppointmentRow } from '@/actions/appointments'
 import { deleteKaruteRecord } from '@/actions/karute'
 import { toast } from 'sonner'
@@ -91,29 +90,10 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     const dateStr = toLocalDateStr(selectedDate)
     const tzOffset = new Date().getTimezoneOffset()
 
-    Promise.all([
-      getBarsByDate(dateStr, tzOffset),
-      getAppointmentsByDate(dateStr, tzOffset),
-    ]).then(([karuteBars, appointments]) => {
-      const karute: TimelineBar[] = karuteBars.map((b) => ({
-        id: b.id,
-        rowId: b.staffId,
-        startMinute: b.startMinute,
-        durationMinute: b.durationMinute,
-        title: b.title,
-        subtitle: b.subtitle,
-        type: 'booking' as const,
-      }))
-
-      // Show all appointments on the timetable:
+    getAppointmentsByDate(dateStr, tzOffset).then((appointments) => {
+      // Only show appointment bars on the timetable (no standalone karute bars)
       // - Linked to karute → 'completed' type (green, has View Karute + Delete)
       // - Not linked → 'open' type (blue-gray, has Delete)
-      // Filter out karute bars that overlap with appointments to avoid duplicates
-      const appointmentKaruteIds = new Set(
-        appointments.filter((a) => a.karute_record_id).map((a) => a.karute_record_id)
-      )
-      const filteredKarute = karute.filter((b) => !appointmentKaruteIds.has(b.id))
-
       const appt: TimelineBar[] = appointments.map((a) => {
           const startAt = new Date(a.start_time)
           const startMin = startAt.getHours() * 60 + startAt.getMinutes()
@@ -135,7 +115,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           }
         })
 
-      setSavedBars([...filteredKarute, ...appt])
+      setSavedBars(appt)
       setRawAppointments(appointments)
     })
   }, [selectedDate])
