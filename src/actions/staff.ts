@@ -35,6 +35,7 @@ export async function createStaff(data: StaffProfileInput): Promise<void> {
   const { error } = await (supabase as any)
     .from('profiles')
     .insert([{
+      id: crypto.randomUUID(),
       full_name: parsed.data.name,
       customer_id: ownerProfile.customer_id,
       position: parsed.data.position ?? '',
