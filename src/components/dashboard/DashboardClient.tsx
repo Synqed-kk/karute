@@ -177,7 +177,8 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       if (activeStaffId && payload.rowId !== activeStaffId) return
       // Block past time slots
       if (isPastDay) return
-      if (isToday && payload.startMinute < currentMinute) return
+      // Only block if the entire slot is in the past (slot end <= current time)
+      if (isToday && payload.startMinute + 30 <= currentMinute) return
       setSlotClick({
         ...payload,
         clickX: lastClickRef.current.x,

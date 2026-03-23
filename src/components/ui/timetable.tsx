@@ -354,7 +354,7 @@ export function Timetable({
                   {slotStarts.map((slotStart) => {
                     const slotLeft = minutesToPercent(slotStart, startMinuteVal, totalMinutes)
                     const slotWidth = (snapMinutes / totalMinutes) * 100
-                    const isPastSlot = currentMinute > 0 && slotStart < currentMinute
+                    const isPastSlot = currentMinute > 0 && slotStart + snapMinutes <= currentMinute
 
                     const slotTimeLabel = `${String(Math.floor(slotStart / 60)).padStart(2, '0')}:${String(slotStart % 60).padStart(2, '0')}`
                     return (
