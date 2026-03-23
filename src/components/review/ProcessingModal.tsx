@@ -6,6 +6,7 @@ interface ProcessingModalProps {
   currentStep: PipelineStep
   error?: string
   onRetry: () => void
+  onCancel?: () => void
 }
 
 type StepConfig = {
@@ -70,7 +71,7 @@ function CheckIcon() {
   )
 }
 
-export function ProcessingModal({ currentStep, error, onRetry }: ProcessingModalProps) {
+export function ProcessingModal({ currentStep, error, onRetry, onCancel }: ProcessingModalProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 dark:bg-black/80 backdrop-blur-sm">
       <div className="w-full max-w-sm rounded-2xl bg-card border border-border shadow-2xl p-8">
@@ -96,13 +97,24 @@ export function ProcessingModal({ currentStep, error, onRetry }: ProcessingModal
               <h2 className="text-base font-semibold text-foreground mb-1">Processing failed</h2>
               <p className="text-sm text-muted-foreground leading-relaxed">{error}</p>
             </div>
-            <button
-              type="button"
-              onClick={onRetry}
-              className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
-            >
-              Retry
-            </button>
+            <div className="flex gap-3">
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="px-5 py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onRetry}
+                className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col gap-6">
@@ -138,6 +150,16 @@ export function ProcessingModal({ currentStep, error, onRetry }: ProcessingModal
                 )
               })}
             </div>
+
+            {onCancel && (
+              <button
+                type="button"
+                onClick={onCancel}
+                className="w-full rounded-lg border border-border py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                Cancel
+              </button>
+            )}
           </div>
         )}
       </div>

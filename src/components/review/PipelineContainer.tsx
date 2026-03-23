@@ -30,7 +30,7 @@ interface PipelineContainerProps {
   /** Called when the user reviews and confirms the AI results; receives final entries, summary, and transcript */
   onConfirm: (data: { entries: Entry[]; summary: string; transcript: string }) => void
   /** Optional cancel handler — reserved for future use (e.g., discard and re-record) */
-  onCancel?: () => void
+  onCancel: () => void
 }
 
 /**
@@ -44,7 +44,7 @@ export function PipelineContainer({
   audioBlob,
   locale,
   onConfirm,
-  onCancel: _onCancel,
+  onCancel,
 }: PipelineContainerProps) {
   const [phase, setPhase] = useState<ContainerPhase>('processing')
   const [currentStep, setCurrentStep] = useState<PipelineStep>('transcribing')
@@ -97,6 +97,7 @@ export function PipelineContainer({
         currentStep={currentStep}
         error={error ?? undefined}
         onRetry={handleRetry}
+        onCancel={onCancel}
       />
     )
   }
