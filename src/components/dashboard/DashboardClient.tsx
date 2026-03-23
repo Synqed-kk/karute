@@ -19,6 +19,7 @@ interface StaffItem {
   id: string
   name: string
   avatarInitials: string
+  avatarUrl?: string
 }
 
 interface DashboardClientProps {
@@ -324,7 +325,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   )
 
   const timetableStaff = useMemo(
-    () => staff.map((s) => ({ id: s.id, name: s.name, avatarInitials: s.avatarInitials })),
+    () => staff.map((s) => ({ id: s.id, name: s.name, avatarInitials: s.avatarInitials, avatarSrc: s.avatarUrl })),
     [staff]
   )
 

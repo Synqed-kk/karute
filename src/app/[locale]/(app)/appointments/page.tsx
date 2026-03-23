@@ -26,6 +26,7 @@ export default async function AppointmentsPage({
     id: s.id,
     name: s.full_name ?? 'Unknown',
     avatarInitials: (s.full_name ?? 'U').slice(0, 2).toUpperCase(),
+    avatarUrl: s.avatar_url ?? undefined,
   }))
 
   const { data: customersData } = await supabase

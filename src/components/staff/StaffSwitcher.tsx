@@ -17,6 +17,7 @@ type StaffItem = {
   id: string
   name: string
   displayRole?: string
+  avatarUrl?: string
 }
 
 type StaffSwitcherProps = {
@@ -77,9 +78,13 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
     <DropdownMenu onOpenChange={(open) => { if (!open) { setAdding(false); setNewName('') } }}>
       <DropdownMenuTrigger className="inline-flex items-center gap-2 rounded-full px-1.5 py-1 hover:bg-black/5 dark:hover:bg-white/10 transition-colors min-h-[44px]">
         {/* Active staff avatar */}
-        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-          {activeInitials}
-        </div>
+        {activeStaff?.avatarUrl ? (
+          <img src={activeStaff.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
+        ) : (
+          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+            {activeInitials}
+          </div>
+        )}
         <span className="text-sm font-medium">{activeStaff?.name ?? 'Select Staff'}</span>
         <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
@@ -103,10 +108,14 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
                 onClick={() => setActiveStaff(staff.id)}
                 className="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
               >
-                {/* Avatar circle */}
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-                  {initials}
-                </div>
+                {/* Avatar */}
+                {staff.avatarUrl ? (
+                  <img src={staff.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                ) : (
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
+                    {initials}
+                  </div>
+                )}
                 {/* Name + role */}
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm truncate ${isActive ? 'font-semibold' : 'font-medium'}`}>{staff.name}</p>

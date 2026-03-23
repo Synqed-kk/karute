@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { deleteStaff } from '@/actions/staff'
+import { deleteStaff, uploadStaffAvatar } from '@/actions/staff'
 import { StaffForm } from './StaffForm'
 
 interface StaffMember {
@@ -13,6 +13,7 @@ interface StaffMember {
   position?: string | null
   email?: string | null
   phone?: string | null
+  avatar_url?: string | null
   created_at: string
 }
 
@@ -85,6 +86,37 @@ export function StaffList({ staffList, activeStaffId }: StaffListProps) {
               className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3"
             >
               <div className="flex items-center gap-3">
+                {/* Avatar with upload */}
+                <label className="relative shrink-0 cursor-pointer group/avatar">
+                  {(staff as StaffMember).avatar_url ? (
+                    <img
+                      src={(staff as StaffMember).avatar_url!}
+                      alt={staff.full_name ?? ''}
+                      className="h-10 w-10 rounded-full object-cover"
+                    />
+                  ) : (
+                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center text-xs font-bold text-muted-foreground">
+                      {(staff.full_name ?? '?').slice(0, 2).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover/avatar:opacity-100 flex items-center justify-center transition-opacity">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0]
+                      if (!file) return
+                      const fd = new FormData()
+                      fd.append('file', file)
+                      const result = await uploadStaffAvatar(staff.id, fd)
+                      if ('error' in result) toast.error(result.error)
+                      else toast.success('Avatar uploaded')
+                    }}
+                  />
+                </label>
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium">

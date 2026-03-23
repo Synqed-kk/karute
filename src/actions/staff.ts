@@ -165,11 +165,42 @@ export async function deleteStaff(id: string): Promise<void> {
 export async function setActiveStaff(staffId: string): Promise<void> {
   const cookieStore = await cookies()
   cookieStore.set('active_staff_id', staffId, {
-    httpOnly: false, // readable by JS for UI display
+    httpOnly: false,
     sameSite: 'lax',
     path: '/',
-    maxAge: 60 * 60 * 24 * 30, // 30 days
+    maxAge: 60 * 60 * 24 * 30,
   })
 
   revalidatePath('/', 'layout')
+}
+
+export async function uploadStaffAvatar(staffId: string, formData: FormData): Promise<{ url: string } | { error: string }> {
+  const file = formData.get('file') as File | null
+  if (!file) return { error: 'No file provided' }
+
+  const supabase = await createClient()
+  const ext = file.name.split('.').pop() ?? 'jpg'
+  const path = `${staffId}.${ext}`
+
+  const { error: uploadError } = await supabase.storage
+    .from('avatars')
+    .upload(path, file, { upsert: true })
+
+  if (uploadError) return { error: uploadError.message }
+
+  const { data: { publicUrl } } = supabase.storage
+    .from('avatars')
+    .getPublicUrl(path)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: updateError } = await (supabase as any)
+    .from('profiles')
+    .update({ avatar_url: publicUrl })
+    .eq('id', staffId)
+
+  if (updateError) return { error: updateError.message }
+
+  revalidatePath('/settings')
+  revalidatePath('/', 'layout')
+  return { url: publicUrl }
 }

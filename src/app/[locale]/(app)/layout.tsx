@@ -29,6 +29,7 @@ export default async function DashboardLayout({
     id: s.id,
     name: s.full_name ?? 'Unknown',
     displayRole: (s as { display_role?: string }).display_role ?? 'staff',
+    avatarUrl: s.avatar_url ?? undefined,
   }))
 
   // Resolve active staff from cookie, falling back to first alphabetical member
