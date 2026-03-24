@@ -35,6 +35,7 @@ class GlobalRecorder {
   private pausedDuration = 0
   private pauseStart = 0
   private listeners = new Set<Listener>()
+  version = 0
 
   subscribe(fn: Listener) {
     this.listeners.add(fn)
@@ -42,6 +43,7 @@ class GlobalRecorder {
   }
 
   private notify() {
+    this.version++
     this.listeners.forEach(fn => fn())
   }
 
