@@ -44,8 +44,8 @@ export default async function DashboardLayout({
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#e8e8e8] p-3 dark:bg-[#2a2a2a]">
-      <div className="flex items-center px-4 py-1">
-        <img src="/karute_logo.png" alt="Karute" className="h-14 object-contain dark:invert" />
+      <div className="flex items-center py-1" style={{ height: '72px' }}>
+        <img src="/karute_logo.png" alt="Karute" className="h-14 object-contain dark:invert" style={{ height: '100px' }} />
         <div className="ml-auto flex items-center">
           <TopBar />
           <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} authProfileId={user.id} />
