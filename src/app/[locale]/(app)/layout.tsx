@@ -52,7 +52,7 @@ export default async function DashboardLayout({
         </div>
       </div>
       <div className="flex flex-1 gap-3 min-h-0 overflow-hidden">
-        <div className="relative">
+        <div className="relative max-sm:w-0">
           <Sidebar />
         </div>
         <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] dark:bg-[#3a3a3a]">
