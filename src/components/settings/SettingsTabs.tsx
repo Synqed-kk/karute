@@ -381,8 +381,8 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
             <StaffList
               staffList={staffList}
               activeStaffId={activeStaffId}
-              currentUserId={authProfileId}
-              isOwner={staffList.some((s) => s.id === authProfileId && (s as { display_role?: string }).display_role === 'owner')}
+              currentUserId={activeStaffId}
+              isOwner={staffList.some((s) => s.id === activeStaffId && (s as { display_role?: string }).display_role === 'owner')}
             />
           </div>
         )}
