@@ -2,10 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
-import { useMediaRecorder } from '@/hooks/use-media-recorder'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { PipelineContainer } from '@/components/review/PipelineContainer'
-import { useGlobalRecording } from '@/stores/recording-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 
 type FlowPhase = 'idle' | 'recording' | 'recorded' | 'pipeline'
@@ -37,37 +36,29 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
     result,
     error: micError,
     stream,
+    startedAt,
     startRecording,
     stopRecording,
     pauseRecording,
     resumeRecording,
     discardRecording,
-  } = useMediaRecorder()
+  } = useGlobalRecorder()
 
   const bars = useWaveformBars(stream, recState === 'recording')
-  // Keep frozen bars for the "recorded" phase
   const lastBarsRef = useRef<number[]>([])
   if (recState === 'recording') {
     lastBarsRef.current = bars
   }
 
-  const globalRec = useGlobalRecording()
-
+  // Sync global recorder state to local phase
   useEffect(() => {
     if (recState === 'recording' || recState === 'paused') {
       setPhase('recording')
-      globalRec.setRecording(recState)
-      if (recState === 'recording' && !globalRec.startedAt) {
-        globalRec.setStartedAt(Date.now())
-      }
     } else if (recState === 'recorded' && result) {
       setRecordingDuration(Math.round(result.durationMs / 1000))
       setPhase('recorded')
-      globalRec.reset()
-    } else if (recState === 'idle') {
-      globalRec.reset()
     }
-  }, [recState, result]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [recState, result])
 
   function handleStartRecording() {
     if (!nextAppointment) {
