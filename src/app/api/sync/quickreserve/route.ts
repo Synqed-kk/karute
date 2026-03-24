@@ -49,7 +49,18 @@ async function runSync() {
     // Fetch reservations
     const storeSlug = config.base_url || 'la-estro'
     const storeId = 222
-    const reservations = await qrGetReservations(session, storeSlug, storeId, dateStr)
+
+    console.log('[QR Sync] Login result — token:', session.token ? 'yes' : 'no', 'cookies:', session.cookies ? 'yes' : 'no')
+
+    let reservations
+    try {
+      reservations = await qrGetReservations(session, storeSlug, storeId, dateStr)
+    } catch (err) {
+      console.error('[QR Sync] Reservation fetch error:', err)
+      throw err
+    }
+
+    console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
 
     // Get our staff for name matching
     const { data: ourStaff } = await sb

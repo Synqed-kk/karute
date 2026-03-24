@@ -103,33 +103,62 @@ export async function qrGetReservations(
 ): Promise<QRReservation[]> {
   const headers = qrHeaders(session)
 
-  // Try get-customer-reservations first (full data with nested objects)
-  const url1 = `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations`
-  const res1 = await fetch(url1, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ date }),
-  })
+  // Convert date to unix ms for start/end of day in JST
+  const dayStart = new Date(`${date}T00:00:00+09:00`).getTime()
+  const dayEnd = new Date(`${date}T23:59:59+09:00`).getTime()
 
-  if (res1.ok) {
-    const data = await res1.json()
+  // Try multiple endpoint/payload combinations
+  const attempts = [
+    {
+      url: `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations-by-range`,
+      body: { start_at: dayStart, end_at: dayEnd },
+    },
+    {
+      url: `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations`,
+      body: { date },
+    },
+    {
+      url: `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations`,
+      body: { date, store_id: storeId },
+    },
+    {
+      url: `${QR_API_BASE}/${storeSlug}/${storeId}/get-shallow-reservations-by-range`,
+      body: { start_at: dayStart, end_at: dayEnd },
+    },
+    {
+      url: `${QR_API_BASE}/${storeSlug}/${storeId}/get-shallow-reservations-by-range`,
+      body: { start_date: date, end_date: date },
+    },
+  ]
+
+  for (const attempt of attempts) {
+    try {
+      const res = await fetch(attempt.url, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(attempt.body),
+      })
+      console.log(`[QR] ${attempt.url} → ${res.status}`)
+      if (res.ok) {
+        const data = await res.json()
+        if (Array.isArray(data) && data.length > 0) return data
+        if (Array.isArray(data)) continue // empty array, try next
+      }
+    } catch (err) {
+      console.log(`[QR] ${attempt.url} error:`, err)
+    }
+  }
+
+  // Last resort: try GET
+  const getUrl = `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations?date=${date}`
+  const getRes = await fetch(getUrl, { headers })
+  console.log(`[QR] GET ${getUrl} → ${getRes.status}`)
+  if (getRes.ok) {
+    const data = await getRes.json()
     return Array.isArray(data) ? data : []
   }
 
-  // Fallback: get-shallow-reservations-by-range
-  const url2 = `${QR_API_BASE}/${storeSlug}/${storeId}/get-shallow-reservations-by-range`
-  const res2 = await fetch(url2, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({ start_date: date, end_date: date }),
-  })
-
-  if (res2.ok) {
-    const data = await res2.json()
-    return Array.isArray(data) ? data : []
-  }
-
-  throw new Error(`QR get-reservations failed: ${res1.status} / ${res2.status}`)
+  throw new Error(`QR: all reservation endpoints failed for ${date}`)
 }
 
 /**
