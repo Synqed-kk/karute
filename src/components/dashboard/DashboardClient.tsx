@@ -97,7 +97,10 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       // - Not linked → 'open' type (blue-gray, has Delete)
       const appt: TimelineBar[] = appointments.map((a) => {
           const startAt = new Date(a.start_time)
-          const startMin = startAt.getHours() * 60 + startAt.getMinutes()
+          // Always display in business timezone (JST) regardless of viewer's locale
+          const jstOffset = 9 * 60 // JST = UTC+9
+          const utcMin = startAt.getUTCHours() * 60 + startAt.getUTCMinutes()
+          const startMin = (utcMin + jstOffset) % 1440
           const customerName = a.customers?.name ?? ''
           const h1 = Math.floor(startMin / 60)
           const m1 = startMin % 60
