@@ -422,9 +422,16 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
 
 const BAR_COLOR_FIELDS: { key: keyof ThemeColors; label: string; description: string }[] = [
   { key: 'barOpen', label: 'Open', description: 'Appointment without karute' },
+  { key: 'barBooking', label: 'Booking', description: 'Booked slot' },
   { key: 'barRecording', label: 'Recording', description: 'Karute being recorded' },
   { key: 'barCompleted', label: 'Completed', description: 'Karute finished' },
   { key: 'barBlocked', label: 'Blocked', description: 'Blocked time' },
+  { key: 'barProcessing', label: 'Processing', description: 'AI processing' },
+]
+
+const TABLE_COLOR_FIELDS: { key: keyof ThemeColors; label: string; description: string }[] = [
+  { key: 'tableBg', label: 'Table Background', description: 'Main timetable background' },
+  { key: 'tableRowBg', label: 'Row Background', description: 'Staff row background' },
 ]
 
 function ColorPicker({ value, onChange, onCommit }: { value: string; onChange: (v: string) => void; onCommit: () => void }) {
@@ -527,6 +534,26 @@ function ThemeSettings({ colors, onChange, onSave }: { colors: ThemeColors; onCh
               style={{ backgroundColor: colors[key] ?? DEFAULT_THEME_COLORS[key] }}
             >
               {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Table Colors */}
+      <div className="border-t border-border/30 pt-6">
+        <h4 className="text-sm font-semibold mb-3">Table Colors</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {TABLE_COLOR_FIELDS.map(({ key, label, description }) => (
+            <div key={key} className="flex items-center gap-3 rounded-lg border border-border/30 p-3">
+              <ColorPicker
+                value={colors[key] ?? ''}
+                onChange={(v) => handleColorChange(key, v)}
+                onCommit={handleCommit}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{label}</p>
+                <p className="text-xs text-muted-foreground">{description}</p>
+              </div>
             </div>
           ))}
         </div>
