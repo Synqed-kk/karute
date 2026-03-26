@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import { upsertOrgSettings, type OrgSettings } from '@/actions/org-settings'
 import { type ThemeColors, DEFAULT_THEME_COLORS } from '@/lib/theme'
@@ -99,14 +99,14 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
   const [saving, setSaving] = useState(false)
   const [hoursErrors, setHoursErrors] = useState<Partial<Record<WeekdayKey, string>>>({})
 
-  const handleSave = useCallback(async (partial: Partial<typeof settings>) => {
+  const handleSave = useCallback(async (partial: Partial<typeof settings>, quiet = false) => {
     setSaving(true)
     const updated = { ...settings, ...partial }
     setSettings(updated)
     const result = await upsertOrgSettings(updated)
     if ('error' in result) {
       toast.error(result.error)
-    } else {
+    } else if (!quiet) {
       toast.success('Settings saved')
     }
     setSaving(false)
@@ -300,7 +300,9 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
             colors={settings.theme_colors}
             onChange={(colors) => {
               setSettings((s) => ({ ...s, theme_colors: colors }))
-              handleSave({ theme_colors: colors })
+            }}
+            onSave={(colors) => {
+              handleSave({ theme_colors: colors }, true)
             }}
           />
         )}
@@ -410,7 +412,7 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
       </div>
 
       {saving && (
-        <div className="fixed top-4 right-4 z-50 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2 duration-200">
+        <div className="fixed bottom-4 right-4 z-50 rounded-lg bg-primary px-4 py-2 text-sm text-primary-foreground shadow-lg">
           Saving...
         </div>
       )}
@@ -420,19 +422,12 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
 
 const BAR_COLOR_FIELDS: { key: keyof ThemeColors; label: string; description: string }[] = [
   { key: 'barOpen', label: 'Open', description: 'Appointment without karute' },
-  { key: 'barBooking', label: 'Booking', description: 'Booked slot' },
   { key: 'barRecording', label: 'Recording', description: 'Karute being recorded' },
   { key: 'barCompleted', label: 'Completed', description: 'Karute finished' },
   { key: 'barBlocked', label: 'Blocked', description: 'Blocked time' },
-  { key: 'barProcessing', label: 'Processing', description: 'AI processing' },
 ]
 
-const TABLE_COLOR_FIELDS: { key: keyof ThemeColors; label: string; description: string }[] = [
-  { key: 'tableBg', label: 'Table Background', description: 'Main timetable background' },
-  { key: 'tableRowBg', label: 'Row Background', description: 'Staff row background' },
-]
-
-function ColorPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function ColorPicker({ value, onChange, onCommit }: { value: string; onChange: (v: string) => void; onCommit: () => void }) {
   return (
     <div className="flex items-center gap-2">
       <label className="relative cursor-pointer">
@@ -440,17 +435,19 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (v: string)
           type="color"
           value={value || '#000000'}
           onChange={(e) => onChange(e.target.value)}
+          onBlur={onCommit}
           className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
         />
         <div
           className="h-9 w-9 rounded-lg border border-border shadow-sm"
-          style={{ backgroundColor: value || '#transparent' }}
+          style={{ backgroundColor: value || 'transparent' }}
         />
       </label>
       <input
         type="text"
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
+        onBlur={onCommit}
         placeholder="#hex"
         className="w-24 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
       />
@@ -458,13 +455,32 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (v: string)
   )
 }
 
-function ThemeSettings({ colors, onChange }: { colors: ThemeColors; onChange: (c: ThemeColors) => void }) {
+function ThemeSettings({ colors, onChange, onSave }: { colors: ThemeColors; onChange: (c: ThemeColors) => void; onSave: (c: ThemeColors) => void }) {
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const latestColors = useRef(colors)
+  latestColors.current = colors
+
   function handleColorChange(key: keyof ThemeColors, value: string) {
-    onChange({ ...colors, [key]: value })
+    const next = { ...latestColors.current, [key]: value }
+    onChange(next)
+    // Debounce save — only persist after 800ms of no changes
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      onSave(latestColors.current)
+    }, 800)
+  }
+
+  function handleCommit() {
+    // Save immediately when user finishes (closes picker / blurs input)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    onSave(latestColors.current)
   }
 
   function handleReset() {
-    onChange({ ...DEFAULT_THEME_COLORS })
+    const defaults = { ...DEFAULT_THEME_COLORS }
+    onChange(defaults)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    onSave(defaults)
   }
 
   return (
@@ -472,7 +488,7 @@ function ThemeSettings({ colors, onChange }: { colors: ThemeColors; onChange: (c
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-lg font-semibold">Theme</h3>
-          <p className="text-sm text-muted-foreground">Customize timeline bar and table colors</p>
+          <p className="text-sm text-muted-foreground">Customize timeline bar colors</p>
         </div>
         <button
           type="button"
@@ -484,22 +500,20 @@ function ThemeSettings({ colors, onChange }: { colors: ThemeColors; onChange: (c
       </div>
 
       {/* Bar Colors */}
-      <div>
-        <h4 className="text-sm font-semibold mb-3">Bar Colors</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {BAR_COLOR_FIELDS.map(({ key, label, description }) => (
-            <div key={key} className="flex items-center gap-3 rounded-lg border border-border/30 p-3">
-              <ColorPicker
-                value={colors[key] ?? DEFAULT_THEME_COLORS[key] ?? ''}
-                onChange={(v) => handleColorChange(key, v)}
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{label}</p>
-                <p className="text-xs text-muted-foreground">{description}</p>
-              </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {BAR_COLOR_FIELDS.map(({ key, label, description }) => (
+          <div key={key} className="flex items-center gap-3 rounded-lg border border-border/30 p-3">
+            <ColorPicker
+              value={colors[key] ?? DEFAULT_THEME_COLORS[key] ?? ''}
+              onChange={(v) => handleColorChange(key, v)}
+              onCommit={handleCommit}
+            />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{label}</p>
+              <p className="text-xs text-muted-foreground">{description}</p>
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
       </div>
 
       {/* Preview */}
@@ -509,29 +523,10 @@ function ThemeSettings({ colors, onChange }: { colors: ThemeColors; onChange: (c
           {BAR_COLOR_FIELDS.map(({ key, label }) => (
             <div
               key={key}
-              className="rounded-full px-4 py-1.5 text-xs font-semibold text-white"
+              className="rounded-[24px] px-4 py-2 text-[11px] font-semibold text-white"
               style={{ backgroundColor: colors[key] ?? DEFAULT_THEME_COLORS[key] }}
             >
               {label}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Table Colors */}
-      <div className="border-t border-border/30 pt-6">
-        <h4 className="text-sm font-semibold mb-3">Table Colors</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {TABLE_COLOR_FIELDS.map(({ key, label, description }) => (
-            <div key={key} className="flex items-center gap-3 rounded-lg border border-border/30 p-3">
-              <ColorPicker
-                value={colors[key] ?? ''}
-                onChange={(v) => handleColorChange(key, v)}
-              />
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{label}</p>
-                <p className="text-xs text-muted-foreground">{description}</p>
-              </div>
             </div>
           ))}
         </div>
