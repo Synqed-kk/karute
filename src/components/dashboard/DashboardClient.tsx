@@ -372,7 +372,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
 
   // Sort current profile to top, optionally hide other staff
   const timetableStaff = useMemo(() => {
-    const currentId = authProfileId ?? activeStaffId
+    const currentId = activeStaffId ?? authProfileId
     const mapped = staff.map((s) => ({ id: s.id, name: s.name, avatarInitials: s.avatarInitials, avatarSrc: s.avatarUrl }))
     // Current profile first
     const sorted = [...mapped].sort((a, b) => {
