@@ -81,18 +81,14 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-w-lg">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-        </DialogHeader>
-
         <form onSubmit={handleSubmit(onSubmit)} className="flex gap-6 pt-2">
           {/* Avatar upload — left side in edit mode */}
           {mode === 'edit' && staff && (
-            <label className="relative shrink-0 cursor-pointer group self-start">
+            <label className="relative shrink-0 cursor-pointer group self-stretch w-40 min-h-[200px]">
               {avatarPreview ? (
-                <img src={avatarPreview} alt="" className="h-28 w-28 rounded-2xl object-cover" />
+                <img src={avatarPreview} alt="" className="h-full w-full rounded-2xl object-cover" />
               ) : (
-                <div className="h-28 w-28 rounded-2xl bg-muted flex items-center justify-center text-2xl font-bold text-muted-foreground">
+                <div className="h-full w-full rounded-2xl bg-muted flex items-center justify-center text-3xl font-bold text-muted-foreground">
                   {(staff.name ?? '?').slice(0, 2).toUpperCase()}
                 </div>
               )}
