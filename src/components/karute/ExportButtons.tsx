@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import { buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
@@ -13,6 +14,8 @@ interface ExportButtonsProps {
  * Both routes are authenticated Next.js API routes that return file downloads.
  */
 export function ExportButtons({ karuteId }: ExportButtonsProps) {
+  const t = useTranslations('karute')
+
   return (
     <div className="flex items-center gap-2">
       {/* PDF download */}
@@ -21,7 +24,7 @@ export function ExportButtons({ karuteId }: ExportButtonsProps) {
         download
         className={cn(buttonVariants({ variant: 'default', size: 'sm' }))}
       >
-        PDF 出力
+        {t('exportPdf')}
       </a>
 
       {/* Plain text download */}
@@ -30,7 +33,7 @@ export function ExportButtons({ karuteId }: ExportButtonsProps) {
         download
         className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
       >
-        テキスト出力
+        {t('exportText')}
       </a>
     </div>
   )

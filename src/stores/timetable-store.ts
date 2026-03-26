@@ -18,6 +18,8 @@ interface TimetableState {
   recordingStartMinute: number | null
   /** The temp ID of the most recently stopped recording bar (for pipeline/save flow) */
   lastRecordingBarId: string | null
+  /** The appointment ID currently being recorded (set when recording starts from appointment click) */
+  recordingAppointmentId: string | null
   startRecordingBar: (staffId: string) => void
   stopRecordingBar: () => string | null
   tickRecordingBar: () => void
@@ -28,6 +30,7 @@ interface TimetableState {
   finalizeBar: (tempId: string, realId: string) => void
   /** Remove a bar by ID (e.g. on discard) */
   removeBar: (barId: string) => void
+  setRecordingAppointmentId: (id: string | null) => void
 }
 
 function nowMinute() {
@@ -46,6 +49,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   recordingBarId: null,
   recordingStartMinute: null,
   lastRecordingBarId: null,
+  recordingAppointmentId: null,
 
   startRecordingBar: (staffId: string) => {
     const start = nowMinute()
@@ -140,4 +144,6 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   },
 
   setBars: (bars) => set({ bars }),
+
+  setRecordingAppointmentId: (id) => set({ recordingAppointmentId: id }),
 }))

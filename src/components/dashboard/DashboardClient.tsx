@@ -8,6 +8,7 @@ import { AppointmentPopout } from '@/components/dashboard/AppointmentPopout'
 import { useTimetableStore } from '@/stores/timetable-store'
 import { getAppointmentsByDate, updateAppointment, deleteAppointment, type AppointmentRow } from '@/actions/appointments'
 import { deleteKaruteRecord } from '@/actions/karute'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { toast } from 'sonner'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { TimelineBarItem } from '@/components/calendar/prototype-calendar-view'
@@ -69,6 +70,11 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const [slotClick, setSlotClick] = useState<SlotClickState | null>(null)
   const lastClickRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
 
+  // Global recorder for starting karute recording from appointment click
+  const { state: recorderState, startRecording } = useGlobalRecorder()
+  const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
+  const setRecordingAppointmentId = useTimetableStore((s) => s.setRecordingAppointmentId)
+
   // In-progress recording bars from zustand (temp rec_* bars)
   const liveBars = useTimetableStore((s) => s.bars)
   const setBars = useTimetableStore((s) => s.setBars)
@@ -125,14 +131,29 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     refreshBars()
   }, [refreshBars])
 
+  // Clear recording appointment when recorder goes idle
+  useEffect(() => {
+    if (recorderState === 'idle' && recordingAppointmentId) {
+      setRecordingAppointmentId(null)
+    }
+  }, [recorderState, recordingAppointmentId, setRecordingAppointmentId])
+
   // Merge saved bars with live recording bars (only show live bars on today)
+  // If an appointment is being recorded, override its type to 'recording' (yellow)
   const bars = useMemo(() => {
     const savedIds = new Set(savedBars.map((b) => b.id))
     const activeLiveBars = isToday
       ? liveBars.filter((b) => !savedIds.has(b.id))
       : []
-    return [...savedBars, ...activeLiveBars]
-  }, [savedBars, liveBars, isToday])
+    const isRecording = recorderState === 'recording' || recorderState === 'paused'
+    const merged = savedBars.map((b) => {
+      if (isRecording && recordingAppointmentId && b.id === `appt_${recordingAppointmentId}`) {
+        return { ...b, type: 'recording' as const }
+      }
+      return b
+    })
+    return [...merged, ...activeLiveBars]
+  }, [savedBars, liveBars, isToday, recorderState, recordingAppointmentId])
 
   const handlePrevDay = () => {
     setSelectedDate((d) => {
@@ -274,6 +295,24 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
             {bar.subtitle && <p className="text-sm text-gray-700">{bar.subtitle}</p>}
           </div>
           <div className="flex flex-col gap-2">
+            {/* Record Karute — for open appointments without a linked karute */}
+            {isAppt && bar.type === 'open' && !karuteId && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (recorderState === 'recording' || recorderState === 'paused') {
+                    toast.error('Already recording — stop current recording first')
+                    return
+                  }
+                  const apptId = bar.id.replace('appt_', '')
+                  setRecordingAppointmentId(apptId)
+                  startRecording()
+                }}
+                className="w-full rounded-lg bg-[#eab308] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#ca8a04]"
+              >
+                Record Karute
+              </button>
+            )}
             {/* View Karute — for completed appointments or standalone karute bars */}
             {karuteId && (
               <button
@@ -326,13 +365,25 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         </div>
       )
     },
-    [router, handleDeleteAppointment, handleDeleteKarute, rawAppointments]
+    [router, handleDeleteAppointment, handleDeleteKarute, rawAppointments, recorderState, startRecording, setRecordingAppointmentId]
   )
 
-  const timetableStaff = useMemo(
-    () => staff.map((s) => ({ id: s.id, name: s.name, avatarInitials: s.avatarInitials, avatarSrc: s.avatarUrl })),
-    [staff]
-  )
+  const [showAllStaff, setShowAllStaff] = useState(false)
+
+  // Sort current profile to top, optionally hide other staff
+  const timetableStaff = useMemo(() => {
+    const currentId = authProfileId ?? activeStaffId
+    const mapped = staff.map((s) => ({ id: s.id, name: s.name, avatarInitials: s.avatarInitials, avatarSrc: s.avatarUrl }))
+    // Current profile first
+    const sorted = [...mapped].sort((a, b) => {
+      if (a.id === currentId) return -1
+      if (b.id === currentId) return 1
+      return 0
+    })
+    if (showAllStaff) return sorted
+    // Only show the current staff member
+    return sorted.filter((s) => s.id === currentId)
+  }, [staff, authProfileId, activeStaffId, showAllStaff])
 
   const tabs = useMemo(() => [] as { id: string; label: string }[], [])
 
@@ -348,6 +399,15 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       {/* Timetable header */}
       <div className="relative flex items-center px-5 py-2.5">
         <span className="text-sm font-semibold text-foreground">{t('title')}</span>
+        {staff.length > 1 && (
+          <button
+            type="button"
+            onClick={() => setShowAllStaff((v) => !v)}
+            className="ml-3 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+          >
+            {showAllStaff ? 'My Schedule' : 'All Staff'}
+          </button>
+        )}
         <div className="absolute left-1/2 -translate-x-1/2 flex items-center gap-2">
           <button type="button" onClick={handlePrevDay} className="rounded-md px-2 py-1 text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">&larr;</button>
           <span className="text-sm font-medium text-foreground">{formatDate(selectedDate, 'en')}</span>
@@ -366,7 +426,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           )}
         </div>
       </div>
-      <div className="relative min-h-0 flex-1" style={{ minHeight: `${staff.length * 84 + 100}px` }}>
+      <div className="relative min-h-0 flex-1" style={{ minHeight: `${timetableStaff.length * 84 + 100}px` }}>
         <TimetableWithTabs
           tabs={tabs}
           activeTabId="dashboard"

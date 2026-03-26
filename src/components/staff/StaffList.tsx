@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { deleteStaff, uploadStaffAvatar } from '@/actions/staff'
 import { StaffForm } from './StaffForm'
+import { PinSetup } from './PinSetup'
 
 interface StaffMember {
   id: string
@@ -14,6 +15,7 @@ interface StaffMember {
   email?: string | null
   phone?: string | null
   avatar_url?: string | null
+  pin_hash?: string | null
   created_at: string
 }
 
@@ -38,6 +40,7 @@ function formatAddedDate(dateString: string): string {
 export function StaffList({ staffList, activeStaffId, currentUserId, isOwner = false }: StaffListProps) {
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
+  const [pinSetupStaff, setPinSetupStaff] = useState<StaffMember | null>(null)
 
   async function handleDelete(staff: StaffMember) {
     const confirmed = window.confirm(
@@ -157,6 +160,16 @@ export function StaffList({ staffList, activeStaffId, currentUserId, isOwner = f
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => setPinSetupStaff(staff)}
+                    className="min-h-[44px]"
+                  >
+                    {staff.pin_hash ? 'PIN' : 'Set PIN'}
+                  </Button>
+                )}
+                {(isOwner || staff.id === currentUserId) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setEditingStaff(staff)}
                     className="min-h-[44px]"
                   >
@@ -198,6 +211,15 @@ export function StaffList({ staffList, activeStaffId, currentUserId, isOwner = f
             avatarUrl: editingStaff.avatar_url ?? undefined,
           }}
           onClose={() => setEditingStaff(null)}
+        />
+      )}
+
+      {pinSetupStaff && (
+        <PinSetup
+          staffId={pinSetupStaff.id}
+          staffName={pinSetupStaff.full_name ?? 'Staff'}
+          hasPin={!!pinSetupStaff.pin_hash}
+          onClose={() => setPinSetupStaff(null)}
         />
       )}
     </div>

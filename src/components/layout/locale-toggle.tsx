@@ -1,12 +1,13 @@
 'use client'
 
-import { useLocale } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { useRouter, usePathname } from '@/i18n/navigation'
 
 export function LocaleToggle() {
   const locale = useLocale()
   const router = useRouter()
   const pathname = usePathname()
+  const t = useTranslations('localeToggle')
 
   function toggleLocale() {
     const next = locale === 'ja' ? 'en' : 'ja'
@@ -18,7 +19,7 @@ export function LocaleToggle() {
       onClick={toggleLocale}
       type="button"
       className="min-h-[44px] rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition hover:text-foreground"
-      aria-label={locale === 'en' ? 'Switch to Japanese' : '英語に切り替え'}
+      aria-label={locale === 'en' ? t('switchToJapanese') : t('switchToEnglish')}
     >
       {locale === 'en' ? 'EN' : 'JP'}
     </button>

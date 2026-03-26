@@ -28,6 +28,21 @@ Font.register({
   ],
 })
 
+const labels = {
+  en: {
+    karute: 'Karute',
+    aiSummary: 'AI Summary',
+    entries: 'Entries',
+    transcript: 'Transcript',
+  },
+  ja: {
+    karute: 'カルテ',
+    aiSummary: 'AI サマリー',
+    entries: 'エントリー',
+    transcript: 'トランスクリプト',
+  },
+} as const
+
 const styles = StyleSheet.create({
   page: {
     fontFamily: 'NotoSansJP',
@@ -80,27 +95,29 @@ const styles = StyleSheet.create({
 
 interface KarutePdfDocumentProps {
   karute: KaruteWithRelations
+  locale?: 'en' | 'ja'
 }
 
-export function KarutePdfDocument({ karute }: KarutePdfDocumentProps) {
+export function KarutePdfDocument({ karute, locale = 'ja' }: KarutePdfDocumentProps) {
+  const l = labels[locale]
   // customers is aliased as `customers:client_id` in the PostgREST query
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customerName = (karute as any).customers?.name ?? '—'
-  const date = new Date(karute.session_date ?? karute.created_at).toLocaleDateString('ja-JP')
+  const date = new Date(karute.session_date ?? karute.created_at).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US')
 
   return (
     <Document>
       <Page size="A4" style={styles.page}>
         {/* Title */}
-        <Text style={styles.heading}>{customerName} — カルテ</Text>
+        <Text style={styles.heading}>{customerName} — {l.karute}</Text>
         <Text style={styles.dateLine}>{date}</Text>
 
         {/* AI Summary section */}
-        <Text style={styles.subheading}>AI サマリー</Text>
+        <Text style={styles.subheading}>{l.aiSummary}</Text>
         <Text style={styles.text}>{karute.summary ?? ''}</Text>
 
         {/* Entries section */}
-        <Text style={styles.subheading}>エントリー</Text>
+        <Text style={styles.subheading}>{l.entries}</Text>
         {(karute.entries ?? []).map((entry) => (
           <View key={entry.id} style={styles.entryContainer}>
             <Text style={styles.entryCategory}>{entry.category}</Text>
@@ -114,7 +131,7 @@ export function KarutePdfDocument({ karute }: KarutePdfDocumentProps) {
         ))}
 
         {/* Transcript section */}
-        <Text style={styles.subheading}>トランスクリプト</Text>
+        <Text style={styles.subheading}>{l.transcript}</Text>
         <Text style={styles.text}>{karute.transcript ?? ''}</Text>
       </Page>
     </Document>

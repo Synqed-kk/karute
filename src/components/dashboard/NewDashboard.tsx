@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useMemo } from 'react'
 import { Mic, Users, FileText, Clock, ArrowRight } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 import { AIRecommendedActions } from './AIRecommendedActions'
@@ -17,11 +18,13 @@ interface KaruteRecord {
   id: string
   summary: string | null
   createdAt: string
+  staffId: string
   customerName: string
 }
 
 interface NewDashboardProps {
   staffName: string
+  activeStaffId: string | null
   stats: {
     recordingsThisWeek: number
     karuteGenerated: number
@@ -41,13 +44,34 @@ function formatDate(iso: string) {
   return d.toLocaleDateString('en', { year: 'numeric', month: '2-digit', day: '2-digit' })
 }
 
-export function NewDashboard({ staffName, stats, todayAppointments, recentKarute, locale }: NewDashboardProps) {
+export function NewDashboard({ staffName, activeStaffId, stats, todayAppointments, recentKarute, locale }: NewDashboardProps) {
+  const [showAll, setShowAll] = useState(false)
+
+  const filteredAppointments = useMemo(() => {
+    if (showAll || !activeStaffId) return todayAppointments
+    return todayAppointments.filter((a) => a.staffId === activeStaffId)
+  }, [todayAppointments, activeStaffId, showAll])
+
+  const filteredKarute = useMemo(() => {
+    if (showAll || !activeStaffId) return recentKarute.slice(0, 5)
+    return recentKarute.filter((r) => r.staffId === activeStaffId).slice(0, 5)
+  }, [recentKarute, activeStaffId, showAll])
+
   return (
     <div className="space-y-6">
-      {/* Welcome */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Welcome back, {staffName}</p>
+      {/* Welcome + toggle */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="text-sm text-muted-foreground mt-1">Welcome back, {staffName}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          {showAll ? 'My View' : 'All Staff'}
+        </button>
       </div>
 
       {/* Stats */}
@@ -59,7 +83,7 @@ export function NewDashboard({ staffName, stats, todayAppointments, recentKarute
         </div>
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-blue-500/10 to-cyan-500/10 border border-blue-500/20 p-5">
           <Users className="absolute top-4 right-4 h-8 w-8 text-blue-500/20" />
-          <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{todayAppointments.length}</div>
+          <div className="text-3xl font-bold text-blue-600 dark:text-blue-400">{filteredAppointments.length}</div>
           <div className="text-sm text-muted-foreground mt-1">Customers Today</div>
         </div>
         <div className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 p-5">
@@ -82,11 +106,11 @@ export function NewDashboard({ staffName, stats, todayAppointments, recentKarute
               View all <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
-          {todayAppointments.length === 0 ? (
+          {filteredAppointments.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No appointments today</p>
           ) : (
             <div className="space-y-2">
-              {todayAppointments.map((a) => (
+              {filteredAppointments.map((a) => (
                 <div key={a.id} className="flex items-center gap-3 rounded-lg border border-border/20 px-3 py-2.5">
                   <div className="flex items-center gap-1.5 text-xs text-muted-foreground min-w-[50px]">
                     <Clock className="h-3 w-3" />
@@ -119,11 +143,11 @@ export function NewDashboard({ staffName, stats, todayAppointments, recentKarute
               View all <ArrowRight className="h-3 w-3" />
             </Link>
           </div>
-          {recentKarute.length === 0 ? (
+          {filteredKarute.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">No karute records yet</p>
           ) : (
             <div className="space-y-2">
-              {recentKarute.map((r) => (
+              {filteredKarute.map((r) => (
                 <Link
                   key={r.id}
                   href={`/karute/${r.id}` as Parameters<typeof Link>[0]['href']}

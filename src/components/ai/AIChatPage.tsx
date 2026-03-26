@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useTranslations } from 'next-intl'
 import { Send, Sparkles } from 'lucide-react'
 
 interface Message {
@@ -9,6 +10,7 @@ interface Message {
 }
 
 export function AIChatPage({ locale }: { locale: string }) {
+  const t = useTranslations('askAi')
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -36,17 +38,17 @@ export function AIChatPage({ locale }: { locale: string }) {
       const data = await res.json()
       setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
     } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, something went wrong.' }])
+      setMessages((prev) => [...prev, { role: 'assistant', content: t('error') }])
     } finally {
       setLoading(false)
     }
   }
 
   const suggestions = [
-    locale === 'ja' ? '今日の予約は？' : "What's on today's schedule?",
-    locale === 'ja' ? '最近の顧客の傾向は？' : 'Any trends in recent clients?',
-    locale === 'ja' ? 'フォローアップが必要な顧客は？' : 'Who needs a follow-up?',
-    locale === 'ja' ? '売上を上げるには？' : 'How can I increase revenue?',
+    t('suggestion1'),
+    t('suggestion2'),
+    t('suggestion3'),
+    t('suggestion4'),
   ]
 
   return (
@@ -54,9 +56,9 @@ export function AIChatPage({ locale }: { locale: string }) {
       <div className="mb-4">
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
           <Sparkles className="h-6 w-6 text-[#5cbfcf]" />
-          Ask AI
+          {t('title')}
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">Ask anything about your customers, karute records, and business</p>
+        <p className="text-sm text-muted-foreground mt-1">{t('subtitle')}</p>
       </div>
 
       {/* Messages */}
@@ -65,8 +67,8 @@ export function AIChatPage({ locale }: { locale: string }) {
           <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
             <Sparkles className="h-12 w-12 text-muted-foreground/20" />
             <div>
-              <p className="text-lg font-medium text-muted-foreground">Ask anything about your business</p>
-              <p className="text-sm text-muted-foreground/60 mt-1">I have access to your karute records, customers, and appointment data</p>
+              <p className="text-lg font-medium text-muted-foreground">{t('emptyTitle')}</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">{t('emptySubtitle')}</p>
             </div>
             <div className="grid grid-cols-2 gap-3 max-w-lg">
               {suggestions.map((s) => (
@@ -117,7 +119,7 @@ export function AIChatPage({ locale }: { locale: string }) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
-            placeholder={locale === 'ja' ? '質問を入力...' : 'Ask a question...'}
+            placeholder={t('placeholder')}
             disabled={loading}
             className="flex-1 rounded-xl border border-border bg-background px-4 py-3 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
           />

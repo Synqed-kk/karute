@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useTranslations } from 'next-intl'
 import { X, Send, Sparkles } from 'lucide-react'
 
 interface Message {
@@ -14,6 +15,7 @@ interface AIChatPanelProps {
 }
 
 export function AIChatPanel({ locale, onClose }: AIChatPanelProps) {
+  const t = useTranslations('askAi')
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
@@ -44,16 +46,16 @@ export function AIChatPanel({ locale, onClose }: AIChatPanelProps) {
       const data = await res.json()
       setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
     } catch {
-      setMessages((prev) => [...prev, { role: 'assistant', content: 'Sorry, something went wrong.' }])
+      setMessages((prev) => [...prev, { role: 'assistant', content: t('error') }])
     } finally {
       setLoading(false)
     }
   }
 
   const suggestions = [
-    locale === 'ja' ? '今日の予約は？' : "What's on today's schedule?",
-    locale === 'ja' ? '最近の顧客の傾向は？' : 'Any trends in recent clients?',
-    locale === 'ja' ? 'フォローアップが必要な顧客は？' : 'Who needs a follow-up?',
+    t('suggestion1'),
+    t('suggestion2'),
+    t('suggestion3'),
   ]
 
   return (
@@ -62,7 +64,7 @@ export function AIChatPanel({ locale, onClose }: AIChatPanelProps) {
       <div className="flex items-center justify-between px-4 py-3 border-b border-border/30">
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-[#5cbfcf]" />
-          <h3 className="text-sm font-semibold">Ask AI</h3>
+          <h3 className="text-sm font-semibold">{t('title')}</h3>
         </div>
         <button type="button" onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors">
           <X className="h-4 w-4" />
@@ -75,8 +77,8 @@ export function AIChatPanel({ locale, onClose }: AIChatPanelProps) {
           <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
             <Sparkles className="h-8 w-8 text-muted-foreground/30" />
             <div>
-              <p className="text-sm font-medium text-muted-foreground">Ask anything about your business</p>
-              <p className="text-xs text-muted-foreground/60 mt-1">I have access to your karute records and customer data</p>
+              <p className="text-sm font-medium text-muted-foreground">{t('emptyTitle')}</p>
+              <p className="text-xs text-muted-foreground/60 mt-1">{t('emptySubtitleShort')}</p>
             </div>
             <div className="flex flex-col gap-2 w-full">
               {suggestions.map((s) => (
@@ -127,7 +129,7 @@ export function AIChatPanel({ locale, onClose }: AIChatPanelProps) {
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') handleSend() }}
-            placeholder={locale === 'ja' ? '質問を入力...' : 'Ask a question...'}
+            placeholder={t('placeholder')}
             disabled={loading}
             className="flex-1 rounded-xl border border-border bg-background px-3.5 py-2.5 text-sm placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-ring"
           />

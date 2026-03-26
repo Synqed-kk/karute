@@ -142,6 +142,8 @@
     "noDraftFound": "No draft data found. Please go back and complete the AI review step before saving.",
     "deleted": "Karute deleted",
     "deleteConfirm": "Delete this karute? This cannot be undone.",
+    "adviceForNextVisit": "Advice for Next Visit",
+    "entryCount": "{count, plural, one {# entry} other {# entries}}",
     "categories": {
       "symptom": "Symptom",
       "treatment": "Treatment",
@@ -235,5 +237,31 @@
     "logOut": "Log out",
     "owner": "OWNER",
     "stylist": "STYLIST"
+  },
+  "localeToggle": {
+    "switchToJapanese": "Switch to Japanese",
+    "switchToEnglish": "Switch to English"
+  },
+  "askAi": {
+    "title": "Ask AI",
+    "subtitle": "Ask anything about your customers, karute records, and business",
+    "emptyTitle": "Ask anything about your business",
+    "emptySubtitle": "I have access to your karute records, customers, and appointment data",
+    "emptySubtitleShort": "I have access to your karute records and customer data",
+    "placeholder": "Ask a question...",
+    "suggestion1": "What's on today's schedule?",
+    "suggestion2": "Any trends in recent clients?",
+    "suggestion3": "Who needs a follow-up?",
+    "suggestion4": "How can I increase revenue?",
+    "error": "Sorry, something went wrong."
+  },
+  "karuteExport": {
+    "title": "Karute",
+    "customer": "Customer",
+    "date": "Date",
+    "aiSummary": "AI Summary",
+    "entries": "Entries",
+    "quote": "Quote",
+    "transcript": "Transcript"
   }
 }

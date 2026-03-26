@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { PipelineContainer } from '@/components/review/PipelineContainer'
+import { useTimetableStore } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 
 type FlowPhase = 'idle' | 'recording' | 'recorded' | 'pipeline'
@@ -27,9 +28,8 @@ interface RecordingFlowProps {
 
 export function RecordingFlow({ customers, locale, nextAppointment }: RecordingFlowProps) {
   const t = useTranslations('recording')
-  const [phase, setPhase] = useState<FlowPhase>('idle')
-  const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
-  const [recordingDuration, setRecordingDuration] = useState(0)
+  // Appointment ID set when recording was started from dashboard appointment click
+  const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
 
   const {
     state: recState,
@@ -43,6 +43,15 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
     resumeRecording,
     discardRecording,
   } = useGlobalRecorder()
+
+  // Initialize phase from current recorder state so there's no flash of idle UI
+  const [phase, setPhase] = useState<FlowPhase>(() => {
+    if (recState === 'recording' || recState === 'paused') return 'recording'
+    if (recState === 'recorded') return 'recorded'
+    return 'idle'
+  })
+  const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
+  const [recordingDuration, setRecordingDuration] = useState(0)
 
   const bars = useWaveformBars(stream, recState === 'recording')
   const lastBarsRef = useRef<number[]>([])
@@ -89,14 +98,20 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
 
   // --- Pipeline phase: processes audio then shows review+save in one screen ---
   if (phase === 'pipeline' && result) {
+    // Use the appointment from dashboard click if available, otherwise fall back to next appointment
+    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
+    const effectiveCustomerId = recordingAppointmentId
+      ? undefined // customer will be resolved from the appointment in the pipeline
+      : nextAppointment?.customerId
+
     return (
       <PipelineContainer
         audioBlob={result.blob}
         locale={locale}
         customers={customers}
         duration={result ? Math.round(result.durationMs / 1000) : 0}
-        appointmentId={nextAppointment?.id}
-        appointmentCustomerId={nextAppointment?.customerId}
+        appointmentId={effectiveAppointmentId}
+        appointmentCustomerId={effectiveCustomerId}
         onCancel={handleNewSession}
         onSaved={handleNewSession}
       />

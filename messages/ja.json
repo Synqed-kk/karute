@@ -142,6 +142,8 @@
     "noDraftFound": "下書きデータが見つかりません。保存前にAIレビュー手順を完了してください。",
     "deleted": "カルテを削除しました",
     "deleteConfirm": "このカルテを削除しますか？元に戻せません。",
+    "adviceForNextVisit": "次回来店へのアドバイス",
+    "entryCount": "{count, plural, other {#件のエントリー}}",
     "categories": {
       "symptom": "症状",
       "treatment": "トリートメント",
@@ -235,5 +237,31 @@
     "logOut": "ログアウト",
     "owner": "オーナー",
     "stylist": "スタイリスト"
+  },
+  "localeToggle": {
+    "switchToJapanese": "日本語に切り替え",
+    "switchToEnglish": "英語に切り替え"
+  },
+  "askAi": {
+    "title": "AI相談",
+    "subtitle": "顧客、カルテ、ビジネスについて何でも聞いてください",
+    "emptyTitle": "ビジネスについて何でも聞いてください",
+    "emptySubtitle": "カルテ、顧客、予約データにアクセスできます",
+    "emptySubtitleShort": "カルテと顧客データにアクセスできます",
+    "placeholder": "質問を入力...",
+    "suggestion1": "今日の予約は？",
+    "suggestion2": "最近の顧客の傾向は？",
+    "suggestion3": "フォローアップが必要な顧客は？",
+    "suggestion4": "売上を上げるには？",
+    "error": "エラーが発生しました。"
+  },
+  "karuteExport": {
+    "title": "カルテ",
+    "customer": "顧客",
+    "date": "日付",
+    "aiSummary": "AI サマリー",
+    "entries": "エントリー",
+    "quote": "引用",
+    "transcript": "トランスクリプト"
   }
 }

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { Trash2 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { deleteKaruteRecord } from '@/actions/karute'
 
@@ -23,6 +24,7 @@ export function KaruteListItem({
   summary,
   locale,
 }: KaruteListItemProps) {
+  const t = useTranslations('karute')
   const [deleted, setDeleted] = useState(false)
 
   const date = new Date(createdAt).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
@@ -41,7 +43,7 @@ export function KaruteListItem({
     if ('error' in result) {
       toast.error(result.error)
     } else {
-      toast.success('Karute deleted')
+      toast.success(t('deleted'))
       setDeleted(true)
     }
   }
@@ -64,7 +66,7 @@ export function KaruteListItem({
           <div className="flex flex-col items-end gap-1">
             <span className="text-sm text-muted-foreground">{date}</span>
             <span className="text-xs text-muted-foreground">
-              {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
+              {t('entryCount', { count: entryCount })}
             </span>
           </div>
           <button

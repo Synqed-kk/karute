@@ -31,16 +31,17 @@ export default async function DashboardLayout({
     name: s.full_name ?? 'Unknown',
     displayRole: (s as { display_role?: string }).display_role ?? 'staff',
     avatarUrl: s.avatar_url ?? undefined,
+    hasPin: !!(s as { pin_hash?: string | null }).pin_hash,
   }))
 
-  // Resolve active staff from cookie, falling back to first alphabetical member
+  // Resolve active staff from cookie, falling back to the auth user's own profile
   const activeStaffId = await getActiveStaffId()
   let activeStaff = staffItems.find((s) => s.id === activeStaffId) ?? null
 
   if (!activeStaff && staffItems.length > 0) {
-    // No cookie or cookie ID not found — auto-select first alphabetical member
-    // Cookie will be set by StaffSwitcher on client mount (can't set cookies during render)
-    activeStaff = staffItems[0]
+    // No cookie or cookie ID not found — prefer the auth user's own profile (owner),
+    // then fall back to first alphabetical member
+    activeStaff = staffItems.find((s) => s.id === user.id) ?? staffItems[0]
   }
 
   return (

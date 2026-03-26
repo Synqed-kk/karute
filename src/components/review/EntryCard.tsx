@@ -42,7 +42,7 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
   const categoryColor = CATEGORY_COLORS[category] ?? 'bg-gray-500/20 text-gray-600 border-gray-500/30 dark:text-gray-300'
 
   return (
-    <div className="rounded-lg border border-border bg-card p-4 space-y-3">
+    <div className="rounded-xl border border-border bg-card p-4 space-y-3">
       {/* Top row: category selector + confidence badge + remove button */}
       <div className="flex items-center justify-between gap-2">
         <select

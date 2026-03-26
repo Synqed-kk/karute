@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from '@/i18n/navigation'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { deleteKaruteRecord } from '@/actions/karute'
@@ -19,18 +19,19 @@ interface KaruteHeaderProps {
  */
 export function KaruteHeader({ karute }: KaruteHeaderProps) {
   const t = useTranslations('karute')
+  const locale = useLocale()
   const router = useRouter()
   const [deleting, setDeleting] = useState(false)
 
   async function handleDelete() {
-    if (!window.confirm('Delete this karute? This cannot be undone.')) return
+    if (!window.confirm(t('deleteConfirm'))) return
     setDeleting(true)
     const result = await deleteKaruteRecord(karute.id)
     if ('error' in result) {
       toast.error(result.error)
       setDeleting(false)
     } else {
-      toast.success('Karute deleted')
+      toast.success(t('deleted'))
       router.push('/karute' as Parameters<typeof router.push>[0])
     }
   }
@@ -44,7 +45,7 @@ export function KaruteHeader({ karute }: KaruteHeaderProps) {
     (karute as { profiles?: { full_name: string } | null }).profiles?.full_name ?? '—'
 
   const dateSource = (karute as { session_date?: string | null }).session_date ?? karute.created_at
-  const formattedDate = new Intl.DateTimeFormat('ja-JP', {
+  const formattedDate = new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',

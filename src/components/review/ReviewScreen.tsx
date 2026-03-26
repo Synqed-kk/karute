@@ -131,21 +131,19 @@ export function ReviewScreen({
     ? customers.find((c) => c.id === appointmentCustomerId)?.name
     : null
 
-  const typeIcon: Record<string, string> = {
-    'follow-up': '📋',
-    recommendation: '💡',
-    note: '📝',
-    concern: '⚠️',
-  }
+  const [checkedSuggestions, setCheckedSuggestions] = useState<Set<number>>(new Set())
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-4">
       {/* AI Suggestions */}
       {(suggestionsLoading || suggestions.length > 0) && (
-        <div className="rounded-xl border border-border/30 bg-gradient-to-r from-blue-500/5 to-transparent p-4">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            AI Suggestions
-          </h3>
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              AI Suggestions
+            </h3>
+          </div>
+          <div className="p-4">
           {suggestionsLoading ? (
             <div className="flex gap-3">
               <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
@@ -153,25 +151,41 @@ export function ReviewScreen({
               <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
             </div>
           ) : (
-            <div className="flex flex-wrap gap-2">
-              {suggestions.map((s, i) => (
-                <div
-                  key={i}
-                  className="flex items-center gap-1.5 rounded-lg bg-card border border-border/50 px-3 py-1.5 text-xs text-foreground"
-                >
-                  <span>{typeIcon[s.type] ?? '💡'}</span>
-                  <span>{s.text}</span>
-                </div>
-              ))}
+            <div className="flex flex-col gap-2">
+              {suggestions.map((s, i) => {
+                const checked = checkedSuggestions.has(i)
+                return (
+                  <label
+                    key={i}
+                    className={`flex items-start gap-2.5 rounded-lg bg-card border border-border/50 px-3 py-2 text-xs text-foreground cursor-pointer transition-colors hover:bg-muted/50 ${checked ? 'opacity-60 line-through' : ''}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        setCheckedSuggestions((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(i)) next.delete(i)
+                          else next.add(i)
+                          return next
+                        })
+                      }}
+                      className="mt-0.5 h-3.5 w-3.5 rounded border-border accent-primary shrink-0"
+                    />
+                    <span>{s.text}</span>
+                  </label>
+                )
+              })}
             </div>
           )}
+          </div>
         </div>
       )}
 
       {/* Two-column layout: transcript left, entries right */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 flex-1 min-h-0">
         {/* Left column: Transcript (read-only) */}
-        <div className="flex flex-col min-h-0 rounded-lg border border-border bg-card overflow-hidden">
+        <div className="flex flex-col min-h-0 rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-4 py-3 border-b border-border">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Transcript
@@ -205,7 +219,7 @@ export function ReviewScreen({
           <button
             type="button"
             onClick={handleAddEntry}
-            className="flex items-center justify-center gap-2 w-full rounded-lg border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:border-foreground/30 hover:text-foreground/70 hover:bg-muted/50 transition-colors"
+            className="flex items-center justify-center gap-2 w-full rounded-xl border border-dashed border-border py-2.5 text-sm text-muted-foreground hover:border-foreground/30 hover:text-foreground/70 hover:bg-muted/50 transition-colors"
           >
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19" />
