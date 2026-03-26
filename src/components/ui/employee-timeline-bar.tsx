@@ -17,19 +17,27 @@ export interface EmployeeTimelineBarProps {
   className?: string
 }
 
+const FALLBACK_COLORS: Record<string, string> = {
+  open: '#3b82f6',
+  booking: '#3b82f6',
+  recording: '#eab308',
+  completed: '#22c55e',
+  blocked: '#d4a1a6',
+  processing: '#8b5cf6',
+}
+
+const ANIMATE_TYPES = new Set(['recording', 'processing'])
+
 export function EmployeeTimelineBar({ item, className = '' }: EmployeeTimelineBarProps) {
-  const typeStyles: Record<string, string> = {
-    processing: 'animate-pulse bg-[#8b5cf6]/80 text-white',
-    recording: 'animate-pulse bg-[#eab308]/90 text-white',
-    booking: 'bg-[#3b82f6] text-white',
-    completed: 'bg-[#22c55e] text-white',
-    blocked: 'bg-[#d4a1a6] text-[#f8f1f1]',
-    open: 'bg-[#3b82f6] text-white',
-  }
-  const baseClass = typeStyles[item.type] || typeStyles.open
+  const cssVar = `var(--bar-${item.type}, ${FALLBACK_COLORS[item.type] ?? FALLBACK_COLORS.open})`
+  const animate = ANIMATE_TYPES.has(item.type) ? 'animate-pulse' : ''
+  const textColor = item.type === 'blocked' ? '#f8f1f1' : 'white'
 
   return (
-    <div className={`h-full w-full rounded-[24px] px-4 py-2 text-[11px] font-semibold leading-[1.3] ${baseClass} ${className}`}>
+    <div
+      className={`h-full w-full rounded-[24px] px-4 py-2 text-[11px] font-semibold leading-[1.3] ${animate} ${className}`}
+      style={{ backgroundColor: cssVar, color: textColor }}
+    >
       <div>{item.title}</div>
       {item.subtitle ? <div className="whitespace-pre-line">{item.subtitle}</div> : null}
     </div>

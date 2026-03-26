@@ -426,7 +426,18 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
           )}
         </div>
       </div>
-      <div className="relative min-h-0 flex-1" style={{ minHeight: `${timetableStaff.length * 84 + 100}px` }}>
+      <div
+        className="relative min-h-0 flex-1"
+        style={{
+          minHeight: `${timetableStaff.length * 84 + 100}px`,
+          '--bar-open': orgSettings?.theme_colors?.barOpen || '#3b82f6',
+          '--bar-booking': orgSettings?.theme_colors?.barBooking || '#3b82f6',
+          '--bar-recording': orgSettings?.theme_colors?.barRecording || '#eab308',
+          '--bar-completed': orgSettings?.theme_colors?.barCompleted || '#22c55e',
+          '--bar-blocked': orgSettings?.theme_colors?.barBlocked || '#d4a1a6',
+          '--bar-processing': orgSettings?.theme_colors?.barProcessing || '#8b5cf6',
+        } as React.CSSProperties}
+      >
         <TimetableWithTabs
           tabs={tabs}
           activeTabId="dashboard"

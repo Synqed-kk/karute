@@ -11,6 +11,28 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SupabaseAny = any
 
+export interface ThemeColors {
+  barOpen?: string
+  barBooking?: string
+  barRecording?: string
+  barCompleted?: string
+  barBlocked?: string
+  barProcessing?: string
+  tableBg?: string
+  tableRowBg?: string
+}
+
+export const DEFAULT_THEME_COLORS: ThemeColors = {
+  barOpen: '#3b82f6',
+  barBooking: '#3b82f6',
+  barRecording: '#eab308',
+  barCompleted: '#22c55e',
+  barBlocked: '#d4a1a6',
+  barProcessing: '#8b5cf6',
+  tableBg: '',
+  tableRowBg: '',
+}
+
 export interface OrgSettings {
   id: string
   salon_name: string
@@ -21,6 +43,7 @@ export interface OrgSettings {
   audio_quality: string
   auto_stop_minutes: number
   operating_hours: OperatingHours
+  theme_colors: ThemeColors
 }
 
 export async function getOrgSettings(): Promise<OrgSettings | null> {
@@ -33,10 +56,11 @@ export async function getOrgSettings(): Promise<OrgSettings | null> {
 
   if (!data) return null
 
-  const settings = data as Omit<OrgSettings, 'operating_hours'> & { operating_hours?: unknown }
+  const settings = data as Omit<OrgSettings, 'operating_hours' | 'theme_colors'> & { operating_hours?: unknown; theme_colors?: unknown }
   return {
     ...settings,
     operating_hours: normalizeOperatingHours(settings.operating_hours),
+    theme_colors: { ...DEFAULT_THEME_COLORS, ...(typeof settings.theme_colors === 'object' && settings.theme_colors !== null ? settings.theme_colors : {}) },
   }
 }
 

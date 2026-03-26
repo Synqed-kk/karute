@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { upsertOrgSettings, type OrgSettings } from '@/actions/org-settings'
+import { upsertOrgSettings, type OrgSettings, type ThemeColors, DEFAULT_THEME_COLORS } from '@/actions/org-settings'
 import { StaffList } from '@/components/staff/StaffList'
 import type { StaffMember } from '@/lib/staff'
 import {
@@ -70,10 +70,11 @@ const DAY_LABELS: Record<WeekdayKey, { en: string; ja: string }> = {
 
 const TIME_OPTIONS = Array.from({ length: 49 }, (_, idx) => idx * 30)
 
-type TabId = 'organization' | 'ai' | 'recording' | 'staff' | 'sync'
+type TabId = 'organization' | 'theme' | 'ai' | 'recording' | 'staff' | 'sync'
 
 const TABS: { id: TabId; label: string; icon: string }[] = [
   { id: 'organization', label: 'Organization', icon: '🏢' },
+  { id: 'theme', label: 'Theme', icon: '🎨' },
   { id: 'ai', label: 'AI Settings', icon: '🧠' },
   { id: 'recording', label: 'Recording Settings', icon: '🎙️' },
   { id: 'staff', label: 'Staff Management', icon: '👥' },
@@ -92,6 +93,7 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
     audio_quality: orgSettings?.audio_quality ?? 'standard',
     auto_stop_minutes: orgSettings?.auto_stop_minutes ?? 30,
     operating_hours: initialOperatingHours,
+    theme_colors: { ...DEFAULT_THEME_COLORS, ...(orgSettings?.theme_colors ?? {}) } as ThemeColors,
   })
   const [saving, setSaving] = useState(false)
   const [hoursErrors, setHoursErrors] = useState<Partial<Record<WeekdayKey, string>>>({})
@@ -291,6 +293,17 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
           </div>
         )}
 
+        {/* Theme */}
+        {activeTab === 'theme' && (
+          <ThemeSettings
+            colors={settings.theme_colors}
+            onChange={(colors) => {
+              setSettings((s) => ({ ...s, theme_colors: colors }))
+              handleSave({ theme_colors: colors })
+            }}
+          />
+        )}
+
         {/* AI Settings */}
         {activeTab === 'ai' && (
           <div className="space-y-6">
@@ -400,6 +413,128 @@ export function SettingsTabs({ orgSettings, staffList, activeStaffId, locale, au
           Saving...
         </div>
       )}
+    </div>
+  )
+}
+
+const BAR_COLOR_FIELDS: { key: keyof ThemeColors; label: string; description: string }[] = [
+  { key: 'barOpen', label: 'Open', description: 'Appointment without karute' },
+  { key: 'barBooking', label: 'Booking', description: 'Booked slot' },
+  { key: 'barRecording', label: 'Recording', description: 'Karute being recorded' },
+  { key: 'barCompleted', label: 'Completed', description: 'Karute finished' },
+  { key: 'barBlocked', label: 'Blocked', description: 'Blocked time' },
+  { key: 'barProcessing', label: 'Processing', description: 'AI processing' },
+]
+
+const TABLE_COLOR_FIELDS: { key: keyof ThemeColors; label: string; description: string }[] = [
+  { key: 'tableBg', label: 'Table Background', description: 'Main timetable background' },
+  { key: 'tableRowBg', label: 'Row Background', description: 'Staff row background' },
+]
+
+function ColorPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="relative cursor-pointer">
+        <input
+          type="color"
+          value={value || '#000000'}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+        />
+        <div
+          className="h-9 w-9 rounded-lg border border-border shadow-sm"
+          style={{ backgroundColor: value || '#transparent' }}
+        />
+      </label>
+      <input
+        type="text"
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="#hex"
+        className="w-24 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-ring"
+      />
+    </div>
+  )
+}
+
+function ThemeSettings({ colors, onChange }: { colors: ThemeColors; onChange: (c: ThemeColors) => void }) {
+  function handleColorChange(key: keyof ThemeColors, value: string) {
+    onChange({ ...colors, [key]: value })
+  }
+
+  function handleReset() {
+    onChange({ ...DEFAULT_THEME_COLORS })
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-lg font-semibold">Theme</h3>
+          <p className="text-sm text-muted-foreground">Customize timeline bar and table colors</p>
+        </div>
+        <button
+          type="button"
+          onClick={handleReset}
+          className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        >
+          Reset to Defaults
+        </button>
+      </div>
+
+      {/* Bar Colors */}
+      <div>
+        <h4 className="text-sm font-semibold mb-3">Bar Colors</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {BAR_COLOR_FIELDS.map(({ key, label, description }) => (
+            <div key={key} className="flex items-center gap-3 rounded-lg border border-border/30 p-3">
+              <ColorPicker
+                value={colors[key] ?? DEFAULT_THEME_COLORS[key] ?? ''}
+                onChange={(v) => handleColorChange(key, v)}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{label}</p>
+                <p className="text-xs text-muted-foreground">{description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Preview */}
+      <div>
+        <h4 className="text-sm font-semibold mb-3">Preview</h4>
+        <div className="flex flex-wrap gap-2">
+          {BAR_COLOR_FIELDS.map(({ key, label }) => (
+            <div
+              key={key}
+              className="rounded-full px-4 py-1.5 text-xs font-semibold text-white"
+              style={{ backgroundColor: colors[key] ?? DEFAULT_THEME_COLORS[key] }}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Table Colors */}
+      <div className="border-t border-border/30 pt-6">
+        <h4 className="text-sm font-semibold mb-3">Table Colors</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {TABLE_COLOR_FIELDS.map(({ key, label, description }) => (
+            <div key={key} className="flex items-center gap-3 rounded-lg border border-border/30 p-3">
+              <ColorPicker
+                value={colors[key] ?? ''}
+                onChange={(v) => handleColorChange(key, v)}
+              />
+              <div className="min-w-0">
+                <p className="text-sm font-medium">{label}</p>
+                <p className="text-xs text-muted-foreground">{description}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
