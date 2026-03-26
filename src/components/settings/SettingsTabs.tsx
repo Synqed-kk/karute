@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { upsertOrgSettings, type OrgSettings, type ThemeColors, DEFAULT_THEME_COLORS } from '@/actions/org-settings'
+import { upsertOrgSettings, type OrgSettings } from '@/actions/org-settings'
+import { type ThemeColors, DEFAULT_THEME_COLORS } from '@/lib/theme'
 import { StaffList } from '@/components/staff/StaffList'
 import type { StaffMember } from '@/lib/staff'
 import {
