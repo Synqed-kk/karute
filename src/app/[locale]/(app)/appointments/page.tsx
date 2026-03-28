@@ -1,8 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
 import { DashboardClient } from '@/components/dashboard/DashboardClient'
-import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getAppointmentsByDate } from '@/actions/appointments'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 
 export default async function AppointmentsPage({
   params,
@@ -12,13 +13,17 @@ export default async function AppointmentsPage({
   const { locale } = await params
   const supabase = await createClient()
 
+  const todayStr = new Date().toISOString().split('T')[0]
+  const tzOffset = 0 // server is UTC; client will re-fetch with correct offset if needed
+
   // Run all queries in parallel — single round-trip
-  const [{ data: { user } }, staffList, activeStaffId, orgSettings, { data: customersData }] = await Promise.all([
+  const [{ data: { user } }, staffList, activeStaffId, orgSettings, customers, todayAppointments] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
     getOrgSettings(),
-    supabase.from('customers').select('id, name').order('name', { ascending: true }),
+    getCachedCustomerList(),
+    getAppointmentsByDate(todayStr, tzOffset),
   ])
 
   const authProfileId = user?.id ?? null
@@ -30,11 +35,6 @@ export default async function AppointmentsPage({
     avatarUrl: s.avatar_url ?? undefined,
   }))
 
-  const customers: CustomerOption[] = (customersData ?? []).map((c) => ({
-    id: c.id,
-    name: c.name,
-  }))
-
   return (
     <div className="-m-4 md:-m-6">
     <DashboardClient
@@ -44,6 +44,7 @@ export default async function AppointmentsPage({
       customers={customers}
       locale={locale}
       orgSettings={orgSettings}
+      initialAppointments={todayAppointments}
     />
     </div>
   )

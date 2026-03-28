@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getActiveStaffId } from '@/lib/staff'
 import { RecordingFlow } from '@/components/recording/RecordingFlow'
-import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 
 export default async function SessionsPage({
   params,
@@ -11,16 +11,11 @@ export default async function SessionsPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  // Parallel: customers + activeStaffId
-  const [{ data: customersData }, activeStaffId] = await Promise.all([
-    supabase.from('customers').select('id, name').order('name', { ascending: true }),
+  // Parallel: customers (cached) + activeStaffId
+  const [customers, activeStaffId] = await Promise.all([
+    getCachedCustomerList(),
     getActiveStaffId(),
   ])
-
-  const customers: CustomerOption[] = (customersData ?? []).map((c) => ({
-    id: c.id,
-    name: c.name,
-  }))
 
   // Fetch next unlinked appointment (depends on activeStaffId)
   let nextAppointment: {

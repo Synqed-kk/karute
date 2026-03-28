@@ -30,6 +30,7 @@ interface DashboardClientProps {
   customers: CustomerOption[]
   locale: string
   orgSettings: OrgSettings | null
+  initialAppointments?: AppointmentRow[]
 }
 
 function useCurrentTime() {
@@ -61,7 +62,7 @@ interface SlotClickState {
   clickY: number
 }
 
-export function DashboardClient({ staff, activeStaffId, authProfileId, customers, locale, orgSettings }: DashboardClientProps) {
+export function DashboardClient({ staff, activeStaffId, authProfileId, customers, locale, orgSettings, initialAppointments }: DashboardClientProps) {
   const t = useTranslations('dashboard')
   const router = useRouter()
   const { minute: currentMinute, label: currentTimeLabel } = useCurrentTime()
@@ -79,9 +80,36 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const liveBars = useTimetableStore((s) => s.bars)
   const setBars = useTimetableStore((s) => s.setBars)
 
-  // Saved bars (karute records + appointments) fetched from DB by date
-  const [savedBars, setSavedBars] = useState<TimelineBar[]>([])
-  const [rawAppointments, setRawAppointments] = useState<AppointmentRow[]>([])
+  // Convert raw appointments to timeline bars
+  const appointmentsToBars = useCallback((appointments: AppointmentRow[]): TimelineBar[] => {
+    return appointments.map((a) => {
+      const startAt = new Date(a.start_time)
+      const startMin = startAt.getHours() * 60 + startAt.getMinutes()
+      const customerName = a.customers?.name ?? ''
+      const h1 = Math.floor(startMin / 60)
+      const m1 = startMin % 60
+      const endMin = startMin + a.duration_minutes
+      const h2 = Math.floor(endMin / 60)
+      const m2 = endMin % 60
+      const title = `${h1}:${String(m1).padStart(2, '0')}-${h2}:${String(m2).padStart(2, '0')}`
+      return {
+        id: `appt_${a.id}`,
+        rowId: a.staff_profile_id,
+        startMinute: startMin,
+        durationMinute: a.duration_minutes,
+        title,
+        subtitle: customerName,
+        type: (a.karute_record_id ? 'completed' : 'open') as 'completed' | 'open',
+      }
+    })
+  }, [])
+
+  // Saved bars (karute records + appointments) — pre-populated from server when available
+  const [savedBars, setSavedBars] = useState<TimelineBar[]>(() =>
+    initialAppointments ? appointmentsToBars(initialAppointments) : []
+  )
+  const [rawAppointments, setRawAppointments] = useState<AppointmentRow[]>(initialAppointments ?? [])
+  const initialLoadDone = useRef(!!initialAppointments)
 
   const isToday = useMemo(() => {
     const now = new Date()
@@ -92,42 +120,28 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     )
   }, [selectedDate])
 
-  // Fetch saved bars + appointments when date changes
+  // Fetch appointments when date changes (skip initial if server data provided)
   const refreshBars = useCallback(() => {
     const dateStr = toLocalDateStr(selectedDate)
     const tzOffset = new Date().getTimezoneOffset()
 
     getAppointmentsByDate(dateStr, tzOffset).then((appointments) => {
-      // Only show appointment bars on the timetable (no standalone karute bars)
-      // - Linked to karute → 'completed' type (green, has View Karute + Delete)
-      // - Not linked → 'open' type (blue-gray, has Delete)
-      const appt: TimelineBar[] = appointments.map((a) => {
-          const startAt = new Date(a.start_time)
-          const startMin = startAt.getHours() * 60 + startAt.getMinutes()
-          const customerName = a.customers?.name ?? ''
-          const h1 = Math.floor(startMin / 60)
-          const m1 = startMin % 60
-          const endMin = startMin + a.duration_minutes
-          const h2 = Math.floor(endMin / 60)
-          const m2 = endMin % 60
-          const title = `${h1}:${String(m1).padStart(2, '0')}-${h2}:${String(m2).padStart(2, '0')}`
-          return {
-            id: `appt_${a.id}`,
-            rowId: a.staff_profile_id,
-            startMinute: startMin,
-            durationMinute: a.duration_minutes,
-            title,
-            subtitle: customerName,
-            type: (a.karute_record_id ? 'completed' : 'open') as 'completed' | 'open',
-          }
-        })
-
-      setSavedBars(appt)
+      setSavedBars(appointmentsToBars(appointments))
       setRawAppointments(appointments)
     })
-  }, [selectedDate])
+  }, [selectedDate, appointmentsToBars])
 
   useEffect(() => {
+    if (initialLoadDone.current) {
+      // First mount with server data — skip fetch, but re-fetch with correct tz offset
+      initialLoadDone.current = false
+      const tzOffset = new Date().getTimezoneOffset()
+      if (tzOffset !== 0) {
+        // Server used tz=0, re-fetch with real offset
+        refreshBars()
+      }
+      return
+    }
     refreshBars()
   }, [refreshBars])
 
