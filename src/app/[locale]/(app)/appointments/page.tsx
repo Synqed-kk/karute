@@ -12,15 +12,16 @@ export default async function AppointmentsPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  // Get auth user ID — this matches the profile row for the logged-in user
-  const { data: { user } } = await supabase.auth.getUser()
-  const authProfileId = user?.id ?? null
-
-  const [staffList, activeStaffId, orgSettings] = await Promise.all([
+  // Run all queries in parallel — single round-trip
+  const [{ data: { user } }, staffList, activeStaffId, orgSettings, { data: customersData }] = await Promise.all([
+    supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
     getOrgSettings(),
+    supabase.from('customers').select('id, name').order('name', { ascending: true }),
   ])
+
+  const authProfileId = user?.id ?? null
 
   const staff = staffList.map((s) => ({
     id: s.id,
@@ -28,11 +29,6 @@ export default async function AppointmentsPage({
     avatarInitials: (s.full_name ?? 'U').slice(0, 2).toUpperCase(),
     avatarUrl: s.avatar_url ?? undefined,
   }))
-
-  const { data: customersData } = await supabase
-    .from('customers')
-    .select('id, name')
-    .order('name', { ascending: true })
 
   const customers: CustomerOption[] = (customersData ?? []).map((c) => ({
     id: c.id,

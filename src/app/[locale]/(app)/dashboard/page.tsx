@@ -10,28 +10,29 @@ export default async function DashboardPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  const { data: { user } } = await supabase.auth.getUser()
-  const staffList = await getStaffList()
-  const activeStaffId = await getActiveStaffId()
-  const activeStaff = staffList.find((s) => s.id === activeStaffId)
-
   // Stats: recordings this week
   const startOfWeek = new Date()
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay())
   startOfWeek.setHours(0, 0, 0, 0)
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-
   const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00Z'
   const todayEnd = new Date().toISOString().split('T')[0] + 'T23:59:59Z'
 
-  const [recordingsRes, karuteRes, appointmentsRes, recentKaruteRes] = await Promise.all([
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+
+  // All queries in parallel — single round-trip
+  const [{ data: { user } }, staffList, activeStaffId, recordingsRes, karuteRes, appointmentsRes, recentKaruteRes] = await Promise.all([
+    supabase.auth.getUser(),
+    getStaffList(),
+    getActiveStaffId(),
     sb.from('karute_records').select('id', { count: 'exact', head: true }).gte('created_at', startOfWeek.toISOString()),
     sb.from('karute_records').select('id', { count: 'exact', head: true }).gte('created_at', startOfWeek.toISOString()),
     sb.from('appointments').select('id, start_time, duration_minutes, staff_profile_id, customers:client_id ( name )').gte('start_time', todayStart).lte('start_time', todayEnd).order('start_time', { ascending: true }),
     sb.from('karute_records').select('id, summary, created_at, staff_profile_id, customers:client_id ( name )').order('created_at', { ascending: false }).limit(10),
   ])
+
+  const activeStaff = staffList.find((s) => s.id === activeStaffId)
 
   const stats = {
     recordingsThisWeek: recordingsRes.count ?? 0,

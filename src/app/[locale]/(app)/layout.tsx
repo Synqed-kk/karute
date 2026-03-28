@@ -4,6 +4,7 @@ import { StaffSwitcher } from '@/components/staff/StaffSwitcher'
 import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { MiniRecorder } from '@/components/recording/MiniRecorder'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
+import { SessionProvider } from '@/providers/session-provider'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -45,27 +46,37 @@ export default async function DashboardLayout({
     activeStaff = staffItems.find((s) => s.id === user.id) ?? staffItems[0]
   }
 
+  const sessionData = {
+    userId: user.id,
+    staffList: staffItems,
+    activeStaff,
+    activeStaffId: activeStaff?.id ?? null,
+    locale,
+  }
+
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-[#e8e8e8] p-3 dark:bg-[#2a2a2a]">
-      <div className="flex items-center py-1" style={{ height: '72px' }}>
-        <img src="/karute_logo.png" alt="Karute" className="h-14 object-contain dark:invert" style={{ height: '100px' }} />
-        <div className="ml-auto flex items-center">
-          <TopBar />
-          <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} authProfileId={user.id} />
-        </div>
-      </div>
-      <div className="flex flex-1 gap-3 min-h-0 overflow-hidden">
-        <div className="relative max-sm:w-0">
-          <Sidebar />
-        </div>
-        <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] dark:bg-[#3a3a3a]">
-          <div className="mx-auto max-w-7xl p-4 md:p-6">
-            {children}
+    <SessionProvider data={sessionData}>
+      <div className="flex h-screen flex-col overflow-hidden bg-[#e8e8e8] p-3 dark:bg-[#2a2a2a]">
+        <div className="flex items-center py-1" style={{ height: '72px' }}>
+          <img src="/karute_logo.png" alt="Karute" className="h-14 object-contain dark:invert" style={{ height: '100px' }} />
+          <div className="ml-auto flex items-center">
+            <TopBar />
+            <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} authProfileId={user.id} />
           </div>
-        </main>
+        </div>
+        <div className="flex flex-1 gap-3 min-h-0 overflow-hidden">
+          <div className="relative max-sm:w-0">
+            <Sidebar />
+          </div>
+          <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] dark:bg-[#3a3a3a]">
+            <div className="mx-auto max-w-7xl p-4 md:p-6">
+              {children}
+            </div>
+          </main>
+        </div>
+        <MiniRecorder />
+        <AIChatFAB locale={locale} />
       </div>
-      <MiniRecorder />
-      <AIChatFAB locale={locale} />
-    </div>
+    </SessionProvider>
   )
 }
