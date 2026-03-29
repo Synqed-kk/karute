@@ -29,13 +29,13 @@ export interface OrgSettings {
 
 export async function getOrgSettings(): Promise<OrgSettings | null> {
   const supabase = await createClient()
-  const { data } = await (supabase as SupabaseAny)
+  const { data, error } = await (supabase as SupabaseAny)
     .from('organization_settings')
     .select('*')
     .limit(1)
-    .single()
+    .maybeSingle()
 
-  if (!data) return null
+  if (error || !data) return null
 
   const settings = data as Omit<OrgSettings, 'operating_hours' | 'theme_colors'> & { operating_hours?: unknown; theme_colors?: unknown }
   return {
