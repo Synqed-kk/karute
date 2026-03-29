@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { usePathname, Link, useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
 
@@ -27,10 +27,6 @@ function ImportIcon() {
 }
 function SettingsIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
-}
-
-function MenuIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" /></svg>
 }
 
 type SidebarLabelKey = 'recording' | 'dashboard' | 'appointments' | 'customers' | 'karute' | 'askAi' | 'dataImport' | 'settings'
@@ -64,12 +60,20 @@ const LABEL_FALLBACKS: Record<SidebarLabelKey, string> = {
   settings: 'Settings',
 }
 
+const SWIPE_THRESHOLD = 50
+const EDGE_ZONE = 30 // px from left edge to start swipe-open
+
 export function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const t = useTranslations('sidebar')
   const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
   const [mobileOpen, setMobileOpen] = useState(false)
+
+  // Swipe tracking
+  const touchStartX = useRef(0)
+  const touchStartY = useRef(0)
+  const swiping = useRef(false)
 
   function getLabel(key: SidebarLabelKey): string {
     try {
@@ -79,18 +83,55 @@ export function Sidebar() {
     }
   }
 
+  // Swipe gesture: right from left edge to open, left anywhere to close
+  useEffect(() => {
+    function handleTouchStart(e: TouchEvent) {
+      const touch = e.touches[0]
+      touchStartX.current = touch.clientX
+      touchStartY.current = touch.clientY
+      swiping.current = false
+    }
+
+    function handleTouchMove(e: TouchEvent) {
+      const touch = e.touches[0]
+      const dx = touch.clientX - touchStartX.current
+      const dy = touch.clientY - touchStartY.current
+
+      // Only count horizontal swipes (not vertical scrolling)
+      if (Math.abs(dy) > Math.abs(dx)) return
+      if (Math.abs(dx) < 10) return
+
+      swiping.current = true
+    }
+
+    function handleTouchEnd(e: TouchEvent) {
+      if (!swiping.current) return
+      const touch = e.changedTouches[0]
+      const dx = touch.clientX - touchStartX.current
+
+      if (!mobileOpen && dx > SWIPE_THRESHOLD && touchStartX.current < EDGE_ZONE) {
+        // Swipe right from left edge → open
+        setMobileOpen(true)
+      } else if (mobileOpen && dx < -SWIPE_THRESHOLD) {
+        // Swipe left → close
+        setMobileOpen(false)
+      }
+
+      swiping.current = false
+    }
+
+    window.addEventListener('touchstart', handleTouchStart, { passive: true })
+    window.addEventListener('touchmove', handleTouchMove, { passive: true })
+    window.addEventListener('touchend', handleTouchEnd, { passive: true })
+    return () => {
+      window.removeEventListener('touchstart', handleTouchStart)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('touchend', handleTouchEnd)
+    }
+  }, [mobileOpen])
+
   return (
     <>
-      {/* Mobile hamburger button */}
-      <button
-        type="button"
-        onClick={() => setMobileOpen(true)}
-        className="fixed top-5 left-4 z-50 flex items-center justify-center w-10 h-10 rounded-xl bg-[#4a4a4a] text-white shadow-lg sm:hidden"
-        aria-label="Open menu"
-      >
-        <MenuIcon />
-      </button>
-
       {/* Mobile overlay */}
       {mobileOpen && (
         <div
@@ -99,7 +140,7 @@ export function Sidebar() {
         />
       )}
 
-      {/* Sidebar — always visible on sm+, slide-in on mobile */}
+      {/* Sidebar — always visible on sm+, swipe-in on mobile */}
       <nav
         className={`
           flex h-full w-[90px] flex-col items-center rounded-[28px] bg-[#4a4a4a] py-4 gap-0.5
