@@ -66,11 +66,9 @@ interface CustomerDetailTabsProps {
 // ---------------------------------------------------------------------------
 
 const TABS = [
-  { key: 'karute', label: 'Karute', icon: FileText },
-  { key: 'timeline', label: 'Timeline', icon: Clock },
-  { key: 'photos', label: 'Photos', icon: Camera },
-  { key: 'details', label: 'Details', icon: User },
   { key: 'ai-history', label: 'AI History', icon: Sparkles },
+  { key: 'karute', label: 'Karute', icon: FileText },
+  { key: 'photos', label: 'Photos', icon: Camera },
 ] as const
 
 type TabKey = (typeof TABS)[number]['key']
@@ -188,7 +186,7 @@ export function CustomerDetailTabs({
   totalVisitCount,
 }: CustomerDetailTabsProps) {
   const locale = useLocale()
-  const [activeTab, setActiveTab] = useState<TabKey>('karute')
+  const [activeTab, setActiveTab] = useState<TabKey>('ai-history')
 
   return (
     <div>
@@ -225,22 +223,7 @@ export function CustomerDetailTabs({
             locale={locale}
           />
         )}
-        {activeTab === 'timeline' && (
-          <TimelineTab
-            karuteRecords={karuteRecords}
-            totalVisitCount={totalVisitCount}
-            locale={locale}
-          />
-        )}
         {activeTab === 'photos' && <PhotosTab />}
-        {activeTab === 'details' && (
-          <DetailsTab
-            customer={customer}
-            karuteRecords={karuteRecords}
-            totalVisitCount={totalVisitCount}
-            locale={locale}
-          />
-        )}
         {activeTab === 'ai-history' && (
           <AIHistoryTab karuteRecords={karuteRecords} locale={locale} />
         )}
