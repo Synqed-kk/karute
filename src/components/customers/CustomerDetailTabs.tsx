@@ -264,6 +264,12 @@ function KaruteTab({
 
   return (
     <div className="space-y-4">
+      {/* Advice for Next Visit */}
+      <AdviceCard karuteRecords={karuteRecords} locale={locale} />
+
+      {/* AI Recommended Actions */}
+      <RecommendedActionsCard karuteRecords={karuteRecords} />
+
       <h2 className="text-lg font-semibold">Karute History</h2>
 
       {/* Karute Records */}
@@ -272,12 +278,6 @@ function KaruteTab({
           <KaruteRecordCard key={record.id} record={record} locale={locale} />
         ))}
       </div>
-
-      {/* Advice for Next Visit */}
-      <AdviceCard karuteRecords={karuteRecords} locale={locale} />
-
-      {/* AI Recommended Actions */}
-      <RecommendedActionsCard karuteRecords={karuteRecords} />
     </div>
   )
 }
