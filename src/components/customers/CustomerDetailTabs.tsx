@@ -189,7 +189,15 @@ export function CustomerDetailTabs({
   const [activeTab, setActiveTab] = useState<TabKey>('ai-history')
 
   return (
-    <div>
+    <div className="space-y-4">
+      {/* Advice + AI Actions — always visible above tabs */}
+      {karuteRecords.length > 0 && (
+        <>
+          <AdviceCard karuteRecords={karuteRecords} locale={locale} />
+          <RecommendedActionsCard karuteRecords={karuteRecords} />
+        </>
+      )}
+
       {/* Sticky Tab Navigation */}
       <div className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm pb-4 pt-2">
         <div className="flex items-center gap-1.5 rounded-xl bg-muted/50 p-1.5">
@@ -264,12 +272,6 @@ function KaruteTab({
 
   return (
     <div className="space-y-4">
-      {/* Advice for Next Visit */}
-      <AdviceCard karuteRecords={karuteRecords} locale={locale} />
-
-      {/* AI Recommended Actions */}
-      <RecommendedActionsCard karuteRecords={karuteRecords} />
-
       <h2 className="text-lg font-semibold">Karute History</h2>
 
       {/* Karute Records */}
