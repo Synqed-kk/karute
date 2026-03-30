@@ -1,11 +1,8 @@
 import { notFound } from 'next/navigation'
-import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
 import { CustomerProfileHeader } from '@/components/customers/CustomerProfileHeader'
-import { KaruteHistoryList } from '@/components/customers/KaruteHistoryList'
+import { CustomerDetailTabs } from '@/components/customers/CustomerDetailTabs'
 import type { CustomerRow } from '@/types/database'
-
-const HISTORY_PAGE_SIZE = 10
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
@@ -14,27 +11,39 @@ interface CustomerProfilePageProps {
 
 export default async function CustomerProfilePage({
   params,
-  searchParams,
 }: CustomerProfilePageProps) {
-  const { id } = await params
-  const { historyPage: historyPageParam } = await searchParams
-
-  const historyPage = Math.max(1, Number(historyPageParam ?? '1') || 1)
-
-  const t = await getTranslations('customers')
+  const { id, locale } = await params
 
   const supabase = await createClient()
 
+  // Fetch customer + karute records with entries and staff profiles in parallel
   const [customerResult, karuteResult] = await Promise.all([
     supabase.from('customers').select('*').eq('id', id).single(),
-    // client_id is the FK → customers.id (001_initial_schema.sql line 54)
-    // Filters karute records for this specific client's sessions
     supabase
       .from('karute_records')
-      .select('id, created_at, summary, staff_profile_id, session_date, profiles:staff_profile_id ( full_name )', { count: 'exact' })
+      .select(
+        `
+        id,
+        created_at,
+        session_date,
+        summary,
+        transcript,
+        staff_profile_id,
+        profiles:staff_profile_id ( full_name ),
+        entries (
+          id,
+          category,
+          content,
+          source_quote,
+          confidence_score,
+          is_manual,
+          created_at
+        )
+      `,
+        { count: 'exact' },
+      )
       .eq('client_id', id)
-      .order('session_date', { ascending: false })
-      .range((historyPage - 1) * HISTORY_PAGE_SIZE, historyPage * HISTORY_PAGE_SIZE - 1),
+      .order('session_date', { ascending: false }),
   ])
 
   if (customerResult.error || !customerResult.data) {
@@ -42,18 +51,29 @@ export default async function CustomerProfilePage({
   }
 
   const customer = customerResult.data as CustomerRow
-  const karuteRecords = (karuteResult.data ?? []) as Array<{
+
+  type KaruteRecordWithEntries = {
     id: string
     created_at: string
-    summary: string | null
-    staff_profile_id: string | null
     session_date: string
+    summary: string | null
+    transcript: string | null
+    staff_profile_id: string | null
     profiles: { full_name: string } | null
-  }>
-  const totalKaruteCount = karuteResult.count ?? 0
-  const totalPages = Math.max(1, Math.ceil(totalKaruteCount / HISTORY_PAGE_SIZE))
+    entries: Array<{
+      id: string
+      category: string
+      content: string
+      source_quote: string | null
+      confidence_score: number | null
+      is_manual: boolean
+      created_at: string
+    }>
+  }
 
-  const visitCount = totalKaruteCount
+  const karuteRecords = (karuteResult.data ?? []) as KaruteRecordWithEntries[]
+  const totalVisitCount = karuteResult.count ?? 0
+
   const lastVisit: string | null = karuteRecords[0]?.session_date ?? null
 
   return (
@@ -61,15 +81,16 @@ export default async function CustomerProfilePage({
       {/* Profile header with inline edit */}
       <CustomerProfileHeader
         customer={customer}
-        visitCount={visitCount}
+        visitCount={totalVisitCount}
         lastVisit={lastVisit}
       />
 
-      {/* Karute history */}
-      <KaruteHistoryList
-        records={karuteRecords}
-        currentPage={historyPage}
-        totalPages={totalPages}
+      {/* Tabbed detail content */}
+      <CustomerDetailTabs
+        customer={customer}
+        karuteRecords={karuteRecords}
+        totalVisitCount={totalVisitCount}
+        locale={locale}
       />
     </div>
   )

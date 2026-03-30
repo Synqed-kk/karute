@@ -18,11 +18,11 @@ export interface EmployeeTimelineBarProps {
 }
 
 const FALLBACK_COLORS: Record<string, string> = {
-  open: '#3b82f6',
-  booking: '#3b82f6',
-  recording: '#eab308',
-  completed: '#22c55e',
-  blocked: '#d4a1a6',
+  open: '#5ba8b5',
+  booking: '#c4897a',
+  recording: '#e6a84d',
+  completed: '#6bab8a',
+  blocked: '#c4a0a6',
   processing: '#8b5cf6',
 }
 
