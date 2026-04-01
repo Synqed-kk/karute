@@ -15,8 +15,15 @@ export default async function DashboardPage({
   startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay())
   startOfWeek.setHours(0, 0, 0, 0)
 
-  const todayStart = new Date().toISOString().split('T')[0] + 'T00:00:00Z'
-  const todayEnd = new Date().toISOString().split('T')[0] + 'T23:59:59Z'
+  // Use a wide UTC window (±1 day) to capture appointments in any timezone.
+  // The client component filters by the user's local date.
+  const now = new Date()
+  const yesterday = new Date(now)
+  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
+  const tomorrow = new Date(now)
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
+  const todayStart = yesterday.toISOString().split('T')[0] + 'T00:00:00Z'
+  const todayEnd = tomorrow.toISOString().split('T')[0] + 'T23:59:59Z'
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any

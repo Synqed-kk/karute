@@ -49,10 +49,16 @@ export function NewDashboard({ staffName, activeStaffId, stats, todayAppointment
   const t = useTranslations('dashboard')
   const [showAll, setShowAll] = useState(false)
 
+  // Filter to appointments that fall on the user's local date
+  const localToday = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD
+  const todayOnly = useMemo(() =>
+    todayAppointments.filter((a) => new Date(a.startTime).toLocaleDateString('en-CA') === localToday),
+    [todayAppointments, localToday])
+
   const filteredAppointments = useMemo(() => {
-    if (showAll || !activeStaffId) return todayAppointments
-    return todayAppointments.filter((a) => a.staffId === activeStaffId)
-  }, [todayAppointments, activeStaffId, showAll])
+    if (showAll || !activeStaffId) return todayOnly
+    return todayOnly.filter((a) => a.staffId === activeStaffId)
+  }, [todayOnly, activeStaffId, showAll])
 
   const filteredKarute = useMemo(() => {
     if (showAll || !activeStaffId) return recentKarute.slice(0, 5)
