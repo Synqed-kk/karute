@@ -62,3 +62,22 @@ export async function getActiveStaffId(): Promise<string | null> {
   const cookieStore = await cookies()
   return cookieStore.get('active_staff_id')?.value ?? null
 }
+
+/**
+ * Returns the current authenticated user's customer_id (tenant ID).
+ * Used to scope inserts so RLS allows them.
+ */
+export async function getTenantId(): Promise<string> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+
+  const { data } = await supabase
+    .from('profiles')
+    .select('customer_id')
+    .eq('id', user.id)
+    .single()
+
+  if (!data?.customer_id) throw new Error('Business profile not found')
+  return data.customer_id
+}

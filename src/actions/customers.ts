@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { checkDuplicateName } from '@/lib/customers/queries'
+import { getTenantId } from '@/lib/staff'
 
 // ---------------------------------------------------------------------------
 // Validation schema
@@ -58,12 +59,14 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
   }
 
   const supabase = await createClient()
+  const tenantId = await getTenantId()
 
   try {
     const { data, error } = await supabase
       .from('customers')
       .insert([
         {
+          customer_id: tenantId,
           name,
           furigana: furigana || null,
           phone: phone || null,
@@ -110,12 +113,14 @@ export async function createQuickCustomer(
   }
 
   const supabase = await createClient()
+  const tenantId = await getTenantId()
 
   try {
     const { data, error } = await supabase
       .from('customers')
       .insert([
         {
+          customer_id: tenantId,
           name: trimmedName,
           furigana: null,
           phone: null,

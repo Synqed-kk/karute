@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import type { AddEntryInput } from '@/types/karute'
+import { getTenantId } from '@/lib/staff'
 
 /**
  * Add a single manual entry to an existing karute record.
@@ -13,9 +14,11 @@ export async function addManualEntry(
   input: AddEntryInput,
 ): Promise<{ error?: string }> {
   const supabase = await createClient()
+  const tenantId = await getTenantId()
 
   const { error } = await supabase.from('entries').insert({
     karute_record_id: input.karuteRecordId,
+    customer_id: tenantId,
     category: input.category,
     content: input.content,
     is_manual: true,

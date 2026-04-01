@@ -3,7 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getActiveStaffId } from '@/lib/staff'
+import { getActiveStaffId, getTenantId } from '@/lib/staff'
 import type { SaveKaruteInput } from '@/types/karute'
 
 /**
@@ -51,13 +51,15 @@ export async function saveKaruteRecord(
       return { error: 'No active staff member selected. Please select a staff member from the header.' }
     }
 
+    const tenantId = await getTenantId()
+
     // Step 1: Insert the karute record and get its generated ID.
-    // customer_id = business tenant UUID (for RLS) — use input.customerId as proxy.
+    // customer_id = business tenant UUID (for RLS).
     // client_id   = FK → customers.id (the individual salon client).
     const { data: record, error: recordError } = await supabase
       .from('karute_records')
       .insert({
-        customer_id: input.customerId,
+        customer_id: tenantId,
         client_id: input.customerId,
         staff_profile_id: staffProfileId,
         transcript: input.transcript,
@@ -76,6 +78,7 @@ export async function saveKaruteRecord(
     const { error: entriesError } = await supabase.from('entries').insert(
       input.entries.map((entry) => ({
         karute_record_id: recordId,
+        customer_id: tenantId,
         category: entry.category,
         content: entry.content,
         source_quote: entry.sourceQuote ?? null,
@@ -134,10 +137,12 @@ export async function saveKaruteRecordInline(
     return { error: 'No active staff member selected.' }
   }
 
+  const tenantId = await getTenantId()
+
   const { data: record, error: recordError } = await supabase
     .from('karute_records')
     .insert({
-      customer_id: input.customerId,
+      customer_id: tenantId,
       client_id: input.customerId,
       staff_profile_id: staffProfileId,
       transcript: input.transcript,
@@ -151,6 +156,7 @@ export async function saveKaruteRecordInline(
   const { error: entriesError } = await supabase.from('entries').insert(
     input.entries.map((entry) => ({
       karute_record_id: record.id,
+      customer_id: tenantId,
       category: entry.category,
       content: entry.content,
       source_quote: entry.sourceQuote ?? null,
