@@ -64,9 +64,14 @@ export function AIRecommendedActions({ locale }: { locale: string }) {
       const newInsights = data.insights ?? []
       setInsights(newInsights)
 
-      try {
-        localStorage.setItem(cacheKey, JSON.stringify({ insights: newInsights, ts: Date.now() }))
-      } catch {}
+      // Only cache non-empty results so we retry on next load if empty
+      if (newInsights.length > 0) {
+        try {
+          localStorage.setItem(cacheKey, JSON.stringify({ insights: newInsights, ts: Date.now() }))
+        } catch {}
+      } else {
+        try { localStorage.removeItem(cacheKey) } catch {}
+      }
     } catch {
       // silent
     } finally {
@@ -94,7 +99,7 @@ export function AIRecommendedActions({ locale }: { locale: string }) {
     )
   }
 
-  if (visibleInsights.length === 0 && insights.length === 0) return null
+  if (!loading && insights.length === 0) return null
 
   return (
     <div className="rounded-2xl border border-border/30 bg-card/50 p-6">
