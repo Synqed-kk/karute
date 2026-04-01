@@ -72,6 +72,7 @@ export function PinSetup({ staffId, staffName, hasPin, onClose }: PinSetupProps)
   return (
     <>
       <PinPad
+        key={phase}
         title={title}
         onSubmit={handleSubmit}
         onCancel={onClose}
