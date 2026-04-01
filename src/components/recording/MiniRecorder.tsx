@@ -32,7 +32,7 @@ export function MiniRecorder() {
   const timeStr = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
 
   return (
-    <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-[100] animate-in fade-in-0 duration-300">
+    <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in-0 slide-in-from-top-2 duration-300">
       <div className="flex items-center gap-2 rounded-full bg-red-500 text-white pl-4 pr-2 py-2 shadow-lg shadow-red-500/30">
         {/* Pulsing dot */}
         <div className="relative">
