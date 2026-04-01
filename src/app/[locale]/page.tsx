@@ -41,7 +41,7 @@ export default async function LandingPage({
         </p>
         <div className="flex items-center justify-center gap-4 flex-wrap">
           <Link
-            href={'/login' as Parameters<typeof Link>[0]['href']}
+            href={'/signup' as Parameters<typeof Link>[0]['href']}
             className="rounded-full bg-foreground px-8 py-3.5 text-base font-semibold text-background hover:opacity-90 transition-opacity"
           >
             Get started free
@@ -143,7 +143,7 @@ export default async function LandingPage({
           Join salons and clinics already saving hours every week with AI-powered session notes.
         </p>
         <Link
-          href={'/login' as Parameters<typeof Link>[0]['href']}
+          href={'/signup' as Parameters<typeof Link>[0]['href']}
           className="inline-block rounded-full bg-foreground px-10 py-4 text-base font-semibold text-background hover:opacity-90 transition-opacity"
         >
           Get started free
