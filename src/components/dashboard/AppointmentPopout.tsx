@@ -176,10 +176,20 @@ export function AppointmentPopout({
                 </button>
               </div>
             </div>
+          ) : selectedCustomer ? (
+            <button
+              type="button"
+              onClick={() => { setSelectedCustomerId(''); setSearchQuery('') }}
+              className="w-full flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm font-medium text-foreground hover:bg-primary/10 transition-colors"
+            >
+              {selectedCustomer.name}
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-muted-foreground"><path d="M18 6 6 18M6 6l12 12" /></svg>
+            </button>
           ) : (
             <>
               <input
                 type="text"
+                autoFocus
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder={t('searchCustomers')}
@@ -192,7 +202,7 @@ export function AppointmentPopout({
                   filteredCustomers.slice(0, 5).map((c) => (
                     <button key={c.id} type="button"
                       onClick={() => { setSelectedCustomerId(c.id); setSearchQuery('') }}
-                      className={`w-full text-left px-3 py-2 text-sm transition-colors hover:bg-muted/50 ${selectedCustomerId === c.id ? 'bg-muted font-medium' : ''}`}
+                      className="w-full text-left px-3 py-2 text-sm transition-colors hover:bg-muted/50"
                     >{c.name}</button>
                   ))
                 )}
@@ -202,13 +212,6 @@ export function AppointmentPopout({
                 {tCust('newCustomer')}
               </button>
             </>
-          )}
-
-          {selectedCustomer && !creatingCustomer && (
-            <div className="mt-1.5 flex items-center gap-2 rounded-lg bg-primary/10 px-3 py-1.5 text-sm">
-              <span className="text-xs text-muted-foreground">{t('selected')}</span>
-              <span className="text-xs font-medium">{selectedCustomer.name}</span>
-            </div>
           )}
         </div>
 
