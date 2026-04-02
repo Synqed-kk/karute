@@ -236,20 +236,20 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       const isAppt = bar.id.startsWith('appt_')
       if (!isAppt) return
 
-      // Block dragging to a different staff row
-      if (bar.rowId !== previousRowId) {
-        toast.error(t('cannotMoveBetweenStaff'))
-        refreshBars()
-        return
-      }
-
       const appointmentId = bar.id.replace('appt_', '')
       const newDate = new Date(selectedDate)
       newDate.setHours(Math.floor(bar.startMinute / 60), bar.startMinute % 60, 0, 0)
 
-      const result = await updateAppointment(appointmentId, {
+      const updates: { startTime?: string; staffProfileId?: string } = {
         startTime: newDate.toISOString(),
-      })
+      }
+
+      // If dragged to a different staff row, update the staff assignment
+      if (bar.rowId !== previousRowId) {
+        updates.staffProfileId = bar.rowId
+      }
+
+      const result = await updateAppointment(appointmentId, updates)
 
       if ('error' in result) {
         toast.error(result.error)
@@ -382,7 +382,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
     [router, handleDeleteAppointment, handleDeleteKarute, rawAppointments, recorderState, startRecording, setRecordingAppointmentId]
   )
 
-  const [showAllStaff, setShowAllStaff] = useState(false)
+  const [showAllStaff, setShowAllStaff] = useState(true)
 
   // Sort current profile to top, optionally hide other staff
   const timetableStaff = useMemo(() => {

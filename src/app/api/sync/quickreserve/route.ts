@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
 
 export const maxDuration = 60
@@ -29,7 +29,8 @@ export async function POST() {
 }
 
 async function runSync() {
-  const supabase = await createClient()
+  // Use service role client — cron jobs run without an authenticated user
+  const supabase = createServiceClient()
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
