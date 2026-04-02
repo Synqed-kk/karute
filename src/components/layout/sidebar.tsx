@@ -43,6 +43,7 @@ const NAV_ROUTES: NavRoute[] = [
   { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', icon: HomeIcon },
   { id: 'appointments', href: '/appointments', labelKey: 'appointments', icon: CalendarIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', icon: UsersIcon },
+  { id: 'karute', href: '/karute', labelKey: 'karute', icon: ClipboardIcon },
   { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', icon: SparklesIcon },
   { id: 'dataImport', href: '/data-import', labelKey: 'dataImport', icon: ImportIcon },
   { id: 'settings', href: '/settings', labelKey: 'settings', icon: SettingsIcon },

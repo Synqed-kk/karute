@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/service'
+import { createClient } from '@/lib/supabase/server'
 
 export const maxDuration = 30
 
@@ -9,7 +9,7 @@ export const maxDuration = 30
  * 2. Delete expired AI cache entries
  */
 export async function GET() {
-  const supabase = createServiceClient()
+  const supabase = await createClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
 
