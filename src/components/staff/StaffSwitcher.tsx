@@ -192,54 +192,6 @@ export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSw
 
           <DropdownMenuSeparator className="my-0" />
 
-          {/* Add staff */}
-          {adding ? (
-            <div className="px-4 py-3" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => { if (e.key === 'Enter') handleAddStaff() }}>
-              <input
-                autoFocus
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder={t('staffNamePlaceholder')}
-                disabled={saving}
-                className="w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              />
-              <div className="flex gap-2 mt-2">
-                <button
-                  type="button"
-                  onClick={() => { setAdding(false); setNewName('') }}
-                  className="flex-1 rounded-md px-2 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
-                >
-                  {tc('cancel')}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAddStaff}
-                  disabled={saving || !newName.trim()}
-                  className="flex-1 rounded-md bg-primary px-2 py-1.5 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
-                >
-                  {saving ? '...' : tc('add')}
-                </button>
-              </div>
-            </div>
-          ) : (
-            <DropdownMenuItem
-              onClick={(e) => { e.preventDefault(); setAdding(true) }}
-              className="flex items-center gap-3 px-4 py-2.5 cursor-pointer text-muted-foreground"
-            >
-              <Plus className="h-4 w-4" />
-              <span className="text-sm">{t('addStaff')}</span>
-            </DropdownMenuItem>
-          )}
-
-          {/* Manage staff in settings */}
-          <DropdownMenuItem
-            onClick={() => router.push('/settings' as Parameters<typeof router.push>[0])}
-            className="flex items-center gap-3 px-4 py-2.5 cursor-pointer text-muted-foreground"
-          >
-            <Settings className="h-4 w-4" />
-            <span className="text-sm">{tSettings('manageStaff')}</span>
-          </DropdownMenuItem>
-
           <DropdownMenuSeparator className="my-0" />
 
           {/* Logout */}
