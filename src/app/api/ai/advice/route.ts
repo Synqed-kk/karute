@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
+import { createClient } from '@/lib/supabase/server'
 
 export const maxDuration = 60
 
@@ -24,6 +25,16 @@ export async function POST(request: NextRequest) {
       ? 'Respond entirely in Japanese.'
       : 'Respond entirely in English.'
 
+    // Get business type from org settings
+    const supabase = await createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: orgSettings } = await (supabase as any)
+      .from('organization_settings')
+      .select('business_type')
+      .limit(1)
+      .single()
+    const businessType = orgSettings?.business_type || 'salon/clinic'
+
     const context = [
       summary ? `Session Summary: ${summary}` : '',
       entries?.length > 0
@@ -38,7 +49,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant for a salon/clinic. Based on the karute session data, generate practical advice for the next visit. Keep it to 2-3 sentences, focusing on what the staff should follow up on, check, or suggest to the customer. ${langInstruction}`,
+          content: `You are an AI assistant for a ${businessType} business. Based on the karute session data, generate practical advice for the next visit. Keep it to 2-3 sentences, focusing on what the staff should follow up on, check, or suggest to the customer. ${langInstruction}`,
         },
         { role: 'user', content: context },
       ],

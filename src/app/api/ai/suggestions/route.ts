@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
+import { createClient } from '@/lib/supabase/server'
 
 export const maxDuration = 60
 
@@ -32,6 +33,15 @@ export async function POST(request: NextRequest) {
         : '',
     ].filter(Boolean).join('\n\n')
 
+    const supabase = await createClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: orgSettings } = await (supabase as any)
+      .from('organization_settings')
+      .select('business_type')
+      .limit(1)
+      .single()
+    const businessType = orgSettings?.business_type || 'salon/clinic'
+
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
     const completion = await openai.chat.completions.create({
@@ -39,7 +49,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant for a salon/clinic karute system. Based on the session transcript and extracted data, generate 3-5 short, actionable suggestions. These could be:
+          content: `You are an AI assistant for a ${businessType} karute system. Based on the session transcript and extracted data, generate 3-5 short, actionable suggestions. These could be:
 - Follow-up actions for the staff
 - Product or treatment recommendations for the customer
 - Things to note for the next visit

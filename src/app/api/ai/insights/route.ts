@@ -5,7 +5,8 @@ import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 
 export const maxDuration = 60
 
-const SYSTEM_PROMPT = `You are an AI assistant for a salon/clinic business. Analyze customer karute records and generate actionable insights for the staff.
+function getSystemPrompt(businessType: string) {
+  return `You are an AI assistant for a ${businessType} business. Analyze customer karute records and generate actionable insights for the staff.
 
 Generate 3-5 insights from the provided data. Each insight should have:
 - type: one of NEXT_TREATMENT, FOLLOW_UP, UPSELL, TALKING_POINT, PHOTO_REQUEST, GENERAL
@@ -15,6 +16,7 @@ Generate 3-5 insights from the provided data. Each insight should have:
 - priority: 0.0-1.0 (1.0 = most important)
 
 Return a JSON object: { "insights": [...] }`
+}
 
 export async function POST(request: Request) {
   try {
@@ -57,12 +59,20 @@ export async function POST(request: Request) {
       ? 'Respond entirely in Japanese.'
       : 'Respond entirely in English.'
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: orgSettings } = await (supabase as any)
+      .from('organization_settings')
+      .select('business_type')
+      .limit(1)
+      .single()
+    const businessType = orgSettings?.business_type || 'salon/clinic'
+
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
     const completion = await openai.chat.completions.create({
       model: process.env.AI_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT + '\n\n' + langInstruction },
+        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction },
         { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${context}` },
       ],
       response_format: { type: 'json_object' },
