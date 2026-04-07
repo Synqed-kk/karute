@@ -83,8 +83,8 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-w-3xl min-h-[400px]">
-        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-1 flex-col justify-between gap-6 pt-2">
+      <DialogContent className="max-w-3xl">
+        <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4 pt-2">
           <div className={mode === 'edit' && staff ? 'flex gap-5' : ''}>
             {/* Avatar upload — left-aligned, side by side with inputs */}
             {mode === 'edit' && staff && (
@@ -136,7 +136,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
               </div>
             </div>
 
-            <DialogFooter className="pt-4 mt-auto">
+            <DialogFooter className="pt-2">
               <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>{tc('cancel')}</Button>
               <Button type="submit" disabled={isSubmitting}>{isSubmitting ? tc('saving') : tc('save')}</Button>
             </DialogFooter>
