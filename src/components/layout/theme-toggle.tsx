@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
 
 function SunIcon() {
@@ -49,10 +50,27 @@ function MoonIcon() {
 }
 
 export function ThemeToggle() {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, resolvedTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => setMounted(true), [])
+
+  const isDark = resolvedTheme === 'dark'
 
   function toggleTheme() {
-    setTheme(theme === 'dark' ? 'light' : 'dark')
+    setTheme(isDark ? 'light' : 'dark')
+  }
+
+  if (!mounted) {
+    return (
+      <button
+        type="button"
+        className="min-h-[44px] min-w-[44px] rounded-md p-2 text-gray-600 dark:text-white/80 transition"
+        aria-hidden="true"
+      >
+        <MoonIcon />
+      </button>
+    )
   }
 
   return (
@@ -60,9 +78,9 @@ export function ThemeToggle() {
       onClick={toggleTheme}
       type="button"
       className="min-h-[44px] min-w-[44px] rounded-md p-2 text-gray-600 dark:text-white/80 transition hover:text-gray-900 dark:hover:text-white"
-      aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+      aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
     >
-      {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
+      {isDark ? <SunIcon /> : <MoonIcon />}
     </button>
   )
 }

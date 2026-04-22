@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 /**
  * Sync bookings from Quick Reserve into our appointments table.
- * Called by Vercel cron (every 15 min) or manually.
+ * Called by Vercel cron (daily) or manually.
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -29,13 +29,10 @@ export async function POST() {
 }
 
 async function runSync() {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = supabase as any
-
-    const { data: config } = await sb
+    const { data: config } = await supabase
       .from('sync_config')
       .select('*')
       .eq('provider', 'quickreserve')
@@ -56,9 +53,7 @@ async function runSync() {
 
     // Fetch reservations
     const storeSlug = config.base_url || 'la-estro'
-    const storeId = 222
-
-    console.log('[QR Sync] Login result — token:', session.token ? 'yes' : 'no', 'cookies:', session.cookies ? 'yes' : 'no')
+    const storeId = config.store_id || 222
 
     let reservations
     try {
@@ -70,11 +65,17 @@ async function runSync() {
 
     console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
 
-    // Get our staff for name matching
-    const { data: ourStaff } = await sb
+    // Get staff for name matching (scoped to tenant if set)
+    const staffQuery = supabase
       .from('profiles')
       .select('id, full_name')
       .not('full_name', 'is', null)
+
+    if (config.tenant_id) {
+      staffQuery.eq('customer_id', config.tenant_id)
+    }
+
+    const { data: ourStaff } = await staffQuery
 
     // Build QR staff name → our profile ID map
     const staffNameMap = new Map<string, string>()
@@ -107,31 +108,40 @@ async function runSync() {
       }
 
       // Find or create customer by name
-      let { data: customer } = await sb
+      const customerQuery = supabase
         .from('customers')
         .select('id')
         .eq('name', mapped.customerName)
         .limit(1)
-        .single()
+
+      if (config.tenant_id) {
+        customerQuery.eq('tenant_id', config.tenant_id)
+      }
+
+      let { data: customer } = await customerQuery.single()
 
       if (!customer) {
-        const { data: newCust } = await supabase
+        const { data: newCust, error: insertErr } = await supabase
           .from('customers')
           .insert({
+            id: crypto.randomUUID(),
+            tenant_id: config.tenant_id,
             name: mapped.customerName,
             furigana: mapped.customerKana || null,
             phone: mapped.customerPhone || null,
             notes: mapped.customerNotes || null,
+            updated_at: new Date().toISOString(),
           })
           .select('id')
           .single()
+        if (insertErr) console.log('[QR Sync] Customer insert error:', insertErr.message)
         customer = newCust
       }
 
       if (!customer) { skipped++; continue }
 
       // Check if appointment already exists (same staff + start time)
-      const { data: existing } = await sb
+      const { data: existing } = await supabase
         .from('appointments')
         .select('id')
         .eq('staff_profile_id', staffProfileId)
@@ -139,8 +149,7 @@ async function runSync() {
         .limit(1)
 
       if (existing && existing.length > 0) {
-        // Update title if changed
-        await sb
+        await supabase
           .from('appointments')
           .update({
             title: mapped.treatmentName,
@@ -153,7 +162,7 @@ async function runSync() {
       }
 
       // Create new appointment
-      await sb
+      await supabase
         .from('appointments')
         .insert({
           staff_profile_id: staffProfileId,
@@ -168,7 +177,7 @@ async function runSync() {
     }
 
     // Update sync status
-    await sb
+    await supabase
       .from('sync_config')
       .update({
         last_sync_at: new Date().toISOString(),
@@ -188,8 +197,7 @@ async function runSync() {
   } catch (error) {
     console.error('[QR Sync]', error)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any)
+    await supabase
       .from('sync_config')
       .update({
         last_sync_at: new Date().toISOString(),

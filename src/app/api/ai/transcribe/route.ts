@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { toFile } from 'openai'
 import { openai } from '@/lib/openai'
 
-export const maxDuration = 60
+export const maxDuration = 300
 
 /**
  * POST /api/ai/transcribe
