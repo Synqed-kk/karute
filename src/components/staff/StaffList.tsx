@@ -16,7 +16,7 @@ interface StaffMember {
   email?: string | null
   phone?: string | null
   avatar_url?: string | null
-  pin_hash?: string | null
+  has_pin?: boolean
   created_at: string
 }
 
@@ -168,7 +168,7 @@ export function StaffList({ staffList, activeStaffId, currentUserId, isOwner = f
                     onClick={() => setPinSetupStaff(staff)}
                     className="min-h-[44px]"
                   >
-                    {staff.pin_hash ? tPin('pin') : tPin('setPin')}
+                    {staff.has_pin ? tPin('pin') : tPin('setPin')}
                   </Button>
                 )}
                 {(isOwner || staff.id === currentUserId) && (
@@ -223,7 +223,7 @@ export function StaffList({ staffList, activeStaffId, currentUserId, isOwner = f
         <PinSetup
           staffId={pinSetupStaff.id}
           staffName={pinSetupStaff.full_name ?? 'Staff'}
-          hasPin={!!pinSetupStaff.pin_hash}
+          hasPin={!!pinSetupStaff.has_pin}
           onClose={() => setPinSetupStaff(null)}
         />
       )}
