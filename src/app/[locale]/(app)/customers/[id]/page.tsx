@@ -1,8 +1,8 @@
 import { notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getCustomer } from '@/lib/customers/queries'
 import { CustomerProfileHeader } from '@/components/customers/CustomerProfileHeader'
 import { CustomerDetailTabs } from '@/components/customers/CustomerDetailTabs'
-import type { CustomerRow } from '@/types/database'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
@@ -16,9 +16,9 @@ export default async function CustomerProfilePage({
 
   const supabase = await createClient()
 
-  // Fetch customer + karute records with entries and staff profiles in parallel
-  const [customerResult, karuteResult] = await Promise.all([
-    supabase.from('customers').select('*').eq('id', id).single(),
+  // Fetch customer via synqed-core + karute records via Supabase in parallel
+  const [customer, karuteResult] = await Promise.all([
+    getCustomer(id).catch(() => null),
     supabase
       .from('karute_records')
       .select(
@@ -46,11 +46,9 @@ export default async function CustomerProfilePage({
       .order('session_date', { ascending: false }),
   ])
 
-  if (customerResult.error || !customerResult.data) {
+  if (!customer) {
     notFound()
   }
-
-  const customer = customerResult.data as CustomerRow
 
   type KaruteRecordWithEntries = {
     id: string
@@ -78,14 +76,12 @@ export default async function CustomerProfilePage({
 
   return (
     <div className="space-y-6">
-      {/* Profile header with inline edit */}
       <CustomerProfileHeader
         customer={customer}
         visitCount={totalVisitCount}
         lastVisit={lastVisit}
       />
 
-      {/* Tabbed detail content */}
       <CustomerDetailTabs
         customer={customer}
         karuteRecords={karuteRecords}

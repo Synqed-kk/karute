@@ -1,13 +1,19 @@
 import { SynqedClient } from '@synqed/client'
+import { getTenantId } from '@/lib/staff'
 
 const baseUrl = process.env.SYNQED_CORE_URL
 const apiKey = process.env.SYNQED_API_KEY
-const tenantId = process.env.SYNQED_TENANT_ID
 
-if (!baseUrl || !apiKey || !tenantId) {
-  throw new Error(
-    'Missing SYNQED_CORE_URL, SYNQED_API_KEY, or SYNQED_TENANT_ID env vars'
-  )
+if (!baseUrl || !apiKey) {
+  throw new Error('Missing SYNQED_CORE_URL or SYNQED_API_KEY env vars')
 }
 
-export const synqed = new SynqedClient({ baseUrl, apiKey, tenantId })
+/**
+ * Creates a SynqedClient scoped to the current user's tenant.
+ * Call this in server actions/routes — it reads the tenant ID
+ * from the authenticated user's profile.
+ */
+export async function getSynqedClient() {
+  const tenantId = await getTenantId()
+  return new SynqedClient({ baseUrl: baseUrl!, apiKey: apiKey!, tenantId })
+}

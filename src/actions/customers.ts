@@ -3,8 +3,7 @@
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
-import { checkDuplicateName } from '@/lib/customers/queries'
-import { getTenantId } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
 
 // ---------------------------------------------------------------------------
 // Validation schema
@@ -31,15 +30,6 @@ export type ActionResult =
 // createCustomer
 // ---------------------------------------------------------------------------
 
-/**
- * Creates a new customer record.
- *
- * Validates input, checks for duplicate names (warns but does not block),
- * inserts the customer, and revalidates /customers.
- *
- * Per user decision: duplicate name returns a warning alongside success — the
- * sheet closes, list refreshes, toast shows. No redirect is called here.
- */
 export async function createCustomer(input: CustomerFormInput): Promise<ActionResult> {
   const parsed = CustomerFormSchema.safeParse(input)
   if (!parsed.success) {
@@ -51,40 +41,26 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 
   const { name, furigana, phone, email } = parsed.data
 
-  // Check for duplicate name — warn but allow creation
-  let duplicateWarning: string | undefined
-  const { exists, existingName } = await checkDuplicateName(name)
-  if (exists && existingName) {
-    duplicateWarning = `A customer named "${existingName}" already exists`
-  }
-
-  const supabase = await createClient()
-  const tenantId = await getTenantId()
-
   try {
-    const { data, error } = await supabase
-      .from('customers')
-      .insert([
-        {
-          customer_id: tenantId,
-          name,
-          furigana: furigana || null,
-          phone: phone || null,
-          email: email || null,
-          contact_info: null,
-          notes: null,
-        },
-      ])
-      .select('id')
-      .single()
+    const synqed = await getSynqedClient()
 
-    if (error) {
-      return { success: false, error: error.message }
+    // Check for duplicate name — warn but allow creation
+    let duplicateWarning: string | undefined
+    const dup = await synqed.customers.checkDuplicate(name)
+    if (dup.exists && dup.existing_name) {
+      duplicateWarning = `A customer named "${dup.existing_name}" already exists`
     }
+
+    const customer = await synqed.customers.create({
+      name,
+      furigana: furigana || null,
+      phone: phone || null,
+      email: email || null,
+    })
 
     revalidatePath('/customers')
 
-    return { success: true, id: data.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
+    return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return { success: false, error: message }
@@ -95,12 +71,6 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 // createQuickCustomer
 // ---------------------------------------------------------------------------
 
-/**
- * Minimal customer creation for the inline "Quick Create" flow in SaveKaruteFlow.
- * Only requires a name — all other fields are optional and left null.
- *
- * Returns { id, name } so the caller can immediately select the new customer.
- */
 export async function createQuickCustomer(
   name: string,
 ): Promise<{ success: true; id: string; name: string } | { success: false; error: string }> {
@@ -112,33 +82,13 @@ export async function createQuickCustomer(
     return { success: false, error: 'Name must be 100 characters or fewer' }
   }
 
-  const supabase = await createClient()
-  const tenantId = await getTenantId()
-
   try {
-    const { data, error } = await supabase
-      .from('customers')
-      .insert([
-        {
-          customer_id: tenantId,
-          name: trimmedName,
-          furigana: null,
-          phone: null,
-          email: null,
-          contact_info: null,
-          notes: null,
-        },
-      ])
-      .select('id, name')
-      .single()
-
-    if (error) {
-      return { success: false, error: error.message }
-    }
+    const synqed = await getSynqedClient()
+    const customer = await synqed.customers.create({ name: trimmedName })
 
     revalidatePath('/customers')
 
-    return { success: true, id: data.id, name: data.name }
+    return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return { success: false, error: message }
@@ -149,68 +99,48 @@ export async function createQuickCustomer(
 // updateCustomer
 // ---------------------------------------------------------------------------
 
-/**
- * Updates an existing customer record by id.
- *
- * Validates input, updates the row, and revalidates both the list page
- * and the customer's profile page.
- */
 export async function updateCustomer(id: string, input: CustomerFormInput | Record<string, unknown>): Promise<ActionResult> {
-  const supabase = await createClient()
+  try {
+    const synqed = await getSynqedClient()
 
-  // If it looks like a full form submission, validate
-  if ('name' in input && typeof input.name === 'string') {
-    const parsed = CustomerFormSchema.safeParse(input)
-    if (!parsed.success) {
-      return {
-        success: false,
-        error: parsed.error.issues.map((e) => e.message).join(', '),
+    if ('name' in input && typeof input.name === 'string') {
+      const parsed = CustomerFormSchema.safeParse(input)
+      if (!parsed.success) {
+        return {
+          success: false,
+          error: parsed.error.issues.map((e) => e.message).join(', '),
+        }
       }
+      const { name, furigana, phone, email } = parsed.data
+      await synqed.customers.update(id, {
+        name,
+        furigana: furigana || null,
+        phone: phone || null,
+        email: email || null,
+        ...(('notes' in input && input.notes !== undefined) ? { notes: input.notes as string } : {}),
+      })
+    } else {
+      // Partial update
+      await synqed.customers.update(id, input as Record<string, unknown>)
     }
-    const { name, furigana, phone, email } = parsed.data
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: Record<string, any> = {
-      name,
-      furigana: furigana || null,
-      phone: phone || null,
-      email: email || null,
-    }
-    // Merge any extra fields (customer_type, notes, tags, etc.)
-    for (const key of ['customer_type', 'notes', 'tags', 'assigned_staff_id'] as const) {
-      if (key in input) {
-        updateData[key] = (input as Record<string, unknown>)[key]
-      }
-    }
-    try {
-      const { error } = await supabase.from('customers').update(updateData).eq('id', id)
-      if (error) return { success: false, error: error.message }
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
-    }
-  } else {
-    // Partial update (e.g. just customer_type or notes)
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error } = await (supabase as any).from('customers').update(input).eq('id', id)
-      if (error) return { success: false, error: error.message }
-    } catch (err) {
-      return { success: false, error: err instanceof Error ? err.message : 'Unknown error' }
-    }
+
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    return { success: true, id }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error: message }
   }
-
-  revalidatePath('/customers')
-  revalidatePath(`/customers/${id}`)
-  return { success: true, id }
 }
 
-/**
- * Delete a customer by ID.
- * Checks for linked karute records first.
- */
-export async function deleteCustomer(id: string): Promise<ActionResult> {
-  const supabase = await createClient()
+// ---------------------------------------------------------------------------
+// deleteCustomer
+// ---------------------------------------------------------------------------
 
-  // Check for linked karute records
+export async function deleteCustomer(id: string): Promise<ActionResult> {
+  // Check for linked karute records — still via Supabase since karute_records
+  // aren't in synqed-core yet
+  const supabase = await createClient()
   const { count } = await supabase
     .from('karute_records')
     .select('id', { count: 'exact', head: true })
@@ -223,16 +153,19 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     }
   }
 
-  // Delete appointments
+  // Delete appointments via Supabase
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase as any).from('appointments').delete().eq('client_id', id)
 
-  // Delete customer
-  const { error } = await supabase.from('customers').delete().eq('id', id)
-  if (error) {
-    return { success: false, error: error.message }
-  }
+  try {
+    // Delete customer via synqed-core
+    const synqed = await getSynqedClient()
+    await synqed.customers.delete(id)
 
-  revalidatePath('/customers')
-  return { success: true, id }
+    revalidatePath('/customers')
+    return { success: true, id }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    return { success: false, error: message }
+  }
 }

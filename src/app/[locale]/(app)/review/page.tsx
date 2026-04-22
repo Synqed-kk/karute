@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 import { SaveKaruteFlow } from '@/components/karute/SaveKaruteFlow'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 
@@ -22,15 +22,9 @@ import type { CustomerOption } from '@/components/karute/CustomerCombobox'
  * (Phase 2 recording flow, or a test that calls saveDraft() directly).
  */
 export default async function ReviewPage() {
-  const supabase = await createClient()
+  const cachedList = await getCachedCustomerList()
 
-  // Pre-fetch customer list for SaveKaruteFlow
-  const { data: customersData } = await supabase
-    .from('customers')
-    .select('id, name')
-    .order('name', { ascending: true })
-
-  const customers: CustomerOption[] = (customersData ?? []).map((c) => ({
+  const customers: CustomerOption[] = cachedList.map((c) => ({
     id: c.id,
     name: c.name,
   }))
