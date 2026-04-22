@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/client'
+import { batchCustomerNames, batchStaffNames } from '@/lib/synqed/batch'
 
 // GET /api/recordings?orgId=xxx&date=2026-03-12
 export async function GET(request: Request) {
@@ -22,13 +23,26 @@ export async function GET(request: Request) {
   const sessions = await prisma.recordingSession.findMany({
     where,
     orderBy: { createdAt: 'desc' },
-    include: {
-      staff: { select: { id: true, name: true } },
-      customer: { select: { id: true, name: true } },
-    },
   })
 
-  return NextResponse.json(sessions)
+  const customerIds = sessions.map((s) => s.customerId).filter((id): id is string => !!id)
+  const staffIds = sessions.map((s) => s.staffId).filter((id): id is string => !!id)
+  const [customerNames, staffNames] = await Promise.all([
+    batchCustomerNames(orgId, customerIds),
+    batchStaffNames(orgId, staffIds),
+  ])
+
+  const enriched = sessions.map((s) => ({
+    ...s,
+    staff: s.staffId
+      ? { id: s.staffId, name: staffNames.get(s.staffId)?.name ?? null }
+      : null,
+    customer: s.customerId
+      ? { id: s.customerId, name: customerNames.get(s.customerId)?.name ?? null }
+      : null,
+  }))
+
+  return NextResponse.json(enriched)
 }
 
 // POST /api/recordings — create a new recording session

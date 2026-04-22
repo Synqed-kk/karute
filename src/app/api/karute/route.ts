@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db/client'
+import { batchCustomerNames, batchStaffNames } from '@/lib/synqed/batch'
 
 // GET /api/karute?orgId=xxx
 export async function GET(request: Request) {
@@ -14,13 +15,25 @@ export async function GET(request: Request) {
     where: { orgId },
     orderBy: { createdAt: 'desc' },
     include: {
-      staff: { select: { name: true } },
-      customer: { select: { name: true } },
       _count: { select: { entries: true } },
     },
   })
 
-  return NextResponse.json(records)
+  // Name lookups now go through synqed-core — customers + staff live there.
+  const customerIds = records.map((r) => r.customerId).filter((id): id is string => !!id)
+  const staffIds = records.map((r) => r.staffId).filter((id): id is string => !!id)
+  const [customerNames, staffNames] = await Promise.all([
+    batchCustomerNames(orgId, customerIds),
+    batchStaffNames(orgId, staffIds),
+  ])
+
+  const withNames = records.map((r) => ({
+    ...r,
+    staff: r.staffId ? { name: staffNames.get(r.staffId)?.name ?? null } : null,
+    customer: r.customerId ? { name: customerNames.get(r.customerId)?.name ?? null } : null,
+  }))
+
+  return NextResponse.json(withNames)
 }
 
 // POST /api/karute — create or upsert a karute record
