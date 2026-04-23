@@ -141,7 +141,7 @@ model KaruteEntry {
 Run:
 
 ```bash
-cd /Users/anthonylee/synqed-core && npx prisma format
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && npx prisma format
 ```
 
 Expected: no errors, schema is reformatted to canonical style. Re-open the file to confirm the three models still contain the new fields and nothing else drifted.
@@ -156,7 +156,7 @@ Expected: no errors, schema is reformatted to canonical style. Re-open the file 
 - [ ] **Step 1: Run `prisma generate`**
 
 ```bash
-cd /Users/anthonylee/synqed-core && npx prisma generate
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && npx prisma generate
 ```
 
 Expected output: `Generated Prisma Client (v6.6.0)` (or the version pinned in `package.json`). No errors.
@@ -164,7 +164,7 @@ Expected output: `Generated Prisma Client (v6.6.0)` (or the version pinned in `p
 - [ ] **Step 2: Confirm typecheck still passes**
 
 ```bash
-cd /Users/anthonylee/synqed-core && npm run typecheck
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && npm run typecheck
 ```
 
 Expected: exit 0, no TypeScript errors. The added fields are optional/defaulted, so no existing code needs updating.
@@ -178,18 +178,20 @@ Expected: exit 0, no TypeScript errors. The added fields are optional/defaulted,
 - [ ] **Step 1: Confirm `DATABASE_URL` is set and points at the dev DB**
 
 ```bash
-cd /Users/anthonylee/synqed-core && grep -E "^DATABASE_URL=" .env | head -1
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && grep -E "^DATABASE_URL=" .env | head -1
 ```
 
-Expected: a `postgresql://...` URL ending in the pooler port (per repo convention — see memory `project_synqed_architecture.md`).
+Expected: a `postgresql://postgres.jdbsqvlfwsmzfmisuwmw:...@aws-1-ap-southeast-1.pooler.supabase.com:6543/postgres?pgbouncer=true` URL. The orchestrator has already placed this in `.env`.
 
-If `.env` is missing the var, stop and ask the orchestrator for credentials. Do NOT proceed with an incorrect URL.
+If `.env` is missing the var or the URL is the direct port (5432), stop and flag — the transaction pooler URL (6543 + `?pgbouncer=true`) is required.
 
 - [ ] **Step 2: Sync the schema**
 
 ```bash
-cd /Users/anthonylee/synqed-core && npm run db:push
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && export $(grep -v '^#' .env | xargs) && npm run db:push
 ```
+
+`npm run db:push` runs `prisma db push`; the `export` loads `DATABASE_URL` from `.env` since the script doesn't auto-load it.
 
 This runs `prisma db push`. Expected output includes:
 
@@ -218,13 +220,15 @@ If you want a secondary check, open Prisma Studio (`npx prisma studio`) and insp
 
 **Files:** none (verification only)
 
-- [ ] **Step 1: Run vitest**
+- [ ] **Step 1: Run vitest with env loaded**
+
+`npm test` does NOT auto-load `.env` on this setup — the `test` script is just `vitest run`. Load env vars explicitly:
 
 ```bash
-cd /Users/anthonylee/synqed-core && npm test
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && export $(grep -v '^#' .env | xargs) && npm test
 ```
 
-Expected: all existing tests pass. `tests/customers.test.ts` is the main suite today — it does not touch the new fields, so it should pass unchanged.
+Expected: 14/14 tests pass. Takes ~45 seconds (Supabase pooler latency). The existing suite is `tests/customers.test.ts`; it does not touch the new fields, so it should pass unchanged.
 
 If any test fails, stop and investigate. Do not commit a broken build.
 
@@ -237,7 +241,7 @@ If any test fails, stop and investigate. Do not commit a broken build.
 - [ ] **Step 1: Review the diff**
 
 ```bash
-cd /Users/anthonylee/synqed-core && git status && git diff prisma/schema.prisma
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && git status && git diff prisma/schema.prisma
 ```
 
 Expected: only `prisma/schema.prisma` shows as modified. Diff shows the four new fields across the three models and nothing else.
@@ -247,7 +251,7 @@ If `node_modules` or other files appear, they should NOT be staged.
 - [ ] **Step 2: Stage and commit**
 
 ```bash
-cd /Users/anthonylee/synqed-core && git add prisma/schema.prisma
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && git add prisma/schema.prisma
 git commit -m "$(cat <<'EOF'
 feat(schema): add pin_hash, avatar_url, transcript, is_manual
 
@@ -268,13 +272,13 @@ EOF
 - [ ] **Step 3: Push and open PR against synqed-core's integration branch**
 
 ```bash
-cd /Users/anthonylee/synqed-core && git push -u origin HEAD
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && git push -u org HEAD
 ```
 
 Then:
 
 ```bash
-cd /Users/anthonylee/synqed-core && gh pr create --title "feat(schema): add pin_hash, avatar_url, transcript, is_manual" --body "$(cat <<'EOF'
+cd /Users/anthonylee/synqed-core/.worktrees/phase-0-1 && gh pr create --repo Synqed-kk/synqed-core --base main --head feat/add-migration-fields --title "feat(schema): add pin_hash, avatar_url, transcript, is_manual" --body "$(cat <<'EOF'
 ## Summary
 - Adds four additive fields to unblock Phase 0.2 endpoint work (karute server-actions migration).
 - Fields: `Staff.pin_hash`, `Staff.avatar_url`, `KaruteRecord.transcript`, `KaruteEntry.is_manual`.
