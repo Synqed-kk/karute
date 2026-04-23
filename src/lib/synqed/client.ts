@@ -2,10 +2,10 @@ import { SynqedClient } from '@synqed-kk/client'
 import { getTenantId } from '@/lib/staff'
 
 const baseUrl = process.env.SYNQED_CORE_URL
-const apiKey = process.env.SYNQED_API_KEY
+const apiKey = process.env.SYNQED_CORE_API_KEY
 
 if (!baseUrl || !apiKey) {
-  throw new Error('Missing SYNQED_CORE_URL or SYNQED_API_KEY env vars')
+  throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
 }
 
 /**
