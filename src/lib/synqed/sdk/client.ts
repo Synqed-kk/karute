@@ -1,8 +1,8 @@
-import type { SynqedClientConfig } from './types.js'
-import { CustomerClient } from './customers.js'
-import { StaffClient } from './staff.js'
-import { AppointmentClient } from './appointments.js'
-import { SyncClient } from './sync.js'
+import type { SynqedClientConfig } from './types'
+import { CustomerClient } from './customers'
+import { StaffClient } from './staff'
+import { AppointmentClient } from './appointments'
+import { SyncClient } from './sync'
 
 export class SynqedClient {
   private baseUrl: string

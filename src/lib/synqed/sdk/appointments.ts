@@ -1,11 +1,11 @@
-import type { SynqedClient } from './client.js'
+import type { SynqedClient } from './client'
 import type {
   Appointment,
   CreateAppointmentInput,
   UpdateAppointmentInput,
   ListAppointmentsOptions,
   ListAppointmentsResponse,
-} from './types.js'
+} from './types'
 
 export class AppointmentClient {
   constructor(private client: SynqedClient) {}

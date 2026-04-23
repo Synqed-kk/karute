@@ -1,11 +1,11 @@
-import type { SynqedClient } from './client.js'
+import type { SynqedClient } from './client'
 import type {
   Staff,
   CreateStaffInput,
   UpdateStaffInput,
   ListStaffOptions,
   ListStaffResponse,
-} from './types.js'
+} from './types'
 
 export class StaffClient {
   constructor(private client: SynqedClient) {}

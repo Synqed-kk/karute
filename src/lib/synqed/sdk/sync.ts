@@ -1,10 +1,10 @@
-import type { SynqedClient } from './client.js'
+import type { SynqedClient } from './client'
 import type {
   SyncConfig,
   SyncProvider,
   UpsertSyncConfigInput,
   SyncRunResult,
-} from './types.js'
+} from './types'
 
 export class SyncClient {
   constructor(private client: SynqedClient) {}

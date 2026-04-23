@@ -1,4 +1,4 @@
-import type { SynqedClient } from './client.js'
+import type { SynqedClient } from './client'
 import type {
   Customer,
   CreateCustomerInput,
@@ -6,7 +6,7 @@ import type {
   ListCustomersOptions,
   ListCustomersResponse,
   CheckDuplicateResponse,
-} from './types.js'
+} from './types'
 
 export class CustomerClient {
   constructor(private client: SynqedClient) {}

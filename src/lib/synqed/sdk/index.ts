@@ -1,8 +1,8 @@
-export { SynqedClient, SynqedError } from './client.js'
-export { CustomerClient } from './customers.js'
-export { StaffClient } from './staff.js'
-export { AppointmentClient } from './appointments.js'
-export { SyncClient } from './sync.js'
+export { SynqedClient, SynqedError } from './client'
+export { CustomerClient } from './customers'
+export { StaffClient } from './staff'
+export { AppointmentClient } from './appointments'
+export { SyncClient } from './sync'
 
 export type {
   // Shared
@@ -39,4 +39,4 @@ export type {
   SyncStatus,
   UpsertSyncConfigInput,
   SyncRunResult,
-} from './types.js'
+} from './types'
