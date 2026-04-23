@@ -1,4 +1,4 @@
-import { SynqedClient } from '@synqed/client'
+import { SynqedClient } from '@synqed-kk/client'
 import { getTenantId } from '@/lib/staff'
 
 const baseUrl = process.env.SYNQED_CORE_URL

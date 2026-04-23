@@ -1,8 +1,8 @@
-# Karute Server Actions → `@synqed/client` Migration
+# Karute Server Actions → `@synqed-kk/client` Migration
 
 **Date:** 2026-04-23
 **Branch:** `feat/synqed-core-migration` (integration branch)
-**Scope:** Migrate all karute server actions from direct Supabase calls to `@synqed/client`, adding missing synqed-core endpoints and schema fields as needed.
+**Scope:** Migrate all karute server actions from direct Supabase calls to `@synqed-kk/client`, adding missing synqed-core endpoints and schema fields as needed.
 
 ## Goal
 
@@ -11,7 +11,7 @@ Complete the migration started in commit `4cd2b5a` (`feat: migrate customer data
 - User authentication (`supabase.auth.getUser()`)
 - Reading the current user's tenant from `profiles` (via `/lib/staff.ts`)
 
-All other data access flows through `@synqed/client` against synqed-core.
+All other data access flows through `@synqed-kk/client` against synqed-core.
 
 ## Non-goals
 
@@ -77,9 +77,9 @@ model Staff {
 Two phases:
 
 1. **Phase 0 — synqed-core**: Prisma migration + endpoint additions + client package version bump.
-2. **Phase 1 — karute**: Five domain-grouped PRs migrating `src/actions/*.ts`, each consuming the updated `@synqed/client`.
+2. **Phase 1 — karute**: Five domain-grouped PRs migrating `src/actions/*.ts`, each consuming the updated `@synqed-kk/client`.
 
-Phase 1 cannot start until Phase 0 is merged and `@synqed/client` is published/linked.
+Phase 1 cannot start until Phase 0 is merged and `@synqed-kk/client` is published/linked.
 
 ## Phase 0 — synqed-core work
 
@@ -102,7 +102,7 @@ Each opens its own PR against synqed-core's integration branch.
 | 0.2.e | Staff PIN | `PUT /staff/:id/pin`, `DELETE /staff/:id/pin`, `POST /staff/:id/pin/verify`, `GET /staff/:id/pin` | `StaffClient.setPin`, `removePin`, `verifyPin`, `hasPin` |
 | 0.2.f | Staff avatar upload | `POST /staff/:id/avatar` (multipart) | `StaffClient.uploadAvatar(id, file)` — persists `avatar_url` and returns it |
 
-### Step 0.3 (serial) — publish `@synqed/client`
+### Step 0.3 (serial) — publish `@synqed-kk/client`
 
 Bump version, publish (or rely on workspace link), update karute's `package.json` + lockfile in its own small PR against karute's integration branch.
 
@@ -163,7 +163,7 @@ Phase 0 (synqed-core)
     ↓
   0.2.a..f (six parallel PRs)
     ↓
-  0.3 bump @synqed/client, update karute package (serial)
+  0.3 bump @synqed-kk/client, update karute package (serial)
     ↓
 Phase 1 (karute, five parallel PRs)
   PR 1, 2, 3, 4, 5 — independent; each own worktree
@@ -186,7 +186,7 @@ Skill stack per agent:
 
 ## Error handling
 
-- `SynqedError` (from `@synqed/client`) carries HTTP status. Actions translate:
+- `SynqedError` (from `@synqed-kk/client`) carries HTTP status. Actions translate:
   - 400 → surface the server `message` as `{ error }`
   - 404 → `{ error: 'Not found' }`
   - 409 (appointment overlap, duplicate customer) → domain-specific friendly message
@@ -216,4 +216,4 @@ After all 5 karute PRs land: manual smoke test of dashboard, recording flow, set
 
 - Verify whether `DELETE /customers/:id` in synqed-core cascades `appointments`. If not, karute's `deleteCustomer` must iterate and delete appointments explicitly — either client-side (bad: N+1) or by adding server-side cascade (preferred). Resolve in Phase 0.
 - Verify whether `karute-records.list()` response includes customer name. If not, add an `include=customer` query param in 0.2.a.
-- Confirm `@synqed/client` publish mechanism (npm vs workspace link) with Anthony before Phase 0.3.
+- Confirm `@synqed-kk/client` publish mechanism (npm vs workspace link) with Anthony before Phase 0.3.

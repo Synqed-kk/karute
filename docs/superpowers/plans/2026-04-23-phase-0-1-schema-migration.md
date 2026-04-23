@@ -256,7 +256,7 @@ git commit -m "$(cat <<'EOF'
 feat(schema): add pin_hash, avatar_url, transcript, is_manual
 
 Additive schema change in support of the karute server-actions
-migration to @synqed/client. Adds:
+migration to @synqed-kk/client. Adds:
   - Staff.pin_hash, Staff.avatar_url
   - KaruteRecord.transcript
   - KaruteEntry.is_manual (default false)
