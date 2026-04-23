@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useOrg } from '@/components/providers/org-provider'
 import { cn } from '@/lib/utils'
-import type { SyncConfig, SyncRunResult } from '@synqed/client'
+import type { SyncConfig, SyncRunResult } from '@/lib/synqed/sdk'
 
 const PROVIDER = 'QUICKRESERVE' as const
 

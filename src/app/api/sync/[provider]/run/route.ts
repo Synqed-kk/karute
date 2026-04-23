@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import type { SyncProvider } from '@synqed/client'
+import type { SyncProvider } from '@/lib/synqed/sdk'
 
 function providerFromParam(raw: string): SyncProvider | null {
   const upper = raw.toUpperCase()

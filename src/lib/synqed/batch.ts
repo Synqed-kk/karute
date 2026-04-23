@@ -1,6 +1,6 @@
 import 'server-only'
 import { getSynqedClient } from './client'
-import { SynqedError } from '@synqed/client'
+import { SynqedError } from '@/lib/synqed/sdk'
 
 export interface NameRef {
   id: string

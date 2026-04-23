@@ -14,7 +14,6 @@
     "@prisma/client": "^6.19.2",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.0",
-    "@synqed/client": "file:../synqed-core/packages/client",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.36.0",

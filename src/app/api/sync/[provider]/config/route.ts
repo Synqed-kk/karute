@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import type { SyncProvider, UpsertSyncConfigInput } from '@synqed/client'
+import type { SyncProvider, UpsertSyncConfigInput } from '@/lib/synqed/sdk'
 
 // This route is a thin proxy from karute's session-authenticated UI to synqed-core.
 // It resolves orgId (tenantId) from the server session — in today's mock flow

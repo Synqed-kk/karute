@@ -1,5 +1,5 @@
 import 'server-only'
-import { SynqedClient } from '@synqed/client'
+import { SynqedClient } from '@/lib/synqed/sdk'
 
 let cached: SynqedClient | null = null
 
