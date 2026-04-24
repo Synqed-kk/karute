@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
 
 export const maxDuration = 60
 
@@ -17,12 +18,8 @@ export async function POST(request: Request) {
       .order('created_at', { ascending: false })
       .limit(5)
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: customers } = await (supabase as any)
-      .from('customers')
-      .select('name')
-      .order('updated_at', { ascending: false })
-      .limit(10)
+    const synqed = await getSynqedClient()
+    const customerResult = await synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc' })
 
     const karuteContext = (records ?? []).map((r: { summary: string; created_at: string; customers: { name: string } | null; entries: { category: string; content: string }[] }) => {
       const name = (r.customers as { name: string } | null)?.name ?? 'Unknown'
@@ -30,7 +27,7 @@ export async function POST(request: Request) {
       return `${name} (${r.created_at}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
     }).join('\n')
 
-    const customerNames = (customers ?? []).map((c: { name: string }) => c.name).join(', ')
+    const customerNames = customerResult.customers.map((c) => c.name).join(', ')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: orgSettings } = await (supabase as any)

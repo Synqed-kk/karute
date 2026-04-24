@@ -5,7 +5,11 @@ export interface StaffMember {
   id: string
   full_name: string | null
   display_role?: string | null
+  position?: string | null
+  email?: string | null
+  phone?: string | null
   avatar_url?: string | null
+  has_pin: boolean
   created_at: string
 }
 
@@ -20,7 +24,6 @@ export interface StaffMemberBasic {
  */
 export async function getStaffList(): Promise<StaffMember[]> {
   const supabase = await createClient()
-  // display_role not in generated types yet — cast to any
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (supabase as any)
     .from('profiles')
@@ -34,7 +37,11 @@ export async function getStaffList(): Promise<StaffMember[]> {
     return []
   }
 
-  return (data ?? []) as StaffMember[]
+  // Strip pin_hash — never send hashes to the client. Replace with boolean flag.
+  return (data ?? []).map(({ pin_hash, ...rest }: { pin_hash?: string | null; [key: string]: unknown }) => ({
+    ...rest,
+    has_pin: !!pin_hash,
+  })) as StaffMember[]
 }
 
 /**

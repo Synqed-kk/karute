@@ -125,6 +125,40 @@ export type Database = {
           },
         ]
       }
+      customer_photos: {
+        Row: {
+          id: string
+          customer_id: string
+          storage_path: string
+          category: string
+          caption: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          customer_id: string
+          storage_path: string
+          category?: string
+          caption?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          customer_id?: string
+          storage_path?: string
+          category?: string
+          caption?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: 'customer_photos_customer_id_fkey'
+            columns: ['customer_id']
+            isOneToOne: false
+            referencedRelation: 'customers'
+            referencedColumns: ['id']
+          },
+        ]
+      }
       entries: {
         Row: {
           id: string
@@ -186,6 +220,7 @@ export type ProfileRow = Database['public']['Tables']['profiles']['Row']
 export type CustomerRow = Database['public']['Tables']['customers']['Row']
 export type KaruteRecordRow = Database['public']['Tables']['karute_records']['Row']
 export type EntryRow = Database['public']['Tables']['entries']['Row']
+export type CustomerPhotoRow = Database['public']['Tables']['customer_photos']['Row']
 
 // Legacy named types for backward compatibility with existing imports
 export type Profile = ProfileRow

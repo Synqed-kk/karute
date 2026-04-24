@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import {
@@ -24,10 +24,13 @@ import {
   Flag,
   Filter,
   Save,
+  Trash2,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getCategoryConfig } from '@/lib/karute/categories'
-import type { CustomerRow } from '@/types/database'
+import { createClient } from '@/lib/supabase/client'
+import type { CustomerRow, CustomerPhotoRow } from '@/types/database'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -232,7 +235,7 @@ export function CustomerDetailTabs({
             locale={locale}
           />
         )}
-        {activeTab === 'photos' && <PhotosTab />}
+        {activeTab === 'photos' && <PhotosTab customerId={customer.id} />}
         {activeTab === 'ai-history' && (
           <AIHistoryTab karuteRecords={karuteRecords} locale={locale} />
         )}
@@ -721,20 +724,167 @@ function TimelineTab({
 // Tab 3: Photos
 // ===========================================================================
 
-function PhotosTab() {
+function PhotosTab({ customerId }: { customerId: string }) {
   const t = useTranslations('customerDetail')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [photos, setPhotos] = useState<(CustomerPhotoRow & { signedUrl?: string })[]>([])
+  const [loading, setLoading] = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const supabase = createClient()
+
+  // Fetch photos on mount
+  const fetchPhotos = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const { data: rows, error: fetchErr } = await supabase
+        .from('customer_photos')
+        .select('*')
+        .eq('customer_id', customerId)
+        .order('created_at', { ascending: false })
+
+      if (fetchErr) throw fetchErr
+
+      // Generate signed URLs for all photos
+      const withUrls = await Promise.all(
+        (rows ?? []).map(async (row) => {
+          const { data: urlData } = await supabase.storage
+            .from('customer-photos')
+            .createSignedUrl(row.storage_path, 3600) // 1 hour expiry
+          return { ...row, signedUrl: urlData?.signedUrl ?? undefined }
+        }),
+      )
+
+      setPhotos(withUrls)
+    } catch {
+      setError(t('photoUploadError'))
+    } finally {
+      setLoading(false)
+    }
+  }, [customerId, supabase, t])
+
+  useEffect(() => {
+    fetchPhotos()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customerId])
+
+  // Handle file upload
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setUploading(true)
+    setError(null)
+
+    try {
+      for (const file of Array.from(files)) {
+        const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
+        const fileId = crypto.randomUUID()
+        const storagePath = `${customerId}/${fileId}.${ext}`
+
+        // Upload to storage
+        const { error: uploadErr } = await supabase.storage
+          .from('customer-photos')
+          .upload(storagePath, file, {
+            cacheControl: '3600',
+            upsert: false,
+          })
+
+        if (uploadErr) throw uploadErr
+
+        // Insert record into customer_photos table
+        const { error: insertErr } = await supabase
+          .from('customer_photos')
+          .insert({
+            customer_id: customerId,
+            storage_path: storagePath,
+            category: categoryFilter !== 'all' ? categoryFilter : 'general',
+          })
+
+        if (insertErr) throw insertErr
+      }
+
+      // Refresh the photo list
+      await fetchPhotos()
+    } catch {
+      setError(t('photoUploadError'))
+    } finally {
+      setUploading(false)
+      // Reset the file input so the same file can be re-selected
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  // Handle photo deletion
+  async function handleDelete(photo: CustomerPhotoRow) {
+    if (!confirm(t('deletePhotoConfirm'))) return
+
+    setError(null)
+    try {
+      // Delete from storage
+      const { error: storageErr } = await supabase.storage
+        .from('customer-photos')
+        .remove([photo.storage_path])
+
+      if (storageErr) throw storageErr
+
+      // Delete from table
+      const { error: dbErr } = await supabase
+        .from('customer_photos')
+        .delete()
+        .eq('id', photo.id)
+
+      if (dbErr) throw dbErr
+
+      // Update local state
+      setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
+    } catch {
+      setError(t('photoDeleteError'))
+    }
+  }
+
+  // Filter photos by category
+  const filteredPhotos =
+    categoryFilter === 'all'
+      ? photos
+      : photos.filter((p) => p.category === categoryFilter)
 
   return (
     <div className="space-y-4">
+      {/* Hidden file input */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp,image/heic"
+        multiple
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold">{t('photoGallery')}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">{t('photoCount', { count: 0 })}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {t('photoCount', { count: filteredPhotos.length })}
+          </p>
         </div>
-        <Button variant="outline" size="sm">
-          <Upload className="size-3.5 mr-1.5" />
-          {t('addPhoto')}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+          ) : (
+            <Upload className="size-3.5 mr-1.5" />
+          )}
+          {uploading ? t('uploading') : t('addPhoto')}
         </Button>
       </div>
 
@@ -752,24 +902,116 @@ function PhotosTab() {
         </select>
       </div>
 
-      {/* Empty State */}
-      <div className="rounded-2xl border border-border/30 bg-card/50 p-6">
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/50 mb-4">
-            <ImageIcon className="size-8 text-muted-foreground/50" />
-          </div>
-          <p className="text-sm font-medium text-muted-foreground mb-1">
-            {t('noPhotosYet')}
-          </p>
-          <p className="text-xs text-muted-foreground mb-4">
-            {t('uploadPhotosDescription')}
-          </p>
-          <Button variant="outline" size="sm">
-            <Upload className="size-3.5 mr-1.5" />
-            {t('uploadFirstPhoto')}
-          </Button>
+      {/* Error banner */}
+      {error && (
+        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-400">
+          {error}
         </div>
-      </div>
+      )}
+
+      {/* Loading state */}
+      {loading && (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="size-8 animate-spin text-muted-foreground" />
+        </div>
+      )}
+
+      {/* Photo grid */}
+      {!loading && filteredPhotos.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+          {filteredPhotos.map((photo) => (
+            <div
+              key={photo.id}
+              className="group relative aspect-square rounded-xl border border-border/30 bg-muted/30 overflow-hidden"
+            >
+              {photo.signedUrl ? (
+                <img
+                  src={photo.signedUrl}
+                  alt={photo.caption ?? ''}
+                  className="h-full w-full object-cover cursor-pointer transition-transform group-hover:scale-105"
+                  onClick={() => setLightboxPhoto(photo.signedUrl ?? null)}
+                />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <ImageIcon className="size-8 text-muted-foreground/50" />
+                </div>
+              )}
+
+              {/* Overlay with delete button and category badge */}
+              <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute bottom-0 left-0 right-0 p-2 flex items-end justify-between">
+                  <span className="rounded-full border border-white/20 bg-black/40 px-2 py-0.5 text-[10px] font-medium text-white/90">
+                    {photo.category === 'before'
+                      ? t('before')
+                      : photo.category === 'after'
+                        ? t('after')
+                        : t('general')}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleDelete(photo)
+                    }}
+                    className="rounded-full bg-red-500/80 p-1.5 text-white hover:bg-red-500 transition-colors"
+                    title={t('deletePhoto')}
+                  >
+                    <Trash2 className="size-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!loading && filteredPhotos.length === 0 && (
+        <div className="rounded-2xl border border-border/30 bg-card/50 p-6">
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted/50 mb-4">
+              <ImageIcon className="size-8 text-muted-foreground/50" />
+            </div>
+            <p className="text-sm font-medium text-muted-foreground mb-1">
+              {t('noPhotosYet')}
+            </p>
+            <p className="text-xs text-muted-foreground mb-4">
+              {t('uploadPhotosDescription')}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              <Upload className="size-3.5 mr-1.5" />
+              {t('uploadFirstPhoto')}
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox */}
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <button
+            type="button"
+            className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 transition-colors"
+            onClick={() => setLightboxPhoto(null)}
+          >
+            <X className="size-6" />
+          </button>
+          <img
+            src={lightboxPhoto}
+            alt=""
+            className="max-h-[90vh] max-w-[90vw] rounded-lg object-contain"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   )
 }

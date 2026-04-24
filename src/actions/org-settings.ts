@@ -1,7 +1,7 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { getSynqedClient } from '@/lib/synqed/client'
 import {
   type OperatingHours,
   normalizeOperatingHours,
@@ -10,9 +10,6 @@ import {
 
 import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseAny = any
 
 export interface OrgSettings {
   id: string
@@ -28,28 +25,39 @@ export interface OrgSettings {
 }
 
 export async function getOrgSettings(): Promise<OrgSettings | null> {
-  const supabase = await createClient()
-  const { data, error } = await (supabase as SupabaseAny)
-    .from('organization_settings')
-    .select('*')
-    .limit(1)
-    .maybeSingle()
+  try {
+    const synqed = await getSynqedClient()
+    const raw = await synqed.orgSettings.get()
+    if (!raw) return null
 
-  if (error || !data) return null
+    const s = (raw.settings ?? {}) as Partial<OrgSettings> & {
+      operating_hours?: unknown
+      theme_colors?: unknown
+    }
 
-  const settings = data as Omit<OrgSettings, 'operating_hours' | 'theme_colors'> & { operating_hours?: unknown; theme_colors?: unknown }
-  return {
-    ...settings,
-    operating_hours: normalizeOperatingHours(settings.operating_hours),
-    theme_colors: { ...DEFAULT_THEME_COLORS, ...(typeof settings.theme_colors === 'object' && settings.theme_colors !== null ? settings.theme_colors : {}) },
+    return {
+      id: raw.tenant_id,
+      salon_name: raw.name ?? s.salon_name ?? '',
+      business_type: s.business_type ?? '',
+      webhook_url: s.webhook_url ?? '',
+      ai_model: s.ai_model ?? '',
+      confidence_threshold: s.confidence_threshold ?? 0,
+      audio_quality: s.audio_quality ?? '',
+      auto_stop_minutes: s.auto_stop_minutes ?? 0,
+      operating_hours: normalizeOperatingHours(s.operating_hours),
+      theme_colors: {
+        ...DEFAULT_THEME_COLORS,
+        ...(typeof s.theme_colors === 'object' && s.theme_colors !== null
+          ? (s.theme_colors as Partial<ThemeColors>)
+          : {}),
+      },
+    }
+  } catch {
+    return null
   }
 }
 
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
-
   const nextSettings: Partial<OrgSettings> = { ...settings }
 
   if (settings.operating_hours) {
@@ -60,22 +68,25 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
     nextSettings.operating_hours = normalizedHours
   }
 
-  // Check if settings exist
-  const existing = await getOrgSettings()
+  try {
+    const synqed = await getSynqedClient()
 
-  if (existing) {
-    const { error } = await (supabase as SupabaseAny)
-      .from('organization_settings')
-      .update(nextSettings)
-      .eq('id', existing.id)
-    if (error) return { error: (error as { message: string }).message }
-  } else {
-    const { error } = await (supabase as SupabaseAny)
-      .from('organization_settings')
-      .insert({ ...nextSettings, owner_profile_id: user.id })
-    if (error) return { error: (error as { message: string }).message }
+    // Merge with existing settings so partial updates don't wipe other fields
+    const existing = await synqed.orgSettings.get()
+    const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
+
+    // salon_name maps to the top-level `name` column; everything else lives in
+    // the settings JSON
+    const { salon_name, id: _id, ...rest } = nextSettings as OrgSettings & { id?: string }
+
+    await synqed.orgSettings.upsert({
+      ...(salon_name !== undefined ? { name: salon_name } : {}),
+      settings: { ...existingSettings, ...rest },
+    })
+
+    revalidatePath('/settings')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
-
-  revalidatePath('/settings')
-  return { success: true }
 }

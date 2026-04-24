@@ -1,6 +1,6 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
 
 export interface DashboardBar {
   id: string
@@ -16,13 +16,9 @@ export interface DashboardBar {
  * Convert a UTC Date to local hours+minutes using the client's timezone offset.
  * On the server (Vercel UTC), Date.getHours() returns UTC hours.
  * We subtract tzOffsetMinutes to get the client's local time.
- *
- * getTimezoneOffset() returns positive for west of UTC (e.g., 420 for PST).
- * So local = UTC - offset.
  */
 function utcToLocalMinute(utcDate: Date, tzOffsetMinutes: number): number {
   const utcMinutes = utcDate.getUTCHours() * 60 + utcDate.getUTCMinutes()
-  // tzOffsetMinutes is positive for west of UTC, so subtract to get local
   let localMinutes = utcMinutes - tzOffsetMinutes
   if (localMinutes < 0) localMinutes += 1440
   if (localMinutes >= 1440) localMinutes -= 1440
@@ -38,47 +34,55 @@ function formatTimeRange(startMin: number, endMin: number): string {
 }
 
 export async function getBarsByDate(dateStr: string, tzOffsetMinutes: number = 0): Promise<DashboardBar[]> {
-  const supabase = await createClient()
-
-  // Build UTC boundaries for the client's local day
-  // Client's midnight = UTC midnight + offset
   const dayStartUTC = new Date(`${dateStr}T00:00:00Z`)
   dayStartUTC.setUTCMinutes(dayStartUTC.getUTCMinutes() + tzOffsetMinutes)
   const dayEndUTC = new Date(`${dateStr}T23:59:59Z`)
   dayEndUTC.setUTCMinutes(dayEndUTC.getUTCMinutes() + tzOffsetMinutes)
 
-  const { data, error } = await supabase
-    .from('karute_records')
-    .select(`
-      id,
-      staff_profile_id,
-      created_at,
-      summary,
-      customers:client_id ( name )
-    `)
-    .gte('created_at', dayStartUTC.toISOString())
-    .lte('created_at', dayEndUTC.toISOString())
-    .order('created_at', { ascending: true })
+  try {
+    const synqed = await getSynqedClient()
+    const list = await synqed.karuteRecords.list({
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 500,
+    })
 
-  if (error || !data) return []
+    // Customer names (the old supabase join) — batch fetch uniques
+    const uniqueCustomerIds = Array.from(
+      new Set(
+        list.karute_records
+          .map((r) => r.customer_id)
+          .filter((id): id is string => id !== null),
+      ),
+    )
+    const customers = await Promise.all(
+      uniqueCustomerIds.map((id) => synqed.customers.get(id).catch(() => null)),
+    )
+    const nameById = new Map(
+      customers.filter((c): c is NonNullable<typeof c> => c != null).map((c) => [c.id, c.name]),
+    )
 
-  return data.map((record) => {
-    const createdAt = new Date(record.created_at)
-    const startMinute = utcToLocalMinute(createdAt, tzOffsetMinutes)
-    const durationMinute = 15
+    return list.karute_records
+      .slice()
+      .sort((a, b) => a.created_at.localeCompare(b.created_at))
+      .map((record) => {
+        const createdAt = new Date(record.created_at)
+        const startMinute = utcToLocalMinute(createdAt, tzOffsetMinutes)
+        const durationMinute = 15
+        const customerName = record.customer_id ? nameById.get(record.customer_id) ?? '' : ''
+        const title = formatTimeRange(startMinute, startMinute + durationMinute)
 
-    const customer = (record as unknown as { customers: { name: string } | null }).customers
-    const customerName = customer?.name ?? ''
-    const title = formatTimeRange(startMinute, startMinute + durationMinute)
-
-    return {
-      id: record.id,
-      staffId: record.staff_profile_id ?? '',
-      startMinute,
-      durationMinute,
-      title,
-      subtitle: customerName,
-      customerName,
-    }
-  })
+        return {
+          id: record.id,
+          staffId: record.staff_id,
+          startMinute,
+          durationMinute,
+          title,
+          subtitle: customerName,
+          customerName,
+        }
+      })
+  } catch {
+    return []
+  }
 }

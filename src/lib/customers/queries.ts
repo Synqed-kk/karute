@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
 import type { Customer } from '@/types/database'
 
 // ---------------------------------------------------------------------------
@@ -31,49 +31,34 @@ export async function listCustomers({
   pageSize = 10,
   sortBy = 'updated_at',
   sortOrder = 'desc',
-  staffId,
-  customerType,
 }: ListCustomersOptions = {}): Promise<ListCustomersResult> {
-  const supabase = await createClient()
+  const synqed = await getSynqedClient()
 
-  const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
+  const result = await synqed.customers.list({
+    search: query?.trim() || undefined,
+    page,
+    page_size: pageSize,
+    sort_by: sortBy as 'name' | 'created_at' | 'updated_at',
+    sort_order: sortOrder,
+  })
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let dbQuery = (supabase as any)
-    .from('customers')
-    .select('*', { count: 'exact' })
-
-  if (query && query.trim().length > 0) {
-    const q = query.trim()
-    dbQuery = dbQuery.or(
-      `name.ilike.%${q}%,furigana.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`
-    )
-  }
-
-  if (staffId && staffId !== 'all') {
-    dbQuery = dbQuery.eq('assigned_staff_id', staffId)
-  }
-
-  if (customerType && customerType !== 'all') {
-    dbQuery = dbQuery.eq('customer_type', customerType)
-  }
-
-  const { data, count, error } = await dbQuery
-    .order(sortBy, { ascending: sortOrder === 'asc' })
-    .range(from, to)
-
-  if (error) {
-    throw new Error(`[listCustomers] ${error.message}`)
-  }
-
-  const totalCount = count ?? 0
-  const totalPages = Math.ceil(totalCount / pageSize)
+  // Map synqed-core response to karute's Customer type
+  const customers: Customer[] = result.customers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    furigana: c.furigana,
+    phone: c.phone,
+    email: c.email,
+    contact_info: c.contact_info,
+    notes: c.notes,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  }))
 
   return {
-    customers: (data as Customer[]) ?? [],
-    totalCount,
-    totalPages,
+    customers,
+    totalCount: result.total,
+    totalPages: result.total_pages,
   }
 }
 
@@ -82,19 +67,20 @@ export async function listCustomers({
 // ---------------------------------------------------------------------------
 
 export async function getCustomer(id: string): Promise<Customer> {
-  const supabase = await createClient()
+  const synqed = await getSynqedClient()
+  const c = await synqed.customers.get(id)
 
-  const { data, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('id', id)
-    .single()
-
-  if (error) {
-    throw new Error(`[getCustomer] ${error.message}`)
+  return {
+    id: c.id,
+    name: c.name,
+    furigana: c.furigana,
+    phone: c.phone,
+    email: c.email,
+    contact_info: c.contact_info,
+    notes: c.notes,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
   }
-
-  return data as Customer
 }
 
 // ---------------------------------------------------------------------------
@@ -104,22 +90,11 @@ export async function getCustomer(id: string): Promise<Customer> {
 export async function checkDuplicateName(
   name: string
 ): Promise<{ exists: boolean; existingName?: string }> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
-    .from('customers')
-    .select('id, name')
-    .ilike('name', name)
-    .limit(1)
-
-  if (error) {
-    console.error('[checkDuplicateName] Supabase error:', error.message)
+  try {
+    const synqed = await getSynqedClient()
+    const result = await synqed.customers.checkDuplicate(name)
+    return { exists: result.exists, existingName: result.existing_name }
+  } catch {
     return { exists: false }
   }
-
-  if (data && data.length > 0) {
-    return { exists: true, existingName: data[0].name as string }
-  }
-
-  return { exists: false }
 }
