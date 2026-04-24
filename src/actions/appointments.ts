@@ -1,7 +1,8 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { SynqedError } from '@synqed-kk/client'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   formatMinuteOfDay,
@@ -32,9 +33,6 @@ export interface AppointmentRow {
   customers: { name: string } | null
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseAny = any
-
 export async function validateAppointmentTime(input: AppointmentInput, operatingHours: unknown): Promise<string | null> {
   if (!Number.isInteger(input.durationMinutes) || input.durationMinutes <= 0) {
     return 'Duration must be a positive number of minutes.'
@@ -62,135 +60,116 @@ export async function createAppointment(input: AppointmentInput) {
   const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
   if (hoursError) return { error: hoursError }
 
-  const supabase = await createClient()
-
-  // Check for overlapping appointments on the same staff
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
-  const { data: overlapping } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .select('id')
-    .eq('staff_profile_id', input.staffProfileId)
-    .lt('start_time', endTime.toISOString())
-    .gte('start_time', new Date(startTime.getTime() - 24 * 60 * 60 * 1000).toISOString())
-
-  if (overlapping && overlapping.length > 0) {
-    // Check actual overlap (start_time + duration overlaps with new appointment)
-    for (const existing of overlapping) {
-      const { data: full } = await (supabase as SupabaseAny)
-        .from('appointments')
-        .select('start_time, duration_minutes')
-        .eq('id', existing.id)
-        .single()
-      if (full) {
-        const existStart = new Date(full.start_time).getTime()
-        const existEnd = existStart + full.duration_minutes * 60000
-        const newStart = startTime.getTime()
-        const newEnd = endTime.getTime()
-        if (newStart < existEnd && newEnd > existStart) {
-          return { error: 'This time slot overlaps with an existing booking.' }
-        }
-      }
-    }
-  }
-
-  const { data, error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .insert({
-      staff_profile_id: input.staffProfileId,
-      client_id: input.clientId,
-      start_time: input.startTime,
+  try {
+    const synqed = await getSynqedClient()
+    const appt = await synqed.appointments.create({
+      customer_id: input.clientId,
+      staff_id: input.staffProfileId,
+      starts_at: startTime.toISOString(),
+      ends_at: endTime.toISOString(),
       duration_minutes: input.durationMinutes,
       title: input.title ?? null,
       notes: input.notes ?? null,
     })
-    .select('id')
-    .single()
-
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/dashboard')
-  return { id: (data as { id: string }).id }
+    revalidatePath('/dashboard')
+    return { id: appt.id }
+  } catch (err) {
+    if (err instanceof SynqedError && err.status === 409) {
+      return { error: 'This time slot overlaps with an existing booking.' }
+    }
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }
 
-export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: number = 0) {
-  const supabase = await createClient()
-
+export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: number = 0): Promise<AppointmentRow[]> {
   const dayStartUTC = new Date(`${dateStr}T00:00:00Z`)
   dayStartUTC.setUTCMinutes(dayStartUTC.getUTCMinutes() + tzOffsetMinutes)
   const dayEndUTC = new Date(`${dateStr}T23:59:59Z`)
   dayEndUTC.setUTCMinutes(dayEndUTC.getUTCMinutes() + tzOffsetMinutes)
 
-  const { data, error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .select(`
-      id,
-      staff_profile_id,
-      client_id,
-      start_time,
-      duration_minutes,
-      title,
-      notes,
-      karute_record_id,
-      created_at,
-      customers:client_id ( name )
-    `)
-    .gte('start_time', dayStartUTC.toISOString())
-    .lte('start_time', dayEndUTC.toISOString())
-    .order('start_time', { ascending: true })
+  try {
+    const synqed = await getSynqedClient()
+    const list = await synqed.appointments.list({
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 200,
+    })
 
-  if (error || !data) return []
+    const uniqueCustomerIds = Array.from(new Set(list.appointments.map((a) => a.customer_id)))
+    const [customers, karuteList] = await Promise.all([
+      Promise.all(uniqueCustomerIds.map((id) => synqed.customers.get(id).catch(() => null))),
+      synqed.karuteRecords.list({
+        from: dayStartUTC.toISOString(),
+        to: dayEndUTC.toISOString(),
+        page_size: 500,
+      }),
+    ])
+    const nameById = new Map(
+      customers.filter((c): c is NonNullable<typeof c> => c != null).map((c) => [c.id, c.name]),
+    )
+    const karuteByAppointment = new Map<string, string>()
+    for (const k of karuteList.karute_records) {
+      if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
+    }
 
-  return data as AppointmentRow[]
-}
-
-export async function linkKaruteToAppointment(appointmentId: string, karuteRecordId: string) {
-  const supabase = await createClient()
-
-  const { error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .update({ karute_record_id: karuteRecordId })
-    .eq('id', appointmentId)
-
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/dashboard')
-  return { success: true }
+    return list.appointments.map((a) => ({
+      id: a.id,
+      staff_profile_id: a.staff_id,
+      client_id: a.customer_id,
+      start_time: a.starts_at,
+      duration_minutes: a.duration_minutes ?? 0,
+      title: a.title,
+      notes: a.notes,
+      karute_record_id: karuteByAppointment.get(a.id) ?? null,
+      created_at: a.created_at,
+      customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
+    }))
+  } catch {
+    return []
+  }
 }
 
 export async function deleteAppointment(appointmentId: string) {
-  const supabase = await createClient()
-
-  const { error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .delete()
-    .eq('id', appointmentId)
-
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/dashboard')
-  return { success: true }
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.appointments.delete(appointmentId)
+    revalidatePath('/dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }
 
 export async function updateAppointment(
   appointmentId: string,
-  updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number }
+  updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
 ) {
-  const supabase = await createClient()
+  try {
+    const synqed = await getSynqedClient()
+    const patch: {
+      staff_id?: string
+      starts_at?: string
+      ends_at?: string
+      duration_minutes?: number
+    } = {}
 
-  const updateData: Record<string, unknown> = {}
-  if (updates.staffProfileId) updateData.staff_profile_id = updates.staffProfileId
-  if (updates.startTime) updateData.start_time = updates.startTime
-  if (updates.durationMinutes) updateData.duration_minutes = updates.durationMinutes
+    if (updates.staffProfileId) patch.staff_id = updates.staffProfileId
+    if (updates.startTime) patch.starts_at = updates.startTime
+    if (updates.durationMinutes) patch.duration_minutes = updates.durationMinutes
 
-  const { error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .update(updateData)
-    .eq('id', appointmentId)
+    // If start + duration change, server needs both starts_at and ends_at
+    if (updates.startTime && updates.durationMinutes) {
+      const start = new Date(updates.startTime)
+      patch.ends_at = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
+    }
 
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/appointments')
-  return { success: true }
+    await synqed.appointments.update(appointmentId, patch)
+    revalidatePath('/appointments')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }

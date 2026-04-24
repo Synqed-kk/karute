@@ -2,7 +2,6 @@
 
 import { z } from 'zod'
 import { revalidatePath } from 'next/cache'
-import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 // ---------------------------------------------------------------------------
@@ -138,28 +137,24 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
 // ---------------------------------------------------------------------------
 
 export async function deleteCustomer(id: string): Promise<ActionResult> {
-  // Check for linked karute records — still via Supabase since karute_records
-  // aren't in synqed-core yet
-  const supabase = await createClient()
-  const { count } = await supabase
-    .from('karute_records')
-    .select('id', { count: 'exact', head: true })
-    .eq('client_id', id)
-
-  if ((count ?? 0) > 0) {
-    return {
-      success: false,
-      error: `Cannot delete: this customer has ${count} karute record${count === 1 ? '' : 's'}. Delete them first.`,
-    }
-  }
-
-  // Delete appointments via Supabase
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any).from('appointments').delete().eq('client_id', id)
-
   try {
-    // Delete customer via synqed-core
     const synqed = await getSynqedClient()
+
+    // Block deletion if customer has linked karute records
+    const karuteList = await synqed.karuteRecords.list({ customer_id: id, page_size: 1 })
+    if (karuteList.total > 0) {
+      return {
+        success: false,
+        error: `Cannot delete: this customer has ${karuteList.total} karute record${karuteList.total === 1 ? '' : 's'}. Delete them first.`,
+      }
+    }
+
+    // Delete all appointments for this customer (server lacks cascade)
+    const apptList = await synqed.appointments.list({ customer_id: id, page_size: 500 })
+    for (const appt of apptList.appointments) {
+      await synqed.appointments.delete(appt.id)
+    }
+
     await synqed.customers.delete(id)
 
     revalidatePath('/customers')
