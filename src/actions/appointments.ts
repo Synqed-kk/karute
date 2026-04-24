@@ -5,20 +5,11 @@ import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
-  formatMinuteOfDay,
-  normalizeOperatingHours,
-  utcToLocalDayAndMinute,
-} from '@/lib/operating-hours'
+  validateAppointmentTime,
+  type AppointmentInput,
+} from '@/lib/appointments'
 
-export interface AppointmentInput {
-  staffProfileId: string
-  clientId: string
-  startTime: string
-  durationMinutes: number
-  tzOffsetMinutes?: number
-  title?: string
-  notes?: string
-}
+export { validateAppointmentTime, type AppointmentInput }
 
 export interface AppointmentRow {
   id: string
@@ -31,28 +22,6 @@ export interface AppointmentRow {
   karute_record_id: string | null
   created_at: string
   customers: { name: string } | null
-}
-
-export async function validateAppointmentTime(input: AppointmentInput, operatingHours: unknown): Promise<string | null> {
-  if (!Number.isInteger(input.durationMinutes) || input.durationMinutes <= 0) {
-    return 'Duration must be a positive number of minutes.'
-  }
-
-  const startDate = new Date(input.startTime)
-  if (Number.isNaN(startDate.getTime())) {
-    return 'Invalid appointment start time.'
-  }
-
-  const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes) ? (input.tzOffsetMinutes as number) : 0
-  const { dayKey, minuteOfDay } = utcToLocalDayAndMinute(startDate, tzOffsetMinutes)
-  const hours = normalizeOperatingHours(operatingHours)[dayKey]
-  const endMinute = minuteOfDay + input.durationMinutes
-
-  if (minuteOfDay < hours.openMinute || endMinute > hours.closeMinute) {
-    return `Appointment must be within operating hours (${formatMinuteOfDay(hours.openMinute)}-${formatMinuteOfDay(hours.closeMinute)}).`
-  }
-
-  return null
 }
 
 export async function createAppointment(input: AppointmentInput) {

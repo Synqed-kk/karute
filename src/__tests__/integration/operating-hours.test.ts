@@ -4,7 +4,7 @@ import {
   validateDailyOperatingHours,
   utcToLocalDayAndMinute,
 } from '@/lib/operating-hours'
-import { validateAppointmentTime, type AppointmentInput } from '@/actions/appointments'
+import { validateAppointmentTime, type AppointmentInput } from '@/lib/appointments'
 
 describe('operating hours utilities', () => {
   it('returns an error when open time is not earlier than close time', () => {
