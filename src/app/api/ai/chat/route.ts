@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
@@ -51,10 +52,12 @@ export async function POST(request: Request) {
 
 ${langInstruction}
 
-Recent karute records:
-${karuteContext || 'No records yet.'}
+${defensivePreamble(locale)}
 
-Customer list: ${customerNames || 'No customers yet.'}
+Recent karute records:
+${karuteContext ? wrapUntrustedContent('karute_records', karuteContext) : 'No records yet.'}
+
+Customer list: ${customerNames ? wrapUntrustedContent('customer_names', customerNames) : 'No customers yet.'}
 
 Keep responses concise and actionable. Use the data to give specific, personalized answers.`,
       },

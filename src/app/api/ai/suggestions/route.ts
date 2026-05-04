@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { createClient } from '@/lib/supabase/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
@@ -29,10 +30,10 @@ export async function POST(request: NextRequest) {
       : 'Respond entirely in English.'
 
     const context = [
-      transcript ? `Transcript:\n${transcript.slice(0, 2000)}` : '',
-      summary ? `Summary: ${summary}` : '',
+      transcript ? `Transcript:\n${wrapUntrustedContent('transcript', transcript.slice(0, 2000))}` : '',
+      summary ? `Summary: ${wrapUntrustedContent('summary', summary)}` : '',
       entries?.length > 0
-        ? `Extracted entries:\n${entries.map((e: { category: string; title: string }) => `- [${e.category}] ${e.title}`).join('\n')}`
+        ? `Extracted entries:\n${wrapUntrustedContent('entries', entries.map((e: { category: string; title: string }) => `- [${e.category}] ${e.title}`).join('\n'))}`
         : '',
     ].filter(Boolean).join('\n\n')
 
@@ -60,7 +61,9 @@ export async function POST(request: NextRequest) {
 
 Return as a JSON array of objects with "text" (the suggestion) and "type" (one of: "follow-up", "recommendation", "note", "concern").
 Example: [{"text": "Schedule a follow-up in 2 weeks to check hair condition", "type": "follow-up"}]
-${langInstruction}`,
+${langInstruction}
+
+${defensivePreamble(locale)}`,
         },
         { role: 'user', content: context },
       ],

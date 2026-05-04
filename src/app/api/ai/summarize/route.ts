@@ -5,6 +5,7 @@ import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
 import { createClient } from '@/lib/supabase/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
@@ -33,10 +34,10 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.parse({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
           role: 'user',
-          content: `Summarize this ${businessType} session transcript:\n\n${transcript}`,
+          content: `Summarize this ${businessType} session transcript:\n\n${wrapUntrustedContent('transcript', transcript)}`,
         },
       ],
       response_format: zodResponseFormat(SummaryResultSchema, 'summary_result'),

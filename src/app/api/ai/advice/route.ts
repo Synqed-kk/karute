@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { createClient } from '@/lib/supabase/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
@@ -39,9 +40,9 @@ export async function POST(request: NextRequest) {
     const businessType = orgSettings?.business_type || 'salon/clinic'
 
     const context = [
-      summary ? `Session Summary: ${summary}` : '',
+      summary ? `Session Summary: ${wrapUntrustedContent('summary', summary)}` : '',
       entries?.length > 0
-        ? `Entries:\n${entries.map((e: { category: string; title: string }) => `- [${e.category}] ${e.title}`).join('\n')}`
+        ? `Entries:\n${wrapUntrustedContent('entries', entries.map((e: { category: string; title: string }) => `- [${e.category}] ${e.title}`).join('\n'))}`
         : '',
     ].filter(Boolean).join('\n\n')
 
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant for a ${businessType} business. Based on the karute session data, generate practical advice for the next visit. Keep it to 2-3 sentences, focusing on what the staff should follow up on, check, or suggest to the customer. ${langInstruction}`,
+          content: `You are an AI assistant for a ${businessType} business. Based on the karute session data, generate practical advice for the next visit. Keep it to 2-3 sentences, focusing on what the staff should follow up on, check, or suggest to the customer. ${langInstruction}\n\n${defensivePreamble(locale)}`,
         },
         { role: 'user', content: context },
       ],

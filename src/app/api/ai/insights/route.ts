@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
@@ -75,8 +76,8 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.create({
       model: process.env.AI_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction },
-        { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${context}` },
+        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction + '\n\n' + defensivePreamble(locale) },
+        { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${wrapUntrustedContent('karute_records', context)}` },
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7,
