@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { createClient } from '@/lib/supabase/server'
-import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
@@ -62,6 +62,9 @@ export async function POST(request: NextRequest) {
     })
 
     const advice = completion.choices[0]?.message?.content ?? ''
+    if (completion.usage) {
+      void reportAiUsage('advice', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     const result = { advice }
 
     // Cache for 7 days

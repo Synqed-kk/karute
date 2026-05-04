@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
@@ -84,6 +84,9 @@ export async function POST(request: Request) {
     })
 
     const content = completion.choices[0]?.message?.content
+    if (completion.usage) {
+      void reportAiUsage('insights', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     if (!content) return NextResponse.json({ insights: [] })
 
     const parsed = JSON.parse(content)

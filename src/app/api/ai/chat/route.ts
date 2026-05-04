@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
@@ -76,6 +76,9 @@ Keep responses concise and actionable. Use the data to give specific, personaliz
     })
 
     const reply = completion.choices[0]?.message?.content ?? ''
+    if (completion.usage) {
+      void reportAiUsage('chat', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     return NextResponse.json({ reply })
   } catch (error) {
     console.error('[/api/ai/chat]', error)

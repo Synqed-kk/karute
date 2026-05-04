@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { createClient } from '@/lib/supabase/server'
-import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
@@ -73,6 +73,9 @@ ${defensivePreamble(locale)}`,
     })
 
     const raw = completion.choices[0]?.message?.content ?? '{}'
+    if (completion.usage) {
+      void reportAiUsage('suggestions', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     try {
       const parsed = JSON.parse(raw)
       const suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions : Array.isArray(parsed) ? parsed : []

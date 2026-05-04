@@ -4,7 +4,7 @@ import { SummaryResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
 import { createClient } from '@/lib/supabase/server'
-import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
@@ -44,7 +44,9 @@ export async function POST(request: Request) {
     })
 
     const result = completion.choices[0].message.parsed
-
+    if (completion.usage) {
+      void reportAiUsage('summarize', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
