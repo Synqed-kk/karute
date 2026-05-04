@@ -2,10 +2,13 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
 
 export const maxDuration = 60
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('chat')
+  if (limited) return limited
   try {
     const { message, locale, history } = await request.json()
     const supabase = await createClient()

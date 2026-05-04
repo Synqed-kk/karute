@@ -4,10 +4,13 @@ import { SummaryResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
 import { createClient } from '@/lib/supabase/server'
+import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
 
 export const maxDuration = 60
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('summarize')
+  if (limited) return limited
   try {
     const body = await request.json()
     const { transcript, locale } = body

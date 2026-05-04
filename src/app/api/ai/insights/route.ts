@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
+import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
 
 export const maxDuration = 60
 
@@ -19,6 +20,8 @@ Return a JSON object: { "insights": [...] }`
 }
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('insights')
+  if (limited) return limited
   try {
     const { locale } = await request.json()
     const supabase = await createClient()

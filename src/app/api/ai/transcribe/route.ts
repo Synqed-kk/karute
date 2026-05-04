@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { toFile } from 'openai'
 import { openai } from '@/lib/openai'
+import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
 
 export const maxDuration = 300
 
@@ -14,6 +15,8 @@ export const maxDuration = 300
  * Returns: { transcript: string }
  */
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('transcribe')
+  if (limited) return limited
   try {
     const contentType = request.headers.get('content-type') ?? ''
 
