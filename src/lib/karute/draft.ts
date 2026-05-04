@@ -9,8 +9,8 @@
  */
 
 const DRAFT_KEY = 'karute_draft'
-/** Discard drafts older than 1 hour to prevent stale data showing up */
-const DRAFT_TTL_MS = 60 * 60 * 1000
+/** Discard drafts older than 24 hours — long enough to survive a full day of sessions */
+const DRAFT_TTL_MS = 24 * 60 * 60 * 1000
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,7 +62,7 @@ export function saveDraft(draft: Omit<KaruteDraft, 'savedAt'>): void {
  * Returns null if:
  *   - sessionStorage is unavailable (SSR or disabled)
  *   - No draft exists
- *   - Draft is older than 1 hour (stale)
+ *   - Draft is older than 24 hours (stale)
  *   - JSON parse fails (corrupt data)
  */
 export function loadDraft(): KaruteDraft | null {

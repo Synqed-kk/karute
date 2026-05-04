@@ -1,93 +1,62 @@
 import { notFound } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { getCustomer } from '@/lib/customers/queries'
-import { CustomerProfileHeader } from '@/components/customers/CustomerProfileHeader'
-import { CustomerDetailTabs } from '@/components/customers/CustomerDetailTabs'
+import { CustomerDetailView } from '@/components/customers/CustomerDetailView'
+import {
+  customerToIdentityProps,
+  appointmentsToSessionItems,
+  type AppointmentLike,
+  type StaffNameMap,
+} from '@/lib/adapters/customer-detail'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
-  searchParams: Promise<{ historyPage?: string }>
 }
 
 export default async function CustomerProfilePage({
   params,
 }: CustomerProfilePageProps) {
-  const { id, locale } = await params
+  const { id } = await params
 
-  const supabase = await createClient()
+  const customer = await getCustomer(id).catch(() => null)
+  if (!customer) notFound()
 
-  // Fetch customer via synqed-core + karute records via Supabase in parallel
-  const [customer, karuteResult] = await Promise.all([
-    getCustomer(id).catch(() => null),
-    supabase
-      .from('karute_records')
-      .select(
-        `
-        id,
-        created_at,
-        session_date,
-        summary,
-        transcript,
-        staff_profile_id,
-        profiles:staff_profile_id ( full_name ),
-        entries (
-          id,
-          category,
-          content,
-          source_quote,
-          confidence_score,
-          is_manual,
-          created_at
-        )
-      `,
-        { count: 'exact' },
-      )
-      .eq('client_id', id)
-      .order('session_date', { ascending: false }),
+  const synqed = await getSynqedClient()
+  const [apptList, staffList] = await Promise.all([
+    synqed.appointments.list({ customer_id: id, page_size: 500 }).catch(() => null),
+    synqed.staff.list({ page_size: 200 }).catch(() => null),
   ])
 
-  if (!customer) {
-    notFound()
+  const appointments = (apptList?.appointments ?? []) as AppointmentLike[]
+  // synqed-core returns ascending by default in some endpoints; ensure newest first
+  appointments.sort(
+    (a, b) => new Date(b.starts_at).getTime() - new Date(a.starts_at).getTime(),
+  )
+
+  const staffNames: StaffNameMap = {}
+  for (const s of staffList?.staff ?? []) {
+    staffNames[s.id] = s.name
   }
 
-  type KaruteRecordWithEntries = {
-    id: string
-    created_at: string
-    session_date: string
-    summary: string | null
-    transcript: string | null
-    staff_profile_id: string | null
-    profiles: { full_name: string } | null
-    entries: Array<{
-      id: string
-      category: string
-      content: string
-      source_quote: string | null
-      confidence_score: number | null
-      is_manual: boolean
-      created_at: string
-    }>
-  }
+  const visitCount = appointments.length
+  const lastVisit = appointments[0]?.starts_at ?? null
+  const staffName = appointments[0]
+    ? staffNames[appointments[0].staff_id] ?? '—'
+    : '—'
 
-  const karuteRecords = (karuteResult.data ?? []) as KaruteRecordWithEntries[]
-  const totalVisitCount = karuteResult.count ?? 0
-
-  const lastVisit: string | null = karuteRecords[0]?.session_date ?? null
+  const identity = customerToIdentityProps(customer, visitCount, lastVisit, staffName)
+  const sessions = appointmentsToSessionItems(appointments, staffNames)
 
   return (
-    <div className="space-y-6">
-      <CustomerProfileHeader
-        customer={customer}
-        visitCount={totalVisitCount}
-        lastVisit={lastVisit}
-      />
-
-      <CustomerDetailTabs
-        customer={customer}
-        karuteRecords={karuteRecords}
-        totalVisitCount={totalVisitCount}
-        locale={locale}
-      />
-    </div>
+    <CustomerDetailView
+      identity={identity}
+      sessions={sessions}
+      contact={{
+        phone: customer.phone ?? null,
+        email: customer.email ?? null,
+        furigana: customer.furigana ?? null,
+      }}
+      notes={customer.notes}
+    />
   )
 }

@@ -62,7 +62,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ transcript: transcription })
   } catch (error) {
-    console.error('[/api/ai/transcribe] Error:', error)
-    return NextResponse.json({ error: 'Transcription failed' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[/api/ai/transcribe]', message)
+    return NextResponse.json(
+      { error: 'Transcription failed', detail: message },
+      { status: 500 },
+    )
   }
 }

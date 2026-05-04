@@ -5,4 +5,7 @@ import OpenAI from 'openai'
  * Import this in transcription, extraction, and summary route handlers.
  * Do not import toFile here — each route imports it directly from 'openai'.
  */
-export const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+export const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  maxRetries: 2,
+})

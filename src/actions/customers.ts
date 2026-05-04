@@ -164,3 +164,112 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     return { success: false, error: message }
   }
 }
+
+// ---------------------------------------------------------------------------
+// Customer photos
+// ---------------------------------------------------------------------------
+
+export async function listCustomerPhotos(customerId: string) {
+  const synqed = await getSynqedClient()
+  return synqed.customers.listPhotos(customerId)
+}
+
+export async function uploadCustomerPhoto(
+  customerId: string,
+  formData: FormData,
+) {
+  const file = formData.get('file') as File | null
+  if (!file) return { error: 'No file provided' }
+
+  const category = formData.get('category')
+  const caption = formData.get('caption')
+
+  try {
+    const synqed = await getSynqedClient()
+    const photo = await synqed.customers.uploadPhoto(customerId, file, {
+      category: typeof category === 'string' ? category : undefined,
+      caption: typeof caption === 'string' ? caption : undefined,
+    })
+    revalidatePath(`/customers/${customerId}`)
+    return { photo }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+export async function deleteCustomerPhoto(
+  customerId: string,
+  photoId: string,
+) {
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.customers.deletePhoto(customerId, photoId)
+    revalidatePath(`/customers/${customerId}`)
+    return { success: true as const }
+  } catch (err) {
+    return {
+      success: false as const,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Recording consent
+// ---------------------------------------------------------------------------
+
+// Bump when the wording of the consent script changes — invalidates prior consents legally.
+const RECORDING_CONSENT_POLICY_VERSION = 'v1-2026-05'
+
+export async function getCustomerConsent(customerId: string) {
+  const synqed = await getSynqedClient()
+  return synqed.customers.getConsent(customerId)
+}
+
+export async function grantCustomerConsent(
+  customerId: string,
+  input: { method?: 'VERBAL' | 'WRITTEN' } = {},
+) {
+  const { getValidatedActiveStaffId } = await import('@/lib/staff')
+  const staffId = await getValidatedActiveStaffId()
+  if (!staffId) {
+    return {
+      ok: false as const,
+      error: 'No active staff selected. Switch to your stylist account first.',
+    }
+  }
+  try {
+    const synqed = await getSynqedClient()
+    const consent = await synqed.customers.grantConsent(customerId, {
+      granted_by_staff_id: staffId,
+      policy_version: RECORDING_CONSENT_POLICY_VERSION,
+      method: input.method ?? 'VERBAL',
+    })
+    revalidatePath(`/customers/${customerId}`)
+    return { ok: true as const, consent }
+  } catch (err) {
+    return {
+      ok: false as const,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}
+
+export async function revokeCustomerConsent(customerId: string) {
+  const { getValidatedActiveStaffId } = await import('@/lib/staff')
+  const staffId = await getValidatedActiveStaffId()
+  if (!staffId) {
+    return { ok: false as const, error: 'No active staff selected.' }
+  }
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.customers.revokeConsent(customerId, staffId)
+    revalidatePath(`/customers/${customerId}`)
+    return { ok: true as const }
+  } catch (err) {
+    return {
+      ok: false as const,
+      error: err instanceof Error ? err.message : 'Unknown error',
+    }
+  }
+}

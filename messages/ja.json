@@ -32,6 +32,8 @@
     "subtitle": "サインインして続行",
     "signupTitle": "カルテアカウントを作成",
     "signupSubtitle": "ビジネスアカウントを作成",
+    "salonName": "サロン名",
+    "salonNameRequired": "サロン名を入力してください",
     "email": "メールアドレス",
     "emailPlaceholder": "you@example.com",
     "password": "パスワード",
@@ -76,7 +78,18 @@
     "noUpcomingAppointment": "予約がありません",
     "noBookingTitle": "予約が見つかりません",
     "noBookingDescription": "予約がありません。録音はカルテに保存されますが、予約にはリンクされません。",
-    "recordAnyway": "録音する"
+    "recordAnyway": "録音する",
+    "consentGrantedTitle": "録音同意取得済み",
+    "consentGrantedDesc": "様からは「施術中の会話を録音し、カルテ作成・品質向上に利用すること」について同意を取得しています。録音を開始できます。",
+    "consentGrantedWhen": "取得日：",
+    "consentMissingTitle": "録音同意が未取得です",
+    "consentMissingDesc": "様から同意を取得してください。録音ボタンは無効化されています。",
+    "consentStartFlow": "同意取得フローを開始",
+    "consentDialogTitle": "録音の同意を取得",
+    "consentDialogInstructions": "以下の内容をお客様にお読みください。口頭で同意を得た場合のみ「同意を取得しました」をタップしてください。",
+    "consentScript": "{customerName}様、本日の施術内容を正確に記録し、カルテ作成と品質向上に役立てるため、施術中の会話を録音させていただいてもよろしいでしょうか？録音データはカルテ作成とサービス改善のみに使用されます。",
+    "consentConfirmButton": "同意を取得しました",
+    "longRecordingWarning": "長時間録音 — 一度停止して新しい録音を開始することをご検討ください"
   },
   "customers": {
     "title": "顧客",

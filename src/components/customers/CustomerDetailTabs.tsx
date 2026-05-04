@@ -29,8 +29,12 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { getCategoryConfig } from '@/lib/karute/categories'
-import { createClient } from '@/lib/supabase/client'
-import type { CustomerRow, CustomerPhotoRow } from '@/types/database'
+import type { CustomerRow } from '@/types/database'
+import {
+  listCustomerPhotos,
+  uploadCustomerPhoto,
+  deleteCustomerPhoto,
+} from '@/actions/customers'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -724,54 +728,54 @@ function TimelineTab({
 // Tab 3: Photos
 // ===========================================================================
 
+interface PhotoEntry {
+  id: string
+  customer_id: string
+  storage_path: string
+  category: string
+  caption: string | null
+  created_at: string
+  signedUrl?: string
+}
+
 function PhotosTab({ customerId }: { customerId: string }) {
   const t = useTranslations('customerDetail')
   const [categoryFilter, setCategoryFilter] = useState('all')
-  const [photos, setPhotos] = useState<(CustomerPhotoRow & { signedUrl?: string })[]>([])
+  const [photos, setPhotos] = useState<PhotoEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const supabase = createClient()
 
-  // Fetch photos on mount
   const fetchPhotos = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const { data: rows, error: fetchErr } = await supabase
-        .from('customer_photos')
-        .select('*')
-        .eq('customer_id', customerId)
-        .order('created_at', { ascending: false })
-
-      if (fetchErr) throw fetchErr
-
-      // Generate signed URLs for all photos
-      const withUrls = await Promise.all(
-        (rows ?? []).map(async (row) => {
-          const { data: urlData } = await supabase.storage
-            .from('customer-photos')
-            .createSignedUrl(row.storage_path, 3600) // 1 hour expiry
-          return { ...row, signedUrl: urlData?.signedUrl ?? undefined }
-        }),
+      const { photos: rows } = await listCustomerPhotos(customerId)
+      setPhotos(
+        rows.map((p) => ({
+          id: p.id,
+          customer_id: p.customer_id,
+          storage_path: p.storage_path,
+          category: p.category,
+          caption: p.caption,
+          created_at: p.created_at,
+          signedUrl: p.signed_url ?? undefined,
+        })),
       )
-
-      setPhotos(withUrls)
     } catch {
       setError(t('photoUploadError'))
     } finally {
       setLoading(false)
     }
-  }, [customerId, supabase, t])
+  }, [customerId, t])
 
   useEffect(() => {
     fetchPhotos()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customerId])
 
-  // Handle file upload
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files
     if (!files || files.length === 0) return
@@ -781,71 +785,36 @@ function PhotosTab({ customerId }: { customerId: string }) {
 
     try {
       for (const file of Array.from(files)) {
-        const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
-        const fileId = crypto.randomUUID()
-        const storagePath = `${customerId}/${fileId}.${ext}`
-
-        // Upload to storage
-        const { error: uploadErr } = await supabase.storage
-          .from('customer-photos')
-          .upload(storagePath, file, {
-            cacheControl: '3600',
-            upsert: false,
-          })
-
-        if (uploadErr) throw uploadErr
-
-        // Insert record into customer_photos table
-        const { error: insertErr } = await supabase
-          .from('customer_photos')
-          .insert({
-            customer_id: customerId,
-            storage_path: storagePath,
-            category: categoryFilter !== 'all' ? categoryFilter : 'general',
-          })
-
-        if (insertErr) throw insertErr
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append(
+          'category',
+          categoryFilter !== 'all' ? categoryFilter : 'general',
+        )
+        const result = await uploadCustomerPhoto(customerId, fd)
+        if ('error' in result) throw new Error(result.error)
       }
-
-      // Refresh the photo list
       await fetchPhotos()
     } catch {
       setError(t('photoUploadError'))
     } finally {
       setUploading(false)
-      // Reset the file input so the same file can be re-selected
       if (fileInputRef.current) {
         fileInputRef.current.value = ''
       }
     }
   }
 
-  // Handle photo deletion
-  async function handleDelete(photo: CustomerPhotoRow) {
+  async function handleDelete(photo: PhotoEntry) {
     if (!confirm(t('deletePhotoConfirm'))) return
 
     setError(null)
-    try {
-      // Delete from storage
-      const { error: storageErr } = await supabase.storage
-        .from('customer-photos')
-        .remove([photo.storage_path])
-
-      if (storageErr) throw storageErr
-
-      // Delete from table
-      const { error: dbErr } = await supabase
-        .from('customer_photos')
-        .delete()
-        .eq('id', photo.id)
-
-      if (dbErr) throw dbErr
-
-      // Update local state
-      setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
-    } catch {
+    const result = await deleteCustomerPhoto(customerId, photo.id)
+    if (!result.success) {
       setError(t('photoDeleteError'))
+      return
     }
+    setPhotos((prev) => prev.filter((p) => p.id !== photo.id))
   }
 
   // Filter photos by category

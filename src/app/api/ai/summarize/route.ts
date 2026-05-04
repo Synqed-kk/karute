@@ -42,7 +42,12 @@ export async function POST(request: Request) {
     const result = completion.choices[0].message.parsed
 
     return NextResponse.json(result)
-  } catch {
-    return NextResponse.json({ error: 'Summary generation failed' }, { status: 500 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[api/ai/summarize]', message)
+    return NextResponse.json(
+      { error: 'Summary generation failed', detail: message },
+      { status: 500 },
+    )
   }
 }

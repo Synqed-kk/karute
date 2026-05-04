@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "@synqed-kk/ui/src/themes/tokens.css";
+
+/* Tailwind v4 needs an explicit source for class detection in node_modules */
+@source "../../node_modules/@synqed-kk/ui/dist/**/*.{js,jsx}";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -135,7 +139,8 @@
     background: oklch(0.5 0 0 / 40%);
   }
   body {
-    @apply bg-background text-foreground;
+    background-color: var(--color-bg);
+    color: var(--color-text);
   }
   html {
     @apply font-sans;

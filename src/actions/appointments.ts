@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { SynqedError } from '@synqed-kk/client'
+import { SynqedError, type Appointment } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -96,6 +96,23 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
       created_at: a.created_at,
       customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
     }))
+  } catch {
+    return []
+  }
+}
+
+export async function getAppointmentsInRange(
+  fromIso: string,
+  toIso: string,
+): Promise<Appointment[]> {
+  try {
+    const synqed = await getSynqedClient()
+    const list = await synqed.appointments.list({
+      from: fromIso,
+      to: toIso,
+      page_size: 500,
+    })
+    return list.appointments
   } catch {
     return []
   }
