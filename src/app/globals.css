@@ -2,6 +2,8 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* ─────────────────────────────────────────────────────────────────
    Synqed-UI Design Tokens
    Ported from synq/project/tokens.css (Synq-handoff bundle).
