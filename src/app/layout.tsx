@@ -26,9 +26,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" data-theme="amber" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${notoSansJP.variable} font-sans antialiased`}
+        suppressHydrationWarning
       >
         <ThemeProvider>
           {children}
