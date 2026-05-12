@@ -56,7 +56,7 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider data={sessionData}>
-      <div className="flex h-screen flex-col overflow-hidden bg-[#e8e8e8] p-3 dark:bg-[#2a2a2a]">
+      <div className="flex h-screen flex-col overflow-hidden bg-sq-bg-0 p-3">
         <div className="flex items-center py-1" style={{ height: '72px' }}>
           <img src="/karute_logo.png" alt="Karute" className="h-14 object-contain dark:invert" style={{ height: '100px' }} />
           <div className="ml-auto flex items-center">
@@ -68,7 +68,7 @@ export default async function DashboardLayout({
           <div className="relative max-sm:w-0">
             <Sidebar />
           </div>
-          <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] dark:bg-[#3a3a3a]">
+          <main className="relative flex-1 overflow-y-auto rounded-sq-lg border border-sq-stroke-1 bg-sq-bg-1">
             <div className="mx-auto max-w-7xl p-4 md:p-6">
               {children}
             </div>
