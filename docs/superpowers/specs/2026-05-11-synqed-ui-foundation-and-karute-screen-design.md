@@ -17,7 +17,7 @@ The eventual home for the Synqed-UI design system is the `@synqed-kk/ui` package
 - Expose `--sq-*` to Tailwind v4 via `@theme inline` so utilities like `bg-sq-bg-2`, `text-sq-text-1`, `border-sq-stroke-2`, `rounded-sq-md`, `shadow-sq-2` exist.
 - Add a compatibility-bridge alias layer in the same theme blocks: `--color-bg-card`, `--color-text`, `--radius-md`, etc. (the names consumed by `@synqed-kk/ui` components) resolve to `--sq-*` equivalents. This keeps the 7 non-karute screens functional during phase 1 — they inherit the new palette through their existing var names but their layouts are not redesigned.
 - Swap `next-themes` to set `data-theme="dark|light"` on `<html>`.
-- Add new primitives in `src/components/ui/` that the karute screen needs and don't exist yet: `card`, `badge`, `chip` (filter pill / staff chip), `tabs`, `segmented`, `icon` (thin lucide-react wrapper exposing the prototype's name → component mapping). All built against `--sq-*` utilities using class-variance-authority.
+- Add new primitives in `src/components/ui/` that the karute screen needs and don't exist yet: `card`, `badge`, `chip` (filter pill / staff chip), `icon` (thin lucide-react wrapper exposing the prototype's name → component mapping). All built against `--sq-*` utilities using class-variance-authority.
 - **Existing shadcn primitives are not rewritten.** `button.tsx`, `input.tsx`, `avatar.tsx` (and the other untouched files: `dialog`, `dropdown-menu`, `sheet`, `tooltip`, `skeleton`, `separator`, etc.) keep their current code. They reference shadcn semantic names (`bg-primary`, `bg-card`, `text-foreground`, `border-border`, etc.) which the alias bridge maps to `--sq-*` equivalents — so they pick up the new palette automatically without being touched. The cleanup of these primitives is deferred to a later phase.
 - Redesign app shell: `src/components/layout/sidebar.tsx` (full-width with labels, accent active state, user identity tile pinned bottom — per prototype), `src/components/layout/top-bar.tsx` (restyled), `src/app/[locale]/(app)/layout.tsx` (drop hardcoded grays, adopt `bg-sq-bg-0` page / `bg-sq-bg-1` sidebar / `bg-sq-bg-2` cards).
 - Redesign karute screen at `src/app/[locale]/(app)/karute/...` against new primitives, matching `synq/project/screens.jsx` `KaruteScreen` as the visual source of truth.
@@ -118,14 +118,14 @@ The existing `theme-toggle.tsx` is updated to set theme via `setTheme('dark' | '
 
 **Existing primitives are not touched in phase 1.** `button.tsx`, `input.tsx`, `avatar.tsx`, `dialog.tsx`, `dropdown-menu.tsx`, `sheet.tsx`, `tooltip.tsx`, `skeleton.tsx`, `separator.tsx`, `employee-timeline-bar.tsx`, `timetable.tsx` keep their current code. They render against shadcn semantic var names, which the alias bridge resolves to `--sq-*` palette.
 
-**New primitives** added for the karute screen (and reusable across the app). Each is a small CVA-based component, shadcn-shaped (forwarded ref where it makes sense, `className` merge via `cn`, variant + size props), built against `--sq-*` Tailwind utilities directly:
+**New primitives** added for the karute screen. Each is a small CVA-based component, shadcn-shaped (forwarded ref where it makes sense, `className` merge via `cn`, variant + size props), built against `--sq-*` Tailwind utilities directly:
 
 - **`card.tsx`** (new) — `bg-sq-bg-2 border border-sq-stroke-1 rounded-sq-lg shadow-sq-1`. Header / content / footer subcomponents.
-- **`badge.tsx`** (new) — tone variants `accent | success | warning | danger | info | violet | teal | rose | neutral`. Each uses the matching `*-soft` background and `*-text` foreground.
-- **`chip.tsx`** (new) — pill-shaped filter/staff chip. Active state: `bg-sq-accent-soft text-sq-accent-text border-sq-accent-ring`. Inactive: `bg-sq-bg-2 text-sq-text-2 border-sq-stroke-1`. Optional leading avatar or icon.
-- **`tabs.tsx`** (new) — list of tab triggers; active gets accent underline + accent text.
-- **`segmented.tsx`** (new) — segmented control used for tone toggles in karute (e.g. status filter). Pill container with `bg-sq-bg-2`; active segment gets `bg-sq-accent-soft text-sq-accent-text`.
-- **`icon.tsx`** (new) — `<Icon name="mic" size={16} />` wrapper. Maps prototype icon names (mic, home, calendar, users, clipboard, sparkle, upload, settings, search, chev*, plus, check, x, send, paperclip, bell, clock, fileText, trending[Down], bar, etc.) to lucide-react components. Stroke / sizing defaults match the prototype (`stroke=1.75`, `size=16`).
+- **`badge.tsx`** (new) — tone variants `accent | success | warning | danger | info | violet | teal | rose | neutral`. Each uses the matching `*-soft` background and `*-text` foreground. Sizes `xs | sm | md`. Optional leading icon.
+- **`chip.tsx`** (new) — pill-shaped filter/staff chip. Active state: `bg-sq-accent-soft text-sq-accent-text border-sq-accent-ring`. Inactive: `bg-sq-bg-2 text-sq-text-2 border-sq-stroke-1`. Optional leading avatar or icon. Optional trailing count.
+- **`icon.tsx`** (new) — `<Icon name="mic" size={16} />` wrapper. Maps prototype icon names to lucide-react components. Phase 1 only needs the icons referenced by Sidebar + KaruteListView (see the implementation plan for the exact list).
+
+`tabs.tsx` and `segmented.tsx` are deferred — KaruteScreen doesn't consume them (Tabs is used by CoachingScreen, which is out of phase 1 scope; Segmented is unused). They will land with the screens that need them.
 
 ### App shell
 
@@ -153,7 +153,7 @@ Unchanged. Server components fetch as today. No changes to API routes, Supabase 
 ## Migration order (within phase 1, one branch, staged commits)
 
 1. **Tokens + bridge land** — `globals.css` rewrite (new `--sq-*` tokens + alias bridge for `@synqed-kk/ui` and shadcn semantic names + `@theme inline` mapping) + `next-themes` config swap to `data-theme`. After this step, **every existing screen should still render correctly** — same layouts, new palette — because the bridge maps the var names existing components consume.
-2. **New primitives added** — Card, Badge, Chip, Tabs, Segmented, Icon. No existing files modified in this step.
+2. **New primitives added** — Card, Badge, Chip, Icon. No existing files modified in this step.
 3. **App shell ported** — Sidebar (rewrite using Icon + new layout), TopBar (restyled), app layout frame (`[locale]/(app)/layout.tsx`: drop hardcoded `bg-[#e8e8e8]/[#2a2a2a]`/`bg-[#e0e0e0]/[#3a3a3a]` grays in favor of `bg-sq-bg-0`/`bg-sq-bg-1`).
 4. **Karute list screen redesigned** — `KaruteListView.tsx` rewritten to stop importing `@synqed-kk/ui` karute components, instead rendering the prototype's `KaruteScreen` layout using the new primitives.
 
