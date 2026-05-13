@@ -8,8 +8,10 @@ import {
   appointmentsToWeekData,
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
+import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
+import type { ReservationStaff } from '@/components/reservation/StaffRow'
 
 function parseDateParam(value: string | undefined): Date {
   if (!value) return new Date()
@@ -75,6 +77,27 @@ export default async function AppointmentsPage({
 
   const today = new Date()
 
+  const reservationStaff: ReservationStaff[] = staffList.map((s) => ({
+    id: s.id,
+    name: s.full_name ?? 'Unknown',
+    role: s.display_role ?? s.position ?? '',
+    // TODO(phase-1.5): wire synqed-core role to derive takesBookings
+    takesBookings: true,
+    initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
+  }))
+
+  const reservationViews = appointmentsToReservationViews(
+    todayAppointments,
+    staffList,
+    today,
+  )
+
+  const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, today)
+  const businessHours = {
+    start: Math.floor(dayOpHours.openMinute / 60),
+    end: Math.ceil(dayOpHours.closeMinute / 60),
+  }
+
   // Pre-compute week/month data server-side based on view + selectedDate.
   let weekData: Awaited<ReturnType<typeof appointmentsToWeekData>> | null = null
   let monthData: Awaited<ReturnType<typeof appointmentsToMonthCells>> | null = null
@@ -133,6 +156,9 @@ export default async function AppointmentsPage({
       weekStartIso={weekStartIso}
       monthData={monthData}
       monthStartIso={monthStartIso}
+      reservationViews={reservationViews}
+      reservationStaff={reservationStaff}
+      businessHours={businessHours}
     />
   )
 }
