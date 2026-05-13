@@ -143,18 +143,10 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
     >
       <div className="flex h-full flex-col justify-between gap-1 p-2">
         <div className="flex items-start justify-between gap-1.5">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span
-              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
-              style={{ background: staffColor.bg, color: staffColor.text }}
-            >
-              {view.customerInitials}
-            </span>
-            <span className="min-w-0 truncate text-xs font-semibold text-foreground">
-              {view.customerName}
-              {customerSuffix && <span className="ml-0.5 text-muted-foreground">{customerSuffix}</span>}
-            </span>
-          </div>
+          <span className="min-w-0 truncate text-xs font-semibold text-foreground">
+            {view.customerName}
+            {customerSuffix && <span className="ml-0.5 text-muted-foreground">{customerSuffix}</span>}
+          </span>
           {!tight && (
             <span
               className="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold"

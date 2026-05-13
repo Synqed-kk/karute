@@ -15,7 +15,7 @@ import {
 } from '@/components/reservation/StaffRow'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 
-const HOUR_WIDTH = 110
+const HOUR_WIDTH = 140
 const AXIS_HEIGHT = 32
 
 interface ReservationGridProps {
