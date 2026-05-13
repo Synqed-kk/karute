@@ -75,7 +75,7 @@ export function Sidebar() {
 
   return (
     <nav
-      className="hidden h-full w-[90px] flex-col items-center gap-0.5 rounded-[28px] bg-[#4a4a4a] py-4 md:flex"
+      className="hidden h-full w-[90px] flex-col items-center gap-0.5 rounded-[28px] bg-[var(--color-bg-card)] py-4 md:flex"
       aria-label="Main navigation"
     >
       {NAV_ROUTES.map((route) => {
@@ -87,7 +87,9 @@ export function Sidebar() {
             key={route.id}
             href={route.href as Parameters<typeof Link>[0]['href']}
             className={`flex w-full min-h-[44px] min-w-[44px] flex-col items-center gap-1 px-2 py-2.5 transition ${
-              isActive ? 'text-white' : 'text-white/60 hover:text-white/90'
+              isActive
+                ? 'text-[var(--color-text)]'
+                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
             }`}
             aria-current={isActive ? 'page' : undefined}
           >
