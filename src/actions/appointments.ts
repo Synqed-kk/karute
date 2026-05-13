@@ -69,13 +69,14 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
     })
 
     const uniqueCustomerIds = Array.from(new Set(list.appointments.map((a) => a.customer_id)))
-    const [customers, karuteList] = await Promise.all([
+    const [customers, karuteList, staffList] = await Promise.all([
       Promise.all(uniqueCustomerIds.map((id) => synqed.customers.get(id).catch(() => null))),
       synqed.karuteRecords.list({
         from: dayStartUTC.toISOString(),
         to: dayEndUTC.toISOString(),
-        page_size: 500,
+        page_size: 200,
       }),
+      synqed.staff.list({ page_size: 200 }),
     ])
     const nameById = new Map(
       customers.filter((c): c is NonNullable<typeof c> => c != null).map((c) => [c.id, c.name]),
@@ -84,10 +85,18 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
     for (const k of karuteList.karute_records) {
       if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
     }
+    // synqed staff id → supabase profile id (which equals synqed staff.user_id).
+    // Appointments arrive keyed by synqed staff id; the rest of the app keys
+    // staff off the supabase profile id, so we translate at the boundary.
+    const profileByStaffId = new Map(
+      staffList.staff
+        .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+        .map((s) => [s.id, s.user_id]),
+    )
 
     return list.appointments.map((a) => ({
       id: a.id,
-      staff_profile_id: a.staff_id,
+      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
       client_id: a.customer_id,
       start_time: a.starts_at,
       duration_minutes: a.duration_minutes ?? 0,
