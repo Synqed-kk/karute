@@ -123,17 +123,17 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
     return ((h - props.startHour) * 60 + m) * props.ppm
   })()
   const width = view.durationMin * props.ppm
-  const tight = width < 90
+  const tight = width < 100
 
   return (
     <div
       className={cn(
-        'absolute overflow-hidden rounded-md border',
-        isCompleted && 'opacity-65',
+        'absolute overflow-hidden rounded-lg border-[1.5px] shadow-sm',
+        isCompleted && 'opacity-70',
       )}
       style={{
-        left: left + 2,
-        width: width - 4,
+        left: left + 3,
+        width: width - 6,
         top: 4,
         height: 80,
         background: tone.bg,
@@ -141,15 +141,23 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
         borderStyle: tone.borderStyle,
       }}
     >
-      <div className="flex h-full flex-col justify-between p-2">
-        <div className="flex items-start gap-1.5">
-          <div className="min-w-0 flex-1 truncate text-xs font-medium">
-            {view.customerName}
-            {customerSuffix && <span className="ml-0.5 text-muted-foreground">{customerSuffix}</span>}
+      <div className="flex h-full flex-col justify-between gap-1 p-2">
+        <div className="flex items-start justify-between gap-1.5">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <span
+              className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold"
+              style={{ background: staffColor.bg, color: staffColor.text }}
+            >
+              {view.customerInitials}
+            </span>
+            <span className="min-w-0 truncate text-xs font-semibold text-foreground">
+              {view.customerName}
+              {customerSuffix && <span className="ml-0.5 text-muted-foreground">{customerSuffix}</span>}
+            </span>
           </div>
           {!tight && (
             <span
-              className="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+              className="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
               style={{ background: tone.chipBg, color: tone.chipText }}
             >
               {statusLabel}
@@ -166,7 +174,7 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
                 <span>{endTime}</span>
               </>
             )}
-            {width >= 70 && (
+            {width >= 80 && (
               <>
                 <span className="opacity-50"> · </span>
                 <span>{t('card.duration', { n: view.durationMin })}</span>
@@ -174,8 +182,8 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
             )}
           </span>
           <span className="flex items-center gap-1">
+            <Mic className={cn('h-2.5 w-2.5', isLive ? 'text-red-500' : 'text-muted-foreground/70')} />
             {isLive && <span className="h-1.5 w-1.5 rounded-full bg-red-500" />}
-            {isLive && <Mic className="h-2.5 w-2.5 text-red-500" />}
           </span>
         </div>
       </div>
