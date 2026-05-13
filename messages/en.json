@@ -58,7 +58,8 @@
     "karute": "Karute",
     "askAi": "Ask AI",
     "dataImport": "Import",
-    "settings": "Settings"
+    "settings": "Settings",
+    "menu": "More"
   },
   "recording": {
     "title": "Record",
