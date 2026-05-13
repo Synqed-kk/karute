@@ -100,6 +100,9 @@
       "blockOwner": "Not taking bookings (owner)",
       "staffMeta": "{role} · {count} appts",
       "staffColumnLabel": "STAFF"
+    },
+    "totals": {
+      "today": "Today's bookings: {n}"
     }
   },
   "recording": {

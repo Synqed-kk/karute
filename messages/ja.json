@@ -100,6 +100,9 @@
       "blockOwner": "予約を受け付けていません（オーナー業務）",
       "staffMeta": "{role} ・ {count}件の予約",
       "staffColumnLabel": "STAFF"
+    },
+    "totals": {
+      "today": "本日の予約 {n}件"
     }
   },
   "recording": {
