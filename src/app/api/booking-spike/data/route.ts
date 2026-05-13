@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 
 import { createClient } from '@/lib/supabase/server'
-import { getStaffList } from '@/lib/staff'
-import { getAppointmentsByDate } from '@/actions/appointments'
+import { getSynqedClient } from '@/lib/synqed/client'
 
 const STAFF_COLORS = ['blue', 'violet', 'teal', 'pink', 'cyan', 'fuchsia'] as const
 
@@ -43,32 +42,52 @@ export async function GET() {
   const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 
-  const [staffList, appointments] = await Promise.all([
-    getStaffList(),
-    getAppointmentsByDate(todayIso, -now.getTimezoneOffset()).catch(() => []),
-  ])
+  // Local-midnight start of today, expressed as UTC ISO.
+  const dayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000)
 
-  const staff = staffList.map((s) => ({
+  const synqed = await getSynqedClient()
+  const [staffResp, apptResp] = await Promise.all([
+    synqed.staff.list({ page_size: 50 }),
+    synqed.appointments
+      .list({ from: dayStart.toISOString(), to: dayEnd.toISOString(), page_size: 200 })
+      .catch(() => ({ appointments: [] as Array<{ id: string; staff_id: string; customer_id: string; starts_at: string; ends_at: string; duration_minutes: number | null; title: string | null }> })),
+  ])
+  const appointments = apptResp.appointments
+
+  // Resolve customer names for the appointments we got back
+  const customerIds = Array.from(new Set(appointments.map((a) => a.customer_id)))
+  const customers = await Promise.all(
+    customerIds.map((id) => synqed.customers.get(id).catch(() => null)),
+  )
+  const nameById = new Map(
+    customers.filter((c): c is NonNullable<typeof c> => c != null).map((c) => [c.id, c.name]),
+  )
+
+  const staff = staffResp.staff.map((s) => ({
     id: s.id,
-    name: s.full_name ?? 'Unknown',
-    initials: initialOf(s.full_name ?? '?'),
-    role: s.display_role ?? s.position ?? 'スタッフ',
+    name: s.name,
+    initials: initialOf(s.name),
+    role: s.role === 'OWNER' ? 'オーナー' : 'スタッフ',
     takesBookings: true,
     colorKey: colorKeyFor(s.id),
   }))
 
   const reservations = appointments.map((a) => {
-    const customerName = a.customers?.name ?? 'Unknown'
+    const customerName = nameById.get(a.customer_id) ?? 'Unknown'
+    const duration =
+      a.duration_minutes ??
+      Math.max(0, Math.round((new Date(a.ends_at).getTime() - new Date(a.starts_at).getTime()) / 60000))
     return {
       id: a.id,
-      staffId: a.staff_profile_id,
-      startTime: hmFromIso(a.start_time),
-      duration: a.duration_minutes,
+      staffId: a.staff_id,
+      startTime: hmFromIso(a.starts_at),
+      duration,
       customerName,
       customerInitials: initialOf(customerName),
-      karute: a.karute_record_id ? `#${a.karute_record_id.slice(0, 8)}` : null,
+      karute: null as string | null,
       service: a.title ?? 'セッション',
-      status: statusFor(a.start_time, a.duration_minutes, now.getTime()),
+      status: statusFor(a.starts_at, duration, now.getTime()),
       recordingConsent: true,
     }
   })

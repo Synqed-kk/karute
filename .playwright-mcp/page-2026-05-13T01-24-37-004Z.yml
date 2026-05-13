@@ -1,0 +1,161 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]: SYNQED
+      - generic [ref=e7]: KARUTE
+    - navigation [ref=e8]:
+      - button "録音" [ref=e9] [cursor=pointer]:
+        - img [ref=e10]
+        - generic [ref=e13]: 録音
+      - button "ダッシュボード" [ref=e14] [cursor=pointer]:
+        - img [ref=e15]
+        - generic [ref=e17]: ダッシュボード
+      - button "予約" [ref=e18] [cursor=pointer]:
+        - img [ref=e19]
+        - generic [ref=e22]: 予約
+      - button "顧客" [ref=e23] [cursor=pointer]:
+        - img [ref=e24]
+        - generic [ref=e28]: 顧客
+      - button "カルテ" [ref=e29] [cursor=pointer]:
+        - img [ref=e30]
+        - generic [ref=e33]: カルテ
+      - button "コーチング" [ref=e34] [cursor=pointer]:
+        - img [ref=e35]
+        - generic [ref=e38]: コーチング
+      - button "AI相談" [ref=e39] [cursor=pointer]:
+        - img [ref=e40]
+        - generic [ref=e43]: AI相談
+      - button "インポート" [ref=e44] [cursor=pointer]:
+        - img [ref=e45]
+        - generic [ref=e48]: インポート
+      - button "設定" [ref=e49] [cursor=pointer]:
+        - img [ref=e50]
+        - generic [ref=e53]: 設定
+    - generic [ref=e55]:
+      - generic [ref=e56]: JC
+      - generic [ref=e57]:
+        - generic [ref=e58]: Jon Chan
+        - generic [ref=e59]: オーナー
+      - img [ref=e60]
+  - main [ref=e62]:
+    - generic [ref=e63]:
+      - generic [ref=e64]:
+        - generic [ref=e65]:
+          - heading "予約" [level=1] [ref=e66]
+          - button "prev" [ref=e67] [cursor=pointer]:
+            - img [ref=e68]
+          - button "2026年5月12日（火）" [ref=e70] [cursor=pointer]:
+            - generic [ref=e71]: 2026年5月12日（火）
+            - img [ref=e72]
+          - button "next" [ref=e74] [cursor=pointer]:
+            - img [ref=e75]
+          - button "今日" [ref=e77] [cursor=pointer]
+        - button "新規予約" [ref=e79] [cursor=pointer]:
+          - img [ref=e80]
+          - generic [ref=e83]: 新規予約
+      - generic [ref=e84]:
+        - generic [ref=e85]:
+          - button "日" [ref=e86] [cursor=pointer]
+          - button "週" [ref=e87] [cursor=pointer]
+          - button "月" [ref=e88] [cursor=pointer]
+        - generic [ref=e89]:
+          - button "自分" [ref=e90] [cursor=pointer]:
+            - img [ref=e91]
+            - generic [ref=e94]: 自分
+          - button "全スタッフ" [ref=e95] [cursor=pointer]:
+            - img [ref=e96]
+            - generic [ref=e100]: 全スタッフ
+        - button "D Dev Salon" [ref=e102] [cursor=pointer]:
+          - generic [ref=e103]: D
+          - generic [ref=e104]: Dev Salon
+      - generic [ref=e105]:
+        - generic [ref=e106]: 凡例
+        - generic [ref=e109]: 予約済
+        - generic [ref=e112]: 施術中
+        - generic [ref=e115]: 完了
+        - generic [ref=e118]: 新規
+        - generic [ref=e121]: 未確定
+        - generic [ref=e124]: オーナー業務
+      - generic [ref=e126]:
+        - generic [ref=e127]:
+          - generic [ref=e128]: STAFF
+          - generic [ref=e129]:
+            - generic [ref=e130]: D
+            - generic [ref=e131]:
+              - generic [ref=e132]: Dev Salon
+              - generic [ref=e133]: オーナー·6件の予約
+        - generic [ref=e135]:
+          - generic [ref=e136]:
+            - generic [ref=e137]: 10:00
+            - generic [ref=e138]: 11:00
+            - generic [ref=e139]: 12:00
+            - generic [ref=e140]: 13:00
+            - generic [ref=e141]: 14:00
+            - generic [ref=e142]: 15:00
+            - generic [ref=e143]: 16:00
+            - generic [ref=e144]: 17:00
+            - generic [ref=e145]: 18:00
+            - generic [ref=e146]: 19:00
+            - generic [ref=e147]: 20:00
+          - generic [ref=e158]:
+            - generic:
+              - generic: 18:24
+            - generic [ref=e159]:
+              - generic [ref=e170] [cursor=pointer]:
+                - generic [ref=e171]:
+                  - generic [ref=e172]: 高橋 由美様
+                  - generic [ref=e173]: 完了
+                - generic [ref=e174]: フェイシャル・ベーシック
+                - generic [ref=e176]:
+                  - text: 10:00 – 11:00 ·
+                  - generic [ref=e177]: 60分
+              - generic [ref=e179] [cursor=pointer]:
+                - generic [ref=e180]:
+                  - generic [ref=e181]: 鈴木 優子様
+                  - generic [ref=e182]: 完了
+                - generic [ref=e183]: ボディケア・90分
+                - generic [ref=e185]:
+                  - text: 11:30 – 13:00 ·
+                  - generic [ref=e186]: 90分
+              - generic [ref=e188] [cursor=pointer]:
+                - generic [ref=e190]: 斎藤 麗子様
+                - generic [ref=e192]:
+                  - text: 13:00 ·
+                  - generic [ref=e193]: 45分
+              - generic [ref=e195] [cursor=pointer]:
+                - generic [ref=e196]:
+                  - generic [ref=e197]: 田中 美咲様
+                  - generic [ref=e198]: 完了
+                - generic [ref=e199]: フェイシャル・保湿強化
+                - generic [ref=e201]:
+                  - text: 14:30 – 15:30 ·
+                  - generic [ref=e202]: 60分
+              - generic [ref=e204] [cursor=pointer]:
+                - generic [ref=e205]:
+                  - generic [ref=e206]: 小林 あや様
+                  - generic [ref=e207]: 完了
+                - generic [ref=e208]: アロマトリートメント
+                - generic [ref=e210]:
+                  - text: 16:00 – 17:15 ·
+                  - generic [ref=e211]: 75分
+              - generic [ref=e213] [cursor=pointer]:
+                - generic [ref=e214]:
+                  - generic [ref=e215]: 山田 美月様
+                  - generic [ref=e216]: 施術中
+                - generic [ref=e217]: フェイシャル・エイジングケア
+                - generic [ref=e218]:
+                  - generic [ref=e219]:
+                    - text: 18:00 – 19:00 ·
+                    - generic [ref=e220]: 60分
+                  - img [ref=e222]
+      - generic [ref=e226]:
+        - generic [ref=e227]: 本日の予約 6件
+        - generic [ref=e228]: ·
+        - generic [ref=e229]: 完了 5
+        - generic [ref=e230]: 施術中 1
+        - generic [ref=e231]: 予約済 0
+        - generic [ref=e232]: 新規 0
+        - generic [ref=e233]: 未確定 0
+  - button "録音を開始" [ref=e234] [cursor=pointer]:
+    - img [ref=e236]
+    - generic [ref=e239]: 録音を開始
