@@ -31,7 +31,7 @@ export function ReservationGrid({ staff, reservations, businessHours }: Reservat
   const laneStackHeight = staff.length * STAFF_ROW_HEIGHT
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+    <div className="reservation-grid-scroll overflow-x-auto rounded-xl border border-border bg-card shadow-sm">
       <div style={{ minWidth: STAFF_COL_WIDTH + totalWidth }}>
         <div className="flex border-b border-border">
           <div
