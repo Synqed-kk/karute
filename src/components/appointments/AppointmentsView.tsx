@@ -149,10 +149,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           onPickDay={(date) => navigateTo('day', date)}
         />
       ) : view === 'month' && props.monthData ? (
-        <MonthGrid
-          cells={props.monthData}
-          onPickDay={(date) => navigateTo('day', date)}
-        />
+        <div className="md:h-[calc(100vh-260px)]">
+          <MonthGrid
+            cells={props.monthData}
+            onPickDay={(date) => navigateTo('day', date)}
+            className="h-full"
+          />
+        </div>
       ) : (
         <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           No data.

@@ -1,4 +1,5 @@
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { Sidebar } from '@/components/layout/sidebar'
 import { TopBar } from '@/components/layout/top-bar'
 import { StaffSwitcher } from '@/components/staff/StaffSwitcher'
 import { AIChatFAB } from '@/components/ai/AIChatFAB'
@@ -64,14 +65,19 @@ export default async function DashboardLayout({
             <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} authProfileId={user.id} />
           </div>
         </div>
-        <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] pb-24 dark:bg-[#3a3a3a]">
-          <div className="mx-auto max-w-7xl p-4 md:p-6">
-            {children}
-          </div>
-        </main>
+        <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+          <Sidebar />
+          <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] pb-24 dark:bg-[#3a3a3a] md:pb-0">
+            <div className="mx-auto max-w-7xl p-4 md:p-6">
+              {children}
+            </div>
+          </main>
+        </div>
         <MiniRecorder />
         <AIChatFAB locale={locale} />
-        <BottomNav />
+        <div className="md:hidden">
+          <BottomNav />
+        </div>
       </div>
     </SessionProvider>
   )
