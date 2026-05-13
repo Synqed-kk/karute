@@ -14,6 +14,7 @@ import { useTranslations } from 'next-intl'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
+import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
@@ -139,6 +140,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           <div className="md:hidden">
             <MobileReservationAgenda reservations={props.reservationViews} />
           </div>
+          <ReservationTotals reservations={props.reservationViews} />
         </>
       ) : view === 'week' && props.weekData && props.weekStartIso ? (
         <WeekGridSection
