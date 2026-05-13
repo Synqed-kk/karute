@@ -1,4 +1,5 @@
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { Sidebar } from '@/components/layout/sidebar'
 import { TopBar } from '@/components/layout/top-bar'
 import { StaffSwitcher } from '@/components/staff/StaffSwitcher'
 import { AIChatFAB } from '@/components/ai/AIChatFAB'
@@ -56,7 +57,7 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider data={sessionData}>
-      <div className="flex h-screen flex-col overflow-hidden bg-[#e8e8e8] p-3 dark:bg-[#2a2a2a]">
+      <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-bg)] p-3">
         <div className="flex items-center py-1" style={{ height: '72px' }}>
           <img src="/karute_logo.png" alt="Karute" className="h-14 object-contain dark:invert" style={{ height: '100px' }} />
           <div className="ml-auto flex items-center">
@@ -64,14 +65,19 @@ export default async function DashboardLayout({
             <StaffSwitcher staffList={staffItems} activeStaff={activeStaff} authProfileId={user.id} />
           </div>
         </div>
-        <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[#e0e0e0] pb-24 dark:bg-[#3a3a3a]">
-          <div className="mx-auto max-w-7xl p-4 md:p-6">
-            {children}
-          </div>
-        </main>
+        <div className="flex min-h-0 flex-1 gap-3 overflow-hidden">
+          <Sidebar />
+          <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[var(--color-bg-card)] pb-24 md:pb-0">
+            <div className="mx-auto max-w-7xl p-4 md:p-6">
+              {children}
+            </div>
+          </main>
+        </div>
         <MiniRecorder />
         <AIChatFAB locale={locale} />
-        <BottomNav />
+        <div className="md:hidden">
+          <BottomNav />
+        </div>
       </div>
     </SessionProvider>
   )

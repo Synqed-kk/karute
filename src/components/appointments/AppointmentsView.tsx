@@ -4,18 +4,23 @@ import { useTransition } from 'react'
 import {
   DayWeekMonthToggle,
   MonthGrid,
-  ReservationLegend,
   ReservationPageHeader,
   WeekDayCard,
   type DayWeekMonthView,
   type MonthGridCell,
   type WeekDayCardData,
 } from '@synqed-kk/ui'
+import { useTranslations } from 'next-intl'
 import { useRouter, usePathname } from '@/i18n/navigation'
-import { DashboardClient } from '@/components/dashboard/DashboardClient'
+import { ReservationGrid } from '@/components/reservation/ReservationGrid'
+import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
+import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import type { ReservationView } from '@/lib/adapters/reservation-view'
+import type { ReservationStaff } from '@/components/reservation/StaffRow'
+import type { BusinessHours } from '@/components/reservation/TimeAxis'
 
 interface AppointmentsViewProps {
   staff: {
@@ -36,6 +41,9 @@ interface AppointmentsViewProps {
   weekStartIso: string | null
   monthData: MonthGridCell[] | null
   monthStartIso: string | null
+  reservationViews: ReservationView[]
+  reservationStaff: ReservationStaff[]
+  businessHours: BusinessHours
 }
 
 function formatLongDate(d: Date): string {
@@ -69,6 +77,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const view = props.initialView
   const selectedDate = new Date(props.selectedDateIso)
   const today = new Date()
+  const tReservation = useTranslations('reservation')
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
     const search = new URLSearchParams()
@@ -98,28 +107,41 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           view={view}
           onChange={(v) => navigateTo(v, selectedDate)}
         />
-        <ReservationLegend
-          items={[
-            { tone: 'booked', label: 'Booked' },
-            { tone: 'in_progress', label: 'Recording' },
-            { tone: 'completed', label: 'Completed' },
-            { tone: 'block', label: 'Blocked' },
-          ]}
-        />
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className="text-muted-foreground">{tReservation('legend.label')}</span>
+          {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map((tone) => (
+            <span key={tone} className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{
+                  background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
+                  border: `1px ${tone === 'pending' || tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
+                }}
+              />
+              {tReservation(`status.${tone}`)}
+            </span>
+          ))}
+          <span className="inline-flex items-center gap-1.5">
+            <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
+            {tReservation('legend.block')}
+          </span>
+        </div>
       </div>
 
       {view === 'day' ? (
-        <div className="-mx-4 md:-mx-6">
-          <DashboardClient
-            staff={props.staff}
-            activeStaffId={props.activeStaffId}
-            authProfileId={props.authProfileId}
-            customers={props.customers}
-            locale={props.locale}
-            orgSettings={props.orgSettings}
-            initialAppointments={props.initialAppointments}
-          />
-        </div>
+        <>
+          <div className="hidden md:block">
+            <ReservationGrid
+              staff={props.reservationStaff}
+              reservations={props.reservationViews}
+              businessHours={props.businessHours}
+            />
+          </div>
+          <div className="md:hidden">
+            <MobileReservationAgenda reservations={props.reservationViews} />
+          </div>
+          <ReservationTotals reservations={props.reservationViews} />
+        </>
       ) : view === 'week' && props.weekData && props.weekStartIso ? (
         <WeekGridSection
           data={props.weekData}
@@ -127,10 +149,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           onPickDay={(date) => navigateTo('day', date)}
         />
       ) : view === 'month' && props.monthData ? (
-        <MonthGrid
-          cells={props.monthData}
-          onPickDay={(date) => navigateTo('day', date)}
-        />
+        <div className="md:h-[calc(100vh-260px)]">
+          <MonthGrid
+            cells={props.monthData}
+            onPickDay={(date) => navigateTo('day', date)}
+            className="h-full"
+          />
+        </div>
       ) : (
         <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
           No data.

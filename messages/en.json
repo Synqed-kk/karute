@@ -61,6 +61,50 @@
     "settings": "Settings",
     "menu": "More"
   },
+  "reservation": {
+    "title": "Appointments",
+    "new": "New booking",
+    "today": "Today",
+    "prev": "Previous",
+    "next": "Next",
+    "view": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month"
+    },
+    "mode": {
+      "self": "Mine",
+      "all": "All staff"
+    },
+    "legend": {
+      "label": "Legend",
+      "block": "Owner duties"
+    },
+    "status": {
+      "booked": "Booked",
+      "in_session": "In session",
+      "completed": "Completed",
+      "pending": "Pending",
+      "new": "New"
+    },
+    "card": {
+      "duration": "{n} min",
+      "appointments": "{n} appts",
+      "customerSuffix": ""
+    },
+    "mobile": {
+      "empty": "No appointments",
+      "dayHeader": "{date} ({weekday})"
+    },
+    "grid": {
+      "blockOwner": "Not taking bookings (owner)",
+      "staffMeta": "{role} · {count} appts",
+      "staffColumnLabel": "STAFF"
+    },
+    "totals": {
+      "today": "Today's bookings: {n}"
+    }
+  },
   "recording": {
     "title": "Record",
     "selectStaff": "Select staff",

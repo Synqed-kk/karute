@@ -146,3 +146,103 @@
     @apply font-sans;
   }
 }
+
+/* ─────────────────────────────────────────────────────────────
+   Reservation phase-1 tokens — status tones + hatched pattern.
+   Tones inherit from prototype STATUS_STYLES (helpers.jsx).
+   ───────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Light mode — opacities bumped so colors don't wash out on cream/white. */
+    --reservation-booked-bg: rgba(34, 197, 94, 0.18);
+    --reservation-booked-border: rgba(22, 163, 74, 0.55);
+    --reservation-booked-accent: #22c55e;
+    --reservation-booked-chip-bg: #16a34a;
+    --reservation-booked-chip-text: #ffffff;
+
+    --reservation-in-session-bg: rgba(249, 115, 22, 0.28);
+    --reservation-in-session-border: rgba(234, 88, 12, 0.85);
+    --reservation-in-session-accent: #f97316;
+    --reservation-in-session-chip-bg: #ea580c;
+    --reservation-in-session-chip-text: #ffffff;
+
+    --reservation-completed-bg: rgba(15, 23, 42, 0.06);
+    --reservation-completed-border: rgba(15, 23, 42, 0.16);
+    --reservation-completed-accent: rgba(15, 23, 42, 0.30);
+    --reservation-completed-chip-bg: rgba(15, 23, 42, 0.12);
+    --reservation-completed-chip-text: rgba(15, 23, 42, 0.75);
+
+    --reservation-pending-bg: rgba(234, 179, 8, 0.20);
+    --reservation-pending-border: rgba(202, 138, 4, 0.65);
+    --reservation-pending-accent: #eab308;
+    --reservation-pending-chip-bg: #ca8a04;
+    --reservation-pending-chip-text: #ffffff;
+
+    --reservation-new-bg: rgba(59, 130, 246, 0.18);
+    --reservation-new-border: rgba(37, 99, 235, 0.65);
+    --reservation-new-accent: #3b82f6;
+    --reservation-new-chip-bg: #2563eb;
+    --reservation-new-chip-text: #ffffff;
+  }
+
+  /* Dark canvas: matches shadcn .dark, synqed-kk/ui dark themes. */
+  .dark,
+  :root[data-theme="obsidian"],
+  :root[data-theme="karute"].dark {
+    /* Boosted opacity on dark canvas — 10% tints disappear against the body bg. */
+    --reservation-booked-bg: rgba(34, 197, 94, 0.18);
+    --reservation-booked-border: rgba(74, 222, 128, 0.55);
+    --reservation-booked-chip-bg: #22c55e;
+    --reservation-booked-chip-text: #052e16;
+
+    --reservation-in-session-bg: rgba(249, 115, 22, 0.30);
+    --reservation-in-session-border: rgba(251, 146, 60, 0.90);
+    --reservation-in-session-chip-bg: #fb923c;
+    --reservation-in-session-chip-text: #431407;
+
+    --reservation-completed-bg: rgba(255, 255, 255, 0.06);
+    --reservation-completed-border: rgba(255, 255, 255, 0.14);
+    --reservation-completed-accent: rgba(255, 255, 255, 0.30);
+    --reservation-completed-chip-bg: rgba(255, 255, 255, 0.12);
+    --reservation-completed-chip-text: rgba(255, 255, 255, 0.80);
+
+    --reservation-pending-bg: rgba(234, 179, 8, 0.18);
+    --reservation-pending-border: rgba(250, 204, 21, 0.65);
+    --reservation-pending-chip-bg: #eab308;
+    --reservation-pending-chip-text: #422006;
+
+    --reservation-new-bg: rgba(59, 130, 246, 0.20);
+    --reservation-new-border: rgba(96, 165, 250, 0.70);
+    --reservation-new-chip-bg: #3b82f6;
+    --reservation-new-chip-text: #082f49;
+  }
+
+  /* Hatched pattern for staff rows that don't take bookings. */
+  .reservation-block-pattern {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(0, 0, 0, 0.04) 0,
+      rgba(0, 0, 0, 0.04) 6px,
+      transparent 6px,
+      transparent 12px
+    );
+  }
+  .dark .reservation-block-pattern {
+    background-image: repeating-linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.04) 0,
+      rgba(255, 255, 255, 0.04) 6px,
+      transparent 6px,
+      transparent 12px
+    );
+  }
+
+  /* Hide horizontal scrollbar on the reservation grid while keeping scroll. */
+  .reservation-grid-scroll {
+    scrollbar-width: none;
+  }
+  .reservation-grid-scroll::-webkit-scrollbar {
+    display: none;
+  }
+}
+
