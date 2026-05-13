@@ -105,6 +105,44 @@
       "today": "Today's bookings: {n}"
     }
   },
+  "karuteList": {
+    "title": "Karute",
+    "stats": {
+      "thisMonth": "This month · {n}",
+      "last14": "Last 14 days · {n}",
+      "showing": "{n} showing"
+    },
+    "newKarute": "New Karute",
+    "searchPlaceholder": "Search by customer, service, or staff…",
+    "filter": {
+      "all": "All",
+      "week": "This week",
+      "aiPending": "AI pending",
+      "review": "Review needed",
+      "draft": "Draft"
+    },
+    "status": {
+      "summarized": "AI summarized",
+      "pending": "AI pending",
+      "review": "Review needed",
+      "draft": "Draft"
+    },
+    "row": {
+      "entries": "{n} entries",
+      "duration": "{n} min",
+      "staffPrefix": "Staff: {name}"
+    },
+    "group": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "daysAgo": "{n} days ago",
+      "count": "{n} karute"
+    },
+    "empty": {
+      "title": "No karute yet",
+      "hint": "Records will appear here once a session is recorded."
+    }
+  },
   "recording": {
     "title": "Record",
     "selectStaff": "Select staff",

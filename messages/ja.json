@@ -105,6 +105,44 @@
       "today": "本日の予約 {n}件"
     }
   },
+  "karuteList": {
+    "title": "カルテ",
+    "stats": {
+      "thisMonth": "今月 ・ {n}",
+      "last14": "直近14日 ・ {n}",
+      "showing": "{n}件表示"
+    },
+    "newKarute": "新規カルテ",
+    "searchPlaceholder": "顧客名・サービス・スタッフで検索…",
+    "filter": {
+      "all": "すべて",
+      "week": "今週",
+      "aiPending": "AI待ち",
+      "review": "要確認",
+      "draft": "下書き"
+    },
+    "status": {
+      "summarized": "AI要約済",
+      "pending": "AI待ち",
+      "review": "要確認",
+      "draft": "下書き"
+    },
+    "row": {
+      "entries": "{n}件",
+      "duration": "{n}分",
+      "staffPrefix": "担当: {name}"
+    },
+    "group": {
+      "today": "今日",
+      "yesterday": "昨日",
+      "daysAgo": "{n}日前",
+      "count": "{n}件のカルテ"
+    },
+    "empty": {
+      "title": "カルテはまだありません",
+      "hint": "録音されたセッションがここに表示されます。"
+    }
+  },
   "recording": {
     "title": "録音",
     "selectStaff": "スタッフを選択",
