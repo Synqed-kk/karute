@@ -30,14 +30,7 @@ export function StaffRow({ staff, reservations, startHour, ppm, totalWidth }: St
   const t = useTranslations('reservation')
   const color = getStaffColor(staff.id)
   return (
-    <div className="relative flex border-b border-border last:border-b-0">
-      {staff.takesBookings && (
-        <span
-          className="absolute left-0 top-0 z-10 h-full w-[3px]"
-          style={{ background: color.accent }}
-          aria-hidden
-        />
-      )}
+    <div className="flex border-b border-border last:border-b-0">
       <div
         className="flex shrink-0 items-center gap-2 border-r border-border px-3"
         style={{ width: STAFF_COL_WIDTH, height: STAFF_ROW_HEIGHT }}
