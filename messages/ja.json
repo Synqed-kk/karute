@@ -61,6 +61,47 @@
     "settings": "設定",
     "menu": "メニュー"
   },
+  "reservation": {
+    "title": "予約",
+    "new": "新規予約",
+    "today": "今日",
+    "prev": "前へ",
+    "next": "次へ",
+    "view": {
+      "day": "日",
+      "week": "週",
+      "month": "月"
+    },
+    "mode": {
+      "self": "自分",
+      "all": "全スタッフ"
+    },
+    "legend": {
+      "label": "凡例",
+      "block": "オーナー業務"
+    },
+    "status": {
+      "booked": "予約済",
+      "in_session": "施術中",
+      "completed": "完了",
+      "pending": "未確定",
+      "new": "新規"
+    },
+    "card": {
+      "duration": "{n}分",
+      "appointments": "{n}件の予約",
+      "customerSuffix": "様"
+    },
+    "mobile": {
+      "empty": "本日の予約はありません",
+      "dayHeader": "{date}（{weekday}）"
+    },
+    "grid": {
+      "blockOwner": "予約を受け付けていません（オーナー業務）",
+      "staffMeta": "{role} ・ {count}件の予約",
+      "staffColumnLabel": "STAFF"
+    }
+  },
   "recording": {
     "title": "録音",
     "selectStaff": "スタッフを選択",
