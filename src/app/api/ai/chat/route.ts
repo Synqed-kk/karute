@@ -2,10 +2,14 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('chat')
+  if (limited) return limited
   try {
     const { message, locale, history } = await request.json()
     const supabase = await createClient()
@@ -48,10 +52,12 @@ export async function POST(request: Request) {
 
 ${langInstruction}
 
-Recent karute records:
-${karuteContext || 'No records yet.'}
+${defensivePreamble(locale)}
 
-Customer list: ${customerNames || 'No customers yet.'}
+Recent karute records:
+${karuteContext ? wrapUntrustedContent('karute_records', karuteContext) : 'No records yet.'}
+
+Customer list: ${customerNames ? wrapUntrustedContent('customer_names', customerNames) : 'No customers yet.'}
 
 Keep responses concise and actionable. Use the data to give specific, personalized answers.`,
       },
@@ -70,6 +76,9 @@ Keep responses concise and actionable. Use the data to give specific, personaliz
     })
 
     const reply = completion.choices[0]?.message?.content ?? ''
+    if (completion.usage) {
+      void reportAiUsage('chat', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     return NextResponse.json({ reply })
   } catch (error) {
     console.error('[/api/ai/chat]', error)

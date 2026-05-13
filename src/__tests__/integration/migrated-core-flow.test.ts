@@ -23,9 +23,9 @@ jest.mock('next/headers', () => ({
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 
-// --- getTenantId mock (avoids hitting supabase auth for the tenant lookup) ---
+// --- getBusinessId mock (avoids hitting supabase auth for the tenant lookup) ---
 jest.mock('@/lib/staff', () => ({
-  getTenantId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
+  getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getActiveStaffId: jest.fn(async () => TEST_STAFF_PROFILE_ID),
 }))
 

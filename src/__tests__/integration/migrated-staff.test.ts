@@ -16,7 +16,7 @@ jest.mock('next/headers', () => ({
 
 const getActiveStaffId = jest.fn(async () => 'staff-1')
 jest.mock('@/lib/staff', () => ({
-  getTenantId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
+  getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getActiveStaffId: () => getActiveStaffId(),
 }))
 

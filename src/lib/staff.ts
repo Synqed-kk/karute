@@ -64,6 +64,8 @@ export async function getStaffById(id: string): Promise<StaffMemberBasic | null>
  * Returns the cookie value or null if not set.
  *
  * Usage in save actions: always read staff_id from here — never accept it from client.
+ * For mutations that record staff_id on a row, prefer `getValidatedActiveStaffId()`
+ * so a stale cookie (e.g. for a deleted staff) doesn't poison the data.
  */
 export async function getActiveStaffId(): Promise<string | null> {
   const cookieStore = await cookies()
@@ -71,10 +73,26 @@ export async function getActiveStaffId(): Promise<string | null> {
 }
 
 /**
- * Returns the current authenticated user's customer_id (tenant ID).
- * Used to scope inserts so RLS allows them.
+ * Like `getActiveStaffId()` but verifies the id against the current staff list.
+ * Returns null if the cookie value doesn't match any active staff member —
+ * caller should treat that as "no staff selected" and refuse to save.
+ *
+ * Avoids saving rows pinned to a deleted-staff id (audit-trail integrity).
  */
-export async function getTenantId(): Promise<string> {
+export async function getValidatedActiveStaffId(): Promise<string | null> {
+  const id = await getActiveStaffId()
+  if (!id) return null
+  const list = await getStaffList()
+  return list.some((s) => s.id === id) ? id : null
+}
+
+/**
+ * Returns the current authenticated user's business id.
+ * Used to scope inserts so RLS allows them. Reads the legacy
+ * `profiles.customer_id` column — the legacy schema still names
+ * the business column `customer_id` until the legacy-strip lands.
+ */
+export async function getBusinessId(): Promise<string> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')

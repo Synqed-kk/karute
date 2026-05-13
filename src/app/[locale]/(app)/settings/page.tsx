@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { SettingsTabs } from '@/components/settings/SettingsTabs'
+import { SettingsPageChrome } from '@/components/settings/SettingsPageChrome'
 
 export default async function SettingsPage({
   params,
@@ -11,7 +12,9 @@ export default async function SettingsPage({
 }) {
   const { locale } = await params
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
 
   const [staffList, activeStaffId, t, orgSettings] = await Promise.all([
     getStaffList(),
@@ -21,9 +24,7 @@ export default async function SettingsPage({
   ])
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
-
+    <SettingsPageChrome title={t('title')}>
       <SettingsTabs
         orgSettings={orgSettings}
         staffList={staffList}
@@ -31,6 +32,6 @@ export default async function SettingsPage({
         locale={locale}
         authProfileId={user?.id ?? null}
       />
-    </div>
+    </SettingsPageChrome>
   )
 }

@@ -36,7 +36,7 @@ export async function getOrgSettings(): Promise<OrgSettings | null> {
     }
 
     return {
-      id: raw.tenant_id,
+      id: raw.business_id,
       salon_name: raw.name ?? s.salon_name ?? '',
       business_type: s.business_type ?? '',
       webhook_url: s.webhook_url ?? '',

@@ -1,23 +1,61 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getActiveStaffId } from '@/lib/staff'
-import { DashboardClient } from '@/components/dashboard/DashboardClient'
+import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
-import { getAppointmentsByDate } from '@/actions/appointments'
+import { getAppointmentsByDate, getAppointmentsInRange } from '@/actions/appointments'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import {
+  appointmentsToWeekData,
+  appointmentsToMonthCells,
+} from '@/lib/adapters/reservation'
+import { getOperatingHoursForDate } from '@/lib/operating-hours'
+import type { DayWeekMonthView } from '@synqed-kk/ui'
+
+function parseDateParam(value: string | undefined): Date {
+  if (!value) return new Date()
+  // Match YYYY-MM-DD
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
+  if (!m) return new Date()
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+  return isNaN(d.getTime()) ? new Date() : d
+}
+
+function parseViewParam(value: string | undefined): DayWeekMonthView {
+  return value === 'week' || value === 'month' ? value : 'day'
+}
+
+function startOfWeekSun(d: Date): Date {
+  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  out.setDate(out.getDate() - out.getDay())
+  return out
+}
 
 export default async function AppointmentsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>
+  searchParams: Promise<{ date?: string; view?: string }>
 }) {
   const { locale } = await params
+  const sp = await searchParams
   const supabase = await createClient()
 
+  const selectedDate = parseDateParam(sp.date)
+  const view = parseViewParam(sp.view)
   const todayStr = new Date().toISOString().split('T')[0]
   const tzOffset = 0 // server is UTC; client will re-fetch with correct offset if needed
 
-  // Run all queries in parallel — single round-trip
-  const [{ data: { user } }, staffList, activeStaffId, orgSettings, customers, todayAppointments] = await Promise.all([
+  const [
+    {
+      data: { user },
+    },
+    staffList,
+    activeStaffId,
+    orgSettings,
+    customers,
+    todayAppointments,
+  ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
@@ -35,9 +73,53 @@ export default async function AppointmentsPage({
     avatarUrl: s.avatar_url ?? undefined,
   }))
 
+  const today = new Date()
+
+  // Pre-compute week/month data server-side based on view + selectedDate.
+  let weekData: Awaited<ReturnType<typeof appointmentsToWeekData>> | null = null
+  let monthData: Awaited<ReturnType<typeof appointmentsToMonthCells>> | null = null
+  let weekStartIso: string | null = null
+  let monthStartIso: string | null = null
+
+  if (view === 'week') {
+    const weekStart = startOfWeekSun(selectedDate)
+    const weekEnd = new Date(weekStart)
+    weekEnd.setDate(weekEnd.getDate() + 6)
+    const rangeFrom = new Date(weekStart)
+    const rangeTo = new Date(weekEnd)
+    rangeTo.setHours(23, 59, 59, 999)
+    const appts = await getAppointmentsInRange(rangeFrom.toISOString(), rangeTo.toISOString())
+
+    // Average business-hours minutes across the week (a single number for the
+    // utilization chip — close enough for the overview view).
+    const totalMinutes = (() => {
+      let sum = 0
+      const cur = new Date(weekStart)
+      for (let i = 0; i < 7; i++) {
+        const dh = getOperatingHoursForDate(orgSettings?.operating_hours, cur)
+        sum += Math.max(0, dh.closeMinute - dh.openMinute)
+        cur.setDate(cur.getDate() + 1)
+      }
+      return Math.round(sum / 7)
+    })()
+
+    weekData = appointmentsToWeekData(appts, weekStart, weekEnd, totalMinutes, today)
+    weekStartIso = weekStart.toISOString()
+  } else if (view === 'month') {
+    const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+    const monthEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0)
+    const rangeFrom = new Date(monthStart)
+    rangeFrom.setDate(rangeFrom.getDate() - 7) // include leading days
+    const rangeTo = new Date(monthEnd)
+    rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
+    rangeTo.setHours(23, 59, 59, 999)
+    const appts = await getAppointmentsInRange(rangeFrom.toISOString(), rangeTo.toISOString())
+    monthData = appointmentsToMonthCells(appts, monthStart, monthEnd, today)
+    monthStartIso = monthStart.toISOString()
+  }
+
   return (
-    <div className="-m-4 md:-m-6">
-    <DashboardClient
+    <AppointmentsView
       staff={staff}
       activeStaffId={activeStaffId ?? staff[0]?.id ?? null}
       authProfileId={authProfileId}
@@ -45,7 +127,12 @@ export default async function AppointmentsPage({
       locale={locale}
       orgSettings={orgSettings}
       initialAppointments={todayAppointments}
+      initialView={view}
+      selectedDateIso={selectedDate.toISOString()}
+      weekData={weekData}
+      weekStartIso={weekStartIso}
+      monthData={monthData}
+      monthStartIso={monthStartIso}
     />
-    </div>
   )
 }

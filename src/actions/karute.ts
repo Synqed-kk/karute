@@ -2,7 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getActiveStaffId } from '@/lib/staff'
+import { getActiveStaffId, getValidatedActiveStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
 
@@ -24,7 +24,7 @@ export async function saveKaruteRecord(
 
     // Determine staff: if linked to an appointment, use the appointment's staff.
     // Otherwise fall back to the active-staff cookie.
-    let staffId = await getActiveStaffId()
+    let staffId: string | null = await getValidatedActiveStaffId()
     if (input.appointmentId) {
       const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
       if (appt?.staff_id) staffId = appt.staff_id
@@ -68,7 +68,7 @@ export async function saveKaruteRecordInline(
   try {
     const synqed = await getSynqedClient()
 
-    const staffId = await getActiveStaffId()
+    const staffId = await getValidatedActiveStaffId()
     if (!staffId) {
       return { error: 'No active staff member selected.' }
     }

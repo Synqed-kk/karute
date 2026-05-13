@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { toFile } from 'openai'
 import { openai } from '@/lib/openai'
+import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
 
 export const maxDuration = 300
 
@@ -14,6 +15,8 @@ export const maxDuration = 300
  * Returns: { transcript: string }
  */
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('transcribe')
+  if (limited) return limited
   try {
     const contentType = request.headers.get('content-type') ?? ''
 
@@ -62,7 +65,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ transcript: transcription })
   } catch (error) {
-    console.error('[/api/ai/transcribe] Error:', error)
-    return NextResponse.json({ error: 'Transcription failed' }, { status: 500 })
+    const message = error instanceof Error ? error.message : 'Unknown error'
+    console.error('[/api/ai/transcribe]', message)
+    return NextResponse.json(
+      { error: 'Transcription failed', detail: message },
+      { status: 500 },
+    )
   }
 }

@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
@@ -19,6 +21,8 @@ Return a JSON object: { "insights": [...] }`
 }
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('insights')
+  if (limited) return limited
   try {
     const { locale } = await request.json()
     const supabase = await createClient()
@@ -72,14 +76,17 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.create({
       model: process.env.AI_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction },
-        { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${context}` },
+        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction + '\n\n' + defensivePreamble(locale) },
+        { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${wrapUntrustedContent('karute_records', context)}` },
       ],
       response_format: { type: 'json_object' },
       temperature: 0.7,
     })
 
     const content = completion.choices[0]?.message?.content
+    if (completion.usage) {
+      void reportAiUsage('insights', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     if (!content) return NextResponse.json({ insights: [] })
 
     const parsed = JSON.parse(content)

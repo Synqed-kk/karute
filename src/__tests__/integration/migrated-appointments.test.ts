@@ -15,7 +15,7 @@ jest.mock('next/headers', () => ({
 }))
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
 jest.mock('@/lib/staff', () => ({
-  getTenantId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
+  getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getActiveStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
 }))
 

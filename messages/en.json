@@ -32,6 +32,8 @@
     "subtitle": "Sign in to continue",
     "signupTitle": "Create your Karute account",
     "signupSubtitle": "Create your business account",
+    "salonName": "Salon name",
+    "salonNameRequired": "Salon name is required",
     "email": "Email",
     "emailPlaceholder": "you@example.com",
     "password": "Password",
@@ -56,7 +58,8 @@
     "karute": "Karute",
     "askAi": "Ask AI",
     "dataImport": "Import",
-    "settings": "Settings"
+    "settings": "Settings",
+    "menu": "More"
   },
   "recording": {
     "title": "Record",
@@ -76,7 +79,18 @@
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
     "noBookingDescription": "You don't have an upcoming appointment. You can still record — it will be saved to your karute but won't be linked to any booking.",
-    "recordAnyway": "Record anyway"
+    "recordAnyway": "Record anyway",
+    "consentGrantedTitle": "Recording consent on file",
+    "consentGrantedDesc": " has consented to having sessions recorded for karute generation and quality improvement. You can start recording.",
+    "consentGrantedWhen": "Granted ",
+    "consentMissingTitle": "Consent missing",
+    "consentMissingDesc": " has not consented yet. The record button is disabled.",
+    "consentStartFlow": "Start consent flow",
+    "consentDialogTitle": "Obtain recording consent",
+    "consentDialogInstructions": "Read the script below to the customer. Tap \"Customer agreed\" only after they verbally confirm.",
+    "consentScript": "{customerName}, with your permission we'll record today's session so I can focus on you and have an accurate record afterward. The audio is used only to generate your karute and improve our service. Is that OK?",
+    "consentConfirmButton": "Customer agreed",
+    "longRecordingWarning": "Long session — consider stopping and starting a new recording"
   },
   "customers": {
     "title": "Customers",
