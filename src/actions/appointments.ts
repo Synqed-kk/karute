@@ -1,7 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { SynqedError, type Appointment } from '@synqed-kk/client'
+import { SynqedError, type Appointment, type AppointmentStatus } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -22,6 +22,7 @@ export interface AppointmentRow {
   karute_record_id: string | null
   created_at: string
   customers: { name: string } | null
+  synqed_status: AppointmentStatus
 }
 
 export async function createAppointment(input: AppointmentInput) {
@@ -95,6 +96,7 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
       karute_record_id: karuteByAppointment.get(a.id) ?? null,
       created_at: a.created_at,
       customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
+      synqed_status: a.status,
     }))
   } catch {
     return []
