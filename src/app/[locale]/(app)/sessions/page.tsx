@@ -67,7 +67,7 @@ export default async function SessionsPage({
     sb
       .from('karute_records')
       .select(
-        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( id )`,
+        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
       )
       .order('session_date', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
@@ -150,7 +150,7 @@ export default async function SessionsPage({
     summary: string | null
     transcript: string | null
     customers: { name: string } | null
-    entries: Array<{ id: string }> | null
+    entries: Array<{ count: number }> | null
   }
 
   const recentRecordings: RecentRecording[] = (
@@ -158,7 +158,7 @@ export default async function SessionsPage({
   ).map((r) => {
     const dt = new Date(r.session_date ?? r.created_at)
     const customerName = r.customers?.name ?? 'Unknown'
-    const entryCount = Array.isArray(r.entries) ? r.entries.length : 0
+    const entryCount = Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0
     return {
       id: r.id,
       customerName,

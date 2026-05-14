@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError, type Appointment, type AppointmentStatus } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -45,6 +45,7 @@ export async function createAppointment(input: AppointmentInput) {
       notes: input.notes ?? null,
     })
     revalidatePath('/dashboard')
+    updateTag('dashboard')
     return { id: appt.id }
   } catch (err) {
     if (err instanceof SynqedError && err.status === 409) {
@@ -134,6 +135,7 @@ export async function deleteAppointment(appointmentId: string) {
     const synqed = await getSynqedClient()
     await synqed.appointments.delete(appointmentId)
     revalidatePath('/dashboard')
+    updateTag('dashboard')
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -165,6 +167,7 @@ export async function updateAppointment(
 
     await synqed.appointments.update(appointmentId, patch)
     revalidatePath('/appointments')
+    updateTag('dashboard')
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

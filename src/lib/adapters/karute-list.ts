@@ -38,7 +38,9 @@ export interface KaruteListRecord {
   staff_profile_id: string | null
   customers: { id: string; name: string } | null
   profiles: { id: string; full_name: string | null } | null
-  entries: Array<{ id: string }> | null
+  // PostgREST aggregate: entries(count) returns [{ count: N }] per row, avoiding
+  // a full child-row fetch just to render a count.
+  entries: Array<{ count: number }> | null
 }
 
 function deriveInitials(name: string): string {
@@ -85,7 +87,7 @@ export function karuteRecordsToRichRows(
       service: null,
       serviceDetail: null,
       duration: null,
-      entryCount: Array.isArray(r.entries) ? r.entries.length : 0,
+      entryCount: Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0,
       staffId: r.staff_profile_id,
       staffName: r.profiles?.full_name ?? null,
       status: deriveStatus(r.summary, r.transcript),

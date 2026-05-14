@@ -250,6 +250,7 @@ export async function grantCustomerConsent(
       method: input.method ?? 'VERBAL',
     })
     revalidatePath(`/customers/${customerId}`)
+    updateTag('customer-consent')
     return { ok: true as const, consent }
   } catch (err) {
     return {
@@ -269,6 +270,7 @@ export async function revokeCustomerConsent(customerId: string) {
     const synqed = await getSynqedClient()
     await synqed.customers.revokeConsent(customerId, staffId)
     revalidatePath(`/customers/${customerId}`)
+    updateTag('customer-consent')
     return { ok: true as const }
   } catch (err) {
     return {

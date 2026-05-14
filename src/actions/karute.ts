@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getActiveStaffId, getValidatedActiveStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -55,6 +55,7 @@ export async function saveKaruteRecord(
   // revalidate and redirect OUTSIDE try/catch — redirect() throws internally
   revalidatePath(`/customers/${input.customerId}`)
   revalidatePath('/dashboard')
+  updateTag('dashboard')
   redirect(`/karute/${recordId}`)
 }
 
@@ -89,6 +90,7 @@ export async function saveKaruteRecordInline(
     })
 
     revalidatePath(`/customers/${input.customerId}`)
+    updateTag('dashboard')
     return { id: record.id }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
@@ -100,6 +102,7 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     const synqed = await getSynqedClient()
     await synqed.karuteRecords.delete(karuteId)
     revalidatePath('/dashboard')
+    updateTag('dashboard')
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

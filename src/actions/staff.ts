@@ -1,7 +1,7 @@
 'use server'
 
 import { cookies } from 'next/headers'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
@@ -20,6 +20,7 @@ export async function createStaff(data: StaffProfileInput): Promise<void> {
   })
 
   revalidatePath('/settings')
+  updateTag('staff-list')
 }
 
 export async function updateStaff(id: string, data: StaffProfileInput): Promise<void> {
@@ -35,6 +36,7 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
   })
 
   revalidatePath('/settings')
+  updateTag('staff-list')
 }
 
 /**
@@ -67,6 +69,7 @@ export async function deleteStaff(id: string): Promise<void> {
 
   revalidatePath('/settings')
   revalidatePath('/', 'layout')
+  updateTag('staff-list')
 }
 
 /**
@@ -102,6 +105,7 @@ export async function uploadStaffAvatar(
     const { avatar_url } = await synqed.staff.uploadAvatar(staffId, file)
     revalidatePath('/settings')
     revalidatePath('/', 'layout')
+    updateTag('staff-list')
     return { url: avatar_url }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

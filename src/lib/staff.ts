@@ -1,4 +1,7 @@
+import { cache } from 'react'
+import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import { cookies } from 'next/headers'
 
 export interface StaffMember {
@@ -18,30 +21,53 @@ export interface StaffMemberBasic {
   full_name: string | null
 }
 
+// Inside unstable_cache there's no request context (no cookies → no RLS),
+// so we use the service-role client and filter by businessId explicitly.
+// The cache key includes businessId so tenants never see each other's data.
+const staffListByBusiness = unstable_cache(
+  async (businessId: string): Promise<StaffMember[]> => {
+    const service = createServiceClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (service as any)
+      .from('profiles')
+      .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
+      .eq('customer_id', businessId)
+      .not('full_name', 'is', null)
+      .not('full_name', 'ilike', '_system_%')
+      .order('full_name', { ascending: true })
+
+    if (error) {
+      console.error('[getStaffList] Supabase error:', error.message)
+      return []
+    }
+
+    return (data ?? []).map(
+      ({
+        pin_hash,
+        customer_id: _customer_id,
+        ...rest
+      }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
+        ...rest,
+        has_pin: !!pin_hash,
+      }),
+    ) as StaffMember[]
+  },
+  ['staff-list-v1'],
+  { revalidate: 60, tags: ['staff-list'] },
+)
+
 /**
  * Returns all staff profiles ordered alphabetically by full_name.
  * Returns an empty array on error (safe to render empty list).
+ * Cached for 60s per tenant; mutation actions call updateTag('staff-list').
  */
 export async function getStaffList(): Promise<StaffMember[]> {
-  const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
-    .from('profiles')
-    .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash')
-    .not('full_name', 'is', null)
-    .not('full_name', 'ilike', '_system_%')
-    .order('full_name', { ascending: true })
-
-  if (error) {
-    console.error('[getStaffList] Supabase error:', error.message)
+  try {
+    const businessId = await getBusinessId()
+    return staffListByBusiness(businessId)
+  } catch {
     return []
   }
-
-  // Strip pin_hash — never send hashes to the client. Replace with boolean flag.
-  return (data ?? []).map(({ pin_hash, ...rest }: { pin_hash?: string | null; [key: string]: unknown }) => ({
-    ...rest,
-    has_pin: !!pin_hash,
-  })) as StaffMember[]
 }
 
 /**
@@ -92,7 +118,10 @@ export async function getValidatedActiveStaffId(): Promise<string | null> {
  * `profiles.customer_id` column — the legacy schema still names
  * the business column `customer_id` until the legacy-strip lands.
  */
-export async function getBusinessId(): Promise<string> {
+// Memoized for the lifetime of a single request via React cache(). Called from
+// many places per page (every Supabase scope check, every synqed client init)
+// so deduping the auth + profile lookup is worth the wrapper.
+export const getBusinessId = cache(async (): Promise<string> => {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
@@ -105,4 +134,4 @@ export async function getBusinessId(): Promise<string> {
 
   if (!data?.customer_id) throw new Error('Business profile not found')
   return data.customer_id
-}
+})

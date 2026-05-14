@@ -27,11 +27,12 @@ export default async function KaruteListPage() {
       staff_profile_id,
       customers:client_id ( id, name ),
       profiles:staff_profile_id ( id, full_name ),
-      entries ( id )
+      entries ( count )
     `,
     )
     .order('session_date', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
+    .limit(100)
 
   if (error) {
     throw new Error(error.message)
