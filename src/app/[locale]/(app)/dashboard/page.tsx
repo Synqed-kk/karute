@@ -3,8 +3,10 @@ import { getStaffList, getActiveStaffId } from '@/lib/staff'
 import { DashboardView } from '@/components/dashboard/DashboardView'
 import { buildDashboardStats } from '@/lib/adapters/dashboard'
 import { getDashboardData } from '@/lib/dashboard/cached'
+import { startTiming } from '@/lib/perf/timing'
 
 export default async function DashboardPage() {
+  const t = startTiming('dashboard')
   const supabase = await createClient()
 
   const [
@@ -15,11 +17,12 @@ export default async function DashboardPage() {
     activeStaffId,
     dashboard,
   ] = await Promise.all([
-    supabase.auth.getUser(),
-    getStaffList(),
-    getActiveStaffId(),
-    getDashboardData(),
+    t.phase('authUser', () => supabase.auth.getUser()),
+    t.phase('staffList', () => getStaffList()),
+    t.phase('activeStaffId', () => getActiveStaffId()),
+    t.phase('dashboardData', () => getDashboardData()),
   ])
+  t.end()
 
   const activeStaff = staffList.find((s) => s.id === activeStaffId)
 

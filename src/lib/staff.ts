@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { cookies } from 'next/headers'
+import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
 
 export interface StaffMember {
   id: string
@@ -118,18 +119,42 @@ export async function getValidatedActiveStaffId(): Promise<string | null> {
  * `profiles.customer_id` column — the legacy schema still names
  * the business column `customer_id` until the legacy-strip lands.
  */
+async function resolveUserId(): Promise<string> {
+  const supabase = await createClient()
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET
+
+  // Fast path: verify the JWT locally if the secret is configured. Skips a
+  // ~150ms round-trip to Supabase Auth on every page. Falls back to getUser()
+  // when the secret is missing or the token doesn't validate (e.g. just
+  // rotated keys) so we never lock users out on a misconfiguration.
+  if (jwtSecret) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) {
+      try {
+        const claims = verifySupabaseJwt(session.access_token, jwtSecret)
+        return claims.sub
+      } catch (err) {
+        if (!(err instanceof LocalJwtError)) throw err
+        // fall through to remote verification
+      }
+    }
+  }
+
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Not authenticated')
+  return user.id
+}
+
 // Memoized for the lifetime of a single request via React cache(). Called from
 // many places per page (every Supabase scope check, every synqed client init)
 // so deduping the auth + profile lookup is worth the wrapper.
 export const getBusinessId = cache(async (): Promise<string> => {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Not authenticated')
-
-  const { data } = await supabase
+  const userId = await resolveUserId()
+  const service = createServiceClient()
+  const { data } = await service
     .from('profiles')
     .select('customer_id')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single()
 
   if (!data?.customer_id) throw new Error('Business profile not found')

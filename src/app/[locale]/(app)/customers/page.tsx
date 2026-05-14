@@ -1,6 +1,7 @@
 import { listCustomers } from '@/lib/customers/queries'
 import { customersToRowData } from '@/lib/adapters/customers-list'
 import { CustomersListView } from '@/components/customers/CustomersListView'
+import { startTiming } from '@/lib/perf/timing'
 
 const PAGE_SIZE = 12
 
@@ -23,13 +24,17 @@ export default async function CustomersPage({
     | 'created_at'
   const order = (params.order ?? 'desc') as 'asc' | 'desc'
 
-  const { customers, totalCount } = await listCustomers({
-    query,
-    page,
-    pageSize: PAGE_SIZE,
-    sortBy: sort,
-    sortOrder: order,
-  })
+  const t = startTiming(`customers q="${query}" p=${page}`)
+  const { customers, totalCount } = await t.phase('listCustomers', () =>
+    listCustomers({
+      query,
+      page,
+      pageSize: PAGE_SIZE,
+      sortBy: sort,
+      sortOrder: order,
+    }),
+  )
+  t.end()
 
   const rows = customersToRowData(customers)
 

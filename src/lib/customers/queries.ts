@@ -1,4 +1,7 @@
+import { unstable_cache } from 'next/cache'
+import { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId } from '@/lib/staff'
 import type { Customer } from '@/types/database'
 
 // ---------------------------------------------------------------------------
@@ -25,24 +28,31 @@ export interface ListCustomersResult {
 // listCustomers
 // ---------------------------------------------------------------------------
 
-export async function listCustomers({
-  query,
-  page = 1,
-  pageSize = 10,
-  sortBy = 'updated_at',
-  sortOrder = 'desc',
-}: ListCustomersOptions = {}): Promise<ListCustomersResult> {
-  const synqed = await getSynqedClient()
+interface FetchArgs {
+  search?: string
+  page: number
+  pageSize: number
+  sortBy: 'name' | 'created_at' | 'updated_at'
+  sortOrder: 'asc' | 'desc'
+}
 
-  const result = await synqed.customers.list({
-    search: query?.trim() || undefined,
-    page,
-    page_size: pageSize,
-    sort_by: sortBy as 'name' | 'created_at' | 'updated_at',
-    sort_order: sortOrder,
+async function fetchCustomers(
+  businessId: string,
+  args: FetchArgs,
+): Promise<ListCustomersResult> {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  }
+  const client = new SynqedClient({ baseUrl, apiKey, businessId })
+  const result = await client.customers.list({
+    search: args.search,
+    page: args.page,
+    page_size: args.pageSize,
+    sort_by: args.sortBy,
+    sort_order: args.sortOrder,
   })
-
-  // Map synqed-core response to karute's Customer type
   const customers: Customer[] = result.customers.map((c) => ({
     id: c.id,
     name: c.name,
@@ -54,12 +64,60 @@ export async function listCustomers({
     created_at: c.created_at,
     updated_at: c.updated_at,
   }))
-
   return {
     customers,
     totalCount: result.total,
     totalPages: result.total_pages,
   }
+}
+
+// Cache only the default landing-page params — that's the hot path everyone
+// hits when they click "Customers" in the nav. Search/sort/page combinations
+// have too much cardinality to cache effectively.
+const cachedLandingPage = unstable_cache(
+  async (
+    businessId: string,
+    pageSize: number,
+  ): Promise<ListCustomersResult> =>
+    fetchCustomers(businessId, {
+      page: 1,
+      pageSize,
+      sortBy: 'updated_at',
+      sortOrder: 'desc',
+    }),
+  ['customers-landing-v1'],
+  { revalidate: 60, tags: ['customers'] },
+)
+
+export async function listCustomers({
+  query,
+  page = 1,
+  pageSize = 10,
+  sortBy = 'updated_at',
+  sortOrder = 'desc',
+}: ListCustomersOptions = {}): Promise<ListCustomersResult> {
+  const isLanding =
+    !query?.trim() &&
+    page === 1 &&
+    sortBy === 'updated_at' &&
+    sortOrder === 'desc'
+
+  if (isLanding) {
+    const businessId = await getBusinessId()
+    return cachedLandingPage(businessId, pageSize)
+  }
+
+  // Non-default views (search, deep pagination, alternate sort) skip the cache
+  // and go straight to synqed-core. These have too many parameter combinations
+  // to cache without blowing up the cache size.
+  const businessId = await getBusinessId()
+  return fetchCustomers(businessId, {
+    search: query?.trim() || undefined,
+    page,
+    pageSize,
+    sortBy: sortBy as 'name' | 'created_at' | 'updated_at',
+    sortOrder,
+  })
 }
 
 // ---------------------------------------------------------------------------
