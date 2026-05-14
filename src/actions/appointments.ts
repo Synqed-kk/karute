@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError, type Appointment, type AppointmentStatus } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   validateAppointmentTime,
@@ -69,9 +70,12 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
       page_size: 200,
     })
 
-    const uniqueCustomerIds = Array.from(new Set(list.appointments.map((a) => a.customer_id)))
-    const [customers, karuteList, staffList] = await Promise.all([
-      Promise.all(uniqueCustomerIds.map((id) => synqed.customers.get(id).catch(() => null))),
+    // Customer names come from the already-cached tenant customer list (60s
+    // TTL per tenant), so on warm requests there's no extra HTTP roundtrip.
+    // Previously this fanned out N parallel customers.get(id) calls per page
+    // load — visibly slow once the day had a handful of unique customers.
+    const [cachedCustomers, karuteList, staffList] = await Promise.all([
+      getCachedCustomerList(),
       synqed.karuteRecords.list({
         from: dayStartUTC.toISOString(),
         to: dayEndUTC.toISOString(),
@@ -79,9 +83,7 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
       }),
       synqed.staff.list({ page_size: 200 }),
     ])
-    const nameById = new Map(
-      customers.filter((c): c is NonNullable<typeof c> => c != null).map((c) => [c.id, c.name]),
-    )
+    const nameById = new Map(cachedCustomers.map((c) => [c.id, c.name]))
     const karuteByAppointment = new Map<string, string>()
     for (const k of karuteList.karute_records) {
       if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)

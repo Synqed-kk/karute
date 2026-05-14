@@ -18,8 +18,10 @@ const customerListByBusiness = unstable_cache(
       throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
     }
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    // Tenants typically have a few hundred customers; one fetch beats paginating
+    // here since the list is read on every page for dropdowns + name lookups.
     const result = await client.customers.list({
-      page_size: 100,
+      page_size: 500,
       sort_by: 'name',
       sort_order: 'asc',
     })
