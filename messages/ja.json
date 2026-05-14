@@ -134,7 +134,59 @@
     "consentDialogInstructions": "以下の内容をお客様にお読みください。口頭で同意を得た場合のみ「同意を取得しました」をタップしてください。",
     "consentScript": "{customerName}様、本日の施術内容を正確に記録し、カルテ作成と品質向上に役立てるため、施術中の会話を録音させていただいてもよろしいでしょうか？録音データはカルテ作成とサービス改善のみに使用されます。",
     "consentConfirmButton": "同意を取得しました",
-    "longRecordingWarning": "長時間録音 — 一度停止して新しい録音を開始することをご検討ください"
+    "longRecordingWarning": "長時間録音 — 一度停止して新しい録音を開始することをご検討ください",
+    "subtitle": "セッションを録音 — AIがカルテを自動生成します。",
+    "target": {
+      "title": "録音対象",
+      "inSession": "施術中",
+      "choose": "別の予約を選択",
+      "nearbyAround": "{time}前後の予約",
+      "current": "現在",
+      "seeAllToday": "本日の予約をすべて表示",
+      "noBooking": "予約が選択されていません"
+    },
+    "brief": {
+      "title": "事前ブリーフ",
+      "lastVisit": "前回来店: {date} ({ago})",
+      "hooks": "会話のきっかけ",
+      "concerns": "前回の懸念事項",
+      "lastProduct": "前回の提案商品",
+      "recommendedFocus": "本日の推奨フォーカス",
+      "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。"
+    },
+    "source": {
+      "phoneMic": "スマホマイク",
+      "phoneMicSub": "標準。お客様から1〜2m以内でクリアに収音。",
+      "modeA": "モードA — 自然(シームレス)",
+      "modeASub": "セッション開始時に自動的に録音。お客様への通知は表示されません。"
+    },
+    "button": {
+      "startTitle": "録音開始",
+      "startSub": "{name}様のセッションを録音します。",
+      "recording": "録音中",
+      "stopAria": "録音停止",
+      "startAria": "録音開始"
+    },
+    "consent": {
+      "onFile": "同意確認済"
+    },
+    "recent": {
+      "title": "最近の録音",
+      "showAll": "すべて表示",
+      "karuteCreated": "カルテ作成済",
+      "entries": "{n}件",
+      "notCreated": "カルテ未作成",
+      "convert": "カルテに変換",
+      "empty": "録音はまだありません。"
+    },
+    "liveTranscript": {
+      "title": "ライブ文字起こし",
+      "sub": "話者を識別したリアルタイム文字起こし",
+      "connected": "接続中",
+      "disconnected": "切断",
+      "speakerCustomer": "お客様",
+      "speakerStaff": "{name}(スタッフ)"
+    }
   },
   "customers": {
     "title": "顧客",
