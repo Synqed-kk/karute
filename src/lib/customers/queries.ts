@@ -124,7 +124,11 @@ export async function listCustomers({
 // getCustomer
 // ---------------------------------------------------------------------------
 
-export async function getCustomer(id: string): Promise<Customer> {
+export interface CustomerWithStaff extends Customer {
+  assigned_staff_id: string | null
+}
+
+export async function getCustomer(id: string): Promise<CustomerWithStaff> {
   const synqed = await getSynqedClient()
   const c = await synqed.customers.get(id)
 
@@ -138,6 +142,7 @@ export async function getCustomer(id: string): Promise<Customer> {
     notes: c.notes,
     created_at: c.created_at,
     updated_at: c.updated_at,
+    assigned_staff_id: c.assigned_staff_id ?? null,
   }
 }
 
