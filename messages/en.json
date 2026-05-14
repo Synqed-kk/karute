@@ -247,7 +247,59 @@
     "consentDialogInstructions": "Read the script below to the customer. Tap \"Customer agreed\" only after they verbally confirm.",
     "consentScript": "{customerName}, with your permission we'll record today's session so I can focus on you and have an accurate record afterward. The audio is used only to generate your karute and improve our service. Is that OK?",
     "consentConfirmButton": "Customer agreed",
-    "longRecordingWarning": "Long session — consider stopping and starting a new recording"
+    "longRecordingWarning": "Long session — consider stopping and starting a new recording",
+    "subtitle": "Record a session — AI will auto-generate the karute for you.",
+    "target": {
+      "title": "Recording target",
+      "inSession": "In session",
+      "choose": "Choose different booking",
+      "nearbyAround": "Bookings around {time}",
+      "current": "Current",
+      "seeAllToday": "See all today's bookings",
+      "noBooking": "No booking selected"
+    },
+    "brief": {
+      "title": "PRE-SESSION BRIEF",
+      "lastVisit": "Last visit {date} ({ago})",
+      "hooks": "Conversation hooks",
+      "concerns": "Last session concerns",
+      "lastProduct": "Last product offered",
+      "recommendedFocus": "Recommended focus today",
+      "empty": "Pre-session brief unavailable — AI will generate one after the first karute."
+    },
+    "source": {
+      "phoneMic": "Phone mic",
+      "phoneMicSub": "Default. Clear capture within 1–2m of the customer.",
+      "modeA": "Mode A — Discreet (seamless)",
+      "modeASub": "Records automatically at session start. No customer-facing popup."
+    },
+    "button": {
+      "startTitle": "Start Recording",
+      "startSub": "{name}'s session will be recorded.",
+      "recording": "RECORDING",
+      "stopAria": "Stop recording",
+      "startAria": "Start recording"
+    },
+    "consent": {
+      "onFile": "Consent on file"
+    },
+    "recent": {
+      "title": "Recent recordings",
+      "showAll": "Show all",
+      "karuteCreated": "Karute created",
+      "entries": "{n} entries",
+      "notCreated": "Karute not created",
+      "convert": "Convert to karute",
+      "empty": "No recordings yet."
+    },
+    "liveTranscript": {
+      "title": "Live transcript",
+      "sub": "Diarized conversation, streamed in real time",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "speakerCustomer": "Customer",
+      "speakerStaff": "{name} (Staff)"
+    }
   },
   "customers": {
     "title": "Customers",
