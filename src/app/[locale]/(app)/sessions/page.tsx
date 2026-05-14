@@ -64,7 +64,7 @@ export default async function SessionsPage({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: appointments } = await (supabase as any)
       .from('appointments')
-      .select('id, start_time, duration_minutes, client_id, title, notes, status, customers:client_id ( name )')
+      .select('id, start_time, duration_minutes, client_id, title, notes, karute_record_id, customers:client_id ( name )')
       .eq('staff_profile_id', activeStaffId)
       .gte('start_time', windowStart.toISOString())
       .lte('start_time', windowEnd.toISOString())
@@ -78,7 +78,6 @@ export default async function SessionsPage({
       client_id: string
       title: string | null
       notes: string | null
-      status: string | null
       customers: { name: string } | null
       karute_record_id?: string | null
     }
@@ -101,9 +100,10 @@ export default async function SessionsPage({
       const start = new Date(a.start_time)
       const end = new Date(start.getTime() + a.duration_minutes * 60_000)
       const isCurrent = nextAppointment && a.id === nextAppointment.id
+      const isDone = !!a.karute_record_id && !isCurrent
       const statusKey: RecordTargetBooking['statusKey'] = isCurrent
         ? 'in-session'
-        : a.status === 'COMPLETED'
+        : isDone
           ? 'done'
           : 'booked'
       const customerName = a.customers?.name ?? 'Unknown'
@@ -117,7 +117,7 @@ export default async function SessionsPage({
         service: a.title ?? 'Session',
         staff: '—',
         statusKey,
-        statusLabel: isCurrent ? 'In session' : a.status === 'COMPLETED' ? 'Done' : 'Booked',
+        statusLabel: isCurrent ? 'In session' : isDone ? 'Done' : 'Booked',
       }
     })
   }
