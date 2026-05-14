@@ -64,8 +64,16 @@ export function RecordingTargetCard({
 
   if (!appointment) {
     return (
-      <section className="rounded-2xl border border-border bg-card p-5 text-sm text-muted-foreground shadow-sm">
-        {t('noBooking')}
+      <section className="flex flex-col items-start gap-2 rounded-2xl border border-dashed border-border bg-card p-5 shadow-sm md:p-6">
+        <div className="flex items-center gap-2.5">
+          <span className="flex h-6 w-6 items-center justify-center text-sky-400">
+            <Clock size={16} />
+          </span>
+          <span className="text-sm font-semibold text-foreground">{t('title')}</span>
+        </div>
+        <div className="text-[13px] leading-snug text-muted-foreground">
+          {t('noBooking')}
+        </div>
       </section>
     )
   }
