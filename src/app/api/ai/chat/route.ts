@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getOrgSettings } from '@/actions/org-settings'
+import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -33,13 +35,15 @@ export async function POST(request: Request) {
 
     const customerNames = customerResult.customers.map((c) => c.name).join(', ')
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
-    const businessType = orgSettings?.business_type || 'salon/clinic'
+    // Reads from synqed-core org settings (a JSON blob). The previous
+    // `from('organization_settings')` query targeted a table that doesn't
+    // exist in karute's Supabase — it was silently 500-ing and falling back
+    // to "salon/clinic".
+    const orgSettings = await getOrgSettings()
+    const businessProfile = orgSettings?.business_type
+      ? getBusinessProfile(orgSettings.business_type)
+      : null
+    const businessType = businessProfile?.label || 'salon/clinic'
 
     const langInstruction = locale === 'ja' ? 'Respond in Japanese.' : 'Respond in English.'
 
