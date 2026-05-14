@@ -2,6 +2,7 @@
 
 import { ChevronDown } from 'lucide-react'
 import type { CustomerStatusKey } from '../types'
+import { ComingSoonChip } from '../ComingSoonChip'
 
 export type CustomerListFilterKey =
   | 'all'
@@ -63,16 +64,19 @@ export function CustomersStatusFilters({
           )
         })}
       </div>
-      <button
-        type="button"
-        className="hidden h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:inline-flex"
-        title="Sort placeholder — sort UX coming"
-        disabled
-      >
-        <span className="text-muted-foreground/70">Sort:</span>
-        <span>Last visit (recent)</span>
-        <ChevronDown size={14} />
-      </button>
+      <div className="hidden items-center gap-2 md:inline-flex">
+        <button
+          type="button"
+          className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-medium text-muted-foreground opacity-60"
+          title="Coming soon — sort UX not wired"
+          disabled
+        >
+          <span className="text-muted-foreground/70">Sort:</span>
+          <span>Last visit (recent)</span>
+          <ChevronDown size={14} />
+        </button>
+        <ComingSoonChip />
+      </div>
     </div>
   )
 }

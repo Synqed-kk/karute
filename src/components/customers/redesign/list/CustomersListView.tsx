@@ -12,6 +12,7 @@ import {
 } from './CustomersStatusFilters'
 import { CustomerRowDesktop } from './CustomerRowDesktop'
 import { CustomerCardMobile } from './CustomerCardMobile'
+import { ComingSoonChip } from '../ComingSoonChip'
 import { getStaffColor } from '@/lib/staff/colors'
 
 interface CustomersListViewProps {
@@ -82,9 +83,15 @@ export function CustomersListView({
           <div className="hidden overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:block">
             <div className="grid grid-cols-[minmax(0,2fr)_120px_120px_140px_120px_140px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Customer</span>
-              <span>Visits</span>
+              <span className="flex items-center gap-1.5">
+                Visits
+                <ComingSoonChip />
+              </span>
               <span>Last visit</span>
-              <span>AI predict</span>
+              <span className="flex items-center gap-1.5">
+                AI predict
+                <ComingSoonChip />
+              </span>
               <span>Status</span>
               <span>Staff</span>
               <span className="text-right">Total</span>

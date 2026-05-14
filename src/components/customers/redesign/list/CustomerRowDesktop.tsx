@@ -45,8 +45,8 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
         </div>
       </div>
 
-      {/* Visits */}
-      <div className="flex flex-col gap-1">
+      {/* Visits — stubbed; course-graduation model not built yet */}
+      <div className="flex flex-col gap-1 opacity-40" title="Coming soon — course progress not yet tracked">
         <Dots filled={c.visitsDone} total={c.visitsTotal} />
         <span className="text-[10px] tabular-nums text-muted-foreground">
           {c.visitsDone}/{c.visitsTotal}
@@ -61,8 +61,8 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
         <span className="text-[10px] text-muted-foreground">{c.lastVisitAgo}</span>
       </div>
 
-      {/* AI predict */}
-      <div className="flex flex-col">
+      {/* AI predict — stubbed; rebooking-window model wraps here later */}
+      <div className="flex flex-col opacity-40" title="Coming soon — rebooking AI not yet wired">
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
           {c.aiPredict.label}
         </span>

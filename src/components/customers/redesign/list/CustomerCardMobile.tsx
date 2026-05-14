@@ -50,7 +50,7 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Cell label="Visits">
+        <Cell label="Visits" stub>
           <div className="flex items-center gap-2">
             <Dots filled={c.visitsDone} total={c.visitsTotal} />
             <span className="text-[10px] tabular-nums text-muted-foreground">
@@ -64,7 +64,7 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
           </div>
           <div className="text-[10px] text-muted-foreground">{c.lastVisitAgo}</div>
         </Cell>
-        <Cell label="AI predict">
+        <Cell label="AI predict" stub>
           <div className="text-xs text-foreground">{c.aiPredict.when}</div>
           <div className="text-[10px] text-muted-foreground">
             {c.aiPredict.label}
@@ -86,11 +86,24 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
   )
 }
 
-function Cell({ label, children }: { label: string; children: React.ReactNode }) {
+function Cell({
+  label,
+  children,
+  stub,
+}: {
+  label: string
+  children: React.ReactNode
+  stub?: boolean
+}) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
+    <div className={`flex flex-col gap-1 ${stub ? 'opacity-40' : ''}`}>
+      <div className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        <span>{label}</span>
+        {stub && (
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1 py-px text-[8px] normal-case tracking-normal text-amber-300">
+            soon
+          </span>
+        )}
       </div>
       <div>{children}</div>
     </div>

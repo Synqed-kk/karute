@@ -1,4 +1,5 @@
 import { AlertCircle, Clock, Upload } from 'lucide-react'
+import { ComingSoonChip } from '../ComingSoonChip'
 
 interface PrivacyTabContentProps {
   customerName: string
@@ -11,8 +12,11 @@ export function PrivacyTabContent({ customerName }: PrivacyTabContentProps) {
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-300">
           <AlertCircle size={16} />
         </div>
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Privacy &amp; data</h3>
+        <div className="flex-1">
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-foreground">Privacy &amp; data</h3>
+            <ComingSoonChip />
+          </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             APPI (Japan&apos;s Personal Information Protection Act) compliance
             actions for {customerName}&apos;s data. Owner or assigned-staff

@@ -1,6 +1,7 @@
 import { Calendar, Clipboard, Edit3, Mail, Phone, User } from 'lucide-react'
 import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
+import { ComingSoonChip } from '../ComingSoonChip'
 
 interface CustomerIdentityCardProps {
   c: CustomerProfileData
@@ -29,11 +30,15 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
-            <Meta icon={<User size={13} />}>
+            <span
+              className="inline-flex items-center gap-1.5 opacity-40"
+              title="Coming soon — age + gender capture not in intake form yet"
+            >
+              <User size={13} className="text-muted-foreground/70" />
               <span className="tabular-nums">{c.age ?? '—'}</span>
               <span> · </span>
               <span>{c.gender ?? '—'}</span>
-            </Meta>
+            </span>
             <Meta icon={<Calendar size={13} />}>Joined {c.joinDate}</Meta>
             <Meta icon={<Clipboard size={13} />}>
               <span className="tabular-nums">{c.totalKarute}</span> visits
@@ -51,16 +56,24 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               <span className="text-foreground">{c.preferredStaffName ?? '—'}</span>
             </span>
             <span aria-hidden>·</span>
-            <span>
-              Next visit predicted:{' '}
-              <span className="text-foreground">{c.nextVisitPredicted}</span>
+            <span
+              className="inline-flex items-center gap-1.5"
+              title="Coming soon — rebooking prediction not wired"
+            >
+              <span className="opacity-40">
+                Next visit predicted:{' '}
+                <span className="text-foreground">{c.nextVisitPredicted}</span>
+              </span>
+              <ComingSoonChip />
             </span>
           </div>
         </div>
         <button
           type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          disabled
+          className="inline-flex h-8 cursor-not-allowed items-center gap-1.5 rounded-full border border-border bg-card px-3 text-xs font-medium text-muted-foreground/60 opacity-60"
           aria-label="Edit customer"
+          title="Coming soon — inline edit not wired"
         >
           <Edit3 size={13} />
           <span className="hidden md:inline">Edit</span>
