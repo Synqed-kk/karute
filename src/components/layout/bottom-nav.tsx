@@ -6,6 +6,7 @@ import { usePathname, Link } from '@/i18n/navigation'
 import {
   Calendar,
   ClipboardList,
+  GraduationCap,
   Home,
   Mic,
   Sparkles,
@@ -26,6 +27,7 @@ const PRIMARY: Route[] = [
 
 const MENU: Route[] = [
   { href: '/dashboard', label: 'dashboard', icon: Home },
+  { href: '/coaching', label: 'coaching', icon: GraduationCap },
   { href: '/ask-ai', label: 'askAi', icon: Sparkles },
   { href: '/data-import', label: 'dataImport', icon: Upload },
   { href: '/settings', label: 'settings', icon: Settings },
@@ -36,6 +38,7 @@ const FALLBACK_LABELS: Record<string, string> = {
   karute: 'Karute',
   customers: 'Customers',
   dashboard: 'Dashboard',
+  coaching: 'Coaching',
   askAi: 'Ask AI',
   dataImport: 'Import',
   settings: 'Settings',
