@@ -13,6 +13,8 @@ import {
 import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 
+export type RecordingDisclosureMode = 'A' | 'B' | 'C'
+
 export interface OrgSettings {
   id: string
   salon_name: string
@@ -24,6 +26,10 @@ export interface OrgSettings {
   auto_stop_minutes: number
   operating_hours: OperatingHours
   theme_colors: ThemeColors
+  // Onboarding-wizard fields. Null until the user finishes /welcome.
+  recording_disclosure_mode: RecordingDisclosureMode | null
+  recording_disclosure_privacy_confirmed: boolean
+  setup_completed_at: string | null
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -59,6 +65,13 @@ const orgSettingsByBusiness = unstable_cache(
             ? (s.theme_colors as Partial<ThemeColors>)
             : {}),
         },
+        recording_disclosure_mode:
+          (s.recording_disclosure_mode as RecordingDisclosureMode | undefined) ?? null,
+        recording_disclosure_privacy_confirmed: Boolean(
+          s.recording_disclosure_privacy_confirmed,
+        ),
+        setup_completed_at:
+          (s.setup_completed_at as string | null | undefined) ?? null,
       }
     } catch {
       return null
@@ -75,6 +88,31 @@ export async function getOrgSettings(): Promise<OrgSettings | null> {
   } catch {
     return null
   }
+}
+
+/**
+ * Persists the answers from the /welcome wizard and marks setup as complete.
+ * Called from WelcomeWizard's "Finish setup" button. Idempotent: re-running
+ * just bumps setup_completed_at.
+ */
+export async function completeOnboarding(input: {
+  businessName: string
+  businessType: string
+  disclosureMode: RecordingDisclosureMode
+  privacyConfirmed: boolean
+}): Promise<{ success: true } | { error: string }> {
+  if (!input.businessName.trim()) return { error: 'Store name is required' }
+  if (!input.businessType) return { error: 'Business type is required' }
+  if (input.disclosureMode === 'A' && !input.privacyConfirmed) {
+    return { error: 'Privacy policy confirmation required for Mode A' }
+  }
+  return upsertOrgSettings({
+    salon_name: input.businessName.trim(),
+    business_type: input.businessType,
+    recording_disclosure_mode: input.disclosureMode,
+    recording_disclosure_privacy_confirmed: input.privacyConfirmed,
+    setup_completed_at: new Date().toISOString(),
+  }) as Promise<{ success: true } | { error: string }>
 }
 
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
