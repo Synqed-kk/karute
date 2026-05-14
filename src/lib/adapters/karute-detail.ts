@@ -1,5 +1,6 @@
 import type { SessionEntryRowData, SessionEntryTone } from '@synqed-kk/ui'
 import type { KaruteWithRelations } from '@/lib/supabase/karute'
+import type { SessionEntry, SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
 // ---------------------------------------------------------------------------
 // Adapter: karute_records detail -> synqed-ui prop shapes
@@ -100,4 +101,44 @@ export function karuteSummaryToBullets(
     .split(/[.。]\s*/)
     .map((s) => s.trim())
     .filter(Boolean)
+}
+
+// ---------------------------------------------------------------------------
+// New detail-redesign adapters
+// ---------------------------------------------------------------------------
+
+const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
+  symptom: 'concern',
+  concern: 'concern',
+  body_area: 'condition',
+  lifestyle: 'condition',
+  treatment: 'treatment',
+  product: 'product',
+  preference: 'product',
+  next_visit: 'next',
+  next: 'next',
+}
+
+export function karuteEntriesToSessionEntries(
+  karute: KaruteWithRelations,
+): SessionEntry[] {
+  const k = karute as unknown as {
+    entries?: Array<{
+      id: string
+      category: string
+      content: string
+      created_at: string
+    }>
+  }
+  return (k.entries ?? []).map((e) => ({
+    id: e.id,
+    category: CATEGORY_TO_SESSION_CATEGORY[e.category] ?? 'concern',
+    time: timeOfDay(e.created_at),
+    body: e.content,
+  }))
+}
+
+export function deriveKaruteNumber(id: string): string {
+  const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
+  return `#${hex}`
 }

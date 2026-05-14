@@ -143,6 +143,81 @@
       "hint": "Records will appear here once a session is recorded."
     }
   },
+  "karuteDetail": {
+    "breadcrumb": {
+      "customers": "Customers",
+      "karute": "Karute {date}"
+    },
+    "actions": {
+      "exportPdf": "Export PDF",
+      "share": "Share",
+      "edit": "Edit"
+    },
+    "header": {
+      "staff": "Staff",
+      "phone": "Phone",
+      "email": "Email"
+    },
+    "memory": {
+      "title": "Customer Memory",
+      "subtitle": "AI-curated profile of everything {name} has shared — small-talk hooks, body history, preferences, and goals.",
+      "newToday": "{n} new from today",
+      "talkingPoints": "TALKING POINTS FOR TODAY",
+      "addManually": "Add manually",
+      "lastUpdated": "Last updated: {date}",
+      "sections": {
+        "personal": "Personal",
+        "body": "Body & health",
+        "preferences": "Preferences",
+        "goals": "Goals",
+        "lifestyle": "Lifestyle"
+      },
+      "source": {
+        "ai": "AI-extracted",
+        "intake": "From intake form",
+        "manual": "Manual"
+      }
+    },
+    "photos": {
+      "title": "Photo records",
+      "subtitle": "Customer progress photos & references",
+      "showToCustomer": "Show to customer",
+      "empty": "No photos yet — upload from the customer profile."
+    },
+    "bodyPrediction": {
+      "title": "AI BODY PREDICTION",
+      "confidence": "Confidence",
+      "vsLast": "vs last",
+      "recommended": "Recommended",
+      "rationale": "AI rationale"
+    },
+    "suggestedMessage": {
+      "title": "AI SUGGESTED MESSAGE",
+      "scheduledVia": "scheduled via",
+      "edit": "Edit",
+      "approveSend": "Approve & send"
+    },
+    "currentSession": {
+      "title": "Current session",
+      "tunedFor": "Tuned for:",
+      "categories": {
+        "treatment": "Treatment",
+        "concern": "Concern",
+        "condition": "Condition",
+        "product": "Product",
+        "next": "Next"
+      }
+    },
+    "aiSummary": {
+      "title": "AI summary"
+    },
+    "transcript": {
+      "title": "Recording · transcript",
+      "consentOnFile": "Consent on file",
+      "duration": "Duration {duration}",
+      "noTranscript": "No transcript yet"
+    }
+  },
   "recording": {
     "title": "Record",
     "selectStaff": "Select staff",

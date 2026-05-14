@@ -143,6 +143,81 @@
       "hint": "録音されたセッションがここに表示されます。"
     }
   },
+  "karuteDetail": {
+    "breadcrumb": {
+      "customers": "顧客",
+      "karute": "カルテ {date}"
+    },
+    "actions": {
+      "exportPdf": "PDFエクスポート",
+      "share": "共有",
+      "edit": "編集"
+    },
+    "header": {
+      "staff": "担当",
+      "phone": "電話",
+      "email": "メール"
+    },
+    "memory": {
+      "title": "顧客メモリ",
+      "subtitle": "{name}様から伺った全ての情報をAIが整理 — 雑談のきっかけ、体の履歴、好み、目標まで。",
+      "newToday": "本日 {n}件追加",
+      "talkingPoints": "本日の話題",
+      "addManually": "手動で追加",
+      "lastUpdated": "最終更新: {date}",
+      "sections": {
+        "personal": "プロフィール",
+        "body": "体・健康",
+        "preferences": "好み",
+        "goals": "目標",
+        "lifestyle": "ライフスタイル"
+      },
+      "source": {
+        "ai": "AI抽出",
+        "intake": "問診票から",
+        "manual": "手動入力"
+      }
+    },
+    "photos": {
+      "title": "写真記録",
+      "subtitle": "施術前後・参考写真",
+      "showToCustomer": "お客様に表示",
+      "empty": "写真はまだありません。顧客プロフィールからアップロードできます。"
+    },
+    "bodyPrediction": {
+      "title": "AI身体予測",
+      "confidence": "信頼度",
+      "vsLast": "前回比",
+      "recommended": "次回推奨",
+      "rationale": "AI判断根拠"
+    },
+    "suggestedMessage": {
+      "title": "AI提案メッセージ",
+      "scheduledVia": "送信予定",
+      "edit": "編集",
+      "approveSend": "承認して送信"
+    },
+    "currentSession": {
+      "title": "本日のセッション",
+      "tunedFor": "業種設定:",
+      "categories": {
+        "treatment": "施術",
+        "concern": "気になる点",
+        "condition": "状態",
+        "product": "製品",
+        "next": "次回"
+      }
+    },
+    "aiSummary": {
+      "title": "AI要約"
+    },
+    "transcript": {
+      "title": "録音 ・ 文字起こし",
+      "consentOnFile": "同意確認済",
+      "duration": "再生時間 {duration}",
+      "noTranscript": "文字起こしはまだありません"
+    }
+  },
   "recording": {
     "title": "録音",
     "selectStaff": "スタッフを選択",
