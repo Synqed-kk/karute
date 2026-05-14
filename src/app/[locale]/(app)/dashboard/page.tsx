@@ -29,18 +29,13 @@ export default async function DashboardPage() {
     },
     staffList,
     activeStaffId,
-    recordingsRes,
-    karuteRes,
+    weeklyKaruteCountRes,
     appointmentsRes,
     recentKaruteRes,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
-    sb
-      .from('karute_records')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', startOfWeek.toISOString()),
     sb
       .from('karute_records')
       .select('id', { count: 'exact', head: true })
@@ -99,10 +94,11 @@ export default async function DashboardPage() {
     }),
   )
 
+  const weeklyKaruteCount = weeklyKaruteCountRes.count ?? 0
   const stats = buildDashboardStats(
-    recordingsRes.count ?? 0,
+    weeklyKaruteCount,
     todayAppointments.length,
-    karuteRes.count ?? 0,
+    weeklyKaruteCount,
   )
 
   return (

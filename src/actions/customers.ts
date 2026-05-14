@@ -1,7 +1,7 @@
 'use server'
 
 import { z } from 'zod'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 // ---------------------------------------------------------------------------
@@ -58,6 +58,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     })
 
     revalidatePath('/customers')
+    updateTag('customers')
 
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
@@ -86,6 +87,7 @@ export async function createQuickCustomer(
     const customer = await synqed.customers.create({ name: trimmedName })
 
     revalidatePath('/customers')
+    updateTag('customers')
 
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
@@ -125,6 +127,7 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
 
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
+    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
@@ -158,6 +161,7 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     await synqed.customers.delete(id)
 
     revalidatePath('/customers')
+    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

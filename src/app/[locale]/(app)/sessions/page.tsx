@@ -37,9 +37,42 @@ export default async function SessionsPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  const [customers, activeStaffId] = await Promise.all([
+  const activeStaffId = await getActiveStaffId()
+
+  const now = new Date()
+  const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
+  const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+
+  // Fan out the three independent reads in parallel:
+  //   1. Customer list (HTTP → synqed-core)
+  //   2. Nearby appointments for the active staff (DB, gated on activeStaffId)
+  //   3. Recent karute records (DB)
+  // The consent fetch still has to wait because it depends on the chosen booking.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
+  const [customers, appointmentsRes, recentRows] = await Promise.all([
     getCachedCustomerList(),
-    getActiveStaffId(),
+    activeStaffId
+      ? sb
+          .from('appointments')
+          .select(
+            'id, start_time, duration_minutes, client_id, title, notes, karute_record_id, customers:client_id ( name )',
+          )
+          .eq('staff_profile_id', activeStaffId)
+          .gte('start_time', windowStart.toISOString())
+          .lte('start_time', windowEnd.toISOString())
+          .order('start_time', { ascending: true })
+          .limit(10)
+      : Promise.resolve({ data: null }),
+    sb
+      .from('karute_records')
+      .select(
+        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( id )`,
+      )
+      .order('session_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(5)
+      .then((res: { data: unknown }) => res),
   ])
 
   // Next unlinked appointment for this staff (used as recording target)
@@ -57,19 +90,7 @@ export default async function SessionsPage({
   let nearbyBookings: RecordTargetBooking[] = []
 
   if (activeStaffId) {
-    const now = new Date()
-    const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-    const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: appointments } = await (supabase as any)
-      .from('appointments')
-      .select('id, start_time, duration_minutes, client_id, title, notes, karute_record_id, customers:client_id ( name )')
-      .eq('staff_profile_id', activeStaffId)
-      .gte('start_time', windowStart.toISOString())
-      .lte('start_time', windowEnd.toISOString())
-      .order('start_time', { ascending: true })
-      .limit(10)
+    const appointments = (appointmentsRes as { data: unknown }).data
 
     type ApptRow = {
       id: string
@@ -122,17 +143,6 @@ export default async function SessionsPage({
     })
   }
 
-  // Recent karute_records (act as the "recent recordings" list)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: recentRows } = await (supabase as any)
-    .from('karute_records')
-    .select(
-      `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( id )`,
-    )
-    .order('session_date', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-    .limit(5)
-
   type RecentRow = {
     id: string
     session_date: string | null
@@ -143,7 +153,9 @@ export default async function SessionsPage({
     entries: Array<{ id: string }> | null
   }
 
-  const recentRecordings: RecentRecording[] = ((recentRows ?? []) as RecentRow[]).map((r) => {
+  const recentRecordings: RecentRecording[] = (
+    ((recentRows as { data: RecentRow[] | null })?.data ?? []) as RecentRow[]
+  ).map((r) => {
     const dt = new Date(r.session_date ?? r.created_at)
     const customerName = r.customers?.name ?? 'Unknown'
     const entryCount = Array.isArray(r.entries) ? r.entries.length : 0

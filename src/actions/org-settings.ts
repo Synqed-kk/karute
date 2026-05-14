@@ -1,7 +1,9 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag, unstable_cache } from 'next/cache'
+import { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId } from '@/lib/staff'
 import {
   type OperatingHours,
   normalizeOperatingHours,
@@ -24,34 +26,52 @@ export interface OrgSettings {
   theme_colors: ThemeColors
 }
 
+// businessId is the cache key — Next includes function args in the key automatically.
+// upsertOrgSettings revalidates with the 'org-settings' tag.
+const orgSettingsByBusiness = unstable_cache(
+  async (businessId: string): Promise<OrgSettings | null> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return null
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    try {
+      const raw = await client.orgSettings.get()
+      if (!raw) return null
+
+      const s = (raw.settings ?? {}) as Partial<OrgSettings> & {
+        operating_hours?: unknown
+        theme_colors?: unknown
+      }
+
+      return {
+        id: raw.business_id,
+        salon_name: raw.name ?? s.salon_name ?? '',
+        business_type: s.business_type ?? '',
+        webhook_url: s.webhook_url ?? '',
+        ai_model: s.ai_model ?? '',
+        confidence_threshold: s.confidence_threshold ?? 0,
+        audio_quality: s.audio_quality ?? '',
+        auto_stop_minutes: s.auto_stop_minutes ?? 0,
+        operating_hours: normalizeOperatingHours(s.operating_hours),
+        theme_colors: {
+          ...DEFAULT_THEME_COLORS,
+          ...(typeof s.theme_colors === 'object' && s.theme_colors !== null
+            ? (s.theme_colors as Partial<ThemeColors>)
+            : {}),
+        },
+      }
+    } catch {
+      return null
+    }
+  },
+  ['org-settings-v1'],
+  { revalidate: 300, tags: ['org-settings'] },
+)
+
 export async function getOrgSettings(): Promise<OrgSettings | null> {
   try {
-    const synqed = await getSynqedClient()
-    const raw = await synqed.orgSettings.get()
-    if (!raw) return null
-
-    const s = (raw.settings ?? {}) as Partial<OrgSettings> & {
-      operating_hours?: unknown
-      theme_colors?: unknown
-    }
-
-    return {
-      id: raw.business_id,
-      salon_name: raw.name ?? s.salon_name ?? '',
-      business_type: s.business_type ?? '',
-      webhook_url: s.webhook_url ?? '',
-      ai_model: s.ai_model ?? '',
-      confidence_threshold: s.confidence_threshold ?? 0,
-      audio_quality: s.audio_quality ?? '',
-      auto_stop_minutes: s.auto_stop_minutes ?? 0,
-      operating_hours: normalizeOperatingHours(s.operating_hours),
-      theme_colors: {
-        ...DEFAULT_THEME_COLORS,
-        ...(typeof s.theme_colors === 'object' && s.theme_colors !== null
-          ? (s.theme_colors as Partial<ThemeColors>)
-          : {}),
-      },
-    }
+    const businessId = await getBusinessId()
+    return orgSettingsByBusiness(businessId)
   } catch {
     return null
   }
@@ -85,6 +105,7 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
     })
 
     revalidatePath('/settings')
+    updateTag('org-settings')
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
