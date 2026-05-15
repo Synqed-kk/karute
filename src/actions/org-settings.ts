@@ -14,6 +14,8 @@ import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 
 export type RecordingDisclosureMode = 'A' | 'B' | 'C'
+export type AudioSource = 'phone' | 'bluetooth' | 'wired'
+export type AIVoiceStyle = 'formal' | 'polite' | 'friendly'
 
 export interface OrgSettings {
   id: string
@@ -30,6 +32,19 @@ export interface OrgSettings {
   recording_disclosure_mode: RecordingDisclosureMode | null
   recording_disclosure_privacy_confirmed: boolean
   setup_completed_at: string | null
+  // Redesigned-settings fields. All optional with defaults; no schema change
+  // needed since the synqed-core org-settings settings is a JSON blob.
+  timezone: string
+  solo_mode: boolean
+  ai_auto_summary: boolean
+  ai_auto_outreach: boolean
+  ai_voice_style: AIVoiceStyle
+  audio_source: AudioSource
+  noise_suppression: boolean
+  speaker_diarization: boolean
+  voice_recognition_improved: boolean
+  recording_consent_required: boolean
+  recording_consent_template: string
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -72,6 +87,18 @@ const orgSettingsByBusiness = unstable_cache(
         ),
         setup_completed_at:
           (s.setup_completed_at as string | null | undefined) ?? null,
+        timezone: (s.timezone as string | undefined) ?? 'Asia/Tokyo',
+        solo_mode: Boolean(s.solo_mode),
+        ai_auto_summary: s.ai_auto_summary === undefined ? true : Boolean(s.ai_auto_summary),
+        ai_auto_outreach: Boolean(s.ai_auto_outreach),
+        ai_voice_style: (s.ai_voice_style as AIVoiceStyle | undefined) ?? 'polite',
+        audio_source: (s.audio_source as AudioSource | undefined) ?? 'phone',
+        noise_suppression: s.noise_suppression === undefined ? true : Boolean(s.noise_suppression),
+        speaker_diarization: s.speaker_diarization === undefined ? true : Boolean(s.speaker_diarization),
+        voice_recognition_improved: Boolean(s.voice_recognition_improved),
+        recording_consent_required: Boolean(s.recording_consent_required),
+        recording_consent_template:
+          (s.recording_consent_template as string | undefined) ?? '',
       }
     } catch {
       return null
