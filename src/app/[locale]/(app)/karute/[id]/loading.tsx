@@ -1,6 +1,6 @@
 export default function KaruteDetailLoading() {
   return (
-    <div className="mx-auto flex w-full max-w-6xl animate-pulse flex-col gap-4 p-4 md:p-6">
+    <div className="mx-auto max-w-5xl animate-pulse space-y-6 px-4 md:px-6">
       {/* Breadcrumb + actions */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
