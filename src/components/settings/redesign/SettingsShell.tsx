@@ -84,7 +84,7 @@ export function SettingsShell({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1">
+      <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
         {tabsBeforeCoaching.map((tab) => (
           <TabButton
             key={tab.id}
@@ -151,7 +151,7 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 h-9 text-xs font-medium transition-colors ${
+      className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 h-9 text-xs font-medium transition-colors ${
         active
           ? 'bg-foreground text-background shadow-sm'
           : 'text-muted-foreground hover:text-foreground'
@@ -170,7 +170,7 @@ function CoachingDisabledTab({ title, label }: { title: string; label: string })
       disabled
       aria-disabled="true"
       title={title}
-      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg px-3 h-9 text-xs font-medium text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50"
+      className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 h-9 text-xs font-medium text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50"
     >
       <GraduationCap className="size-3.5" />
       {label}
