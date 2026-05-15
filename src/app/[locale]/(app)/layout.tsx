@@ -53,10 +53,10 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider data={sessionData}>
-      <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-bg)] p-3 md:p-4">
-        <div className="flex min-h-0 flex-1 gap-3 md:gap-4 overflow-hidden">
+      <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-bg)]">
+        <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
-          <main className="relative flex-1 overflow-y-auto rounded-[28px] bg-[var(--color-bg-card)] pb-24 md:pb-0">
+          <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)] pb-24 md:pb-0">
             <div className="mx-auto max-w-7xl p-4 md:p-6">
               {children}
             </div>

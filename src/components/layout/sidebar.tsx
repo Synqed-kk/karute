@@ -115,7 +115,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className="hidden h-full w-[244px] shrink-0 flex-col rounded-[28px] bg-[var(--color-bg-card)] py-5 md:flex"
+      className="hidden h-full w-[244px] shrink-0 flex-col border-r border-border/30 bg-[var(--color-bg-card)] py-5 md:flex"
       aria-label="Main navigation"
     >
       <div className="px-5 pb-4 border-b border-border/20">
