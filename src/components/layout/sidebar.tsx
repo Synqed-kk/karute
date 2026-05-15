@@ -28,11 +28,14 @@ function SparklesIcon() {
 function ImportIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4" /><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
 }
+function ExportIcon() {
+  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 17V5M8 9l4-4 4 4" /><path d="M8 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4M16 19h4a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
+}
 function SettingsIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
 }
 
-type SidebarLabelKey = 'recording' | 'dashboard' | 'appointments' | 'customers' | 'karute' | 'coaching' | 'askAi' | 'dataImport' | 'settings'
+type SidebarLabelKey = 'recording' | 'dashboard' | 'appointments' | 'customers' | 'karute' | 'coaching' | 'askAi' | 'dataImport' | 'dataExport' | 'settings'
 
 type NavRoute = {
   id: string
@@ -50,6 +53,7 @@ const NAV_ROUTES: NavRoute[] = [
   { id: 'coaching', href: '/coaching', labelKey: 'coaching', icon: GraduationCapIcon },
   { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', icon: SparklesIcon },
   { id: 'dataImport', href: '/data-import', labelKey: 'dataImport', icon: ImportIcon },
+  { id: 'dataExport', href: '/data-export', labelKey: 'dataExport', icon: ExportIcon },
   { id: 'settings', href: '/settings', labelKey: 'settings', icon: SettingsIcon },
 ]
 
@@ -62,6 +66,7 @@ const LABEL_FALLBACKS: Record<SidebarLabelKey, string> = {
   coaching: 'Coaching',
   askAi: 'Ask AI',
   dataImport: 'Import',
+  dataExport: 'Export',
   settings: 'Settings',
 }
 

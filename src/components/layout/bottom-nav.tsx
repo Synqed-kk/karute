@@ -6,6 +6,7 @@ import { usePathname, Link } from '@/i18n/navigation'
 import {
   Calendar,
   ClipboardList,
+  Download,
   GraduationCap,
   Home,
   Mic,
@@ -30,6 +31,7 @@ const MENU: Route[] = [
   { href: '/coaching', label: 'coaching', icon: GraduationCap },
   { href: '/ask-ai', label: 'askAi', icon: Sparkles },
   { href: '/data-import', label: 'dataImport', icon: Upload },
+  { href: '/data-export', label: 'dataExport', icon: Download },
   { href: '/settings', label: 'settings', icon: Settings },
 ]
 
@@ -41,6 +43,7 @@ const FALLBACK_LABELS: Record<string, string> = {
   coaching: 'Coaching',
   askAi: 'Ask AI',
   dataImport: 'Import',
+  dataExport: 'Export',
   settings: 'Settings',
   recording: 'Recording',
   menu: 'Menu',
