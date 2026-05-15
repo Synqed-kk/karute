@@ -16,6 +16,8 @@ export interface SessionData {
   activeStaff: StaffItem | null
   activeStaffId: string | null
   locale: string
+  /** Current organization display name, surfaced in the sidebar profile menu. */
+  orgName: string | null
 }
 
 const SessionContext = createContext<SessionData | null>(null)
