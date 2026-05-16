@@ -1,20 +1,25 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import {
   DayWeekMonthToggle,
   MonthGrid,
+  NewBookingDialog,
   ReservationPageHeader,
   WeekDayCard,
   type DayWeekMonthView,
   type MonthGridCell,
+  type NewBookingSubmit,
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations } from 'next-intl'
+import { Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
+import { createAppointment } from '@/actions/appointments'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
@@ -69,15 +74,28 @@ function formatYmd(d: Date): string {
   return `${y}-${m}-${day}`
 }
 
+// Cursor delta for prev/next, tuned to the visible chrome. The week/month
+// views advance the full unit; the day view advances one day.
+function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1): Date {
+  const next = new Date(date)
+  if (view === 'day') next.setDate(next.getDate() + dir)
+  else if (view === 'week') next.setDate(next.getDate() + dir * 7)
+  else next.setMonth(next.getMonth() + dir)
+  return next
+}
+
 export function AppointmentsView(props: AppointmentsViewProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const [, startTransition] = useTransition()
+  const [isPending, startTransition] = useTransition()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const datePickerRef = useRef<HTMLInputElement>(null)
 
   const view = props.initialView
   const selectedDate = new Date(props.selectedDateIso)
   const today = new Date()
   const tReservation = useTranslations('reservation')
+  const tCommon = useTranslations('common')
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
     const search = new URLSearchParams()
@@ -90,16 +108,96 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     })
   }
 
+  function handlePrev() {
+    navigateTo(view, shiftDate(selectedDate, view, -1))
+  }
+  function handleNext() {
+    navigateTo(view, shiftDate(selectedDate, view, 1))
+  }
+  function handleToday() {
+    navigateTo(view, today)
+  }
+  function handlePickDate() {
+    const input = datePickerRef.current
+    if (!input) return
+    if (typeof input.showPicker === 'function') {
+      input.showPicker()
+    } else {
+      input.focus()
+      input.click()
+    }
+  }
+  function handlePickerChange(value: string) {
+    if (!value) return
+    const [y, m, d] = value.split('-').map(Number)
+    if (!y || !m || !d) return
+    navigateTo(view, new Date(y, m - 1, d))
+  }
+
+  async function handleSubmitBooking(payload: NewBookingSubmit) {
+    // The dialog returns customer as a free-text name. Match against the loaded
+    // customer list — if no match, create the booking against the typed name
+    // would require a customers.create flow we don't ship here yet. For now,
+    // require a known customer; otherwise surface a toast.
+    const match = props.customers.find(
+      (c) => c.name.trim() === payload.customer.trim() || c.id === payload.customer,
+    )
+    if (!match) {
+      toast.error(
+        `Customer "${payload.customer}" not found — pick an existing customer from the list for now.`,
+      )
+      throw new Error('Customer not found')
+    }
+
+    const startIso = `${payload.date}T${payload.time}:00`
+    const durationMinutes = parseInt(payload.duration, 10)
+    if (Number.isNaN(durationMinutes) || durationMinutes <= 0) {
+      toast.error('Invalid duration')
+      throw new Error('Invalid duration')
+    }
+
+    const result = await createAppointment({
+      staffProfileId: payload.staffId,
+      clientId: match.id,
+      startTime: new Date(startIso).toISOString(),
+      durationMinutes,
+      title: payload.service || undefined,
+    })
+    if ('error' in result) {
+      toast.error(result.error)
+      throw new Error(result.error)
+    }
+    toast.success(tReservation('totals.today', { n: 1 }) /* generic ok */)
+    setDialogOpen(false)
+    startTransition(() => router.refresh())
+  }
+
   const headerDate =
     view === 'day'
       ? today
       : selectedDate
 
   return (
-    <div className="space-y-3 p-4 md:p-6">
+    <div className="relative space-y-3 p-4 md:p-6">
+      {/* Hidden native date picker; opened by the header's date button. */}
+      <input
+        ref={datePickerRef}
+        type="date"
+        defaultValue={formatYmd(selectedDate)}
+        onChange={(e) => handlePickerChange(e.target.value)}
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+
       <ReservationPageHeader
         dateDisplay={formatLongDate(headerDate)}
         dateDisplayCompact={formatCompactDate(headerDate)}
+        onPrev={handlePrev}
+        onNext={handleNext}
+        onToday={handleToday}
+        onPickDate={handlePickDate}
+        onNewBooking={() => setDialogOpen(true)}
       />
 
       <div className="flex flex-wrap items-center gap-3">
@@ -126,41 +224,63 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             {tReservation('legend.block')}
           </span>
         </div>
+        {isPending && (
+          <span
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+            {tCommon('loading')}
+          </span>
+        )}
       </div>
 
-      {view === 'day' ? (
-        <>
-          <div className="hidden md:block">
-            <ReservationGrid
-              staff={props.reservationStaff}
-              reservations={props.reservationViews}
-              businessHours={props.businessHours}
+      <div
+        className={`transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
+        aria-busy={isPending}
+      >
+        {view === 'day' ? (
+          <>
+            <div className="hidden md:block">
+              <ReservationGrid
+                staff={props.reservationStaff}
+                reservations={props.reservationViews}
+                businessHours={props.businessHours}
+              />
+            </div>
+            <div className="md:hidden">
+              <MobileReservationAgenda reservations={props.reservationViews} />
+            </div>
+            <ReservationTotals reservations={props.reservationViews} />
+          </>
+        ) : view === 'week' && props.weekData && props.weekStartIso ? (
+          <WeekGridSection
+            data={props.weekData}
+            weekStartIso={props.weekStartIso}
+            onPickDay={(date) => navigateTo('day', date)}
+          />
+        ) : view === 'month' && props.monthData ? (
+          <div className="md:h-[calc(100vh-260px)]">
+            <MonthGrid
+              cells={props.monthData}
+              onPickDay={(date) => navigateTo('day', date)}
+              className="h-full"
             />
           </div>
-          <div className="md:hidden">
-            <MobileReservationAgenda reservations={props.reservationViews} />
+        ) : (
+          <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+            No data.
           </div>
-          <ReservationTotals reservations={props.reservationViews} />
-        </>
-      ) : view === 'week' && props.weekData && props.weekStartIso ? (
-        <WeekGridSection
-          data={props.weekData}
-          weekStartIso={props.weekStartIso}
-          onPickDay={(date) => navigateTo('day', date)}
-        />
-      ) : view === 'month' && props.monthData ? (
-        <div className="md:h-[calc(100vh-260px)]">
-          <MonthGrid
-            cells={props.monthData}
-            onPickDay={(date) => navigateTo('day', date)}
-            className="h-full"
-          />
-        </div>
-      ) : (
-        <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-          No data.
-        </div>
-      )}
+        )}
+      </div>
+
+      <NewBookingDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        staff={props.staff.map((s) => ({ id: s.id, name: s.name }))}
+        onSubmit={handleSubmitBooking}
+      />
     </div>
   )
 }

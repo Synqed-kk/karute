@@ -13,7 +13,15 @@ jest.mock('next/headers', () => ({
     set: jest.fn(),
   })),
 }))
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({
+  revalidatePath: jest.fn(),
+  updateTag: jest.fn(),
+  // unstable_cache is invoked at module-init by lib/customers/cached.ts; the
+  // bare next/cache mock left it undefined and threw "is not a function".
+  // Real one wraps a function with caching — for tests, just return the
+  // inner function so it's called directly with no caching layer.
+  unstable_cache: jest.fn((fn: (...args: unknown[]) => unknown) => fn),
+}))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getActiveStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
@@ -49,6 +57,7 @@ jest.mock('@synqed-kk/client', () => {
 
 const customers = {
   get: jest.fn(),
+  list: jest.fn(),
 }
 const appointments = {
   create: jest.fn(),
@@ -59,9 +68,24 @@ const appointments = {
 const karuteRecords = {
   list: jest.fn(),
 }
+const staff = {
+  list: jest.fn(),
+}
 
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ customers, appointments, karuteRecords })),
+  getSynqedClient: jest.fn(async () => ({
+    customers,
+    appointments,
+    karuteRecords,
+    staff,
+  })),
+}))
+
+// getAppointmentsByDate switched from N+1 customers.get calls to a single
+// cached batch via getCachedCustomerList — mock that or it returns [].
+const cachedCustomerList: Array<{ id: string; name: string }> = []
+jest.mock('@/lib/customers/cached', () => ({
+  getCachedCustomerList: jest.fn(async () => cachedCustomerList),
 }))
 
 import {
@@ -131,6 +155,8 @@ describe('Migrated appointment actions', () => {
             title: null,
             notes: null,
             created_at: '2026-05-10T00:00:00.000Z',
+            status: 'SCHEDULED',
+            source: 'MANUAL',
           },
           {
             id: 'appt-2',
@@ -141,14 +167,21 @@ describe('Migrated appointment actions', () => {
             title: null,
             notes: null,
             created_at: '2026-05-10T00:00:00.000Z',
+            status: 'SCHEDULED',
+            source: 'QUICKRESERVE',
           },
         ],
       })
-      customers.get.mockImplementation((id: string) =>
-        Promise.resolve({ id, name: id === 'cust-1' ? '山田' : '佐藤' }),
+      cachedCustomerList.length = 0
+      cachedCustomerList.push(
+        { id: 'cust-1', name: '山田' },
+        { id: 'cust-2', name: '佐藤' },
       )
       karuteRecords.list.mockResolvedValue({
         karute_records: [{ id: 'k-1', appointment_id: 'appt-1' }, { id: 'k-2', appointment_id: null }],
+      })
+      staff.list.mockResolvedValue({
+        staff: [{ id: 'staff-1', user_id: 'staff-1' }],
       })
 
       const rows = await getAppointmentsByDate('2026-05-10', 0)
@@ -160,11 +193,13 @@ describe('Migrated appointment actions', () => {
         client_id: 'cust-1',
         karute_record_id: 'k-1',
         customers: { name: '山田' },
+        source: 'MANUAL',
       })
       expect(rows[1]).toMatchObject({
         id: 'appt-2',
         karute_record_id: null,
         customers: { name: '佐藤' },
+        source: 'QUICKRESERVE',
       })
     })
 
