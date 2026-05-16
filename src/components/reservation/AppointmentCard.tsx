@@ -70,16 +70,18 @@ interface GridProps {
   ppm: number
   /** Business-hours start hour (e.g. 10 for 10:00). */
   startHour: number
+  onSelect?: (view: ReservationView) => void
 }
 
 interface AgendaProps {
   view: ReservationView
   variant: 'agenda'
+  onSelect?: (view: ReservationView) => void
 }
 
 export function AppointmentCard(props: GridProps | AgendaProps) {
   const t = useTranslations('reservation')
-  const { view } = props
+  const { view, onSelect } = props
   const tone = STATUS_TONES[view.displayStatus]
   const isCompleted = view.displayStatus === 'completed'
   const isLive = view.displayStatus === 'in_session'
@@ -87,6 +89,15 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
   const endTime = addMinutes(view.startTimeHm, view.durationMin)
   const statusLabel = t(`status.${view.displayStatus}`)
   const customerSuffix = t('card.customerSuffix')
+  const interactive = !!onSelect
+  const handleSelect = () => onSelect?.(view)
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (!onSelect) return
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onSelect(view)
+    }
+  }
 
   if (props.variant === 'agenda') {
     return (
@@ -94,12 +105,17 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
         className={cn(
           'flex items-stretch gap-3 rounded-lg border p-3',
           isCompleted && 'opacity-65',
+          interactive && 'cursor-pointer transition-colors hover:bg-foreground/[0.03]',
         )}
         style={{
           background: tone.bg,
           borderColor: tone.border,
           borderStyle: tone.borderStyle,
         }}
+        role={interactive ? 'button' : undefined}
+        tabIndex={interactive ? 0 : undefined}
+        onClick={interactive ? handleSelect : undefined}
+        onKeyDown={interactive ? handleKey : undefined}
       >
         <div className="flex w-14 shrink-0 flex-col items-start justify-center border-r pr-3" style={{ borderColor: tone.border }}>
           <div className="text-base font-semibold tabular-nums">{view.startTimeHm}</div>
@@ -146,6 +162,7 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
       className={cn(
         'absolute overflow-hidden rounded-lg border-[1.5px] shadow-sm',
         isCompleted && 'opacity-70',
+        interactive && 'cursor-pointer transition-shadow hover:shadow-md hover:ring-1 hover:ring-foreground/20',
       )}
       style={{
         left: left + 3,
@@ -156,6 +173,10 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
         borderColor: tone.border,
         borderStyle: tone.borderStyle,
       }}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      onClick={interactive ? handleSelect : undefined}
+      onKeyDown={interactive ? handleKey : undefined}
     >
       <div className="flex h-full flex-col justify-between gap-1 p-2">
         <div className="flex items-start justify-between gap-1.5">

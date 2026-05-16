@@ -105,6 +105,25 @@
     },
     "totals": {
       "today": "Today's bookings: {n}"
+    },
+    "newBookingDialog": {
+      "title": "New booking",
+      "description": "Add an appointment for an existing customer.",
+      "customer": "Customer",
+      "customerPlaceholder": "Search customers…",
+      "createCustomerHint": "Create new customers from the Customers tab first.",
+      "date": "Date",
+      "time": "Time",
+      "duration": "Duration",
+      "staff": "Staff",
+      "service": "Service",
+      "servicePlaceholder": "What's being done?",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…"
+    },
+    "toasts": {
+      "bookingCreated": "Booking saved"
     }
   },
   "karuteList": {

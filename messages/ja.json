@@ -105,6 +105,25 @@
     },
     "totals": {
       "today": "本日の予約 {n}件"
+    },
+    "newBookingDialog": {
+      "title": "新規予約",
+      "description": "既存のお客様に予約を追加します。",
+      "customer": "お客様",
+      "customerPlaceholder": "お客様を検索…",
+      "createCustomerHint": "新しいお客様は顧客タブから先に作成してください。",
+      "date": "日付",
+      "time": "時刻",
+      "duration": "所要時間",
+      "staff": "スタッフ",
+      "service": "メニュー",
+      "servicePlaceholder": "施術内容",
+      "cancel": "キャンセル",
+      "save": "保存",
+      "saving": "保存中…"
+    },
+    "toasts": {
+      "bookingCreated": "予約を保存しました"
     }
   },
   "karuteList": {

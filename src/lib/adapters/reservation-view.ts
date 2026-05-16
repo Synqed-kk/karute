@@ -42,6 +42,12 @@ export interface ReservationView {
   service: string
   displayStatus: DisplayStatus
   staffColorKey: StaffColorKey
+  /** ID of the customer, used to route follow-up actions (memory, new karute). */
+  clientId: string
+  /** Set when a karute_record already exists for this appointment. */
+  karuteRecordId: string | null
+  /** Derived from visit count — drives "first-time" copy in the action sheet. */
+  isFirstTimeVisit: boolean
 }
 
 function hm(iso: string): string {
@@ -89,6 +95,7 @@ export function appointmentsToReservationViews(
 ): ReservationView[] {
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
+    const visitCount = visitCountByClient.get(r.client_id)
     return {
       id: r.id,
       staffId: r.staff_profile_id,
@@ -97,10 +104,11 @@ export function appointmentsToReservationViews(
       customerName,
       customerInitials: initialsOf(customerName),
       service: r.title ?? 'セッション',
-      displayStatus: computeDisplayStatus(r, now, {
-        visitCount: visitCountByClient.get(r.client_id),
-      }),
+      displayStatus: computeDisplayStatus(r, now, { visitCount }),
       staffColorKey: getStaffColor(r.staff_profile_id).key,
+      clientId: r.client_id,
+      karuteRecordId: r.karute_record_id,
+      isFirstTimeVisit: visitCount === 0,
     }
   })
 }

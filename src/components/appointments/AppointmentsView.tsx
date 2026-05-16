@@ -4,22 +4,20 @@ import { useRef, useState, useTransition } from 'react'
 import {
   DayWeekMonthToggle,
   MonthGrid,
-  NewBookingDialog,
   ReservationPageHeader,
   WeekDayCard,
   type DayWeekMonthView,
   type MonthGridCell,
-  type NewBookingSubmit,
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations } from 'next-intl'
 import { Loader2 } from 'lucide-react'
-import { toast } from 'sonner'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
-import { createAppointment } from '@/actions/appointments'
+import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
+import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
@@ -89,6 +87,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const pathname = usePathname()
   const [isPending, startTransition] = useTransition()
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [selected, setSelected] = useState<ReservationView | null>(null)
   const datePickerRef = useRef<HTMLInputElement>(null)
 
   const view = props.initialView
@@ -132,44 +131,6 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     const [y, m, d] = value.split('-').map(Number)
     if (!y || !m || !d) return
     navigateTo(view, new Date(y, m - 1, d))
-  }
-
-  async function handleSubmitBooking(payload: NewBookingSubmit) {
-    // The dialog returns customer as a free-text name. Match against the loaded
-    // customer list — if no match, create the booking against the typed name
-    // would require a customers.create flow we don't ship here yet. For now,
-    // require a known customer; otherwise surface a toast.
-    const match = props.customers.find(
-      (c) => c.name.trim() === payload.customer.trim() || c.id === payload.customer,
-    )
-    if (!match) {
-      toast.error(
-        `Customer "${payload.customer}" not found — pick an existing customer from the list for now.`,
-      )
-      throw new Error('Customer not found')
-    }
-
-    const startIso = `${payload.date}T${payload.time}:00`
-    const durationMinutes = parseInt(payload.duration, 10)
-    if (Number.isNaN(durationMinutes) || durationMinutes <= 0) {
-      toast.error('Invalid duration')
-      throw new Error('Invalid duration')
-    }
-
-    const result = await createAppointment({
-      staffProfileId: payload.staffId,
-      clientId: match.id,
-      startTime: new Date(startIso).toISOString(),
-      durationMinutes,
-      title: payload.service || undefined,
-    })
-    if ('error' in result) {
-      toast.error(result.error)
-      throw new Error(result.error)
-    }
-    toast.success(tReservation('totals.today', { n: 1 }) /* generic ok */)
-    setDialogOpen(false)
-    startTransition(() => router.refresh())
   }
 
   const headerDate =
@@ -247,10 +208,14 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 staff={props.reservationStaff}
                 reservations={props.reservationViews}
                 businessHours={props.businessHours}
+                onSelect={setSelected}
               />
             </div>
             <div className="md:hidden">
-              <MobileReservationAgenda reservations={props.reservationViews} />
+              <MobileReservationAgenda
+                reservations={props.reservationViews}
+                onSelect={setSelected}
+              />
             </div>
             <ReservationTotals reservations={props.reservationViews} />
           </>
@@ -278,8 +243,16 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <NewBookingDialog
         open={dialogOpen}
         onOpenChange={setDialogOpen}
+        customers={props.customers}
         staff={props.staff.map((s) => ({ id: s.id, name: s.name }))}
-        onSubmit={handleSubmitBooking}
+        initialDate={formatYmd(selectedDate)}
+        initialStaffId={props.activeStaffId}
+        onCreated={() => startTransition(() => router.refresh())}
+      />
+
+      <BookingActionSheetWrapper
+        selected={selected}
+        onClose={() => setSelected(null)}
       />
     </div>
   )

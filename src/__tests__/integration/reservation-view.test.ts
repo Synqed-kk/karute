@@ -99,9 +99,10 @@ describe('computeDisplayStatus', () => {
 describe('appointmentsToReservationViews', () => {
   it('maps rows to ReservationView with derived fields', () => {
     const result = appointmentsToReservationViews(
-      [row({})],
+      [row({ karute_record_id: 'k-9' })],
       [{ id: 'staff-1', full_name: 'Tanaka Misaki' } as StaffMember],
       NOW_MID,
+      new Map([['cust-1', 3]]),
     )
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -111,9 +112,22 @@ describe('appointmentsToReservationViews', () => {
       customerName: 'Yamada Hanako',
       service: 'Facial',
       displayStatus: 'in_session',
+      clientId: 'cust-1',
+      karuteRecordId: 'k-9',
+      isFirstTimeVisit: false,
     })
     expect(result[0].startTimeHm).toMatch(/^\d{2}:\d{2}$/)
     expect(result[0].customerInitials.length).toBeGreaterThan(0)
+  })
+
+  it('flags isFirstTimeVisit when visit count is 0', () => {
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', 0]]),
+    )
+    expect(result[0].isFirstTimeVisit).toBe(true)
   })
 
   it('falls back to "—" customer name when customers join is null', () => {
