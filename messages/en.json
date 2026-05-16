@@ -496,7 +496,7 @@
     "noDurationFits": "No valid duration fits within operating hours ({open}-{close})."
   },
   "settings": {
-    "title": "Settings",
+    "title": "Configuration",
     "staffManagement": "Staff Management",
     "addStaff": "Add staff",
     "editStaff": "Edit staff",
