@@ -1,7 +1,12 @@
 'use server'
 
 import { revalidatePath, updateTag } from 'next/cache'
-import { SynqedError, type Appointment, type AppointmentStatus } from '@synqed-kk/client'
+import {
+  SynqedError,
+  type Appointment,
+  type AppointmentSource,
+  type AppointmentStatus,
+} from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -24,6 +29,12 @@ export interface AppointmentRow {
   created_at: string
   customers: { name: string } | null
   synqed_status: AppointmentStatus
+  /**
+   * Origin of the booking. Bookings imported from external systems
+   * (QUICKRESERVE, SALON_BOARD, etc.) start as "pending" in the UI until a
+   * staff member confirms them; manually entered bookings skip that state.
+   */
+  source: AppointmentSource
 }
 
 export async function createAppointment(input: AppointmentInput) {
@@ -109,6 +120,7 @@ export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: nu
       created_at: a.created_at,
       customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
       synqed_status: a.status,
+      source: a.source,
     }))
   } catch {
     return []

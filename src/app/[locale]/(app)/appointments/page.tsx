@@ -9,6 +9,8 @@ import {
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
@@ -86,10 +88,27 @@ export default async function AppointmentsPage({
     initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
   }))
 
+  // Visit count per client is needed to derive the "新規 (new)" status for
+  // first-time customers. Only the clients on today's calendar matter — keeps
+  // the enrichCustomers fan-out tiny vs. running it for the whole tenant.
+  const clientIdsToday = Array.from(
+    new Set(todayAppointments.map((a) => a.client_id)),
+  )
+  const businessId = await getBusinessId().catch(() => null)
+  const enrichment =
+    businessId && clientIdsToday.length
+      ? await enrichCustomers(businessId, clientIdsToday)
+      : new Map()
+  const visitCountByClient = new Map<string, number>()
+  for (const [id, e] of enrichment.entries()) {
+    visitCountByClient.set(id, e.totalKarute)
+  }
+
   const reservationViews = appointmentsToReservationViews(
     todayAppointments,
     staffList,
     today,
+    visitCountByClient,
   )
 
   const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, today)

@@ -37,6 +37,22 @@ const STATUS_TONES: Record<DisplayStatus, StatusTone> = {
     chipBg: 'var(--reservation-completed-chip-bg)',
     chipText: 'var(--reservation-completed-chip-text)',
   },
+  new: {
+    bg: 'var(--reservation-new-bg)',
+    border: 'var(--reservation-new-border)',
+    borderStyle: 'solid',
+    chipBg: 'var(--reservation-new-chip-bg)',
+    chipText: 'var(--reservation-new-chip-text)',
+  },
+  pending: {
+    bg: 'var(--reservation-pending-bg)',
+    border: 'var(--reservation-pending-border)',
+    // Dashed border signals "needs attention" — visually distinct from booked
+    // even before the user reads the chip label.
+    borderStyle: 'dashed',
+    chipBg: 'var(--reservation-pending-chip-bg)',
+    chipText: 'var(--reservation-pending-chip-text)',
+  },
 }
 
 function addMinutes(hm: string, minutes: number): string {
