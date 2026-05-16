@@ -26,6 +26,22 @@ export interface DeepgramTranscribeUrlOptions {
   diarize?: boolean
 }
 
+export interface DeepgramWord {
+  word: string
+  start: number
+  end: number
+  confidence: number
+  /** Only present when `diarize=true`. 0-indexed speaker label. */
+  speaker?: number
+}
+
+export interface DeepgramParagraph {
+  speaker: number
+  start: number
+  end: number
+  text: string
+}
+
 export interface DeepgramTranscribeResult {
   /** Plain-text transcript from the first channel + first alternative. */
   transcript: string
@@ -33,6 +49,16 @@ export interface DeepgramTranscribeResult {
   durationSec: number
   /** Deepgram-side request id (useful for support tickets). */
   requestId: string
+  /** Alternative-level confidence (0–1). */
+  confidence: number
+  /** Word-level timing + (when diarized) speaker. */
+  words: DeepgramWord[]
+  /**
+   * Speaker-labeled paragraphs. Only populated when `diarize=true` was
+   * requested. Useful for rendering "Staff / Customer" turn-taking in the
+   * karute detail transcript card.
+   */
+  paragraphs: DeepgramParagraph[]
 }
 
 interface DeepgramApiResponse {
@@ -44,6 +70,22 @@ interface DeepgramApiResponse {
     channels?: Array<{
       alternatives?: Array<{
         transcript?: string
+        confidence?: number
+        words?: Array<{
+          word?: string
+          start?: number
+          end?: number
+          confidence?: number
+          speaker?: number
+        }>
+        paragraphs?: {
+          paragraphs?: Array<{
+            speaker?: number
+            start?: number
+            end?: number
+            sentences?: Array<{ text?: string }>
+          }>
+        }
       }>
     }>
   }
@@ -72,12 +114,36 @@ async function parseDeepgram(res: Response): Promise<DeepgramTranscribeResult> {
     )
   }
   const data = (await res.json()) as DeepgramApiResponse
-  const transcript =
-    data.results?.channels?.[0]?.alternatives?.[0]?.transcript ?? ''
+  const alt = data.results?.channels?.[0]?.alternatives?.[0]
+  const transcript = alt?.transcript ?? ''
+
+  const words: DeepgramWord[] = (alt?.words ?? []).map((w) => ({
+    word: w.word ?? '',
+    start: w.start ?? 0,
+    end: w.end ?? 0,
+    confidence: w.confidence ?? 0,
+    speaker: w.speaker,
+  }))
+
+  const paragraphs: DeepgramParagraph[] = (alt?.paragraphs?.paragraphs ?? [])
+    .map((p) => ({
+      speaker: p.speaker ?? 0,
+      start: p.start ?? 0,
+      end: p.end ?? 0,
+      text: (p.sentences ?? [])
+        .map((s) => s.text ?? '')
+        .filter(Boolean)
+        .join(' '),
+    }))
+    .filter((p) => p.text.length > 0)
+
   return {
     transcript,
     durationSec: data.metadata?.duration ?? 0,
     requestId: data.metadata?.request_id ?? '',
+    confidence: alt?.confidence ?? 0,
+    words,
+    paragraphs,
   }
 }
 

@@ -7,6 +7,11 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   enforceAiRateLimit: jest.fn(async () => null),
 }))
 
+// Org settings drive the diarize flag — stub a permissive default.
+jest.mock('@/actions/org-settings', () => ({
+  getOrgSettings: jest.fn(async () => ({ speaker_diarization: true })),
+}))
+
 // Deepgram is reached via global fetch in lib/deepgram.ts. Stub fetch so the
 // test runs offline with a deterministic transcript.
 const fetchMock = jest.fn()
@@ -29,7 +34,30 @@ function deepgramResponse(transcript: string): Response {
     JSON.stringify({
       metadata: { request_id: 'req-1', duration: 12.3 },
       results: {
-        channels: [{ alternatives: [{ transcript }] }],
+        channels: [
+          {
+            alternatives: [
+              {
+                transcript,
+                confidence: 0.94,
+                words: [
+                  { word: 'hello', start: 0, end: 0.5, confidence: 0.95, speaker: 0 },
+                  { word: 'world', start: 0.5, end: 1.0, confidence: 0.93, speaker: 1 },
+                ],
+                paragraphs: {
+                  paragraphs: [
+                    {
+                      speaker: 0,
+                      start: 0,
+                      end: 1.0,
+                      sentences: [{ text: 'Hello world' }],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -55,12 +83,19 @@ describe('POST /api/ai/transcribe', () => {
 
         expect(response.status).toBe(200)
         const body = await response.json()
-        expect(body).toEqual({ transcript: 'こんにちは' })
+        // transcript is the contract karute_records reads — keep it primary.
+        expect(body.transcript).toBe('こんにちは')
+        expect(body.durationSec).toBe(12.3)
+        expect(body.confidence).toBeCloseTo(0.94)
+        expect(body.words).toHaveLength(2)
+        expect(body.paragraphs).toEqual([
+          { speaker: 0, start: 0, end: 1.0, text: 'Hello world' },
+        ])
 
         const [url, init] = fetchMock.mock.calls[0]
         expect(String(url)).toMatch(/api\.deepgram\.com\/v1\/listen/)
-        // locale 'en' from the form maps to language=en in the URL.
         expect(String(url)).toMatch(/language=en/)
+        expect(String(url)).toMatch(/diarize=true/)
         expect((init as RequestInit).headers).toMatchObject({
           Authorization: 'Token test-key',
           'Content-Type': 'audio/webm',
