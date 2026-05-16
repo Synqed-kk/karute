@@ -1,31 +1,44 @@
 import { testApiHandler } from 'next-test-api-route-handler'
 import * as appHandler from '@/app/api/ai/transcribe/route'
 
-jest.mock('@/lib/openai', () => ({
-  openai: {
-    audio: {
-      transcriptions: {
-        create: jest.fn(),
+// Rate limiter is exercised in its own test — keep the transcribe tests
+// focused on Deepgram wiring.
+jest.mock('@/lib/ai-rate-limit', () => ({
+  enforceAiRateLimit: jest.fn(async () => null),
+}))
+
+// Deepgram is reached via global fetch in lib/deepgram.ts. Stub fetch so the
+// test runs offline with a deterministic transcript.
+const fetchMock = jest.fn()
+const originalFetch = global.fetch
+beforeAll(() => {
+  global.fetch = fetchMock as unknown as typeof global.fetch
+  process.env.DEEPGRAM_API_KEY = 'test-key'
+})
+afterAll(() => {
+  global.fetch = originalFetch
+})
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  fetchMock.mockReset()
+})
+
+function deepgramResponse(transcript: string): Response {
+  return new Response(
+    JSON.stringify({
+      metadata: { request_id: 'req-1', duration: 12.3 },
+      results: {
+        channels: [{ alternatives: [{ transcript }] }],
       },
-    },
-  },
-}))
-
-jest.mock('openai', () => ({
-  ...jest.requireActual('openai'),
-  toFile: jest.fn().mockResolvedValue('mocked-file'),
-}))
-
-import { openai } from '@/lib/openai'
-import { mockTranscriptionResult } from './helpers/openai-mocks'
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json' } },
+  )
+}
 
 describe('POST /api/ai/transcribe', () => {
-  beforeEach(() => {
-    jest.clearAllMocks()
-  })
-
   it('returns transcript for valid audio upload', async () => {
-    ;(openai.audio.transcriptions.create as jest.Mock).mockResolvedValue(mockTranscriptionResult)
+    fetchMock.mockResolvedValue(deepgramResponse('こんにちは'))
 
     const formData = new FormData()
     const audioBlob = new Blob(['fake-audio'], { type: 'audio/webm' })
@@ -42,8 +55,16 @@ describe('POST /api/ai/transcribe', () => {
 
         expect(response.status).toBe(200)
         const body = await response.json()
-        expect(body).toHaveProperty('transcript')
-        expect(body.transcript).toBe(mockTranscriptionResult)
+        expect(body).toEqual({ transcript: 'こんにちは' })
+
+        const [url, init] = fetchMock.mock.calls[0]
+        expect(String(url)).toMatch(/api\.deepgram\.com\/v1\/listen/)
+        // locale 'en' from the form maps to language=en in the URL.
+        expect(String(url)).toMatch(/language=en/)
+        expect((init as RequestInit).headers).toMatchObject({
+          Authorization: 'Token test-key',
+          'Content-Type': 'audio/webm',
+        })
       },
     })
   })
@@ -61,17 +82,17 @@ describe('POST /api/ai/transcribe', () => {
         const body = await response.json()
         expect(body).toHaveProperty('error')
         expect(body.error).toMatch(/No audio/i)
+        expect(fetchMock).not.toHaveBeenCalled()
       },
     })
   })
 
-  it('defaults locale to ja when not specified', async () => {
-    ;(openai.audio.transcriptions.create as jest.Mock).mockResolvedValue(mockTranscriptionResult)
+  it('defaults language to ja when locale not specified', async () => {
+    fetchMock.mockResolvedValue(deepgramResponse('テスト'))
 
     const formData = new FormData()
     const audioBlob = new Blob(['fake-audio'], { type: 'audio/webm' })
     formData.append('audio', audioBlob, 'audio.webm')
-    // No locale field appended
 
     await testApiHandler({
       appHandler,
@@ -82,15 +103,14 @@ describe('POST /api/ai/transcribe', () => {
         })
 
         expect(response.status).toBe(200)
-        expect(openai.audio.transcriptions.create).toHaveBeenCalledWith(
-          expect.objectContaining({ language: 'ja' })
-        )
+        const [url] = fetchMock.mock.calls[0]
+        expect(String(url)).toMatch(/language=ja/)
       },
     })
   })
 
-  it('handles mp4 audio (iOS Safari)', async () => {
-    ;(openai.audio.transcriptions.create as jest.Mock).mockResolvedValue(mockTranscriptionResult)
+  it('passes mp4 content-type through to Deepgram (iOS Safari)', async () => {
+    fetchMock.mockResolvedValue(deepgramResponse('ok'))
 
     const formData = new FormData()
     const audioBlob = new Blob(['fake-audio'], { type: 'audio/mp4' })
@@ -106,7 +126,82 @@ describe('POST /api/ai/transcribe', () => {
         })
 
         expect(response.status).toBe(200)
-        expect(openai.audio.transcriptions.create).toHaveBeenCalled()
+        const [, init] = fetchMock.mock.calls[0]
+        expect((init as RequestInit).headers).toMatchObject({
+          'Content-Type': 'audio/mp4',
+        })
+      },
+    })
+  })
+
+  it('passes a Supabase signed URL straight through to Deepgram', async () => {
+    fetchMock.mockResolvedValue(deepgramResponse('hello world'))
+
+    const audioUrl = 'https://example.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ audioUrl, locale: 'en' }),
+        })
+
+        expect(response.status).toBe(200)
+        const body = await response.json()
+        expect(body.transcript).toBe('hello world')
+
+        // Only ONE outbound fetch — Deepgram fetches the audio itself.
+        // The serverless function should NOT download the file first.
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        const [url, init] = fetchMock.mock.calls[0]
+        expect(String(url)).toMatch(/api\.deepgram\.com\/v1\/listen/)
+        expect((init as RequestInit).headers).toMatchObject({
+          'Content-Type': 'application/json',
+        })
+        expect((init as RequestInit).body).toBe(JSON.stringify({ url: audioUrl }))
+      },
+    })
+  })
+
+  it('returns 400 when JSON body omits audioUrl', async () => {
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locale: 'ja' }),
+        })
+
+        expect(response.status).toBe(400)
+        expect(fetchMock).not.toHaveBeenCalled()
+      },
+    })
+  })
+
+  it('surfaces Deepgram failures as 500', async () => {
+    fetchMock.mockResolvedValue(
+      new Response('{"err":"bad audio"}', { status: 400 }),
+    )
+
+    const formData = new FormData()
+    const audioBlob = new Blob(['fake-audio'], { type: 'audio/webm' })
+    formData.append('audio', audioBlob, 'audio.webm')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          body: formData,
+        })
+
+        expect(response.status).toBe(500)
+        const body = await response.json()
+        expect(body.error).toMatch(/Transcription failed/i)
+        expect(body.detail).toMatch(/Deepgram 400/i)
       },
     })
   })
