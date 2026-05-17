@@ -47,7 +47,10 @@ export default async function AppointmentsPage({
 
   const selectedDate = parseDateParam(sp.date)
   const view = parseViewParam(sp.view)
-  const todayStr = new Date().toISOString().split('T')[0]
+  // YYYY-MM-DD of the date being viewed — was hard-coded to `new Date()`,
+  // which made the day-view prev/next buttons no-op (URL changed but the
+  // fetch always ran for today).
+  const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
   const tzOffset = 0 // server is UTC; client will re-fetch with correct offset if needed
 
   const [
@@ -58,14 +61,14 @@ export default async function AppointmentsPage({
     activeStaffId,
     orgSettings,
     customers,
-    todayAppointments,
+    dayAppointments,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(todayStr, tzOffset),
+    getAppointmentsByDate(selectedDateStr, tzOffset),
   ])
 
   const authProfileId = user?.id ?? null
@@ -77,7 +80,7 @@ export default async function AppointmentsPage({
     avatarUrl: s.avatar_url ?? undefined,
   }))
 
-  const today = new Date()
+  const now = new Date()
 
   const reservationStaff: ReservationStaff[] = staffList.map((s) => ({
     id: s.id,
@@ -89,29 +92,32 @@ export default async function AppointmentsPage({
   }))
 
   // Visit count per client is needed to derive the "新規 (new)" status for
-  // first-time customers. Only the clients on today's calendar matter — keeps
+  // first-time customers. Only the clients on the viewed day matter — keeps
   // the enrichCustomers fan-out tiny vs. running it for the whole tenant.
-  const clientIdsToday = Array.from(
-    new Set(todayAppointments.map((a) => a.client_id)),
+  const clientIdsForDay = Array.from(
+    new Set(dayAppointments.map((a) => a.client_id)),
   )
   const businessId = await getBusinessId().catch(() => null)
   const enrichment =
-    businessId && clientIdsToday.length
-      ? await enrichCustomers(businessId, clientIdsToday)
+    businessId && clientIdsForDay.length
+      ? await enrichCustomers(businessId, clientIdsForDay)
       : new Map()
   const visitCountByClient = new Map<string, number>()
   for (const [id, e] of enrichment.entries()) {
     visitCountByClient.set(id, e.totalKarute)
   }
 
+  // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
+  // know whether an appointment is past/in-progress/future relative to right
+  // now, not to the date being viewed.
   const reservationViews = appointmentsToReservationViews(
-    todayAppointments,
+    dayAppointments,
     staffList,
-    today,
+    now,
     visitCountByClient,
   )
 
-  const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, today)
+  const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate)
   const businessHours = {
     start: Math.floor(dayOpHours.openMinute / 60),
     end: Math.ceil(dayOpHours.closeMinute / 60),
@@ -145,7 +151,7 @@ export default async function AppointmentsPage({
       return Math.round(sum / 7)
     })()
 
-    weekData = appointmentsToWeekData(appts, weekStart, weekEnd, totalMinutes, today)
+    weekData = appointmentsToWeekData(appts, weekStart, weekEnd, totalMinutes, now)
     weekStartIso = weekStart.toISOString()
   } else if (view === 'month') {
     const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
@@ -156,7 +162,7 @@ export default async function AppointmentsPage({
     rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
     rangeTo.setHours(23, 59, 59, 999)
     const appts = await getAppointmentsInRange(rangeFrom.toISOString(), rangeTo.toISOString())
-    monthData = appointmentsToMonthCells(appts, monthStart, monthEnd, today)
+    monthData = appointmentsToMonthCells(appts, monthStart, monthEnd, now)
     monthStartIso = monthStart.toISOString()
   }
 
@@ -168,7 +174,7 @@ export default async function AppointmentsPage({
       customers={customers}
       locale={locale}
       orgSettings={orgSettings}
-      initialAppointments={todayAppointments}
+      initialAppointments={dayAppointments}
       initialView={view}
       selectedDateIso={selectedDate.toISOString()}
       weekData={weekData}

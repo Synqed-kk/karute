@@ -92,6 +92,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
 
   const view = props.initialView
   const selectedDate = new Date(props.selectedDateIso)
+  // `today` is reserved for the Today button (jump-to-now) — the displayed
+  // header always reflects whichever date is currently selected.
   const today = new Date()
   const tReservation = useTranslations('reservation')
   const tCommon = useTranslations('common')
@@ -133,10 +135,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     navigateTo(view, new Date(y, m - 1, d))
   }
 
-  const headerDate =
-    view === 'day'
-      ? today
-      : selectedDate
+  const headerDate = selectedDate
 
   return (
     <div className="relative space-y-3 p-4 md:p-6">
