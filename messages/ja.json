@@ -120,10 +120,24 @@
       "servicePlaceholder": "施術内容",
       "cancel": "キャンセル",
       "save": "保存",
-      "saving": "保存中…"
+      "saving": "保存中…",
+      "toasts": {
+        "customerMissing": "お客様を選択してください",
+        "invalidDuration": "所要時間が無効です",
+        "invalidDateTime": "日付または時刻が無効です"
+      }
     },
     "toasts": {
       "bookingCreated": "予約を保存しました"
+    },
+    "errors": {
+      "overlap": "この時間帯は既存の予約と重なっています。",
+      "durationPositive": "所要時間は正の数(分)で入力してください。",
+      "invalidStart": "予約開始時刻が無効です。",
+      "outsideHours": "予約は営業時間内({open}〜{close})に設定してください。"
+    },
+    "empty": {
+      "noData": "データがありません。"
     }
   },
   "karuteList": {
@@ -277,7 +291,12 @@
       "nearbyAround": "{time}前後の予約",
       "current": "現在",
       "seeAllToday": "本日の予約をすべて表示",
-      "noBooking": "予約が選択されていません"
+      "noBooking": "予約が選択されていません",
+      "staffPrefix": "担当: {name}",
+      "defaultService": "セッション",
+      "statusInSession": "施術中",
+      "statusDone": "完了",
+      "statusBooked": "予約済み"
     },
     "brief": {
       "title": "事前ブリーフ",
@@ -311,7 +330,9 @@
       "entries": "{n}件",
       "notCreated": "カルテ未作成",
       "convert": "カルテに変換",
-      "empty": "録音はまだありません。"
+      "empty": "録音はまだありません。",
+      "playAria": "再生",
+      "durationFmt": "{m}分{s}秒"
     },
     "liveTranscript": {
       "title": "ライブ文字起こし",
@@ -325,6 +346,7 @@
   "customers": {
     "title": "顧客",
     "newCustomer": "+ 新規顧客",
+    "unknownName": "不明",
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
     },

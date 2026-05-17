@@ -120,10 +120,24 @@
       "servicePlaceholder": "What's being done?",
       "cancel": "Cancel",
       "save": "Save",
-      "saving": "Saving…"
+      "saving": "Saving…",
+      "toasts": {
+        "customerMissing": "Pick a customer",
+        "invalidDuration": "Invalid duration",
+        "invalidDateTime": "Invalid date or time"
+      }
     },
     "toasts": {
       "bookingCreated": "Booking saved"
+    },
+    "errors": {
+      "overlap": "This time slot overlaps with an existing booking.",
+      "durationPositive": "Duration must be a positive number of minutes.",
+      "invalidStart": "Invalid appointment start time.",
+      "outsideHours": "Appointment must be within operating hours ({open}–{close})."
+    },
+    "empty": {
+      "noData": "No data."
     }
   },
   "karuteList": {
@@ -277,7 +291,12 @@
       "nearbyAround": "Bookings around {time}",
       "current": "Current",
       "seeAllToday": "See all today's bookings",
-      "noBooking": "No booking selected"
+      "noBooking": "No booking selected",
+      "staffPrefix": "Staff: {name}",
+      "defaultService": "Session",
+      "statusInSession": "In session",
+      "statusDone": "Done",
+      "statusBooked": "Booked"
     },
     "brief": {
       "title": "PRE-SESSION BRIEF",
@@ -311,7 +330,9 @@
       "entries": "{n} entries",
       "notCreated": "Karute not created",
       "convert": "Convert to karute",
-      "empty": "No recordings yet."
+      "empty": "No recordings yet.",
+      "playAria": "Play",
+      "durationFmt": "{m} min {s} sec"
     },
     "liveTranscript": {
       "title": "Live transcript",
@@ -325,6 +346,7 @@
   "customers": {
     "title": "Customers",
     "newCustomer": "+ New Customer",
+    "unknownName": "Unknown",
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
     },
