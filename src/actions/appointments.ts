@@ -8,6 +8,7 @@ import {
   type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -47,9 +48,10 @@ export async function createAppointment(input: AppointmentInput) {
 
   try {
     const synqed = await getSynqedClient()
+    const synqedStaffId = await resolveSynqedStaffId(input.staffProfileId)
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
-      staff_id: input.staffProfileId,
+      staff_id: synqedStaffId,
       starts_at: startTime.toISOString(),
       ends_at: endTime.toISOString(),
       duration_minutes: input.durationMinutes,
@@ -169,7 +171,9 @@ export async function updateAppointment(
       duration_minutes?: number
     } = {}
 
-    if (updates.staffProfileId) patch.staff_id = updates.staffProfileId
+    if (updates.staffProfileId) {
+      patch.staff_id = await resolveSynqedStaffId(updates.staffProfileId)
+    }
     if (updates.startTime) patch.starts_at = updates.startTime
     if (updates.durationMinutes) patch.duration_minutes = updates.durationMinutes
 

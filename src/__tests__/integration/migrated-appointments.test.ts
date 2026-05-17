@@ -88,6 +88,14 @@ jest.mock('@/lib/customers/cached', () => ({
   getCachedCustomerList: jest.fn(async () => cachedCustomerList),
 }))
 
+// Profile-id → synqed-staff-id translation moved into its own cached module
+// (src/lib/synqed/staff-map.ts). Mock the resolver directly so tests don't
+// need to stub the inner SynqedClient construction.
+const resolveSynqedStaffIdMock = jest.fn(async (id: string) => id)
+jest.mock('@/lib/synqed/staff-map', () => ({
+  resolveSynqedStaffId: (id: string) => resolveSynqedStaffIdMock(id),
+}))
+
 import {
   createAppointment,
   getAppointmentsByDate,
@@ -102,11 +110,17 @@ describe('Migrated appointment actions', () => {
   })
 
   describe('createAppointment', () => {
-    it('maps input and computes ends_at', async () => {
+    it('translates supabase profile id → synqed staff id before insert', async () => {
+      // synqed-core's appointments.staff_id FKs to staff.id, but the UI passes
+      // profiles.id (== staff.user_id). Without this translation the insert
+      // fails with appointments_staff_id_fkey on synqed-core.
       appointments.create.mockResolvedValue({ id: 'appt-1' })
+      resolveSynqedStaffIdMock.mockImplementationOnce(async (id: string) =>
+        id === 'profile-1' ? 'synqed-staff-1' : id,
+      )
 
       const result = await createAppointment({
-        staffProfileId: 'staff-1',
+        staffProfileId: 'profile-1',
         clientId: 'cust-1',
         startTime: '2026-05-10T10:00:00.000Z',
         durationMinutes: 60,
@@ -117,7 +131,7 @@ describe('Migrated appointment actions', () => {
       expect(result).toEqual({ id: 'appt-1' })
       expect(appointments.create).toHaveBeenCalledWith({
         customer_id: 'cust-1',
-        staff_id: 'staff-1',
+        staff_id: 'synqed-staff-1',
         starts_at: '2026-05-10T10:00:00.000Z',
         ends_at: '2026-05-10T11:00:00.000Z',
         duration_minutes: 60,
