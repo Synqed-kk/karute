@@ -219,9 +219,77 @@ export function RecordPageView({
     : null
 
   const isRecording = phase === 'recording'
+  // When there's no booking, the empty-state target card is a small banner —
+  // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
+  const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
+
+  const recorderControls = phase === 'recorded' ? (
+    <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
+      <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+        {`${pad2(Math.floor(recordingDuration / 60))}:${pad2(recordingDuration % 60)}`}
+      </div>
+      <div className="flex h-10 items-end gap-[3px] opacity-50">
+        {frozenBars.map((h, i) => (
+          <span
+            key={i}
+            className="w-[3px] rounded-full bg-muted-foreground/50"
+            style={{ height: `${Math.max(15, Math.min(100, h * 0.6))}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 flex w-full items-center gap-3">
+        <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
+          {t('discard')}
+        </Button>
+        <Button variant="default" size="md" className="flex-1" onClick={handleUseRecording}>
+          {t('useRecording')}
+        </Button>
+      </div>
+    </section>
+  ) : (
+    <RecordButtonCard
+      customerName={nextAppointment?.customerName ?? null}
+      isRecording={isRecording}
+      elapsedSeconds={elapsed}
+      waveform={normalizedBars}
+      onStart={() => {
+        if (recordingBlocked) return
+        handleStartRecording()
+      }}
+      onStop={stopRecording}
+    />
+  )
+
+  const recorderColumn = (
+    <div className="flex flex-col gap-3.5">
+      <SourceModeChips />
+      {recorderControls}
+      <div className="flex justify-center">
+        <ConsentPill consentDate={consentDate} />
+      </div>
+      {phase === 'idle' && nextAppointment && consent && !consent.granted && (
+        <ConsentCheckCard
+          consented={false}
+          customerName={nextAppointment.customerName}
+          labels={{
+            grantedTitle: t('consentGrantedTitle'),
+            grantedDesc: t('consentGrantedDesc'),
+            grantedWhen: t('consentGrantedWhen'),
+            missingTitle: t('consentMissingTitle'),
+            missingDesc: t('consentMissingDesc'),
+            startFlow: t('consentStartFlow'),
+          }}
+          onStartConsent={() => {
+            setConsentError(null)
+            setShowConsentDialog(true)
+          }}
+        />
+      )}
+    </div>
+  )
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
 
       {micError && (
@@ -237,80 +305,26 @@ export function RecordPageView({
         </div>
       )}
 
-      <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-4">
+      {layoutMode === 'split' ? (
+        <div className="grid items-start gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-4 self-start">
+            <RecordingTargetCard
+              appointment={targetAppointment}
+              nearbyBookings={nearbyBookings}
+            />
+            <PreSessionBriefCard brief={brief} />
+          </div>
+          <div className="self-start">{recorderColumn}</div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5">
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
           />
-          <PreSessionBriefCard brief={brief} />
+          <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>
-
-        <div className="flex flex-col gap-3.5">
-          <SourceModeChips />
-
-          {/* Phase: recorded → show discard / use buttons.  Else use the redesigned button card. */}
-          {phase === 'recorded' ? (
-            <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
-              <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
-                {`${pad2(Math.floor(recordingDuration / 60))}:${pad2(recordingDuration % 60)}`}
-              </div>
-              <div className="flex h-10 items-end gap-[3px] opacity-50">
-                {frozenBars.map((h, i) => (
-                  <span
-                    key={i}
-                    className="w-[3px] rounded-full bg-muted-foreground/50"
-                    style={{ height: `${Math.max(15, Math.min(100, h * 0.6))}%` }}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex w-full items-center gap-3">
-                <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
-                  {t('discard')}
-                </Button>
-                <Button variant="default" size="md" className="flex-1" onClick={handleUseRecording}>
-                  {t('useRecording')}
-                </Button>
-              </div>
-            </section>
-          ) : (
-            <RecordButtonCard
-              customerName={nextAppointment?.customerName ?? null}
-              isRecording={isRecording}
-              elapsedSeconds={elapsed}
-              waveform={normalizedBars}
-              onStart={() => {
-                if (recordingBlocked) return
-                handleStartRecording()
-              }}
-              onStop={stopRecording}
-            />
-          )}
-
-          <div className="flex justify-center">
-            <ConsentPill consentDate={consentDate} />
-          </div>
-
-          {phase === 'idle' && nextAppointment && consent && !consent.granted && (
-            <ConsentCheckCard
-              consented={false}
-              customerName={nextAppointment.customerName}
-              labels={{
-                grantedTitle: t('consentGrantedTitle'),
-                grantedDesc: t('consentGrantedDesc'),
-                grantedWhen: t('consentGrantedWhen'),
-                missingTitle: t('consentMissingTitle'),
-                missingDesc: t('consentMissingDesc'),
-                startFlow: t('consentStartFlow'),
-              }}
-              onStartConsent={() => {
-                setConsentError(null)
-                setShowConsentDialog(true)
-              }}
-            />
-          )}
-        </div>
-      </div>
+      )}
 
       <LiveTranscriptCard connected={false} lines={[]} />
 

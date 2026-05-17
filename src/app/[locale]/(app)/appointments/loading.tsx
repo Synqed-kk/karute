@@ -1,38 +1,36 @@
 export default function AppointmentsLoading() {
   return (
     <div className="animate-pulse space-y-3 p-4 md:p-6">
-      {/* Page header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="h-7 w-32 rounded bg-muted md:h-8 md:w-36" />
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-md bg-muted" />
-            <div className="h-8 w-36 rounded-md bg-muted" />
-            <div className="h-8 w-8 rounded-md bg-muted" />
-            <div className="h-8 w-14 rounded-md bg-muted" />
-          </div>
+      {/* Page header — title + date pager + new-booking button */}
+      <div className="mb-4 flex items-center justify-between gap-2 md:gap-3">
+        <div className="flex items-center gap-1">
+          <div className="hidden h-8 w-32 rounded bg-muted md:block" />
+          <div className="size-8 rounded-md bg-muted" />
+          <div className="h-8 w-44 rounded-md bg-muted" />
+          <div className="size-8 rounded-md bg-muted" />
+          <div className="ml-1 h-8 w-14 rounded-md bg-muted" />
         </div>
-        <div className="h-9 w-36 rounded-[10px] bg-muted" />
+        <div className="size-9 rounded-md bg-muted md:hidden" />
+        <div className="hidden h-9 w-32 rounded-md bg-muted md:block" />
       </div>
 
-      {/* Filter row */}
+      {/* Day/Week/Month toggle + legend chips */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="h-8 w-44 rounded-full bg-muted" />
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-7 w-24 rounded-full bg-muted" />
-        ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="h-3 w-10 rounded bg-muted" />
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="flex items-center gap-1.5">
+              <div className="size-2.5 rounded-sm bg-muted" />
+              <div className="h-3 w-12 rounded bg-muted" />
+            </div>
+          ))}
+          <div className="flex items-center gap-1.5">
+            <div className="h-2.5 w-4 rounded-sm bg-muted" />
+            <div className="h-3 w-10 rounded bg-muted" />
+          </div>
+        </div>
       </div>
-
-      {/* Legend */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="h-3 w-12 rounded bg-muted" />
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className="h-3 w-16 rounded bg-muted" />
-        ))}
-      </div>
-
-      {/* Day/Week/Month */}
-      <div className="h-8 w-44 rounded-full bg-muted" />
 
       {/* Desktop time-grid */}
       <div className="hidden md:block">
