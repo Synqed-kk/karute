@@ -60,16 +60,26 @@ const staffListByBusiness = unstable_cache(
 /**
  * Returns all staff profiles ordered alphabetically by full_name.
  * Returns an empty array on error (safe to render empty list).
- * Cached for 60s per tenant; mutation actions call updateTag('staff-list').
+ *
+ * Two layers of caching:
+ *   - React `cache()` dedupes within a single request — the (app)/ layout
+ *     plus the individual page (plus any nested server component) all share
+ *     one Promise, no repeated cache lookups.
+ *   - `unstable_cache` (on staffListByBusiness) reuses the DB read across
+ *     requests for 60s. Mutation actions in src/actions/staff.ts call
+ *     updateTag('staff-list') to invalidate.
+ *
+ * The two layers compose: per-request dedup avoids redundant lookups inside
+ * one render; cross-request cache avoids redundant DB hits across renders.
  */
-export async function getStaffList(): Promise<StaffMember[]> {
+export const getStaffList = cache(async (): Promise<StaffMember[]> => {
   try {
     const businessId = await getBusinessId()
-    return staffListByBusiness(businessId)
+    return await staffListByBusiness(businessId)
   } catch {
     return []
   }
-}
+})
 
 /**
  * Returns a single staff profile by ID, or null if not found.
