@@ -48,7 +48,9 @@
     "noAccount": "アカウントをお持ちでない方",
     "signupLink": "新規登録",
     "hasAccount": "アカウントをお持ちの方",
-    "signinLink": "サインイン"
+    "signinLink": "サインイン",
+    "signupNoUser": "ユーザーが取得できませんでした。もう一度お試しください。",
+    "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。"
   },
   "sidebar": {
     "recording": "録音",

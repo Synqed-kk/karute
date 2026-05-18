@@ -48,7 +48,9 @@
     "noAccount": "No account?",
     "signupLink": "Sign up",
     "hasAccount": "Already have an account?",
-    "signinLink": "Sign in"
+    "signinLink": "Sign in",
+    "signupNoUser": "Signup did not return a user. Try again.",
+    "emailAlreadyRegistered": "This email is already registered. Please sign in instead."
   },
   "sidebar": {
     "recording": "Recording",
