@@ -37,8 +37,11 @@ const synqedStaffListByBusiness = unstable_cache(
       email: (s as { email?: string | null }).email ?? null,
     }))
   },
+  // Mirrors the staff-list cache TTL in src/lib/staff.ts — staff churn is
+  // a once-in-a-while admin event, and every staff mutation already bumps
+  // the 'staff-list' tag, so the day-long TTL is just a backstop.
   ['synqed-staff-list-v2'],
-  { revalidate: 3600, tags: ['staff-list'] },
+  { revalidate: 86400, tags: ['staff-list'] },
 )
 
 /**

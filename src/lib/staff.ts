@@ -53,8 +53,15 @@ const staffListByBusiness = unstable_cache(
       }),
     ) as StaffMember[]
   },
+  // Staff onboarding is a once-in-a-while admin event, not a per-session
+  // thing — every karute mutation that changes a staff row (create/update/
+  // delete/avatar upload in src/actions/staff.ts) already calls
+  // updateTag('staff-list'), so the cache invalidates the moment something
+  // actually changes. The TTL is just a backstop in case a non-karute
+  // mutation slips in elsewhere (e.g. directly in Supabase). A day is
+  // generous and matches the rate of real staff churn.
   ['staff-list-v1'],
-  { revalidate: 60, tags: ['staff-list'] },
+  { revalidate: 86400, tags: ['staff-list'] },
 )
 
 /**
