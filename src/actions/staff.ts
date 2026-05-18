@@ -4,8 +4,24 @@ import { cookies } from 'next/headers'
 import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { createServiceClient } from '@/lib/supabase/service'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import { getActiveStaffId } from '@/lib/staff'
+
+// Look up an existing Supabase profile by email. Returns its id (which equals
+// auth.users.id) when found, else null. Lets createStaff seed synqed
+// staff.user_id at insert time when the teammate already has an auth account
+// — otherwise the link is filled in later by the resolver's self-heal path
+// in src/lib/synqed/staff-map.ts.
+async function findProfileIdByEmail(email: string): Promise<string | null> {
+  const service = createServiceClient()
+  const { data } = await service
+    .from('profiles')
+    .select('id')
+    .eq('email', email)
+    .maybeSingle()
+  return (data as { id?: string } | null)?.id ?? null
+}
 
 export async function createStaff(data: StaffProfileInput): Promise<void> {
   const parsed = staffProfileSchema.safeParse(data)
@@ -13,10 +29,14 @@ export async function createStaff(data: StaffProfileInput): Promise<void> {
     throw new Error(parsed.error.issues.map((e) => e.message).join(', '))
   }
 
+  const email = parsed.data.email || null
+  const userId = email ? await findProfileIdByEmail(email) : null
+
   const synqed = await getSynqedClient()
   await synqed.staff.create({
     name: parsed.data.name,
-    email: parsed.data.email || null,
+    email,
+    user_id: userId,
   })
 
   revalidatePath('/settings')
