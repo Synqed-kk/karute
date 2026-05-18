@@ -53,10 +53,15 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider data={sessionData}>
-      <div className="flex h-screen flex-col overflow-hidden bg-[var(--color-bg)]">
+      {/* h-dvh (dynamic viewport height) keeps the bottom nav inside the
+          visible viewport on iOS Safari + in-app browsers (Discord/Twitter/
+          Slack), whose chrome would otherwise occlude a fixed bottom-0
+          element. Bottom nav is now in flex flow rather than fixed so it
+          always rides the visible bottom edge, no swipe-to-reveal needed. */}
+      <div className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]">
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
-          <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)] pb-24 md:pb-0">
+          <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)]">
             <div className="mx-auto max-w-7xl p-4 md:p-6">
               {children}
             </div>

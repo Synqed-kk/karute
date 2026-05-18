@@ -133,9 +133,11 @@ export function BottomNav() {
         </div>
       </div>
 
-      {/* Bottom tab bar */}
+      {/* Bottom tab bar — sits in the layout flex column so iOS Safari /
+          in-app browser chrome can't occlude it. Parent layout uses h-dvh
+          so the column fits the visible viewport. */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+        className="z-50 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
         <div className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2">
