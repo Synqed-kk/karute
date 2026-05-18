@@ -33,26 +33,45 @@ interface DashboardClientProps {
   initialAppointments?: AppointmentRow[]
 }
 
+// JST helpers — karute users are in Asia, so wall-clock times shown on the
+// dashboard timeline and date pickers should reflect Tokyo regardless of
+// the browser's local timezone (matters for travelers / VPN'd dev).
+function jstHmLabel(d: Date): string {
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+function jstMinuteOfDay(d: Date): number {
+  const [h, m] = jstHmLabel(d).split(':').map(Number)
+  return h * 60 + m
+}
+function jstYmd(d: Date): string {
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
+}
+
 function useCurrentTime() {
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const id = setInterval(() => setNow(new Date()), 60_000)
     return () => clearInterval(id)
   }, [])
-  const minute = now.getHours() * 60 + now.getMinutes()
-  const label = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
-  return { minute, label, date: now }
+  return { minute: jstMinuteOfDay(now), label: jstHmLabel(now), date: now }
 }
 
 function formatDate(date: Date, locale: string) {
-  return date.toLocaleDateString(locale, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' })
+  return date.toLocaleDateString(locale, {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 function toLocalDateStr(date: Date): string {
-  const y = date.getFullYear()
-  const m = String(date.getMonth() + 1).padStart(2, '0')
-  const d = String(date.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+  return jstYmd(date)
 }
 
 interface SlotClickState {
@@ -84,7 +103,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const appointmentsToBars = useCallback((appointments: AppointmentRow[]): TimelineBar[] => {
     return appointments.map((a) => {
       const startAt = new Date(a.start_time)
-      const startMin = startAt.getHours() * 60 + startAt.getMinutes()
+      const startMin = jstMinuteOfDay(startAt)
       const customerName = a.customers?.name ?? ''
       const h1 = Math.floor(startMin / 60)
       const m1 = startMin % 60
@@ -112,12 +131,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   const initialLoadDone = useRef(!!initialAppointments)
 
   const isToday = useMemo(() => {
-    const now = new Date()
-    return (
-      selectedDate.getFullYear() === now.getFullYear() &&
-      selectedDate.getMonth() === now.getMonth() &&
-      selectedDate.getDate() === now.getDate()
-    )
+    return jstYmd(selectedDate) === jstYmd(new Date())
   }, [selectedDate])
 
   // Fetch appointments when date changes (skip initial if server data provided)
@@ -202,10 +216,9 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
   }, [])
 
   const isPastDay = useMemo(() => {
-    const now = new Date()
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
-    const selected = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate())
-    return selected < today
+    // Lexicographic compare on YYYY-MM-DD JST strings — avoids the
+    // runtime-local trap that new Date(y,m,d) carries.
+    return jstYmd(selectedDate) < jstYmd(new Date())
   }, [selectedDate])
 
   const handleTimeSlotClick = useCallback(

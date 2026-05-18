@@ -11,16 +11,18 @@
 export const JST_TZ = 'Asia/Tokyo'
 export const JST_OFFSET = '+09:00'
 
-interface YmdHm {
+export interface JstParts {
   year: number
   month: number // 1-12
   day: number
   hour: number
   minute: number
+  /** 0 = Sunday … 6 = Saturday, matching Date#getDay(). */
+  weekday: number
 }
 
-/** Decompose a Date into JST calendar parts (year/month/day/hour/minute). */
-function partsInJst(d: Date): YmdHm {
+/** Decompose a Date into JST calendar parts (year/month/day/hour/minute/weekday). */
+export function partsInJst(d: Date): JstParts {
   // Intl.DateTimeFormat is the only stdlib-clean way to get calendar parts
   // for a specific timezone. The formatToParts shape is stable cross-engine.
   const fmt = new Intl.DateTimeFormat('en-CA', {
@@ -36,12 +38,22 @@ function partsInJst(d: Date): YmdHm {
   const pick = (t: string) => parts.find((p) => p.type === t)?.value ?? '0'
   // hour can come back as "24" for midnight in some Node versions — normalize.
   const hourRaw = Number(pick('hour'))
+  // .getDay() shape: 0=Sun..6=Sat. Pull weekday name then map back, since
+  // Intl doesn't expose a numeric weekday directly via formatToParts.
+  const wdName = new Intl.DateTimeFormat('en-US', {
+    timeZone: JST_TZ,
+    weekday: 'short',
+  }).format(d)
+  const wdMap: Record<string, number> = {
+    Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6,
+  }
   return {
     year: Number(pick('year')),
     month: Number(pick('month')),
     day: Number(pick('day')),
     hour: hourRaw === 24 ? 0 : hourRaw,
     minute: Number(pick('minute')),
+    weekday: wdMap[wdName] ?? 0,
   }
 }
 

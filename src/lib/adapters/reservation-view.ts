@@ -51,8 +51,14 @@ export interface ReservationView {
 }
 
 function hm(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  // JST: the grid positions bookings by startTimeHm, so a UTC-rendered value
+  // on the Vercel server would place an 11:30 JST booking at "02:30" — before
+  // business hours, and clipped out of view entirely.
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function initialsOf(name: string): string {

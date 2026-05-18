@@ -59,7 +59,17 @@ function pad2(n: number): string {
 }
 
 function isoDay(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  // Bucket karute records by JST calendar day (the app is Japan-only).
+  // Runtime-local methods would drift on Vercel's UTC server.
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
+}
+
+function hhmmJst(d: Date): string {
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function deriveStatus(
@@ -80,7 +90,7 @@ export function karuteRecordsToRichRows(
     return {
       id: r.id,
       date: isoDay(dt),
-      time: `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`,
+      time: hhmmJst(dt),
       customerName,
       customerInitials: deriveInitials(customerName),
       karuteNumber: deriveKaruteNumber(r.id),
