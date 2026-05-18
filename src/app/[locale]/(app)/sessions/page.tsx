@@ -16,7 +16,13 @@ function pad2(n: number): string {
   return String(n).padStart(2, '0')
 }
 function hhmm(d: Date): string {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
+  // Always render in JST — Vercel server is UTC, so .getHours() would
+  // otherwise show UTC hours on the recording-target pill.
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 function deriveKaruteNumber(id: string): string {
   const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
@@ -166,6 +172,7 @@ export default async function SessionsPage({
       karuteNumber: deriveKaruteNumber(r.id),
       service: 'Session',
       date: dt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+        timeZone: 'Asia/Tokyo',
         year: 'numeric',
         month: 'short',
         day: 'numeric',
@@ -186,7 +193,7 @@ export default async function SessionsPage({
       if (consent?.granted_at) {
         consentDate = new Date(consent.granted_at).toLocaleDateString(
           locale === 'ja' ? 'ja-JP' : 'en-US',
-          { year: 'numeric', month: 'short', day: 'numeric' },
+          { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'short', day: 'numeric' },
         )
       }
     } catch {

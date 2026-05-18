@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button'
 import { CustomerCombobox } from '@/components/karute/CustomerCombobox'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import { createAppointment } from '@/actions/appointments'
+import { hmInJst, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
 
 interface NewBookingDialogProps {
   open: boolean
@@ -36,21 +37,18 @@ interface NewBookingDialogProps {
 
 const DURATION_OPTIONS = ['30', '45', '60', '75', '90']
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
+function todayYmdJst(): string {
+  return ymdInJst()
 }
 
-function todayYmd(): string {
-  const d = new Date()
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-}
-
-function defaultTime(): string {
-  // Snap "now" up to the next 30-minute boundary as a sensible default.
-  const d = new Date()
-  const m = d.getMinutes() < 30 ? 30 : 0
-  const h = d.getMinutes() < 30 ? d.getHours() : (d.getHours() + 1) % 24
-  return `${pad2(h)}:${pad2(m)}`
+function defaultTimeJst(): string {
+  // Snap "now" up to the next 30-minute boundary in JST.
+  const now = new Date()
+  const [hStr, mStr] = hmInJst(now).split(':')
+  const minutes = Number(mStr)
+  const hour = Number(hStr)
+  if (minutes < 30) return `${String(hour).padStart(2, '0')}:30`
+  return `${String((hour + 1) % 24).padStart(2, '0')}:00`
 }
 
 export function NewBookingDialog({
@@ -67,8 +65,8 @@ export function NewBookingDialog({
   const t = useTranslations('reservation')
   const router = useRouter()
   const [clientId, setClientId] = useState<string | null>(initialClientId ?? null)
-  const [date, setDate] = useState(initialDate ?? todayYmd())
-  const [time, setTime] = useState(initialTime ?? defaultTime())
+  const [date, setDate] = useState(initialDate ?? todayYmdJst())
+  const [time, setTime] = useState(initialTime ?? defaultTimeJst())
   const [duration, setDuration] = useState('60')
   const [staffId, setStaffId] = useState<string>(
     initialStaffId ?? staff[0]?.id ?? '',
@@ -80,8 +78,8 @@ export function NewBookingDialog({
   useEffect(() => {
     if (!open) return
     setClientId(initialClientId ?? null)
-    setDate(initialDate ?? todayYmd())
-    setTime(initialTime ?? defaultTime())
+    setDate(initialDate ?? todayYmdJst())
+    setTime(initialTime ?? defaultTimeJst())
     setStaffId(initialStaffId ?? staff[0]?.id ?? '')
     setService('')
   }, [open, initialClientId, initialDate, initialTime, initialStaffId, staff])
@@ -90,19 +88,19 @@ export function NewBookingDialog({
 
   async function handleSave() {
     if (!clientId) {
-      toast.error('Pick a customer')
+      toast.error(t('newBookingDialog.toasts.customerMissing'))
       return
     }
     const durationMinutes = parseInt(duration, 10)
     if (Number.isNaN(durationMinutes) || durationMinutes <= 0) {
-      toast.error('Invalid duration')
+      toast.error(t('newBookingDialog.toasts.invalidDuration'))
       return
     }
-    // Local Date constructor treats "YYYY-MM-DDTHH:MM:SS" as local time —
-    // exactly what the user typed on the form.
-    const startLocal = new Date(`${date}T${time}:00`)
-    if (Number.isNaN(startLocal.getTime())) {
-      toast.error('Invalid date or time')
+    // The user types JST wall-clock time. Anchor to JST explicitly so the
+    // resulting UTC ISO doesn't drift with the runtime's local timezone.
+    const startJst = jstWallTimeToDate(date, time)
+    if (Number.isNaN(startJst.getTime())) {
+      toast.error(t('newBookingDialog.toasts.invalidDateTime'))
       return
     }
 
@@ -110,9 +108,14 @@ export function NewBookingDialog({
     const result = await createAppointment({
       staffProfileId: staffId,
       clientId,
-      startTime: startLocal.toISOString(),
+      startTime: startJst.toISOString(),
       durationMinutes,
-      tzOffsetMinutes: startLocal.getTimezoneOffset(),
+      // utcToLocalDayAndMinute (the validator) uses getTimezoneOffset
+      // semantics: positive when local is behind UTC, negative when ahead.
+      // JST is UTC+9 with no DST → always -540. Hard-coding decouples this
+      // from the browser's tz, so a traveler in PDT still gets their input
+      // interpreted as JST (which is what the form labels say).
+      tzOffsetMinutes: -540,
       title: service.trim() || undefined,
     })
     setSaving(false)

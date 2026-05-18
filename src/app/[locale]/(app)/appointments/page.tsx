@@ -14,14 +14,17 @@ import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 
 function parseDateParam(value: string | undefined): Date {
-  if (!value) return new Date()
-  // Match YYYY-MM-DD
+  // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
+  // UTC so `new Date(y, m, d)` would otherwise create a UTC-local instant
+  // and the day-view would render the wrong day for half the JST clock.
+  if (!value) return jstStartOfToday()
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!m) return new Date()
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  return isNaN(d.getTime()) ? new Date() : d
+  if (!m) return jstStartOfToday()
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00+09:00`)
+  return isNaN(d.getTime()) ? jstStartOfToday() : d
 }
 
 function parseViewParam(value: string | undefined): DayWeekMonthView {
@@ -47,11 +50,10 @@ export default async function AppointmentsPage({
 
   const selectedDate = parseDateParam(sp.date)
   const view = parseViewParam(sp.view)
-  // YYYY-MM-DD of the date being viewed — was hard-coded to `new Date()`,
-  // which made the day-view prev/next buttons no-op (URL changed but the
-  // fetch always ran for today).
-  const selectedDateStr = `${selectedDate.getFullYear()}-${String(selectedDate.getMonth() + 1).padStart(2, '0')}-${String(selectedDate.getDate()).padStart(2, '0')}`
-  const tzOffset = 0 // server is UTC; client will re-fetch with correct offset if needed
+  // YYYY-MM-DD of the date being viewed, in JST (Vercel server is UTC, so
+  // getFullYear/getMonth on a raw Date would emit the UTC calendar day —
+  // wrong for half the JST clock).
+  const selectedDateStr = ymdInJst(selectedDate)
 
   const [
     {
@@ -68,7 +70,7 @@ export default async function AppointmentsPage({
     getActiveStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(selectedDateStr, tzOffset),
+    getAppointmentsByDate(selectedDateStr),
   ])
 
   const authProfileId = user?.id ?? null

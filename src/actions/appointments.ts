@@ -69,11 +69,14 @@ export async function createAppointment(input: AppointmentInput) {
   }
 }
 
-export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: number = 0): Promise<AppointmentRow[]> {
-  const dayStartUTC = new Date(`${dateStr}T00:00:00Z`)
-  dayStartUTC.setUTCMinutes(dayStartUTC.getUTCMinutes() + tzOffsetMinutes)
-  const dayEndUTC = new Date(`${dateStr}T23:59:59Z`)
-  dayEndUTC.setUTCMinutes(dayEndUTC.getUTCMinutes() + tzOffsetMinutes)
+export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: number = 540): Promise<AppointmentRow[]> {
+  // dateStr is a JST calendar day (YYYY-MM-DD). Frame the fetch window as
+  // JST midnight → next-day JST midnight by appending the +09:00 offset
+  // directly; the runtime then converts to the correct UTC instants for
+  // synqed-core's `from`/`to` filter. The legacy tzOffsetMinutes parameter
+  // is kept for call-site compatibility but ignored — karute is JST-only.
+  const dayStartUTC = new Date(`${dateStr}T00:00:00+09:00`)
+  const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
 
   try {
     const synqed = await getSynqedClient()

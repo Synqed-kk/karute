@@ -61,7 +61,13 @@ function deriveInitials(name: string): string {
 }
 
 function formatHHMM(d: Date): string {
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  // Pin to JST so the time-range pill ("11:30–12:30") matches the booking
+  // dialog input regardless of where the renderer is running.
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export function RecordPageView({

@@ -10,9 +10,15 @@ import {
   type MonthGridCell,
   type WeekDayCardData,
 } from '@synqed-kk/ui'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { Loader2 } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
+import {
+  formatCompactDateJst,
+  formatLongDateJst,
+  jstStartOfToday,
+  ymdInJst,
+} from '@/lib/date/jst'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
@@ -49,28 +55,10 @@ interface AppointmentsViewProps {
   businessHours: BusinessHours
 }
 
-function formatLongDate(d: Date): string {
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-
-function formatCompactDate(d: Date): string {
-  const m = d.getMonth() + 1
-  const day = d.getDate()
-  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]
-  return `${m}/${day} (${wd})`
-}
-
-function formatYmd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
-}
+// formatLongDate / formatCompactDate / formatYmd all delegate to the JST
+// helpers — karute is Japan-targeted, so display always reflects Tokyo
+// wall-clock regardless of where the renderer is (Vercel UTC server vs.
+// traveler-with-VPN browser).
 
 // Cursor delta for prev/next, tuned to the visible chrome. The week/month
 // views advance the full unit; the day view advances one day.
@@ -94,14 +82,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const selectedDate = new Date(props.selectedDateIso)
   // `today` is reserved for the Today button (jump-to-now) — the displayed
   // header always reflects whichever date is currently selected.
-  const today = new Date()
+  // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
+  // arithmetic on it (via shiftDate) stays consistent in JST.
+  const today = jstStartOfToday()
+  const locale = useLocale()
   const tReservation = useTranslations('reservation')
   const tCommon = useTranslations('common')
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
     const search = new URLSearchParams()
     search.set('view', nextView)
-    search.set('date', formatYmd(nextDate))
+    search.set('date', ymdInJst(nextDate))
     startTransition(() => {
       router.push(
         `${pathname}?${search.toString()}` as Parameters<typeof router.push>[0],
@@ -132,7 +123,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     if (!value) return
     const [y, m, d] = value.split('-').map(Number)
     if (!y || !m || !d) return
-    navigateTo(view, new Date(y, m - 1, d))
+    // Interpret the picker's YYYY-MM-DD as JST midnight, so the cursor
+    // lands on the same calendar day in Tokyo regardless of runtime tz.
+    const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    navigateTo(view, new Date(`${ymd}T00:00:00+09:00`))
   }
 
   const headerDate = selectedDate
@@ -143,7 +137,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <input
         ref={datePickerRef}
         type="date"
-        defaultValue={formatYmd(selectedDate)}
+        defaultValue={ymdInJst(selectedDate)}
         onChange={(e) => handlePickerChange(e.target.value)}
         className="sr-only"
         aria-hidden="true"
@@ -151,8 +145,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       />
 
       <ReservationPageHeader
-        dateDisplay={formatLongDate(headerDate)}
-        dateDisplayCompact={formatCompactDate(headerDate)}
+        dateDisplay={formatLongDateJst(headerDate, locale)}
+        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
         onPrev={handlePrev}
         onNext={handleNext}
         onToday={handleToday}
@@ -244,7 +238,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onOpenChange={setDialogOpen}
         customers={props.customers}
         staff={props.staff.map((s) => ({ id: s.id, name: s.name }))}
-        initialDate={formatYmd(selectedDate)}
+        initialDate={ymdInJst(selectedDate)}
         initialStaffId={props.activeStaffId}
         onCreated={() => startTransition(() => router.refresh())}
       />
