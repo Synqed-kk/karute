@@ -112,7 +112,7 @@ export function NewBookingDialog({
       clientId,
       startTime: startLocal.toISOString(),
       durationMinutes,
-      tzOffsetMinutes: -startLocal.getTimezoneOffset(),
+      tzOffsetMinutes: startLocal.getTimezoneOffset(),
       title: service.trim() || undefined,
     })
     setSaving(false)
