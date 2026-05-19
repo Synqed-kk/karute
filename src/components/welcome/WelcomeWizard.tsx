@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useLocale } from 'next-intl'
+import { useRouter } from '@/i18n/navigation'
 import {
   AlertCircle,
   Building,
@@ -10,6 +11,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  Globe,
   MessageCircle,
   ShieldAlert,
   Sparkles,
@@ -23,6 +25,8 @@ import {
   getBusinessProfile,
   type DisclosureMode,
 } from '@/lib/welcome/business-types'
+
+type WizardLocale = 'en' | 'ja'
 
 interface WelcomeWizardProps {
   initialBusinessName: string
@@ -44,9 +48,14 @@ export function WelcomeWizard({
   initialDisclosureMode,
 }: WelcomeWizardProps) {
   const router = useRouter()
+  const currentLocale = useLocale() as WizardLocale
   const [step, setStep] = useState(1)
   const [businessName, setBusinessName] = useState(initialBusinessName)
   const [businessType, setBusinessType] = useState(initialBusinessType)
+  // Defaults to whichever locale the user landed on. Switching this updates
+  // the post-onboarding redirect; the wizard chrome itself stays in the
+  // current URL locale to avoid a mid-flow page reload that'd reset state.
+  const [language, setLanguage] = useState<WizardLocale>(currentLocale)
   const [disclosureMode, setDisclosureMode] = useState<'A' | 'B' | 'C' | null>(
     initialDisclosureMode,
   )
@@ -88,7 +97,9 @@ export function WelcomeWizard({
       setSubmitting(false)
       return
     }
-    router.push('/dashboard')
+    // Use the i18n router so the chosen language sticks for the rest of the
+    // session (the cookie + URL prefix get set by next-intl on push).
+    router.push('/dashboard', { locale: language })
     router.refresh()
   }
 
@@ -119,6 +130,8 @@ export function WelcomeWizard({
               businessType={businessType}
               setBusinessType={setBusinessType}
               profile={profile}
+              language={language}
+              setLanguage={setLanguage}
             />
           )}
           {step === 2 && (
@@ -241,12 +254,16 @@ function Step1Business({
   businessType,
   setBusinessType,
   profile,
+  language,
+  setLanguage,
 }: {
   businessName: string
   setBusinessName: (v: string) => void
   businessType: string
   setBusinessType: (v: string) => void
   profile: ReturnType<typeof getBusinessProfile> | null
+  language: WizardLocale
+  setLanguage: (v: WizardLocale) => void
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -259,6 +276,41 @@ function Step1Business({
       </p>
 
       <div className="flex flex-col gap-4">
+        <fieldset className="flex flex-col gap-1.5">
+          <legend className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+            <Globe size={11} />
+            App language
+          </legend>
+          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="App language">
+            {([
+              { value: 'ja', label: '日本語' },
+              { value: 'en', label: 'English' },
+            ] as const).map((opt) => {
+              const active = language === opt.value
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => setLanguage(opt.value)}
+                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                    active
+                      ? 'border-sky-500/60 bg-sky-500/10 text-foreground'
+                      : 'border-border bg-card text-muted-foreground hover:bg-muted'
+                  }`}
+                >
+                  {active && <Check size={13} className="text-sky-400" />}
+                  <span>{opt.label}</span>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-[11px] text-muted-foreground/70">
+            You can change this anytime from the EN/JP toggle in the sidebar.
+          </p>
+        </fieldset>
+
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">
             Store name <span className="text-red-400">*</span>

@@ -23,17 +23,16 @@ const ACCOUNTS: SeedAccount[] = [
   { email: 'jon@karute.test', salon: "Jon's Salon" },
 ]
 
-async function seedAccount(
-  supabase: ReturnType<typeof createClient>,
-  account: SeedAccount,
-): Promise<void> {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function seedAccount(supabase: any, account: SeedAccount): Promise<void> {
   const { data: list, error: listErr } = await supabase.auth.admin.listUsers({
     page: 1,
     perPage: 200,
   })
   if (listErr) throw listErr
   const existing = list.users.find(
-    (u) => u.email?.toLowerCase() === account.email.toLowerCase(),
+    (u: { email?: string | null }) =>
+      u.email?.toLowerCase() === account.email.toLowerCase(),
   )
 
   let userId: string
