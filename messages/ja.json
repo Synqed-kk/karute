@@ -52,6 +52,49 @@
     "signupNoUser": "ユーザーが取得できませんでした。もう一度お試しください。",
     "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。"
   },
+  "welcome": {
+    "title": "店舗の初期設定",
+    "back": "戻る",
+    "next": "次へ",
+    "saving": "保存中…",
+    "finish": "セットアップ完了",
+    "steps": {
+      "business": "店舗情報",
+      "disclosure": "録音の通知",
+      "review": "確認"
+    },
+    "step1": {
+      "intro": "店舗の基本情報を教えてください。業種に合わせてAIを最適化します。",
+      "appLanguage": "表示言語",
+      "appLanguageAria": "表示言語",
+      "languageHint": "サイドバーのEN/JPボタンからいつでも切り替えできます。",
+      "storeName": "店舗名",
+      "storeNamePlaceholder": "例：La Estro 美容整体",
+      "businessType": "業種",
+      "selectBusinessType": "業種を選択してください",
+      "aiTuningHeading": "この業種向けのAIチューニング",
+      "includedInProfile": "このプロファイルに含まれるもの",
+      "priorityTopics": "優先トピック {n} 件",
+      "coachingFocus": "コーチング重点項目 {n} 件",
+      "topPatterns": "トップ施術者のパターン {n} 件",
+      "quickStartPrompts": "AIクイックスタートプロンプト {n} 件",
+      "customizeHint": "後から「設定 → AI」で項目を追加・編集できます。SYNQEDが用意したベース項目は読み取り専用です。"
+    },
+    "step2": {
+      "intro": "どの程度の透明性で録音するかを選びます。日本の法律で明示的な通知は必須ではありません。店舗のブランドや業種、客層に合うモードを選んでください。",
+      "modeLabel": "モード {mode}",
+      "privacyConfirm": "当店のプライバシーポリシーにAI録音の利用目的を記載済み",
+      "modeAWarning": "モードAでは「AI音声録音」を利用目的としてプライバシーポリシーに記載する必要があります（個人情報保護法第17条）。未更新の場合はモードBまたはCを選んでください。"
+    },
+    "step3": {
+      "intro": "選択内容を確認し、セットアップを完了してください。すべての設定は後から変更できます。",
+      "storeName": "店舗名",
+      "businessType": "業種",
+      "disclosureMode": "通知モード",
+      "modeValue": "モード {mode} — {label}",
+      "footnote": "すべての設定は後から「設定」画面で変更できます。"
+    }
+  },
   "sidebar": {
     "recording": "録音",
     "dashboard": "ダッシュボード",
@@ -418,6 +461,67 @@
       "deleteConfirm": "{name}を削除しますか？元に戻せません。",
       "deleted": "{name}を削除しました",
       "added": "{date}に追加"
+    },
+    "list": {
+      "total": "合計 {total}",
+      "joined": "登録 {date}",
+      "karuteCount": "カルテ {n} 件",
+      "noMatch": "「{query}」に一致するお客様はいません",
+      "noMatchHint": "別のキーワードで検索するか、フィルタを解除してください。",
+      "col": {
+        "visits": "来店",
+        "lastVisit": "最終来店",
+        "aiPredict": "AI予測",
+        "status": "状態",
+        "total": "合計"
+      }
+    },
+    "listFilter": {
+      "all": "すべて",
+      "preferredStaff": "指名スタッフ",
+      "newRecent": "新規（30日以内）",
+      "followup": "要フォロー",
+      "dormant": "休眠（90日以上）",
+      "sortLastVisit": "最終来店（新しい順）"
+    },
+    "profile": {
+      "backToList": "お客様一覧に戻る",
+      "preferredStaff": "指名スタッフ",
+      "nextVisitPredicted": "次回来店予測：",
+      "tab": {
+        "memory": "メモリー",
+        "sessions": "セッション",
+        "photos": "写真",
+        "privacy": "プライバシー"
+      },
+      "memory": {
+        "emptyBody": "AIがまとめるプロファイル：個人情報、身体・健康、好み、目標、ライフスタイル。録音と問診票から自動で蓄積されます。"
+      },
+      "photos": {
+        "emptyBody": "ビフォー／アフター／参考写真をアップロードして、施術の経過を記録しましょう。",
+        "totalCount": "合計 {n} 件"
+      },
+      "sessions": {
+        "count": "セッション {n} 件",
+        "empty": "録音済みのセッションはまだありません。",
+        "memoryAdded": "メモリー +{n} 件",
+        "openKarute": "カルテ詳細を開く →",
+        "noKaruteLinked": "このセッションに紐づくカルテはまだありません。"
+      },
+      "privacy": {
+        "heading": "プライバシーとデータ",
+        "intro": "個人情報保護法（APPI）に基づく{customerName}さまのデータ操作。オーナーまたは担当スタッフ権限が必要です。",
+        "accessTitle": "アクセス履歴",
+        "accessBody": "{customerName}さまのデータをいつ誰が参照・編集したかを監査ログで確認します。",
+        "viewHistory": "履歴を表示",
+        "exportTitle": "データをエクスポート",
+        "exportBody": "プロフィール、カルテ、メモリー、写真、録音の文字起こしを暗号化PDFとしてエクスポートします（署名付きURL、24時間有効）。",
+        "export": "エクスポート",
+        "deleteTitle": "お客様データを削除",
+        "deleteBody": "すべてのデータを論理削除し、30日後に完全削除をスケジュールします（APPIの妥当な期間）。対象：カルテ、メモリー、写真、録音。30日以内は取り消せます。",
+        "deleteCta": "データを削除",
+        "footer": "これらの操作は監査ログに記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。"
+      }
     }
   },
   "karute": {
@@ -517,7 +621,32 @@
     "failedToCreateAppointment": "予約の作成に失敗しました",
     "failedToCreateCustomer": "顧客の作成に失敗しました",
     "operatingHoursError": "予約は営業時間内（{open}〜{close}）で設定してください。",
-    "noDurationFits": "営業時間内（{open}〜{close}）に収まる時間がありません。"
+    "noDurationFits": "営業時間内（{open}〜{close}）に収まる時間がありません。",
+    "greeting": {
+      "night": "おやすみなさい",
+      "morning": "おはようございます",
+      "afternoon": "こんにちは",
+      "evening": "こんばんは"
+    },
+    "ownerView": "オーナー表示",
+    "setupStoreButton": "店舗を設定",
+    "onboardingBanner": {
+      "title": "店舗の初期設定を完了してください",
+      "body": "業種と録音通知モードを選んで、AIをお店に最適化します。約2分で完了します。",
+      "start": "セットアップを開始",
+      "dismiss": "閉じる"
+    },
+    "aiHero": {
+      "waitingCount": "{n} 件待ち",
+      "emptyTitle": "AIからの提案はまだありません",
+      "emptyBody": "セッションを数回録音すると、フォローアップやメッセージ案、レビュー待ちのカルテが表示されます。"
+    },
+    "stats": {
+      "weeklyRecordings": "今週の録音",
+      "todaysCustomers": "本日のお客様",
+      "monthlyKarute": "今月のカルテ",
+      "rebookingRate": "再予約率"
+    }
   },
   "settings": {
     "title": "設定",
@@ -653,7 +782,59 @@
     "provider": "プロバイダー",
     "save": "保存",
     "closed": "休業",
-    "voiceEnrolled": "音声登録済み"
+    "voiceEnrolled": "音声登録済み",
+    "audioQuality": {
+      "low": "低",
+      "standard": "標準",
+      "high": "高"
+    },
+    "autoStop": {
+      "off": "オフ",
+      "minutes": "{n} 分"
+    },
+    "aiModel": {
+      "tierFast": "高速",
+      "tierBest": "高精度"
+    },
+    "auditLog": {
+      "searchPlaceholder": "イベントを検索…"
+    },
+    "syncSection": {
+      "errorPrefix": "エラー：{error}",
+      "configSaved": "設定を保存しました",
+      "saveFailed": "保存に失敗しました",
+      "result": "同期完了：新規 {created} 件、更新 {updated} 件、スキップ {skipped} 件",
+      "failedPrefix": "失敗：{msg}",
+      "unknownError": "不明"
+    },
+    "plan": {
+      "perMonth": "/月",
+      "feature": {
+        "singleStore": "シングル店舗",
+        "staff3": "スタッフ3名",
+        "standardRecording": "標準録音",
+        "staff10": "スタッフ10名",
+        "highQualityRecording": "高音質録音",
+        "emailSupport": "メールサポート",
+        "multiStore": "マルチ店舗",
+        "unlimitedStaff": "スタッフ無制限",
+        "auditLog": "監査ログ",
+        "prioritySupport": "優先サポート"
+      }
+    },
+    "subscription": {
+      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。"
+    },
+    "theme": {
+      "bar": {
+        "open": "営業中",
+        "booking": "予約",
+        "recording": "録音中",
+        "completed": "完了",
+        "blocked": "ブロック",
+        "processing": "処理中"
+      }
+    }
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -884,7 +1065,28 @@
     "suggestion2": "最近の顧客の傾向は？",
     "suggestion3": "フォローアップが必要な顧客は？",
     "suggestion4": "売上を上げるには？",
-    "error": "エラーが発生しました。"
+    "error": "エラーが発生しました。",
+    "headerTitle": "AIアシスタント",
+    "headerSubtitle": "お店に関することを何でも質問してください。回答はカルテ・お客様・録音データに基づきます。",
+    "dataConnected": "接続済みデータ",
+    "noReply": "返答がありませんでした。",
+    "recommendedPrompts": "おすすめのプロンプト",
+    "conversation": "会話",
+    "startHint": "上のプロンプトを選ぶか、質問を入力して会話を始めてください。",
+    "thinking": "お店のデータを確認しています…",
+    "inputPlaceholder": "お店について質問してください — 例：「今週再予約が必要なお客様は？」",
+    "sendAria": "送信",
+    "inputHint": "回答はお店のデータに基づきます · 改行は Shift + Enter",
+    "sources": "出典",
+    "tryPrompt": "このプロンプトを試す",
+    "profileHint": {
+      "notSet": "業種が未設定です",
+      "notSetBody": "「設定」で業種を選ぶと、お店の用語に合わせてAIが調整され、業種別のおすすめプロンプトが表示されます。",
+      "setupCta": "設定する",
+      "tunedFor": "最適化対象：",
+      "changeTitle": "「設定」で業種を変更",
+      "change": "変更"
+    }
   },
   "karuteExport": {
     "title": "カルテ",

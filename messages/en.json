@@ -52,6 +52,49 @@
     "signupNoUser": "Signup did not return a user. Try again.",
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead."
   },
+  "welcome": {
+    "title": "Set up your store",
+    "back": "Back",
+    "next": "Next",
+    "saving": "Saving…",
+    "finish": "Finish setup",
+    "steps": {
+      "business": "Business info",
+      "disclosure": "Recording disclosure",
+      "review": "Review"
+    },
+    "step1": {
+      "intro": "Tell us the basics about your store. Your business type shapes how the AI is tuned.",
+      "appLanguage": "App language",
+      "appLanguageAria": "App language",
+      "languageHint": "You can change this anytime from the EN/JP toggle in the sidebar.",
+      "storeName": "Store name",
+      "storeNamePlaceholder": "e.g., La Estro 美容整体",
+      "businessType": "Business type",
+      "selectBusinessType": "Select a business type",
+      "aiTuningHeading": "AI tuning for this business type",
+      "includedInProfile": "Included in this profile",
+      "priorityTopics": "{n} priority topics",
+      "coachingFocus": "{n} coaching focus areas",
+      "topPatterns": "{n} top-performer patterns",
+      "quickStartPrompts": "{n} AI quick-start prompts",
+      "customizeHint": "You can add + edit your own items later in Settings → AI. SYNQED-curated base items are read-only."
+    },
+    "step2": {
+      "intro": "Choose how transparent you want recording to be. Japanese law doesn't require explicit notification — pick the mode that matches your brand, industry, and clientele.",
+      "modeLabel": "Mode {mode}",
+      "privacyConfirm": "Our privacy policy includes the AI-recording purpose-of-use",
+      "modeAWarning": "Mode A requires your privacy policy to disclose \"AI voice recording\" as a purpose-of-use (APPI Art. 17). Pick Mode B or C if your policy isn't updated yet."
+    },
+    "step3": {
+      "intro": "Confirm your choices and finish setup. You can change everything later in Settings.",
+      "storeName": "Store name",
+      "businessType": "Business type",
+      "disclosureMode": "Disclosure mode",
+      "modeValue": "Mode {mode} — {label}",
+      "footnote": "All settings can be changed anytime in Settings after setup."
+    }
+  },
   "sidebar": {
     "recording": "Recording",
     "dashboard": "Dashboard",
@@ -418,6 +461,67 @@
       "deleteConfirm": "Delete {name}? This cannot be undone.",
       "deleted": "{name} deleted",
       "added": "Added {date}"
+    },
+    "list": {
+      "total": "Total {total}",
+      "joined": "Joined {date}",
+      "karuteCount": "{n} karute",
+      "noMatch": "No customers match \"{query}\"",
+      "noMatchHint": "Try a different search term or clear filters.",
+      "col": {
+        "visits": "Visits",
+        "lastVisit": "Last visit",
+        "aiPredict": "AI predict",
+        "status": "Status",
+        "total": "Total"
+      }
+    },
+    "listFilter": {
+      "all": "All",
+      "preferredStaff": "Preferred Staff",
+      "newRecent": "New (last 30d)",
+      "followup": "Needs follow-up",
+      "dormant": "Dormant (90d+)",
+      "sortLastVisit": "Last visit (recent)"
+    },
+    "profile": {
+      "backToList": "Back to customers",
+      "preferredStaff": "Preferred staff",
+      "nextVisitPredicted": "Next visit predicted:",
+      "tab": {
+        "memory": "Memory",
+        "sessions": "Sessions",
+        "photos": "Photos",
+        "privacy": "Privacy"
+      },
+      "memory": {
+        "emptyBody": "AI-curated profile: personal context, body / health, preferences, goals, lifestyle. Built up automatically from recordings + intake forms."
+      },
+      "photos": {
+        "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+        "totalCount": "{n} total"
+      },
+      "sessions": {
+        "count": "{n} sessions",
+        "empty": "No sessions recorded yet.",
+        "memoryAdded": "Memory +{n}",
+        "openKarute": "Open full karute record →",
+        "noKaruteLinked": "No karute record linked to this session yet."
+      },
+      "privacy": {
+        "heading": "Privacy & data",
+        "intro": "APPI-compliant actions for {customerName}'s data. Owner or assigned-staff permission required.",
+        "accessTitle": "Access history",
+        "accessBody": "See which staff accessed or modified {customerName}'s data, when, and from where (audit log).",
+        "viewHistory": "View history",
+        "exportTitle": "Export data",
+        "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, valid 24 hours).",
+        "export": "Export",
+        "deleteTitle": "Delete customer data",
+        "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable period). Scope: karute, memory, photos, recordings. Reversible within 30 days.",
+        "deleteCta": "Delete data",
+        "footer": "These actions are logged to the audit trail. After 30 days, deletions are irreversible. Owner confirmation recommended."
+      }
     }
   },
   "karute": {
@@ -517,7 +621,32 @@
     "failedToCreateAppointment": "Failed to create appointment",
     "failedToCreateCustomer": "Failed to create customer",
     "operatingHoursError": "Appointment must be within operating hours ({open}-{close}).",
-    "noDurationFits": "No valid duration fits within operating hours ({open}-{close})."
+    "noDurationFits": "No valid duration fits within operating hours ({open}-{close}).",
+    "greeting": {
+      "night": "Good night",
+      "morning": "Good morning",
+      "afternoon": "Good afternoon",
+      "evening": "Good evening"
+    },
+    "ownerView": "Owner view",
+    "setupStoreButton": "Setup store",
+    "onboardingBanner": {
+      "title": "Finish setting up your store",
+      "body": "Pick your business type + recording disclosure mode so the AI is tuned to your salon. Takes about 2 minutes.",
+      "start": "Start setup",
+      "dismiss": "Dismiss"
+    },
+    "aiHero": {
+      "waitingCount": "{n} waiting",
+      "emptyTitle": "No AI suggestions yet",
+      "emptyBody": "Once you've recorded a few sessions, AI will surface follow-up reminders, draft messages, and karute that need review."
+    },
+    "stats": {
+      "weeklyRecordings": "Recordings this week",
+      "todaysCustomers": "Today's customers",
+      "monthlyKarute": "Monthly karute",
+      "rebookingRate": "Rebooking rate"
+    }
   },
   "settings": {
     "title": "Settings",
@@ -653,7 +782,59 @@
     "provider": "Provider",
     "save": "Save",
     "closed": "Closed",
-    "voiceEnrolled": "Voice enrolled"
+    "voiceEnrolled": "Voice enrolled",
+    "audioQuality": {
+      "low": "Low",
+      "standard": "Standard",
+      "high": "High"
+    },
+    "autoStop": {
+      "off": "Off",
+      "minutes": "{n} min"
+    },
+    "aiModel": {
+      "tierFast": "Fast",
+      "tierBest": "Best"
+    },
+    "auditLog": {
+      "searchPlaceholder": "Search events…"
+    },
+    "syncSection": {
+      "errorPrefix": "Error: {error}",
+      "configSaved": "Config saved",
+      "saveFailed": "Failed to save",
+      "result": "Synced: {created} created, {updated} updated, {skipped} skipped",
+      "failedPrefix": "Failed: {msg}",
+      "unknownError": "Unknown"
+    },
+    "plan": {
+      "perMonth": "/month",
+      "feature": {
+        "singleStore": "Single store",
+        "staff3": "3 staff",
+        "standardRecording": "Standard recording",
+        "staff10": "10 staff",
+        "highQualityRecording": "High-quality recording",
+        "emailSupport": "Email support",
+        "multiStore": "Multi-store",
+        "unlimitedStaff": "Unlimited staff",
+        "auditLog": "Audit log",
+        "prioritySupport": "Priority support"
+      }
+    },
+    "subscription": {
+      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades."
+    },
+    "theme": {
+      "bar": {
+        "open": "Open",
+        "booking": "Booking",
+        "recording": "Recording",
+        "completed": "Completed",
+        "blocked": "Blocked",
+        "processing": "Processing"
+      }
+    }
   },
   "aiActions": {
     "title": "AI Recommended Actions",
@@ -884,7 +1065,28 @@
     "suggestion2": "Any trends in recent clients?",
     "suggestion3": "Who needs a follow-up?",
     "suggestion4": "How can I increase revenue?",
-    "error": "Sorry, something went wrong."
+    "error": "Sorry, something went wrong.",
+    "headerTitle": "AI Assistant",
+    "headerSubtitle": "Ask anything about your business — answers ground in your karute, customer, and recording data.",
+    "dataConnected": "Data connected",
+    "noReply": "Sorry, no reply.",
+    "recommendedPrompts": "Recommended prompts",
+    "conversation": "Conversation",
+    "startHint": "Tap a prompt above or type your own question to start a conversation.",
+    "thinking": "Thinking through your business data…",
+    "inputPlaceholder": "Ask about your business — try \"Which customers are due for rebook this week?\"",
+    "sendAria": "Send",
+    "inputHint": "Answers are grounded in your business data · Shift + Enter for a new line",
+    "sources": "Sources",
+    "tryPrompt": "Try this prompt",
+    "profileHint": {
+      "notSet": "No business type set",
+      "notSetBody": "Set your business type in Settings to tune the AI to your shop's vocabulary and unlock business-type-specific prompt suggestions.",
+      "setupCta": "Set up",
+      "tunedFor": "Tuned for",
+      "changeTitle": "Change business type in Settings",
+      "change": "Change"
+    }
   },
   "karuteExport": {
     "title": "Karute",

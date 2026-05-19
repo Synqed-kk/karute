@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useLocale } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
 import {
   AlertCircle,
@@ -34,8 +34,6 @@ interface WelcomeWizardProps {
   initialDisclosureMode: 'A' | 'B' | 'C' | null
 }
 
-const STEP_LABELS = ['Business info', 'Recording disclosure', 'Review']
-
 const MODE_ICONS: Record<DisclosureMode['mode'], typeof Eye> = {
   A: Eye,
   B: MessageCircle,
@@ -49,6 +47,7 @@ export function WelcomeWizard({
 }: WelcomeWizardProps) {
   const router = useRouter()
   const currentLocale = useLocale() as WizardLocale
+  const t = useTranslations('welcome')
   const [step, setStep] = useState(1)
   const [businessName, setBusinessName] = useState(initialBusinessName)
   const [businessType, setBusinessType] = useState(initialBusinessType)
@@ -115,16 +114,20 @@ export function WelcomeWizard({
               SYNQED Karute
             </div>
             <h1 className="text-xl font-semibold text-foreground md:text-2xl">
-              Set up your store
+              {t('title')}
             </h1>
           </div>
         </header>
 
-        <ProgressPills current={step} labels={STEP_LABELS} />
+        <ProgressPills
+          current={step}
+          labels={[t('steps.business'), t('steps.disclosure'), t('steps.review')]}
+        />
 
         <div className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
           {step === 1 && (
             <Step1Business
+              t={t}
               businessName={businessName}
               setBusinessName={setBusinessName}
               businessType={businessType}
@@ -136,6 +139,7 @@ export function WelcomeWizard({
           )}
           {step === 2 && (
             <Step2Disclosure
+              t={t}
               disclosureMode={disclosureMode}
               setDisclosureMode={setDisclosureMode}
               privacyConfirmed={privacyConfirmed}
@@ -144,6 +148,7 @@ export function WelcomeWizard({
           )}
           {step === 3 && (
             <Step3Review
+              t={t}
               businessName={businessName}
               profile={profile}
               chosenMode={chosenMode ?? null}
@@ -166,7 +171,7 @@ export function WelcomeWizard({
             className="inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-4 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           >
             <ChevronLeft size={13} />
-            <span>Back</span>
+            <span>{t('back')}</span>
           </button>
 
           {step < 3 ? (
@@ -178,7 +183,7 @@ export function WelcomeWizard({
               }
               className="inline-flex h-9 items-center gap-1.5 rounded-full bg-sky-500 px-4 text-xs font-semibold text-white transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <span>Next</span>
+              <span>{t('next')}</span>
               <ChevronRight size={13} />
             </button>
           ) : (
@@ -189,7 +194,7 @@ export function WelcomeWizard({
               className="inline-flex h-9 items-center gap-1.5 rounded-full bg-sky-500 px-4 text-xs font-semibold text-white transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <CheckCircle size={13} />
-              <span>{submitting ? 'Saving…' : 'Finish setup'}</span>
+              <span>{submitting ? t('saving') : t('finish')}</span>
             </button>
           )}
         </footer>
@@ -248,7 +253,11 @@ function ProgressPills({
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type T = any
+
 function Step1Business({
+  t,
   businessName,
   setBusinessName,
   businessType,
@@ -257,6 +266,7 @@ function Step1Business({
   language,
   setLanguage,
 }: {
+  t: T
   businessName: string
   setBusinessName: (v: string) => void
   businessType: string
@@ -269,19 +279,21 @@ function Step1Business({
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <Building size={12} />
-        <span>Business info</span>
+        <span>{t('steps.business')}</span>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Tell us the basics about your store. Your business type shapes how the AI is tuned.
-      </p>
+      <p className="text-sm text-muted-foreground">{t('step1.intro')}</p>
 
       <div className="flex flex-col gap-4">
         <fieldset className="flex flex-col gap-1.5">
           <legend className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
             <Globe size={11} />
-            App language
+            {t('step1.appLanguage')}
           </legend>
-          <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="App language">
+          <div
+            className="grid grid-cols-2 gap-2"
+            role="radiogroup"
+            aria-label={t('step1.appLanguageAria')}
+          >
             {([
               { value: 'ja', label: '日本語' },
               { value: 'en', label: 'English' },
@@ -307,19 +319,19 @@ function Step1Business({
             })}
           </div>
           <p className="text-[11px] text-muted-foreground/70">
-            You can change this anytime from the EN/JP toggle in the sidebar.
+            {t('step1.languageHint')}
           </p>
         </fieldset>
 
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">
-            Store name <span className="text-red-400">*</span>
+            {t('step1.storeName')} <span className="text-red-400">*</span>
           </span>
           <input
             type="text"
             value={businessName}
             onChange={(e) => setBusinessName(e.target.value)}
-            placeholder="e.g., La Estro 美容整体"
+            placeholder={t('step1.storeNamePlaceholder')}
             maxLength={100}
             className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-sky-500 focus:outline-none"
           />
@@ -327,7 +339,7 @@ function Step1Business({
 
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">
-            Business type <span className="text-red-400">*</span>
+            {t('step1.businessType')} <span className="text-red-400">*</span>
           </span>
           <select
             value={businessType}
@@ -335,7 +347,7 @@ function Step1Business({
             className="h-10 rounded-lg border border-border bg-background px-3 text-sm text-foreground focus:border-sky-500 focus:outline-none"
           >
             <option value="" disabled>
-              Select a business type
+              {t('step1.selectBusinessType')}
             </option>
             {BUSINESS_TYPES.map((bt) => (
               <option key={bt.value} value={bt.value}>
@@ -350,23 +362,23 @@ function Step1Business({
         <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-4">
           <div className="mb-2 flex items-center gap-1.5 text-xs font-medium text-sky-300">
             <Target size={11} />
-            <span>AI tuning for this business type</span>
+            <span>{t('step1.aiTuningHeading')}</span>
           </div>
           <div className="text-sm font-semibold text-foreground">
             {profile.label}
           </div>
           <p className="mt-1.5 text-xs text-muted-foreground">{profile.tagline}</p>
           <div className="mt-3 text-xs font-medium text-foreground">
-            Included in this profile
+            {t('step1.includedInProfile')}
           </div>
           <ul className="mt-1.5 space-y-0.5 text-xs text-muted-foreground">
-            <li>· {profile.priorityTopics} priority topics</li>
-            <li>· {profile.coachingFocus} coaching focus areas</li>
-            <li>· {profile.topPatterns} top-performer patterns</li>
-            <li>· {profile.consultationPrompts} AI quick-start prompts</li>
+            <li>· {t('step1.priorityTopics', { n: profile.priorityTopics })}</li>
+            <li>· {t('step1.coachingFocus', { n: profile.coachingFocus })}</li>
+            <li>· {t('step1.topPatterns', { n: profile.topPatterns })}</li>
+            <li>· {t('step1.quickStartPrompts', { n: profile.consultationPrompts })}</li>
           </ul>
           <p className="mt-3 text-[11px] italic text-muted-foreground/70">
-            You can add + edit your own items later in Settings → AI. SYNQED-curated base items are read-only.
+            {t('step1.customizeHint')}
           </p>
         </div>
       )}
@@ -375,11 +387,13 @@ function Step1Business({
 }
 
 function Step2Disclosure({
+  t,
   disclosureMode,
   setDisclosureMode,
   privacyConfirmed,
   setPrivacyConfirmed,
 }: {
+  t: T
   disclosureMode: 'A' | 'B' | 'C' | null
   setDisclosureMode: (v: 'A' | 'B' | 'C') => void
   privacyConfirmed: boolean
@@ -389,11 +403,9 @@ function Step2Disclosure({
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <ShieldAlert size={12} />
-        <span>Recording disclosure</span>
+        <span>{t('steps.disclosure')}</span>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Choose how transparent you want recording to be. Japanese law doesn&apos;t require explicit notification — pick the mode that matches your brand, industry, and clientele.
-      </p>
+      <p className="text-sm text-muted-foreground">{t('step2.intro')}</p>
 
       <div className="flex flex-col gap-3">
         {DISCLOSURE_MODES.map((m) => {
@@ -422,7 +434,7 @@ function Step2Disclosure({
               <div className="flex flex-1 flex-col gap-1.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-semibold uppercase text-sky-400">
-                    Mode {m.mode}
+                    {t('step2.modeLabel', { mode: m.mode })}
                   </span>
                   <span className="text-sm font-semibold text-foreground">
                     {m.label}
@@ -454,12 +466,10 @@ function Step2Disclosure({
           <div className="flex flex-col gap-1">
             <div className="flex items-center gap-1.5 text-xs font-medium text-amber-200">
               <AlertCircle size={12} />
-              <span>
-                Our privacy policy includes the AI-recording purpose-of-use
-              </span>
+              <span>{t('step2.privacyConfirm')}</span>
             </div>
             <p className="text-xs text-muted-foreground">
-              Mode A requires your privacy policy to disclose &quot;AI voice recording&quot; as a purpose-of-use (APPI Art. 17). Pick Mode B or C if your policy isn&apos;t updated yet.
+              {t('step2.modeAWarning')}
             </p>
           </div>
         </label>
@@ -469,10 +479,12 @@ function Step2Disclosure({
 }
 
 function Step3Review({
+  t,
   businessName,
   profile,
   chosenMode,
 }: {
+  t: T
   businessName: string
   profile: ReturnType<typeof getBusinessProfile> | null
   chosenMode: DisclosureMode | null
@@ -481,30 +493,36 @@ function Step3Review({
     <div className="flex flex-col gap-5">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <CheckCircle size={12} />
-        <span>Review</span>
+        <span>{t('steps.review')}</span>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Confirm your choices and finish setup. You can change everything later in Settings.
-      </p>
+      <p className="text-sm text-muted-foreground">{t('step3.intro')}</p>
 
       <div className="flex flex-col gap-3">
-        <ReviewRow icon={<Building size={13} />} label="Store name" value={businessName} />
+        <ReviewRow
+          icon={<Building size={13} />}
+          label={t('step3.storeName')}
+          value={businessName}
+        />
         <ReviewRow
           icon={<Target size={13} />}
-          label="Business type"
+          label={t('step3.businessType')}
           value={profile?.label ?? '—'}
           sublabel={profile?.tagline ?? null}
         />
         <ReviewRow
           icon={<ShieldAlert size={13} />}
-          label="Disclosure mode"
-          value={chosenMode ? `Mode ${chosenMode.mode} — ${chosenMode.label}` : '—'}
+          label={t('step3.disclosureMode')}
+          value={
+            chosenMode
+              ? t('step3.modeValue', { mode: chosenMode.mode, label: chosenMode.label })
+              : '—'
+          }
           sublabel={chosenMode?.summary ?? null}
         />
       </div>
 
       <p className="text-[11px] italic text-muted-foreground/70">
-        All settings can be changed anytime in Settings after setup.
+        {t('step3.footnote')}
       </p>
     </div>
   )
