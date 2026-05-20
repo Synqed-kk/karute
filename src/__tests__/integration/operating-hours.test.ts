@@ -54,8 +54,8 @@ describe('appointment operating hours validation', () => {
     }
   }
 
-  it('accepts appointments fully within configured hours', () => {
-    const result = validateAppointmentTime(
+  it('accepts appointments fully within configured hours', async () => {
+    const result = await validateAppointmentTime(
       input('2026-03-16T11:00:00.000Z', 60, 0),
       operatingHours
     )
@@ -63,8 +63,8 @@ describe('appointment operating hours validation', () => {
     expect(result).toBeNull()
   })
 
-  it('rejects appointments that start before open', () => {
-    const result = validateAppointmentTime(
+  it('rejects appointments that start before open', async () => {
+    const result = await validateAppointmentTime(
       input('2026-03-16T09:30:00.000Z', 30, 0),
       operatingHours
     )
@@ -72,13 +72,13 @@ describe('appointment operating hours validation', () => {
     expect(result).toBe('Appointment must be within operating hours (10:00-18:00).')
   })
 
-  it('uses local day derived from timezone offset for validation', () => {
+  it('uses local day derived from timezone offset for validation', async () => {
     const daySpecificHours = {
       ...operatingHours,
       tue: { openMinute: 8 * 60, closeMinute: 9 * 60 },
     }
 
-    const result = validateAppointmentTime(
+    const result = await validateAppointmentTime(
       input('2026-03-16T23:30:00.000Z', 30, -60),
       daySpecificHours
     )

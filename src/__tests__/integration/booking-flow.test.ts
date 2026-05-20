@@ -13,13 +13,6 @@
  * update/delete shims — keep this file scoped to flow-level invariants.
  */
 
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(() => ({
-    get: jest.fn(() => undefined),
-    getAll: jest.fn(() => []),
-    set: jest.fn(),
-  })),
-}))
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
@@ -27,7 +20,7 @@ jest.mock('next/cache', () => ({
 }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getActiveStaffId: jest.fn(async () => 'staff-1'),
+  getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
 }))
 
 // Restrictive operating hours for the operating-hours rejection test below.
@@ -67,6 +60,13 @@ jest.mock('@synqed-kk/client', () => {
   }
   return { SynqedError }
 })
+
+// staff-map translates karute profile id → synqed staff id. The translation
+// is exercised in its own suite; here we just want the booking action under
+// test to see a resolved id without hitting a real synqed client.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  resolveSynqedStaffId: jest.fn(async (profileId: string) => profileId),
+}))
 
 const appointments = { create: jest.fn(), list: jest.fn() }
 jest.mock('@/lib/synqed/client', () => ({

@@ -10,7 +10,6 @@ import {
   Crown,
   LogOut,
   User as UserIcon,
-  Users,
   Check,
 } from 'lucide-react'
 import {
@@ -18,11 +17,8 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { setActiveStaff } from '@/actions/staff'
-import { verifyStaffPin } from '@/actions/staff-pin'
 import { createClient } from '@/lib/supabase/client'
-import { PinPad } from '@/components/staff/PinPad'
-import { useSession, type StaffItem } from '@/providers/session-provider'
+import { useSession } from '@/providers/session-provider'
 
 function MicIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
@@ -173,43 +169,8 @@ function SidebarProfileChip() {
   const t = useTranslations('staff')
   const router = useRouter()
   const [open, setOpen] = useState(false)
-  const [pinTarget, setPinTarget] = useState<StaffItem | null>(null)
-  const [pinError, setPinError] = useState<string | null>(null)
-  const [pinLoading, setPinLoading] = useState(false)
 
-  const { activeStaff, staffList, orgName } = session
-
-  async function handleSwitchStaff(staff: StaffItem) {
-    if (staff.id === activeStaff?.id) return
-    if (staff.hasPin) {
-      setPinTarget(staff)
-      setPinError(null)
-      return
-    }
-    setOpen(false)
-    await setActiveStaff(staff.id)
-  }
-
-  async function handlePinSubmit(pin: string) {
-    if (!pinTarget) return
-    setPinLoading(true)
-    setPinError(null)
-    const result = await verifyStaffPin(pinTarget.id, pin)
-    if (result.error) {
-      setPinError(result.error)
-      setPinLoading(false)
-      return
-    }
-    if (!result.valid) {
-      setPinError(t('wrongPin'))
-      setPinLoading(false)
-      return
-    }
-    await setActiveStaff(pinTarget.id)
-    setPinTarget(null)
-    setPinLoading(false)
-    setOpen(false)
-  }
+  const { activeStaff, orgName } = session
 
   async function handleLogout() {
     const supabase = createClient()
@@ -226,132 +187,70 @@ function SidebarProfileChip() {
     : 'border-transparent hover:bg-muted/40'
 
   return (
-    <>
-      <div className="px-3 pt-4 border-t border-border/20">
-        <DropdownMenu open={open} onOpenChange={setOpen}>
-          <DropdownMenuTrigger
-            className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${triggerActiveClass}`}
-          >
-              <Avatar
-                name={activeStaff?.name ?? '??'}
-                initials={activeInitials}
-                avatarUrl={activeStaff?.avatarUrl}
-                tone="active"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-[13.5px] font-semibold truncate">
-                  {activeStaff?.name ?? t('selectStaff')}
-                </p>
-                <p className="text-[11px] text-muted-foreground">{activeRole}</p>
-              </div>
-              {open ? (
-                <ChevronUp className="size-3.5 text-muted-foreground" />
-              ) : (
-                <ChevronDown className="size-3.5 text-muted-foreground" />
-              )}
-          </DropdownMenuTrigger>
-
-          <DropdownMenuContent
-            side="top"
-            align="start"
-            sideOffset={8}
-            className="w-[260px] p-0 overflow-hidden"
-          >
-            <div className="px-3 py-2 border-b border-border/20 bg-muted/30">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground flex items-center gap-1.5">
-                <Building2 className="size-3" />
-                Switch store
+    <div className="px-3 pt-4 border-t border-border/20">
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger
+          className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${triggerActiveClass}`}
+        >
+            <Avatar
+              name={activeStaff?.name ?? '??'}
+              initials={activeInitials}
+              avatarUrl={activeStaff?.avatarUrl}
+              tone="active"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13.5px] font-semibold truncate">
+                {activeStaff?.name ?? t('selectStaff')}
               </p>
+              <p className="text-[11px] text-muted-foreground">{activeRole}</p>
             </div>
-            <div className="py-1">
-              <StoreRow name={orgName ?? 'Karute'} role="Owner" active />
-            </div>
+            {open ? (
+              <ChevronUp className="size-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            )}
+        </DropdownMenuTrigger>
 
-            <div className="px-3 py-2 border-y border-border/20 bg-muted/30">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground flex items-center gap-1.5">
-                <Users className="size-3" />
-                Switch account
-              </p>
-            </div>
-            <div className="py-1 max-h-[280px] overflow-y-auto">
-              {staffList.map((staff) => {
-                const isActive = activeStaff?.id === staff.id
-                const initials = getInitials(staff.name)
-                const role =
-                  staff.displayRole === 'owner' ? 'Owner' : 'Stylist'
-                return (
-                  <button
-                    key={staff.id}
-                    type="button"
-                    onClick={() => handleSwitchStaff(staff)}
-                    className="flex w-full items-center gap-2.5 px-3 py-2 hover:bg-muted/50 text-left"
-                  >
-                    {isActive ? (
-                      <Check className="size-3.5 shrink-0 text-blue-500" />
-                    ) : (
-                      <span className="w-3.5 shrink-0" />
-                    )}
-                    <Avatar
-                      name={staff.name}
-                      initials={initials}
-                      avatarUrl={staff.avatarUrl}
-                      tone="muted"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-[13.5px] truncate ${
-                          isActive ? 'font-semibold' : 'font-medium'
-                        }`}
-                      >
-                        {staff.name}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {role}
-                      </p>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-[260px] p-0 overflow-hidden"
+        >
+          <div className="px-3 py-2 border-b border-border/20 bg-muted/30">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground flex items-center gap-1.5">
+              <Building2 className="size-3" />
+              Store
+            </p>
+          </div>
+          <div className="py-1">
+            <StoreRow name={orgName ?? 'Karute'} role="Owner" active />
+          </div>
 
-            <div className="border-t border-border/20">
-              <button
-                type="button"
-                onClick={() => {
-                  setOpen(false)
-                  router.push('/settings' as Parameters<typeof router.push>[0])
-                }}
-                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-foreground hover:bg-muted/50 text-left"
-              >
-                <UserIcon className="size-3.5 text-muted-foreground" />
-                View profile
-              </button>
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-red-500 dark:text-red-400 hover:bg-red-500/5 text-left border-t border-border/20"
-              >
-                <LogOut className="size-3.5" />
-                {t('logOut')}
-              </button>
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-
-      {pinTarget && (
-        <PinPad
-          title={t('enterPinFor', { name: pinTarget.name })}
-          onSubmit={handlePinSubmit}
-          onCancel={() => {
-            setPinTarget(null)
-            setPinError(null)
-          }}
-          error={pinError}
-          loading={pinLoading}
-        />
-      )}
-    </>
+          <div className="border-t border-border/20">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                router.push('/settings' as Parameters<typeof router.push>[0])
+              }}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-foreground hover:bg-muted/50 text-left"
+            >
+              <UserIcon className="size-3.5 text-muted-foreground" />
+              View profile
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-red-500 dark:text-red-400 hover:bg-red-500/5 text-left border-t border-border/20"
+            >
+              <LogOut className="size-3.5" />
+              {t('logOut')}
+            </button>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   )
 }
 

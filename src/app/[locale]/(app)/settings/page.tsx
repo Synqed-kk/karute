@@ -1,5 +1,5 @@
 import { getTranslations } from 'next-intl/server'
-import { getStaffList, getActiveStaffId } from '@/lib/staff'
+import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { SettingsShell } from '@/components/settings/redesign/SettingsShell'
 import { SettingsPageChrome } from '@/components/settings/SettingsPageChrome'
@@ -13,7 +13,7 @@ export default async function SettingsPage({
 
   const [staffList, activeStaffId, t, orgSettings] = await Promise.all([
     getStaffList(),
-    getActiveStaffId(),
+    getCurrentUserStaffId(),
     getTranslations('settings'),
     getOrgSettings(),
   ])

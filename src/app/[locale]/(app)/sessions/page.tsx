@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getActiveStaffId } from '@/lib/staff'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomerConsent } from '@/actions/customers'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
@@ -43,7 +43,7 @@ export default async function SessionsPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  const activeStaffId = await getActiveStaffId()
+  const activeStaffId = await getCurrentUserStaffId()
 
   const now = new Date()
   const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)

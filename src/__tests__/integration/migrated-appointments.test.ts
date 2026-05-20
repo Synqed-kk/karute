@@ -6,13 +6,6 @@
  *   - deleteAppointment / updateAppointment thin pass-through
  */
 
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(() => ({
-    get: jest.fn(() => undefined),
-    getAll: jest.fn(() => []),
-    set: jest.fn(),
-  })),
-}))
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
@@ -24,7 +17,7 @@ jest.mock('next/cache', () => ({
 }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getActiveStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
+  getCurrentUserStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
 }))
 
 // Stub getOrgSettings so validateAppointmentTime treats operating hours as permissive

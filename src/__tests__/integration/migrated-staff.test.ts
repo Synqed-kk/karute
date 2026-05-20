@@ -2,22 +2,16 @@
  * Post-migration staff + staff-pin actions. Mocks @synqed-kk/client and verifies:
  *   - createStaff / updateStaff pass the right fields through
  *   - deleteStaff surfaces server 400 messages as user errors
- *   - deleteStaff auto-switches active_staff_id cookie when needed
  *   - uploadStaffAvatar forwards the File
  *   - PIN round-trip: set → hasPin true → verify valid → remove → hasPin false
  */
 
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 
-const cookieStore = { set: jest.fn() }
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(async () => cookieStore),
-}))
-
-const getActiveStaffId = jest.fn(async () => 'staff-1')
+const getCurrentUserStaffId = jest.fn(async () => 'staff-1')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getActiveStaffId: () => getActiveStaffId(),
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
 }))
 
 jest.mock('@synqed-kk/client', () => {
@@ -60,17 +54,22 @@ import { SynqedError } from '@synqed-kk/client'
 describe('Migrated staff actions', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    getActiveStaffId.mockResolvedValue('staff-1')
+    getCurrentUserStaffId.mockResolvedValue('staff-1')
   })
 
-  it('createStaff passes name + email through', async () => {
+  it('createStaff passes name + email + user_id through', async () => {
     staff.create.mockResolvedValue({ id: 'staff-2' })
 
     await createStaff({ name: 'Ada', email: 'ada@example.com', position: '', phone: '' })
 
+    // user_id is best-effort: createStaff looks up an existing auth profile by
+    // email so synqed.staff is seeded with the link from day one. When no
+    // matching profile exists the field is null and the resolver self-heals
+    // later in src/lib/synqed/staff-map.ts.
     expect(staff.create).toHaveBeenCalledWith({
       name: 'Ada',
       email: 'ada@example.com',
+      user_id: null,
     })
   })
 
@@ -89,21 +88,6 @@ describe('Migrated staff actions', () => {
     staff.delete.mockRejectedValue(new SynqedError(400, 'Cannot delete the last staff member.'))
 
     await expect(deleteStaff('staff-1')).rejects.toThrow('Cannot delete the last staff member.')
-  })
-
-  it('deleteStaff auto-switches active staff cookie on self-delete', async () => {
-    staff.delete.mockResolvedValue(undefined)
-    // Active staff matches the one being deleted
-    getActiveStaffId.mockResolvedValueOnce('staff-1')
-    staff.list.mockResolvedValue({ staff: [{ id: 'staff-2', name: 'Other' }] })
-
-    await deleteStaff('staff-1')
-
-    expect(cookieStore.set).toHaveBeenCalledWith(
-      'active_staff_id',
-      'staff-2',
-      expect.objectContaining({ path: '/' }),
-    )
   })
 
   it('uploadStaffAvatar forwards the File and returns the url', async () => {

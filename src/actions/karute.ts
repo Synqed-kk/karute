@@ -2,7 +2,7 @@
 
 import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getActiveStaffId, getValidatedActiveStaffId } from '@/lib/staff'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
 
@@ -22,15 +22,15 @@ export async function saveKaruteRecord(
   try {
     const synqed = await getSynqedClient()
 
-    // Determine staff: if linked to an appointment, use the appointment's staff.
-    // Otherwise fall back to the active-staff cookie.
-    let staffId: string | null = await getValidatedActiveStaffId()
+    // If linked to an appointment, attribute to that appointment's staff;
+    // otherwise attribute to the signed-in user's staff identity.
+    let staffId: string | null = await getCurrentUserStaffId()
     if (input.appointmentId) {
       const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
       if (appt?.staff_id) staffId = appt.staff_id
     }
     if (!staffId) {
-      return { error: 'No active staff member selected. Please select a staff member from the header.' }
+      return { error: 'No staff identity for the signed-in user.' }
     }
 
     const record = await synqed.karuteRecords.create({
@@ -69,9 +69,9 @@ export async function saveKaruteRecordInline(
   try {
     const synqed = await getSynqedClient()
 
-    const staffId = await getValidatedActiveStaffId()
+    const staffId = await getCurrentUserStaffId()
     if (!staffId) {
-      return { error: 'No active staff member selected.' }
+      return { error: 'No staff identity for the signed-in user.' }
     }
 
     const record = await synqed.karuteRecords.create({

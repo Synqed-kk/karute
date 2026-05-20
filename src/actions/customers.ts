@@ -234,12 +234,12 @@ export async function grantCustomerConsent(
   customerId: string,
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
 ) {
-  const { getValidatedActiveStaffId } = await import('@/lib/staff')
-  const staffId = await getValidatedActiveStaffId()
+  const { getCurrentUserStaffId } = await import('@/lib/staff')
+  const staffId = await getCurrentUserStaffId()
   if (!staffId) {
     return {
       ok: false as const,
-      error: 'No active staff selected. Switch to your stylist account first.',
+      error: 'No staff identity for the signed-in user.',
     }
   }
   try {
@@ -261,10 +261,10 @@ export async function grantCustomerConsent(
 }
 
 export async function revokeCustomerConsent(customerId: string) {
-  const { getValidatedActiveStaffId } = await import('@/lib/staff')
-  const staffId = await getValidatedActiveStaffId()
+  const { getCurrentUserStaffId } = await import('@/lib/staff')
+  const staffId = await getCurrentUserStaffId()
   if (!staffId) {
-    return { ok: false as const, error: 'No active staff selected.' }
+    return { ok: false as const, error: 'No staff identity for the signed-in user.' }
   }
   try {
     const synqed = await getSynqedClient()

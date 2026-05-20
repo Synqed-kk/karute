@@ -10,23 +10,14 @@
 import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
 
 // --- Next.js context mocks (must be top-level so jest.mock is hoisted) ---
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(() => ({
-    get: jest.fn((name: string) => {
-      if (name === 'active_staff_id') return { value: TEST_STAFF_PROFILE_ID }
-      return undefined
-    }),
-    getAll: jest.fn(() => []),
-    set: jest.fn(),
-  })),
-}))
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 
-// --- getBusinessId mock (avoids hitting supabase auth for the tenant lookup) ---
+// --- staff lib mock — derives active staff from the signed-in user via
+//     getCurrentUserStaffId (cookie-free). Tests pin it to TEST_STAFF_PROFILE_ID.
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getActiveStaffId: jest.fn(async () => TEST_STAFF_PROFILE_ID),
+  getCurrentUserStaffId: jest.fn(async () => TEST_STAFF_PROFILE_ID),
 }))
 
 // --- @synqed-kk/client mock ---

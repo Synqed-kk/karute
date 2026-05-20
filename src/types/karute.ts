@@ -39,8 +39,8 @@ export type KaruteRecord = {
  * Input shape for saveKaruteRecord Server Action.
  * Entries come from AI extraction (Phase 2) with category and content.
  *
- * Note: staffId is intentionally absent — the save action reads staff_id from
- * the active-staff cookie via getActiveStaffId(), never from client-supplied data.
+ * Note: staffId is intentionally absent — the save action resolves staff_id
+ * from the signed-in user via getCurrentUserStaffId(), never from client input.
  */
 export type SaveKaruteInput = {
   customerId: string

@@ -2,7 +2,7 @@ import { BottomNav } from '@/components/layout/bottom-nav'
 import { Sidebar } from '@/components/layout/sidebar'
 import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { MiniRecorder } from '@/components/recording/MiniRecorder'
-import { getStaffList, getActiveStaffId } from '@/lib/staff'
+import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { SessionProvider } from '@/providers/session-provider'
 
@@ -22,7 +22,7 @@ export default async function DashboardLayout({
   const [{ data: { user }, error }, staffList, activeStaffId, orgSettings] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
-    getActiveStaffId(),
+    getCurrentUserStaffId(),
     getOrgSettings(),
   ])
   if (!user || error) {

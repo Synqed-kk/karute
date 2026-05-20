@@ -2,7 +2,6 @@ import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
-import { cookies } from 'next/headers'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
 
 export interface StaffMember {
@@ -73,7 +72,7 @@ const staffListByBusiness = unstable_cache(
  *     plus the individual page (plus any nested server component) all share
  *     one Promise, no repeated cache lookups.
  *   - `unstable_cache` (on staffListByBusiness) reuses the DB read across
- *     requests for 60s. Mutation actions in src/actions/staff.ts call
+ *     requests for 24h. Mutation actions in src/actions/staff.ts call
  *     updateTag('staff-list') to invalidate.
  *
  * The two layers compose: per-request dedup avoids redundant lookups inside
@@ -104,31 +103,23 @@ export async function getStaffById(id: string): Promise<StaffMemberBasic | null>
 }
 
 /**
- * Reads the active_staff_id cookie server-side.
- * Returns the cookie value or null if not set.
+ * Resolves the staff identity for the currently authenticated user.
  *
- * Usage in save actions: always read staff_id from here — never accept it from client.
- * For mutations that record staff_id on a row, prefer `getValidatedActiveStaffId()`
- * so a stale cookie (e.g. for a deleted staff) doesn't poison the data.
- */
-export async function getActiveStaffId(): Promise<string | null> {
-  const cookieStore = await cookies()
-  return cookieStore.get('active_staff_id')?.value ?? null
-}
-
-/**
- * Like `getActiveStaffId()` but verifies the id against the current staff list.
- * Returns null if the cookie value doesn't match any active staff member —
- * caller should treat that as "no staff selected" and refuse to save.
+ * Looks up the staff row in this tenant whose `id` matches `auth.uid()` — every
+ * user gets exactly one staff identity per business, seeded at signup. Returns
+ * null if the user has no staff row (e.g. they were removed but their auth
+ * session is still alive).
  *
- * Avoids saving rows pinned to a deleted-staff id (audit-trail integrity).
+ * Save flows must read staff_id from here — never accept it from client input,
+ * never trust a cookie. Replaces the old cookie-backed active-staff pattern,
+ * which let stale ids survive auth wipes and caused FK violations.
  */
-export async function getValidatedActiveStaffId(): Promise<string | null> {
-  const id = await getActiveStaffId()
-  if (!id) return null
+export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
+  const userId = await resolveUserId().catch(() => null)
+  if (!userId) return null
   const list = await getStaffList()
-  return list.some((s) => s.id === id) ? id : null
-}
+  return list.some((s) => s.id === userId) ? userId : null
+})
 
 /**
  * Returns the current authenticated user's business id.

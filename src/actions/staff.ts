@@ -1,12 +1,10 @@
 'use server'
 
-import { cookies } from 'next/headers'
 import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
-import { getActiveStaffId } from '@/lib/staff'
 
 // Look up an existing Supabase profile by email. Returns its id (which equals
 // auth.users.id) when found, else null. Lets createStaff seed synqed
@@ -61,15 +59,10 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
 
 /**
  * Deletes a staff profile. Server enforces guards (last member, attributed
- * records) and returns 400 with a human message when either triggers. If the
- * active-staff cookie pointed at the deleted staff, this function switches
- * to the first remaining staff.
+ * records) and returns 400 with a human message when either triggers.
  */
 export async function deleteStaff(id: string): Promise<void> {
   const synqed = await getSynqedClient()
-
-  const activeStaffId = await getActiveStaffId()
-  const isActiveMember = activeStaffId === id
 
   try {
     await synqed.staff.delete(id)
@@ -80,37 +73,9 @@ export async function deleteStaff(id: string): Promise<void> {
     throw err
   }
 
-  if (isActiveMember) {
-    const remaining = await synqed.staff.list({ page_size: 1 })
-    if (remaining.staff.length > 0) {
-      await setActiveStaff(remaining.staff[0].id)
-    }
-  }
-
   revalidatePath('/settings')
   revalidatePath('/', 'layout')
   updateTag('staff-list')
-}
-
-/**
- * Writes the active_staff_id cookie.
- * Cookie is httpOnly: false so the header switcher UI can read it client-side.
- * 30-day expiry persists selection across browser sessions.
- *
- * Security note: This action only writes a cookie — it does not accept untrusted
- * client data for save operations. All karute save flows read staff_id from the
- * cookie via getActiveStaffId(), never from client form fields.
- */
-export async function setActiveStaff(staffId: string): Promise<void> {
-  const cookieStore = await cookies()
-  cookieStore.set('active_staff_id', staffId, {
-    httpOnly: false,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30,
-  })
-
-  revalidatePath('/', 'layout')
 }
 
 export async function uploadStaffAvatar(

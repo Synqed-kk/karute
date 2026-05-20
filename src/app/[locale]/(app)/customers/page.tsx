@@ -1,4 +1,4 @@
-import { getActiveStaffId, getStaffList } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import type { CustomerListRow } from '@/components/customers/redesign/types'
@@ -44,7 +44,7 @@ export default async function CustomersPage({
       }),
     ),
     t.phase('staffList', () => getStaffList()),
-    t.phase('activeStaffId', () => getActiveStaffId()),
+    t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('businessId', () => getBusinessId()),
   ])
 
