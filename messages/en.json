@@ -1054,6 +1054,69 @@
     "switchToJapanese": "Switch to Japanese",
     "switchToEnglish": "Switch to English"
   },
+  "landing": {
+    "header": {
+      "login": "Log in"
+    },
+    "hero": {
+      "badge": "AI-Powered Session Recording",
+      "title": "Never write a karute by hand again",
+      "subtitle": "Record your client sessions. Karute uses AI to transcribe, extract key details, and generate a complete karute — automatically.",
+      "ctaPrimary": "Get started free",
+      "ctaSecondary": "See how it works"
+    },
+    "stats": {
+      "sessionsRecorded": "Sessions recorded",
+      "timeSaved": "Time saved",
+      "salonsClinics": "Salons & clinics"
+    },
+    "howItWorks": {
+      "heading": "How it works",
+      "subtitle": "Three simple steps to go from session to karute",
+      "stepPrefix": "Step {step}",
+      "step1Title": "Record",
+      "step1Description": "Hit record during your session. Karute captures the conversation in the background while you focus on your client.",
+      "step2Title": "AI Processes",
+      "step2Description": "Karute transcribes the audio, extracts preferences, treatments, and concerns, then generates a structured summary.",
+      "step3Title": "Review & Save",
+      "step3Description": "Review the AI-generated karute, make any edits, and save. It's linked to the customer and appointment automatically."
+    },
+    "features": {
+      "heading": "Everything you need",
+      "voiceRecording": {
+        "title": "Voice Recording",
+        "description": "Record sessions with one tap. Works on any device with a microphone."
+      },
+      "aiTranscription": {
+        "title": "AI Transcription",
+        "description": "Accurate speech-to-text in Japanese and English, powered by Whisper."
+      },
+      "smartExtraction": {
+        "title": "Smart Extraction",
+        "description": "AI identifies preferences, treatments, health concerns, and more from the conversation."
+      },
+      "appointmentSync": {
+        "title": "Appointment Sync",
+        "description": "Link recordings to appointments. See your schedule and karute history in one place."
+      },
+      "multiStaff": {
+        "title": "Multi-Staff",
+        "description": "Each staff member has their own profile, schedule, and karute records with PIN protection."
+      },
+      "exportShare": {
+        "title": "Export & Share",
+        "description": "Export karute as PDF or text. Share with your team or print for the client."
+      }
+    },
+    "cta": {
+      "heading": "Ready to automate your karute?",
+      "subtitle": "Join salons and clinics already saving hours every week with AI-powered session notes.",
+      "button": "Get started free"
+    },
+    "footer": {
+      "copyright": "© {year} Karute. All rights reserved."
+    }
+  },
   "askAi": {
     "title": "Ask AI",
     "subtitle": "Ask anything about your customers, karute records, and business",
