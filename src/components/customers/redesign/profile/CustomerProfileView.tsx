@@ -7,6 +7,7 @@ import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
 import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
 import { MemoryTabContent } from './MemoryTabContent'
+import { UpcomingAiFeatures } from './UpcomingAiFeatures'
 import {
   SessionsTabContent,
   type CustomerSessionEntry,
@@ -41,6 +42,14 @@ export function CustomerProfileView({
       </Link>
 
       <CustomerIdentityCard c={customer} />
+
+      {/* AI surface — visual placeholders for the four AI features
+       *  shipped on the design spike's karute detail page but not yet
+       *  wired here (体調予測 / 推奨メッセージ / 要約 / 録音・文字起こし).
+       *  See UpcomingAiFeatures.tsx for per-card ANTHONY notes pointing
+       *  at the spike source files + AI_INTEGRATION_SPEC sections.
+       *  Drop or replace each preview as the real implementation lands. */}
+      <UpcomingAiFeatures />
 
       <CustomerTabBar
         active={tab}

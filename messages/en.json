@@ -565,6 +565,25 @@
       "followup": "Needs follow-up",
       "dormant": "Dormant (90d+)",
       "sortLastVisit": "Last visit (recent)"
+    },
+    "profileUpcoming": {
+      "sectionLabel": "Coming soon",
+      "aiBodyPrediction": {
+        "title": "AI Body Condition Prediction",
+        "description": "Estimates the customer's current condition + recommended next-visit window from session history, with rationale. Includes a confidence % so staff know how heavily to weight it."
+      },
+      "aiOutreach": {
+        "title": "AI Recommended Message",
+        "description": "Drafts a follow-up LINE / SMS / email after each session based on the customer's memory + this visit's notes. Staff can edit before sending, or approve as-is."
+      },
+      "aiSummary": {
+        "title": "AI Session Summary",
+        "description": "Bullet-list summary of what happened in today's session — concerns raised, treatments done, products discussed, next steps. Auto-extracted from the recording + entries."
+      },
+      "recordingTranscript": {
+        "title": "Recording & Transcript",
+        "description": "Full audio recording with searchable transcript, speaker diarization (who said what), and consent badge. Played back during the next session for context."
+      }
     }
   },
   "karute": {
