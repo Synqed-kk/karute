@@ -421,21 +421,43 @@
       "noResults": "顧客が見つかりませんでした"
     },
     "profile": {
-      "edit": "編集",
-      "save": "保存",
-      "cancel": "キャンセル",
-      "visits": "{count}回来店",
-      "lastVisit": "最終来店: {date}",
-      "noVisits": "まだ来店がありません",
-      "karuteHistory": "施術履歴",
-      "back": "戻る",
-      "staff": "スタッフ",
-      "registered": "{date}に登録",
-      "notes": "メモ",
-      "type": "タイプ",
-      "none": "なし",
-      "internalNotesPlaceholder": "内部メモ...",
-      "churnAlert": "最終来店から{days}日経過"
+      "backToList": "お客様一覧に戻る",
+      "preferredStaff": "指名スタッフ",
+      "nextVisitPredicted": "次回来店予測：",
+      "tab": {
+        "memory": "メモリー",
+        "sessions": "セッション",
+        "photos": "写真",
+        "privacy": "プライバシー"
+      },
+      "memory": {
+        "emptyBody": "AIがまとめるプロファイル：個人情報、身体・健康、好み、目標、ライフスタイル。録音と問診票から自動で蓄積されます。"
+      },
+      "photos": {
+        "emptyBody": "ビフォー／アフター／参考写真をアップロードして、施術の経過を記録しましょう。",
+        "totalCount": "合計 {n} 件"
+      },
+      "sessions": {
+        "count": "セッション {n} 件",
+        "empty": "録音済みのセッションはまだありません。",
+        "memoryAdded": "メモリー +{n} 件",
+        "openKarute": "カルテ詳細を開く →",
+        "noKaruteLinked": "このセッションに紐づくカルテはまだありません。"
+      },
+      "privacy": {
+        "heading": "プライバシーとデータ",
+        "intro": "個人情報保護法（APPI）に基づく{customerName}さまのデータ操作。オーナーまたは担当スタッフ権限が必要です。",
+        "accessTitle": "アクセス履歴",
+        "accessBody": "{customerName}さまのデータをいつ誰が参照・編集したかを監査ログで確認します。",
+        "viewHistory": "履歴を表示",
+        "exportTitle": "データをエクスポート",
+        "exportBody": "プロフィール、カルテ、メモリー、写真、録音の文字起こしを暗号化PDFとしてエクスポートします（署名付きURL、24時間有効）。",
+        "export": "エクスポート",
+        "deleteTitle": "お客様データを削除",
+        "deleteBody": "すべてのデータを論理削除し、30日後に完全削除をスケジュールします（APPIの妥当な期間）。対象：カルテ、メモリー、写真、録音。30日以内は取り消せます。",
+        "deleteCta": "データを削除",
+        "footer": "これらの操作は監査ログに記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。"
+      }
     },
     "toast": {
       "created": "顧客を作成しました",
@@ -474,6 +496,13 @@
         "aiPredict": "AI予測",
         "status": "状態",
         "total": "合計"
+      },
+      "row": {
+        "honorific": "様",
+        "lastVisitPrefix": "前回",
+        "staff": "担当：{name}",
+        "recommendPrefix": "推奨来店",
+        "visitsSuffix": "来店{n}回"
       }
     },
     "listFilter": {
@@ -483,45 +512,6 @@
       "followup": "要フォロー",
       "dormant": "休眠（90日以上）",
       "sortLastVisit": "最終来店（新しい順）"
-    },
-    "profile": {
-      "backToList": "お客様一覧に戻る",
-      "preferredStaff": "指名スタッフ",
-      "nextVisitPredicted": "次回来店予測：",
-      "tab": {
-        "memory": "メモリー",
-        "sessions": "セッション",
-        "photos": "写真",
-        "privacy": "プライバシー"
-      },
-      "memory": {
-        "emptyBody": "AIがまとめるプロファイル：個人情報、身体・健康、好み、目標、ライフスタイル。録音と問診票から自動で蓄積されます。"
-      },
-      "photos": {
-        "emptyBody": "ビフォー／アフター／参考写真をアップロードして、施術の経過を記録しましょう。",
-        "totalCount": "合計 {n} 件"
-      },
-      "sessions": {
-        "count": "セッション {n} 件",
-        "empty": "録音済みのセッションはまだありません。",
-        "memoryAdded": "メモリー +{n} 件",
-        "openKarute": "カルテ詳細を開く →",
-        "noKaruteLinked": "このセッションに紐づくカルテはまだありません。"
-      },
-      "privacy": {
-        "heading": "プライバシーとデータ",
-        "intro": "個人情報保護法（APPI）に基づく{customerName}さまのデータ操作。オーナーまたは担当スタッフ権限が必要です。",
-        "accessTitle": "アクセス履歴",
-        "accessBody": "{customerName}さまのデータをいつ誰が参照・編集したかを監査ログで確認します。",
-        "viewHistory": "履歴を表示",
-        "exportTitle": "データをエクスポート",
-        "exportBody": "プロフィール、カルテ、メモリー、写真、録音の文字起こしを暗号化PDFとしてエクスポートします（署名付きURL、24時間有効）。",
-        "export": "エクスポート",
-        "deleteTitle": "お客様データを削除",
-        "deleteBody": "すべてのデータを論理削除し、30日後に完全削除をスケジュールします（APPIの妥当な期間）。対象：カルテ、メモリー、写真、録音。30日以内は取り消せます。",
-        "deleteCta": "データを削除",
-        "footer": "これらの操作は監査ログに記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。"
-      }
     }
   },
   "karute": {
@@ -670,12 +660,22 @@
     "webhookDescription": "カルテ作成時にこのURLにPOSTします。",
     "aiSettings": "AI設定",
     "aiDescription": "AI処理の設定を管理",
-    "aiModel": "優先AIモデル",
+    "aiModel": {
+      "tierFast": "高速",
+      "tierBest": "高精度"
+    },
     "confidenceThreshold": "分類確信度閾値",
     "recordingSettings": "録音設定",
     "recordingDescription": "録音品質と動作を設定",
-    "audioQuality": "音声品質",
-    "autoStop": "自動停止タイマー（分）",
+    "audioQuality": {
+      "low": "低",
+      "standard": "標準",
+      "high": "高"
+    },
+    "autoStop": {
+      "off": "オフ",
+      "minutes": "{n} 分"
+    },
     "settingsSaved": "設定を保存しました",
     "staffMembers": "スタッフメンバー",
     "addStaffMember": "スタッフを追加",
@@ -687,7 +687,16 @@
     "position": "役職",
     "manageStaff": "スタッフ管理",
     "selectPosition": "役職を選択...",
-    "theme": "テーマ",
+    "theme": {
+      "bar": {
+        "open": "営業中",
+        "booking": "予約",
+        "recording": "録音中",
+        "completed": "完了",
+        "blocked": "ブロック",
+        "processing": "処理中"
+      }
+    },
     "themeDescription": "タイムラインバーの色をカスタマイズ",
     "resetToDefaults": "初期設定に戻す",
     "preview": "プレビュー",
@@ -696,8 +705,12 @@
     "bookingSyncDescription": "Quick Reserveから予約カレンダーに予約を同期",
     "stores": "店舗",
     "coaching": "コーチング",
-    "subscription": "サブスクリプション",
-    "auditLog": "監査ログ",
+    "subscription": {
+      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。"
+    },
+    "auditLog": {
+      "searchPlaceholder": "イベントを検索…"
+    },
     "comingSoon": "近日公開",
     "loginId": "ログインID",
     "loginIdPlaceholder": "Quick Reserve ログインID",
@@ -783,22 +796,6 @@
     "save": "保存",
     "closed": "休業",
     "voiceEnrolled": "音声登録済み",
-    "audioQuality": {
-      "low": "低",
-      "standard": "標準",
-      "high": "高"
-    },
-    "autoStop": {
-      "off": "オフ",
-      "minutes": "{n} 分"
-    },
-    "aiModel": {
-      "tierFast": "高速",
-      "tierBest": "高精度"
-    },
-    "auditLog": {
-      "searchPlaceholder": "イベントを検索…"
-    },
     "syncSection": {
       "errorPrefix": "エラー：{error}",
       "configSaved": "設定を保存しました",
@@ -820,19 +817,6 @@
         "unlimitedStaff": "スタッフ無制限",
         "auditLog": "監査ログ",
         "prioritySupport": "優先サポート"
-      }
-    },
-    "subscription": {
-      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。"
-    },
-    "theme": {
-      "bar": {
-        "open": "営業中",
-        "booking": "予約",
-        "recording": "録音中",
-        "completed": "完了",
-        "blocked": "ブロック",
-        "processing": "処理中"
       }
     }
   },
@@ -883,7 +867,7 @@
     "recommendedNote": "推奨列が事前に選択されています。",
     "presetRecommended": "推奨",
     "presetNoPii": "PIIなし",
-    "presetAll": "すべて",
+    "presetAll": "全期間",
     "presetMinimal": "最小",
     "selectedColumns": "選択中の列",
     "noColumnsSelected": "列が未選択です — ファイルは空になります。",
@@ -909,7 +893,6 @@
     "preset30d": "過去30日",
     "preset90d": "過去90日",
     "presetYtd": "年初から",
-    "presetAll": "全期間",
     "presetCustom": "カスタム…",
     "advanced": "詳細設定",
     "advancedDescription": "プライバシーと配信オプション。APPIコンプライアンスの初期設定。",

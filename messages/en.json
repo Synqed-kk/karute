@@ -421,21 +421,43 @@
       "noResults": "No customers found"
     },
     "profile": {
-      "edit": "Edit",
-      "save": "Save",
-      "cancel": "Cancel",
-      "visits": "{count} visits",
-      "lastVisit": "Last visit: {date}",
-      "noVisits": "No visits yet",
-      "karuteHistory": "Session History",
-      "back": "Back",
-      "staff": "Staff",
-      "registered": "Registered {date}",
-      "notes": "Notes",
-      "type": "Type",
-      "none": "None",
-      "internalNotesPlaceholder": "Internal notes...",
-      "churnAlert": "Last visit was {days} days ago"
+      "backToList": "Back to customers",
+      "preferredStaff": "Preferred staff",
+      "nextVisitPredicted": "Next visit predicted:",
+      "tab": {
+        "memory": "Memory",
+        "sessions": "Sessions",
+        "photos": "Photos",
+        "privacy": "Privacy"
+      },
+      "memory": {
+        "emptyBody": "AI-curated profile: personal context, body / health, preferences, goals, lifestyle. Built up automatically from recordings + intake forms."
+      },
+      "photos": {
+        "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+        "totalCount": "{n} total"
+      },
+      "sessions": {
+        "count": "{n} sessions",
+        "empty": "No sessions recorded yet.",
+        "memoryAdded": "Memory +{n}",
+        "openKarute": "Open full karute record →",
+        "noKaruteLinked": "No karute record linked to this session yet."
+      },
+      "privacy": {
+        "heading": "Privacy & data",
+        "intro": "APPI-compliant actions for {customerName}'s data. Owner or assigned-staff permission required.",
+        "accessTitle": "Access history",
+        "accessBody": "See which staff accessed or modified {customerName}'s data, when, and from where (audit log).",
+        "viewHistory": "View history",
+        "exportTitle": "Export data",
+        "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, valid 24 hours).",
+        "export": "Export",
+        "deleteTitle": "Delete customer data",
+        "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable period). Scope: karute, memory, photos, recordings. Reversible within 30 days.",
+        "deleteCta": "Delete data",
+        "footer": "These actions are logged to the audit trail. After 30 days, deletions are irreversible. Owner confirmation recommended."
+      }
     },
     "toast": {
       "created": "Customer created",
@@ -474,6 +496,13 @@
         "aiPredict": "AI predict",
         "status": "Status",
         "total": "Total"
+      },
+      "row": {
+        "honorific": "",
+        "lastVisitPrefix": "Last visit",
+        "staff": "Staff: {name}",
+        "recommendPrefix": "Recommend",
+        "visitsSuffix": "{n} visits"
       }
     },
     "listFilter": {
@@ -483,45 +512,6 @@
       "followup": "Needs follow-up",
       "dormant": "Dormant (90d+)",
       "sortLastVisit": "Last visit (recent)"
-    },
-    "profile": {
-      "backToList": "Back to customers",
-      "preferredStaff": "Preferred staff",
-      "nextVisitPredicted": "Next visit predicted:",
-      "tab": {
-        "memory": "Memory",
-        "sessions": "Sessions",
-        "photos": "Photos",
-        "privacy": "Privacy"
-      },
-      "memory": {
-        "emptyBody": "AI-curated profile: personal context, body / health, preferences, goals, lifestyle. Built up automatically from recordings + intake forms."
-      },
-      "photos": {
-        "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
-        "totalCount": "{n} total"
-      },
-      "sessions": {
-        "count": "{n} sessions",
-        "empty": "No sessions recorded yet.",
-        "memoryAdded": "Memory +{n}",
-        "openKarute": "Open full karute record →",
-        "noKaruteLinked": "No karute record linked to this session yet."
-      },
-      "privacy": {
-        "heading": "Privacy & data",
-        "intro": "APPI-compliant actions for {customerName}'s data. Owner or assigned-staff permission required.",
-        "accessTitle": "Access history",
-        "accessBody": "See which staff accessed or modified {customerName}'s data, when, and from where (audit log).",
-        "viewHistory": "View history",
-        "exportTitle": "Export data",
-        "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, valid 24 hours).",
-        "export": "Export",
-        "deleteTitle": "Delete customer data",
-        "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable period). Scope: karute, memory, photos, recordings. Reversible within 30 days.",
-        "deleteCta": "Delete data",
-        "footer": "These actions are logged to the audit trail. After 30 days, deletions are irreversible. Owner confirmation recommended."
-      }
     }
   },
   "karute": {
@@ -670,12 +660,22 @@
     "webhookDescription": "POSTs to this URL when a karute is created.",
     "aiSettings": "AI Settings",
     "aiDescription": "Manage AI processing preferences",
-    "aiModel": "Preferred AI Model",
+    "aiModel": {
+      "tierFast": "Fast",
+      "tierBest": "Best"
+    },
     "confidenceThreshold": "Classification Confidence Threshold",
     "recordingSettings": "Recording Settings",
     "recordingDescription": "Configure recording quality and behavior",
-    "audioQuality": "Audio Quality",
-    "autoStop": "Auto-Stop Timer (minutes)",
+    "audioQuality": {
+      "low": "Low",
+      "standard": "Standard",
+      "high": "High"
+    },
+    "autoStop": {
+      "off": "Off",
+      "minutes": "{n} min"
+    },
     "settingsSaved": "Settings saved",
     "staffMembers": "Staff Members",
     "addStaffMember": "Add Staff Member",
@@ -687,7 +687,16 @@
     "position": "Position",
     "manageStaff": "Manage Staff",
     "selectPosition": "Select position...",
-    "theme": "Theme",
+    "theme": {
+      "bar": {
+        "open": "Open",
+        "booking": "Booking",
+        "recording": "Recording",
+        "completed": "Completed",
+        "blocked": "Blocked",
+        "processing": "Processing"
+      }
+    },
     "themeDescription": "Customize timeline bar colors",
     "resetToDefaults": "Reset to Defaults",
     "preview": "Preview",
@@ -696,8 +705,12 @@
     "bookingSyncDescription": "Sync appointments from Quick Reserve into your booking calendar",
     "stores": "Stores",
     "coaching": "Coaching",
-    "subscription": "Subscription",
-    "auditLog": "Audit Log",
+    "subscription": {
+      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades."
+    },
+    "auditLog": {
+      "searchPlaceholder": "Search events…"
+    },
     "comingSoon": "Coming soon",
     "loginId": "Login ID",
     "loginIdPlaceholder": "Quick Reserve login ID",
@@ -783,22 +796,6 @@
     "save": "Save",
     "closed": "Closed",
     "voiceEnrolled": "Voice enrolled",
-    "audioQuality": {
-      "low": "Low",
-      "standard": "Standard",
-      "high": "High"
-    },
-    "autoStop": {
-      "off": "Off",
-      "minutes": "{n} min"
-    },
-    "aiModel": {
-      "tierFast": "Fast",
-      "tierBest": "Best"
-    },
-    "auditLog": {
-      "searchPlaceholder": "Search events…"
-    },
     "syncSection": {
       "errorPrefix": "Error: {error}",
       "configSaved": "Config saved",
@@ -820,19 +817,6 @@
         "unlimitedStaff": "Unlimited staff",
         "auditLog": "Audit log",
         "prioritySupport": "Priority support"
-      }
-    },
-    "subscription": {
-      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades."
-    },
-    "theme": {
-      "bar": {
-        "open": "Open",
-        "booking": "Booking",
-        "recording": "Recording",
-        "completed": "Completed",
-        "blocked": "Blocked",
-        "processing": "Processing"
       }
     }
   },
@@ -883,7 +867,7 @@
     "recommendedNote": "Recommended columns are pre-selected.",
     "presetRecommended": "Recommended",
     "presetNoPii": "No PII",
-    "presetAll": "All",
+    "presetAll": "All time",
     "presetMinimal": "Minimal",
     "selectedColumns": "Selected columns",
     "noColumnsSelected": "No columns selected — file would be empty.",
@@ -909,7 +893,6 @@
     "preset30d": "Last 30 days",
     "preset90d": "Last 90 days",
     "presetYtd": "Year to date",
-    "presetAll": "All time",
     "presetCustom": "Custom…",
     "advanced": "Advanced",
     "advancedDescription": "Privacy + delivery options. Defaults match Karute's APPI compliance baseline.",

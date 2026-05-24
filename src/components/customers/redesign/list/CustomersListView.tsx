@@ -79,17 +79,13 @@ export function CustomersListView({
         </div>
       ) : (
         <>
-          {/* Desktop table */}
+          {/* Desktop table — column template kept in lock-step with CustomerRowDesktop */}
           <div className="hidden overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:block">
-            <div className="grid grid-cols-[minmax(0,2fr)_120px_120px_140px_120px_140px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>Customer</span>
-              <span className="flex items-center gap-1.5">
-                Visits
-                <ComingSoonChip />
-              </span>
               <span>Last visit</span>
               <span className="flex items-center gap-1.5">
-                AI predict
+                Recommend
                 <ComingSoonChip />
               </span>
               <span>Status</span>
@@ -105,8 +101,8 @@ export function CustomersListView({
             ))}
           </div>
 
-          {/* Mobile cards */}
-          <div className="flex flex-col gap-2 md:hidden">
+          {/* Mobile list — rows separate via their own border-b */}
+          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:hidden">
             {visibleRows.map((c) => (
               <CustomerCardMobile
                 key={c.id}
