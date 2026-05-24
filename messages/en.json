@@ -646,6 +646,26 @@
       "emptyBody": "Use \"Add photo\" to pick a category and register an image. Great for progress tracking and references.",
       "galleryComingSoon": "Gallery + comparison view — coming soon. Photo capture + Supabase Storage wiring tracked for Anthony.",
       "captureComingSoon": "Photo capture — coming soon. Full implementation lifted from the design spike pending Anthony's Storage wiring."
+    },
+    "memorySection": {
+      "title": "Customer Memory",
+      "subtitle": "Everything we know about {name} so far",
+      "updatedBadge": "{n} new from today",
+      "talkingPoints": "Today's talking points",
+      "emptyTitle": "No memory yet",
+      "emptyBody": "New customer — we'll start building memory from today's session.",
+      "intakePrefix": "Intake",
+      "categoryPersonal": "Personal",
+      "categoryBody": "Body & health",
+      "categoryPreference": "Preferences",
+      "categoryGoal": "Goals",
+      "categoryLifestyle": "Lifestyle",
+      "sourceAi": "AI extracted",
+      "sourceStaff": "Staff added",
+      "sourceIntake": "From intake",
+      "addManually": "Add manually",
+      "lastUpdated": "Last updated: {date}",
+      "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony."
     }
   },
   "review": {

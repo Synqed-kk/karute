@@ -39,7 +39,7 @@ import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
 import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
-import { MemoryTabContent } from './MemoryTabContent'
+import { CustomerMemoryCard } from '@/components/karute/spike-lifted/memory/CustomerMemoryCard'
 import {
   SessionsTabContent,
   type CustomerSessionEntry,
@@ -98,7 +98,7 @@ export function CustomerProfileView({
 
       {/* 5. Tab content */}
       <div>
-        {tab === 'memory' && <MemoryTabContent />}
+        {tab === 'memory' && <CustomerMemoryCard customerName={customer.name} />}
         {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
         {tab === 'photos' && <PhotoRecordCard customerName={customer.name} />}
         {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}

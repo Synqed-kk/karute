@@ -36,7 +36,7 @@ import { ChevronLeft } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import { CustomerIdentityCard } from '@/components/customers/redesign/profile/CustomerIdentityCard'
-import { MemoryTabContent } from '@/components/customers/redesign/profile/MemoryTabContent'
+import { CustomerMemoryCard } from './memory/CustomerMemoryCard'
 import {
   SessionsTabContent,
   type CustomerSessionEntry,
@@ -74,11 +74,10 @@ export function KaruteCustomerDetailView({
       {/* 2. Identity — flat section, matches spike CustomerHeaderCard */}
       <CustomerIdentityCard c={customer} />
 
-      {/* 3. Customer memory — spike CustomerMemoryCard. Stub via the
-       *  existing karute MemoryTabContent for now; lift the spike's
-       *  richer CustomerMemoryCard component later. */}
+      {/* 3. Customer memory — lifted spike CustomerMemoryCard (visual
+       *  port with inline sample data; mutations stubbed). */}
       <div className="md:px-6 md:pt-5">
-        <MemoryTabContent />
+        <CustomerMemoryCard customerName={customer.name} />
       </div>
 
       {/* 4. Photo records — lifted from spike */}
