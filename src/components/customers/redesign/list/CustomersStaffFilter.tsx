@@ -86,11 +86,13 @@ export function CustomersStaffFilter({
 }
 
 /**
- * Bound two-pill segment toggle. Visually one chip with a divider,
- * matching the design spike's `自分 ｜ 全スタッフ` control.
+ * Two adjacent scope pills (Self / All staff). Each pill has its own
+ * rounded outline, sitting close together with a small gap — matches
+ * the design spike's `自分` / `全スタッフ` controls. Earlier version
+ * was a bound segment with internal divider + harsh foreground/
+ * background swap; that didn't match the spike's softer look.
  *
- * Self half hides when the viewer has no staff profile (e.g. owner-only
- * accounts) — the "All staff" pill then occupies the full segment.
+ * Self pill hides when the viewer has no staff profile.
  */
 function ScopeToggle({
   selfStaffId,
@@ -105,40 +107,51 @@ function ScopeToggle({
   selfLabel: string
   allLabel: string
 }) {
-  const hasSelf = !!selfStaffId
   return (
-    <div className="inline-flex h-8 items-stretch rounded-full border border-border bg-card text-xs font-medium overflow-hidden w-fit">
-      {hasSelf && (
-        <button
-          type="button"
+    <div className="inline-flex flex-wrap items-center gap-1.5">
+      {selfStaffId && (
+        <ScopePill
+          active={selected === 'self'}
           onClick={() => onChange('self')}
-          aria-pressed={selected === 'self'}
-          className={`inline-flex items-center gap-1.5 px-3 transition-colors ${
-            selected === 'self'
-              ? 'bg-foreground text-background'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-          }`}
-        >
-          <User size={13} />
-          <span>{selfLabel}</span>
-        </button>
+          icon={<User size={13} />}
+          label={selfLabel}
+        />
       )}
-      <button
-        type="button"
+      <ScopePill
+        active={selected === 'all'}
         onClick={() => onChange('all')}
-        aria-pressed={selected === 'all'}
-        className={`inline-flex items-center gap-1.5 px-3 transition-colors ${
-          hasSelf ? 'border-l border-border' : ''
-        } ${
-          selected === 'all'
-            ? 'bg-foreground text-background'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
-        }`}
-      >
-        <Users size={13} />
-        <span>{allLabel}</span>
-      </button>
+        icon={<Users size={13} />}
+        label={allLabel}
+      />
     </div>
+  )
+}
+
+function ScopePill({
+  active,
+  onClick,
+  icon,
+  label,
+}: {
+  active: boolean
+  onClick: () => void
+  icon: React.ReactNode
+  label: string
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors ${
+        active
+          ? 'border-foreground/30 bg-muted text-foreground'
+          : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+      }`}
+    >
+      {icon}
+      <span>{label}</span>
+    </button>
   )
 }
 

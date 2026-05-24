@@ -3,6 +3,7 @@
 import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
+import { formatJpPhone } from '@/lib/format/phone'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
 
@@ -117,7 +118,7 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
         {c.phone && (
           <span className="inline-flex items-center gap-1 truncate tabular-nums">
             <Phone className="size-2.5 shrink-0" aria-hidden />
-            <span className="truncate">{c.phone}</span>
+            <span className="truncate">{formatJpPhone(c.phone)}</span>
           </span>
         )}
       </div>

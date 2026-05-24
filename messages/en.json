@@ -540,7 +540,8 @@
       "staffFilter": {
         "self": "Self",
         "all": "All staff"
-      }
+      },
+      "statusLine": "Registered customers · Total {total} · {showing} showing"
     },
     "listFilter": {
       "all": "All",

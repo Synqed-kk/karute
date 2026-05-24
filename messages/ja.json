@@ -540,7 +540,8 @@
       "staffFilter": {
         "self": "自分",
         "all": "全スタッフ"
-      }
+      },
+      "statusLine": "登録中の顧客 · 全{total} · {showing}名を表示中"
     },
     "listFilter": {
       "all": "すべて",

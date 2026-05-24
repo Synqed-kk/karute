@@ -3,6 +3,7 @@
 import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
+import { formatJpPhone } from '@/lib/format/phone'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
 
@@ -33,7 +34,7 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
   return (
     <Link
       href={`/customers/${c.id}` as Parameters<typeof Link>[0]['href']}
-      className="relative flex items-start gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0"
+      className="relative flex items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0"
     >
       {/* Staff color stripe on left edge — same idiom as the spike.
        *  Falls back to a subtle muted bar (instead of transparent) when
@@ -100,11 +101,11 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
           </span>
         </div>
 
-        {/* Line 5: phone — only if present */}
+        {/* Line 5: phone — only if present, formatted as 0XX-XXXX-XXXX */}
         {c.phone && (
           <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
             <Phone className="size-2.5 shrink-0" aria-hidden />
-            <span>{c.phone}</span>
+            <span>{formatJpPhone(c.phone)}</span>
           </div>
         )}
       </div>
