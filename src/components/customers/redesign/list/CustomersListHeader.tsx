@@ -48,21 +48,26 @@ export function CustomersListHeader({ total, showing }: CustomersListHeaderProps
   const t = useTranslations('customers.list')
   return (
     <div className="flex flex-col">
-      {/* Sticky title bar — pins to top of <main> while the list scrolls */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/95 px-4 backdrop-blur md:-mx-6 md:px-6">
-        <div className="relative flex items-center justify-center py-3">
+      {/* Sticky title bar — pins to top of <main> while the list scrolls.
+       *  Fully opaque `bg-background` (not /95 + blur) so the underlying
+       *  content can't read through and make the bar look like it's
+       *  fading — that was the previous miss. Thin vertical padding
+       *  (py-2) keeps the bar compact instead of eating screen real
+       *  estate above the fold. */}
+      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background px-4 md:-mx-6 md:px-6">
+        <div className="relative flex items-center justify-center py-2">
           <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             {t('heading')}
           </h1>
           <button
             type="button"
-            className="absolute right-0 inline-flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-label={t('notifications')}
             // STUB — click does nothing yet. See the ANTHONY block
             // in the component docstring above for the full
             // build-out (the spike also shipped this as a stub).
           >
-            <Bell size={18} />
+            <Bell size={16} />
           </button>
         </div>
       </div>
