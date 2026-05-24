@@ -74,7 +74,7 @@ export function CustomersListView({
   }, [rows, statusFilter, selfStaffId, staffFilter])
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 pt-3 pb-6 md:gap-4 md:px-6 md:py-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 pt-0 pb-6 md:gap-4 md:pb-6">
       <CustomersListHeader
         total={totalRegistered}
         showing={visibleRows.length}

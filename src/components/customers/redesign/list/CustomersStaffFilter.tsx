@@ -86,13 +86,19 @@ export function CustomersStaffFilter({
 }
 
 /**
- * Two adjacent scope pills (Self / All staff). Each pill has its own
- * rounded outline, sitting close together with a small gap — matches
- * the design spike's `自分` / `全スタッフ` controls. Earlier version
- * was a bound segment with internal divider + harsh foreground/
- * background swap; that didn't match the spike's softer look.
+ * Bound segmented toggle (Self ｜ All staff). iOS-style: the outer
+ * container has a muted gray fill, the ACTIVE segment renders as a
+ * white pill inside it with a subtle shadow. Inactive segments are
+ * transparent (showing the container's gray through) with muted
+ * text. Mirrors the design spike's `自分 / 全スタッフ` control.
  *
- * Self pill hides when the viewer has no staff profile.
+ * Earlier misses:
+ *   - two separate pills (no shared container)
+ *   - bound segment but with bg-foreground/text-background swap on
+ *     active (too aggressive, dark fill instead of white pill)
+ *
+ * Self half hides when the viewer has no staff profile — "All staff"
+ * then occupies the full segment.
  */
 function ScopeToggle({
   selfStaffId,
@@ -107,17 +113,18 @@ function ScopeToggle({
   selfLabel: string
   allLabel: string
 }) {
+  const hasSelf = !!selfStaffId
   return (
-    <div className="inline-flex flex-wrap items-center gap-1.5">
-      {selfStaffId && (
-        <ScopePill
+    <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
+      {hasSelf && (
+        <SegmentButton
           active={selected === 'self'}
           onClick={() => onChange('self')}
           icon={<User size={13} />}
           label={selfLabel}
         />
       )}
-      <ScopePill
+      <SegmentButton
         active={selected === 'all'}
         onClick={() => onChange('all')}
         icon={<Users size={13} />}
@@ -127,7 +134,7 @@ function ScopeToggle({
   )
 }
 
-function ScopePill({
+function SegmentButton({
   active,
   onClick,
   icon,
@@ -143,10 +150,10 @@ function ScopePill({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors ${
+      className={`inline-flex items-center gap-1.5 rounded-full px-3 transition-all ${
         active
-          ? 'border-foreground/30 bg-muted text-foreground'
-          : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+          ? 'bg-card text-foreground shadow-sm'
+          : 'text-muted-foreground hover:text-foreground'
       }`}
     >
       {icon}

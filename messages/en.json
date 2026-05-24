@@ -541,7 +541,8 @@
         "self": "Self",
         "all": "All staff"
       },
-      "statusLine": "Registered customers · Total {total} · {showing} showing"
+      "statusLine": "Registered customers · Total {total} · {showing} showing",
+      "notifications": "Notifications"
     },
     "listFilter": {
       "all": "All",
