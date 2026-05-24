@@ -46,34 +46,39 @@ export interface CustomerProfileData {
   photoCount: number
 }
 
-// Display strings are NOT colocated with the styles anymore — they live in
-// `messages/{en,ja}.json` under `customers.list.status.{key}`. Callsites
-// resolve them via `useTranslations('customers.list')` →
-// `t('status.' + status.key)` so the status chip can render in either
-// locale. Keeping these as classes-only avoids the English-string-in-
-// state-object footgun.
+// Display strings live in `messages/{en,ja}.json` under
+// `customers.list.status.{key}`; callsites resolve via
+// `t('status.' + key)` (see CustomerCardMobile, CustomerRowDesktop,
+// CustomerIdentityCard).
+//
+// Color palette mirrors the design-spike's `CustomerSignalChip` —
+// each entry pairs a light-theme variant with a dark-theme variant
+// via the `dark:` Tailwind prefix. Previous version was dark-only
+// (`bg-sky-500/10 text-sky-200 …`) which made the badges illegible
+// in the default light theme — the "新規" chip rendered light-blue
+// text on a light-blue background.
 export const STATUS_STYLES: Record<
   CustomerStatusKey,
   { bg: string; text: string; border: string }
 > = {
   'on-track': {
-    bg: 'bg-emerald-500/10',
-    text: 'text-emerald-300',
-    border: 'border-emerald-500/30',
+    bg: 'bg-green-50 dark:bg-green-500/10',
+    text: 'text-green-700 dark:text-green-300',
+    border: 'border-green-200 dark:border-green-500/20',
   },
   new: {
-    bg: 'bg-sky-500/10',
-    text: 'text-sky-200',
-    border: 'border-sky-500/40',
+    bg: 'bg-blue-50 dark:bg-blue-500/10',
+    text: 'text-blue-700 dark:text-blue-300',
+    border: 'border-blue-200 dark:border-blue-500/20',
   },
   'needs-followup': {
-    bg: 'bg-amber-500/10',
-    text: 'text-amber-200',
-    border: 'border-amber-500/40',
+    bg: 'bg-yellow-50 dark:bg-yellow-500/10',
+    text: 'text-yellow-800 dark:text-yellow-300',
+    border: 'border-yellow-300 dark:border-yellow-500/30',
   },
   dormant: {
-    bg: 'bg-red-500/10',
-    text: 'text-red-300',
-    border: 'border-red-500/40',
+    bg: 'bg-red-50 dark:bg-red-500/10',
+    text: 'text-red-700 dark:text-red-300',
+    border: 'border-red-200 dark:border-red-500/20',
   },
 }

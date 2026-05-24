@@ -57,23 +57,14 @@ export function CustomersStaffFilter({
 
   return (
     <div className="flex flex-col gap-2">
-      {/* Row 1: scope toggle */}
-      <div className="inline-flex flex-wrap items-center gap-2">
-        {selfStaffId && (
-          <ScopePill
-            active={selected === 'self'}
-            onClick={() => onChange(selected === 'self' ? 'all' : 'self')}
-            icon={<User size={13} />}
-            label={t('self')}
-          />
-        )}
-        <ScopePill
-          active={selected === 'all'}
-          onClick={() => onChange('all')}
-          icon={<Users size={13} />}
-          label={t('all')}
-        />
-      </div>
+      {/* Row 1: scope toggle — bound segment, mirrors the spike */}
+      <ScopeToggle
+        selfStaffId={selfStaffId}
+        selected={selected}
+        onChange={onChange}
+        selfLabel={t('self')}
+        allLabel={t('all')}
+      />
 
       {/* Row 2: per-staff pills with deterministic colors */}
       {staffList.length > 0 && (
@@ -94,30 +85,60 @@ export function CustomersStaffFilter({
   )
 }
 
-function ScopePill({
-  active,
-  onClick,
-  icon,
-  label,
+/**
+ * Bound two-pill segment toggle. Visually one chip with a divider,
+ * matching the design spike's `自分 ｜ 全スタッフ` control.
+ *
+ * Self half hides when the viewer has no staff profile (e.g. owner-only
+ * accounts) — the "All staff" pill then occupies the full segment.
+ */
+function ScopeToggle({
+  selfStaffId,
+  selected,
+  onChange,
+  selfLabel,
+  allLabel,
 }: {
-  active: boolean
-  onClick: () => void
-  icon: React.ReactNode
-  label: string
+  selfStaffId: string | null
+  selected: StaffFilterKey
+  onChange: (next: StaffFilterKey) => void
+  selfLabel: string
+  allLabel: string
 }) {
+  const hasSelf = !!selfStaffId
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors ${
-        active
-          ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
-          : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
-      }`}
-    >
-      {icon}
-      <span>{label}</span>
-    </button>
+    <div className="inline-flex h-8 items-stretch rounded-full border border-border bg-card text-xs font-medium overflow-hidden w-fit">
+      {hasSelf && (
+        <button
+          type="button"
+          onClick={() => onChange('self')}
+          aria-pressed={selected === 'self'}
+          className={`inline-flex items-center gap-1.5 px-3 transition-colors ${
+            selected === 'self'
+              ? 'bg-foreground text-background'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+          }`}
+        >
+          <User size={13} />
+          <span>{selfLabel}</span>
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => onChange('all')}
+        aria-pressed={selected === 'all'}
+        className={`inline-flex items-center gap-1.5 px-3 transition-colors ${
+          hasSelf ? 'border-l border-border' : ''
+        } ${
+          selected === 'all'
+            ? 'bg-foreground text-background'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+        }`}
+      >
+        <Users size={13} />
+        <span>{allLabel}</span>
+      </button>
+    </div>
   )
 }
 

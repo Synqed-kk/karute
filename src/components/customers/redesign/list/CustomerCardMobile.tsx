@@ -35,11 +35,17 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
       href={`/customers/${c.id}` as Parameters<typeof Link>[0]['href']}
       className="relative flex items-start gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0"
     >
-      {/* Staff color stripe on left edge — same idiom as the spike */}
+      {/* Staff color stripe on left edge — same idiom as the spike.
+       *  Falls back to a subtle muted bar (instead of transparent) when
+       *  the customer has no preferred staff so the row still reads as
+       *  "list item with consistent left-edge accent" rather than
+       *  visually collapsing. The bar is intentionally inset 12px from
+       *  top/bottom so the row's border-b can pass through cleanly,
+       *  giving the cut-into-sections look from the spike. */}
       <span
         aria-hidden
         className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
-        style={{ background: staffColor ?? 'transparent' }}
+        style={{ background: staffColor ?? 'var(--border)' }}
       />
 
       <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border/60">

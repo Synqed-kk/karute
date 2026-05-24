@@ -80,14 +80,17 @@ export function CustomersListView({
         showing={visibleRows.length}
       />
 
-      <CustomerSearchInput initialQuery={query} />
-
+      {/* Order mirrors the design spike: staff scope first (who am I
+       *  looking at?), THEN search inside that scope, THEN status
+       *  filter to narrow further. */}
       <CustomersStaffFilter
         staffList={staffList}
         selfStaffId={selfStaffId}
         selected={staffFilter}
         onChange={setStaffFilter}
       />
+
+      <CustomerSearchInput initialQuery={query} />
 
       <CustomersStatusFilters
         active={statusFilter}
@@ -107,7 +110,7 @@ export function CustomersListView({
       ) : (
         <>
           {/* Desktop table — column template kept in lock-step with CustomerRowDesktop */}
-          <div className="hidden overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:block">
+          <div className="hidden overflow-hidden rounded-2xl border border-border/60 bg-card md:block">
             <div className="grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
               <span>{t('col.customer')}</span>
               <span>{t('col.lastVisit')}</span>
@@ -129,7 +132,7 @@ export function CustomersListView({
           </div>
 
           {/* Mobile list — rows separate via their own border-b */}
-          <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:hidden">
+          <div className="overflow-hidden rounded-2xl border border-border/60 bg-card md:hidden">
             {visibleRows.map((c) => (
               <CustomerCardMobile
                 key={c.id}
