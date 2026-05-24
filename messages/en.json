@@ -475,6 +475,13 @@
         "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable period). Scope: karute, memory, photos, recordings. Reversible within 30 days.",
         "deleteCta": "Delete data",
         "footer": "These actions are logged to the audit trail. After 30 days, deletions are irreversible. Owner confirmation recommended."
+      },
+      "tabs": {
+        "memory": "Memory",
+        "sessions": "Sessions",
+        "photos": "Photos",
+        "privacy": "Privacy",
+        "aria": "Profile tabs"
       }
     },
     "toast": {
@@ -590,6 +597,10 @@
       "recordingTranscript": {
         "title": "Recording & Transcript",
         "description": "Full audio recording with searchable transcript, speaker diarization (who said what), and consent badge. Played back during the next session for context."
+      },
+      "reengagement": {
+        "title": "AI Follow-up Message",
+        "description": "Drafts a personal re-engagement message from this customer's memory + session history. Sits above the tabs so staff catch it on profile open without a tab switch. Edit and send via LINE / SMS / email."
       }
     }
   },

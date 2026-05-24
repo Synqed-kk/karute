@@ -30,6 +30,7 @@
 import {
   ChevronRight,
   FileText,
+  MessageCircle,
   Mic,
   Sparkles,
   TrendingUp,
@@ -43,6 +44,48 @@ import { useTranslations } from 'next-intl'
 // `UpcomingAiFeatures` grid wrapper is gone — the spike's
 // KaruteDetailPage distributes these across different layout regions,
 // not a single 4-up grid.
+
+// ─────────────────────────────────────────────────────────────
+// AI再エンゲージメント — AI Follow-up Message (CustomerReengagementCard)
+// ─────────────────────────────────────────────────────────────
+// ANTHONY: spike source —
+//   src/components/customers/CustomerReengagementCard.tsx
+// Position: sits ABOVE the tab bar on the customer profile page (so
+// staff see the follow-up draft on profile open without a tab
+// switch).
+// Data shape (spike derives from customer memory + session history):
+//   { channel: 'LINE' | 'SMS' | 'email'
+//   , preview: string
+//   , full: string
+//   , derivedFrom: { memoryItems: string[]; sessionIds: string[] } }
+// AI prompt: AI_PROMPTS.md §13 "Customer Reengagement Draft".
+// Generator: deriveReengagementDraft() today (pure), Sonnet edge
+// function in prod. Mutation surface mirrors AIOutreachCard
+// (`sendOutreach`) — same `outreach_sends` table + edge-function
+// channel send pattern.
+// ─────────────────────────────────────────────────────────────
+export function CustomerReengagementPreview() {
+  return (
+    <FeatureCard
+      icon={<MessageCircle size={14} />}
+      accent="amber"
+      titleKey="reengagement.title"
+      descriptionKey="reengagement.description"
+    >
+      <div className="mt-3 flex items-center gap-1.5">
+        <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          LINE
+        </span>
+        <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          SMS
+        </span>
+        <span className="rounded-md border border-border bg-card px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+          Email
+        </span>
+      </div>
+    </FeatureCard>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────
 // AI体調予測 — AI Body Condition Prediction
