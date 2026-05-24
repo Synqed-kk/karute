@@ -410,7 +410,22 @@
       "saving": "Saving...",
       "duplicateWarning": "A customer named \"{name}\" already exists",
       "nameRequired": "Name is required",
-      "invalidEmail": "Invalid email"
+      "invalidEmail": "Invalid email",
+      "titleNew": "Add New Customer",
+      "description": "Register a new customer's basic info",
+      "familyName": "Family name",
+      "familyNamePlaceholder": "Tanaka",
+      "givenName": "Given name",
+      "givenNamePlaceholder": "Misaki",
+      "age": "Age",
+      "agePlaceholder": "32",
+      "gender": "Gender",
+      "female": "Female",
+      "male": "Male",
+      "other": "Other",
+      "preferredStaff": "Preferred staff",
+      "noPreference": "No preference",
+      "comingSoon": "Coming soon"
     },
     "table": {
       "name": "Name",
