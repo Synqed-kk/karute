@@ -8,6 +8,7 @@ import { CustomerIdentityCard } from './CustomerIdentityCard'
 import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
 import { MemoryTabContent } from './MemoryTabContent'
 import { UpcomingAiFeatures } from './UpcomingAiFeatures'
+import { PhotoRecordCard } from '@/components/karute/spike-lifted/photos/PhotoRecordCard'
 import {
   SessionsTabContent,
   type CustomerSessionEntry,
@@ -42,6 +43,15 @@ export function CustomerProfileView({
       </Link>
 
       <CustomerIdentityCard c={customer} />
+
+      {/* Photo records — lifted from the design spike (visual + button
+       *  scaffolding). Sample placeholder images render via picsum.photos
+       *  until Anthony wires Supabase Storage. Buttons currently open
+       *  a Coming-Soon dialog; full gallery + capture + compare-overlay
+       *  views are the next lift step. See
+       *  src/components/karute/spike-lifted/photos/PhotoRecordCard.tsx
+       *  for ANTHONY notes on the integration swap. */}
+      <PhotoRecordCard customerName={customer.name} />
 
       {/* AI surface — visual placeholders for the four AI features
        *  shipped on the design spike's karute detail page but not yet

@@ -624,6 +624,17 @@
       "next_visit": "次回来店",
       "product": "製品",
       "other": "その他"
+    },
+    "photoSection": {
+      "title": "写真記録",
+      "subtitle": "お客様の経過写真・参考画像",
+      "add": "写真を追加",
+      "showCustomer": "お客様に見せる",
+      "seeAll": "すべて見る",
+      "emptyTitle": "まだ写真がありません",
+      "emptyBody": "「写真を追加」からカテゴリーを選んで登録できます。前回との比較や経過の可視化に使えます。",
+      "galleryComingSoon": "ギャラリー・比較表示は対応予定です。写真キャプチャとSupabase Storageの実装はAnthonyが対応します。",
+      "captureComingSoon": "写真キャプチャは対応予定です。デザインスパイクから移植した実装は、AnthonyのStorage実装後に有効化されます。"
     }
   },
   "review": {

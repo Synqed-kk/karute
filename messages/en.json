@@ -624,6 +624,17 @@
       "next_visit": "Next Visit",
       "product": "Product",
       "other": "Other"
+    },
+    "photoSection": {
+      "title": "Photo records",
+      "subtitle": "Customer progress photos & references",
+      "add": "Add photo",
+      "showCustomer": "Show to customer",
+      "seeAll": "See all",
+      "emptyTitle": "No photos yet",
+      "emptyBody": "Use \"Add photo\" to pick a category and register an image. Great for progress tracking and references.",
+      "galleryComingSoon": "Gallery + comparison view — coming soon. Photo capture + Supabase Storage wiring tracked for Anthony.",
+      "captureComingSoon": "Photo capture — coming soon. Full implementation lifted from the design spike pending Anthony's Storage wiring."
     }
   },
   "review": {
