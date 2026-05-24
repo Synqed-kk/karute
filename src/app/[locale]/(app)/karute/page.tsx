@@ -132,6 +132,9 @@ export default async function KaruteListPage() {
       selfStaffId={activeStaffId}
       staffList={staffForFilter}
       karuteContext
+      // Karute-tab cards link to the karute-detail page (vertical
+      // stack with spike's AI sections), NOT the customer profile.
+      hrefBase="/karute/customer"
     />
   )
 }

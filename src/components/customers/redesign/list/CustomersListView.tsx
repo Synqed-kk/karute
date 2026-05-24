@@ -50,6 +50,13 @@ interface CustomersListViewProps {
    * the CRM view stays compact.
    */
   karuteContext?: boolean
+  /**
+   * URL base for each card's tap target. Defaults to `/customers`
+   * so 顧客-tab cards land on the customer profile (with tabs).
+   * The カルテ tab passes `/karute/customer` so cards land on the
+   * karute-detail page (vertical stack, spike's layout).
+   */
+  hrefBase?: string
 }
 
 export function CustomersListView({
@@ -59,6 +66,7 @@ export function CustomersListView({
   selfStaffId,
   staffList,
   karuteContext = false,
+  hrefBase = '/customers',
 }: CustomersListViewProps) {
   const t = useTranslations('customers.list')
   const tCustomers = useTranslations('customers')
@@ -163,6 +171,7 @@ export function CustomersListView({
                 c={c}
                 staffColor={getStaffColor(c.preferredStaffId)}
                 karuteContext={karuteContext}
+                hrefBase={hrefBase}
               />
             ))}
           </div>
@@ -175,6 +184,7 @@ export function CustomersListView({
                 c={c}
                 staffColor={getStaffColor(c.preferredStaffId)}
                 karuteContext={karuteContext}
+                hrefBase={hrefBase}
               />
             ))}
           </div>

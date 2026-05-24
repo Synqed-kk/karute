@@ -13,6 +13,8 @@ interface CustomerRowDesktopProps {
   staffColor: string | null
   /** See CustomerCardMobile — same flag, same purpose. */
   karuteContext?: boolean
+  /** See CustomerCardMobile — same flag, same purpose. */
+  hrefBase?: string
 }
 
 /**
@@ -30,13 +32,14 @@ export function CustomerRowDesktop({
   c,
   staffColor,
   karuteContext = false,
+  hrefBase = '/customers',
 }: CustomerRowDesktopProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
   return (
     <Link
-      href={`/customers/${c.id}` as Parameters<typeof Link>[0]['href']}
+      href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
       className="relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 last:border-b-0"
     >
       {/* Staff color stripe on left edge — gray fallback when no staff

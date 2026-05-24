@@ -19,6 +19,14 @@ interface CustomerCardMobileProps {
    * view stays compact.
    */
   karuteContext?: boolean
+  /**
+   * URL base for the card's tap target. The customer id gets
+   * appended as `${hrefBase}/${c.id}`. Defaults to `/customers` so
+   * 顧客-tab cards route to the customer profile (with tabs). The
+   * カルテ tab passes `/karute/customer` so cards route to the
+   * karute-detail page (vertical stack, spike's layout).
+   */
+  hrefBase?: string
 }
 
 /**
@@ -40,13 +48,14 @@ export function CustomerCardMobile({
   c,
   staffColor,
   karuteContext = false,
+  hrefBase = '/customers',
 }: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
   return (
     <Link
-      href={`/customers/${c.id}` as Parameters<typeof Link>[0]['href']}
+      href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
       className="relative flex items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0"
     >
       {/* Staff color stripe on left edge — same idiom as the spike.
