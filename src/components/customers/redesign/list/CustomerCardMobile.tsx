@@ -56,7 +56,11 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         {/* Line 1: name · honorific · karute # · status chip */}
         <div className="flex flex-wrap items-baseline gap-1.5">
-          <span className="text-sm font-semibold text-foreground">
+          {/* Name — `text-[15px] md:text-sm font-medium` mirrors the
+           *  design spike. Previous `text-sm font-semibold` rendered
+           *  smaller + heavier, making the name look "fatter and
+           *  smaller" vs the spike's airier, slightly larger feel. */}
+          <span className="truncate text-[15px] font-medium text-foreground md:text-sm">
             {c.name}
           </span>
           {honorific && (

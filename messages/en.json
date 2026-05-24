@@ -545,7 +545,14 @@
         "all": "All staff"
       },
       "statusLine": "Registered customers · Total {total} · {showing} showing",
-      "notifications": "Notifications"
+      "notifications": "Notifications",
+      "lastVisit": {
+        "noVisits": "No visits",
+        "today": "Today",
+        "oneDayAgo": "1 day ago",
+        "daysAgo": "{n} days ago",
+        "monthsAgo": "{n} mo ago"
+      }
     },
     "listFilter": {
       "all": "All",

@@ -1,3 +1,4 @@
+import { getLocale, getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
@@ -9,6 +10,7 @@ import {
   enrichCustomers,
   formatJoinDate,
   formatLastVisit,
+  type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
@@ -30,10 +32,10 @@ export default async function CustomersPage({
   const t = startTiming(`customers q="${query}"`)
   const synqed = await getSynqedClient()
 
-  // Fetch the full tenant customer list (capped at 500 — same as the cached
-  // list elsewhere). For search/sort/pagination we'd switch to the original
-  // server-side params, but the redesigned list filters in-memory.
-  const [list, staffList, activeStaffId, businessId] = await Promise.all([
+  // Locale + translated relative-time strings, pulled once at page level
+  // and threaded into the (synchronous) formatters so JP users see
+  // "前回 2026年5月24日 (本日)" instead of "Today" / "May 24, 2026".
+  const [list, staffList, activeStaffId, businessId, locale, lvT] = await Promise.all([
     t.phase('customers.list', () =>
       synqed.customers.list({
         search: query.trim() || undefined,
@@ -46,7 +48,17 @@ export default async function CustomersPage({
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('businessId', () => getBusinessId()),
+    getLocale(),
+    getTranslations('customers.list.lastVisit'),
   ])
+
+  const lastVisitStrings: LastVisitStrings = {
+    noVisits: lvT('noVisits'),
+    today: lvT('today'),
+    oneDayAgo: lvT('oneDayAgo'),
+    daysAgo: (n) => lvT('daysAgo', { n }),
+    monthsAgo: (n) => lvT('monthsAgo', { n }),
+  }
 
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
@@ -62,7 +74,7 @@ export default async function CustomersPage({
     const enriched = enrichment.get(c.id)
     const lastVisitIso = enriched?.lastVisitIso ?? null
     const status = deriveStatus(c.created_at, lastVisitIso)
-    const last = formatLastVisit(lastVisitIso)
+    const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
     const totalKarute = enriched?.totalKarute ?? 0
     return {
       id: c.id,
@@ -72,7 +84,7 @@ export default async function CustomersPage({
       // Stubs — these fields don't exist on the customer record yet.
       age: null,
       gender: null,
-      joinDate: formatJoinDate(c.created_at),
+      joinDate: formatJoinDate(c.created_at, locale),
       joinDateIso: c.created_at ?? null,
       visitsDone: Math.min(totalKarute, 5),
       visitsTotal: 5,

@@ -545,7 +545,14 @@
         "all": "全スタッフ"
       },
       "statusLine": "登録中の顧客 · 全{total} · {showing}名を表示中",
-      "notifications": "通知"
+      "notifications": "通知",
+      "lastVisit": {
+        "noVisits": "来店履歴なし",
+        "today": "本日",
+        "oneDayAgo": "1日前",
+        "daysAgo": "{n}日前",
+        "monthsAgo": "{n}ヶ月前"
+      }
     },
     "listFilter": {
       "all": "すべて",

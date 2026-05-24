@@ -98,32 +98,69 @@ export function deriveStatus(
   return 'on-track'
 }
 
-export function formatJoinDate(iso: string | null): string {
+/**
+ * Locale-aware date formatter.
+ *
+ * - `ja` → `2026年5月24日` (long month so the kanji 月 separator
+ *   appears between numerics rather than `2026/5/24` which reads
+ *   weak in JP UX)
+ * - everything else (en) → `May 24, 2026`
+ *
+ * Internal mapping handles the next-intl locale code (`ja` / `en`)
+ * → BCP-47 (`ja-JP` / `en-US`) so callers can pass the locale
+ * straight from `getLocale()`.
+ */
+export function formatJoinDate(iso: string | null, locale = 'en'): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
+  const tag = locale === 'ja' ? 'ja-JP' : 'en-US'
+  return new Intl.DateTimeFormat(tag, {
     year: 'numeric',
-  })
+    month: locale === 'ja' ? 'long' : 'short',
+    day: 'numeric',
+  }).format(new Date(iso))
 }
 
-export function formatLastVisit(iso: string | null): { date: string; ago: string } {
-  if (!iso) return { date: '—', ago: 'No visits' }
+/**
+ * Strings the formatter needs for the "X ago" relative label, fed
+ * in from the caller (server component) which has access to
+ * `getTranslations`. Keeps the formatter itself synchronous +
+ * dependency-free; testable without next-intl plumbing.
+ */
+export interface LastVisitStrings {
+  noVisits: string
+  today: string
+  oneDayAgo: string
+  daysAgo: (n: number) => string
+  monthsAgo: (n: number) => string
+}
+
+export function formatLastVisit(
+  iso: string | null,
+  locale = 'en',
+  strings?: LastVisitStrings,
+): { date: string; ago: string } {
+  // Backward-compat fallback (English) if no strings injected. Real
+  // callers should pass `strings` so JP locale gets JP relative
+  // labels.
+  const s: LastVisitStrings = strings ?? {
+    noVisits: 'No visits',
+    today: 'Today',
+    oneDayAgo: '1 day ago',
+    daysAgo: (n) => `${n} days ago`,
+    monthsAgo: (n) => `${n} mo ago`,
+  }
+  if (!iso) return { date: '—', ago: s.noVisits }
   const dt = new Date(iso)
-  const date = dt.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
+  const date = formatJoinDate(iso, locale)
   const days = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 86_400_000))
   const ago =
     days === 0
-      ? 'Today'
+      ? s.today
       : days === 1
-        ? '1 day ago'
+        ? s.oneDayAgo
         : days < 30
-          ? `${days} days ago`
-          : `${Math.floor(days / 30)} mo ago`
+          ? s.daysAgo(days)
+          : s.monthsAgo(Math.floor(days / 30))
   return { date, ago }
 }
 

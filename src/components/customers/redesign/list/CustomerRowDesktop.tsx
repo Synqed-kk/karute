@@ -49,7 +49,7 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
         </span>
         <div className="flex min-w-0 flex-col gap-0.5">
           <div className="flex items-baseline gap-1.5">
-            <span className="truncate text-sm font-medium text-foreground">
+            <span className="truncate text-[15px] font-medium text-foreground md:text-sm">
               {c.name}
             </span>
             {honorific && (

@@ -38,7 +38,7 @@ function prettyDate(iso: string): string {
 export default async function CustomerProfilePage({
   params,
 }: CustomerProfilePageProps) {
-  const { id } = await params
+  const { id, locale } = await params
   const customer = await getCustomer(id).catch(() => null)
   if (!customer) notFound()
 
@@ -125,7 +125,7 @@ export default async function CustomerProfilePage({
     karuteNumber: deriveKaruteNumber(customer.id),
     age: null,
     gender: null,
-    joinDate: formatJoinDate(customer.created_at),
+    joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
