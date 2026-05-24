@@ -37,10 +37,14 @@ import {
 import { useTranslations } from 'next-intl'
 
 export function UpcomingAiFeatures() {
+  // Mobile: flat edge-to-edge sections stacked vertically, each with
+  // its own border-b separator — matches spike's mobile pattern where
+  // AI cards become list-style sections rather than floating cards.
+  // Desktop: 2-col grid with full card chrome on each preview.
   return (
     <section
       aria-label="Coming-soon AI features"
-      className="grid grid-cols-1 gap-3 md:grid-cols-2"
+      className="md:grid md:grid-cols-2 md:gap-3 md:px-6"
     >
       <AIBodyPredictionPreview />
       <AIOutreachPreview />
@@ -258,7 +262,11 @@ function FeatureCard({
   const a = ACCENT_CLASSES[accent]
   return (
     <article
-      className={`relative flex flex-col gap-1 rounded-2xl border ${a.ring} bg-card/60 p-4`}
+      // Mobile: flat edge-to-edge section with a bottom border (no
+      // rounded corners, no ring). Desktop: full card chrome — ring +
+      // soft accent border + rounded corners. Matches the spike's
+      // pattern where AI cards render flat on mobile + ringed on desktop.
+      className={`relative flex flex-col gap-1 bg-card/60 p-4 border-b border-black/5 dark:border-white/5 md:border-b-0 md:rounded-2xl md:border md:${a.ring}`}
     >
       {/* "対応予定" pill in the top-right corner */}
       <span className="absolute right-3 top-3 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] uppercase tracking-wide text-amber-700 dark:text-amber-300">
