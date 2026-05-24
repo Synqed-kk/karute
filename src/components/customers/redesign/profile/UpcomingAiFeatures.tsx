@@ -36,23 +36,13 @@ import {
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
-export function UpcomingAiFeatures() {
-  // Mobile: flat edge-to-edge sections stacked vertically, each with
-  // its own border-b separator — matches spike's mobile pattern where
-  // AI cards become list-style sections rather than floating cards.
-  // Desktop: 2-col grid with full card chrome on each preview.
-  return (
-    <section
-      aria-label="Coming-soon AI features"
-      className="md:grid md:grid-cols-2 md:gap-3 md:px-6"
-    >
-      <AIBodyPredictionPreview />
-      <AIOutreachPreview />
-      <AISummaryPreview />
-      <RecordingTranscriptPreview />
-    </section>
-  )
-}
+// Individual previews are exported above (each marked `export`) so
+// callers can place them in the spike's exact positions across the
+// karute detail page (body prediction + outreach as a 2-col row;
+// summary + transcript stacked in a desktop sidebar). The previous
+// `UpcomingAiFeatures` grid wrapper is gone — the spike's
+// KaruteDetailPage distributes these across different layout regions,
+// not a single 4-up grid.
 
 // ─────────────────────────────────────────────────────────────
 // AI体調予測 — AI Body Condition Prediction
@@ -72,7 +62,7 @@ export function UpcomingAiFeatures() {
 // keyed by customer_id, with a fresh-by date so stale predictions
 // can be re-generated on demand.
 // ─────────────────────────────────────────────────────────────
-function AIBodyPredictionPreview() {
+export function AIBodyPredictionPreview() {
   const t = useTranslations('customers.profileUpcoming')
   return (
     <FeatureCard
@@ -115,7 +105,7 @@ function AIBodyPredictionPreview() {
 // SES). Never call channel APIs from the client — credentials
 // server-held only.
 // ─────────────────────────────────────────────────────────────
-function AIOutreachPreview() {
+export function AIOutreachPreview() {
   return (
     <FeatureCard
       icon={<ChevronRight size={14} />}
@@ -151,7 +141,7 @@ function AIOutreachPreview() {
 // Persisted on `karute_records.ai_summary jsonb` so it survives
 // re-renders and can be quoted in the AI outreach draft above.
 // ─────────────────────────────────────────────────────────────
-function AISummaryPreview() {
+export function AISummaryPreview() {
   return (
     <FeatureCard
       icon={<FileText size={14} />}
@@ -192,7 +182,7 @@ function AISummaryPreview() {
 // NATIVE INTEGRATION: audio playback should be native via
 // Capacitor — see docs/CAPACITOR_MIGRATION_PLAN.md.
 // ─────────────────────────────────────────────────────────────
-function RecordingTranscriptPreview() {
+export function RecordingTranscriptPreview() {
   return (
     <FeatureCard
       icon={<Mic size={14} />}
