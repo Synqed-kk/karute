@@ -141,6 +141,16 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-text);
+    /* Match the design spike's type rendering:
+     *   - `palt` (proportional alternate widths) tightens kana/kanji
+     *     spacing so JP text doesn't read as visually "loose"
+     *   - antialiased + optimizeLegibility for crisp glyphs across
+     *     macOS Safari/Chrome (otherwise inherits browser defaults
+     *     which differ per platform) */
+    font-feature-settings: "palt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   html {
     @apply font-sans;
