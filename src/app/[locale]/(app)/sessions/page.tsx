@@ -2,15 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomerConsent } from '@/actions/customers'
+import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
-
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -139,7 +134,7 @@ export default async function SessionsPage({
         start: hhmm(start),
         end: hhmm(end),
         customer: customerName,
-        initials: deriveInitials(customerName),
+        initials: deriveFamilyInitials(customerName),
         karute: null,
         service: a.title ?? 'Session',
         staff: '—',
@@ -168,7 +163,7 @@ export default async function SessionsPage({
     return {
       id: r.id,
       customerName,
-      initials: deriveInitials(customerName),
+      initials: deriveFamilyInitials(customerName),
       karuteNumber: deriveKaruteNumber(r.id),
       service: 'Session',
       date: dt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
