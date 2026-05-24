@@ -1,48 +1,44 @@
 'use client'
 
-// LAYOUT STRUCTURE: mirrored from spike's KaruteDetailPage
-//   src: /Users/liam/Documents/synqed-karute-design-spike/src/app/[locale]/(app)/karute/page.tsx
-//
-// Section order, responsive grid breakpoints, and section spacing all
-// match the spike's vertical stack. Tabs (Memory/Sessions/Photos/
-// Privacy) are GONE — the spike doesn't use them. Each former tab's
-// content now renders inline as its own section, matching how staff
-// actually consume the page (everything visible at once, glance from
-// top to bottom). This is Liam's "just copy the spike's layout"
-// directive after several rounds of incremental fixes that weren't
-// landing the structural match.
+// Layout philosophy:
+//   - Keep karute's existing tab structure (Memory / Sessions / Photos /
+//     Privacy) — that's Anthony's work, don't remove it.
+//   - ADD spike-like sections ABOVE the tabs as new placeholder
+//     surfaces. Anthony decides whether to wire each one, keep as
+//     "Coming Soon", or restructure.
+//   - Spike's visual design (flat sections, no floating cards,
+//     edge-to-edge on mobile, carded on desktop) applied to the new
+//     additions + the existing identity header.
 //
 // Section order (top-to-bottom):
 //   1. Back link
-//   2. CustomerIdentityCard      (= spike CustomerHeaderCard)
-//   3. Customer memory section   (= spike CustomerMemoryCard;
-//                                   currently the stub MemoryTabContent
-//                                   placeholder — replace with a lifted
-//                                   spike CustomerMemoryCard later)
-//   4. PhotoRecordCard            (lifted from spike, step 1)
-//   5. AI Body Prediction + AI Outreach (2-col on lg+, stacked on
-//      smaller; matches spike's `lg:grid-cols-2` row)
-//   6. Session entries + AI summary + Recording transcript
-//      (main + sidebar on lg+; matches spike's
-//      `lg:grid-cols-[1.4fr_1fr]` row)
-//   7. Privacy section            (= karute's existing PrivacyTabContent,
-//                                   inlined since it was tab-bound before)
+//   2. CustomerIdentityCard      (= spike CustomerHeaderCard, flat)
+//   3. PhotoRecordCard           (lifted from spike, step 1)
+//   4. AI Body Prediction + AI Outreach   (2-col on lg+)
+//   5. AI Summary + Recording Transcript  (2-col on lg+)
+//   6. Tab bar                   (Anthony's: Memory / Sessions /
+//                                  Photos / Privacy)
+//   7. Tab content for the selected tab
 //
-// ANTHONY: as each spike component lands as a real lift (replacing
-// its placeholder), drop the placeholder import and swap in the real
-// component at the same position — the section grid itself doesn't
-// move.
+// ANTHONY: as each spike placeholder lands as a real lift, drop the
+// placeholder import and swap in the real component at the same
+// position — the section grid itself doesn't move. Tabs untouched.
 
+import { useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
+import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
 import { MemoryTabContent } from './MemoryTabContent'
 import {
   SessionsTabContent,
   type CustomerSessionEntry,
 } from './SessionsTabContent'
-import { type CustomerPhoto } from './PhotosTabContent'
+import {
+  PhotosTabContent,
+  type CustomerPhoto,
+} from './PhotosTabContent'
 import { PrivacyTabContent } from './PrivacyTabContent'
 import {
   AIBodyPredictionPreview,
@@ -55,19 +51,16 @@ import { PhotoRecordCard } from '@/components/karute/spike-lifted/photos/PhotoRe
 interface CustomerProfileViewProps {
   customer: CustomerProfileData
   sessions: CustomerSessionEntry[]
-  /**
-   * Kept on the props for now even though PhotoRecordCard ignores it
-   * (it reads from its own placeholder store). When the lifted
-   * PhotoGallerySheet lands, photos param flows back in.
-   */
   photos: CustomerPhoto[]
 }
 
 export function CustomerProfileView({
   customer,
   sessions,
-  photos: _photos,
+  photos,
 }: CustomerProfileViewProps) {
+  const [tab, setTab] = useState<CustomerProfileTab>('memory')
+
   return (
     <main className="mx-auto w-full max-w-[1280px] pb-10">
       {/* Back link — slim top bar, never carded */}
@@ -81,55 +74,51 @@ export function CustomerProfileView({
         </Link>
       </div>
 
-      {/* 1. Identity header — flat section (spike: CustomerHeaderCard) */}
+      {/* 1. Identity — flat section (no box, matches spike) */}
       <CustomerIdentityCard c={customer} />
 
-      {/* 2. Customer memory — spike: CustomerMemoryCard.
-       *  Placeholder uses karute's existing stubbed MemoryTabContent.
-       *  Replace with lifted spike component when memory pipeline is
-       *  ready. Wrapper provides desktop-only inset matching spike. */}
-      <div className="md:px-6 md:pt-5">
-        <MemoryTabContent />
-      </div>
-
-      {/* 3. Photo records — lifted from spike (step 1). Internal
-       *  responsive chrome already matches spike. */}
+      {/* 2. Photo records — lifted from spike (step 1). */}
       <div className="md:px-6 md:pt-5">
         <PhotoRecordCard customerName={customer.name} />
       </div>
 
-      {/* 4. AI body prediction + AI outreach — 2-col on lg, stacked
-       *  on smaller. Spike: `lg:grid-cols-2 md:gap-4` row. */}
+      {/* 3. AI body prediction + AI outreach — 2-col on lg, stacked
+       *  on smaller. Spike: `lg:grid-cols-2` row. */}
       <div className="md:px-6 md:pt-5 md:pb-5 md:grid md:grid-cols-1 lg:grid-cols-2 md:gap-3">
         <AIBodyPredictionPreview />
         <AIOutreachPreview />
       </div>
 
-      {/* 5. Session entries timeline (main) + AI summary + transcript
-       *  (sidebar). Spike's `lg:grid-cols-[1.4fr_1fr]` layout. On
-       *  smaller viewports everything stacks naturally. */}
-      <div className="md:px-6 md:pb-5">
-        <div className="md:grid md:grid-cols-1 lg:grid-cols-[1.4fr_1fr] md:gap-5">
-          {/* Main column: session entries (currently karute's
-           *  SessionsTabContent — lifts to spike's
-           *  SessionEntryTimeline + EntryComposer eventually) */}
-          <div className="md:rounded-lg md:bg-card md:p-4 md:ring-1 md:ring-black/5 md:shadow-[0_1px_2px_rgba(0,0,0,0.04)] md:dark:ring-white/5 md:dark:shadow-none">
-            <SessionsTabContent sessions={sessions} />
-          </div>
-
-          {/* Sidebar: AI summary + transcript (Coming Soon placeholders) */}
-          <div className="space-y-3 md:space-y-4">
-            <AISummaryPreview />
-            <RecordingTranscriptPreview />
-          </div>
-        </div>
+      {/* 4. AI summary + Recording transcript — also 2-col on lg.
+       *  Spike puts these in a desktop sidebar next to the session
+       *  entries; here they sit as their own 2-col row above the
+       *  tab bar so the tabs (Anthony's structure) stay visible
+       *  and reachable below. */}
+      <div className="md:px-6 md:pb-5 md:grid md:grid-cols-1 lg:grid-cols-2 md:gap-3">
+        <AISummaryPreview />
+        <RecordingTranscriptPreview />
       </div>
 
-      {/* 6. Privacy & data — sits at bottom (spike's karute detail
-       *  doesn't have a privacy section; karute does, keep it
-       *  visible). Desktop inset matches the rest of the stack. */}
-      <div className="md:px-6 md:pt-5">
-        <PrivacyTabContent customerName={customer.name} />
+      {/* 5. Tabs — Anthony's structure. KEPT IN PLACE. Memory /
+       *  Sessions / Photos / Privacy tab pattern stays as-is for
+       *  deeper navigation; the AI placeholders above are
+       *  additions, not replacements. */}
+      <div className="px-4 pt-2 md:px-6 md:pt-3">
+        <CustomerTabBar
+          active={tab}
+          onChange={setTab}
+          counts={{
+            memory: customer.memoryCount,
+            sessions: customer.sessionCount,
+            photos: customer.photoCount,
+          }}
+        />
+        <div className="mt-3">
+          {tab === 'memory' && <MemoryTabContent />}
+          {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
+          {tab === 'photos' && <PhotosTabContent photos={photos} />}
+          {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
+        </div>
       </div>
     </main>
   )
