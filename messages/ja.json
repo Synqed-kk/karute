@@ -556,7 +556,14 @@
       "paginatedShowing": "{total}名中 {from}〜{to}名を表示",
       "previousPage": "前のページ",
       "nextPage": "次のページ",
-      "goToPage": "{n}ページ目"
+      "goToPage": "{n}ページ目",
+      "aiStatusChip": {
+        "bodyPrediction": "体調予測",
+        "outreach": "推奨",
+        "summary": "要約",
+        "transcript": "録音",
+        "comingSoonShort": "対応予定"
+      }
     },
     "listFilter": {
       "all": "すべて",

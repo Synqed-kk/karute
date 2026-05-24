@@ -556,7 +556,14 @@
       "paginatedShowing": "Showing {from}–{to} of {total}",
       "previousPage": "Previous page",
       "nextPage": "Next page",
-      "goToPage": "Go to page {n}"
+      "goToPage": "Go to page {n}",
+      "aiStatusChip": {
+        "bodyPrediction": "Body prediction",
+        "outreach": "Outreach",
+        "summary": "Summary",
+        "transcript": "Transcript",
+        "comingSoonShort": "soon"
+      }
     },
     "listFilter": {
       "all": "All",

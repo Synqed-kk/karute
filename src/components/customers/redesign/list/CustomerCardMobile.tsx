@@ -6,10 +6,19 @@ import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
+import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerCardMobileProps {
   c: CustomerListRow
   staffColor: string | null
+  /**
+   * When `true`, renders a row of AI status chips at the bottom of
+   * the card (体調予測 / 推奨 / 要約 / 録音, all 対応予定 for now).
+   * Used by the カルテ tab to frame the same customer rows as
+   * karute folders. Defaults to false on the 顧客 tab so the CRM
+   * view stays compact.
+   */
+  karuteContext?: boolean
 }
 
 /**
@@ -27,7 +36,11 @@ interface CustomerCardMobileProps {
  * absolutely positioned on the left edge so it stays flush regardless
  * of row height.
  */
-export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
+export function CustomerCardMobile({
+  c,
+  staffColor,
+  karuteContext = false,
+}: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
@@ -115,6 +128,9 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
             <span>{formatJpPhone(c.phone)}</span>
           </div>
         )}
+
+        {/* Line 6 (karute context only): AI status chip row */}
+        {karuteContext && <AiStatusChipRow />}
       </div>
     </Link>
   )

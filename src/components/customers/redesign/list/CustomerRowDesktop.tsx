@@ -6,10 +6,13 @@ import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
+import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerRowDesktopProps {
   c: CustomerListRow
   staffColor: string | null
+  /** See CustomerCardMobile — same flag, same purpose. */
+  karuteContext?: boolean
 }
 
 /**
@@ -23,7 +26,11 @@ interface CustomerRowDesktopProps {
  * Column template must stay in lock-step with `CustomersListView`'s
  * header row.
  */
-export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
+export function CustomerRowDesktop({
+  c,
+  staffColor,
+  karuteContext = false,
+}: CustomerRowDesktopProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
@@ -68,6 +75,7 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
             <span> · </span>
             <span>{t('joined', { date: c.joinDate })}</span>
           </div>
+          {karuteContext && <AiStatusChipRow />}
         </div>
       </div>
 

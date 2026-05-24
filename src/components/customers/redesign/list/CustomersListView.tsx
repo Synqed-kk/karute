@@ -42,6 +42,14 @@ interface CustomersListViewProps {
    * ones who happen to own customers in the current page of results.
    */
   staffList: StaffFilterEntry[]
+  /**
+   * When `true`, every customer card renders an AI-status chip row
+   * underneath the contact line (体調予測 / 推奨 / 要約 / 録音, all
+   * 対応予定). Used by the カルテ tab to frame the same customer
+   * list as karute folders. Defaults to false on the 顧客 tab so
+   * the CRM view stays compact.
+   */
+  karuteContext?: boolean
 }
 
 export function CustomersListView({
@@ -50,6 +58,7 @@ export function CustomersListView({
   query,
   selfStaffId,
   staffList,
+  karuteContext = false,
 }: CustomersListViewProps) {
   const t = useTranslations('customers.list')
   const tCustomers = useTranslations('customers')
@@ -153,6 +162,7 @@ export function CustomersListView({
                 key={c.id}
                 c={c}
                 staffColor={getStaffColor(c.preferredStaffId)}
+                karuteContext={karuteContext}
               />
             ))}
           </div>
@@ -164,6 +174,7 @@ export function CustomersListView({
                 key={c.id}
                 c={c}
                 staffColor={getStaffColor(c.preferredStaffId)}
+                karuteContext={karuteContext}
               />
             ))}
           </div>
