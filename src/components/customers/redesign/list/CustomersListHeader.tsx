@@ -46,15 +46,20 @@ interface CustomersListHeaderProps {
  */
 export function CustomersListHeader({ total, showing }: CustomersListHeaderProps) {
   const t = useTranslations('customers.list')
+  // Fragment (not a wrapping div) so the sticky bar and the info row
+  // become DIRECT children of CustomersListView's outer flex-col.
+  // That outer column spans the entire scrollable page (header +
+  // filters + cards), which is what the sticky bar's containing block
+  // needs to be — otherwise the bar releases the moment its short
+  // local wrapper scrolls past, which is what was happening before.
   return (
-    <div className="flex flex-col">
-      {/* Sticky title bar — pins to top of <main> while the list scrolls.
-       *  Fully opaque `bg-background` (not /95 + blur) so the underlying
-       *  content can't read through and make the bar look like it's
-       *  fading — that was the previous miss. Thin vertical padding
-       *  (py-2) keeps the bar compact instead of eating screen real
-       *  estate above the fold. */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background px-4 md:-mx-6 md:px-6">
+    <>
+      {/* Sticky title bar — pins to top of <main> for the whole page
+       *  scroll. Slight transparency (`bg-background/80`) + a
+       *  `backdrop-blur` gives the bleed-through effect from the
+       *  spike: cards underneath read faintly through the bar as you
+       *  scroll, rather than the bar being a hard solid strip. */}
+      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:px-6">
         <div className="relative flex items-center justify-center py-2">
           <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             {t('heading')}
@@ -72,13 +77,15 @@ export function CustomersListHeader({ total, showing }: CustomersListHeaderProps
         </div>
       </div>
 
-      {/* Status line (left) + action button (right) — scrolls with content */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
+      {/* Status line (left) + action button (right) — scrolls with the
+       *  list. Spacing handled by parent flex-col's `gap-3` so no
+       *  explicit pt here. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-xs tabular-nums text-muted-foreground">
           {t('statusLine', { total, showing })}
         </p>
         <CustomerSheet />
       </div>
-    </div>
+    </>
   )
 }
