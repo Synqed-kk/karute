@@ -3,19 +3,13 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { getBusinessId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
+import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import {
   getBusinessProfile,
   getConsultationQuestions,
 } from '@/lib/welcome/business-types'
 import type { DataScopeItem } from '@/components/ai/redesign/AIPageHeader'
-
-function deriveInitials(name: string | null | undefined): string {
-  if (!name) return 'U'
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
 
 export default async function AskAIPage({
   params,
@@ -81,7 +75,7 @@ export default async function AskAIPage({
       profile={profile}
       prompts={prompts}
       userName={userName}
-      userInitials={deriveInitials(userName)}
+      userInitials={deriveFamilyInitials(userName)}
       locale={locale}
     />
   )
