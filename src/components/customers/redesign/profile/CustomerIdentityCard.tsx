@@ -24,7 +24,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
               {c.name}
             </h2>
-            <span className="rounded border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            <span className="font-mono text-xs text-muted-foreground">
               {c.karuteNumber}
             </span>
             <span

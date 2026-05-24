@@ -4,25 +4,23 @@ import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { listCustomerPhotos } from '@/actions/customers'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
-  deriveKaruteNumber,
   deriveStatus,
   formatJoinDate,
 } from '@/lib/customers/list-enrich'
+import {
+  assignSequentialKaruteNumbers,
+  deriveFamilyInitials,
+} from '@/lib/customers/identity'
 import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
 import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
-}
-
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -49,27 +47,41 @@ export default async function CustomerProfilePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = service as any
 
-  const [contact, staffList, karuteRes, photosResult] = await Promise.all([
-    getCustomerContact(id),
-    getStaffList(),
-    sb
-      .from('karute_records')
-      .select(
-        'id, session_date, created_at, summary, staff_profile_id, customer_id, client_id, entries(count)',
-      )
-      .eq('customer_id', businessId)
-      .eq('client_id', id)
-      .order('session_date', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false }),
-    listCustomerPhotos(id).catch(() => ({
-      photos: [] as Array<{
-        id: string
-        signed_url: string | null
-        category: string
-        caption: string | null
-      }>,
-    })),
-  ])
+  // Also fetch the full tenant customer list so we can compute the
+  // sequential karute number for this customer in the same way the
+  // list page does (sort by created_at, assign 1-based index). The
+  // numbers stay consistent across both views until Anthony adds the
+  // real `customers.karute_number` column.
+  const synqed = await getSynqedClient()
+
+  const [contact, staffList, karuteRes, photosResult, allCustomersList] =
+    await Promise.all([
+      getCustomerContact(id),
+      getStaffList(),
+      sb
+        .from('karute_records')
+        .select(
+          'id, session_date, created_at, summary, staff_profile_id, customer_id, client_id, entries(count)',
+        )
+        .eq('customer_id', businessId)
+        .eq('client_id', id)
+        .order('session_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false }),
+      listCustomerPhotos(id).catch(() => ({
+        photos: [] as Array<{
+          id: string
+          signed_url: string | null
+          category: string
+          caption: string | null
+        }>,
+      })),
+      synqed.customers.list({
+        page: 1,
+        page_size: 500,
+        sort_by: 'created_at',
+        sort_order: 'asc',
+      }),
+    ])
 
   type KaruteRow = {
     id: string
@@ -121,8 +133,11 @@ export default async function CustomerProfilePage({
   const profile: CustomerProfileData = {
     id: customer.id,
     name: customer.name,
-    initials: deriveInitials(customer.name),
-    karuteNumber: deriveKaruteNumber(customer.id),
+    initials: deriveFamilyInitials(customer.name),
+    karuteNumber:
+      assignSequentialKaruteNumbers(allCustomersList.customers).get(
+        customer.id,
+      ) ?? '#00000',
     age: null,
     gender: null,
     joinDate: formatJoinDate(customer.created_at, locale),

@@ -44,7 +44,7 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
 
       {/* Customer */}
       <div className="flex items-center gap-3">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border/60">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground ring-1 ring-border/60">
           {c.initials}
         </span>
         <div className="flex min-w-0 flex-col gap-0.5">
@@ -57,7 +57,7 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
                 {honorific}
               </span>
             )}
-            <span className="shrink-0 rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
               {c.karuteNumber}
             </span>
           </div>

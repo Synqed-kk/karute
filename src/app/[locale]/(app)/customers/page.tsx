@@ -5,21 +5,18 @@ import { CustomersListView } from '@/components/customers/redesign/list/Customer
 import type { CustomerListRow } from '@/components/customers/redesign/types'
 import {
   defaultAiPredict,
-  deriveKaruteNumber,
   deriveStatus,
   enrichCustomers,
   formatJoinDate,
   formatLastVisit,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
+import {
+  assignSequentialKaruteNumbers,
+  deriveFamilyInitials,
+} from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
-
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
 
 export default async function CustomersPage({
   searchParams,
@@ -70,6 +67,12 @@ export default async function CustomersPage({
   )
   t.end()
 
+  // Sequential per-tenant karute numbers — sorted by created_at so the
+  // oldest customer gets #00001, etc. Computed in-memory until Anthony
+  // adds the real `customers.karute_number` column. Same helper used on
+  // the profile page so a customer's number is consistent across views.
+  const karuteNumberById = assignSequentialKaruteNumbers(list.customers)
+
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
     const lastVisitIso = enriched?.lastVisitIso ?? null
@@ -79,8 +82,8 @@ export default async function CustomersPage({
     return {
       id: c.id,
       name: c.name,
-      initials: deriveInitials(c.name),
-      karuteNumber: deriveKaruteNumber(c.id),
+      initials: deriveFamilyInitials(c.name),
+      karuteNumber: karuteNumberById.get(c.id) ?? '#00000',
       // Stubs — these fields don't exist on the customer record yet.
       age: null,
       gender: null,
@@ -108,7 +111,7 @@ export default async function CustomersPage({
   // — kanji names get a single-char initial, ASCII names get first+last.
   const staffForFilter = staffList.map((s) => {
     const name = s.full_name ?? 'Unknown'
-    return { id: s.id, name, initials: deriveInitials(name) }
+    return { id: s.id, name, initials: deriveFamilyInitials(name) }
   })
 
   return (

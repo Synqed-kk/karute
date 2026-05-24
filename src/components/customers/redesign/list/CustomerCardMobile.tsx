@@ -49,7 +49,7 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
         style={{ background: staffColor ?? 'var(--border)' }}
       />
 
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border/60">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground ring-1 ring-border/60">
         {c.initials}
       </span>
 
@@ -68,7 +68,10 @@ export function CustomerCardMobile({ c, staffColor }: CustomerCardMobileProps) {
               {honorific}
             </span>
           )}
-          <span className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px] text-muted-foreground">
+          {/* Plain muted text — no boxed badge. Matches the spike's
+           *  cleaner "name · #00120" treatment vs the previous code-
+           *  block look. */}
+          <span className="font-mono text-[11px] text-muted-foreground">
             {c.karuteNumber}
           </span>
           <span
