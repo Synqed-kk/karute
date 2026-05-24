@@ -1079,5 +1079,68 @@
     "entries": "エントリー",
     "quote": "引用",
     "transcript": "トランスクリプト"
+  },
+  "landing": {
+    "header": {
+      "login": "ログイン"
+    },
+    "hero": {
+      "badge": "AI搭載のセッション記録",
+      "title": "カルテを手書きで書く必要は、もうありません",
+      "subtitle": "施術セッションを録音するだけ。KaruteのAIが自動で文字起こしし、重要なポイントを抽出して、完成したカルテを生成します。",
+      "ctaPrimary": "無料で始める",
+      "ctaSecondary": "使い方を見る"
+    },
+    "stats": {
+      "sessionsRecorded": "録音セッション",
+      "timeSaved": "時間削減",
+      "salonsClinics": "サロン・クリニック"
+    },
+    "howItWorks": {
+      "heading": "使い方",
+      "subtitle": "セッションからカルテまで、わずか3ステップ",
+      "stepPrefix": "ステップ {step}",
+      "step1Title": "録音",
+      "step1Description": "セッション中に録音ボタンを押すだけ。Karuteがバックグラウンドで会話を記録するので、お客様に集中できます。",
+      "step2Title": "AIが処理",
+      "step2Description": "Karuteが音声を文字起こしし、好み・施術内容・お悩みを抽出して、構造化されたサマリーを生成します。",
+      "step3Title": "確認して保存",
+      "step3Description": "AI生成のカルテを確認・編集して保存。顧客と予約に自動的にリンクされます。"
+    },
+    "features": {
+      "heading": "必要な機能、すべて",
+      "voiceRecording": {
+        "title": "音声録音",
+        "description": "ワンタップでセッションを録音。マイク付きのどのデバイスでも動作します。"
+      },
+      "aiTranscription": {
+        "title": "AI文字起こし",
+        "description": "Whisper搭載で、日本語・英語の高精度な音声テキスト変換。"
+      },
+      "smartExtraction": {
+        "title": "スマート抽出",
+        "description": "AIが会話から好み・施術内容・健康上の懸念などを自動で識別します。"
+      },
+      "appointmentSync": {
+        "title": "予約との連携",
+        "description": "録音を予約にリンク。スケジュールとカルテ履歴を1つの画面で確認できます。"
+      },
+      "multiStaff": {
+        "title": "マルチスタッフ対応",
+        "description": "スタッフごとに個別のプロフィール・スケジュール・カルテ記録を、PIN保護付きで管理。"
+      },
+      "exportShare": {
+        "title": "エクスポート・共有",
+        "description": "カルテをPDFまたはテキストでエクスポート。チームと共有したり、お客様用に印刷できます。"
+      }
+    },
+    "cta": {
+      "heading": "カルテ作成を自動化しませんか？",
+      "subtitle": "AIセッションノートで毎週何時間も節約しているサロン・クリニックの仲間に加わりましょう。",
+      "button": "無料で始める"
+    },
+    "footer": {
+      "copyright": "© {year} Karute. All rights reserved."
+    }
   }
 }
