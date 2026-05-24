@@ -52,13 +52,13 @@ export function CustomersStatusFilters({
               onClick={() => onChange(key)}
               className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
                 isActive
-                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
-                  : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'border-foreground bg-foreground text-background'
+                  : 'border-border bg-card text-foreground hover:bg-muted'
               }`}
             >
               <span>{t(`filters.${key}`)}</span>
               <span
-                className={`tabular-nums ${isActive ? 'text-sky-300' : 'text-muted-foreground/70'}`}
+                className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
               >
                 {counts[key]}
               </span>

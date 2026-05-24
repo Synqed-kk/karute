@@ -178,8 +178,8 @@ function StaffPill({
       onClick={onClick}
       className={`inline-flex h-8 items-center gap-2 rounded-full border pl-1 pr-3 text-xs font-medium transition-colors ${
         active
-          ? 'border-foreground/40 bg-muted text-foreground'
-          : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+          ? 'border-foreground bg-foreground text-background'
+          : 'border-border bg-card text-foreground hover:bg-muted'
       }`}
       aria-pressed={active}
     >
