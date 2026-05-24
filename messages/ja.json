@@ -552,7 +552,11 @@
         "oneDayAgo": "1日前",
         "daysAgo": "{n}日前",
         "monthsAgo": "{n}ヶ月前"
-      }
+      },
+      "paginatedShowing": "{total}名中 {from}〜{to}名を表示",
+      "previousPage": "前のページ",
+      "nextPage": "次のページ",
+      "goToPage": "{n}ページ目"
     },
     "listFilter": {
       "all": "すべて",

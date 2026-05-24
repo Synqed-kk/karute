@@ -552,7 +552,11 @@
         "oneDayAgo": "1 day ago",
         "daysAgo": "{n} days ago",
         "monthsAgo": "{n} mo ago"
-      }
+      },
+      "paginatedShowing": "Showing {from}–{to} of {total}",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "goToPage": "Go to page {n}"
     },
     "listFilter": {
       "all": "All",

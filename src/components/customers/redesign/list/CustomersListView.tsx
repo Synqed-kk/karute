@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import type { CustomerListRow } from '../types'
 import { CustomersListHeader } from './CustomersListHeader'
@@ -16,10 +16,20 @@ import {
   type StaffFilterEntry,
   type StaffFilterKey,
 } from './CustomersStaffFilter'
+import { CustomersListPagination } from './CustomersListPagination'
 import { CustomerRowDesktop } from './CustomerRowDesktop'
 import { CustomerCardMobile } from './CustomerCardMobile'
 import { ComingSoonChip } from '../ComingSoonChip'
 import { getStaffColor } from '@/lib/staff/colors'
+
+/**
+ * Cards per page. 12 matches the design spike's footer pagination
+ * ("24名中 1〜12名を表示"). Works on both mobile (avoids long scroll)
+ * and desktop (table stays compact above the fold). Server already
+ * fetches up to 500 customers per page-load, so pagination is
+ * purely client-side slicing.
+ */
+const PAGE_SIZE = 12
 
 interface CustomersListViewProps {
   rows: CustomerListRow[]
@@ -45,6 +55,14 @@ export function CustomersListView({
   const tCustomers = useTranslations('customers')
   const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>('all')
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
+  const [page, setPage] = useState(0)
+
+  // Reset to page 1 whenever the filter changes — otherwise switching
+  // to a smaller result set could leave the viewer stranded on an
+  // out-of-range page (or worse, an apparently empty list).
+  useEffect(() => {
+    setPage(0)
+  }, [statusFilter, staffFilter, query])
 
   const counts: CustomerListCounts = useMemo(() => {
     const since30 = new Date()
@@ -64,7 +82,7 @@ export function CustomersListView({
 
   // Filter composition: status filter (existing) AND staff filter (new).
   // Order doesn't matter for correctness — both are simple predicates.
-  const visibleRows = useMemo(() => {
+  const filteredRows = useMemo(() => {
     const indices = applyCustomerFilter(rows, statusFilter, selfStaffId)
     const afterStatus = indices.map((i) => rows[i])
     if (staffFilter === 'all') return afterStatus
@@ -73,11 +91,19 @@ export function CustomersListView({
     return afterStatus.filter((r) => r.preferredStaffId === targetId)
   }, [rows, statusFilter, selfStaffId, staffFilter])
 
+  // Slice the filtered list into the current page's window. `page` is
+  // clamped against the latest filtered length so a stale state can't
+  // render an empty middle page after a filter change.
+  const pagedRows = useMemo(() => {
+    const start = page * PAGE_SIZE
+    return filteredRows.slice(start, start + PAGE_SIZE)
+  }, [filteredRows, page])
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 pt-0 pb-6 md:gap-4 md:pb-6">
       <CustomersListHeader
         total={totalRegistered}
-        showing={visibleRows.length}
+        showing={filteredRows.length}
       />
 
       {/* Order mirrors the design spike: staff scope first (who am I
@@ -98,7 +124,7 @@ export function CustomersListView({
         counts={counts}
       />
 
-      {visibleRows.length === 0 ? (
+      {filteredRows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
           <p className="text-sm font-medium text-foreground">
             {query ? t('noMatch', { query }) : tCustomers('empty.title')}
@@ -122,7 +148,7 @@ export function CustomersListView({
               <span>{t('col.staff')}</span>
               <span className="text-right">{t('col.total')}</span>
             </div>
-            {visibleRows.map((c) => (
+            {pagedRows.map((c) => (
               <CustomerRowDesktop
                 key={c.id}
                 c={c}
@@ -133,7 +159,7 @@ export function CustomersListView({
 
           {/* Mobile list — rows separate via their own border-b */}
           <div className="overflow-hidden rounded-2xl border border-border/60 bg-card md:hidden">
-            {visibleRows.map((c) => (
+            {pagedRows.map((c) => (
               <CustomerCardMobile
                 key={c.id}
                 c={c}
@@ -141,6 +167,13 @@ export function CustomersListView({
               />
             ))}
           </div>
+
+          <CustomersListPagination
+            total={filteredRows.length}
+            page={page}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+          />
         </>
       )}
     </div>
