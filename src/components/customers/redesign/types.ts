@@ -46,30 +46,32 @@ export interface CustomerProfileData {
   photoCount: number
 }
 
+// Display strings are NOT colocated with the styles anymore — they live in
+// `messages/{en,ja}.json` under `customers.list.status.{key}`. Callsites
+// resolve them via `useTranslations('customers.list')` →
+// `t('status.' + status.key)` so the status chip can render in either
+// locale. Keeping these as classes-only avoids the English-string-in-
+// state-object footgun.
 export const STATUS_STYLES: Record<
   CustomerStatusKey,
-  { label: string; bg: string; text: string; border: string }
+  { bg: string; text: string; border: string }
 > = {
   'on-track': {
-    label: 'On track',
     bg: 'bg-emerald-500/10',
     text: 'text-emerald-300',
     border: 'border-emerald-500/30',
   },
   new: {
-    label: 'New',
     bg: 'bg-sky-500/10',
     text: 'text-sky-200',
     border: 'border-sky-500/40',
   },
   'needs-followup': {
-    label: 'Needs follow-up',
     bg: 'bg-amber-500/10',
     text: 'text-amber-200',
     border: 'border-amber-500/40',
   },
   dormant: {
-    label: 'Dormant',
     bg: 'bg-red-500/10',
     text: 'text-red-300',
     border: 'border-red-500/40',

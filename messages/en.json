@@ -495,7 +495,10 @@
         "lastVisit": "Last visit",
         "aiPredict": "AI predict",
         "status": "Status",
-        "total": "Total"
+        "total": "Total",
+        "customer": "Customer",
+        "recommend": "Recommend",
+        "staff": "Staff"
       },
       "row": {
         "honorific": "",
@@ -503,6 +506,25 @@
         "staff": "Staff: {name}",
         "recommendPrefix": "Recommend",
         "visitsSuffix": "{n} visits"
+      },
+      "heading": "Customers",
+      "showing": "{n} showing",
+      "status": {
+        "on-track": "On track",
+        "new": "New",
+        "needs-followup": "Needs follow-up",
+        "dormant": "Dormant"
+      },
+      "filters": {
+        "all": "All",
+        "preferredStaff": "Preferred Staff",
+        "newRecent": "New (last 30d)",
+        "followup": "Needs follow-up",
+        "dormant": "Dormant (90d+)"
+      },
+      "staffFilter": {
+        "self": "Self",
+        "all": "All staff"
       }
     },
     "listFilter": {

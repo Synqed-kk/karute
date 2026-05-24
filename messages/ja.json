@@ -495,7 +495,10 @@
         "lastVisit": "最終来店",
         "aiPredict": "AI予測",
         "status": "状態",
-        "total": "合計"
+        "total": "合計",
+        "customer": "顧客",
+        "recommend": "推奨",
+        "staff": "担当"
       },
       "row": {
         "honorific": "様",
@@ -503,6 +506,25 @@
         "staff": "担当：{name}",
         "recommendPrefix": "推奨来店",
         "visitsSuffix": "来店{n}回"
+      },
+      "heading": "顧客",
+      "showing": "{n}名を表示中",
+      "status": {
+        "on-track": "継続中",
+        "new": "新規",
+        "needs-followup": "要フォロー",
+        "dormant": "休眠"
+      },
+      "filters": {
+        "all": "すべて",
+        "preferredStaff": "指名あり",
+        "newRecent": "新規（30日以内）",
+        "followup": "要フォロー",
+        "dormant": "休眠（90日以上）"
+      },
+      "staffFilter": {
+        "self": "自分",
+        "all": "全スタッフ"
       }
     },
     "listFilter": {

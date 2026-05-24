@@ -93,7 +93,7 @@ export function CustomerRowDesktop({ c, staffColor }: CustomerRowDesktopProps) {
         <span
           className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
         >
-          {status.label}
+          {t(`status.${c.status}`)}
         </span>
       </div>
 

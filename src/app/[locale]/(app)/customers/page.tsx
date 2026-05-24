@@ -90,12 +90,22 @@ export default async function CustomersPage({
     }
   })
 
+  // Project the staff roster into the lightweight shape the filter pills
+  // need (id + display name + initials). Initials reuse `deriveInitials`
+  // so the same algorithm runs for both customer avatars and staff pills
+  // — kanji names get a single-char initial, ASCII names get first+last.
+  const staffForFilter = staffList.map((s) => {
+    const name = s.full_name ?? 'Unknown'
+    return { id: s.id, name, initials: deriveInitials(name) }
+  })
+
   return (
     <CustomersListView
       rows={rows}
       totalRegistered={list.total}
       query={query}
       selfStaffId={activeStaffId}
+      staffList={staffForFilter}
     />
   )
 }

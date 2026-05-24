@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import type { CustomerListRow } from '../types'
 import { CustomersListHeader } from './CustomersListHeader'
 import { CustomerSearchInput } from './CustomerSearchInput'
@@ -10,6 +11,11 @@ import {
   type CustomerListFilterKey,
   type CustomerListCounts,
 } from './CustomersStatusFilters'
+import {
+  CustomersStaffFilter,
+  type StaffFilterEntry,
+  type StaffFilterKey,
+} from './CustomersStaffFilter'
 import { CustomerRowDesktop } from './CustomerRowDesktop'
 import { CustomerCardMobile } from './CustomerCardMobile'
 import { ComingSoonChip } from '../ComingSoonChip'
@@ -20,6 +26,12 @@ interface CustomersListViewProps {
   totalRegistered: number
   query: string
   selfStaffId: string | null
+  /**
+   * Full tenant staff roster (id + display name). Fed in from the server
+   * page so the staff-filter pills can render every stylist, not just the
+   * ones who happen to own customers in the current page of results.
+   */
+  staffList: StaffFilterEntry[]
 }
 
 export function CustomersListView({
@@ -27,8 +39,12 @@ export function CustomersListView({
   totalRegistered,
   query,
   selfStaffId,
+  staffList,
 }: CustomersListViewProps) {
+  const t = useTranslations('customers.list')
+  const tCustomers = useTranslations('customers')
   const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>('all')
+  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
 
   const counts: CustomerListCounts = useMemo(() => {
     const since30 = new Date()
@@ -46,10 +62,16 @@ export function CustomersListView({
     }
   }, [rows, selfStaffId])
 
+  // Filter composition: status filter (existing) AND staff filter (new).
+  // Order doesn't matter for correctness — both are simple predicates.
   const visibleRows = useMemo(() => {
     const indices = applyCustomerFilter(rows, statusFilter, selfStaffId)
-    return indices.map((i) => rows[i])
-  }, [rows, statusFilter, selfStaffId])
+    const afterStatus = indices.map((i) => rows[i])
+    if (staffFilter === 'all') return afterStatus
+    const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
+    if (!targetId) return afterStatus
+    return afterStatus.filter((r) => r.preferredStaffId === targetId)
+  }, [rows, statusFilter, selfStaffId, staffFilter])
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -60,6 +82,13 @@ export function CustomersListView({
 
       <CustomerSearchInput initialQuery={query} />
 
+      <CustomersStaffFilter
+        staffList={staffList}
+        selfStaffId={selfStaffId}
+        selected={staffFilter}
+        onChange={setStaffFilter}
+      />
+
       <CustomersStatusFilters
         active={statusFilter}
         onChange={setStatusFilter}
@@ -69,12 +98,10 @@ export function CustomersListView({
       {visibleRows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
           <p className="text-sm font-medium text-foreground">
-            {query ? `No customers match "${query}"` : 'No customers'}
+            {query ? t('noMatch', { query }) : tCustomers('empty.title')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {query
-              ? 'Try a different search term or clear filters.'
-              : 'Add a new customer to get started.'}
+            {query ? t('noMatchHint') : tCustomers('empty.description')}
           </p>
         </div>
       ) : (
@@ -82,15 +109,15 @@ export function CustomersListView({
           {/* Desktop table — column template kept in lock-step with CustomerRowDesktop */}
           <div className="hidden overflow-hidden rounded-2xl border border-border bg-card shadow-sm md:block">
             <div className="grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-2.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              <span>Customer</span>
-              <span>Last visit</span>
+              <span>{t('col.customer')}</span>
+              <span>{t('col.lastVisit')}</span>
               <span className="flex items-center gap-1.5">
-                Recommend
+                {t('col.recommend')}
                 <ComingSoonChip />
               </span>
-              <span>Status</span>
-              <span>Staff</span>
-              <span className="text-right">Total</span>
+              <span>{t('col.status')}</span>
+              <span>{t('col.staff')}</span>
+              <span className="text-right">{t('col.total')}</span>
             </div>
             {visibleRows.map((c) => (
               <CustomerRowDesktop

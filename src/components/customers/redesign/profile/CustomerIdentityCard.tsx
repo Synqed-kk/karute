@@ -1,4 +1,7 @@
+'use client'
+
 import { Calendar, Clipboard, Edit3, Mail, Phone, User } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
@@ -8,6 +11,7 @@ interface CustomerIdentityCardProps {
 }
 
 export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
+  const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
@@ -26,7 +30,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             <span
               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
             >
-              {status.label}
+              {t(`status.${c.status}`)}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
