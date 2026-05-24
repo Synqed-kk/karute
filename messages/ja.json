@@ -425,7 +425,10 @@
       "other": "その他",
       "preferredStaff": "指名スタッフ",
       "noPreference": "指名なし",
-      "comingSoon": "対応予定"
+      "comingSoon": "対応予定",
+      "duplicateEmail": "このメールアドレスは既に別のお客様に登録されています。",
+      "duplicatePhone": "この電話番号は既に別のお客様に登録されています。",
+      "saveFailedGeneric": "顧客を保存できませんでした。もう一度お試しいただくか、解決しない場合はサポートまでご連絡ください。"
     },
     "table": {
       "name": "名前",

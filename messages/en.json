@@ -425,7 +425,10 @@
       "other": "Other",
       "preferredStaff": "Preferred staff",
       "noPreference": "No preference",
-      "comingSoon": "Coming soon"
+      "comingSoon": "Coming soon",
+      "duplicateEmail": "A customer with this email already exists in your salon.",
+      "duplicatePhone": "A customer with this phone number already exists in your salon.",
+      "saveFailedGeneric": "Could not save customer. Please try again or contact support if the problem persists."
     },
     "table": {
       "name": "Name",
