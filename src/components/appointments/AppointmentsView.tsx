@@ -140,7 +140,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const headerDate = selectedDate
 
   return (
-    <div className="relative space-y-3 p-4 md:p-6">
+    // No own `p-4 md:p-6` here — the (app) layout already wraps every page
+    // in that padding. Doubling it pushed chrome + cards to 32px from the
+    // screen edge instead of 16px, so the reservation page sat further in
+    // than customers / karute (which never had this extra layer). Strip
+    // the redundant wrapper so the whole system shares one consistent
+    // 16px inset on mobile, matching the design spike's positioning.
+    <div className="relative space-y-3">
       {/* Hidden native date picker; opened by the header's date button. */}
       <input
         ref={datePickerRef}
