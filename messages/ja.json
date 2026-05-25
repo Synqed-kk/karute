@@ -1075,6 +1075,13 @@
       "change": "変更"
     }
   },
+  "switcher": {
+    "switchStaff": "スタッフを切り替え",
+    "enterPinFor": "{name}のPINを入力",
+    "incorrectPin": "PINが正しくありません",
+    "switchOut": "切り替えを解除",
+    "selectStaff": "スタッフを選択"
+  },
   "karuteExport": {
     "title": "カルテ",
     "customer": "顧客",

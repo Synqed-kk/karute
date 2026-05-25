@@ -1075,6 +1075,13 @@
       "change": "Change"
     }
   },
+  "switcher": {
+    "switchStaff": "Switch staff",
+    "enterPinFor": "Enter {name}'s PIN",
+    "incorrectPin": "Incorrect PIN",
+    "switchOut": "Switch out",
+    "selectStaff": "Select staff"
+  },
   "karuteExport": {
     "title": "Karute",
     "customer": "Customer",
