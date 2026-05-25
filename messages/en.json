@@ -713,6 +713,31 @@
       "empty": "No karute records yet",
       "newCustomersHeader": "New customers · no session yet",
       "noSessionYet": "No session yet"
+    },
+    "outreach": {
+      "title": "AI recommended message",
+      "subscript": "{customerName} · scheduled via {channel}",
+      "emptyBody": "The AI-drafted follow-up message will appear here. Generated nightly from the customer memory + most recent session.",
+      "edit": "Edit",
+      "approveSend": "Approve & send",
+      "channels": {
+        "sms": "SMS",
+        "email": "Email",
+        "copy": "Copy to clipboard"
+      },
+      "comingSoonEdit": "Editor coming soon — Anthony wires the form for staff to tweak the AI draft before sending.",
+      "comingSoonSend": "Send coming soon — Anthony wires the channel API (Email / SMS) + clipboard copy flow."
+    },
+    "session": {
+      "title": "This session",
+      "empty": "No session entries yet. Record a session — AI extracts entries here.",
+      "categories": {
+        "treatment": "Treatment",
+        "concern": "Concern",
+        "condition": "Condition",
+        "product": "Product",
+        "next": "Next visit"
+      }
     }
   },
   "review": {

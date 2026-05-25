@@ -43,11 +43,12 @@ import {
 } from '@/components/customers/redesign/profile/SessionsTabContent'
 import {
   AIBodyPredictionPreview,
-  AIOutreachPreview,
   AISummaryPreview,
-  RecordingTranscriptPreview,
 } from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 import { PhotoRecordCard } from './photos/PhotoRecordCard'
+import { AIOutreachCard } from './outreach/AIOutreachCard'
+import { SessionEntryTimeline } from './session/SessionEntryTimeline'
+import { TranscriptCard } from './transcript/TranscriptCard'
 
 interface KaruteCustomerDetailViewProps {
   customer: CustomerProfileData
@@ -85,22 +86,47 @@ export function KaruteCustomerDetailView({
         <PhotoRecordCard customerName={customer.name} />
       </div>
 
-      {/* 5. AI body prediction + AI outreach — 2-col on lg+ */}
+      {/* 5. AI body prediction + AI outreach — 2-col on lg+. Outreach
+       *  is the LIFTED card with editable preview + edit/send buttons
+       *  (currently empty + buttons stubbed until Anthony wires the AI
+       *  generator + channel send). Body prediction stays as the
+       *  Coming-Soon placeholder until lifted. */}
       <div className="md:px-6 md:pt-5 md:pb-5 md:grid md:grid-cols-1 lg:grid-cols-2 md:gap-3">
         <AIBodyPredictionPreview />
-        <AIOutreachPreview />
+        <AIOutreachCard customerName={customer.name} />
       </div>
 
       {/* 6. Session entries (main) + AI summary + transcript (sidebar).
        *  Spike layout: lg:grid-cols-[1.4fr_1fr]. */}
       <div className="md:px-6 md:pb-5">
         <div className="md:grid md:grid-cols-1 lg:grid-cols-[1.4fr_1fr] md:gap-5">
+          {/* Main column — session entry timeline (lifted). Sessions
+           *  data still piped through from karute_records via the
+           *  existing SessionsTabContent shape; the timeline renders
+           *  empty until per-utterance entry extraction is wired
+           *  (separate from the session list — see
+           *  AI_PROMPTS.md §4 in the spike). */}
           <div className="md:rounded-lg md:bg-card md:p-4 md:ring-1 md:ring-black/5 md:shadow-[0_1px_2px_rgba(0,0,0,0.04)] md:dark:ring-white/5 md:dark:shadow-none">
-            <SessionsTabContent sessions={sessions} />
+            <SessionEntryTimeline
+              sessionDate={
+                sessions[0]?.date ?? new Date().toISOString().slice(0, 10)
+              }
+              entries={[]}
+            />
+            {/* Existing session list (Anthony's) — kept inline below
+             *  so the karute records that DO exist still surface,
+             *  while the entry-timeline scaffold above shows the
+             *  spike's per-utterance pattern for once AI extraction
+             *  lands. */}
+            {sessions.length > 0 && (
+              <div className="mt-4 border-t border-border/40 pt-4">
+                <SessionsTabContent sessions={sessions} />
+              </div>
+            )}
           </div>
           <div className="space-y-3 md:space-y-4">
             <AISummaryPreview />
-            <RecordingTranscriptPreview />
+            <TranscriptCard hasRecording={false} />
           </div>
         </div>
       </div>

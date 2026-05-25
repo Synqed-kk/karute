@@ -713,6 +713,31 @@
       "empty": "カルテはまだありません",
       "newCustomersHeader": "新規のお客様 · まだセッションなし",
       "noSessionYet": "まだセッションなし"
+    },
+    "outreach": {
+      "title": "AI推奨メッセージ",
+      "subscript": "{customerName}様 · {channel}送信予定",
+      "emptyBody": "お客様メモリーと直近のセッションから、AIが下書きしたフォローアップメッセージがここに表示されます。",
+      "edit": "編集",
+      "approveSend": "承認して送信",
+      "channels": {
+        "sms": "SMS",
+        "email": "メール",
+        "copy": "コピー"
+      },
+      "comingSoonEdit": "編集機能は対応予定です。AnthonyがAIドラフトを送信前にスタッフが調整できるフォームを実装します。",
+      "comingSoonSend": "送信機能は対応予定です。Anthonyがメール／SMSのチャネルAPIとクリップボードコピーの導線を実装します。"
+    },
+    "session": {
+      "title": "今回のセッション",
+      "empty": "まだセッションが記録されていません。録音すると、AIがエントリーをここに抽出します。",
+      "categories": {
+        "treatment": "施術",
+        "concern": "相談",
+        "condition": "体調",
+        "product": "商品提案",
+        "next": "次回"
+      }
     }
   },
   "review": {
