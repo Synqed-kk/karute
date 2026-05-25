@@ -137,7 +137,8 @@
     "card": {
       "duration": "{n} min",
       "appointments": "{n} appts",
-      "customerSuffix": ""
+      "customerSuffix": "",
+      "tantou": "Staff: {name}"
     },
     "mobile": {
       "empty": "No appointments",
@@ -183,6 +184,10 @@
     },
     "empty": {
       "noData": "No data."
+    },
+    "staffFilter": {
+      "self": "Mine",
+      "all": "All staff"
     }
   },
   "karuteList": {

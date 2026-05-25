@@ -14,6 +14,12 @@ export interface CustomerEnrichment {
   totalKarute: number
   lastVisitIso: string | null
   visitsDone: number
+  /** Count of appointments that have already STARTED before now (= "they've
+   *  been here before"). Drives the 新規 (new) badge on the reservation
+   *  agenda — a customer with 0 past appointments is genuinely first-time
+   *  even if karute records are also 0. Previously the agenda used
+   *  `totalKarute === 0` and rendered every untouched customer as 新規. */
+  pastAppointmentCount: number
 }
 
 export async function enrichCustomers(
@@ -58,6 +64,7 @@ export async function enrichCustomers(
     apptByClient.set(a.client_id, arr)
   }
 
+  const nowIso = new Date().toISOString()
   for (const id of customerIds) {
     const karute = karuteByClient.get(id) ?? []
     const appts = apptByClient.get(id) ?? []
@@ -72,10 +79,16 @@ export async function enrichCustomers(
         if (!lastVisitIso || a.start_time > lastVisitIso) lastVisitIso = a.start_time
       }
     }
+    // Count appointments that started before now ("they've been here before").
+    let pastAppointmentCount = 0
+    for (const a of appts) {
+      if (a.start_time < nowIso) pastAppointmentCount += 1
+    }
     map.set(id, {
       totalKarute: karute.length,
       lastVisitIso,
       visitsDone: karute.length,
+      pastAppointmentCount,
     })
   }
 

@@ -37,12 +37,30 @@ function startOfWeekSun(d: Date): Date {
   return out
 }
 
+/**
+ * Parse the ?staff= URL param into one of:
+ *   - 'all'     — every staff's bookings (matches the spike default)
+ *   - 'self'    — only the signed-in user's bookings
+ *   - <staffId> — a specific staff member's bookings (per-staff pill)
+ *
+ * Defaults to 'all' to mirror the design spike — the reservation tab is the
+ * salon-wide schedule, not a per-staff todo. The Self/All toggle + per-staff
+ * pills are rendered by the AppointmentsView; this server-side reader keeps
+ * the URL as the single source of truth.
+ */
+function parseStaffParam(value: string | undefined): string {
+  if (!value) return 'all'
+  if (value === 'all' || value === 'self') return value
+  // Treat anything else as a staff_profile_id — validated downstream.
+  return value
+}
+
 export default async function AppointmentsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ date?: string; view?: string }>
+  searchParams: Promise<{ date?: string; view?: string; staff?: string }>
 }) {
   const { locale } = await params
   const sp = await searchParams
@@ -50,6 +68,7 @@ export default async function AppointmentsPage({
 
   const selectedDate = parseDateParam(sp.date)
   const view = parseViewParam(sp.view)
+  const staffFilter = parseStaffParam(sp.staff)
   // YYYY-MM-DD of the date being viewed, in JST (Vercel server is UTC, so
   // getFullYear/getMonth on a raw Date would emit the UTC calendar day —
   // wrong for half the JST clock).
@@ -104,20 +123,40 @@ export default async function AppointmentsPage({
     businessId && clientIdsForDay.length
       ? await enrichCustomers(businessId, clientIdsForDay)
       : new Map()
-  const visitCountByClient = new Map<string, number>()
+  // "First-time customer" = no past appointments AND no recorded karute.
+  // Previously this was derived from `totalKarute === 0` alone, which meant
+  // any existing customer without a recorded karute rendered as 新規 on the
+  // reservation agenda even if they'd been coming in for months. Liam hit
+  // this on Vercel — every booking showed as 新規.
+  const isFirstTimeByClient = new Map<string, boolean>()
   for (const [id, e] of enrichment.entries()) {
-    visitCountByClient.set(id, e.totalKarute)
+    isFirstTimeByClient.set(
+      id,
+      e.totalKarute === 0 && e.pastAppointmentCount === 0,
+    )
   }
 
   // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
   // know whether an appointment is past/in-progress/future relative to right
   // now, not to the date being viewed.
-  const reservationViews = appointmentsToReservationViews(
+  const allReservationViews = appointmentsToReservationViews(
     dayAppointments,
     staffList,
     now,
-    visitCountByClient,
+    isFirstTimeByClient,
   )
+
+  // Apply the Self/All/specific-staff filter. URL is the source of truth so
+  // the back button restores the scope and links can deep-link a specific
+  // staff's day (?staff=<id>).
+  const reservationViews = (() => {
+    if (staffFilter === 'all') return allReservationViews
+    if (staffFilter === 'self') {
+      if (!activeStaffId) return allReservationViews
+      return allReservationViews.filter((r) => r.staffId === activeStaffId)
+    }
+    return allReservationViews.filter((r) => r.staffId === staffFilter)
+  })()
 
   const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate)
   const businessHours = {
@@ -186,6 +225,7 @@ export default async function AppointmentsPage({
       reservationViews={reservationViews}
       reservationStaff={reservationStaff}
       businessHours={businessHours}
+      staffFilter={staffFilter}
     />
   )
 }

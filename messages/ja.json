@@ -137,7 +137,8 @@
     "card": {
       "duration": "{n}分",
       "appointments": "{n}件の予約",
-      "customerSuffix": "様"
+      "customerSuffix": "様",
+      "tantou": "担当 {name}"
     },
     "mobile": {
       "empty": "本日の予約はありません",
@@ -183,6 +184,10 @@
     },
     "empty": {
       "noData": "データがありません。"
+    },
+    "staffFilter": {
+      "self": "自分",
+      "all": "全スタッフ"
     }
   },
   "karuteList": {

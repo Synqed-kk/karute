@@ -20,7 +20,11 @@ import {
   ymdInJst,
 } from '@/lib/date/jst'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
-import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
+import { ReservationMobileAgenda } from '@/components/karute/spike-lifted/reservation/ReservationMobileAgenda'
+import {
+  ReservationStaffFilter,
+  type ReservationStaffEntry,
+} from '@/components/karute/spike-lifted/reservation/ReservationStaffFilter'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
@@ -53,6 +57,10 @@ interface AppointmentsViewProps {
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
   businessHours: BusinessHours
+  /** Active staff filter ('all' | 'self' | <staffId>) read from ?staff= URL
+   *  param by the server. The ReservationStaffFilter widget mutates the URL
+   *  to change scope; this prop is just for highlighting the active pill. */
+  staffFilter: string
 }
 
 // formatLongDate / formatCompactDate / formatYmd all delegate to the JST
@@ -154,6 +162,21 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onNewBooking={() => setDialogOpen(true)}
       />
 
+      {/* Self/All + per-staff filter — mirrors the spike's reservation
+       *  picker. Defaults to "全スタッフ" so the agenda reads as the
+       *  whole-salon schedule (matches the spike's mobile screenshot
+       *  Liam shared). Picker mutates ?staff= which the page reads
+       *  server-side to refilter reservationViews. */}
+      <ReservationStaffFilter
+        staffList={props.staff.map<ReservationStaffEntry>((s) => ({
+          id: s.id,
+          name: s.name,
+          initials: s.avatarInitials,
+        }))}
+        selfStaffId={props.activeStaffId}
+        selected={props.staffFilter}
+      />
+
       <div className="flex flex-wrap items-center gap-3">
         <DayWeekMonthToggle
           view={view}
@@ -205,7 +228,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               />
             </div>
             <div className="md:hidden">
-              <MobileReservationAgenda
+              <ReservationMobileAgenda
                 reservations={props.reservationViews}
                 onSelect={setSelected}
               />
