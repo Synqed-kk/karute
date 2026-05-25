@@ -1016,7 +1016,7 @@
     "provider": "プロバイダー",
     "save": "保存",
     "closed": "休業",
-    "voiceEnrolled": "音声登録済み",
+    "voiceEnrolled": "声登録済",
     "syncSection": {
       "errorPrefix": "エラー：{error}",
       "configSaved": "設定を保存しました",
@@ -1042,7 +1042,11 @@
     },
     "subtitle": "組織情報、テーマ、AI、録音、スタッフ、予約同期の設定を管理します",
     "backToList": "設定に戻る",
-    "staffDescription": "スタッフ一覧と権限"
+    "staffDescription": "スタッフ一覧と権限",
+    "staffCountSuffix": "{n}名のスタッフ",
+    "pinNotSet": "PIN未設定",
+    "consentGranted": "同意済み",
+    "voiceUnregistered": "未登録"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -1186,7 +1190,8 @@
     "pinRemoved": "{name}のPINを解除しました",
     "removePin": "PINを解除",
     "setPin": "PINを設定",
-    "pin": "PIN"
+    "pin": "PIN",
+    "resetPin": "PIN再設定"
   },
   "miniRecorder": {
     "paused": "一時停止中",
