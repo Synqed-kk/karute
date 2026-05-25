@@ -916,7 +916,7 @@
       },
       "label": "テーマ"
     },
-    "themeDescription": "タイムラインバーの色をカスタマイズ",
+    "themeDescription": "サイドバー・テーマ・言語",
     "resetToDefaults": "初期設定に戻す",
     "preview": "プレビュー",
     "tableColors": "テーブル色",
@@ -988,9 +988,9 @@
     "enrollVoice": "音声を登録",
     "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
-    "subscriptionDescription": "プランと請求を管理。",
+    "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "誰がいつ何を変更したかを記録。",
-    "storesDescription": "店舗の場所を管理。",
+    "storesDescription": "店舗の管理と追加",
     "coachingTabDescription": "コーチング設定は近日公開。",
     "planFree": "無料",
     "planStandard": "スタンダード",
@@ -1039,7 +1039,10 @@
         "auditLog": "監査ログ",
         "prioritySupport": "優先サポート"
       }
-    }
+    },
+    "subtitle": "組織情報、テーマ、AI、録音、スタッフ、予約同期の設定を管理します",
+    "backToList": "設定に戻る",
+    "staffDescription": "スタッフ一覧と権限"
   },
   "aiActions": {
     "title": "AIおすすめアクション",

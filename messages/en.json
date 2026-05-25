@@ -916,7 +916,7 @@
       },
       "label": "Theme"
     },
-    "themeDescription": "Customize timeline bar colors",
+    "themeDescription": "Sidebar, theme, language",
     "resetToDefaults": "Reset to Defaults",
     "preview": "Preview",
     "tableColors": "Table Colors",
@@ -988,9 +988,9 @@
     "enrollVoice": "Enroll voice",
     "voiceEnrollmentSoon": "Voice enrollment — coming soon",
     "contactSales": "Contact sales",
-    "subscriptionDescription": "Manage your plan and billing.",
+    "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Track who changed what and when.",
-    "storesDescription": "Manage your store locations.",
+    "storesDescription": "Manage and add stores",
     "coachingTabDescription": "Coaching settings — coming soon.",
     "planFree": "Free",
     "planStandard": "Standard",
@@ -1039,7 +1039,10 @@
         "auditLog": "Audit log",
         "prioritySupport": "Priority support"
       }
-    }
+    },
+    "subtitle": "Manage organization, theme, AI, recording, staff, and booking sync settings.",
+    "backToList": "Back to settings",
+    "staffDescription": "Staff list and permissions"
   },
   "aiActions": {
     "title": "AI Recommended Actions",
