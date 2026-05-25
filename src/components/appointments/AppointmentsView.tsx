@@ -238,8 +238,16 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         )}
       </div>
 
+      {/* space-y-6 (24px) — agenda card has visual weight (bg + rounded
+       *  corners + content); the ReservationTotals beneath is light
+       *  tabular text. Without explicit spacing the totals visually
+       *  touched the card's bottom border (no space-y here previously,
+       *  just transition-opacity). System rhythm convention for this
+       *  page: chrome rows = space-y-3 (12px, tight); agenda → summary
+       *  stats = space-y-6 (24px, generous so the eye reads them as
+       *  distinct sections rather than a continuation of the list). */}
       <div
-        className={`transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
+        className={`space-y-6 transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
         aria-busy={isPending}
       >
         {view === 'day' ? (
