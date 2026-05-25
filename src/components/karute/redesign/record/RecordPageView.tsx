@@ -7,7 +7,6 @@ import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { PipelineContainer } from '@/components/review/PipelineContainer'
-import { useTimetableStore } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
@@ -54,6 +53,14 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  staffRoster: { id: string; name: string }[]
+  bookingTargets: {
+    id: string
+    customerId: string
+    customerName: string
+    staffId: string
+    staffName: string
+  }[]
 }
 
 function deriveInitials(name: string): string {
@@ -80,10 +87,14 @@ export function RecordPageView({
   brief,
   recentRecordings,
   consentDate,
+  staffRoster,
+  bookingTargets,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
-  const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(
+    nextAppointment?.id ?? null,
+  )
 
   const {
     state: recState,
@@ -191,16 +202,18 @@ export function RecordPageView({
 
   // Pipeline phase — delegate to existing review/save flow
   if (phase === 'pipeline' && result) {
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
-    const effectiveCustomerId = recordingAppointmentId ? undefined : nextAppointment?.customerId
+    const selectedTarget =
+      bookingTargets.find((b) => b.id === selectedTargetId) ?? null
     return (
       <PipelineContainer
         audioBlob={result.blob}
         locale={locale}
         customers={customers}
         duration={Math.round(result.durationMs / 1000)}
-        appointmentId={effectiveAppointmentId}
-        appointmentCustomerId={effectiveCustomerId}
+        appointmentId={selectedTarget?.id}
+        appointmentCustomerId={selectedTarget?.customerId}
+        staffId={selectedTarget?.staffId}
+        staffOptions={staffRoster}
         onCancel={handleNewSession}
         onSaved={handleNewSession}
       />
@@ -319,6 +332,7 @@ export function RecordPageView({
             <RecordingTargetCard
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
+              onSwitchBooking={(b) => setSelectedTargetId(b.id)}
             />
             <PreSessionBriefCard brief={brief} />
           </div>
@@ -329,6 +343,7 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
+            onSwitchBooking={(b) => setSelectedTargetId(b.id)}
           />
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>

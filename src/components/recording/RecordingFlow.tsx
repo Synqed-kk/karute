@@ -35,9 +35,10 @@ interface RecordingFlowProps {
   customers: CustomerOption[]
   locale: string
   nextAppointment?: NextAppointment | null
+  staffOptions: { id: string; name: string }[]
 }
 
-export function RecordingFlow({ customers, locale, nextAppointment }: RecordingFlowProps) {
+export function RecordingFlow({ customers, locale, nextAppointment, staffOptions }: RecordingFlowProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
   // Appointment ID set when recording was started from dashboard appointment click
@@ -173,6 +174,7 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
         duration={result ? Math.round(result.durationMs / 1000) : 0}
         appointmentId={effectiveAppointmentId}
         appointmentCustomerId={effectiveCustomerId}
+        staffOptions={staffOptions}
         onCancel={handleNewSession}
         onSaved={handleNewSession}
       />

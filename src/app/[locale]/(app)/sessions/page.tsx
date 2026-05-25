@@ -158,6 +158,15 @@ export default async function SessionsPage({
     }
   }
 
+  const staffRoster = staffList.map((s) => ({ id: s.id, name: s.full_name ?? '—' }))
+  const bookingTargets = todays.map((a) => ({
+    id: a.id,
+    customerId: a.client_id,
+    customerName: a.customers?.name ?? 'Unknown',
+    staffId: a.staff_profile_id,
+    staffName: nameById.get(a.staff_profile_id) ?? '—',
+  }))
+
   return (
     <RecordPageView
       customers={customers}
@@ -167,6 +176,8 @@ export default async function SessionsPage({
       brief={null}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      staffRoster={staffRoster}
+      bookingTargets={bookingTargets}
     />
   )
 }

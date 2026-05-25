@@ -1,4 +1,5 @@
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getStaffList } from '@/lib/staff'
 import { SaveKaruteFlow } from '@/components/karute/SaveKaruteFlow'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 
@@ -22,12 +23,17 @@ import type { CustomerOption } from '@/components/karute/CustomerCombobox'
  * (Phase 2 recording flow, or a test that calls saveDraft() directly).
  */
 export default async function ReviewPage() {
-  const cachedList = await getCachedCustomerList()
+  const [cachedList, staffList] = await Promise.all([
+    getCachedCustomerList(),
+    getStaffList(),
+  ])
 
   const customers: CustomerOption[] = cachedList.map((c) => ({
     id: c.id,
     name: c.name,
   }))
+
+  const staffOptions = staffList.map((s) => ({ id: s.id, name: s.full_name ?? '—' }))
 
   return (
     <div className="space-y-4">
@@ -40,7 +46,7 @@ export default async function ReviewPage() {
       </p>
 
       {/* SaveKaruteFlow reads the draft from sessionStorage on mount */}
-      <SaveKaruteFlow customers={customers} />
+      <SaveKaruteFlow customers={customers} staffOptions={staffOptions} />
     </div>
   )
 }
