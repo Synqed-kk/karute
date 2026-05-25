@@ -30,7 +30,14 @@ describe('setActiveStaff', () => {
     const result = await setActiveStaff('staff-a', '1234')
     expect(result).toEqual({ ok: true })
     expect(cookieSet).toHaveBeenCalledWith(
-      'active_staff_id', 'staff-a', expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/' }),
+      'active_staff_id',
+      'staff-a',
+      expect.objectContaining({
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: 60 * 60 * 24 * 30,
+      }),
     )
   })
 
@@ -38,6 +45,13 @@ describe('setActiveStaff', () => {
     verifyStaffPin.mockResolvedValue({ valid: false })
     const result = await setActiveStaff('staff-a', '0000')
     expect(result).toEqual({ ok: false, error: expect.stringMatching(/incorrect pin/i) })
+    expect(cookieSet).not.toHaveBeenCalled()
+  })
+
+  it('surfaces the verifier error message when present', async () => {
+    verifyStaffPin.mockResolvedValue({ valid: false, error: 'Staff not found' })
+    const result = await setActiveStaff('ghost', '0000')
+    expect(result).toEqual({ ok: false, error: 'Staff not found' })
     expect(cookieSet).not.toHaveBeenCalled()
   })
 })
