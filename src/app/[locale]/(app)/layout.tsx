@@ -10,6 +10,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 import { MiniRecorder } from '@/components/recording/MiniRecorder'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getNextCustomer } from '@/lib/appointments/next-customer'
 import { SessionProvider } from '@/providers/session-provider'
 
 import { createClient } from '@/lib/supabase/server'
@@ -25,11 +26,16 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getCurrentUserStaffId(),
     getOrgSettings(),
+    // Bottom-nav next-customer label. Fanned out in parallel with
+    // the other layout queries so it doesn't add a serial step.
+    // Failure is non-fatal — bottom nav falls back to its scaffold
+    // copy ("予約を選択") if this query errors.
+    getNextCustomer().catch(() => null),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
@@ -91,7 +97,7 @@ export default async function DashboardLayout({
         </div>
         <MiniRecorder />
         <div className="md:hidden">
-          <BottomNav />
+          <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>
       </div>
     </SessionProvider>
