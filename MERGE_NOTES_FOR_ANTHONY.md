@@ -7,6 +7,95 @@
 
 ---
 
+## 🔴 BLOCKER — karute save → 404 (fix ASAP, predates this branch)
+
+**Every recording save 404s on the redirect to `/karute/{id}`.** Pipeline (transcribe → extract → summarize → save) all return 200; synqed-core writes the row; the frontend can't read it back. **Schema drift between synqed-core's Prisma model and the karute frontend's Supabase queries** — the columns the frontend SELECTs no longer exist (or hold the wrong meaning) after `rename_tenant_to_business`.
+
+Reproducible 100%. Hit on ぴあそん りえむ today (record id `cf61f63f-0dd7-4fde-9c44-f06cca52cc75`) and on every save before that.
+
+**This is not a `ui`-branch regression** — none of the visual / scaffolding commits touch `karute_records` queries, migrations, RLS, or the save flow. The drift was there before. But it makes the whole record-and-save loop unusable on prod, so it's a merge blocker for shipping the redesign.
+
+### Trace
+```
+POST /ja/sessions 303 in 2.5s
+  └─ saveKaruteRecord({customerId: "f7a9d968-...", ...}) in 1356ms
+       (synqed-core POST → returned record id cf61f63f-...)
+GET /ja/karute/cf61f63f-0dd7-4fde-9c44-f06cca52cc75 200 in 1091ms
+  (page renders Next.js 404 content — getKaruteRecord returned null)
+```
+
+- Save action: `src/actions/karute.ts:36-49` → `synqed.karuteRecords.create()` → redirect to `/karute/{recordId}`.
+- Detail page: `src/app/[locale]/(app)/karute/[id]/page.tsx:30-31` → `getKaruteRecord(id)` → null → `notFound()`.
+- `getKaruteRecord` at `src/lib/supabase/karute.ts:62-103` selects `customer_id, client_id, staff_profile_id, summary` and joins `profiles:staff_profile_id`, `customers:client_id`.
+
+### The drift
+
+| Frontend reads             | synqed-core's Prisma model writes (`schema.prisma → model KaruteRecord`) |
+|----------------------------|------------------------------|
+| `customer_id` (treated as **tenant** per `001_initial_schema.sql:53`) | `business_id` (renamed from `tenant_id` by `synqed-core/prisma/migrations/manual/rename_tenant_to_business.sql`) |
+| `client_id` (the person)   | `customer_id` (optional, the person) |
+| `staff_profile_id`         | `staff_id` (FK to `staff`, not `profiles`) |
+| `summary`                  | `ai_summary` |
+
+Plus the RLS in `001_initial_schema.sql:62-71`:
+```sql
+using (customer_id = (select customer_id from profiles where id = auth.uid()))
+```
+With `customer_id` now meaning the person (not the tenant), this RLS check fails for every staff user → row invisible → 404.
+
+### Why every other page silently "works"
+
+The list page (`src/app/[locale]/(app)/karute/page.tsx:45-127`) SELECTs the same dead columns but renders an empty list when the query returns nothing — identical to the genuine empty state, so the bug stays invisible until someone opens a specific record. Same for `dashboard/cached.ts`, `customers/[id]/page.tsx`, `ai-pipeline → /api/ai/insights`, etc.
+
+### Files to fix (every direct read of `karute_records`)
+
+```
+src/lib/supabase/karute.ts:22-50              (getKaruteRecords list)
+src/lib/supabase/karute.ts:62-103             (getKaruteRecord single)
+src/app/[locale]/(app)/karute/page.tsx:45-127 (list select + adapter)
+src/app/[locale]/(app)/karute/[id]/page.tsx:30-34
+src/app/[locale]/(app)/karute/customer/[customerId]/page.tsx:56
+src/app/[locale]/(app)/customers/[id]/page.tsx:62
+src/app/[locale]/(app)/sessions/page.tsx:76    (recent karute on /sessions)
+src/app/[locale]/(app)/sessions/page.tsx:332   (buildPreSessionBriefFor)
+src/app/[locale]/(app)/ask-ai/page.tsx:45,49
+src/app/[locale]/(app)/data-export/page.tsx:40
+src/app/api/ai/chat/route.ts:22
+src/app/api/ai/insights/route.ts:33
+src/lib/customers/list-enrich.ts:40
+src/lib/dashboard/cached.ts:65,70,84
+src/lib/adapters/karute-detail.ts:102-103     (uses karute.summary)
+```
+
+The `entries` table likely has the same problem — Prisma's `KaruteEntry` uses `karuteRecordId / sortOrder` etc. that don't match the frontend's expected `karute_record_id / category / content / source_quote / confidence_score / is_manual`. Worth a parallel audit.
+
+### Recommended fix — Option A (rename frontend queries to match Prisma)
+
+1. Every select above: `customer_id` → `business_id`, `client_id` → `customer_id`, `staff_profile_id` → `staff_id`, `summary` → `ai_summary`.
+2. Update relation hints: `customers:client_id` → `customers:customer_id`; `staff_id` now FKs the `staff` table (not `profiles`).
+3. New migration: drop the broken RLS in `001_initial_schema.sql`, add one keyed off `business_id` against the user's business membership.
+4. Same audit on the `entries` table.
+
+Option B (cheaper, worse): ship a `karute_records_legacy` view aliasing new columns back to old names, point frontend queries at it. Still need real RLS on the view. Buys time, doesn't fix the underlying drift.
+
+### Sanity-check SQL before fixing
+
+```sql
+\d karute_records
+
+SELECT id, business_id, customer_id, staff_id, ai_summary IS NOT NULL AS has_summary, created_at
+FROM karute_records
+WHERE id = 'cf61f63f-0dd7-4fde-9c44-f06cca52cc75';
+
+SELECT id, customer_id, business_id
+FROM profiles
+WHERE id = (SELECT auth.uid() FROM auth.users WHERE email = '<liam's email>' LIMIT 1);
+```
+
+If row 2 returns a row and row 3's `customer_id` ≠ row 2's `customer_id`, that's the RLS failure.
+
+---
+
 ## TL;DR
 
 This branch is a **visual + scaffolding port of the design spike** into the production codebase. It mirrors the spike's layout 1:1 so the muscle-memory transfers, but every AI surface is rendered as a `対応予定` (Coming Soon) placeholder until you wire the real pipeline. **No schema migrations. No new AI calls. No backend mutations beyond what already shipped.** TypeScript clean (`tsc --noEmit` exit 0). All visible strings are i18n keys (no hardcoded JP/EN leaking).
