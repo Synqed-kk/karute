@@ -6,6 +6,7 @@ import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
+import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -44,27 +45,33 @@ export default async function SessionsPage({
   const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
   const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 
-  // Fan out the three independent reads in parallel:
+  // Fan out the independent reads in parallel:
   //   1. Customer list (HTTP → synqed-core)
-  //   2. Nearby appointments for the active staff (DB, gated on activeStaffId)
+  //   2. ALL today's bookings (DB) — NOT filtered by staff. The picker
+  //      (SelectBookingSheet-style dropdown in RecordingTargetCard) shows
+  //      the whole day so staff can manually switch to a booking
+  //      assigned to someone else (covering a colleague, walk-in
+  //      reassignment, recording on behalf of). The DEFAULT target
+  //      still prefers the active staff's bookings — see the priority
+  //      selection below. Previously this was `.eq('staff_profile_id',
+  //      activeStaffId)` and Liam hit it: a 佐竹なな booking wasn't
+  //      showing up under 録音対象 because she was assigned to a
+  //      different staff. Matches the spike's record page which uses
+  //      the org-wide `todaysBookings` from useDashboardData().
   //   3. Recent karute records (DB)
-  // The consent fetch still has to wait because it depends on the chosen booking.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
   const [customers, appointmentsRes, recentRows] = await Promise.all([
     getCachedCustomerList(),
-    activeStaffId
-      ? sb
-          .from('appointments')
-          .select(
-            'id, start_time, duration_minutes, client_id, title, notes, karute_record_id, customers:client_id ( name )',
-          )
-          .eq('staff_profile_id', activeStaffId)
-          .gte('start_time', windowStart.toISOString())
-          .lte('start_time', windowEnd.toISOString())
-          .order('start_time', { ascending: true })
-          .limit(10)
-      : Promise.resolve({ data: null }),
+    sb
+      .from('appointments')
+      .select(
+        'id, start_time, duration_minutes, client_id, staff_profile_id, title, notes, karute_record_id, customers:client_id ( name )',
+      )
+      .gte('start_time', windowStart.toISOString())
+      .lte('start_time', windowEnd.toISOString())
+      .order('start_time', { ascending: true })
+      .limit(20),
     sb
       .from('karute_records')
       .select(
@@ -85,90 +92,116 @@ export default async function SessionsPage({
     durationMinutes: number
     title: string | null
     notes: string | null
+    statusKey?: 'in-session' | 'booked' | 'done'
   } | null = null
 
   // Nearby bookings (today, around the target time) — fed into the target card switcher
   let nearbyBookings: RecordTargetBooking[] = []
 
-  if (activeStaffId) {
-    const appointments = (appointmentsRes as { data: unknown }).data
+  const appointments = (appointmentsRes as { data: unknown }).data
 
-    type ApptRow = {
-      id: string
-      start_time: string
-      duration_minutes: number
-      client_id: string
-      title: string | null
-      notes: string | null
-      customers: { name: string } | null
-      karute_record_id?: string | null
-    }
-    const list = (appointments ?? []) as ApptRow[]
-
-    // Choose which appointment the recording UI pre-selects. Order of
-    // preference:
-    //   1. CURRENTLY in session — now is within [start, start+duration]
-    //      and not yet karute-linked. The customer is literally in the
-    //      chair right now; the recording should attach to them.
-    //   2. Next upcoming — future start_time, not yet karute-linked.
-    //   3. Any unlinked — final fallback (mostly past appointments that
-    //      never had a record saved). Matches the prior naive behavior.
-    //
-    // Previously this picked (3) unconditionally, which meant any earlier
-    // un-recorded appointment in the [-12h, +24h] window beat the
-    // currently-active one. Liam hit this on Vercel — recording wouldn't
-    // auto-attach to the 施術中 customer even though the status was
-    // visibly shown.
-    const nowMs = now.getTime()
-    const inSession = list.find((a) => {
-      if (a.karute_record_id) return false
-      const startMs = new Date(a.start_time).getTime()
-      const endMs = startMs + a.duration_minutes * 60_000
-      return startMs <= nowMs && nowMs < endMs
-    })
-    const upcoming = list.find((a) => {
-      if (a.karute_record_id) return false
-      return new Date(a.start_time).getTime() > nowMs
-    })
-    const fallback = list.find((a) => !a.karute_record_id)
-    const unlinked = inSession ?? upcoming ?? fallback
-    if (unlinked) {
-      nextAppointment = {
-        id: unlinked.id,
-        customerName: unlinked.customers?.name ?? 'Unknown',
-        customerId: unlinked.client_id,
-        startTime: unlinked.start_time,
-        durationMinutes: unlinked.duration_minutes,
-        title: unlinked.title ?? null,
-        notes: unlinked.notes ?? null,
-      }
-    }
-
-    nearbyBookings = list.slice(0, 6).map((a) => {
-      const start = new Date(a.start_time)
-      const end = new Date(start.getTime() + a.duration_minutes * 60_000)
-      const isCurrent = nextAppointment && a.id === nextAppointment.id
-      const isDone = !!a.karute_record_id && !isCurrent
-      const statusKey: RecordTargetBooking['statusKey'] = isCurrent
-        ? 'in-session'
-        : isDone
-          ? 'done'
-          : 'booked'
-      const customerName = a.customers?.name ?? 'Unknown'
-      return {
-        id: a.id,
-        start: hhmm(start),
-        end: hhmm(end),
-        customer: customerName,
-        initials: deriveFamilyInitials(customerName),
-        karute: null,
-        service: a.title ?? 'Session',
-        staff: '—',
-        statusKey,
-        statusLabel: isCurrent ? 'In session' : isDone ? 'Done' : 'Booked',
-      }
-    })
+  type ApptRow = {
+    id: string
+    start_time: string
+    duration_minutes: number
+    client_id: string
+    staff_profile_id: string | null
+    title: string | null
+    notes: string | null
+    customers: { name: string } | null
+    karute_record_id?: string | null
   }
+  const list = (appointments ?? []) as ApptRow[]
+
+  // Default-target priority — prefer the ACTIVE STAFF's bookings first
+  // (in-session > upcoming > any unlinked), but if they have nothing
+  // in the window, fall back to ANY booking in the salon. Matches the
+  // spike's posture: staff can record bookings even when not the
+  // assigned stylist (covering a colleague, walk-in handoff, etc.).
+  const nowMs = now.getTime()
+  const isInSession = (a: ApptRow) => {
+    if (a.karute_record_id) return false
+    const startMs = new Date(a.start_time).getTime()
+    const endMs = startMs + a.duration_minutes * 60_000
+    return startMs <= nowMs && nowMs < endMs
+  }
+  const isUpcoming = (a: ApptRow) =>
+    !a.karute_record_id && new Date(a.start_time).getTime() > nowMs
+  const isUnlinked = (a: ApptRow) => !a.karute_record_id
+
+  function findFirst(rows: ApptRow[]): ApptRow | undefined {
+    return (
+      rows.find(isInSession) ??
+      rows.find(isUpcoming) ??
+      rows.find(isUnlinked)
+    )
+  }
+
+  const myRows = activeStaffId
+    ? list.filter((a) => a.staff_profile_id === activeStaffId)
+    : list
+  // Fall back to any salon booking when the active staff has nothing
+  // queued. This is the path that surfaces 佐竹なな-style bookings when
+  // she's assigned to a colleague rather than the signed-in user.
+  const unlinked = findFirst(myRows) ?? findFirst(list)
+
+  if (unlinked) {
+    // Derive status server-side (in-session / booked / done) so the
+    // client component stays pure for React Compiler — no Date.now()
+    // calls during render.
+    const startMs = new Date(unlinked.start_time).getTime()
+    const endMs = startMs + unlinked.duration_minutes * 60_000
+    const statusKey: 'in-session' | 'booked' | 'done' =
+      startMs <= nowMs && nowMs < endMs
+        ? 'in-session'
+        : nowMs < startMs
+          ? 'booked'
+          : 'done'
+    nextAppointment = {
+      id: unlinked.id,
+      customerName: unlinked.customers?.name ?? 'Unknown',
+      customerId: unlinked.client_id,
+      startTime: unlinked.start_time,
+      durationMinutes: unlinked.duration_minutes,
+      title: unlinked.title ?? null,
+      notes: unlinked.notes ?? null,
+      statusKey,
+    }
+  }
+
+  // Picker rows = ALL today's bookings (active-staff first, then the
+  // rest). Limit to keep the dropdown tractable — staff with 20+
+  // bookings/day is rare and they'd scroll.
+  const orderedForPicker = [
+    ...myRows,
+    ...list.filter((a) => !myRows.some((m) => m.id === a.id)),
+  ].slice(0, 12)
+
+  nearbyBookings = orderedForPicker.map((a) => {
+    const start = new Date(a.start_time)
+    const end = new Date(start.getTime() + a.duration_minutes * 60_000)
+    const isCurrent = nextAppointment && a.id === nextAppointment.id
+    const isDone = !!a.karute_record_id && !isCurrent
+    const inSessionNow = isInSession(a)
+    const statusKey: RecordTargetBooking['statusKey'] = inSessionNow
+      ? 'in-session'
+      : isDone
+        ? 'done'
+        : 'booked'
+    const customerName = a.customers?.name ?? 'Unknown'
+    return {
+      id: a.id,
+      start: hhmm(start),
+      end: hhmm(end),
+      customer: customerName,
+      initials: deriveFamilyInitials(customerName),
+      karute: null,
+      service: a.title ?? 'Session',
+      staff: '—',
+      statusKey,
+      statusLabel: inSessionNow ? 'In session' : isDone ? 'Done' : 'Booked',
+    }
+  })
 
   type RecentRow = {
     id: string
@@ -222,15 +255,156 @@ export default async function SessionsPage({
     }
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Pre-session brief — derived from the customer's last karute
+  // record + reservation memo. Today this is mechanical:
+  //   • last karute record present → returning-visit framing
+  //     (lastVisitDate, AI summary → concerns, entries of category
+  //      'product' → lastProduct, 'next' → recommendedFocus)
+  //   • no karute records → first-visit framing
+  //     (isFirstTimeVisit=true, reservationMemo if appointment.notes)
+  //
+  // ANTHONY (function-branch wiring): replace this derivation with
+  // a NIGHTLY AI-generated brief read from a new `pre_session_briefs`
+  // table or jsonb column on `appointments`. Spec lives in spike's
+  // PreSessionBriefCard.tsx header (search "AI_PROMPTS.md §15 — to be
+  // added"). The shape returned here is the contract; the AI call
+  // produces the same shape with richer text (talking-point hooks
+  // generated from CustomerMemory items, AI-summarized concerns,
+  // AI-recommended focus). Cache for 24h keyed by (customer_id,
+  // appointment_id).
+  let brief: PreSessionBrief | null = null
+  if (nextAppointment?.customerId) {
+    brief = await buildPreSessionBriefFor(
+      sb,
+      nextAppointment.customerId,
+      nextAppointment.notes,
+      now,
+      locale,
+    )
+  }
+
   return (
     <RecordPageView
       customers={customers}
       locale={locale}
       nextAppointment={nextAppointment}
       nearbyBookings={nearbyBookings}
-      brief={null}
+      brief={brief}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
     />
   )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Pre-session brief derivation — mechanical version
+//
+// Today: pulls the customer's most recent karute record + its entries,
+// and projects them into the PreSessionBrief shape the
+// PreSessionBriefCard renders. Returning customer → recap brief with
+// concerns/product/focus extracted from entries by category. Brand-
+// new customer → first-visit framing with optional reservation memo.
+//
+// Tomorrow (function branch): replace this body with a single read
+// from a `pre_session_briefs` table populated by the nightly AI job.
+// The shape returned here is the contract — once the job lands, the
+// card lights up with richer text without touching the page.
+// ─────────────────────────────────────────────────────────────
+// Supabase client is intentionally untyped (the rest of the file uses
+// `sb as any` for the same reason — synqed-core's generated types
+// don't cover karute_records yet). Disable two related lint rules
+// just for this signature.
+type SupabaseLike = {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  from(table: string): any
+}
+
+async function buildPreSessionBriefFor(
+  sb: SupabaseLike,
+  customerId: string,
+  reservationMemo: string | null,
+  now: Date,
+  locale: string,
+): Promise<PreSessionBrief | null> {
+  // Last karute record for this customer (the brief's primary source).
+  const { data: lastRows } = await sb
+    .from('karute_records')
+    .select(
+      'id, session_date, created_at, summary, entries ( id, category, content )',
+    )
+    .eq('client_id', customerId)
+    .order('session_date', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  const last = Array.isArray(lastRows) && lastRows.length > 0 ? lastRows[0] : null
+
+  // FIRST-VISIT FRAMING — no prior karute. Card renders the
+  // "初めてのお客様" header + optional reservation memo block.
+  if (!last) {
+    return {
+      isFirstTimeVisit: true,
+      lastVisitDate: '',
+      lastVisitAgo: '',
+      hooks: [],
+      concerns: [],
+      lastProduct: null,
+      recommendedFocus: null,
+      reservationMemo: reservationMemo?.trim() ? reservationMemo : null,
+    }
+  }
+
+  // RETURNING-VISIT FRAMING — derive from the most recent karute.
+  type EntryRow = { id: string; category: string; content: string }
+  const entries: EntryRow[] = Array.isArray(last.entries) ? last.entries : []
+
+  // Talking-point hooks = preference + lifestyle entries (the kinds
+  // staff want to open with). Cap at 3 so the card stays scannable.
+  // ANTHONY: real impl reads from customer_memory_items with
+  // suggestTalkingPoint=true (per spike §11 memory extractor).
+  const hooks = entries
+    .filter((e) => e.category === 'PREFERENCE' || e.category === 'LIFESTYLE')
+    .slice(0, 3)
+    .map((e) => ({ title: e.content, body: null as string | null }))
+
+  // Last concerns = symptom + treatment entries (clinical recap).
+  const concerns = entries
+    .filter((e) => e.category === 'SYMPTOM' || e.category === 'TREATMENT')
+    .slice(0, 3)
+    .map((e) => e.content)
+
+  // Last product offered — most recent product-category entry.
+  const productEntry = entries.find((e) => e.category === 'PRODUCT')
+  const lastProduct = productEntry
+    ? { name: productEntry.content, reaction: null as string | null }
+    : null
+
+  // Recommended focus = first next-visit entry (what the customer
+  // said they wanted next time, or what staff flagged for follow-up).
+  const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
+  const recommendedFocus = nextEntry?.content ?? last.summary ?? null
+
+  // Format the last visit date + relative "X日前".
+  const lastDt = new Date(last.session_date ?? last.created_at)
+  const lastVisitDate = lastDt.toLocaleDateString(
+    locale === 'ja' ? 'ja-JP' : 'en-US',
+    { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric' },
+  )
+  const daysAgo = Math.max(
+    0,
+    Math.round((now.getTime() - lastDt.getTime()) / 86_400_000),
+  )
+  const lastVisitAgo = locale === 'ja' ? `${daysAgo}日前` : `${daysAgo}d ago`
+
+  return {
+    isFirstTimeVisit: false,
+    lastVisitDate,
+    lastVisitAgo,
+    hooks,
+    concerns,
+    lastProduct,
+    recommendedFocus,
+    reservationMemo: reservationMemo?.trim() ? reservationMemo : null,
+  }
 }

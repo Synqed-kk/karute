@@ -27,6 +27,15 @@ export interface RecordTargetAppointment {
   service: string
   timeRange: string
   staffName: string
+  /** Drives the status pill next to the 録音対象 label. Defaults to
+   *  'booked' when unspecified so existing call-sites don't break.
+   *  Values mirror RecordTargetBooking.statusKey for consistency. */
+  statusKey?: 'in-session' | 'booked' | 'new' | 'done'
+  /** True when this is the customer's first-ever visit. Surfaces as
+   *  the green 新規 pill when no in-session signal is present
+   *  (matches spike's AppointmentSelectorCard precedence:
+   *  施術中 > 新規 > 予約済). */
+  isNew?: boolean
 }
 
 interface RecordingTargetCardProps {
@@ -88,9 +97,11 @@ export function RecordingTargetCard({
           <span className="text-sm font-semibold text-foreground">
             {t('title')}
           </span>
-          <span className="inline-flex h-[22px] items-center rounded-full border border-orange-400/40 bg-orange-500/15 px-2.5 text-[11px] font-medium text-orange-400">
-            {t('inSession')}
-          </span>
+          <StatusPill
+            statusKey={appointment.statusKey}
+            isNew={appointment.isNew}
+            t={t}
+          />
         </div>
         {nearbyBookings.length > 0 && (
           <div className="relative" ref={wrapRef}>
@@ -183,6 +194,7 @@ export function RecordingTargetCard({
             <span className="text-base font-semibold text-foreground">
               {appointment.customerName}
             </span>
+            <span className="text-[13px] text-muted-foreground">{t('honorific')}</span>
             {appointment.karuteNumber && (
               <span className="text-[13px] tabular-nums text-muted-foreground">
                 {appointment.karuteNumber}
@@ -193,10 +205,47 @@ export function RecordingTargetCard({
           <div className="text-[12px] tabular-nums text-muted-foreground">
             {appointment.timeRange}
             <span className="mx-1.5">·</span>
-            Staff: {appointment.staffName}
+            {t('staffPrefix', { name: appointment.staffName })}
           </div>
         </div>
       </div>
     </section>
+  )
+}
+
+// Status pill — derives label + color from appointment status.
+// Precedence: 施術中 > 新規 > 予約済 (matches spike's
+// AppointmentSelectorCard). Hides on 'done' since the recording
+// flow doesn't surface completed bookings as the default target.
+function StatusPill({
+  statusKey,
+  isNew,
+  t,
+}: {
+  statusKey: RecordTargetAppointment['statusKey']
+  isNew: RecordTargetAppointment['isNew']
+  t: ReturnType<typeof useTranslations>
+}) {
+  if (statusKey === 'in-session') {
+    return (
+      <span className="inline-flex h-[22px] items-center rounded-full border border-orange-400/40 bg-orange-500/15 px-2.5 text-[11px] font-medium text-orange-400">
+        {t('inSession')}
+      </span>
+    )
+  }
+  if (isNew || statusKey === 'new') {
+    return (
+      <span className="inline-flex h-[22px] items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 text-[11px] font-medium text-emerald-400">
+        {t('firstVisit')}
+      </span>
+    )
+  }
+  if (statusKey === 'done') {
+    return null
+  }
+  return (
+    <span className="inline-flex h-[22px] items-center rounded-full border border-sky-400/40 bg-sky-500/15 px-2.5 text-[11px] font-medium text-sky-400">
+      {t('booked')}
+    </span>
   )
 }

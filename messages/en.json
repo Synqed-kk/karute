@@ -347,15 +347,22 @@
       "defaultService": "Session",
       "statusInSession": "In session",
       "statusDone": "Done",
-      "statusBooked": "Booked"
+      "statusBooked": "Booked",
+      "firstVisit": "First visit",
+      "booked": "Booked",
+      "honorific": ""
     },
     "brief": {
-      "title": "PRE-SESSION BRIEF",
+      "title": "Pre-session brief",
       "lastVisit": "Last visit {date} ({ago})",
+      "lastVisitInline": "Last visit {date} ({ago})",
       "hooks": "Conversation hooks",
       "concerns": "Last session concerns",
       "lastProduct": "Last product offered",
       "recommendedFocus": "Recommended focus today",
+      "reservationMemo": "Booking note",
+      "firstTimeHeader": "First-time customer",
+      "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
       "empty": "Pre-session brief unavailable — AI will generate one after the first karute."
     },
     "source": {

@@ -41,6 +41,11 @@ export interface RecordPageNextAppointment {
   durationMinutes: number
   title: string | null
   notes: string | null
+  /** Server-derived status at render time. Decouples this client
+   *  component from `Date.now()` (which React Compiler flags as
+   *  impure during render). Re-derive on the next server render
+   *  if the page is revisited. */
+  statusKey?: 'in-session' | 'booked' | 'done'
 }
 
 export interface RecordPageViewProps {
@@ -205,7 +210,10 @@ export function RecordPageView({
     )
   }
 
-  // Map nextAppointment to the target card shape
+  // Map nextAppointment to the target card shape. Status key comes
+  // from the server (sessions/page.tsx derives it from now vs the
+  // appointment window — keeps this client component pure for
+  // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null = nextAppointment
     ? {
         id: nextAppointment.id,
@@ -221,6 +229,8 @@ export function RecordPageView({
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
         staffName: '—',
+        statusKey: nextAppointment.statusKey ?? 'booked',
+        isNew: brief?.isFirstTimeVisit ?? false,
       }
     : null
 
@@ -318,7 +328,10 @@ export function RecordPageView({
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
             />
-            <PreSessionBriefCard brief={brief} />
+            <PreSessionBriefCard
+              brief={brief}
+              customerName={nextAppointment?.customerName ?? null}
+            />
           </div>
           <div className="self-start">{recorderColumn}</div>
         </div>
@@ -327,6 +340,10 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
+          />
+          <PreSessionBriefCard
+            brief={brief}
+            customerName={nextAppointment?.customerName ?? null}
           />
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>

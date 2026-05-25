@@ -343,19 +343,26 @@
       "current": "現在",
       "seeAllToday": "本日の予約をすべて表示",
       "noBooking": "予約が選択されていません",
-      "staffPrefix": "担当: {name}",
+      "staffPrefix": "担当：{name}",
       "defaultService": "セッション",
       "statusInSession": "施術中",
       "statusDone": "完了",
-      "statusBooked": "予約済み"
+      "statusBooked": "予約済み",
+      "firstVisit": "新規",
+      "booked": "予約済",
+      "honorific": "様"
     },
     "brief": {
-      "title": "事前ブリーフ",
+      "title": "セッション前ブリーフィング",
       "lastVisit": "前回来店: {date} ({ago})",
+      "lastVisitInline": "前回 {date}（{ago}）",
       "hooks": "会話のきっかけ",
-      "concerns": "前回の懸念事項",
-      "lastProduct": "前回の提案商品",
-      "recommendedFocus": "本日の推奨フォーカス",
+      "concerns": "前回の主訴・経過",
+      "lastProduct": "前回の商品提案",
+      "recommendedFocus": "本日のおすすめフォーカス",
+      "reservationMemo": "ご予約時のメモ",
+      "firstTimeHeader": "初めてのお客様",
+      "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
       "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。"
     },
     "source": {
