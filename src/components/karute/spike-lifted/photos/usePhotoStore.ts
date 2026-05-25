@@ -25,77 +25,18 @@ import { useState } from 'react'
 import type { PhotoRecord } from './types'
 
 /**
- * Sample placeholder photos using picsum.photos (same approach as
- * the spike). Gives Liam something visual to look at without needing
- * Storage wiring. Empty array = "no photos yet" empty state on the
- * card — toggle the export below to test both states.
+ * Empty by default. Previous version of this file shipped 4 sample
+ * photos via picsum.photos, which made the empty-state code path
+ * untestable AND made every customer's karute look like staff had
+ * already taken progress photos (they hadn't). Same wrongness as
+ * the memory card's SAMPLE_MEMORY — deleted.
+ *
+ * ANTHONY: when you wire the real `karute_photos` table, swap this
+ * empty array for a Supabase query (template in the spike's
+ * src/lib/data/karute/photos.ts top-of-file). Until then, every
+ * customer correctly shows "まだ写真がありません" / equivalent.
  */
-const SAMPLE_PHOTOS: PhotoRecord[] = [
-  {
-    id: 'spk-sample-1',
-    karuteId: 'spk-karute-1',
-    customerId: 'spk-customer-1',
-    capturedByStaffId: 'spk-staff-1',
-    capturedByStaffName: '佐藤 あかり',
-    capturedAt: '2026-04-20T14:30:00+09:00',
-    capturedAtLabel: '2026年4月20日',
-    categoryKey: 'skin_state',
-    categoryLabelSnapshot: '肌状態',
-    storageUrl: 'https://picsum.photos/seed/skin-1/800/800',
-    thumbnailUrl: 'https://picsum.photos/seed/skin-1/400/400',
-    width: 800,
-    height: 800,
-    takenWithConsent: true,
-  },
-  {
-    id: 'spk-sample-2',
-    karuteId: 'spk-karute-1',
-    customerId: 'spk-customer-1',
-    capturedByStaffId: 'spk-staff-1',
-    capturedByStaffName: '佐藤 あかり',
-    capturedAt: '2026-04-20T15:30:00+09:00',
-    capturedAtLabel: '2026年4月20日',
-    categoryKey: 'after',
-    categoryLabelSnapshot: '施術後',
-    storageUrl: 'https://picsum.photos/seed/after-1/800/800',
-    thumbnailUrl: 'https://picsum.photos/seed/after-1/400/400',
-    width: 800,
-    height: 800,
-    takenWithConsent: true,
-  },
-  {
-    id: 'spk-sample-3',
-    karuteId: 'spk-karute-1',
-    customerId: 'spk-customer-1',
-    capturedByStaffId: 'spk-staff-1',
-    capturedByStaffName: '佐藤 あかり',
-    capturedAt: '2026-03-22T14:00:00+09:00',
-    capturedAtLabel: '2026年3月22日',
-    categoryKey: 'skin_state',
-    categoryLabelSnapshot: '肌状態',
-    storageUrl: 'https://picsum.photos/seed/skin-2/800/800',
-    thumbnailUrl: 'https://picsum.photos/seed/skin-2/400/400',
-    width: 800,
-    height: 800,
-    takenWithConsent: true,
-  },
-  {
-    id: 'spk-sample-4',
-    karuteId: 'spk-karute-1',
-    customerId: 'spk-customer-1',
-    capturedByStaffId: 'spk-staff-1',
-    capturedByStaffName: '佐藤 あかり',
-    capturedAt: '2026-03-22T15:00:00+09:00',
-    capturedAtLabel: '2026年3月22日',
-    categoryKey: 'after',
-    categoryLabelSnapshot: '施術後',
-    storageUrl: 'https://picsum.photos/seed/after-2/800/800',
-    thumbnailUrl: 'https://picsum.photos/seed/after-2/400/400',
-    width: 800,
-    height: 800,
-    takenWithConsent: true,
-  },
-]
+const SAMPLE_PHOTOS: PhotoRecord[] = []
 
 export interface PhotoStore {
   photos: PhotoRecord[]

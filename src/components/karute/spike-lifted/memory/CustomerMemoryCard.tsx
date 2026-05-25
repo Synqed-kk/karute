@@ -30,6 +30,8 @@ import { useState } from 'react'
 import {
   Activity,
   Brain,
+  ChevronDown,
+  ChevronRight,
   Heart,
   Leaf,
   MessageCircle,
@@ -51,7 +53,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import {
-  SAMPLE_MEMORY,
+  EMPTY_MEMORY,
   type CustomerMemory,
   type MemoryCategory,
   type MemoryItem,
@@ -60,7 +62,13 @@ import {
 
 interface Props {
   customerName: string
-  /** Optional override; defaults to SAMPLE_MEMORY for the demo. */
+  /**
+   * Customer memory data. Defaults to an empty memory shell — the
+   * empty-state UI renders ("まだメモリーがありません" / equivalent)
+   * until Anthony wires the real `customer_memory_items` table read
+   * here. NEVER ship a default with seed content — that would
+   * pretend the AI analyzed sessions that never happened.
+   */
   memory?: CustomerMemory
 }
 
@@ -106,9 +114,22 @@ const CATEGORY_KEYS: MemoryCategory[] = [
   'lifestyle',
 ]
 
-export function CustomerMemoryCard({ customerName, memory = SAMPLE_MEMORY }: Props) {
+export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Props) {
   const t = useTranslations('karute.memorySection')
   const [stubOpen, setStubOpen] = useState(false)
+  // Collapsed sections live in local state — Set keyed by category.
+  // No backend persistence yet; refresh resets to "all expanded".
+  // ANTHONY: if salon staff want their collapse preferences to stick,
+  // persist into localStorage or a per-staff settings table.
+  const [collapsed, setCollapsed] = useState<Set<MemoryCategory>>(new Set())
+  const toggleCollapsed = (cat: MemoryCategory) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev)
+      if (next.has(cat)) next.delete(cat)
+      else next.add(cat)
+      return next
+    })
+  }
 
   const isEmpty = memory.items.length === 0
   const talkingPoints = memory.items.filter((i) => i.suggestTalkingPoint)
@@ -209,7 +230,7 @@ export function CustomerMemoryCard({ customerName, memory = SAMPLE_MEMORY }: Pro
           </div>
         )}
 
-        {/* Categorized sections */}
+        {/* Categorized sections — each with its own collapse chevron */}
         {!isEmpty && (
           <div className="mt-4 space-y-3">
             {CATEGORY_KEYS.map((cat) => {
@@ -220,6 +241,8 @@ export function CustomerMemoryCard({ customerName, memory = SAMPLE_MEMORY }: Pro
                   key={cat}
                   category={cat}
                   items={items}
+                  isCollapsed={collapsed.has(cat)}
+                  onToggleCollapse={() => toggleCollapsed(cat)}
                   onActionStub={() => setStubOpen(true)}
                 />
               )
@@ -270,19 +293,30 @@ export function CustomerMemoryCard({ customerName, memory = SAMPLE_MEMORY }: Pro
 function CategorySection({
   category,
   items,
+  isCollapsed,
+  onToggleCollapse,
   onActionStub,
 }: {
   category: MemoryCategory
   items: MemoryItem[]
+  isCollapsed: boolean
+  onToggleCollapse: () => void
   onActionStub: () => void
 }) {
   const t = useTranslations('karute.memorySection')
   const visual = CATEGORY_VISUAL[category]
   const Icon = visual.icon
+  const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown
   const label = t(`category${categoryKeySuffix(category)}`)
   return (
     <div>
-      <div className="mb-1.5 flex items-center gap-1.5">
+      {/* Header is a button — entire row toggles collapse on tap. */}
+      <button
+        type="button"
+        onClick={onToggleCollapse}
+        aria-expanded={!isCollapsed}
+        className="mb-1.5 flex w-full items-center gap-1.5 rounded-md py-0.5 text-left transition-colors hover:bg-muted/30"
+      >
         <span className={`flex size-5 items-center justify-center rounded ${visual.tint}`}>
           <Icon className={`size-3 ${visual.accent}`} aria-hidden />
         </span>
@@ -292,12 +326,19 @@ function CategorySection({
         <span className="text-[10px] tabular-nums text-muted-foreground">
           {items.length}
         </span>
-      </div>
-      <ul className="space-y-1.5 pl-1">
-        {items.map((item) => (
-          <MemoryItemRow key={item.id} item={item} onActionStub={onActionStub} />
-        ))}
-      </ul>
+        <ChevronIcon
+          size={14}
+          className="ml-auto text-muted-foreground/60"
+          aria-hidden
+        />
+      </button>
+      {!isCollapsed && (
+        <ul className="space-y-1.5 pl-1">
+          {items.map((item) => (
+            <MemoryItemRow key={item.id} item={item} onActionStub={onActionStub} />
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -331,12 +372,21 @@ function MemoryItemRow({
           {t(`source${sourceKeySuffix(item.source)}`)} · {item.capturedAt}
         </p>
       </div>
-      {/* Hover-revealed action buttons — stubbed for now */}
-      <div className="hidden gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 sm:flex">
+      {/* Action buttons — ALWAYS visible (no hover gate). Previous
+       *  version hid them behind hover, which made them invisible on
+       *  mobile (no hover). Spike + Liam's expectation = always
+       *  reachable. opacity-60 default, opacity-100 on hover/focus.
+       *
+       *  ANTHONY: all three are stubs. Real wiring needs:
+       *    - togglePin(itemId)   → flip item.pinned in DB
+       *    - editItem(itemId)    → open MemoryItemDialog (lift from
+       *                            spike when ready) + persist diff
+       *    - deleteItem(itemId)  → soft-delete via deleted_at column */}
+      <div className="flex gap-0.5 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
         <button
           type="button"
           onClick={onActionStub}
-          aria-label="pin"
+          aria-label={item.pinned ? 'unpin' : 'pin'}
           className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <Pin className="size-3" />
