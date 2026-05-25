@@ -1049,7 +1049,9 @@
     "voiceUnregistered": "未登録",
     "editStaffDialogTitle": "スタッフ情報を編集",
     "editStaffDialogSubtitle": "{name}さんの情報を更新します。変更内容は監査ログに記録されます。",
-    "emailChangeNotice": "変更するとメール確認が必要になります。"
+    "emailChangeNotice": "変更するとメール確認が必要になります。",
+    "voiceEnrollCta": "声を登録（任意）",
+    "voiceRevoke": "声紋を削除"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -1374,5 +1376,29 @@
     "footer": {
       "copyright": "© {year} Karute. All rights reserved."
     }
+  },
+  "voiceEnrollment": {
+    "title": "自分の声を登録（任意）",
+    "description": "{name}さんの声を登録すると、話者識別の精度が少し向上します。登録は任意です — 話者分離は登録なしでも動作します。",
+    "privacyTitle": "プライバシーについて",
+    "privacyItem1": "録音音声は声紋データ（256次元ベクトル）に変換後、元の音声は破棄されます。",
+    "privacyItem2": "声紋はサーバー側の話者分離処理のみで使用され、アプリには送信されません。",
+    "privacyItem3": "個人情報保護法（APPI）に準拠した暗号化ストレージで保管されます。",
+    "privacyItem4": "いつでも「削除」をクリックして、声紋と関連データを30日以内に完全削除できます。",
+    "biometricNotice": "声紋は生体情報（バイオメトリクス）に分類されます。登録は完全に任意で、業務上の強制はありません。登録しなくても、「最初の話者＝スタッフ」のヒューリスティックで話者分離は動作します。",
+    "consentCheck": "上記のプライバシー条件を理解し、自分の声を登録することに同意します。",
+    "recordInstruction": "下記のフレーズを自然な声で読み上げてください。約15秒間録音します。",
+    "phraseToRead": "本日はお越しいただき、ありがとうございます。今日のお身体の調子はいかがですか。気になるところがあればお気軽にお伝えください。",
+    "startRecord": "録音開始",
+    "stopRecord": "録音停止",
+    "recordingHint": "自然な声で読み上げてください...",
+    "readyHint": "マイクのアイコンをタップして録音を開始します",
+    "completeTitle": "登録が完了しました",
+    "completeBody": "{name}さんの声が登録されました。次回以降の録音から、話者識別が向上します。",
+    "revokeHint": "設定 > スタッフ > 声の登録 から、いつでも声紋を削除できます。削除後、新規セッションでは一般的な話者分離が使われます。",
+    "cancel": "キャンセル",
+    "proceed": "次へ",
+    "back": "戻る",
+    "done": "完了"
   }
 }

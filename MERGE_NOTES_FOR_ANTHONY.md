@@ -499,3 +499,119 @@ also seed its `BusinessProfile` with at least the focus topics +
 default categories. Without a profile, the new type falls through to
 `DEFAULT_PROFILE` which is the generic-salon baseline — works but
 nothing vertical-specific lights up.
+
+---
+
+## Staff voice enrollment — function-branch handoff
+
+Voice enrollment is an OPT-IN accuracy boost for diarization. Karute
+ships the UI scaffold today (3-step dialog, chips on staff row);
+Anthony wires the real recording + embedding pipeline on the
+function branch.
+
+### Why OPTIONAL
+
+Diarization works WITHOUT voice enrollment via the "first speaker
+= staff" heuristic. Voice enrollment lifts accuracy a few percentage
+points on the phone-mic path and becomes effectively unnecessary
+once the Phase 2/3 clip-on staff mic ships (speaker closest to mic
+= staff = 100% reliable). Don't force it on staff.
+
+See spike's `docs/SPEAKER_RECOGNITION_AND_RECORDING_LAW.md`
+§"Staff voice matching — MVP heuristic vs. embedding matching"
+for the full reasoning.
+
+### UI scaffold shipped (on ui branch today)
+
+  - `src/components/staff/VoiceEnrollmentDialog.tsx` — 3-step
+    dialog lifted from spike. Consent → record → complete. Recording
+    is currently a 1-second-tick stub (no real MediaRecorder).
+  - `src/components/staff/StaffList.tsx` — row's status chip strip
+    now includes:
+      • "声を登録（任意）" CTA chip when not enrolled → opens the dialog
+      • "声登録済 · YYYY-MM-DD ×" chip when enrolled → × revokes
+  - Local mirror (`localEnrollments` Record) drives the flip from
+    CTA → enrolled chip after a successful flow. Drop this state once
+    real persistence lands; the row already reads from
+    `staff.voice_enrolled_at`.
+
+### Privacy posture — CRITICAL, do not deviate
+
+Voice embeddings are BIOMETRIC data under APPI. The dialog copy
+already explains this to the staff member; the contract on the
+backend side:
+
+  1. Raw audio is DISCARDED after the embedding is computed.
+     NEVER persist the audio. Only the 256-dim vector.
+  2. Embedding lives in `staff.voice_embedding vector(256)` with
+     RLS restricting reads to server-side diarization jobs ONLY —
+     not even the staff member's own client reads it.
+  3. Enrollment is OPT-IN. Consent is re-confirmed on first use
+     + every 12 months.
+  4. Staff can revoke any time → clear the column + insert an
+     audit row. Hard-delete the embedding within 30 days.
+
+### What to wire on the function branch
+
+```ts
+// 1. Real recording — replace the stub timer in
+//    VoiceEnrollmentDialog.startRecording() / stopRecording()
+const recorder = new MediaRecorder(micStream)
+// ...accumulate chunks, stop on user tap or 20s cap...
+const blob = new Blob(chunks, { type: 'audio/webm' })
+
+// 2. POST blob → server → edge function → embedding
+const formData = new FormData()
+formData.append('audio', blob, `${staffId}-${Date.now()}.webm`)
+const { enrolled_at, embedding_id } = await fetch('/api/voice/enroll', {
+  method: 'POST',
+  body: formData,
+}).then((r) => r.json())
+
+// 3. Inside /api/voice/enroll route:
+//    a. Invoke compute-voice-embedding edge function with the blob.
+//    b. Edge function computes the 256-dim vector + DISCARDS the audio.
+//    c. UPDATE staff SET voice_enrolled_at = $1, voice_embedding = $2
+//       WHERE id = currentUserStaffId.
+//    d. INSERT INTO voice_enrollment_audit (staff_id, action: 'enrolled',
+//       at: now()).
+//    e. Return { enrolled_at, embedding_id } to client.
+
+// 4. Revoke (from the × on the enrolled chip):
+//    a. UPDATE staff SET voice_enrolled_at = NULL,
+//       voice_embedding = NULL WHERE id = $1.
+//    b. INSERT INTO voice_enrollment_audit (staff_id, action:
+//       'revoked', at: now()).
+//    c. Schedule hard-delete of the embedding row within 30 days
+//       (cron or background job).
+```
+
+### Schema TODOs
+
+```sql
+ALTER TABLE staff
+  ADD COLUMN voice_enrolled_at timestamptz,
+  ADD COLUMN voice_embedding vector(256);  -- pgvector extension
+
+CREATE TABLE voice_enrollment_audit (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id uuid NOT NULL REFERENCES staff(id),
+  action text NOT NULL CHECK (action IN ('enrolled', 'revoked')),
+  at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE staff ENABLE ROW LEVEL SECURITY;
+-- voice_embedding column is SERVER-ONLY. No client RLS read policy.
+-- Diarization jobs run via service role.
+```
+
+### Customer-side recording consent — companion handoff
+
+Liam also called out customer-card recording consent visibility. The
+backend bits already exist (`customer_consent` table + `getCustomerConsent`
+/ `grantCustomerConsent` actions, used by the recording flow). The
+customer card on the karute/customer list doesn't yet surface that
+status as a chip. Suggested follow-up PR: add a "録音同意済み" green
+chip when consented, no chip otherwise — same visual idiom as the
+staff card's `consentGranted` chip. Function-branch work; UI is a
+~30-line addition to `CustomerCardMobile` + `CustomerRowDesktop`.

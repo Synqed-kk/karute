@@ -27,7 +27,7 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Crown, KeyRound, Mic, MoreVertical, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { Crown, KeyRound, Mic, MoreVertical, Pencil, Trash2, UserPlus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -39,6 +39,7 @@ import {
 import { deleteStaff, uploadStaffAvatar } from '@/actions/staff'
 import { StaffForm } from './StaffForm'
 import { PinSetup } from './PinSetup'
+import { VoiceEnrollmentDialog } from './VoiceEnrollmentDialog'
 
 interface StaffMember {
   id: string
@@ -97,6 +98,18 @@ export function StaffList({
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
   const [pinSetupStaff, setPinSetupStaff] = useState<StaffMember | null>(null)
+  const [voiceEnrollStaff, setVoiceEnrollStaff] = useState<StaffMember | null>(
+    null,
+  )
+  // Local mirror of voice-enrollment timestamps so the UI flow demonstrates
+  // end-to-end (consent → record → complete → row chip flips to 声登録済)
+  // before Anthony wires real persistence. When the server-backed
+  // `voice_enrolled_at` column exists, drop this state — the row already
+  // reads from staff.voice_enrolled_at and the chip will light up
+  // automatically.
+  const [localEnrollments, setLocalEnrollments] = useState<
+    Record<string, string>
+  >({})
 
   async function handleDelete(staff: StaffMember) {
     const confirmed = window.confirm(
@@ -162,32 +175,57 @@ export function StaffList({
        *  visual idiom as the customer/karute/reservation lists. */}
       <div className="overflow-hidden rounded-xl bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-black/5 dark:ring-white/5">
         <div className="divide-y divide-black/5 dark:divide-white/5">
-          {staffList.map((staff) => (
-            <StaffRow
-              key={staff.id}
-              staff={staff}
-              isActive={staff.id === activeStaffId}
-              canEdit={isOwner || staff.id === currentUserId}
-              canDelete={isOwner && staff.display_role !== 'owner'}
-              canSetPin={isOwner || staff.id === currentUserId}
-              onEdit={() => setEditingStaff(staff)}
-              onSetPin={() => setPinSetupStaff(staff)}
-              onDelete={() => handleDelete(staff)}
-              labels={{
-                owner: ts('accountOwner'),
-                active: ts('active'),
-                added: tStaff('added', { date: '' }).replace(/\s*$/, '').replace(/—|-/g, '').trim(),
-                pinNotSet: ts('pinNotSet'),
-                consentGranted: ts('consentGranted'),
-                voiceEnrolled: ts('voiceEnrolled'),
-                voiceUnregistered: ts('voiceUnregistered'),
-                edit: tc('edit'),
-                setPin: tPin('setPin'),
-                resetPin: tPin('resetPin'),
-                delete: tc('delete'),
-              }}
-            />
-          ))}
+          {staffList.map((staff) => {
+            // Effective enrollment ISO — server field if present, otherwise
+            // the local mirror we just set after a successful flow. Once
+            // Anthony wires real persistence the local mirror is stale and
+            // can be dropped (drop `localEnrollments` entirely + this
+            // fallback expression).
+            const enrolledAt =
+              staff.voice_enrolled_at ?? localEnrollments[staff.id] ?? null
+            return (
+              <StaffRow
+                key={staff.id}
+                staff={staff}
+                isActive={staff.id === activeStaffId}
+                canEdit={isOwner || staff.id === currentUserId}
+                canDelete={isOwner && staff.display_role !== 'owner'}
+                canSetPin={isOwner || staff.id === currentUserId}
+                onEdit={() => setEditingStaff(staff)}
+                onSetPin={() => setPinSetupStaff(staff)}
+                onDelete={() => handleDelete(staff)}
+                voiceEnrolledAt={enrolledAt}
+                onEnrollVoice={() => setVoiceEnrollStaff(staff)}
+                onRevokeVoice={() => {
+                  // ANTHONY: real impl posts to a revoke endpoint that
+                  // clears staff.voice_enrolled_at + voice_embedding +
+                  // inserts a voice_enrollment_audit row. Today this
+                  // just clears the local mirror so the UI snaps back
+                  // to the "声を登録（任意）" CTA chip.
+                  setLocalEnrollments((m) => {
+                    const next = { ...m }
+                    delete next[staff.id]
+                    return next
+                  })
+                }}
+                labels={{
+                  owner: ts('accountOwner'),
+                  active: ts('active'),
+                  added: tStaff('added', { date: '' }).replace(/\s*$/, '').replace(/—|-/g, '').trim(),
+                  pinNotSet: ts('pinNotSet'),
+                  consentGranted: ts('consentGranted'),
+                  voiceEnrolled: ts('voiceEnrolled'),
+                  voiceUnregistered: ts('voiceUnregistered'),
+                  voiceEnrollCta: ts('voiceEnrollCta'),
+                  voiceRevoke: ts('voiceRevoke'),
+                  edit: tc('edit'),
+                  setPin: tPin('setPin'),
+                  resetPin: tPin('resetPin'),
+                  delete: tc('delete'),
+                }}
+              />
+            )
+          })}
         </div>
       </div>
 
@@ -218,6 +256,23 @@ export function StaffList({
           onClose={() => setPinSetupStaff(null)}
         />
       )}
+
+      {voiceEnrollStaff && (
+        <VoiceEnrollmentDialog
+          open
+          staffName={voiceEnrollStaff.full_name ?? 'Staff'}
+          onClose={() => setVoiceEnrollStaff(null)}
+          onEnrolled={(enrolledAt) => {
+            // Mirror in local state so the row's chip flips to 声登録済
+            // immediately. ANTHONY: replace with the POST → embedding
+            // pipeline (see MERGE_NOTES "Staff voice enrollment" section).
+            setLocalEnrollments((m) => ({
+              ...m,
+              [voiceEnrollStaff.id]: enrolledAt,
+            }))
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -231,6 +286,12 @@ interface StaffRowProps {
   onEdit: () => void
   onSetPin: () => void
   onDelete: () => void
+  /** ISO when voice was enrolled. Null = not enrolled — row shows the
+   *  "声を登録（任意）" CTA chip; tapping it fires onEnrollVoice. */
+  voiceEnrolledAt: string | null
+  onEnrollVoice: () => void
+  /** Fires from the × on the 声登録済 chip when enrolled. */
+  onRevokeVoice: () => void
   labels: {
     owner: string
     active: string
@@ -239,6 +300,8 @@ interface StaffRowProps {
     consentGranted: string
     voiceEnrolled: string
     voiceUnregistered: string
+    voiceEnrollCta: string
+    voiceRevoke: string
     edit: string
     setPin: string
     resetPin: string
@@ -255,11 +318,20 @@ function StaffRow({
   onEdit,
   onSetPin,
   onDelete,
+  voiceEnrolledAt,
+  onEnrollVoice,
+  onRevokeVoice,
   labels,
 }: StaffRowProps) {
   const isOwner = staff.display_role === 'owner'
   const initials = initialsOf(staff.full_name)
   const registered = formatJpDate(staff.created_at, 'ja')
+  // Voice chip variants: enrolled (with date + revoke ×) vs CTA (not yet
+  // enrolled — clickable to open the enrollment dialog). Always renders
+  // when canEdit so staff can opt in or revoke at any time.
+  const voiceEnrolledDate = voiceEnrolledAt
+    ? voiceEnrolledAt.slice(0, 10) // YYYY-MM-DD
+    : null
 
   return (
     <div className="flex items-start gap-3 px-4 py-3.5">
@@ -300,9 +372,14 @@ function StaffRow({
           {labels.added} {registered}
         </div>
 
-        {/* Line 4: status indicators — PIN / consent / voice enrollment.
-         *  Only renders when there's at least one indicator to show. */}
-        {(!staff.has_pin || staff.recording_consent || staff.voice_enrolled_at) && (
+        {/* Line 4: status indicators — PIN / consent / voice. The voice
+         *  chip ALWAYS renders for editable rows (CTA when not enrolled,
+         *  enrolled+revoke when enrolled). PIN + consent chips only
+         *  render when their values are set. */}
+        {(!staff.has_pin ||
+          staff.recording_consent ||
+          voiceEnrolledAt ||
+          canEdit) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {!staff.has_pin && (
               <span className="inline-flex h-5 items-center gap-1 rounded-full bg-amber-50 px-2 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/20">
@@ -314,12 +391,39 @@ function StaffRow({
                 ✓ {labels.consentGranted}
               </span>
             )}
-            {staff.voice_enrolled_at && (
-              <span className="inline-flex h-5 items-center gap-1 rounded-full bg-blue-50 px-2 text-[10px] font-medium text-blue-700 ring-1 ring-blue-200/70 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/20">
+            {voiceEnrolledAt ? (
+              <span className="inline-flex h-5 items-center gap-1.5 rounded-full bg-blue-50 px-2 text-[10px] font-medium tabular-nums text-blue-700 ring-1 ring-blue-200/70 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/20">
                 <Mic className="size-2.5" aria-hidden />
                 {labels.voiceEnrolled}
+                {voiceEnrolledDate && (
+                  <>
+                    <span aria-hidden className="opacity-50">
+                      ·
+                    </span>
+                    <span>{voiceEnrolledDate}</span>
+                  </>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={onRevokeVoice}
+                    aria-label={labels.voiceRevoke}
+                    className="-mr-1 inline-flex size-3.5 items-center justify-center rounded-full text-blue-700/70 hover:bg-blue-200/40 hover:text-blue-900 dark:text-blue-300/70 dark:hover:bg-blue-500/20 dark:hover:text-blue-200"
+                  >
+                    <X className="size-2.5" />
+                  </button>
+                )}
               </span>
-            )}
+            ) : canEdit ? (
+              <button
+                type="button"
+                onClick={onEnrollVoice}
+                className="inline-flex h-5 items-center gap-1 rounded-full bg-card px-2 text-[10px] font-medium text-muted-foreground ring-1 ring-border hover:text-foreground hover:ring-foreground/30"
+              >
+                <Mic className="size-2.5" aria-hidden />
+                {labels.voiceEnrollCta}
+              </button>
+            ) : null}
           </div>
         )}
       </div>

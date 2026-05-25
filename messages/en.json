@@ -1049,7 +1049,9 @@
     "voiceUnregistered": "Not enrolled",
     "editStaffDialogTitle": "Edit staff member",
     "editStaffDialogSubtitle": "Update {name}'s information. Changes are recorded in the audit log.",
-    "emailChangeNotice": "Changing the email requires re-confirmation."
+    "emailChangeNotice": "Changing the email requires re-confirmation.",
+    "voiceEnrollCta": "Enroll voice (optional)",
+    "voiceRevoke": "Delete voice profile"
   },
   "aiActions": {
     "title": "AI Recommended Actions",
@@ -1374,5 +1376,29 @@
     "footer": {
       "copyright": "© {year} Karute. All rights reserved."
     }
+  },
+  "voiceEnrollment": {
+    "title": "Enroll your voice (optional)",
+    "description": "Enrolling {name}'s voice slightly improves speaker recognition accuracy. Enrollment is optional — diarization works without it.",
+    "privacyTitle": "About privacy",
+    "privacyItem1": "Recorded audio is converted to a voice embedding (256-dim vector); the raw audio is then discarded.",
+    "privacyItem2": "Embeddings are used only by the server-side diarization job; they're never sent back to the app.",
+    "privacyItem3": "Stored in encrypted storage compliant with Japan's Personal Information Protection Act (APPI).",
+    "privacyItem4": "Click 'delete' at any time to permanently remove your voice profile within 30 days.",
+    "biometricNotice": "Voice embeddings are classified as biometric data. Enrollment is fully voluntary — never required for work. Without enrollment, diarization still works via the 'first speaker = staff' heuristic.",
+    "consentCheck": "I understand the privacy conditions above and consent to enrolling my voice.",
+    "recordInstruction": "Please read the phrase below in your natural voice. Recording lasts ~15 seconds.",
+    "phraseToRead": "Thank you for visiting today. How are you feeling? Please let me know if anything feels off.",
+    "startRecord": "Start recording",
+    "stopRecord": "Stop recording",
+    "recordingHint": "Read naturally...",
+    "readyHint": "Tap the mic icon to start recording",
+    "completeTitle": "Enrollment complete",
+    "completeBody": "{name}'s voice is enrolled. Speaker recognition will improve starting with your next session.",
+    "revokeHint": "You can delete your voice profile anytime in Settings > Staff > Voice Enrollment. After deletion, new sessions will use generic diarization.",
+    "cancel": "Cancel",
+    "proceed": "Next",
+    "back": "Back",
+    "done": "Done"
   }
 }
