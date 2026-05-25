@@ -25,7 +25,11 @@ const scenario: { businessId: string; synqedStaff: unknown[] } = {
 const serviceFromMock = jest.fn(() => ({
   select: jest.fn().mockReturnThis(),
   eq: jest.fn().mockReturnThis(),
-  single: jest.fn().mockResolvedValue({ data: { customer_id: scenario.businessId }, error: null }),
+  // Lazy so scenario.businessId is read at call time, not captured at definition.
+  single: jest.fn().mockImplementation(async () => ({
+    data: { customer_id: scenario.businessId },
+    error: null,
+  })),
 }))
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: jest.fn(() => ({ from: serviceFromMock })),

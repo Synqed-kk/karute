@@ -31,20 +31,27 @@ const staffListByBusiness = unstable_cache(
       return []
     }
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    const { staff } = await client.staff.list({ page_size: 200 })
-    return staff
-      .filter((s) => s.is_active)
-      .map((s) => ({
-        id: s.id,
-        full_name: s.name,
-        display_role: s.role ? s.role.toLowerCase() : null,
-        position: null,
-        email: s.email,
-        phone: null,
-        avatar_url: s.avatar_url,
-        has_pin: false,
-        created_at: s.created_at,
-      }))
+    try {
+      const { staff } = await client.staff.list({ page_size: 200 })
+      return staff
+        .filter((s) => s.is_active)
+        .map((s) => ({
+          id: s.id,
+          full_name: s.name,
+          display_role: s.role ? s.role.toLowerCase() : null,
+          position: null,
+          email: s.email,
+          phone: null,
+          avatar_url: s.avatar_url,
+          has_pin: false,
+          created_at: s.created_at,
+        }))
+    } catch (err) {
+      // Degrade gracefully if synqed-core is unreachable (e.g. local dev with
+      // the service down) — never reject from inside unstable_cache.
+      console.error('[getStaffList] synqed-core fetch failed:', err)
+      return []
+    }
   },
   ['staff-list-v2'],
   { revalidate: 86400, tags: ['staff-list'] },
@@ -58,12 +65,13 @@ const staffListByBusiness = unstable_cache(
  *   - React `cache()` dedupes within a single request — the (app)/ layout
  *     plus the individual page (plus any nested server component) all share
  *     one Promise, no repeated cache lookups.
- *   - `unstable_cache` (on staffListByBusiness) reuses the DB read across
- *     requests for 24h. Mutation actions in src/actions/staff.ts call
- *     updateTag('staff-list') to invalidate.
+ *   - `unstable_cache` (on staffListByBusiness) reuses the synqed-core HTTP
+ *     call across requests for 24h. Mutation actions in src/actions/staff.ts
+ *     call updateTag('staff-list') to invalidate.
  *
  * The two layers compose: per-request dedup avoids redundant lookups inside
- * one render; cross-request cache avoids redundant DB hits across renders.
+ * one render; cross-request cache avoids redundant synqed-core HTTP calls
+ * across renders.
  */
 export const getStaffList = cache(async (): Promise<StaffMember[]> => {
   try {
