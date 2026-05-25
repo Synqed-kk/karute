@@ -96,6 +96,47 @@ If row 2 returns a row and row 3's `customer_id` ≠ row 2's `customer_id`, that
 
 ---
 
+## 🟡 PERF — navigation lag, deeper fix is in `getAppointmentsByDate`
+
+Measured baseline (warm cache, real auth, today):
+
+| Route | Total | Application-code |
+|---|---|---|
+| `/ja/dashboard` | 248ms | 225ms |
+| `/ja/sessions` | 266ms | 247ms |
+| `/ja/settings` | 257ms | 238ms |
+| `/ja/karute` | **1037ms** | **1007ms** |
+| `/ja/customers` | **1184ms** | **1166ms** |
+| `/ja/appointments` | **2900ms** | **2900ms** |
+
+PR #20 (`feat/perf-appointments-fan-out`) ships a surface-level fix: `getBusinessId()` + week/month range fetches were running serially after the page-level `Promise.all`. Both have no dependency on the block above, so they now ride along in Stage 1. Real wins are modest:
+- Day view: ~2.8s → ~2.8s (essentially flat)
+- Week view: ~5.6s → ~4.5s (~1s saved)
+- Month view: ~5.6s → ~4.0s (~1.5s saved)
+
+The day-view bottleneck is **deeper than the page-level chain** — it's inside `src/actions/appointments.ts::getAppointmentsByDate`. That function does:
+```ts
+const list = await synqed.appointments.list({...})  // ← serial step 1
+const [cachedCustomers, karuteList, staffList] = await Promise.all([...])  // ← serial step 2
+```
+The second `Promise.all` could fan out alongside the first `synqed.appointments.list` if we restructured the call sites — appointments.list returns the rows, but customer / karute / staff lookups don't depend on those rows. Collapsing this serial chain into a single Promise.all probably drops day view from ~2.8s to ~1.5s.
+
+### Why I (Liam-via-Claude) didn't ship it
+
+The fix touches every caller of `getAppointmentsByDate` (sessions/page.tsx, anywhere else that hits it) because the function would need to either:
+1. Return a richer shape (return the raw appointments + a fetcher fn / promise pair), OR
+2. Get inlined into each call site so the inner queries fan out at the call-site Promise.all
+
+(2) is what I'd recommend — it lets each page parallelize the appointments fetch with its own page-specific queries. The abstraction `getAppointmentsByDate` exists to assemble the AppointmentRow shape; that assembly can move into a pure synchronous helper (`assembleAppointmentRows(list, customers, karute, staff)`) called from each page after its own `Promise.all`.
+
+### Lower-priority sweeps (audit at `~/Documents/Claude/scratch/karute-perf-audit.md`)
+
+- **`/customers` + `/karute` fetch 500 customers uncached every nav** — extend `getCachedCustomerList` to return the full customer shape with a 60s TTL. Half a day.
+- **Suspense streaming on heavy list pages** — `/karute/[id]` already does this with `PhotoRecordsServer`. The list pages don't. Requires splitting `KaruteRecordListView` + `CustomersListView` into shell-vs-data parts so the chrome renders instantly. Bigger refactor.
+- **Schema-drift queries waste DB time** — every `.eq('customer_id', businessId)` on `karute_records` returns empty (column is now `business_id`) but Postgres still plans + executes. Fixing the blocker above (`🔴` section) collapses these to fast empties.
+
+---
+
 ## TL;DR
 
 This branch is a **visual + scaffolding port of the design spike** into the production codebase. It mirrors the spike's layout 1:1 so the muscle-memory transfers, but every AI surface is rendered as a `対応予定` (Coming Soon) placeholder until you wire the real pipeline. **No schema migrations. No new AI calls. No backend mutations beyond what already shipped.** TypeScript clean (`tsc --noEmit` exit 0). All visible strings are i18n keys (no hardcoded JP/EN leaking).
