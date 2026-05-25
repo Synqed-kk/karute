@@ -105,7 +105,33 @@ export default async function SessionsPage({
     }
     const list = (appointments ?? []) as ApptRow[]
 
-    const unlinked = list.find((a) => !a.karute_record_id)
+    // Choose which appointment the recording UI pre-selects. Order of
+    // preference:
+    //   1. CURRENTLY in session — now is within [start, start+duration]
+    //      and not yet karute-linked. The customer is literally in the
+    //      chair right now; the recording should attach to them.
+    //   2. Next upcoming — future start_time, not yet karute-linked.
+    //   3. Any unlinked — final fallback (mostly past appointments that
+    //      never had a record saved). Matches the prior naive behavior.
+    //
+    // Previously this picked (3) unconditionally, which meant any earlier
+    // un-recorded appointment in the [-12h, +24h] window beat the
+    // currently-active one. Liam hit this on Vercel — recording wouldn't
+    // auto-attach to the 施術中 customer even though the status was
+    // visibly shown.
+    const nowMs = now.getTime()
+    const inSession = list.find((a) => {
+      if (a.karute_record_id) return false
+      const startMs = new Date(a.start_time).getTime()
+      const endMs = startMs + a.duration_minutes * 60_000
+      return startMs <= nowMs && nowMs < endMs
+    })
+    const upcoming = list.find((a) => {
+      if (a.karute_record_id) return false
+      return new Date(a.start_time).getTime() > nowMs
+    })
+    const fallback = list.find((a) => !a.karute_record_id)
+    const unlinked = inSession ?? upcoming ?? fallback
     if (unlinked) {
       nextAppointment = {
         id: unlinked.id,
