@@ -49,6 +49,7 @@ import { PhotoRecordCard } from './photos/PhotoRecordCard'
 import { AIOutreachCard } from './outreach/AIOutreachCard'
 import { SessionEntryTimeline } from './session/SessionEntryTimeline'
 import { TranscriptCard } from './transcript/TranscriptCard'
+import { KaruteAiAssistSheets } from './KaruteAiAssistSheets'
 
 interface KaruteCustomerDetailViewProps {
   customer: CustomerProfileData
@@ -124,12 +125,24 @@ export function KaruteCustomerDetailView({
               </div>
             )}
           </div>
-          <div className="space-y-3 md:space-y-4">
+          {/* Desktop sidebar — AI Summary + Transcript render inline as
+           *  cards in the right column. Hidden on mobile because mobile
+           *  uses the KaruteAiAssistSheets pattern below (list rows that
+           *  open bottom sheets — matches the spike's MobileKaruteSheets). */}
+          <div className="hidden space-y-4 md:block">
             <AISummaryPreview />
             <TranscriptCard hasRecording={false} />
           </div>
         </div>
       </div>
+
+      {/* Mobile-only: AI Summary + Transcript as compact list-row
+       *  triggers that open bottom sheets. Matches spike's
+       *  MobileKaruteSheets pattern (the screenshots Liam shared). */}
+      <KaruteAiAssistSheets
+        sessionDate={sessions[0]?.date}
+        hasRecording={false}
+      />
 
       {/* 7. KaruteCoachingPanel — spike's staff-private coaching tips.
        *  Not lifted yet (Layer 1, requires role context that karute

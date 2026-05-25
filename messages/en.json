@@ -738,6 +738,12 @@
         "product": "Product",
         "next": "Next visit"
       }
+    },
+    "aiAssist": {
+      "heading": "AI assistance",
+      "summaryTitle": "AI Summary",
+      "summarySubtitle": "Today's key session points",
+      "transcriptSubtitleEmpty": "No recording yet"
     }
   },
   "review": {

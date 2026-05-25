@@ -738,6 +738,12 @@
         "product": "商品提案",
         "next": "次回"
       }
+    },
+    "aiAssist": {
+      "heading": "AI支援",
+      "summaryTitle": "AI要約",
+      "summarySubtitle": "本日のセッションの主要ポイント",
+      "transcriptSubtitleEmpty": "録音はまだありません"
     }
   },
   "review": {
