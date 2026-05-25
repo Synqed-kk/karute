@@ -2,7 +2,7 @@
 
 import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
 
@@ -22,16 +22,13 @@ export async function saveKaruteRecord(
   try {
     const synqed = await getSynqedClient()
 
-    // If linked to an appointment, attribute to that appointment's staff;
-    // otherwise attribute to the signed-in user's staff identity.
-    let staffId: string | null = await getCurrentUserStaffId()
-    if (input.appointmentId) {
-      const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      if (appt?.staff_id) staffId = appt.staff_id
+    // staffId comes from the UI (live booking or picker). Validate it belongs
+    // to this org's roster — never trust a raw client id against the FK.
+    const roster = await getStaffList()
+    if (!roster.some((s) => s.id === input.staffId)) {
+      return { error: 'Selected staff is not part of your salon.' }
     }
-    if (!staffId) {
-      return { error: 'No staff identity for the signed-in user.' }
-    }
+    const staffId = input.staffId
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
@@ -69,10 +66,13 @@ export async function saveKaruteRecordInline(
   try {
     const synqed = await getSynqedClient()
 
-    const staffId = await getCurrentUserStaffId()
-    if (!staffId) {
-      return { error: 'No staff identity for the signed-in user.' }
+    // staffId comes from the UI (live booking or picker). Validate it belongs
+    // to this org's roster — never trust a raw client id against the FK.
+    const roster = await getStaffList()
+    if (!roster.some((s) => s.id === input.staffId)) {
+      return { error: 'Selected staff is not part of your salon.' }
     }
+    const staffId = input.staffId
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
