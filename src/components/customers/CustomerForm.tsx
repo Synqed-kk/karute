@@ -8,7 +8,7 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createCustomer, updateCustomer } from '@/actions/customers'
-import { formatJpPhone } from '@/lib/format/phone'
+import { formatJpPhone, formatJpPhoneProgressive } from '@/lib/format/phone'
 
 // ---------------------------------------------------------------------------
 // Schema — mirrors the server-side schema. Visible client-side fields that
@@ -213,16 +213,29 @@ export function CustomerForm({
         />
       </Field>
 
-      {/* 電話番号 — auto-formats on blur to 0XX-XXXX-XXXX.
-       *  Staff don't need to type dashes; the field inserts them once
-       *  the input becomes a valid JP phone shape. Invalid input is
-       *  left as-typed so the staff can see + fix it. */}
+      {/* 電話番号 — LIVE auto-formats as the staff types.
+       *  Dashes appear at the canonical 3-4-4 / 2-4-4 / 3-3-4 break
+       *  points the moment the format is unambiguous, so the field
+       *  never reads "08000000006" — it self-corrects to "080-0000-0006"
+       *  as the digits land. Excess digits past 11 are dropped silently
+       *  (longest JP shape is mobile 11-digit) so staff can't typo too
+       *  many digits. Blur still runs a final pass via formatJpPhone in
+       *  case the live formatter punted (e.g., on a leading "+81" paste
+       *  the progressive version normalizes the same way). */}
       <Field label={t('form.phone')}>
         <Input
           type="tel"
           placeholder={t('form.phonePlaceholder')}
           autoComplete="tel"
+          inputMode="numeric"
+          maxLength={13}
           {...register('phone', {
+            onChange: (e) => {
+              const formatted = formatJpPhoneProgressive(e.target.value)
+              if (formatted !== e.target.value) {
+                setValue('phone', formatted, { shouldDirty: true })
+              }
+            },
             onBlur: (e) => {
               const formatted = formatJpPhone(e.target.value)
               if (formatted && formatted !== e.target.value) {
