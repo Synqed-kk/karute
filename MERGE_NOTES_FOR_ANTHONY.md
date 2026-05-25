@@ -396,7 +396,7 @@ structure but doesn't expect functionality.
 | 店舗 | `StoresSection.tsx` | 77 | — | Whole tab gated behind `MULTI_STORE_ENABLED` flag — no `stores` table yet |
 | テーマ | `ThemeSection.tsx` | 259 | Theme picker (light/dark/system) wired to next-themes | Brand color picker, timeline accent picker — visual only |
 | AI | `AISection.tsx` | 228 | — | All 5 cards stubbed: auto-summary toggle, auto-outreach toggle, voice style, AI model picker, customize-profile + intake-forms cards marked `comingInV2` |
-| コーチング | inline disabled tab in `SettingsShell.tsx` | 0 | — | Whole tab disabled (`<CoachingDisabledTab>`) — `coachingComingSoon` tooltip |
+| コーチング | `CoachingSection.tsx` | 230+ | — | All 7 controls scaffolded with "対応予定（フェーズ3）" pills: master enable toggle, 4-metric weight sliders (revenue / rebooking / satisfaction / per-customer), min-session threshold, auto-decline window, privacy policy template, staff consent list, cross-staff names toggle. Inline schema TODOs at top of file for the `org_settings` columns + `coaching_consent` table |
 | 録音 | `RecordingSection.tsx` | 310 | — | All controls stubbed: audio source picker, audio quality, auto-stop, voice enrollment dialog |
 | スタッフ | `StaffSection.tsx` | 58 | Read-only staff list from existing `getStaffList()` | Add/edit/remove staff dialogs not lifted yet |
 | 連携 | `SyncSection.tsx` | 182 | QuickReserve sync (existing route at `/api/sync/quickreserve`) — partially wired | Salon Board + HOT PEPPER Beauty integrations marked Coming Soon |

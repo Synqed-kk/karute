@@ -867,7 +867,7 @@
     "active": "Active",
     "noStaff": "No staff members yet",
     "organization": "Organization",
-    "organizationDescription": "View organization details",
+    "organizationDescription": "Business name, type, hours",
     "businessName": "Business Name",
     "businessType": "Business Type",
     "hoursOfOperation": "Hours of operation",
@@ -877,14 +877,14 @@
     "webhookUrl": "Webhook URL",
     "webhookDescription": "POSTs to this URL when a karute is created.",
     "aiSettings": "AI Settings",
-    "aiDescription": "Manage AI processing preferences",
+    "aiDescription": "Model, thresholds, automation",
     "aiModel": {
       "tierFast": "Fast",
       "tierBest": "Best"
     },
     "confidenceThreshold": "Classification Confidence Threshold",
     "recordingSettings": "Recording Settings",
-    "recordingDescription": "Configure recording quality and behavior",
+    "recordingDescription": "Audio quality, consent template",
     "audioQuality": {
       "low": "Low",
       "standard": "Standard",
@@ -921,12 +921,34 @@
     "preview": "Preview",
     "tableColors": "Table Colors",
     "bookingSync": "Booking Sync",
-    "bookingSyncDescription": "Sync appointments from Quick Reserve into your booking calendar",
+    "bookingSyncDescription": "Sync with Quick Reserve etc.",
     "stores": "Stores",
-    "coaching": "Coaching",
+    "coaching": {
+      "title": "Coaching settings",
+      "intro": "Feature that analyzes session conversations and gives staff growth-oriented feedback (Phase 3 planned). Settings are scaffolded here so they're ready when the feature ships.",
+      "masterEnable": "Master toggle",
+      "masterEnableDesc": "Enable coaching for the whole store. Individual staff consent is still required.",
+      "weightsTitle": "Metric weights",
+      "weightsDesc": "Weight per metric for top-performer ranking (sums to 100%). Determines what AI-extracted patterns the system learns from.",
+      "weightRevenue": "Revenue",
+      "weightRebooking": "Rebooking rate",
+      "weightSatisfaction": "Customer satisfaction",
+      "weightPerCustomer": "Avg. ticket",
+      "minSessionsLabel": "Min. session count",
+      "minSessionsDesc": "Minimum sessions required to rank as a top performer. Filters out noise from low-data members.",
+      "autoDeclineLabel": "Auto-decline (days)",
+      "autoDeclineDesc": "If a coaching suggestion is not actioned within this many days, it's auto-rejected.",
+      "policyTitle": "Privacy policy template",
+      "policyDesc": "The text shown to staff at consent time. Spells out how conversation data is handled + what's shared with owners.",
+      "consentStatusTitle": "Staff consent status",
+      "consentStatusDesc": "Current consent state for each staff member. Only the staff themselves can revoke.",
+      "crossStaffNamesTitle": "Show other staff names",
+      "crossStaffNamesDesc": "Display other staff members' names in coaching dashboards. Turn off for anonymized view.",
+      "comingPhase": "Coming in Phase 3"
+    },
     "subscription": {
       "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades.",
-      "label": "Subscription"
+      "label": "Contract"
     },
     "auditLog": {
       "searchPlaceholder": "Search events…",
@@ -989,7 +1011,7 @@
     "voiceEnrollmentSoon": "Voice enrollment — coming soon",
     "contactSales": "Contact sales",
     "subscriptionDescription": "Plan, billing, payment method",
-    "auditLogDescription": "Track who changed what and when.",
+    "auditLogDescription": "Access history — APPI compliance + governance",
     "storesDescription": "Manage and add stores",
     "coachingTabDescription": "Coaching settings — coming soon.",
     "planFree": "Free",
@@ -1051,7 +1073,8 @@
     "editStaffDialogSubtitle": "Update {name}'s information. Changes are recorded in the audit log.",
     "emailChangeNotice": "Changing the email requires re-confirmation.",
     "voiceEnrollCta": "Enroll voice (optional)",
-    "voiceRevoke": "Delete voice profile"
+    "voiceRevoke": "Delete voice profile",
+    "coachingDescription": "Master settings, weights, consent"
   },
   "aiActions": {
     "title": "AI Recommended Actions",

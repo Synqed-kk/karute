@@ -23,6 +23,7 @@ import { OrganizationSection } from './sections/OrganizationSection'
 import { StoresSection } from './sections/StoresSection'
 import { ThemeSection } from './sections/ThemeSection'
 import { AISection } from './sections/AISection'
+import { CoachingSection } from './sections/CoachingSection'
 import { RecordingSection } from './sections/RecordingSection'
 import { StaffSection } from './sections/StaffSection'
 import { SyncSection } from './sections/SyncSection'
@@ -34,6 +35,7 @@ export type SettingsTabId =
   | 'stores'
   | 'theme'
   | 'ai'
+  | 'coaching'
   | 'recording'
   | 'staff'
   | 'sync'
@@ -85,7 +87,16 @@ const TABS: TabDef[] = [
     descriptionKey: 'aiDescription',
     icon: Sparkles,
   },
-  // Coaching is rendered inline (disabled) — not in this array.
+  {
+    // Real tab now (was previously an inline "Coming Soon" disabled
+    // chip on desktop). Section content is scaffolded — every control
+    // shows a "対応予定（フェーズ3）" pill so staff sees the structure
+    // but understands the feature ships in Phase 3.
+    id: 'coaching',
+    labelKey: 'coaching',
+    descriptionKey: 'coachingDescription',
+    icon: GraduationCap,
+  },
   {
     id: 'recording',
     labelKey: 'recordingSettings',
@@ -142,12 +153,6 @@ export function SettingsShell({
   const [activeTab, setActiveTab] = useState<SettingsTabId | null>(null)
 
   const visibleTabs = TABS.filter((tab) => !tab.ownerOnly || isOwner)
-  // Coaching is slotted between AI (index 3) and the post-AI tabs as
-  // a disabled chip on desktop. Indexed off `visibleTabs` so the
-  // owner-only tabs in the middle don't drift the split point.
-  const aiIndex = visibleTabs.findIndex((t) => t.id === 'ai')
-  const tabsBeforeCoaching = aiIndex >= 0 ? visibleTabs.slice(0, aiIndex + 1) : visibleTabs
-  const tabsAfterCoaching = aiIndex >= 0 ? visibleTabs.slice(aiIndex + 1) : []
 
   const desktopActiveTab = activeTab ?? visibleTabs[0]?.id ?? null
   const drilledTab = activeTab
@@ -164,6 +169,8 @@ export function SettingsShell({
         return <ThemeSection orgSettings={orgSettings} locale={locale} />
       case 'ai':
         return <AISection orgSettings={orgSettings} />
+      case 'coaching':
+        return <CoachingSection />
       case 'recording':
         return <RecordingSection orgSettings={orgSettings} />
       case 'staff':
@@ -231,17 +238,7 @@ export function SettingsShell({
        *  ───────────────────────────────────────────────────────── */}
       <div className="hidden md:block">
         <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
-          {tabsBeforeCoaching.map((tab) => (
-            <TabButton
-              key={tab.id}
-              tab={tab}
-              active={desktopActiveTab === tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              label={t(tab.labelKey)}
-            />
-          ))}
-          <CoachingDisabledTab title={t('coachingComingSoon')} label={t('coaching')} />
-          {tabsAfterCoaching.map((tab) => (
+          {visibleTabs.map((tab) => (
             <TabButton
               key={tab.id}
               tab={tab}
@@ -382,23 +379,11 @@ function TabButton({
   )
 }
 
-function CoachingDisabledTab({ title, label }: { title: string; label: string }) {
-  return (
-    <button
-      type="button"
-      disabled
-      aria-disabled="true"
-      title={title}
-      className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 h-9 text-xs font-medium text-gray-400 dark:text-gray-600 cursor-not-allowed opacity-50"
-    >
-      <GraduationCap className="size-3.5" />
-      {label}
-      <span className="ml-1 rounded-full bg-gray-200 dark:bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-        Soon
-      </span>
-    </button>
-  )
-}
+// CoachingDisabledTab removed — coaching is now a real tab with its own
+// scaffolded section (see CoachingSection.tsx). The inline "Coming Soon"
+// chip was a placeholder for the disabled state; the new section
+// renders Phase-3 pills on each control inside, making the status
+// clearer than a single disabled tab chip ever could.
 
 function SectionPanel({ children }: { children: ReactNode }) {
   return (

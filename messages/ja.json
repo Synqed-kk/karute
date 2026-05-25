@@ -867,7 +867,7 @@
     "active": "有効",
     "noStaff": "スタッフがまだいません",
     "organization": "組織",
-    "organizationDescription": "組織の詳細を表示",
+    "organizationDescription": "事業名、業種、営業時間",
     "businessName": "事業名",
     "businessType": "業種",
     "hoursOfOperation": "営業時間",
@@ -877,14 +877,14 @@
     "webhookUrl": "Webhook URL",
     "webhookDescription": "カルテ作成時にこのURLにPOSTします。",
     "aiSettings": "AI設定",
-    "aiDescription": "AI処理の設定を管理",
+    "aiDescription": "モデル・分類閾値・自動化",
     "aiModel": {
       "tierFast": "高速",
       "tierBest": "高精度"
     },
     "confidenceThreshold": "分類確信度閾値",
     "recordingSettings": "録音設定",
-    "recordingDescription": "録音品質と動作を設定",
+    "recordingDescription": "音質・同意テンプレート",
     "audioQuality": {
       "low": "低",
       "standard": "標準",
@@ -921,12 +921,34 @@
     "preview": "プレビュー",
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
-    "bookingSyncDescription": "Quick Reserveから予約カレンダーに予約を同期",
+    "bookingSyncDescription": "Quick Reserve 等との同期",
     "stores": "店舗",
-    "coaching": "コーチング",
+    "coaching": {
+      "title": "コーチング設定",
+      "intro": "セッションの会話を分析し、スタッフの成長に役立つフィードバックを提供する機能（フェーズ3予定）。設定はあらかじめスキャフォルドされており、機能が有効化された際に即座に利用できます。",
+      "masterEnable": "マスター有効化",
+      "masterEnableDesc": "店舗全体でコーチング機能を有効にします。スタッフ個人の同意は別途必要です。",
+      "weightsTitle": "評価指標の重み",
+      "weightsDesc": "上位パフォーマー判定に使用する各指標の重み（合計100%）。AI抽出パターンの学習対象を決定します。",
+      "weightRevenue": "売上",
+      "weightRebooking": "再来店率",
+      "weightSatisfaction": "顧客満足度",
+      "weightPerCustomer": "客単価",
+      "minSessionsLabel": "最低セッション数",
+      "minSessionsDesc": "上位パフォーマー判定に必要な最低セッション数。データ不足によるノイズを防ぎます。",
+      "autoDeclineLabel": "未対応の自動辞退（日数）",
+      "autoDeclineDesc": "コーチング提案が未対応のまま指定日数を経過した場合、自動的に却下扱いとなります。",
+      "policyTitle": "プライバシーポリシーテンプレート",
+      "policyDesc": "スタッフが同意する際に表示される文章。会話内容の取り扱いやオーナーへの共有範囲を明示します。",
+      "consentStatusTitle": "スタッフ同意状況",
+      "consentStatusDesc": "現在のスタッフ各員のコーチング機能利用同意状況。撤回はスタッフ本人のみが行えます。",
+      "crossStaffNamesTitle": "他スタッフ名の表示",
+      "crossStaffNamesDesc": "コーチングダッシュボードで他スタッフの実名を表示します。匿名化したい場合はオフ。",
+      "comingPhase": "対応予定（フェーズ3）"
+    },
     "subscription": {
       "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。",
-      "label": "サブスクリプション"
+      "label": "契約"
     },
     "auditLog": {
       "searchPlaceholder": "イベントを検索…",
@@ -989,7 +1011,7 @@
     "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
-    "auditLogDescription": "誰がいつ何を変更したかを記録。",
+    "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
     "storesDescription": "店舗の管理と追加",
     "coachingTabDescription": "コーチング設定は近日公開。",
     "planFree": "無料",
@@ -1051,7 +1073,8 @@
     "editStaffDialogSubtitle": "{name}さんの情報を更新します。変更内容は監査ログに記録されます。",
     "emailChangeNotice": "変更するとメール確認が必要になります。",
     "voiceEnrollCta": "声を登録（任意）",
-    "voiceRevoke": "声紋を削除"
+    "voiceRevoke": "声紋を削除",
+    "coachingDescription": "マスター設定・重み・同意"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
