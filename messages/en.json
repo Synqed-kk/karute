@@ -355,7 +355,10 @@
       "noBookingPrimary": "Pick a booking to record",
       "noBookingSecondary": "Tap 'Choose different booking' in the top-right to pick from today's appointments. Once selected, the customer, time, and staff details show here.",
       "pickerScaffoldLabel": "Coming soon",
-      "pickerScaffoldBody": "Fetching + switching today's bookings from the picker is coming soon — Anthony wires the booking-list query, then this dropdown surfaces today's appointments so staff can switch the recording target."
+      "pickerScaffoldBody": "Fetching + switching today's bookings from the picker is coming soon — Anthony wires the booking-list query, then this dropdown surfaces today's appointments so staff can switch the recording target.",
+      "sheetTitle": "Pick a booking to record",
+      "sheetDescription": "Today's bookings for you. Tap to switch the recording target.",
+      "durationMinutes": "{n} min"
     },
     "brief": {
       "title": "Pre-session brief",
