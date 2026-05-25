@@ -6,10 +6,10 @@ import {
   BookOpen,
   TrendingUp,
   Users,
-  Users2,
 } from 'lucide-react'
 
 import { CoachingScaffoldCard } from './CoachingScaffoldCard'
+import { TeamPerformanceCard } from './TeamPerformanceCard'
 
 // ─────────────────────────────────────────────────────────────
 // Owner coaching dashboard — SCAFFOLD ONLY
@@ -37,15 +37,10 @@ export function OwnerDashboardScaffold() {
     <div className="space-y-5">
       {/* Row 1 — Layer 3 team aggregates */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.2fr_1fr]">
-        {/* data-source: useStaffPerformanceData().teamSummary */}
-        <CoachingScaffoldCard
-          icon={<Users2 size={18} />}
-          title={t('teamPerformance.title')}
-          subtitle={t('teamPerformance.subtitle')}
-          body={t('teamPerformance.body')}
-          privacyLayer="layer3"
-          tone="amber"
-        />
+        {/* HERO CARD — real visual chrome lifted from spike. Renders
+         *  em-dash placeholders + 対応予定 footer until Anthony wires
+         *  useStaffPerformanceData().teamSummary. */}
+        <TeamPerformanceCard summary={null} />
         {/* data-source: useStaffPerformanceData().staff → trends aggregate */}
         <CoachingScaffoldCard
           icon={<TrendingUp size={18} />}

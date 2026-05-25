@@ -807,6 +807,10 @@
     "selectCustomerAndSave": "顧客を選択して保存"
   },
   "coaching": {
+    "common": {
+      "privacyLayer1Badge": "あなただけが見ることができます",
+      "scaffoldLabel": "対応予定"
+    },
     "header": {
       "title": "コーチング",
       "subtitleStaff": "トップパフォーマーから学び、あなた自身の成長をサポートします。",
@@ -816,7 +820,12 @@
       "monthlyGrowth": {
         "title": "今月の成長",
         "subtitle": "あなたのスタッフ非公開データ（Layer 1）",
-        "body": "AIがあなたのセッションを分析し、月間スコア・先月比の変化・分析済みセッション数・習得済み／学習中パターン数を表示します。Anthonyが usePersonalGrowthData() を実装後に有効化されます。"
+        "body": "AIがあなたのセッションを分析し、月間スコア・先月比の変化・分析済みセッション数・習得済み／学習中パターン数を表示します。Anthonyが usePersonalGrowthData() を実装後に有効化されます。",
+        "vsLastMonth": "先月比",
+        "statSessionsAnalyzed": "分析済みセッション",
+        "statPatternsMastered": "習得済みパターン",
+        "statPatternsInProgress": "学習中",
+        "emptyHint": "AIがあなたのセッションを分析し、月間スコアとパターン習得状況をここに表示します。Anthonyが成長データの取得を実装後に有効化されます。"
       },
       "learnFromTop": {
         "title": "トップパフォーマーから学ぶ",
@@ -841,7 +850,15 @@
       "teamPerformance": {
         "title": "チームのパフォーマンス",
         "subtitle": "集計済みデータ（Layer 3）",
-        "body": "チーム全体の主要指標（売上・再来店率・顧客満足度・客単価）の月次サマリーを表示します。スタッフ個人を特定できない集計値のみ。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+        "body": "チーム全体の主要指標（売上・再来店率・顧客満足度・客単価）の月次サマリーを表示します。スタッフ個人を特定できない集計値のみ。Anthonyが useStaffPerformanceData() を実装後に有効化されます。",
+        "cardTitle": "店舗全体のパフォーマンス",
+        "vsLastMonth": "先月比",
+        "metricClosing": "平均成約率",
+        "metricRebooking": "平均再来店率",
+        "metricAvgRevenue": "平均客単価",
+        "metricSatisfaction": "平均満足度",
+        "totalSessionsLabel": "今月のセッション合計 ·",
+        "emptyHint": "店舗全体の主要指標の集計値をここに表示します。Anthonyがチームサマリーの取得を実装後に有効化されます。"
       },
       "teamTrends": {
         "title": "チームのトレンド",
