@@ -42,6 +42,10 @@ interface RecordingTargetCardProps {
   appointment: RecordTargetAppointment | null
   nearbyBookings?: RecordTargetBooking[]
   onSwitchBooking?: (booking: RecordTargetBooking) => void
+  /** When true, render a サンプル pill next to the status pill so the
+   *  card can't be mistaken for a real booking. Wired by RecordPageView
+   *  when sessions/page.tsx flips previewMode on (no real bookings in DB). */
+  previewMode?: boolean
 }
 
 const STATUS_TONE: Record<RecordTargetBooking['statusKey'], string> = {
@@ -55,8 +59,10 @@ export function RecordingTargetCard({
   appointment,
   nearbyBookings = [],
   onSwitchBooking,
+  previewMode = false,
 }: RecordingTargetCardProps) {
   const t = useTranslations('recording.target')
+  const tPreview = useTranslations('recording.preview')
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement | null>(null)
 
@@ -102,6 +108,11 @@ export function RecordingTargetCard({
             isNew={appointment.isNew}
             t={t}
           />
+          {previewMode && (
+            <span className="inline-flex h-[22px] items-center rounded-full border border-amber-400/60 bg-amber-500/15 px-2.5 text-[11px] font-semibold text-amber-700 dark:border-amber-500/40 dark:text-amber-300">
+              {tPreview('samplePill')}
+            </span>
+          )}
         </div>
         {nearbyBookings.length > 0 && (
           <div className="relative" ref={wrapRef}>

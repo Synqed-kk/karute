@@ -372,6 +372,12 @@
       "aiHintLastProduct": "AI will pull the last product or service proposed and how the customer responded (purchased / considering / declined-phrasing) to inform today's recommendation strategy.",
       "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction."
     },
+    "preview": {
+      "title": "Preview mode",
+      "body": "No real bookings today, so sample data is shown. The page auto-switches to real data the moment a booking lands. The record button is disabled in preview mode.",
+      "samplePill": "Sample",
+      "recordDisabled": "Recording disabled in preview"
+    },
     "source": {
       "phoneMic": "Phone mic",
       "phoneMicSub": "Default. Clear capture within 1–2m of the customer.",

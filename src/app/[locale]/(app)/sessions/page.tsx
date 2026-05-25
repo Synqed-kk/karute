@@ -7,6 +7,11 @@ import { RecordPageView } from '@/components/karute/redesign/record/RecordPageVi
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
+import {
+  buildPreviewAppointment,
+  buildPreviewBrief,
+  buildPreviewNearbyBookings,
+} from '@/components/karute/redesign/record/preview-fixtures'
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
@@ -284,6 +289,29 @@ export default async function SessionsPage({
     )
   }
 
+  // ─────────────────────────────────────────────────────────────
+  // Preview-mode fallback
+  // ─────────────────────────────────────────────────────────────
+  // When the tenant has zero bookings in the ±36h window AND no
+  // recent karute records, swap in scaffolding fixtures (mirrors
+  // the spike's c1 田中 美咲 demo). Lets Liam + Anthony review the
+  // full record-page UI before any real bookings have been seeded.
+  // Auto-disables the moment a real booking lands — no DB change
+  // needed to flip out of preview.
+  //
+  // The RecordPageView surfaces a clearly-labeled プレビューモード
+  // banner whenever previewMode=true, and the record button is
+  // wired to refuse starting a recording against preview-* ids.
+  const previewMode =
+    nextAppointment === null &&
+    list.length === 0 &&
+    recentRecordings.length === 0
+  if (previewMode) {
+    nextAppointment = buildPreviewAppointment(now)
+    nearbyBookings = buildPreviewNearbyBookings(now)
+    brief = buildPreviewBrief(now, locale)
+  }
+
   return (
     <RecordPageView
       customers={customers}
@@ -293,6 +321,7 @@ export default async function SessionsPage({
       brief={brief}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      previewMode={previewMode}
     />
   )
 }
