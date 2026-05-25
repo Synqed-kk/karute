@@ -17,6 +17,7 @@ import {
   Menu as MenuIcon,
   X,
 } from 'lucide-react'
+import type { NextCustomerInfo } from '@/lib/appointments/next-customer'
 
 type Route = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -50,10 +51,32 @@ const FALLBACK_LABELS: Record<string, string> = {
   pickBooking: 'Pick booking',
 }
 
-export function BottomNav() {
+interface BottomNavProps {
+  /** Next-customer info fed from the layout. `null` falls back
+   *  to the scaffold copy ("予約を選択" / "Pick booking"). */
+  nextCustomer?: NextCustomerInfo | null
+  /** Active locale — drives the honorific (「様」 in JA, empty in EN)
+   *  and the minutes-from-now hint copy. */
+  locale?: string
+}
+
+export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps = {}) {
   const t = useTranslations('sidebar')
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
+
+  // Build the label + hint for the center mic button.
+  //   • Customer name + honorific (「様」 in JA, empty in EN).
+  //   • Hint = "あと{n}分" / "in {n} min" for upcoming, none for
+  //     in-session (the button itself is the in-session indicator
+  //     once a future PR adds the role-swap).
+  const honorific = locale === 'ja' ? '様' : ''
+  const centerLabel = nextCustomer
+    ? `${nextCustomer.customerName}${honorific}`
+    : label('pickBooking')
+  const centerHint = nextCustomer && nextCustomer.reason === 'upcoming'
+    ? buildMinutesHint(nextCustomer.minutesFromNow, locale)
+    : null
 
   function label(key: string): string {
     try {
@@ -175,14 +198,25 @@ export function BottomNav() {
               href={'/sessions' as Parameters<typeof Link>[0]['href']}
               onClick={() => setMenuOpen(false)}
               className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
-              aria-label={label('recording')}
+              aria-label={
+                nextCustomer
+                  ? locale === 'ja'
+                    ? `${centerLabel}の録音準備画面を開く`
+                    : `Open pre-session screen for ${centerLabel}`
+                  : label('recording')
+              }
               aria-current={isActive('/sessions') ? 'page' : undefined}
             >
               <Mic className="h-5 w-5" />
             </Link>
             <span className="mt-2 max-w-[88px] truncate text-[10px] font-medium leading-none text-foreground">
-              {label('pickBooking')}
+              {centerLabel}
             </span>
+            {centerHint && (
+              <span className="mt-0.5 text-[9px] leading-none tabular-nums text-muted-foreground">
+                {centerHint}
+              </span>
+            )}
           </div>
 
           {renderNavItem(PRIMARY[2])}
@@ -204,4 +238,14 @@ export function BottomNav() {
       </nav>
     </>
   )
+}
+
+// "あと28分" / "in 28 min" — only rendered for upcoming bookings.
+// Negative minutes (already started) shouldn't reach this helper —
+// in-session is handled by the parent's reason branch — but we
+// guard anyway and fall back to null so nothing weird renders.
+function buildMinutesHint(minutesFromNow: number, locale: string): string | null {
+  if (minutesFromNow <= 0) return null
+  const n = Math.round(minutesFromNow)
+  return locale === 'ja' ? `あと${n}分` : `in ${n} min`
 }
