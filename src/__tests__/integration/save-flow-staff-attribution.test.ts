@@ -113,7 +113,11 @@ beforeEach(() => {
   }))
 })
 
-describe('saveKaruteRecord — staff attribution', () => {
+// TODO(Task 2.2): this suite pins the OLD auth.uid()-based attribution
+// contract, which Phase 1 deliberately replaces (staff are no longer auth
+// users). It is rewritten in Phase 2 / Task 2.2 to pin roster-validated
+// attribution via an explicit staffId. Skipped (not patched) until then.
+describe.skip('saveKaruteRecord — staff attribution', () => {
   it("uses the signed-in user's id as staff_id when a matching staff row exists", async () => {
     scenario.authUser = { id: 'user-a' }
     scenario.businessProfile = { customer_id: 'biz-1' }
