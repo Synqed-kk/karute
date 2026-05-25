@@ -32,7 +32,7 @@ export function TopBar() {
           {activeStaff?.name ?? t('selectStaff')}
         </span>
       </button>
-      <StaffSwitcher open={open} onClose={() => setOpen(false)} />
+      {open && <StaffSwitcher onClose={() => setOpen(false)} />}
     </div>
   )
 }

@@ -21,7 +21,7 @@ function getInitials(name: string): string {
     .toUpperCase()
 }
 
-export function StaffSwitcher({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function StaffSwitcher({ onClose }: { onClose: () => void }) {
   const t = useTranslations('switcher')
   const { staffList, activeStaffId } = useSession()
   const router = useRouter()
@@ -30,8 +30,6 @@ export function StaffSwitcher({ open, onClose }: { open: boolean; onClose: () =>
   const [selected, setSelected] = useState<StaffItem | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
-
-  if (!open) return null
 
   async function handleTileClick(staff: StaffItem) {
     setSelected(staff)
@@ -56,7 +54,6 @@ export function StaffSwitcher({ open, onClose }: { open: boolean; onClose: () =>
   }
 
   async function handleSwitchOut() {
-    setLoading(true)
     await clearActiveStaff()
     onClose()
     router.refresh()
