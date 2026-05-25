@@ -1,7 +1,9 @@
-import { createClient } from '@/lib/supabase/server'
-import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getStaffList } from '@/lib/staff'
 import { getCustomerConsent } from '@/actions/customers'
+import { getAppointmentsByDate } from '@/actions/appointments'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
@@ -41,48 +43,32 @@ export default async function SessionsPage({
   params: Promise<{ locale: string }>
 }) {
   const { locale } = await params
-  const supabase = await createClient()
 
-  const activeStaffId = await getCurrentUserStaffId()
+  const today = jstStartOfToday()
+  const todayStr = ymdInJst(today)
 
-  const now = new Date()
-  const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-  const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-
-  // Fan out the three independent reads in parallel:
-  //   1. Customer list (HTTP → synqed-core)
-  //   2. Nearby appointments for the active staff (DB, gated on activeStaffId)
-  //   3. Recent karute records (DB)
-  // The consent fetch still has to wait because it depends on the chosen booking.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const [customers, appointmentsRes, recentRows] = await Promise.all([
+  // Fan out all independent reads in parallel
+  const [customers, staffList, todays, karuteRes] = await Promise.all([
     getCachedCustomerList(),
-    activeStaffId
-      ? sb
-          .from('appointments')
-          .select(
-            'id, start_time, duration_minutes, client_id, title, notes, karute_record_id, customers:client_id ( name )',
-          )
-          .eq('staff_profile_id', activeStaffId)
-          .gte('start_time', windowStart.toISOString())
-          .lte('start_time', windowEnd.toISOString())
-          .order('start_time', { ascending: true })
-          .limit(10)
-      : Promise.resolve({ data: null }),
-    sb
-      .from('karute_records')
-      .select(
-        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
-      )
-      .order('session_date', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(5)
-      .then((res: { data: unknown }) => res),
+    getStaffList(),
+    getAppointmentsByDate(todayStr),
+    getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 5 })),
   ])
 
-  // Next unlinked appointment for this staff (used as recording target)
-  let nextAppointment: {
+  const nameById = new Map(staffList.map((s) => [s.id, s.full_name ?? '—']))
+  const customerNameById = new Map(customers.map((c) => [c.id, c.name]))
+
+  // Active booking: happening right now, not cancelled, not already linked to a karute
+  const now = Date.now()
+  const activeBookings = todays.filter((a) => {
+    const start = new Date(a.start_time).getTime()
+    const end = start + a.duration_minutes * 60_000
+    return now >= start && now <= end && a.synqed_status !== 'CANCELLED' && !a.karute_record_id
+  })
+
+  const activeBooking = activeBookings[0] ?? null
+
+  const nextAppointment: {
     id: string
     customerName: string
     customerId: string
@@ -90,81 +76,52 @@ export default async function SessionsPage({
     durationMinutes: number
     title: string | null
     notes: string | null
-  } | null = null
-
-  // Nearby bookings (today, around the target time) — fed into the target card switcher
-  let nearbyBookings: RecordTargetBooking[] = []
-
-  if (activeStaffId) {
-    const appointments = (appointmentsRes as { data: unknown }).data
-
-    type ApptRow = {
-      id: string
-      start_time: string
-      duration_minutes: number
-      client_id: string
-      title: string | null
-      notes: string | null
-      customers: { name: string } | null
-      karute_record_id?: string | null
-    }
-    const list = (appointments ?? []) as ApptRow[]
-
-    const unlinked = list.find((a) => !a.karute_record_id)
-    if (unlinked) {
-      nextAppointment = {
-        id: unlinked.id,
-        customerName: unlinked.customers?.name ?? 'Unknown',
-        customerId: unlinked.client_id,
-        startTime: unlinked.start_time,
-        durationMinutes: unlinked.duration_minutes,
-        title: unlinked.title ?? null,
-        notes: unlinked.notes ?? null,
+    staffId: string
+    staffName: string
+  } | null = activeBooking
+    ? {
+        id: activeBooking.id,
+        customerName: activeBooking.customers?.name ?? 'Unknown',
+        customerId: activeBooking.client_id,
+        startTime: activeBooking.start_time,
+        durationMinutes: activeBooking.duration_minutes,
+        title: activeBooking.title ?? null,
+        notes: activeBooking.notes ?? null,
+        staffId: activeBooking.staff_profile_id,
+        staffName: nameById.get(activeBooking.staff_profile_id) ?? '—',
       }
+    : null
+
+  // Build nearby bookings from today's full list
+  const nearbyBookings: RecordTargetBooking[] = todays.slice(0, 6).map((a) => {
+    const start = new Date(a.start_time)
+    const end = new Date(start.getTime() + a.duration_minutes * 60_000)
+    const isActive = nextAppointment && a.id === nextAppointment.id
+    const isDone = !!a.karute_record_id && !isActive
+    const statusKey: RecordTargetBooking['statusKey'] = isActive
+      ? 'in-session'
+      : isDone
+        ? 'done'
+        : 'booked'
+    const customerName = a.customers?.name ?? 'Unknown'
+    return {
+      id: a.id,
+      start: hhmm(start),
+      end: hhmm(end),
+      customer: customerName,
+      initials: deriveInitials(customerName),
+      karute: null,
+      service: a.title ?? 'Session',
+      staff: nameById.get(a.staff_profile_id) ?? '—',
+      statusKey,
+      statusLabel: isActive ? 'In session' : isDone ? 'Done' : 'Booked',
     }
+  })
 
-    nearbyBookings = list.slice(0, 6).map((a) => {
-      const start = new Date(a.start_time)
-      const end = new Date(start.getTime() + a.duration_minutes * 60_000)
-      const isCurrent = nextAppointment && a.id === nextAppointment.id
-      const isDone = !!a.karute_record_id && !isCurrent
-      const statusKey: RecordTargetBooking['statusKey'] = isCurrent
-        ? 'in-session'
-        : isDone
-          ? 'done'
-          : 'booked'
-      const customerName = a.customers?.name ?? 'Unknown'
-      return {
-        id: a.id,
-        start: hhmm(start),
-        end: hhmm(end),
-        customer: customerName,
-        initials: deriveInitials(customerName),
-        karute: null,
-        service: a.title ?? 'Session',
-        staff: '—',
-        statusKey,
-        statusLabel: isCurrent ? 'In session' : isDone ? 'Done' : 'Booked',
-      }
-    })
-  }
-
-  type RecentRow = {
-    id: string
-    session_date: string | null
-    created_at: string
-    summary: string | null
-    transcript: string | null
-    customers: { name: string } | null
-    entries: Array<{ count: number }> | null
-  }
-
-  const recentRecordings: RecentRecording[] = (
-    ((recentRows as { data: RecentRow[] | null })?.data ?? []) as RecentRow[]
-  ).map((r) => {
-    const dt = new Date(r.session_date ?? r.created_at)
-    const customerName = r.customers?.name ?? 'Unknown'
-    const entryCount = Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0
+  // Build recent recordings from synqed karute_records
+  const recentRecordings: RecentRecording[] = karuteRes.karute_records.map((r) => {
+    const dt = new Date(r.created_at)
+    const customerName = r.customer_id ? (customerNameById.get(r.customer_id) ?? 'Unknown') : 'Unknown'
     return {
       id: r.id,
       customerName,
@@ -179,8 +136,8 @@ export default async function SessionsPage({
       }),
       startTime: hhmm(dt),
       durationLabel: durationLabel(0), // duration is not stored on karute_records; placeholder
-      karuteLinked: !!r.summary,
-      entryCount,
+      karuteLinked: !!r.ai_summary,
+      entryCount: r.entry_count ?? 0,
       karuteId: r.id,
     }
   })

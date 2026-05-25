@@ -41,6 +41,8 @@ export interface RecordPageNextAppointment {
   durationMinutes: number
   title: string | null
   notes: string | null
+  staffId: string
+  staffName: string
 }
 
 export interface RecordPageViewProps {
@@ -220,7 +222,7 @@ export function RecordPageView({
           )
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
-        staffName: '—',
+        staffName: nextAppointment.staffName,
       }
     : null
 
