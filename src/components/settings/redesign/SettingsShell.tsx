@@ -89,11 +89,16 @@ const TABS: TabDef[] = [
   },
   {
     // Real tab now (was previously an inline "Coming Soon" disabled
-    // chip on desktop). Section content is scaffolded — every control
-    // shows a "対応予定（フェーズ3）" pill so staff sees the structure
-    // but understands the feature ships in Phase 3.
+    // chip on desktop). Section content is scaffolded with interactive-
+    // looking controls (sliders move, toggles flip, textarea accepts
+    // input — all via local useState). One Phase-3 banner at the top
+    // of the section sets expectations without per-card noise.
+    //
+    // labelKey is `coaching.label` (not `coaching`) because
+    // `settings.coaching` is an object holding the section's nested
+    // copy. Same i18n-collision pattern as theme/subscription/auditLog.
     id: 'coaching',
-    labelKey: 'coaching',
+    labelKey: 'coaching.label',
     descriptionKey: 'coachingDescription',
     icon: GraduationCap,
   },
