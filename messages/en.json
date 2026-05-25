@@ -685,7 +685,11 @@
         "maintenance": "Maintenance preference",
         "referral": "How they found us"
       },
-      "talkingPointsEmpty": "Talking points appear here once AI extracts memorable details from session recordings."
+      "talkingPointsEmpty": "Talking points appear here once AI extracts memorable details from session recordings.",
+      "sessionsBadge": "Learned from {n} session record(s)",
+      "sessionsBadgeTooltip": "Number of past recordings the memory is grounded in. More sessions = higher confidence.",
+      "noSessionsBadge": "No session records yet",
+      "noSessionsBadgeTooltip": "No recordings yet. Once you record a session, the AI will extract key points and accumulate them here."
     },
     "tabHeading": "Karute",
     "recordList": {

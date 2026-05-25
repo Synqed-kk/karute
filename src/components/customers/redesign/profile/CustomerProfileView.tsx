@@ -98,7 +98,12 @@ export function CustomerProfileView({
 
       {/* 5. Tab content */}
       <div>
-        {tab === 'memory' && <CustomerMemoryCard customerName={customer.name} />}
+        {tab === 'memory' && (
+          <CustomerMemoryCard
+            customerName={customer.name}
+            pastSessionCount={customer.sessionCount}
+          />
+        )}
         {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
         {tab === 'photos' && <PhotoRecordCard customerName={customer.name} />}
         {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}

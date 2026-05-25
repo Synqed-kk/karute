@@ -85,7 +85,10 @@ export function KaruteCustomerDetailView({
       {/* 3. Customer memory — lifted spike CustomerMemoryCard (visual
        *  port with inline sample data; mutations stubbed). */}
       <div className="md:px-6 md:pt-5">
-        <CustomerMemoryCard customerName={customer.name} />
+        <CustomerMemoryCard
+          customerName={customer.name}
+          pastSessionCount={customer.sessionCount}
+        />
       </div>
 
       {/* 4. Photo records — lifted from spike */}

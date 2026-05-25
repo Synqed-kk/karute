@@ -32,7 +32,9 @@ import {
   Brain,
   ChevronDown,
   ChevronRight,
+  CircleDashed,
   Heart,
+  History,
   Leaf,
   MessageCircle,
   Pencil,
@@ -71,6 +73,29 @@ interface Props {
    * pretend the AI analyzed sessions that never happened.
    */
   memory?: CustomerMemory
+  /**
+   * Total past session recordings for this customer — drives the
+   * data-depth trust badge in the header. Decoupled from `memory`
+   * because session count comes from `karute_records.count`, a
+   * different data source than `customer_memory_items` — Anthony can
+   * wire them independently.
+   *
+   * Badge resolves in this order:
+   *   1. memory.updatedThisVisit > 0 → "今日のセッションで{n}件更新"
+   *      (post-session "what just changed" signal — brightest)
+   *   2. pastSessionCount > 0       → "{n}件のセッション記録から学習"
+   *      (data-depth trust signal — staff knows memory is grounded)
+   *   3. otherwise                  → "セッション記録なし"
+   *      (brand-new customer — set expectations, don't read as failure)
+   *
+   * Strategic rationale: stylists need a trust signal before acting on
+   * memory items. "Memory from 12 sessions" reads reliable; "from 1"
+   * reads tentative; "no sessions" tells staff to treat memory as
+   * coming purely from intake form. Mirrors the AI_PROMPTS.md §2
+   * prediction-confidence rule in the spike ("output confidence > 0.85
+   * only when pattern is clear across 3+ sessions").
+   */
+  pastSessionCount?: number
 }
 
 // Per-category presentation (icon + color tokens). Single source of
@@ -115,7 +140,11 @@ const CATEGORY_KEYS: MemoryCategory[] = [
   'lifestyle',
 ]
 
-export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Props) {
+export function CustomerMemoryCard({
+  customerName,
+  memory = EMPTY_MEMORY,
+  pastSessionCount = 0,
+}: Props) {
   const t = useTranslations('karute.memorySection')
   const [stubOpen, setStubOpen] = useState(false)
   const talkingPoints = memory.items.filter((i) => i.suggestTalkingPoint)
@@ -165,12 +194,10 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
               </p>
             </div>
           </div>
-          {memory.updatedThisVisit > 0 && (
-            <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 text-[10px] font-medium tabular-nums text-blue-800 ring-1 ring-blue-200/70 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/20">
-              <Sparkles className="size-2.5" aria-hidden />
-              {t('updatedBadge', { n: memory.updatedThisVisit })}
-            </span>
-          )}
+          <MemoryTrustBadge
+            updatedThisVisit={memory.updatedThisVisit}
+            pastSessionCount={pastSessionCount}
+          />
         </div>
 
         {/* Intake block — ALWAYS renders as a structured 2-col grid
@@ -281,6 +308,64 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
 // ─────────────────────────────────────────────────────────────
 // Subcomponents — kept file-local since they're not reused
 // ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// MemoryTrustBadge — three-state header chip telling staff how to
+// calibrate trust in the memory items. See the `pastSessionCount`
+// prop doc above for the full strategy. Each state has its own
+// visual weight (saturated → muted → neutral) so staff can read
+// the trust signal at a glance without reading the label.
+// ─────────────────────────────────────────────────────────────
+function MemoryTrustBadge({
+  updatedThisVisit,
+  pastSessionCount,
+}: {
+  updatedThisVisit: number
+  pastSessionCount: number
+}) {
+  const t = useTranslations('karute.memorySection')
+
+  // State 1 — post-session: items were just added in today's session.
+  // Brightest signal (saturated blue + Sparkles) because this is the
+  // staff's "look, the AI captured something new" moment.
+  if (updatedThisVisit > 0) {
+    return (
+      <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50 px-2 text-[10px] font-medium tabular-nums text-blue-800 ring-1 ring-blue-200/70 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/20">
+        <Sparkles className="size-2.5" aria-hidden />
+        {t('updatedBadge', { n: updatedThisVisit })}
+      </span>
+    )
+  }
+
+  // State 2 — data-depth trust signal: memory is grounded in N past
+  // sessions. Helps staff calibrate how much to trust the items
+  // before acting on them. Muted blue (≠ post-session bright blue)
+  // so staff can distinguish "fresh from today" vs "long-standing".
+  if (pastSessionCount > 0) {
+    return (
+      <span
+        className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15"
+        title={t('sessionsBadgeTooltip')}
+      >
+        <History className="size-2.5" aria-hidden />
+        {t('sessionsBadge', { n: pastSessionCount })}
+      </span>
+    )
+  }
+
+  // State 3 — no recordings yet. Neutral gray so brand-new customers
+  // don't read as "AI failed" but rather "memory will accumulate as
+  // you record sessions". Sets expectations without overpromising.
+  return (
+    <span
+      className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-muted/60 px-2 text-[10px] font-medium tabular-nums text-muted-foreground ring-1 ring-border"
+      title={t('noSessionsBadgeTooltip')}
+    >
+      <CircleDashed className="size-2.5" aria-hidden />
+      {t('noSessionsBadge')}
+    </span>
+  )
+}
 
 // ─────────────────────────────────────────────────────────────
 // Intake block — structured 2-col grid of intake fields. Always

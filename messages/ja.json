@@ -685,7 +685,11 @@
         "maintenance": "メンテナンス希望",
         "referral": "来店きっかけ"
       },
-      "talkingPointsEmpty": "録音内容からAIが特徴的なポイントを抽出すると、ここに会話のきっかけが表示されます。"
+      "talkingPointsEmpty": "録音内容からAIが特徴的なポイントを抽出すると、ここに会話のきっかけが表示されます。",
+      "sessionsBadge": "{n}件のセッション記録から学習",
+      "sessionsBadgeTooltip": "過去の録音から抽出された情報数。多いほど信頼度が高くなります。",
+      "noSessionsBadge": "セッション記録なし",
+      "noSessionsBadgeTooltip": "まだ録音がありません。セッションを録音すると、AIが特徴的なポイントを抽出してここに蓄積されます。"
     },
     "tabHeading": "カルテ",
     "recordList": {
