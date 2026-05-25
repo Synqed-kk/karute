@@ -57,12 +57,6 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
-  /** Server detected zero real bookings/karute for this tenant.
-   *  The page rendered scaffolding fixtures (preview-fixtures.ts)
-   *  so the full UI can be reviewed; surface a banner + tag every
-   *  card so it can't be mistaken for real data, and refuse to
-   *  start a recording against preview-* ids. */
-  previewMode?: boolean
 }
 
 function deriveInitials(name: string): string {
@@ -89,7 +83,6 @@ export function RecordPageView({
   brief,
   recentRecordings,
   consentDate,
-  previewMode = false,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -126,20 +119,13 @@ export function RecordPageView({
       setConsent(null)
       return
     }
-    // Preview-mode customer ids ('preview-c1-customer') aren't UUIDs;
-    // the server action throws on validation. Short-circuit so the
-    // consent pill simply doesn't render in preview.
-    if (previewMode) {
-      setConsent({ granted: true, grantedAt: null })
-      return
-    }
     try {
       const { consent: row } = await getCustomerConsent(customerIdForConsent)
       setConsent({ granted: !!row, grantedAt: row?.granted_at ?? null })
     } catch {
       setConsent({ granted: false, grantedAt: null })
     }
-  }, [customerIdForConsent, previewMode])
+  }, [customerIdForConsent])
   useEffect(() => {
     refreshConsent()
   }, [refreshConsent])
@@ -188,12 +174,6 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
-    // Preview mode uses scaffolding fixtures (preview-* ids). Don't
-    // start a real mic capture against demo data — the pipeline
-    // would try to attach the recording to a non-existent booking.
-    if (previewMode) {
-      return
-    }
     startRecording()
   }
   function handleStartAnyway() {
@@ -234,18 +214,12 @@ export function RecordPageView({
   // from the server (sessions/page.tsx derives it from now vs the
   // appointment window — keeps this client component pure for
   // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
-  // In preview mode the picker row holds the karute # + staff name
-  // (we keep them on the booking row, not the appointment payload,
-  // because real bookings get them from a separate join).
-  const previewRow = previewMode
-    ? nearbyBookings.find((b) => b.id === nextAppointment?.id) ?? null
-    : null
   const targetAppointment: RecordTargetAppointment | null = nextAppointment
     ? {
         id: nextAppointment.id,
         customerName: nextAppointment.customerName,
-        initials: previewRow?.initials ?? deriveInitials(nextAppointment.customerName),
-        karuteNumber: previewRow?.karute ?? null,
+        initials: deriveInitials(nextAppointment.customerName),
+        karuteNumber: null,
         service: nextAppointment.title ?? '—',
         timeRange: (() => {
           const start = new Date(nextAppointment.startTime)
@@ -254,7 +228,7 @@ export function RecordPageView({
           )
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
-        staffName: previewRow?.staff ?? '—',
+        staffName: '—',
         statusKey: nextAppointment.statusKey ?? 'booked',
         isNew: brief?.isFirstTimeVisit ?? false,
       }
@@ -334,8 +308,6 @@ export function RecordPageView({
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
 
-      {previewMode && <PreviewBanner />}
-
       {micError && (
         <div
           className="rounded-xl border px-4 py-3 text-sm"
@@ -355,7 +327,6 @@ export function RecordPageView({
             <RecordingTargetCard
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
-              previewMode={previewMode}
             />
             <PreSessionBriefCard
               brief={brief}
@@ -369,7 +340,6 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
-            previewMode={previewMode}
           />
           <PreSessionBriefCard
             brief={brief}
@@ -481,27 +451,4 @@ function useElapsed(recState: string, startedAt: number | null): number {
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
-}
-
-// Preview-mode banner — surfaces when sessions/page.tsx detected
-// zero real bookings/karute and swapped in scaffolding fixtures.
-// Visually distinct (amber, dashed) so it can't be mistaken for a
-// real record-page header.
-function PreviewBanner() {
-  const t = useTranslations('recording.preview')
-  return (
-    <div className="flex gap-3 rounded-xl border border-dashed border-amber-400/70 bg-amber-50/60 p-3 dark:border-amber-500/40 dark:bg-amber-500/10">
-      <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-amber-500 text-white">
-        <span className="text-[12px] font-bold" aria-hidden>!</span>
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="mb-0.5 text-[12px] font-semibold uppercase tracking-wider text-amber-800 dark:text-amber-200">
-          {t('title')}
-        </div>
-        <p className="text-[13px] leading-relaxed text-amber-900/90 dark:text-amber-100/90">
-          {t('body')}
-        </p>
-      </div>
-    </div>
-  )
 }
