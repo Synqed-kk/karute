@@ -11,7 +11,7 @@ import {
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
-import { Loader2 } from 'lucide-react'
+import { Bell, Loader2 } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import {
   formatCompactDateJst,
@@ -156,6 +156,48 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         aria-hidden="true"
         tabIndex={-1}
       />
+
+      {/* ─────────────────────────────────────────────────────────────
+       *  Sticky title bar — 予約 + bell. Pattern matches the existing
+       *  CustomersListHeader / KaruteRecordListView sticky bars so the
+       *  three top-level mobile pages share the same chrome.
+       *
+       *  Bell is a STUB. Spike has the full notifications system built
+       *  (8 categories, localStorage pub/sub + documented Supabase swap
+       *  path). See MERGE_NOTES_FOR_ANTHONY.md "Notifications system"
+       *  section for the end-to-end handoff:
+       *    spike sources →
+       *      src/lib/notifications.ts          (state layer + Supabase
+       *                                          swap docs inline)
+       *      src/mock/notifications.ts         (NotificationItem schema +
+       *                                          8 categories)
+       *      src/components/notifications/NotificationsPanel.tsx
+       *                                         (drawer UI)
+       *      src/components/layout/MobileHeader.tsx (bell + unread badge)
+       *
+       *  Pre-merge: click does nothing. Bell can stay a stub for the
+       *  visual; notifications land in their own PR. The button is
+       *  positioned absolutely on the right of the centered title so a
+       *  red `<span>` unread-count badge can be overlaid on the icon
+       *  later without restructuring (spike uses `useUnreadCount()`).
+       *  ─────────────────────────────────────────────────────────────
+       */}
+      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:px-6">
+        <div className="relative flex items-center justify-center py-2">
+          <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
+            {tReservation('title')}
+          </h1>
+          <button
+            type="button"
+            className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            aria-label={tCommon('notifications')}
+            // STUB — click does nothing yet. See ANTHONY block above
+            // and MERGE_NOTES_FOR_ANTHONY.md for the full build-out.
+          >
+            <Bell size={16} />
+          </button>
+        </div>
+      </div>
 
       <ReservationPageHeader
         dateDisplay={formatLongDateJst(headerDate, locale)}

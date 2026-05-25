@@ -25,7 +25,8 @@
     "email": "メールアドレス",
     "phone": "電話番号",
     "somethingWentWrong": "エラーが発生しました。",
-    "saved": "保存済み"
+    "saved": "保存済み",
+    "notifications": "通知"
   },
   "auth": {
     "title": "カルテにサインイン",

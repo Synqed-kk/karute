@@ -274,3 +274,101 @@ Spike prompts: `AI_PROMPTS.md` in that repo
 Spike data spec: `AI_INTEGRATION_SPEC.md`
 
 Ping Liam if any section reads ambiguously — happy to clarify or restructure.
+
+---
+
+## Notifications system — full handoff
+
+A bell icon stub now sits on the top-right of three mobile pages:
+`CustomersListHeader.tsx`, `KaruteRecordListView.tsx`,
+`AppointmentsView.tsx`. Each click does nothing yet. The spike has a
+fully-built notification system you can lift wholesale — this is the
+shortest path to "working notifications".
+
+### Spike sources to lift
+
+| File | What it provides |
+|---|---|
+| `spike/src/lib/notifications.ts` | State layer with `useNotifications()`, `useUnreadCount()`, `markRead()`, `markAllRead()`, `clearAll()`. Spike uses localStorage pub/sub; **the file itself has the Supabase swap documented inline** (real SQL snippets in the header comment for `markRead` / `markAllRead` / `clearAll` / realtime channel subscribe). Lift the hooks + signature, replace the localStorage internals with Supabase calls. |
+| `spike/src/mock/notifications.ts` | `NotificationItem` type + 8 categories: `booking`, `billing`, `memory_review`, `customer_return`, `mention`, `coaching`, `retention`, `system`. Each category maps to a real salon-owner event. Seed array shows realistic copy patterns. |
+| `spike/src/components/notifications/NotificationsPanel.tsx` | Drawer UI that opens on bell click. Renders grouped sections (今日 / 今週 / それ以前), per-item category icon, unread dot, "新着" pill, "全て既読" + "クリア" actions. |
+| `spike/src/components/layout/MobileHeader.tsx` (around the `<Bell>` button) | Pattern for the bell + red unread-count badge overlay. The current karute stubs already have the absolute-positioned spot for this badge — just drop in a `<span>` overlay reading `useUnreadCount()`. |
+
+### Data model (suggested Supabase schema)
+
+```sql
+create table notifications (
+  id uuid primary key default gen_random_uuid(),
+  business_id uuid not null references businesses(id) on delete cascade,
+  recipient_id uuid not null references auth.users(id) on delete cascade,
+  category text not null check (category in (
+    'booking', 'billing', 'memory_review', 'customer_return',
+    'mention', 'coaching', 'retention', 'system'
+  )),
+  title text not null,
+  body text,
+  href text,                    -- deep link (e.g. /ja/karute/{id})
+  created_at timestamptz not null default now(),
+  read_at timestamptz,          -- null = unread
+  dismissed_at timestamptz      -- soft-hide; keep row for audit
+);
+
+create index on notifications (recipient_id, dismissed_at, created_at desc);
+
+-- RLS: viewer can only see their own non-dismissed notifications.
+alter table notifications enable row level security;
+create policy notifications_select_own on notifications for select
+  using (recipient_id = auth.uid() and dismissed_at is null);
+create policy notifications_update_own on notifications for update
+  using (recipient_id = auth.uid());
+```
+
+### Where notifications get CREATED
+
+Most categories are derived from existing events you already write to
+the DB. Background workers or `INSERT` triggers convert these into
+`notifications` rows:
+
+| Trigger | Category | Title pattern |
+|---|---|---|
+| New / cancelled / rescheduled appointment | `booking` | "本日の予約: {customerName} {time}" |
+| Stripe webhook (payment_failed, trial_ending) | `billing` | "決済に失敗しました" / "トライアル終了まで X日" |
+| Weekly cron: count `customer_memory_items` where `reviewed_at is null` | `memory_review` | "お客様メモリー {n}件が確認待ち" |
+| Customer's `last_visit_iso` > X days threshold | `customer_return` | "{customerName}様 — 前回来店から{n}ヶ月" |
+| `@`-mention parser on karute notes | `mention` | "{staff}が{customer}のカルテであなたに言及" |
+| Weekly coaching report ready | `coaching` | "今週のコーチングレポートが届きました" |
+| APPI-compliance scheduled deletion event | `retention` | "削除予定: {customerName}様のデータが30日後に削除" |
+| Manual system broadcasts | `system` | (admin tool composes) |
+
+The spike's `notifications.ts` header comment also covers the realtime
+subscribe pattern (`supabase.channel("notifications").on("postgres_changes", …)`)
+so new rows push to clients without polling.
+
+### Bell-click wiring (per page)
+
+The three current stubs are in:
+- `src/components/customers/redesign/list/CustomersListHeader.tsx`
+- `src/components/karute/spike-lifted/list/KaruteRecordListView.tsx` (sticky bar inline)
+- `src/components/appointments/AppointmentsView.tsx` (sticky bar inline — most recent)
+
+Each `<button>` has the absolute-positioned spot for the unread badge
+already. Wiring step:
+1. Lift `useUnreadCount()` to read from Supabase (or just count the
+   `useNotifications()` array's unread items).
+2. Lift `<NotificationsPanel>` as the drawer.
+3. On each stub button: add `onClick` to open the drawer; add a
+   `<span className="absolute -top-0.5 -right-0.5 ...">{unread}</span>`
+   when `unread > 0`.
+
+Estimated effort: half a day to lift the spike's TS files and swap
+localStorage → Supabase. The UI is already designed and tested in the
+spike — no design work needed.
+
+### Out of scope for first cut
+
+- Push notifications (mobile / browser) — start with in-app bell only.
+- Per-staff notification preferences (mute categories) — add later.
+- Email digest of unread notifications — add later.
+
+Single source of truth is the in-app bell; everything else is opt-in
+add-ons that can ship after the core surface is live.

@@ -25,7 +25,8 @@
     "email": "Email",
     "phone": "Phone",
     "somethingWentWrong": "Something went wrong.",
-    "saved": "Saved"
+    "saved": "Saved",
+    "notifications": "Notifications"
   },
   "auth": {
     "title": "Sign in to Karute",
