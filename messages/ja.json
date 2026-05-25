@@ -1046,7 +1046,10 @@
     "staffCountSuffix": "{n}名のスタッフ",
     "pinNotSet": "PIN未設定",
     "consentGranted": "同意済み",
-    "voiceUnregistered": "未登録"
+    "voiceUnregistered": "未登録",
+    "editStaffDialogTitle": "スタッフ情報を編集",
+    "editStaffDialogSubtitle": "{name}さんの情報を更新します。変更内容は監査ログに記録されます。",
+    "emailChangeNotice": "変更するとメール確認が必要になります。"
   },
   "aiActions": {
     "title": "AIおすすめアクション",

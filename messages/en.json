@@ -1046,7 +1046,10 @@
     "staffCountSuffix": "{n} staff",
     "pinNotSet": "PIN not set",
     "consentGranted": "Consented",
-    "voiceUnregistered": "Not enrolled"
+    "voiceUnregistered": "Not enrolled",
+    "editStaffDialogTitle": "Edit staff member",
+    "editStaffDialogSubtitle": "Update {name}'s information. Changes are recorded in the audit log.",
+    "emailChangeNotice": "Changing the email requires re-confirmation."
   },
   "aiActions": {
     "title": "AI Recommended Actions",
