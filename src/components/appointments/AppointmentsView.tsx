@@ -11,7 +11,7 @@ import {
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
-import { Bell, Loader2 } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import {
   formatCompactDateJst,
@@ -207,6 +207,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onToday={handleToday}
         onPickDate={handlePickDate}
         onNewBooking={() => setDialogOpen(true)}
+        // @synqed-kk/ui ships English defaults baked into the component
+        // ("Today", "New Reservation", etc.). Same pattern as the
+        // DayWeekMonthToggle — pass localized strings via the `copy`
+        // prop so the JA build reads "今日" instead of "Today".
+        copy={{
+          title: tReservation('title'),
+          todayLabel: tReservation('today'),
+          newReservationLabel: tReservation('new'),
+          prevLabel: tReservation('prev'),
+          nextLabel: tReservation('next'),
+        }}
       />
 
       {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
@@ -242,42 +253,38 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         }
       />
 
-      {/* Legend — wrapped in a bordered card matching the spike. Same row
-       *  as the loading spinner so the spinner anchors flush right. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs">
-          <span className="text-muted-foreground">
-            {tReservation('legend.label')}
-          </span>
-          {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map(
-            (tone) => (
-              <span key={tone} className="inline-flex items-center gap-1.5">
-                <span
-                  className="inline-block h-2.5 w-2.5 rounded-sm"
-                  style={{
-                    background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
-                    border: `1px ${tone === 'pending' || tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
-                  }}
-                />
-                {tReservation(`status.${tone}`)}
-              </span>
-            ),
-          )}
-          <span className="inline-flex items-center gap-1.5">
-            <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
-            {tReservation('legend.block')}
-          </span>
-        </div>
-        {isPending && (
-          <span
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-            {tCommon('loading')}
-          </span>
+      {/* Legend — wrapped in a bordered card matching the spike.
+       *
+       *  Previously had a Loader2 chip rendered next to this box when
+       *  `isPending` fired (during date-nav transitions). The chip
+       *  appeared inline-after the legend, which forced flex-wrap to
+       *  re-flow the legend pills around it — Liam called this out as
+       *  "pushes one of the sections to the side, looks random and
+       *  weird". Removed: the agenda's `transition-opacity` below
+       *  already provides loading feedback (content drops to 50%
+       *  opacity during pending). No additional indicator needed. */}
+      <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs">
+        <span className="text-muted-foreground">
+          {tReservation('legend.label')}
+        </span>
+        {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map(
+          (tone) => (
+            <span key={tone} className="inline-flex items-center gap-1.5">
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-sm"
+                style={{
+                  background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
+                  border: `1px ${tone === 'pending' || tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
+                }}
+              />
+              {tReservation(`status.${tone}`)}
+            </span>
+          ),
         )}
+        <span className="inline-flex items-center gap-1.5">
+          <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
+          {tReservation('legend.block')}
+        </span>
       </div>
 
       {/* space-y-6 (24px) — agenda card has visual weight (bg + rounded
