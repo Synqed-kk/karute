@@ -613,7 +613,6 @@
   "karute": {
     "title": "Karute",
     "summary": "AI Summary",
-    "transcript": "Transcript",
     "entries": "Entries",
     "addEntry": "Add entry",
     "noEntries": "No entries yet",
@@ -744,6 +743,16 @@
       "summaryTitle": "AI Summary",
       "summarySubtitle": "Today's key session points",
       "transcriptSubtitleEmpty": "No recording yet"
+    },
+    "transcript": {
+      "title": "Recording & transcript",
+      "consentLabel": "Recorded with consent",
+      "empty": "No recording yet. Once a session is captured, transcript + speaker-separated playback appear here.",
+      "comingSoonPlayer": "Audio player coming soon — Anthony wires Supabase Storage signed URLs.",
+      "speakers": "Speakers",
+      "speakerStaff": "Staff",
+      "speakerCustomer": "Customer",
+      "speakerUnknown": "Background"
     }
   },
   "review": {

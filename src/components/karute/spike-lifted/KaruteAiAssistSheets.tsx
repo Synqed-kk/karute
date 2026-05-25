@@ -128,6 +128,7 @@ export function KaruteAiAssistSheets({
             <TranscriptCard
               hasRecording={hasRecording}
               durationLabel={transcriptDurationLabel}
+              defaultOpen
             />
           </div>
         </SheetContent>

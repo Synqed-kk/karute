@@ -44,16 +44,23 @@ export interface TranscriptUtterance {
 }
 
 interface Props {
-  /** Whether a recording exists. When false, the entire body shows
-   *  the empty-state placeholder. */
+  /** Whether a recording exists. When false, the body still renders
+   *  the player + speaker scaffold (with placeholder duration + a
+   *  "no recording yet" message in the transcript area) so staff
+   *  sees the structure that'll populate once recording lands. */
   hasRecording?: boolean
-  /** Display duration label, e.g. "58分14秒". */
+  /** Display duration label, e.g. "58分14秒". Falls back to "—" in
+   *  the player time display when omitted. */
   durationLabel?: string
   /** Display date for the consent badge ("2026-04-19"). */
   consentDate?: string
   /** Speaker-diarized utterances. Empty when diarization hasn't
    *  run yet — Anthony's pipeline backfills. */
   utterances?: TranscriptUtterance[]
+  /** When true, the collapsible body starts open. Used by the
+   *  KaruteAiAssistSheets bottom-sheet (the user just tapped to
+   *  open the sheet — collapsing again would be redundant). */
+  defaultOpen?: boolean
 }
 
 export function TranscriptCard({
@@ -61,9 +68,10 @@ export function TranscriptCard({
   durationLabel,
   consentDate,
   utterances = [],
+  defaultOpen = false,
 }: Props) {
   const t = useTranslations('karute.transcript')
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(defaultOpen)
   return (
     <div className="bg-card p-4 border-b border-black/5 dark:border-white/5 md:p-5 md:border-0 md:rounded-xl md:ring-1 md:ring-rose-100 md:dark:ring-rose-500/20 md:shadow-[0_1px_2px_rgba(0,0,0,0.04)] md:dark:shadow-none">
       {/* Collapsed header — always visible */}
@@ -103,59 +111,65 @@ export function TranscriptCard({
         </div>
       </button>
 
-      {/* Expanded body */}
+      {/* Expanded body — player + speaker legend + utterances scaffold
+       *  ALWAYS renders so the structure stays visible. Empty data
+       *  states surface inside each sub-region rather than hiding
+       *  the whole player. */}
       {open && (
         <div className="mt-3 border-t border-border/40 pt-3">
-          {!hasRecording ? (
-            <p className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-[12px] italic leading-relaxed text-muted-foreground">
+          {/* Audio player — stubbed (no real audio yet). Anthony
+           *  wires a real <audio> element backed by a Supabase
+           *  Storage signed URL. */}
+          <div
+            className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
+            title={t('comingSoonPlayer')}
+          >
+            <button
+              type="button"
+              disabled
+              className="flex size-9 shrink-0 cursor-not-allowed items-center justify-center rounded-full bg-blue-600 text-white opacity-60"
+              aria-label="play"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+                aria-hidden
+              >
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            </button>
+            <div className="h-1.5 flex-1 rounded-full bg-muted">
+              <div className="h-full w-0 rounded-full bg-blue-500" />
+            </div>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              00:00 / {durationLabel ?? '—'}
+            </span>
+          </div>
+
+          {/* Speaker legend — always visible so staff sees the
+           *  diarization taxonomy the AI will populate. */}
+          <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span>{t('speakers')}:</span>
+            <SpeakerChip kind="staff" />
+            <SpeakerChip kind="customer" />
+            <SpeakerChip kind="unknown" />
+          </div>
+
+          {/* Utterance list — empty placeholder when no recording or
+           *  diarization hasn't run. Real utterances render with
+           *  speaker-color bubbles + 重要 badges where applicable. */}
+          {utterances.length === 0 ? (
+            <p className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-[11px] italic leading-relaxed text-muted-foreground">
               {t('empty')}
             </p>
           ) : (
-            <>
-              {/* Stubbed audio player. Anthony wires a real <audio>
-               *  element backed by a Supabase Storage signed URL. */}
-              <div
-                className="mb-3 flex items-center gap-3 rounded-lg border border-border bg-muted/20 px-3 py-2.5"
-                title={t('comingSoonPlayer')}
-              >
-                <button
-                  type="button"
-                  disabled
-                  className="flex size-9 cursor-not-allowed items-center justify-center rounded-full bg-blue-600 text-white opacity-60"
-                  aria-label="play"
-                >
-                  ▶
-                </button>
-                <div className="h-1.5 flex-1 rounded-full bg-muted">
-                  <div className="h-full w-0 rounded-full bg-blue-500" />
-                </div>
-                <span className="text-[11px] tabular-nums text-muted-foreground">
-                  00:00 / {durationLabel ?? '—'}
-                </span>
-              </div>
-
-              {/* Speaker legend */}
-              <div className="mb-3 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-                <span>{t('speakers')}:</span>
-                <SpeakerChip kind="staff" />
-                <SpeakerChip kind="customer" />
-                <SpeakerChip kind="unknown" />
-              </div>
-
-              {/* Utterance list — empty placeholder when diarization
-               *  hasn't run yet. */}
-              {utterances.length === 0 ? (
-                <p className="text-center text-[11px] italic leading-relaxed text-muted-foreground">
-                  {t('empty')}
-                </p>
-              ) : (
-                <ul className="space-y-3">
-                  {utterances.map((u) => (
-                    <UtteranceRow key={u.id} utterance={u} />
-                  ))}
-                </ul>
-              )}
-            </>
+            <ul className="space-y-3">
+              {utterances.map((u) => (
+                <UtteranceRow key={u.id} utterance={u} />
+              ))}
+            </ul>
           )}
         </div>
       )}

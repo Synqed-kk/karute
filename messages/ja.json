@@ -613,7 +613,6 @@
   "karute": {
     "title": "カルテ",
     "summary": "AIサマリー",
-    "transcript": "トランスクリプト",
     "entries": "エントリー",
     "addEntry": "エントリーを追加",
     "noEntries": "エントリーがまだありません",
@@ -744,6 +743,16 @@
       "summaryTitle": "AI要約",
       "summarySubtitle": "本日のセッションの主要ポイント",
       "transcriptSubtitleEmpty": "録音はまだありません"
+    },
+    "transcript": {
+      "title": "録音・文字起こし",
+      "consentLabel": "録音同意済み",
+      "empty": "まだ録音がありません。セッションを録音すると、文字起こしと話者識別付きの再生がここに表示されます。",
+      "comingSoonPlayer": "音声プレイヤーは対応予定です。AnthonyがSupabase Storageの署名付きURLを実装します。",
+      "speakers": "話者",
+      "speakerStaff": "スタッフ",
+      "speakerCustomer": "お客様",
+      "speakerUnknown": "不明（背景）"
     }
   },
   "review": {
