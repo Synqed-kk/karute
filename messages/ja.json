@@ -350,12 +350,17 @@
       "statusBooked": "予約済み",
       "firstVisit": "新規",
       "booked": "予約済",
-      "honorific": "様"
+      "honorific": "様",
+      "noBookingPrimary": "予約を選択してください",
+      "noBookingSecondary": "右上の「別の予約を選択」から本日の予約を選ぶと、お客様情報・時間・担当者などがここに表示されます。",
+      "pickerScaffoldLabel": "対応予定",
+      "pickerScaffoldBody": "本日の予約一覧を取得して切り替えるピッカーは対応予定です。Anthonyが予約取得関数を実装後、本日の予約から録音対象を選択できるようになります。"
     },
     "brief": {
       "title": "セッション前ブリーフィング",
       "lastVisit": "前回来店: {date} ({ago})",
       "lastVisitInline": "前回 {date}（{ago}）",
+      "subtitleScaffold": "予約を選択すると、以下の項目に内容が表示されます",
       "hooks": "会話のきっかけ",
       "concerns": "前回の主訴・経過",
       "lastProduct": "前回の商品提案",

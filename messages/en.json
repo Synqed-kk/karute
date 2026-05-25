@@ -350,12 +350,17 @@
       "statusBooked": "Booked",
       "firstVisit": "First visit",
       "booked": "Booked",
-      "honorific": ""
+      "honorific": "",
+      "noBookingPrimary": "Pick a booking to record",
+      "noBookingSecondary": "Tap 'Choose different booking' in the top-right to pick from today's appointments. Once selected, the customer, time, and staff details show here.",
+      "pickerScaffoldLabel": "Coming soon",
+      "pickerScaffoldBody": "Fetching + switching today's bookings from the picker is coming soon — Anthony wires the booking-list query, then this dropdown surfaces today's appointments so staff can switch the recording target."
     },
     "brief": {
       "title": "Pre-session brief",
       "lastVisit": "Last visit {date} ({ago})",
       "lastVisitInline": "Last visit {date} ({ago})",
+      "subtitleScaffold": "Each section below shows what will appear once a booking is selected",
       "hooks": "Conversation hooks",
       "concerns": "Last session concerns",
       "lastProduct": "Last product offered",

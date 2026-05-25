@@ -72,17 +72,37 @@ interface PreSessionBriefCardProps {
   customerName?: string | null
 }
 
+// Scaffolding shell used when no booking is selected (or no brief
+// data exists for the current booking). Renders the RETURNING-VISIT
+// branch with every section empty so the AI-capability hints surface
+// across the whole card — staff + Anthony see what each section WILL
+// contain once the pre_session_briefs table is populated.
+const EMPTY_BRIEF_SCAFFOLD: PreSessionBrief = {
+  isFirstTimeVisit: false,
+  lastVisitDate: '',
+  lastVisitAgo: '',
+  hooks: [],
+  concerns: [],
+  lastProduct: null,
+  recommendedFocus: null,
+  reservationMemo: null,
+}
+
 export function PreSessionBriefCard({
   brief,
   customerName,
 }: PreSessionBriefCardProps) {
   const t = useTranslations('recording.brief')
-  if (!brief) return null
+  // Always render — when `brief` is null we fall back to the
+  // scaffolding shell above so staff sees every AI-capability hint.
+  const isScaffoldOnly = !brief
+  const effectiveBrief = brief ?? EMPTY_BRIEF_SCAFFOLD
 
   // FIRST-VISIT FRAMING — gradient blue card with warm intro copy.
   // Matches the spike's first-visit branch (no recap sections; just
-  // an explainer + optional reservation memo).
-  if (brief.isFirstTimeVisit) {
+  // an explainer + optional reservation memo). Only enters this
+  // branch when we have a real brief flagged as first-time visit.
+  if (effectiveBrief.isFirstTimeVisit && !isScaffoldOnly) {
     return (
       <section className="rounded-2xl bg-gradient-to-br from-blue-50/60 via-card to-card p-4 ring-1 ring-blue-100 dark:from-blue-500/10 dark:via-card dark:to-card dark:ring-blue-500/20 md:p-5">
         <div className="mb-2 flex items-center gap-2">
@@ -96,9 +116,9 @@ export function PreSessionBriefCard({
         <p className="text-[14px] leading-relaxed text-foreground/90">
           {t('firstTimeBody', { name: customerName ?? '' })}
         </p>
-        {brief.reservationMemo && (
+        {effectiveBrief.reservationMemo && (
           <>
-            <MemoBlock memo={brief.reservationMemo} label={t('reservationMemo')} className="mt-4" />
+            <MemoBlock memo={effectiveBrief.reservationMemo} label={t('reservationMemo')} className="mt-4" />
             <AiCapabilityHint
               label={t('aiHintLabel')}
               body={t('aiHintMemoAnalysis')}
@@ -109,7 +129,7 @@ export function PreSessionBriefCard({
         {/* No memo? Surface the same AI capability hint so staff
          *  knows what'll fill this gap once customers leave booking
          *  notes (or once we wire that field in the booking form). */}
-        {!brief.reservationMemo && (
+        {!effectiveBrief.reservationMemo && (
           <AiCapabilityHint
             label={t('aiHintLabel')}
             body={t('aiHintNoMemo')}
@@ -132,12 +152,20 @@ export function PreSessionBriefCard({
           <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
             {t('title')}
           </div>
-          {brief.lastVisitDate && (
+          {effectiveBrief.lastVisitDate && (
             <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
               {t('lastVisitInline', {
-                date: brief.lastVisitDate,
-                ago: brief.lastVisitAgo,
+                date: effectiveBrief.lastVisitDate,
+                ago: effectiveBrief.lastVisitAgo,
               })}
+            </div>
+          )}
+          {/* Scaffold-only subtitle — surfaces when no booking is
+           *  selected so staff knows the card below is a preview
+           *  of what'll render once they pick a booking. */}
+          {isScaffoldOnly && (
+            <div className="mt-0.5 text-[11px] italic text-muted-foreground">
+              {t('subtitleScaffold')}
             </div>
           )}
         </div>
@@ -146,9 +174,9 @@ export function PreSessionBriefCard({
       {/* Reservation memo — surface FIRST when present (it's literal
        *  customer text for THIS visit, not AI-synthesized history).
        *  Most relevant hook staff should open with. */}
-      {brief.reservationMemo ? (
+      {effectiveBrief.reservationMemo ? (
         <>
-          <MemoBlock memo={brief.reservationMemo} label={t('reservationMemo')} className="mb-2" />
+          <MemoBlock memo={effectiveBrief.reservationMemo} label={t('reservationMemo')} className="mb-2" />
           <AiCapabilityHint
             label={t('aiHintLabel')}
             body={t('aiHintMemoAnalysis')}
@@ -164,10 +192,10 @@ export function PreSessionBriefCard({
       )}
 
       {/* Conversation hooks — most actionable, surface near top */}
-      {brief.hooks.length > 0 ? (
+      {effectiveBrief.hooks.length > 0 ? (
         <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
           <ul className="space-y-1">
-            {brief.hooks.map((h, i) => (
+            {effectiveBrief.hooks.map((h, i) => (
               <li
                 key={i}
                 className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
@@ -188,14 +216,14 @@ export function PreSessionBriefCard({
       )}
 
       {/* Last concerns — clinical recap */}
-      {brief.concerns.length > 0 ? (
+      {effectiveBrief.concerns.length > 0 ? (
         <BriefSection
           icon={<Clock className="size-3" />}
           title={t('concerns')}
           divider
         >
           <ul className="space-y-1">
-            {brief.concerns.map((c, i) => (
+            {effectiveBrief.concerns.map((c, i) => (
               <li
                 key={i}
                 className="flex gap-2 text-[13px] leading-relaxed text-foreground/85"
@@ -217,16 +245,16 @@ export function PreSessionBriefCard({
       )}
 
       {/* Last product + reaction */}
-      {brief.lastProduct ? (
+      {effectiveBrief.lastProduct ? (
         <BriefSection
           icon={<Gift className="size-3" />}
           title={t('lastProduct')}
           divider
         >
           <div className="text-[13px] leading-relaxed text-foreground/90">
-            <span className="font-medium">{brief.lastProduct.name}</span>
-            {brief.lastProduct.reaction && (
-              <span className="text-muted-foreground"> — {brief.lastProduct.reaction}</span>
+            <span className="font-medium">{effectiveBrief.lastProduct.name}</span>
+            {effectiveBrief.lastProduct.reaction && (
+              <span className="text-muted-foreground"> — {effectiveBrief.lastProduct.reaction}</span>
             )}
           </div>
         </BriefSection>
@@ -241,14 +269,14 @@ export function PreSessionBriefCard({
       )}
 
       {/* AI-suggested focus for this session */}
-      {brief.recommendedFocus ? (
+      {effectiveBrief.recommendedFocus ? (
         <BriefSection
           icon={<Target className="size-3" />}
           title={t('recommendedFocus')}
           divider
         >
           <p className="text-[13px] leading-relaxed text-foreground/85">
-            {brief.recommendedFocus}
+            {effectiveBrief.recommendedFocus}
           </p>
         </BriefSection>
       ) : (

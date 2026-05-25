@@ -71,17 +71,98 @@ export function RecordingTargetCard({
     return () => document.removeEventListener('mousedown', onDoc)
   }, [open])
 
+  // No booking selected — render the full card chrome with the
+  // picker button visible so staff can switch into a booking, and a
+  // scaffold-style body that explains what'll show here once a
+  // booking is selected. The picker dropdown itself surfaces either
+  // real bookings (when present) or a 対応予定 scaffold message that
+  // tells Anthony exactly what needs wiring.
   if (!appointment) {
     return (
-      <section className="flex items-center gap-3 rounded-2xl border border-dashed border-border bg-card px-4 py-3 shadow-sm">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-500/10 text-sky-400">
-          <Clock size={15} />
-        </span>
-        <div className="flex min-w-0 flex-col">
-          <span className="text-[13px] font-semibold text-foreground">{t('title')}</span>
-          <span className="text-[12px] leading-snug text-muted-foreground">
-            {t('noBooking')}
-          </span>
+      <section className="rounded-2xl border border-dashed border-border bg-card p-5 shadow-sm md:p-6">
+        <header className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <span className="flex h-6 w-6 items-center justify-center text-sky-400">
+              <Clock size={16} />
+            </span>
+            <span className="text-sm font-semibold text-foreground">
+              {t('title')}
+            </span>
+          </div>
+          <div className="relative" ref={wrapRef}>
+            <button
+              type="button"
+              onClick={() => setOpen((v) => !v)}
+              className={cn(
+                'inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
+                open && 'bg-muted text-foreground',
+              )}
+            >
+              {t('choose')}
+              <ChevronDown
+                size={14}
+                className={cn('transition-transform', open && 'rotate-180')}
+              />
+            </button>
+            {open && (
+              <div className="absolute right-0 top-10 z-20 w-[320px] rounded-xl border border-border bg-card p-3 shadow-lg md:w-[420px]">
+                {nearbyBookings.length > 0 ? (
+                  <ul className="flex flex-col">
+                    {nearbyBookings.map((b) => (
+                      <li key={b.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setOpen(false)
+                            onSwitchBooking?.(b)
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-muted"
+                        >
+                          <span className="w-12 shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                            {b.start}
+                          </span>
+                          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
+                            {b.initials}
+                          </span>
+                          <span className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate text-[13px] font-medium text-foreground">
+                              {b.customer}
+                            </span>
+                            <span className="truncate text-[11px] text-muted-foreground">
+                              {b.service} · {b.staff}
+                            </span>
+                          </span>
+                          <span
+                            className={cn(
+                              'inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10px] font-semibold',
+                              STATUS_TONE[b.statusKey],
+                            )}
+                          >
+                            {b.statusLabel}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <PickerScaffold t={t} />
+                )}
+              </div>
+            )}
+          </div>
+        </header>
+
+        {/* Empty-state body — describes what'll appear here once a
+         *  booking is selected. Anthony: this is the contract for
+         *  the populated state above (RecordingTargetCard's normal
+         *  render path). */}
+        <div className="rounded-lg border border-dashed border-border/60 bg-muted/30 p-4">
+          <p className="text-[13px] font-medium text-foreground/90">
+            {t('noBookingPrimary')}
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+            {t('noBookingSecondary')}
+          </p>
         </div>
       </section>
     )
@@ -103,86 +184,90 @@ export function RecordingTargetCard({
             t={t}
           />
         </div>
-        {nearbyBookings.length > 0 && (
-          <div className="relative" ref={wrapRef}>
-            <button
-              type="button"
-              onClick={() => setOpen((v) => !v)}
-              className={cn(
-                'inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
-                open && 'bg-muted text-foreground',
-              )}
-            >
-              {t('choose')}
-              <ChevronDown
-                size={14}
-                className={cn('transition-transform', open && 'rotate-180')}
-              />
-            </button>
-            {open && (
-              <div className="absolute right-0 top-10 z-20 w-[420px] rounded-xl border border-border bg-card p-2 shadow-lg">
-                <div className="mb-1 flex items-center justify-between px-2 pb-1 text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <span>
-                    {t('nearbyAround', { time: appointment.timeRange.split(/[–-]/)[0] })}
-                  </span>
-                </div>
-                <ul className="flex flex-col">
-                  {nearbyBookings.map((b) => {
-                    const isCurrent = b.id === appointment.id
-                    return (
-                      <li key={b.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setOpen(false)
-                            onSwitchBooking?.(b)
-                          }}
-                          className={cn(
-                            'flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-muted',
-                            isCurrent && 'bg-muted',
-                          )}
-                        >
-                          <span className="w-12 shrink-0 text-[12px] tabular-nums text-muted-foreground">
-                            {b.start}
-                          </span>
-                          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
-                            {b.initials}
-                          </span>
-                          <span className="flex min-w-0 flex-1 flex-col">
-                            <span className="flex items-baseline gap-1.5 truncate text-[13px] font-medium text-foreground">
-                              {b.customer}
-                              {b.karute && (
-                                <span className="text-[11px] tabular-nums text-muted-foreground">
-                                  {b.karute}
-                                </span>
-                              )}
-                            </span>
-                            <span className="truncate text-[11px] text-muted-foreground">
-                              {b.service} · {b.staff}
-                            </span>
-                          </span>
-                          <span
+        <div className="relative" ref={wrapRef}>
+          <button
+            type="button"
+            onClick={() => setOpen((v) => !v)}
+            className={cn(
+              'inline-flex items-center gap-1 rounded-md px-1.5 py-1 text-[13px] font-medium text-muted-foreground hover:bg-muted hover:text-foreground',
+              open && 'bg-muted text-foreground',
+            )}
+          >
+            {t('choose')}
+            <ChevronDown
+              size={14}
+              className={cn('transition-transform', open && 'rotate-180')}
+            />
+          </button>
+          {open && (
+            <div className="absolute right-0 top-10 z-20 w-[320px] rounded-xl border border-border bg-card p-2 shadow-lg md:w-[420px]">
+              {nearbyBookings.length > 0 ? (
+                <>
+                  <div className="mb-1 flex items-center justify-between px-2 pb-1 text-[11px] uppercase tracking-wider text-muted-foreground">
+                    <span>
+                      {t('nearbyAround', { time: appointment.timeRange.split(/[–-]/)[0] })}
+                    </span>
+                  </div>
+                  <ul className="flex flex-col">
+                    {nearbyBookings.map((b) => {
+                      const isCurrent = b.id === appointment.id
+                      return (
+                        <li key={b.id}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setOpen(false)
+                              onSwitchBooking?.(b)
+                            }}
                             className={cn(
-                              'inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10px] font-semibold',
-                              STATUS_TONE[b.statusKey],
+                              'flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-muted',
+                              isCurrent && 'bg-muted',
                             )}
                           >
-                            {b.statusLabel}
-                          </span>
-                          {isCurrent && (
-                            <span className="ml-1 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-sky-400">
-                              {t('current')}
+                            <span className="w-12 shrink-0 text-[12px] tabular-nums text-muted-foreground">
+                              {b.start}
                             </span>
-                          )}
-                        </button>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
+                            <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
+                              {b.initials}
+                            </span>
+                            <span className="flex min-w-0 flex-1 flex-col">
+                              <span className="flex items-baseline gap-1.5 truncate text-[13px] font-medium text-foreground">
+                                {b.customer}
+                                {b.karute && (
+                                  <span className="text-[11px] tabular-nums text-muted-foreground">
+                                    {b.karute}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="truncate text-[11px] text-muted-foreground">
+                                {b.service} · {b.staff}
+                              </span>
+                            </span>
+                            <span
+                              className={cn(
+                                'inline-flex h-[20px] shrink-0 items-center rounded-full px-2 text-[10px] font-semibold',
+                                STATUS_TONE[b.statusKey],
+                              )}
+                            >
+                              {b.statusLabel}
+                            </span>
+                            {isCurrent && (
+                              <span className="ml-1 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-sky-400">
+                                {t('current')}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                </>
+              ) : (
+                <PickerScaffold t={t} />
+              )}
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="flex items-center gap-4">
@@ -247,5 +332,32 @@ function StatusPill({
     <span className="inline-flex h-[22px] items-center rounded-full border border-sky-400/40 bg-sky-500/15 px-2.5 text-[11px] font-medium text-sky-400">
       {t('booked')}
     </span>
+  )
+}
+
+// Picker scaffold — shown inside the 「別の予約を選択」 dropdown when
+// the server didn't return any nearby bookings. Surfaces the
+// 対応予定 contract so Anthony + staff see what'll appear here once
+// the booking-list query is wired (sessions/page.tsx already issues
+// the query — when real appointments exist, this branch is replaced
+// by the real list above).
+function PickerScaffold({
+  t,
+}: {
+  t: ReturnType<typeof useTranslations>
+}) {
+  return (
+    <div className="flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-3 dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-center gap-1.5">
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            {t('pickerScaffoldLabel')}
+          </span>
+        </div>
+        <p className="text-[12px] italic leading-relaxed text-muted-foreground">
+          {t('pickerScaffoldBody')}
+        </p>
+      </div>
+    </div>
   )
 }
