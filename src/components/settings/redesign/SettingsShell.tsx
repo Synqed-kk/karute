@@ -83,7 +83,9 @@ export function SettingsShell({
   const tabsAfterCoaching = visibleTabs.slice(4)
 
   return (
-    <div className="space-y-6">
+    // Owns its own px-4 md:px-6 (system padding rule — (app) layout
+    // no longer provides horizontal padding).
+    <div className="space-y-6 px-4 md:px-6">
       <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
         {tabsBeforeCoaching.map((tab) => (
           <TabButton

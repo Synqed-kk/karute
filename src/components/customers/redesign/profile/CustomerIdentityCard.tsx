@@ -32,13 +32,14 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
   const tProfile = useTranslations('customers.profile')
   const status = STATUS_STYLES[c.status]
   return (
-    // No own px-4/md:px-6 — the (app) layout (and CustomerProfileView's
-    // wrapping <main>) already provide horizontal padding. Adding more
-    // here doubled it on the karute customer detail page (layout p-4 +
-    // this px-4 = 32px from edge), pushing identity content further in
-    // than the rest of the system. Vertical padding stays — the section
-    // still owns its top/bottom spacing for the bg-card divider.
-    <section className="bg-card pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:pb-5 md:pt-6">
+    // Owns its own px-4 md:px-6 (matches spike's CustomerHeaderCard).
+    // The (app) layout now provides ZERO horizontal padding (system-
+    // wide rule), so the identity section's own px is what positions
+    // its content at 16/24px from screen edge. On the karute customer
+    // detail page (no wrapper padding), the section's border-b spans
+    // edge-to-edge while content stays inset — matches the spike's
+    // visual exactly.
+    <section className="bg-card px-4 pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
       <div className="flex items-start gap-3 md:gap-4">
         {/* Avatar — size-11 mobile / size-14 desktop matches spike */}
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-[15px] font-semibold text-foreground ring-1 ring-black/5 md:h-14 md:w-14 md:text-lg">

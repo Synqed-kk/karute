@@ -140,13 +140,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const headerDate = selectedDate
 
   return (
-    // No own `p-4 md:p-6` here — the (app) layout already wraps every page
-    // in that padding. Doubling it pushed chrome + cards to 32px from the
-    // screen edge instead of 16px, so the reservation page sat further in
-    // than customers / karute (which never had this extra layer). Strip
-    // the redundant wrapper so the whole system shares one consistent
-    // 16px inset on mobile, matching the design spike's positioning.
-    <div className="relative space-y-3">
+    // System padding rule: page wrapper owns its horizontal padding
+    // (the (app) layout no longer provides any). Matches the spike's
+    // reservation page wrapper (`px-4 md:px-6`). Cards inside this
+    // wrapper sit at 16/24px from edge — chrome (date selector, toggles,
+    // legend) lands at the same offset for visual alignment.
+    <div className="relative space-y-3 px-4 md:px-6">
       {/* Hidden native date picker; opened by the header's date button. */}
       <input
         ref={datePickerRef}

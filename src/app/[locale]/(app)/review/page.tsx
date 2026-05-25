@@ -30,7 +30,7 @@ export default async function ReviewPage() {
   }))
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4 md:px-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold tracking-tight">Review Complete</h1>
       </div>

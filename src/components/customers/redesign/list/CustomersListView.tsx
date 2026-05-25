@@ -124,7 +124,11 @@ export function CustomersListView({
   }, [filteredRows, page])
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 pt-0 pb-6 md:gap-4 md:pb-6">
+    // Owns its own px-4 md:px-6 — the (app) layout provides no horizontal
+    // padding now (system rule). Matches the spike's customer list page
+    // which wraps with px-4 md:px-8; using md:px-6 here for consistency
+    // with reservation + karute customer detail conventions.
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 pt-0 pb-6 md:gap-4 md:px-6 md:pb-6">
       <CustomersListHeader
         total={totalRegistered}
         showing={filteredRows.length}

@@ -62,7 +62,23 @@ export default async function DashboardLayout({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
           <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)]">
-            <div className="mx-auto max-w-7xl p-4 md:p-6">
+            {/* No horizontal padding here — matches the spike's
+             *  (app) layout which provides ZERO padding. Each page
+             *  component owns its own `px-4 md:px-6` (or whatever
+             *  pattern matches the spike for that page). This is the
+             *  system-wide padding rule:
+             *
+             *    Layout = vertical-only padding.
+             *    Pages  = own horizontal padding per spike.
+             *    Cards  = own `p-4` internal content padding.
+             *
+             *  Cards' BORDERS then sit at the page-wrapper edge (or at
+             *  viewport edge on pages like karute-customer-detail
+             *  which intentionally have no wrapper padding so cards
+             *  bleed full-width on mobile). Card CONTENT sits at
+             *  page-padding + card-padding (16+16=32px). Matches the
+             *  spike's per-page screenshots exactly. */}
+            <div className="mx-auto max-w-7xl py-4 md:py-6">
               {children}
             </div>
           </main>

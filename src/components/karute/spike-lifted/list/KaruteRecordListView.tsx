@@ -154,7 +154,11 @@ export function KaruteRecordListView({
   }
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-col pb-6">
+    // Owns its own px-4 md:px-6 — the (app) layout provides no horizontal
+    // padding now (system rule). The sticky title bar inside uses
+    // `-mx-4 md:-mx-6` to bleed back to viewport edges for the iOS
+    // sticky-header pattern (its bg + border line span full-width).
+    <main className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
       {/* Sticky title bar — same pattern as customers list */}
       <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:px-6">
         <div className="relative flex items-center justify-center py-2">
