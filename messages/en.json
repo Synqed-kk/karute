@@ -809,6 +809,64 @@
     "entriesConfirmed": "{count, plural, one {# entry} other {# entries}} confirmed",
     "selectCustomerAndSave": "Select customer & save"
   },
+  "coaching": {
+    "header": {
+      "title": "Coaching",
+      "subtitleStaff": "Learn from top performers and grow your own technique.",
+      "subtitleOwner": "Support team growth across performance categories."
+    },
+    "staff": {
+      "monthlyGrowth": {
+        "title": "This month's growth",
+        "subtitle": "Your staff-private data (Layer 1)",
+        "body": "AI analyzes your sessions and surfaces your monthly score, change-from-last-month, sessions analyzed, and patterns mastered vs in-progress. Lights up when Anthony wires usePersonalGrowthData()."
+      },
+      "learnFromTop": {
+        "title": "Learn from top performers",
+        "subtitle": "Anonymized team-shared data (Layer 2)",
+        "body": "Conversational patterns extracted from the salon's top performers, surfaced without identifying who. AI extracts natural conversation framing + proposal phrasing and suggests how to apply them in today's session."
+      },
+      "strengths": {
+        "title": "Your strengths",
+        "body": "AI extracts your strongest categories from past sessions — proposals + conversation patterns you can lean into with confidence. Staff-private (Layer 1)."
+      },
+      "nextFocus": {
+        "title": "Next focus",
+        "body": "Growth-opportunity categories + a concrete action you can try in today's session to develop them. Staff-private (Layer 1)."
+      },
+      "recentModules": {
+        "title": "Recent learning modules",
+        "subtitle": "Modules assigned to you by the owner (Layer 1)",
+        "body": "Learning modules assigned by the owner (scripts, videos, tests) with progress. Lights up when Anthony wires useLearningModulesData()."
+      }
+    },
+    "owner": {
+      "teamPerformance": {
+        "title": "Team performance",
+        "subtitle": "Aggregated data (Layer 3)",
+        "body": "Monthly summary of the team's key metrics (revenue, rebooking rate, customer satisfaction, per-customer revenue). Aggregated values only — no individual staff identification. Lights up when Anthony wires useStaffPerformanceData()."
+      },
+      "teamTrends": {
+        "title": "Team trends",
+        "body": "Six-month trend chart of team metrics — useful for spotting seasonal patterns and campaign impact. Aggregated only (Layer 3)."
+      },
+      "topPerformers": {
+        "title": "Top performers",
+        "subtitle": "Anonymized team-shared data (Layer 2)",
+        "body": "Top performers ranked anonymously so owners learn 'what' works rather than 'who'. Identification is intentionally suppressed."
+      },
+      "staffTable": {
+        "title": "Per-staff performance",
+        "subtitle": "Shown only for consenting staff (Layer 2)",
+        "body": "Per-staff performance metrics + coaching status. Rows only appear for staff who have individually granted consent; each staff member can withdraw at any time."
+      },
+      "assignModules": {
+        "title": "Assign learning modules",
+        "subtitle": "Module-to-staff assignment (Layer 2)",
+        "body": "Assign learning modules to staff and track progress. AI recommends modules based on each staff member's growth opportunities."
+      }
+    }
+  },
   "dashboard": {
     "title": "Appointments",
     "dashboardTitle": "Dashboard",
