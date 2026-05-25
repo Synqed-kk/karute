@@ -247,12 +247,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 onSelect={setSelected}
               />
             </div>
-            {/* Bleed the mobile agenda past the layout's 16px horizontal
-             *  padding so the rounded list container reaches the screen
-             *  edges. Matches the spike's mobile screenshot where the
-             *  list is full-bleed and the chrome above stays inset.
-             *  -mx-4 cancels the layout's p-4; md:mx-0 restores it. */}
-            <div className="-mx-4 md:mx-0 md:hidden">
+            <div className="md:hidden">
               <ReservationMobileAgenda
                 reservations={props.reservationViews}
                 onSelect={setSelected}

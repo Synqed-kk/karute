@@ -184,12 +184,11 @@ export function CustomersListView({
             ))}
           </div>
 
-          {/* Mobile list — rows separate via their own border-b. Bleeds
-           *  past the layout's 16px horizontal padding so the rounded
-           *  list container reaches the screen edges, matching the
-           *  spike's full-bleed mobile pattern. The chrome above stays
-           *  inset; only the list goes edge-to-edge. */}
-          <div className="-mx-4 overflow-hidden rounded-2xl border-y border-border/60 bg-card md:mx-0 md:rounded-2xl md:border md:hidden">
+          {/* Mobile list — rows separate via their own border-b. Sits
+           *  inside the layout's 16px horizontal padding so the rounded
+           *  card has breathing room from the screen edges, matching the
+           *  design spike (cards inset, not bleeding). */}
+          <div className="overflow-hidden rounded-2xl border border-border/60 bg-card md:hidden">
             {pagedRows.map((c) => (
               <CustomerCardMobile
                 key={c.id}
