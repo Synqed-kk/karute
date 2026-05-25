@@ -57,6 +57,12 @@ interface CustomersListViewProps {
    * karute-detail page (vertical stack, spike's layout).
    */
   hrefBase?: string
+  /**
+   * Page heading override (rendered in CustomersListHeader). Defaults
+   * to the customer-list heading; the カルテ tab passes its own so
+   * the page identity matches the bottom-nav tab the user came from.
+   */
+  heading?: string
 }
 
 export function CustomersListView({
@@ -67,6 +73,7 @@ export function CustomersListView({
   staffList,
   karuteContext = false,
   hrefBase = '/customers',
+  heading,
 }: CustomersListViewProps) {
   const t = useTranslations('customers.list')
   const tCustomers = useTranslations('customers')
@@ -121,6 +128,7 @@ export function CustomersListView({
       <CustomersListHeader
         total={totalRegistered}
         showing={filteredRows.length}
+        heading={heading}
       />
 
       {/* Order mirrors the design spike: staff scope first (who am I

@@ -52,7 +52,7 @@ export default async function KaruteListPage() {
   const t = startTiming('karute (customer-centric)')
   const synqed = await getSynqedClient()
 
-  const [list, staffList, activeStaffId, businessId, locale, lvT] = await Promise.all([
+  const [list, staffList, activeStaffId, businessId, locale, lvT, tKarute] = await Promise.all([
     t.phase('customers.list', () =>
       synqed.customers.list({
         page: 1,
@@ -66,6 +66,7 @@ export default async function KaruteListPage() {
     t.phase('businessId', () => getBusinessId()),
     getLocale(),
     getTranslations('customers.list.lastVisit'),
+    getTranslations('karute'),
   ])
 
   const lastVisitStrings: LastVisitStrings = {
@@ -135,6 +136,10 @@ export default async function KaruteListPage() {
       // Karute-tab cards link to the karute-detail page (vertical
       // stack with spike's AI sections), NOT the customer profile.
       hrefBase="/karute/customer"
+      // Override the page heading so the karute tab reads as カルテ /
+      // Karute (not 顧客 / Customers — which was the default since
+      // the same list view powers both tabs).
+      heading={tKarute('tabHeading')}
     />
   )
 }

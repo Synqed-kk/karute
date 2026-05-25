@@ -666,7 +666,8 @@
       "addManually": "Add manually",
       "lastUpdated": "Last updated: {date}",
       "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony."
-    }
+    },
+    "tabHeading": "Karute"
   },
   "review": {
     "saveKarute": "Save Karute",

@@ -74,12 +74,24 @@ export function BottomNav() {
         key={route.href}
         href={route.href as Parameters<typeof Link>[0]['href']}
         onClick={() => setMenuOpen(false)}
-        className={`flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors ${
-          active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+        className={`relative flex flex-1 flex-col items-center justify-center gap-1 py-2 transition-colors ${
+          active
+            ? 'font-semibold text-primary'
+            : 'text-muted-foreground hover:text-foreground'
         }`}
         aria-current={active ? 'page' : undefined}
       >
-        <Icon className="h-5 w-5" />
+        {/* iOS-style active indicator — a 3px bar pinned to the top
+         *  edge of the tab. Previous "just change text color to
+         *  primary" was too subtle in karute's theme; this gives a
+         *  clear visual anchor for the active tab. */}
+        {active && (
+          <span
+            aria-hidden
+            className="absolute inset-x-0 top-0 mx-auto h-0.5 w-10 rounded-full bg-primary"
+          />
+        )}
+        <Icon className={`h-5 w-5 ${active ? 'stroke-[2.5]' : ''}`} />
         <span className="text-[10px] font-medium leading-none">{label(route.label)}</span>
       </Link>
     )

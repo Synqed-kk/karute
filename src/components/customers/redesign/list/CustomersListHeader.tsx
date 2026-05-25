@@ -7,6 +7,14 @@ import { CustomerSheet } from '@/components/customers/CustomerSheet'
 interface CustomersListHeaderProps {
   total: number
   showing: number
+  /**
+   * Optional heading override. Defaults to the customer-list heading
+   * (顧客 / Customers) when omitted. The カルテ tab passes its own
+   * heading ("カルテ") so the same list view can be reused under a
+   * different page identity. Keeps the i18n / wiring lazy — heading
+   * is fully owned by the calling page.
+   */
+  heading?: string
 }
 
 /**
@@ -44,7 +52,7 @@ interface CustomersListHeaderProps {
  *   the visual is what Liam asked for. Notifications can land in
  *   its own PR.
  */
-export function CustomersListHeader({ total, showing }: CustomersListHeaderProps) {
+export function CustomersListHeader({ total, showing, heading }: CustomersListHeaderProps) {
   const t = useTranslations('customers.list')
   // Fragment (not a wrapping div) so the sticky bar and the info row
   // become DIRECT children of CustomersListView's outer flex-col.
@@ -62,7 +70,7 @@ export function CustomersListHeader({ total, showing }: CustomersListHeaderProps
       <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:px-6">
         <div className="relative flex items-center justify-center py-2">
           <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
-            {t('heading')}
+            {heading ?? t('heading')}
           </h1>
           <button
             type="button"
