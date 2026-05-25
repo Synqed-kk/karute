@@ -665,7 +665,9 @@
       "sourceIntake": "From intake",
       "addManually": "Add manually",
       "lastUpdated": "Last updated: {date}",
-      "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony."
+      "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony.",
+      "sectionEmpty": "Coming soon — nothing here yet",
+      "comingSoonPill": "Coming soon"
     },
     "tabHeading": "Karute",
     "recordList": {

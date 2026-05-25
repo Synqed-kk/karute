@@ -117,11 +117,21 @@ const CATEGORY_KEYS: MemoryCategory[] = [
 export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Props) {
   const t = useTranslations('karute.memorySection')
   const [stubOpen, setStubOpen] = useState(false)
+  const isEmpty = memory.items.length === 0
+  const talkingPoints = memory.items.filter((i) => i.suggestTalkingPoint)
+  const byCategory = groupByCategory(memory.items)
+
   // Collapsed sections live in local state — Set keyed by category.
-  // No backend persistence yet; refresh resets to "all expanded".
-  // ANTHONY: if salon staff want their collapse preferences to stick,
-  // persist into localStorage or a per-staff settings table.
-  const [collapsed, setCollapsed] = useState<Set<MemoryCategory>>(new Set())
+  // Default behavior: sections with 0 items start collapsed (just
+  // their header is visible as a structure preview); sections with
+  // items start expanded so staff sees content immediately. Refresh
+  // resets to this default; no backend persistence yet.
+  // ANTHONY: if salon staff want their collapse preferences to stick
+  // across sessions, persist into localStorage or a per-staff
+  // settings table.
+  const [collapsed, setCollapsed] = useState<Set<MemoryCategory>>(
+    () => new Set(CATEGORY_KEYS.filter((c) => (byCategory[c] ?? []).length === 0)),
+  )
   const toggleCollapsed = (cat: MemoryCategory) => {
     setCollapsed((prev) => {
       const next = new Set(prev)
@@ -130,10 +140,6 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
       return next
     })
   }
-
-  const isEmpty = memory.items.length === 0
-  const talkingPoints = memory.items.filter((i) => i.suggestTalkingPoint)
-  const byCategory = groupByCategory(memory.items)
 
   return (
     <>
@@ -185,7 +191,10 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
           </p>
         )}
 
-        {/* Empty state */}
+        {/* Overall empty state — shown when the customer has no memory
+         *  items yet. The 5 category sections below ALSO render in
+         *  this case (as a structure preview with "対応予定" indicators)
+         *  so staff sees what'll populate over time. */}
         {isEmpty && (
           <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
             <Brain className="mx-auto mb-1.5 size-5 text-gray-400 dark:text-gray-500" />
@@ -230,25 +239,27 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
           </div>
         )}
 
-        {/* Categorized sections — each with its own collapse chevron */}
-        {!isEmpty && (
-          <div className="mt-4 space-y-3">
-            {CATEGORY_KEYS.map((cat) => {
-              const items = byCategory[cat] ?? []
-              if (items.length === 0) return null
-              return (
-                <CategorySection
-                  key={cat}
-                  category={cat}
-                  items={items}
-                  isCollapsed={collapsed.has(cat)}
-                  onToggleCollapse={() => toggleCollapsed(cat)}
-                  onActionStub={() => setStubOpen(true)}
-                />
-              )
-            })}
-          </div>
-        )}
+        {/* Categorized sections — ALWAYS render all 5 categories, even
+         *  when empty. Empty sections show a "対応予定" indicator in
+         *  the header + a small "nothing here yet" body when expanded.
+         *  This gives staff a structural preview of what AI will
+         *  populate over time, instead of hiding the layout when
+         *  there's no data. */}
+        <div className="mt-4 space-y-3">
+          {CATEGORY_KEYS.map((cat) => {
+            const items = byCategory[cat] ?? []
+            return (
+              <CategorySection
+                key={cat}
+                category={cat}
+                items={items}
+                isCollapsed={collapsed.has(cat)}
+                onToggleCollapse={() => toggleCollapsed(cat)}
+                onActionStub={() => setStubOpen(true)}
+              />
+            )
+          })}
+        </div>
 
         {/* Footer */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-black/5 pt-3 dark:border-white/5">
@@ -308,9 +319,13 @@ function CategorySection({
   const Icon = visual.icon
   const ChevronIcon = isCollapsed ? ChevronRight : ChevronDown
   const label = t(`category${categoryKeySuffix(category)}`)
+  const isCategoryEmpty = items.length === 0
   return (
     <div>
-      {/* Header is a button — entire row toggles collapse on tap. */}
+      {/* Header is a button — entire row toggles collapse on tap.
+       *  Empty categories get a "対応予定" pill in the header so the
+       *  scaffold reads as "future structure" rather than just "0
+       *  things". */}
       <button
         type="button"
         onClick={onToggleCollapse}
@@ -326,6 +341,11 @@ function CategorySection({
         <span className="text-[10px] tabular-nums text-muted-foreground">
           {items.length}
         </span>
+        {isCategoryEmpty && (
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            {t('comingSoonPill')}
+          </span>
+        )}
         <ChevronIcon
           size={14}
           className="ml-auto text-muted-foreground/60"
@@ -333,11 +353,21 @@ function CategorySection({
         />
       </button>
       {!isCollapsed && (
-        <ul className="space-y-1.5 pl-1">
-          {items.map((item) => (
-            <MemoryItemRow key={item.id} item={item} onActionStub={onActionStub} />
-          ))}
-        </ul>
+        isCategoryEmpty ? (
+          <p className="pl-1 text-[11px] italic text-muted-foreground/70">
+            {t('sectionEmpty')}
+          </p>
+        ) : (
+          <ul className="space-y-1.5 pl-1">
+            {items.map((item) => (
+              <MemoryItemRow
+                key={item.id}
+                item={item}
+                onActionStub={onActionStub}
+              />
+            ))}
+          </ul>
+        )
       )}
     </div>
   )

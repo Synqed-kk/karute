@@ -665,7 +665,9 @@
       "sourceIntake": "初診カルテより",
       "addManually": "手動で追加",
       "lastUpdated": "最終更新: {date}",
-      "comingSoonEdit": "編集・ピン留め・手動追加機能は対応予定です（Anthonyが実装中）。"
+      "comingSoonEdit": "編集・ピン留め・手動追加機能は対応予定です（Anthonyが実装中）。",
+      "sectionEmpty": "対応予定 — このカテゴリーにはまだ情報がありません",
+      "comingSoonPill": "対応予定"
     },
     "tabHeading": "カルテ",
     "recordList": {
