@@ -180,7 +180,7 @@ export function BottomNav() {
             >
               <Mic className="h-5 w-5" />
             </Link>
-            <span className="mt-1 max-w-[88px] truncate text-[10px] font-medium leading-none text-muted-foreground">
+            <span className="mt-2 max-w-[88px] truncate text-[10px] font-medium leading-none text-foreground">
               {label('pickBooking')}
             </span>
           </div>
