@@ -1,5 +1,6 @@
 import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
+import { SynqedClient } from '@synqed-kk/client'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
@@ -21,45 +22,31 @@ export interface StaffMemberBasic {
   full_name: string | null
 }
 
-// Inside unstable_cache there's no request context (no cookies → no RLS),
-// so we use the service-role client and filter by businessId explicitly.
-// The cache key includes businessId so tenants never see each other's data.
 const staffListByBusiness = unstable_cache(
   async (businessId: string): Promise<StaffMember[]> => {
-    const service = createServiceClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (service as any)
-      .from('profiles')
-      .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
-      .eq('customer_id', businessId)
-      .not('full_name', 'is', null)
-      .not('full_name', 'ilike', '_system_%')
-      .order('full_name', { ascending: true })
-
-    if (error) {
-      console.error('[getStaffList] Supabase error:', error.message)
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) {
+      console.error('[getStaffList] Missing SYNQED_CORE_URL/API_KEY')
       return []
     }
-
-    return (data ?? []).map(
-      ({
-        pin_hash,
-        customer_id: _customer_id,
-        ...rest
-      }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
-        ...rest,
-        has_pin: !!pin_hash,
-      }),
-    ) as StaffMember[]
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    const { staff } = await client.staff.list({ page_size: 200 })
+    return staff
+      .filter((s) => s.is_active)
+      .map((s) => ({
+        id: s.id,
+        full_name: s.name,
+        display_role: s.role ? s.role.toLowerCase() : null,
+        position: null,
+        email: s.email,
+        phone: null,
+        avatar_url: s.avatar_url,
+        has_pin: false,
+        created_at: s.created_at,
+      }))
   },
-  // Staff onboarding is a once-in-a-while admin event, not a per-session
-  // thing — every karute mutation that changes a staff row (create/update/
-  // delete/avatar upload in src/actions/staff.ts) already calls
-  // updateTag('staff-list'), so the cache invalidates the moment something
-  // actually changes. The TTL is just a backstop in case a non-karute
-  // mutation slips in elsewhere (e.g. directly in Supabase). A day is
-  // generous and matches the rate of real staff churn.
-  ['staff-list-v1'],
+  ['staff-list-v2'],
   { revalidate: 86400, tags: ['staff-list'] },
 )
 
@@ -91,34 +78,16 @@ export const getStaffList = cache(async (): Promise<StaffMember[]> => {
  * Returns a single staff profile by ID, or null if not found.
  */
 export async function getStaffById(id: string): Promise<StaffMemberBasic | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .eq('id', id)
-    .single()
-
-  if (error) return null
-  return data
+  const list = await getStaffList()
+  const found = list.find((s) => s.id === id)
+  return found ? { id: found.id, full_name: found.full_name } : null
 }
 
-/**
- * Resolves the staff identity for the currently authenticated user.
- *
- * Looks up the staff row in this tenant whose `id` matches `auth.uid()` — every
- * user gets exactly one staff identity per business, seeded at signup. Returns
- * null if the user has no staff row (e.g. they were removed but their auth
- * session is still alive).
- *
- * Save flows must read staff_id from here — never accept it from client input,
- * never trust a cookie. Replaces the old cookie-backed active-staff pattern,
- * which let stale ids survive auth wipes and caused FK violations.
- */
+// TEMPORARY (removed in Phase 4): there is no per-user "active staff" once
+// staff are decoupled from auth. Consumers default to the first roster member.
 export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
-  const userId = await resolveUserId().catch(() => null)
-  if (!userId) return null
   const list = await getStaffList()
-  return list.some((s) => s.id === userId) ? userId : null
+  return list[0]?.id ?? null
 })
 
 /**
