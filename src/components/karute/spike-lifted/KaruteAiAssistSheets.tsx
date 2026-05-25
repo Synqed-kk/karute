@@ -30,6 +30,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { TranscriptCard } from './transcript/TranscriptCard'
+import { AISummaryPreview } from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 
 interface Props {
   /** Pretty session date — shown as the AI Summary sheet's
@@ -107,8 +108,11 @@ export function KaruteAiAssistSheets({
             <SheetTitle>{t('summaryTitle')}</SheetTitle>
             <SheetDescription>{sessionDate ?? '—'}</SheetDescription>
           </SheetHeader>
-          <div className="mt-3 rounded-lg border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-[12px] italic leading-relaxed text-muted-foreground">
-            {t('summarySubtitle')}
+          {/* Same AISummaryPreview scaffold the desktop sidebar uses
+           *  — bullet-list skeleton + 対応予定 pill so Anthony sees
+           *  the same structure inside the sheet. */}
+          <div className="mt-3">
+            <AISummaryPreview />
           </div>
         </SheetContent>
       </Sheet>
