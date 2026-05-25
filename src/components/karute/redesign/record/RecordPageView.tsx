@@ -61,6 +61,11 @@ export interface RecordPageViewProps {
     staffId: string
     staffName: string
   }[]
+  /**
+   * The PIN-selected active staff, used to pre-select attribution when the
+   * recording has no booking target (booking attribution always wins).
+   */
+  defaultStaffId?: string | null
 }
 
 function deriveInitials(name: string): string {
@@ -89,6 +94,7 @@ export function RecordPageView({
   consentDate,
   staffRoster,
   bookingTargets,
+  defaultStaffId,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -212,7 +218,7 @@ export function RecordPageView({
         duration={Math.round(result.durationMs / 1000)}
         appointmentId={selectedTarget?.id}
         appointmentCustomerId={selectedTarget?.customerId}
-        staffId={selectedTarget?.staffId}
+        staffId={selectedTarget?.staffId ?? defaultStaffId ?? undefined}
         staffOptions={staffRoster}
         onCancel={handleNewSession}
         onSaved={handleNewSession}

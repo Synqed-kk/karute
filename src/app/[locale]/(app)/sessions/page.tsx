@@ -1,5 +1,6 @@
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getCustomerConsent } from '@/actions/customers'
 import { getAppointmentsByDate } from '@/actions/appointments'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -48,11 +49,12 @@ export default async function SessionsPage({
   const todayStr = ymdInJst(today)
 
   // Fan out all independent reads in parallel
-  const [customers, staffList, todays, karuteRes] = await Promise.all([
+  const [customers, staffList, todays, karuteRes, activeStaffId] = await Promise.all([
     getCachedCustomerList(),
     getStaffList(),
     getAppointmentsByDate(todayStr),
     getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 5 })),
+    getActiveStaffId(),
   ])
 
   const nameById = new Map(staffList.map((s) => [s.id, s.full_name ?? '—']))
@@ -178,6 +180,7 @@ export default async function SessionsPage({
       consentDate={consentDate}
       staffRoster={staffRoster}
       bookingTargets={bookingTargets}
+      defaultStaffId={activeStaffId}
     />
   )
 }
