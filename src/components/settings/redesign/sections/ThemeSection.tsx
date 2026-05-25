@@ -71,7 +71,7 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold">{t('theme')}</h3>
+        <h3 className="text-lg font-semibold">{t('theme.label')}</h3>
         <p className="text-sm text-muted-foreground">{t('themeDescription')}</p>
       </div>
 
