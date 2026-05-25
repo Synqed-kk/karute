@@ -37,6 +37,43 @@ function startOfWeekSun(d: Date): Date {
   return out
 }
 
+// ─────────────────────────────────────────────────────────────
+// Date-range pre-computers — pulled OUT of the await chain so
+// they can be computed synchronously up-front, allowing the
+// week/month range fetch to fan out alongside Stage 1 of the
+// page-level Promise.all (instead of running serially after).
+// ─────────────────────────────────────────────────────────────
+function computeWeekRange(selectedDate: Date): {
+  weekStart: Date
+  weekEnd: Date
+  rangeFrom: Date
+  rangeTo: Date
+} {
+  const weekStart = startOfWeekSun(selectedDate)
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekEnd.getDate() + 6)
+  const rangeFrom = new Date(weekStart)
+  const rangeTo = new Date(weekEnd)
+  rangeTo.setHours(23, 59, 59, 999)
+  return { weekStart, weekEnd, rangeFrom, rangeTo }
+}
+
+function computeMonthRange(selectedDate: Date): {
+  monthStart: Date
+  monthEnd: Date
+  rangeFrom: Date
+  rangeTo: Date
+} {
+  const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
+  const monthEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0)
+  const rangeFrom = new Date(monthStart)
+  rangeFrom.setDate(rangeFrom.getDate() - 7) // include leading days
+  const rangeTo = new Date(monthEnd)
+  rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
+  rangeTo.setHours(23, 59, 59, 999)
+  return { monthStart, monthEnd, rangeFrom, rangeTo }
+}
+
 /**
  * Parse the ?staff= URL param into one of:
  *   - 'all'     — every staff's bookings (matches the spike default)
@@ -74,6 +111,20 @@ export default async function AppointmentsPage({
   // wrong for half the JST clock).
   const selectedDateStr = ymdInJst(selectedDate)
 
+  // ─────────────────────────────────────────────────────────────
+  // STAGE 1 — fan out everything that doesn't depend on the
+  // dayAppointments result. Previously getBusinessId() and the
+  // week/month range fetch ran SEQUENTIALLY after this block,
+  // adding a 500-1000ms waterfall on every navigation. Neither
+  // has a dependency on the items below, so both live here now.
+  //
+  // Week/month range pre-compute moves into Stage 1 too — its
+  // date math depends only on `selectedDate` + `view`, both
+  // derived synchronously from URL params above.
+  // ─────────────────────────────────────────────────────────────
+  const weekRange = view === 'week' ? computeWeekRange(selectedDate) : null
+  const monthRange = view === 'month' ? computeMonthRange(selectedDate) : null
+
   const [
     {
       data: { user },
@@ -83,6 +134,9 @@ export default async function AppointmentsPage({
     orgSettings,
     customers,
     dayAppointments,
+    businessId,
+    weekRangeAppts,
+    monthRangeAppts,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
@@ -90,6 +144,19 @@ export default async function AppointmentsPage({
     getOrgSettings(),
     getCachedCustomerList(),
     getAppointmentsByDate(selectedDateStr),
+    getBusinessId().catch(() => null),
+    weekRange
+      ? getAppointmentsInRange(
+          weekRange.rangeFrom.toISOString(),
+          weekRange.rangeTo.toISOString(),
+        )
+      : Promise.resolve(null),
+    monthRange
+      ? getAppointmentsInRange(
+          monthRange.rangeFrom.toISOString(),
+          monthRange.rangeTo.toISOString(),
+        )
+      : Promise.resolve(null),
   ])
 
   const authProfileId = user?.id ?? null
@@ -112,13 +179,14 @@ export default async function AppointmentsPage({
     initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
   }))
 
-  // Visit count per client is needed to derive the "新規 (new)" status for
-  // first-time customers. Only the clients on the viewed day matter — keeps
-  // the enrichCustomers fan-out tiny vs. running it for the whole tenant.
+  // ─────────────────────────────────────────────────────────────
+  // STAGE 2 — only enrichCustomers, since it genuinely depends on
+  // dayAppointments (it needs the client_ids of today's bookings)
+  // AND businessId. Both came back in Stage 1.
+  // ─────────────────────────────────────────────────────────────
   const clientIdsForDay = Array.from(
     new Set(dayAppointments.map((a) => a.client_id)),
   )
-  const businessId = await getBusinessId().catch(() => null)
   const enrichment =
     businessId && clientIdsForDay.length
       ? await enrichCustomers(businessId, clientIdsForDay)
@@ -164,26 +232,20 @@ export default async function AppointmentsPage({
     end: Math.ceil(dayOpHours.closeMinute / 60),
   }
 
-  // Pre-compute week/month data server-side based on view + selectedDate.
+  // Project Stage-1 range fetches into the week/month data shapes
+  // the AppointmentsView expects. The async fetches already ran in
+  // Stage 1's Promise.all — here we just synchronously transform.
   let weekData: Awaited<ReturnType<typeof appointmentsToWeekData>> | null = null
   let monthData: Awaited<ReturnType<typeof appointmentsToMonthCells>> | null = null
   let weekStartIso: string | null = null
   let monthStartIso: string | null = null
 
-  if (view === 'week') {
-    const weekStart = startOfWeekSun(selectedDate)
-    const weekEnd = new Date(weekStart)
-    weekEnd.setDate(weekEnd.getDate() + 6)
-    const rangeFrom = new Date(weekStart)
-    const rangeTo = new Date(weekEnd)
-    rangeTo.setHours(23, 59, 59, 999)
-    const appts = await getAppointmentsInRange(rangeFrom.toISOString(), rangeTo.toISOString())
-
+  if (weekRange && weekRangeAppts) {
     // Average business-hours minutes across the week (a single number for the
     // utilization chip — close enough for the overview view).
     const totalMinutes = (() => {
       let sum = 0
-      const cur = new Date(weekStart)
+      const cur = new Date(weekRange.weekStart)
       for (let i = 0; i < 7; i++) {
         const dh = getOperatingHoursForDate(orgSettings?.operating_hours, cur)
         sum += Math.max(0, dh.closeMinute - dh.openMinute)
@@ -192,19 +254,22 @@ export default async function AppointmentsPage({
       return Math.round(sum / 7)
     })()
 
-    weekData = appointmentsToWeekData(appts, weekStart, weekEnd, totalMinutes, now)
-    weekStartIso = weekStart.toISOString()
-  } else if (view === 'month') {
-    const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
-    const monthEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0)
-    const rangeFrom = new Date(monthStart)
-    rangeFrom.setDate(rangeFrom.getDate() - 7) // include leading days
-    const rangeTo = new Date(monthEnd)
-    rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
-    rangeTo.setHours(23, 59, 59, 999)
-    const appts = await getAppointmentsInRange(rangeFrom.toISOString(), rangeTo.toISOString())
-    monthData = appointmentsToMonthCells(appts, monthStart, monthEnd, now)
-    monthStartIso = monthStart.toISOString()
+    weekData = appointmentsToWeekData(
+      weekRangeAppts,
+      weekRange.weekStart,
+      weekRange.weekEnd,
+      totalMinutes,
+      now,
+    )
+    weekStartIso = weekRange.weekStart.toISOString()
+  } else if (monthRange && monthRangeAppts) {
+    monthData = appointmentsToMonthCells(
+      monthRangeAppts,
+      monthRange.monthStart,
+      monthRange.monthEnd,
+      now,
+    )
+    monthStartIso = monthRange.monthStart.toISOString()
   }
 
   return (
