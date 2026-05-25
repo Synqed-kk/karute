@@ -667,7 +667,35 @@
       "lastUpdated": "最終更新: {date}",
       "comingSoonEdit": "編集・ピン留め・手動追加機能は対応予定です（Anthonyが実装中）。"
     },
-    "tabHeading": "カルテ"
+    "tabHeading": "カルテ",
+    "recordList": {
+      "statusLine": "今月のカルテ · {monthCount} · 過去14日間 · {showingCount}件を表示中",
+      "newKarute": "+ 新規カルテ",
+      "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
+      "filters": {
+        "all": "すべて",
+        "thisWeek": "今週",
+        "aiPending": "AI補完待ち",
+        "needsReview": "レビュー要",
+        "draft": "下書き"
+      },
+      "dateGroup": {
+        "today": "本日",
+        "yesterday": "昨日",
+        "suffix": "{n}件のカルテ"
+      },
+      "aiStatus": {
+        "summarized": "AI要約済",
+        "pending": "AI補完待ち",
+        "needsReview": "レビュー要",
+        "draft": "下書き"
+      },
+      "conversionStatus": {
+        "provisional": "仮カルテ"
+      },
+      "minutesSuffix": "分",
+      "empty": "カルテはまだありません"
+    }
   },
   "review": {
     "saveKarute": "カルテを保存",

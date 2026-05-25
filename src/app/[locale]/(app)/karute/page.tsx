@@ -1,145 +1,141 @@
-import { getLocale, getTranslations } from 'next-intl/server'
-import {
-  getCurrentUserStaffId,
-  getStaffList,
-  getBusinessId,
-} from '@/lib/staff'
+import { getLocale } from 'next-intl/server'
+
+import { getBusinessId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
-import type { CustomerListRow } from '@/components/customers/redesign/types'
-import {
-  defaultAiPredict,
-  deriveStatus,
-  enrichCustomers,
-  formatJoinDate,
-  formatLastVisit,
-  type LastVisitStrings,
-} from '@/lib/customers/list-enrich'
+import { createServiceClient } from '@/lib/supabase/service'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
 } from '@/lib/customers/identity'
-import { startTiming } from '@/lib/perf/timing'
+import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
+import type {
+  KaruteAiStatus,
+  KaruteConversionStatus,
+  KaruteListItem,
+} from '@/components/karute/spike-lifted/list/types'
 
 /**
- * カルテ tab — customer-centric karute list.
+ * カルテ tab — RECORD-CENTRIC list of karute sessions.
  *
- * Mirrors the design-spike's mental model: each customer has one
- * "karute folder" that accumulates over time. So the karute tab is
- * a list of CUSTOMERS (not session records), even when a customer
- * has no recordings yet — they appear with the AI surfaces in
- * "対応予定" state.
+ * Phase A (this commit): one row per karute record, date-grouped,
+ * AI status badges, karute-specific filters. Matches the design
+ * spike's KaruteList structure end-to-end.
  *
- * Implementation: fetches the same customer data as the 顧客 tab,
- * renders the same CustomersListView with `karuteContext={true}` so
- * each row also displays the AI-status chip footer (体調予測 / 推奨
- * / 要約 / 録音, all 対応予定 until Anthony wires them).
+ * Phase B (next): append placeholder rows for customers with NO
+ * karute records yet so brand-new customers still appear (Liam's
+ * earlier ask). Today they're invisible on this tab; the customer-
+ * centric chip-row view we shipped previously is still reachable
+ * via the 顧客 tab → tap a customer → karute detail page.
  *
- * ANTHONY: the PREVIOUS implementation of this page rendered a
- * chronological list of karute_records (session-centric view). That
- * component (KaruteListView at src/components/karute/KaruteListView
- * + the karuteRecordsToRichRows adapter) is still in the tree —
- * left intact so you can decide whether to:
- *   (a) keep this customer-centric view as the canonical /karute
- *       (matches spike + Liam's product spec), and reinstate the
- *       session-stream view as a separate sub-route like
- *       /karute/sessions or /karute/feed, OR
- *   (b) restore the session-stream as default and move the
- *       customer-centric view here to /karute/customers
- * Either choice is reversible — only this single page.tsx changes.
+ * ANTHONY: karute_records currently lacks `service` (text) and
+ * `duration_minutes` (int) columns. The row renderer expects both;
+ * for now we fall back to "施術" + 0 minutes. Adding those columns
+ * (+ a brief service-type config UI) makes the row read with real
+ * salon-treatment context.
  */
-export default async function KaruteListPage() {
-  const t = startTiming('karute (customer-centric)')
+export default async function KaruteRecordsListPage() {
+  const supabase = await createClient()
+  const businessId = await getBusinessId()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any
   const synqed = await getSynqedClient()
 
-  const [list, staffList, activeStaffId, businessId, locale, lvT, tKarute] = await Promise.all([
-    t.phase('customers.list', () =>
-      synqed.customers.list({
-        page: 1,
-        page_size: 500,
-        sort_by: 'updated_at',
-        sort_order: 'desc',
-      }),
-    ),
-    t.phase('staffList', () => getStaffList()),
-    t.phase('activeStaffId', () => getCurrentUserStaffId()),
-    t.phase('businessId', () => getBusinessId()),
+  const [recordsRes, staffList, allCustomersList, _locale] = await Promise.all([
+    sb
+      .from('karute_records')
+      .select(
+        'id, session_date, created_at, summary, transcript, staff_profile_id, client_id, entries(count)',
+      )
+      .eq('customer_id', businessId)
+      .order('session_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .limit(200),
+    getStaffList(),
+    synqed.customers.list({
+      page: 1,
+      page_size: 500,
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    }),
     getLocale(),
-    getTranslations('customers.list.lastVisit'),
-    getTranslations('karute'),
   ])
 
-  const lastVisitStrings: LastVisitStrings = {
-    noVisits: lvT('noVisits'),
-    today: lvT('today'),
-    oneDayAgo: lvT('oneDayAgo'),
-    daysAgo: (n) => lvT('daysAgo', { n }),
-    monthsAgo: (n) => lvT('monthsAgo', { n }),
+  type RecordRow = {
+    id: string
+    session_date: string | null
+    created_at: string
+    summary: string | null
+    transcript: string | null
+    staff_profile_id: string | null
+    client_id: string
+    entries: Array<{ count: number }> | null
   }
 
+  const records = ((recordsRes.data ?? []) as RecordRow[]).map((r) => r)
+
+  // Build lookup maps
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
-
-  const customerIds = list.customers.map((c) => c.id)
-  const enrichment = await t.phase('enrichCustomers', () =>
-    enrichCustomers(businessId, customerIds),
+  const customerById = new Map(
+    allCustomersList.customers.map((c) => [c.id, c]),
   )
-  t.end()
+  const karuteNumberByCustomerId = assignSequentialKaruteNumbers(
+    allCustomersList.customers,
+  )
 
-  const karuteNumberById = assignSequentialKaruteNumbers(list.customers)
+  // Project records into KaruteListItem shape
+  const items: KaruteListItem[] = records.map((r) => {
+    const customer = customerById.get(r.client_id)
+    const customerName = customer?.name ?? '不明'
+    const entryCount = Array.isArray(r.entries)
+      ? (r.entries[0]?.count ?? 0)
+      : 0
+    const isoDate = (r.session_date ?? r.created_at).slice(0, 10)
+    const dt = new Date(`${isoDate}T00:00:00+09:00`)
+    const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
 
-  const rows: CustomerListRow[] = list.customers.map((c) => {
-    const enriched = enrichment.get(c.id)
-    const lastVisitIso = enriched?.lastVisitIso ?? null
-    const status = deriveStatus(c.created_at, lastVisitIso)
-    const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
-    const totalKarute = enriched?.totalKarute ?? 0
+    // Derive AI status from data shape — see types.ts for rationale.
+    let aiStatus: KaruteAiStatus = 'draft'
+    if (r.summary && r.summary.trim().length > 0) aiStatus = 'summarized'
+    else if (r.transcript && r.transcript.trim().length > 0)
+      aiStatus = 'pending'
+
+    // Conversion status — entry count is the best signal we have.
+    const conversionStatus: KaruteConversionStatus =
+      entryCount > 0 ? 'active' : 'provisional'
+
     return {
-      id: c.id,
-      name: c.name,
-      initials: deriveFamilyInitials(c.name),
-      karuteNumber: karuteNumberById.get(c.id) ?? '#00000',
-      age: null,
-      gender: null,
-      joinDate: formatJoinDate(c.created_at, locale),
-      joinDateIso: c.created_at ?? null,
-      visitsDone: Math.min(totalKarute, 5),
-      visitsTotal: 5,
-      lastVisitDate: last.date,
-      lastVisitAgo: last.ago,
-      aiPredict: defaultAiPredict(status),
-      status,
-      preferredStaffId: c.assigned_staff_id ?? null,
-      preferredStaffName: c.assigned_staff_id
-        ? (staffNameById.get(c.assigned_staff_id) ?? null)
-        : null,
-      totalKarute,
-      phone: c.phone,
-      email: c.email,
+      id: r.id,
+      customerId: r.client_id,
+      customerName,
+      customerInitials: deriveFamilyInitials(customerName),
+      customerKaruteNumber:
+        karuteNumberByCustomerId.get(r.client_id) ?? '#00000',
+      date: isoDate,
+      weekday,
+      // ANTHONY: service + duration aren't on karute_records yet —
+      // fallback values until the schema gets those columns.
+      service: '施術',
+      duration: 0,
+      staffId: r.staff_profile_id,
+      staffName: r.staff_profile_id
+        ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
+        : '—',
+      summary: r.summary ?? '',
+      aiStatus,
+      conversionStatus,
     }
   })
 
-  const staffForFilter = staffList.map((s) => {
-    const name = s.full_name ?? 'Unknown'
-    return { id: s.id, name, initials: deriveFamilyInitials(name) }
-  })
+  // monthCount — records whose session_date falls in the current month
+  const now = new Date()
+  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
 
-  return (
-    <CustomersListView
-      rows={rows}
-      totalRegistered={list.total}
-      query=""
-      selfStaffId={activeStaffId}
-      staffList={staffForFilter}
-      karuteContext
-      // Karute-tab cards link to the karute-detail page (vertical
-      // stack with spike's AI sections), NOT the customer profile.
-      hrefBase="/karute/customer"
-      // Override the page heading so the karute tab reads as カルテ /
-      // Karute (not 顧客 / Customers — which was the default since
-      // the same list view powers both tabs).
-      heading={tKarute('tabHeading')}
-    />
-  )
+  return <KaruteRecordListView items={items} monthCount={monthCount} />
 }
+
+// Local createClient import — avoids re-resolving via the top-level
+// import dance that depends on cookies()
+import { createClient } from '@/lib/supabase/server'

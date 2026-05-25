@@ -667,7 +667,35 @@
       "lastUpdated": "Last updated: {date}",
       "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony."
     },
-    "tabHeading": "Karute"
+    "tabHeading": "Karute",
+    "recordList": {
+      "statusLine": "This month {monthCount} karute · past 14 days · showing {showingCount}",
+      "newKarute": "+ New karute",
+      "searchPlaceholder": "Search by customer · service · staff",
+      "filters": {
+        "all": "All",
+        "thisWeek": "This week",
+        "aiPending": "AI pending",
+        "needsReview": "Needs review",
+        "draft": "Draft"
+      },
+      "dateGroup": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "suffix": "{n} karute"
+      },
+      "aiStatus": {
+        "summarized": "AI summarized",
+        "pending": "AI pending",
+        "needsReview": "Needs review",
+        "draft": "Draft"
+      },
+      "conversionStatus": {
+        "provisional": "Provisional"
+      },
+      "minutesSuffix": " min",
+      "empty": "No karute records yet"
+    }
   },
   "review": {
     "saveKarute": "Save Karute",
