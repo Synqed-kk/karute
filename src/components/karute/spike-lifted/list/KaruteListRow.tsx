@@ -35,7 +35,7 @@ export function KaruteListRow({ item }: Props) {
 
   return (
     <Link
-      href={`/karute/${item.id}` as Parameters<typeof Link>[0]['href']}
+      href={item.href as Parameters<typeof Link>[0]['href']}
       className="group relative flex min-h-[60px] items-center gap-3 border-b border-black/5 px-4 py-2.5 transition-colors last:border-b-0 hover:bg-muted/30 active:bg-muted/50 dark:border-white/5 md:gap-4"
     >
       {/* Staff color stripe (left edge) — same idiom as customer cards */}

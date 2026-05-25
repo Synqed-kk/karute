@@ -84,6 +84,8 @@ export default async function KaruteRecordsListPage() {
     allCustomersList.customers,
   )
 
+  const recordedCustomerIds = new Set(records.map((r) => r.client_id))
+
   // Project records into KaruteListItem shape
   const items: KaruteListItem[] = records.map((r) => {
     const customer = customerById.get(r.client_id)
@@ -125,15 +127,61 @@ export default async function KaruteRecordsListPage() {
       summary: r.summary ?? '',
       aiStatus,
       conversionStatus,
+      href: `/karute/${r.id}`,
     }
   })
+
+  // Phase B: synthesize placeholder rows for customers with NO records
+  // yet. Each links to /karute/customer/[id] (the customer's karute
+  // folder view) so staff can drop in and start the first session.
+  // Sorted newest-customer-first so the most recent signups bubble up.
+  const placeholders: KaruteListItem[] = allCustomersList.customers
+    .filter((c) => !recordedCustomerIds.has(c.id))
+    .sort((a, b) =>
+      (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+    )
+    .map((c) => {
+      const isoDate = (c.created_at ?? new Date().toISOString()).slice(0, 10)
+      const dt = new Date(`${isoDate}T00:00:00+09:00`)
+      const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+      return {
+        id: `placeholder-${c.id}`,
+        customerId: c.id,
+        customerName: c.name,
+        customerInitials: deriveFamilyInitials(c.name),
+        customerKaruteNumber:
+          karuteNumberByCustomerId.get(c.id) ?? '#00000',
+        date: isoDate,
+        weekday,
+        // ANTHONY: when service + duration columns land on karute_records,
+        // these stay empty for placeholder rows (no session yet). The
+        // string here is the user-facing label shown in lieu of a service.
+        service: 'まだセッションなし',
+        duration: 0,
+        staffId: c.assigned_staff_id ?? null,
+        staffName: c.assigned_staff_id
+          ? (staffNameById.get(c.assigned_staff_id) ?? '—')
+          : '—',
+        summary: '初回セッションを記録すると、ここに表示されます',
+        aiStatus: 'draft',
+        conversionStatus: 'provisional',
+        href: `/karute/customer/${c.id}`,
+        isPlaceholder: true,
+      }
+    })
 
   // monthCount — records whose session_date falls in the current month
   const now = new Date()
   const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
 
-  return <KaruteRecordListView items={items} monthCount={monthCount} />
+  return (
+    <KaruteRecordListView
+      items={items}
+      monthCount={monthCount}
+      placeholders={placeholders}
+    />
+  )
 }
 
 // Local createClient import — avoids re-resolving via the top-level

@@ -694,7 +694,9 @@
         "provisional": "仮カルテ"
       },
       "minutesSuffix": "分",
-      "empty": "カルテはまだありません"
+      "empty": "カルテはまだありません",
+      "newCustomersHeader": "新規のお客様 · まだセッションなし",
+      "noSessionYet": "まだセッションなし"
     }
   },
   "review": {

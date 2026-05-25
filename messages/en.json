@@ -694,7 +694,9 @@
         "provisional": "Provisional"
       },
       "minutesSuffix": " min",
-      "empty": "No karute records yet"
+      "empty": "No karute records yet",
+      "newCustomersHeader": "New customers · no session yet",
+      "noSessionYet": "No session yet"
     }
   },
   "review": {

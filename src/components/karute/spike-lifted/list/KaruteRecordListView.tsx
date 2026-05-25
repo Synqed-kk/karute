@@ -33,6 +33,16 @@ interface Props {
   /** Total karute records this month (not filtered) — shown in the
    *  status line independent of the active filter. */
   monthCount: number
+  /**
+   * Customers with NO karute records yet — rendered in a separate
+   * "新規のお客様 (まだセッションなし)" section below the date-grouped
+   * records so brand-new customers don't vanish from the karute tab.
+   * Each placeholder is a KaruteListItem with isPlaceholder=true; the
+   * view filters them out of the date-grouping pass and renders them
+   * separately. Filter chips don't apply (placeholders aren't karute
+   * records — they're customers waiting for their first session).
+   */
+  placeholders?: KaruteListItem[]
 }
 
 const PAGE_SIZE = 12
@@ -45,7 +55,11 @@ const FILTER_KEYS: KaruteListFilter[] = [
   'draft',
 ]
 
-export function KaruteRecordListView({ items, monthCount }: Props) {
+export function KaruteRecordListView({
+  items,
+  monthCount,
+  placeholders = [],
+}: Props) {
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
   const locale = useLocale()
@@ -229,11 +243,11 @@ export function KaruteRecordListView({ items, monthCount }: Props) {
 
       {/* List — date-grouped sections */}
       <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
-        {grouped.length === 0 ? (
+        {grouped.length === 0 && placeholders.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
           </div>
-        ) : (
+        ) : grouped.length === 0 ? null : (
           grouped.map(([date, items]) => {
             const dayLabel = dayLabelFor(date)
             return (
@@ -262,6 +276,24 @@ export function KaruteRecordListView({ items, monthCount }: Props) {
           })
         )}
       </div>
+
+      {/* Placeholder section — customers without any karute records yet.
+       *  Sits below the date-grouped records so brand-new customers are
+       *  visible on this tab without polluting the session-record list. */}
+      {placeholders.length > 0 && (
+        <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
+          <div className="border-b border-border/40 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground md:px-5">
+            <span className="font-medium text-foreground">
+              {t('newCustomersHeader')}
+            </span>
+            <span aria-hidden> · </span>
+            <span>{t('dateGroup.suffix', { n: placeholders.length })}</span>
+          </div>
+          {placeholders.map((item) => (
+            <KaruteListRow key={item.id} item={item} />
+          ))}
+        </div>
+      )}
 
       {/* Simple pagination footer (reused conceptually from customers list) */}
       {filtered.length > PAGE_SIZE && (

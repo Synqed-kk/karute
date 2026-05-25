@@ -48,6 +48,15 @@ export interface KaruteListItem {
   summary: string
   aiStatus: KaruteAiStatus
   conversionStatus: KaruteConversionStatus
+  /** Tap target. Real records link to `/karute/{recordId}`; placeholder
+   *  rows for customers with no records link to
+   *  `/karute/customer/{customerId}`. Caller (page) decides. */
+  href: string
+  /** When `true`, this row represents a customer with NO karute record
+   *  yet (synthesized so brand-new customers still appear on the list,
+   *  per Liam's "new customers should show up in カルテ" ask). View
+   *  renders these in a separate section below the real records. */
+  isPlaceholder?: boolean
 }
 
 export type KaruteListFilter =
