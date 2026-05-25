@@ -54,6 +54,13 @@ describe('setActiveStaff', () => {
     expect(result).toEqual({ ok: false, error: 'Staff not found' })
     expect(cookieSet).not.toHaveBeenCalled()
   })
+
+  it('rejects (no cookie) when the staff has no PIN set — a real PIN is always required', async () => {
+    verifyStaffPin.mockResolvedValue({ valid: true, noPin: true })
+    const result = await setActiveStaff('staff-a', '0000')
+    expect(result).toEqual({ ok: false, error: expect.stringMatching(/no pin/i) })
+    expect(cookieSet).not.toHaveBeenCalled()
+  })
 })
 
 describe('clearActiveStaff', () => {

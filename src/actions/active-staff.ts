@@ -8,14 +8,20 @@ const ONE_MONTH = 60 * 60 * 24 * 30
 
 /**
  * Set the active staff for this device after verifying their PIN. The cookie is
- * written ONLY on a valid PIN. Roster membership is re-validated on every read
- * (getActiveStaffId), so this only needs to gate on the PIN here.
+ * written ONLY on a valid, real PIN. Roster membership is re-validated on every
+ * read (getActiveStaffId), so this only needs to gate on the PIN here.
+ *
+ * A staff with no PIN set is rejected (verifyStaffPin reports noPin) — switching
+ * always requires a real PIN, so the caller must run first-time PIN setup first.
  */
 export async function setActiveStaff(
   staffId: string,
   pin: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const result = await verifyStaffPin(staffId, pin)
+  if (result.noPin) {
+    return { ok: false, error: 'No PIN set for this staff' }
+  }
   if (!result.valid) {
     return { ok: false, error: result.error ?? 'Incorrect PIN' }
   }
