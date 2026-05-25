@@ -107,7 +107,8 @@
     "dataImport": "Import",
     "dataExport": "Export",
     "settings": "Settings",
-    "menu": "More"
+    "menu": "More",
+    "pickBooking": "Pick booking"
   },
   "reservation": {
     "title": "Appointments",

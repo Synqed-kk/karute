@@ -107,7 +107,8 @@
     "dataImport": "インポート",
     "dataExport": "エクスポート",
     "settings": "設定",
-    "menu": "メニュー"
+    "menu": "メニュー",
+    "pickBooking": "予約を選択"
   },
   "reservation": {
     "title": "予約",

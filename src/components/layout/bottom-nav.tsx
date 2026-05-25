@@ -47,6 +47,7 @@ const FALLBACK_LABELS: Record<string, string> = {
   settings: 'Settings',
   recording: 'Recording',
   menu: 'Menu',
+  pickBooking: 'Pick booking',
 }
 
 export function BottomNav() {
@@ -156,17 +157,32 @@ export function BottomNav() {
           {renderNavItem(PRIMARY[0])}
           {renderNavItem(PRIMARY[1])}
 
-          {/* Center mic FAB */}
-          <div className="flex flex-1 items-start justify-center">
+          {/* Center mic FAB — matches the spike's BottomTabRecordButton
+           *  (synqed-karute-design-spike/src/components/layout/
+           *   BottomTabRecordButton.tsx): size-11 mic, -mt-3 lift (sits
+           *  slightly above the row, not floating high above it), and
+           *  a customer-name label beneath so staff can see *who* their
+           *  next session is with from any screen.
+           *
+           *  Label is SCAFFOLDED: shows the spike's empty-state copy
+           *  (「予約を選択」 / "Pick booking") until the next-customer
+           *  lookup lands on its own branch (feat/bottom-nav-next-
+           *  customer). When that ships, the label flips to the actual
+           *  customer name + honorific automatically — no UI change
+           *  needed here. */}
+          <div className="flex flex-1 flex-col items-center justify-start pt-1">
             <Link
               href={'/sessions' as Parameters<typeof Link>[0]['href']}
               onClick={() => setMenuOpen(false)}
-              className="-translate-y-5 flex h-14 w-14 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
+              className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
               aria-label={label('recording')}
               aria-current={isActive('/sessions') ? 'page' : undefined}
             >
-              <Mic className="h-6 w-6" />
+              <Mic className="h-5 w-5" />
             </Link>
+            <span className="mt-1 max-w-[88px] truncate text-[10px] font-medium leading-none text-muted-foreground">
+              {label('pickBooking')}
+            </span>
           </div>
 
           {renderNavItem(PRIMARY[2])}
