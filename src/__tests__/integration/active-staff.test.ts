@@ -43,11 +43,14 @@ describe('getActiveStaffId', () => {
     expect(await getActiveStaffId()).toBeNull()
   })
 
-  it('returns null and clears the cookie when the id is not in the roster (stale/foreign)', async () => {
+  it('returns null without mutating the cookie when the id is stale/foreign', async () => {
+    // Read-only path: it runs during server-component render, where deleting a
+    // cookie throws. A stale/foreign id resolves to null and the cookie is left
+    // as-is (overwritten by the next setActiveStaff/clearActiveStaff).
     rosterIds.push('staff-a')
     cookieStore['active_staff_id'] = 'ghost'
     expect(await getActiveStaffId()).toBeNull()
-    expect(cookieDelete).toHaveBeenCalledWith('active_staff_id')
+    expect(cookieDelete).not.toHaveBeenCalled()
   })
 
   it('returns null when the roster is empty (synqed-core down)', async () => {
