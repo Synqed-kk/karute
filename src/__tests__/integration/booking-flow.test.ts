@@ -20,7 +20,6 @@ jest.mock('next/cache', () => ({
 }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
 }))
 
 // Restrictive operating hours for the operating-hours rejection test below.

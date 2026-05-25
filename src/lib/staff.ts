@@ -91,13 +91,6 @@ export async function getStaffById(id: string): Promise<StaffMemberBasic | null>
   return found ? { id: found.id, full_name: found.full_name } : null
 }
 
-// TEMPORARY (removed in Phase 4): there is no per-user "active staff" once
-// staff are decoupled from auth. Consumers default to the first roster member.
-export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
-  const list = await getStaffList()
-  return list[0]?.id ?? null
-})
-
 /**
  * Returns the current authenticated user's business id.
  * Used to scope inserts so RLS allows them. Reads the legacy

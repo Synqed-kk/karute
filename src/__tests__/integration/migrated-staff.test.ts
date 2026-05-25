@@ -8,10 +8,8 @@
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 
-const getCurrentUserStaffId = jest.fn(async () => 'staff-1')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getCurrentUserStaffId: () => getCurrentUserStaffId(),
 }))
 
 jest.mock('@synqed-kk/client', () => {
@@ -54,7 +52,6 @@ import { SynqedError } from '@synqed-kk/client'
 describe('Migrated staff actions', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    getCurrentUserStaffId.mockResolvedValue('staff-1')
   })
 
   it('createStaff passes name + email + user_id through', async () => {

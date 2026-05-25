@@ -56,6 +56,7 @@ export function StaffSwitcher({ open, onClose }: { open: boolean; onClose: () =>
   }
 
   async function handleSwitchOut() {
+    setLoading(true)
     await clearActiveStaff()
     onClose()
     router.refresh()
