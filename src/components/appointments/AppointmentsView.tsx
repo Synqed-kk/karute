@@ -199,26 +199,33 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         </div>
       </div>
 
-      <ReservationPageHeader
-        dateDisplay={formatLongDateJst(headerDate, locale)}
-        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
-        onPrev={handlePrev}
-        onNext={handleNext}
-        onToday={handleToday}
-        onPickDate={handlePickDate}
-        onNewBooking={() => setDialogOpen(true)}
-        // @synqed-kk/ui ships English defaults baked into the component
-        // ("Today", "New Reservation", etc.). Same pattern as the
-        // DayWeekMonthToggle — pass localized strings via the `copy`
-        // prop so the JA build reads "今日" instead of "Today".
-        copy={{
-          title: tReservation('title'),
-          todayLabel: tReservation('today'),
-          newReservationLabel: tReservation('new'),
-          prevLabel: tReservation('prev'),
-          nextLabel: tReservation('next'),
-        }}
-      />
+      {/* Wrapper scopes --color-accent to blue so the package's Today
+       *  button (which uses `text-[var(--color-accent)]`) renders blue
+       *  + clickable, matching the spike. Hover gets a blue tint via
+       *  the package's `hover:bg-[var(--color-accent)]/10`. CSS rule
+       *  defined in globals.css under `.reservation-today-blue`. */}
+      <div className="reservation-today-blue">
+        <ReservationPageHeader
+          dateDisplay={formatLongDateJst(headerDate, locale)}
+          dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onToday={handleToday}
+          onPickDate={handlePickDate}
+          onNewBooking={() => setDialogOpen(true)}
+          // @synqed-kk/ui ships English defaults baked into the component
+          // ("Today", "New Reservation", etc.). Same pattern as the
+          // DayWeekMonthToggle — pass localized strings via the `copy`
+          // prop so the JA build reads "今日" instead of "Today".
+          copy={{
+            title: tReservation('title'),
+            todayLabel: tReservation('today'),
+            newReservationLabel: tReservation('new'),
+            prevLabel: tReservation('prev'),
+            nextLabel: tReservation('next'),
+          }}
+        />
+      </div>
 
       {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
        *  Row 1: DWM toggle (localized via copy prop — defaults to English

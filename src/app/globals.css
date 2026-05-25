@@ -258,5 +258,34 @@
   .reservation-grid-scroll::-webkit-scrollbar {
     display: none;
   }
+
+  /* Make @synqed-kk/ui's ReservationPageHeader "Today" button render
+   * blue + with a clickable affordance, matching the design spike.
+   *
+   * The package ships the Today button as the only child using
+   * `text-[var(--color-accent)]` — but karute's accent token is
+   * near-white (oklch(0.97 0 0)), so it renders as nearly-invisible
+   * grey text. The button reads as plain content, not clickable.
+   *
+   * Fix: scope the accent CSS variable to blue ONLY inside the
+   * `.reservation-today-blue` wrapper we apply around the header.
+   * Tailwind's `text-[var(--color-accent)]` then picks up blue from
+   * the wrapper, and `hover:bg-[var(--color-accent)]/10` (also in
+   * the package) gives the matching blue hover ring.
+   *
+   * Scoped to the wrapper so no other component in the system that
+   * uses --color-accent gets recolored. The new-booking icon button
+   * inside the header uses `bg-[var(--color-accent)]` too, but it
+   * sits next to the date selector chip and reads fine in blue as
+   * a "primary action" affordance — same look as the spike.
+   */
+  .reservation-today-blue {
+    --color-accent: oklch(0.546 0.215 262.881);    /* ~ Tailwind blue-600 */
+    --color-accent-hover: oklch(0.488 0.243 264.376); /* ~ blue-700 */
+  }
+  .dark .reservation-today-blue {
+    --color-accent: oklch(0.776 0.156 256.6);      /* ~ blue-300 */
+    --color-accent-hover: oklch(0.700 0.180 258.0); /* ~ blue-400 */
+  }
 }
 
