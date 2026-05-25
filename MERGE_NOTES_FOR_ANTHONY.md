@@ -439,3 +439,63 @@ ports — full feature lifts can happen incrementally):
 
 Whatever Anthony wires real, the corresponding `comingSoon` chip just
 disappears — no separate toggle to flip.
+
+---
+
+## Business-type AI adaptation — handoff
+
+The settings page (組織 tab) lets the salon pick its 業種 (business
+type) from a curated 12-item list. The full 26-type taxonomy lives in
+`src/lib/welcome/business-types.ts` with `BusinessProfile` objects
+attached — when Anthony wires the AI prompts, the active business
+type should inject a profile-specific PREAMBLE into every prompt.
+
+This is the contract Liam designed in the spike. Full spec lives at:
+`/Users/liam/Documents/synqed-karute-design-spike/docs/BUSINESS_TYPE_AI_ADAPTATION.md`
+
+### What changes per business type
+
+A `BusinessProfile` drives:
+1. Entry-classifier topics — what conversation themes the AI listens for
+2. Karute summary weights — which entry categories the summary
+   surfaces highest (a dentist's tooth-by-tooth note vs a gym's
+   load-progression note are entirely different signals)
+3. Coaching focus areas — what the in-session coaching panel surfaces
+4. "Top performer" patterns — what historical entries the AI uses
+   as benchmarks
+5. Quick-start AI consultation prompts — the suggestions on /ask-ai
+6. Intake-form fields — what the customer sees on first visit
+
+### Karute build state
+
+- `src/lib/welcome/business-types.ts` — canonical 26-type list
+  (matches the spike line-for-line). Each entry has
+  `value`, `ja`, `en`. The BusinessProfile data lives in
+  `BUSINESS_TYPE_PROFILES` Record on the same file.
+- `OrganizationSection.tsx` — curated 12-item UI list with emoji
+  prefixes for the picker dropdown. All 12 values exist in the
+  canonical 26-type list (no orphans). The "shorter UI list ≠ longer
+  data list" is intentional: Liam wants the picker friction-free for
+  the verticals being tested now (beauty / 整体 / personal gym), while
+  the full 26 remain available in data for future expansion.
+- Profile is read at render time via `getBusinessProfile(businessType)`
+  → returns the matched profile or `DEFAULT_PROFILE`. Used by the
+  identity card on the karute customer detail page (preview chip).
+
+### What Anthony needs to wire
+
+Every AI call in `src/lib/prompts.ts` + `src/app/api/ai/*` needs to:
+1. Read the tenant's current `business_type` from `org_settings`
+2. Look up the matching `BusinessProfile`
+3. Inject the profile's preamble + topic list + category weights into
+   the system prompt **before** the user content
+
+The spike's prompts already have these injection points marked as
+template variables (e.g. `{{businessProfile.preamble}}`). Lift those
+verbatim — don't rewrite the AI prompts (they're tuned).
+
+ANTHONY: when adding a new business type to the canonical list,
+also seed its `BusinessProfile` with at least the focus topics +
+default categories. Without a profile, the new type falls through to
+`DEFAULT_PROFILE` which is the generic-salon baseline — works but
+nothing vertical-specific lights up.

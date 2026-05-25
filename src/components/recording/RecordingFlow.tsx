@@ -115,10 +115,21 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
   const recordingBlocked = consentRequired && !consentGranted
 
   const bars = useWaveformBars(stream, recState === 'recording')
-  const lastBarsRef = useRef<number[]>([])
-  if (recState === 'recording') {
-    lastBarsRef.current = bars
-  }
+  // Cache the most recent live bars in STATE (not a ref) so we can
+  // render a frozen dimmed version after recording stops. React
+  // Compiler flags both reads AND writes of refs during render as
+  // errors ("Cannot access refs during render") — moving to state
+  // makes the snapshot officially reactive and fixes the lint
+  // errors that were surfacing in the Vercel toolbar's "10 Issues"
+  // badge. The state only updates while recording, so it captures
+  // the last live bars at the moment recording stops; afterwards
+  // it persists for the dimmed render.
+  const [lastBars, setLastBars] = useState<number[]>([])
+  useEffect(() => {
+    if (recState === 'recording') {
+      setLastBars(bars)
+    }
+  }, [recState, bars])
 
   // Sync global recorder state to local phase
   useEffect(() => {
@@ -191,9 +202,8 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
     ? new Date(nextAppointment.startTime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
     : null
 
-  const frozenBars = lastBarsRef.current.length > 0
-    ? lastBarsRef.current.map((h) => Math.max(6, h * 0.4))
-    : []
+  const frozenBars =
+    lastBars.length > 0 ? lastBars.map((h) => Math.max(6, h * 0.4)) : []
 
   // --- Idle / Recording / Recorded phases ---
   return (
