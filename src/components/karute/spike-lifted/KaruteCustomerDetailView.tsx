@@ -62,8 +62,14 @@ export function KaruteCustomerDetailView({
 }: KaruteCustomerDetailViewProps) {
   return (
     <main className="mx-auto w-full max-w-[1280px] pb-10">
-      {/* 1. Back link — slim top bar */}
-      <div className="px-4 pt-3 md:px-6 md:pt-4">
+      {/* 1. Back link — slim top bar. NO own px-4 here: the (app) layout
+       *  already provides `p-4 md:p-6` so the chrome sits at the same
+       *  16px-from-screen inset as the appointments page chrome (and
+       *  customers/karute list chrome). Adding px-4 here would double
+       *  up to 32px and break the system-wide alignment Liam called
+       *  out. Cards below KEEP their own internal px-4 because that's
+       *  the card's content padding — different concern. */}
+      <div className="pt-3 md:pt-4">
         <Link
           href={'/karute' as Parameters<typeof Link>[0]['href']}
           className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
