@@ -796,9 +796,6 @@
       "tierFast": "高速",
       "tierBest": "高精度"
     },
-    "auditLog": {
-      "searchPlaceholder": "イベントを検索…"
-    },
     "syncSection": {
       "errorPrefix": "エラー：{error}",
       "configSaved": "設定を保存しました",
@@ -820,19 +817,6 @@
         "unlimitedStaff": "スタッフ無制限",
         "auditLog": "監査ログ",
         "prioritySupport": "優先サポート"
-      }
-    },
-    "subscription": {
-      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。"
-    },
-    "theme": {
-      "bar": {
-        "open": "営業中",
-        "booking": "予約",
-        "recording": "録音中",
-        "completed": "完了",
-        "blocked": "ブロック",
-        "processing": "処理中"
       }
     }
   },

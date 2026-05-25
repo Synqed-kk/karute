@@ -796,9 +796,6 @@
       "tierFast": "Fast",
       "tierBest": "Best"
     },
-    "auditLog": {
-      "searchPlaceholder": "Search events…"
-    },
     "syncSection": {
       "errorPrefix": "Error: {error}",
       "configSaved": "Config saved",
@@ -820,19 +817,6 @@
         "unlimitedStaff": "Unlimited staff",
         "auditLog": "Audit log",
         "prioritySupport": "Priority support"
-      }
-    },
-    "subscription": {
-      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades."
-    },
-    "theme": {
-      "bar": {
-        "open": "Open",
-        "booking": "Booking",
-        "recording": "Recording",
-        "completed": "Completed",
-        "blocked": "Blocked",
-        "processing": "Processing"
       }
     }
   },
