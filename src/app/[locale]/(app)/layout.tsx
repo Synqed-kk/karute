@@ -1,6 +1,12 @@
 import { BottomNav } from '@/components/layout/bottom-nav'
 import { Sidebar } from '@/components/layout/sidebar'
-import { AIChatFAB } from '@/components/ai/AIChatFAB'
+// AIChatFAB removed — the floating action button overlapped the
+// bottom-nav's メニュー tab on mobile, making it un-tappable. AI chat
+// is reachable via the /ask-ai route from the menu drawer. If we
+// want a quick-access affordance back later, it should be inside the
+// bottom-nav strip (e.g. as a center-action mic-style button), not
+// floating over it.
+// import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { MiniRecorder } from '@/components/recording/MiniRecorder'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -84,7 +90,6 @@ export default async function DashboardLayout({
           </main>
         </div>
         <MiniRecorder />
-        <AIChatFAB locale={locale} />
         <div className="md:hidden">
           <BottomNav />
         </div>
