@@ -8,6 +8,7 @@ import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { createCustomer, updateCustomer } from '@/actions/customers'
+import { formatJpPhone } from '@/lib/format/phone'
 
 // ---------------------------------------------------------------------------
 // Schema — mirrors the server-side schema. Visible client-side fields that
@@ -96,6 +97,7 @@ export function CustomerForm({
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors, isSubmitting },
   } = useForm<CustomerFormValues>({
     resolver: zodResolver(schema),
@@ -211,13 +213,23 @@ export function CustomerForm({
         />
       </Field>
 
-      {/* 電話番号 */}
+      {/* 電話番号 — auto-formats on blur to 0XX-XXXX-XXXX.
+       *  Staff don't need to type dashes; the field inserts them once
+       *  the input becomes a valid JP phone shape. Invalid input is
+       *  left as-typed so the staff can see + fix it. */}
       <Field label={t('form.phone')}>
         <Input
           type="tel"
           placeholder={t('form.phonePlaceholder')}
           autoComplete="tel"
-          {...register('phone')}
+          {...register('phone', {
+            onBlur: (e) => {
+              const formatted = formatJpPhone(e.target.value)
+              if (formatted && formatted !== e.target.value) {
+                setValue('phone', formatted, { shouldDirty: true })
+              }
+            },
+          })}
         />
       </Field>
 

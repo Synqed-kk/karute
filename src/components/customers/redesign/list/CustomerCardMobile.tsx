@@ -56,7 +56,9 @@ export function CustomerCardMobile({
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
-      className="relative flex items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0"
+      className={`relative flex items-center gap-3 border-b border-border transition-colors hover:bg-muted/30 active:bg-muted/50 last:border-b-0 ${
+        karuteContext ? 'px-4 py-2.5' : 'px-4 py-3'
+      }`}
     >
       {/* Staff color stripe on left edge — same idiom as the spike.
        *  Falls back to a subtle muted bar (instead of transparent) when
@@ -71,7 +73,15 @@ export function CustomerCardMobile({
         style={{ background: staffColor ?? 'var(--border)' }}
       />
 
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold text-foreground ring-1 ring-border/60">
+      {/* Avatar — smaller in karute context (size-8 / 32px) to match
+       *  the spike's tighter karute-tab density; full size (size-10 /
+       *  40px) on the 顧客 tab where the CRM card has more breathing
+       *  room. */}
+      <span
+        className={`flex shrink-0 items-center justify-center rounded-full bg-muted font-semibold text-foreground ring-1 ring-border/60 ${
+          karuteContext ? 'h-8 w-8 text-xs' : 'h-10 w-10 text-sm'
+        }`}
+      >
         {c.initials}
       </span>
 
@@ -130,8 +140,11 @@ export function CustomerCardMobile({
           </span>
         </div>
 
-        {/* Line 5: phone — only if present, formatted as 0XX-XXXX-XXXX */}
-        {c.phone && (
+        {/* Line 5: phone — only on the 顧客 tab (CRM context). The
+         *  カルテ tab is treatment-focused; phone is contact data, not
+         *  treatment context. Hide it there to tighten the row + match
+         *  the spike's karute pattern. */}
+        {c.phone && !karuteContext && (
           <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
             <Phone className="size-2.5 shrink-0" aria-hidden />
             <span>{formatJpPhone(c.phone)}</span>
