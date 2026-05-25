@@ -45,17 +45,26 @@ interface TabDef {
   ownerOnly?: boolean
 }
 
+// Tab label keys: 3 of these (`theme`, `subscription`, `auditLog`) collide
+// with nested i18n blocks of the same name that hold section content
+// (e.g. settings.theme.bar.*, settings.subscription.plan.*). next-intl
+// can't return a nested object from a `t(key)` string call, so those
+// tabs were rendering as raw "settings.theme" / "settings.subscription"
+// / "settings.auditLog" — exactly the bug Liam called out. Fix:
+// reach into the `.label` sub-key on the colliding ones, while keeping
+// the non-colliding tabs (organization, stores, aiSettings, etc.) on
+// their existing flat string keys.
 const TABS: TabDef[] = [
   { id: 'organization', labelKey: 'organization', icon: Building2 },
   { id: 'stores', labelKey: 'stores', icon: Store },
-  { id: 'theme', labelKey: 'theme', icon: Palette },
+  { id: 'theme', labelKey: 'theme.label', icon: Palette },
   { id: 'ai', labelKey: 'aiSettings', icon: Sparkles },
   // Coaching is rendered inline (disabled) — not in this array.
   { id: 'recording', labelKey: 'recordingSettings', icon: Mic },
   { id: 'staff', labelKey: 'staffManagement', icon: Users },
   { id: 'sync', labelKey: 'bookingSync', icon: RefreshCw },
-  { id: 'subscription', labelKey: 'subscription', icon: CreditCard, ownerOnly: true },
-  { id: 'audit', labelKey: 'auditLog', icon: ShieldCheck, ownerOnly: true },
+  { id: 'subscription', labelKey: 'subscription.label', icon: CreditCard, ownerOnly: true },
+  { id: 'audit', labelKey: 'auditLog.label', icon: ShieldCheck, ownerOnly: true },
 ]
 
 interface SettingsShellProps {
@@ -83,9 +92,12 @@ export function SettingsShell({
   const tabsAfterCoaching = visibleTabs.slice(4)
 
   return (
-    // Owns its own px-4 md:px-6 (system padding rule — (app) layout
-    // no longer provides horizontal padding).
-    <div className="space-y-6 px-4 md:px-6">
+    // NO own px-4 — the parent SettingsPageChrome wraps everything in
+    // `p-4 md:p-6` already (it's the per-page wrapper that owns the
+    // horizontal padding under the system rule). Adding more here
+    // doubled it to 32px from edge, the "cushions on the corners"
+    // Liam called out on the settings page.
+    <div className="space-y-6">
       <div className="flex items-center gap-1 rounded-xl border border-border/30 bg-muted/30 p-1 overflow-x-auto whitespace-nowrap [scrollbar-width:thin]">
         {tabsBeforeCoaching.map((tab) => (
           <TabButton

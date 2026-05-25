@@ -913,7 +913,8 @@
         "completed": "Completed",
         "blocked": "Blocked",
         "processing": "Processing"
-      }
+      },
+      "label": "Theme"
     },
     "themeDescription": "Customize timeline bar colors",
     "resetToDefaults": "Reset to Defaults",
@@ -924,10 +925,12 @@
     "stores": "Stores",
     "coaching": "Coaching",
     "subscription": {
-      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades."
+      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades.",
+      "label": "Subscription"
     },
     "auditLog": {
-      "searchPlaceholder": "Search events…"
+      "searchPlaceholder": "Search events…",
+      "label": "Audit log"
     },
     "comingSoon": "Coming soon",
     "loginId": "Login ID",

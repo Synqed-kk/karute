@@ -372,3 +372,70 @@ spike — no design work needed.
 
 Single source of truth is the in-app bell; everything else is opt-in
 add-ons that can ship after the core surface is live.
+
+---
+
+## Settings page — current scaffold + handoff
+
+The karute `/settings` route already mirrors the design spike's tab
+structure 1:1. Tab order matches the spike exactly:
+
+```
+組織 / 店舗 / テーマ / AI / コーチング / 録音 / スタッフ / 連携 / サブスク / 監査ログ
+```
+
+The shell + every tab section is scaffolded; many controls are
+visual stubs with `t('comingSoon')` indicators so staff sees the
+structure but doesn't expect functionality.
+
+### Section-by-section state
+
+| Tab | Karute file | Lines | What's wired (real persistence) | Stubbed (Coming Soon) |
+|---|---|---|---|---|
+| 組織 | `OrganizationSection.tsx` | 371 | businessName, businessType, timezone, operating hours — all persisted via `org_settings` server action | Reset-onboarding button is a stub |
+| 店舗 | `StoresSection.tsx` | 77 | — | Whole tab gated behind `MULTI_STORE_ENABLED` flag — no `stores` table yet |
+| テーマ | `ThemeSection.tsx` | 259 | Theme picker (light/dark/system) wired to next-themes | Brand color picker, timeline accent picker — visual only |
+| AI | `AISection.tsx` | 228 | — | All 5 cards stubbed: auto-summary toggle, auto-outreach toggle, voice style, AI model picker, customize-profile + intake-forms cards marked `comingInV2` |
+| コーチング | inline disabled tab in `SettingsShell.tsx` | 0 | — | Whole tab disabled (`<CoachingDisabledTab>`) — `coachingComingSoon` tooltip |
+| 録音 | `RecordingSection.tsx` | 310 | — | All controls stubbed: audio source picker, audio quality, auto-stop, voice enrollment dialog |
+| スタッフ | `StaffSection.tsx` | 58 | Read-only staff list from existing `getStaffList()` | Add/edit/remove staff dialogs not lifted yet |
+| 連携 | `SyncSection.tsx` | 182 | QuickReserve sync (existing route at `/api/sync/quickreserve`) — partially wired | Salon Board + HOT PEPPER Beauty integrations marked Coming Soon |
+| サブスク | `SubscriptionSection.tsx` | 116 | — | Whole tab is `comingSoon` placeholder — no Stripe integration yet |
+| 監査ログ | `AuditLogSection.tsx` | 56 | — | Empty-state placeholder until Anthony adds the `audit_log` table + read query |
+
+Spike sources to compare line-by-line (the karute sections are simpler
+ports — full feature lifts can happen incrementally):
+
+| Karute section | Spike source |
+|---|---|
+| `OrganizationSection.tsx` | `spike/.../OrgSettings.tsx` (391 lines — adds BusinessProfileCustomizer + IntakeFormEditor sub-flows) |
+| `StoresSection.tsx` | `spike/.../StoresSettings.tsx` (461 lines + `AddStoreSubscriptionDialog.tsx`) |
+| `ThemeSection.tsx` | `spike/.../ThemeSettings.tsx` (268 lines) |
+| `AISection.tsx` | `spike/.../AISettings.tsx` (185 lines) |
+| `RecordingSection.tsx` | `spike/.../RecordingSettings.tsx` (579 lines + `VoiceEnrollmentDialog.tsx`) |
+| `StaffSection.tsx` | `spike/.../StaffSettings.tsx` (464 lines + `AddStaffDialog.tsx` + `StaffActionDialogs.tsx`) |
+| `SyncSection.tsx` | `spike/.../SyncSettings.tsx` (165 lines) |
+| `SubscriptionSection.tsx` | `spike/.../SubscriptionSettings.tsx` (547 lines + `PlanComparisonGrid.tsx` + `SubscriptionSummaryCard.tsx`) |
+| `AuditLogSection.tsx` | `spike/.../AuditLogSettings.tsx` (633 lines — biggest section; rich filtering + drill-down + export) |
+
+### Schema TODOs surfaced by the settings tabs
+
+| Table / column needed | Used by |
+|---|---|
+| `stores` (multi-store roster) + `store_subscriptions` (per-store plan) | 店舗 tab |
+| `tenant_brand` (logo URL, primary color, accent color) | テーマ tab — brand color picker |
+| `ai_preferences` (auto_summary bool, auto_outreach bool, voice_style enum, model_id) | AI tab |
+| `voice_enrollments` (staff_id, sample audio paths, enrolled_at) | 録音 tab — voice enrollment dialog |
+| `staff` columns: `invite_status`, `display_role` enum, `pin_hash` | スタッフ tab — add/edit/remove dialogs |
+| `tenant_subscription` (plan_id, status, current_period_end, stripe_customer_id) | サブスク tab |
+| `audit_log` (id, business_id, actor_id, action enum, target_type, target_id, payload jsonb, created_at) | 監査ログ tab — entire surface |
+
+### Coming Soon indicator conventions used
+
+  - Inline button-side label: `({t('comingSoon')})` for partial features
+  - Tooltip on disabled control: `title={t('comingSoon')}`
+  - Badge chip: `<span>{t('comingInV2')}</span>` for explicitly v2 features
+  - Disabled tab: `<CoachingDisabledTab>` pattern in `SettingsShell.tsx`
+
+Whatever Anthony wires real, the corresponding `comingSoon` chip just
+disappears — no separate toggle to flip.

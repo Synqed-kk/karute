@@ -913,7 +913,8 @@
         "completed": "完了",
         "blocked": "ブロック",
         "processing": "処理中"
-      }
+      },
+      "label": "テーマ"
     },
     "themeDescription": "タイムラインバーの色をカスタマイズ",
     "resetToDefaults": "初期設定に戻す",
@@ -924,10 +925,12 @@
     "stores": "店舗",
     "coaching": "コーチング",
     "subscription": {
-      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。"
+      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。",
+      "label": "サブスクリプション"
     },
     "auditLog": {
-      "searchPlaceholder": "イベントを検索…"
+      "searchPlaceholder": "イベントを検索…",
+      "label": "監査ログ"
     },
     "comingSoon": "近日公開",
     "loginId": "ログインID",
