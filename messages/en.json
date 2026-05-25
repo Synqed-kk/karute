@@ -363,7 +363,14 @@
       "reservationMemo": "Booking note",
       "firstTimeHeader": "First-time customer",
       "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
-      "empty": "Pre-session brief unavailable — AI will generate one after the first karute."
+      "empty": "Pre-session brief unavailable — AI will generate one after the first karute.",
+      "aiHintLabel": "Coming soon",
+      "aiHintMemoAnalysis": "AI will parse the booking note to extract concerns, expectations, and tone, surfacing a short pre-session summary of what to watch for (Anthony wires the nightly batch job).",
+      "aiHintNoMemo": "When the customer leaves a booking note, AI will extract intent, expectations, and tone and summarize it here (Anthony wires this after the booking-form field lands).",
+      "aiHintHooks": "From past karute + conversation history, AI will surface natural small-talk hooks — pets, family, hobbies, recent events — to help staff open the session warmly.",
+      "aiHintConcerns": "AI will pull the main complaints, treatments delivered, and follow-up notes from prior karute entries into a chronological recap of what to verify today.",
+      "aiHintLastProduct": "AI will pull the last product or service proposed and how the customer responded (purchased / considering / declined-phrasing) to inform today's recommendation strategy.",
+      "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction."
     },
     "source": {
       "phoneMic": "Phone mic",

@@ -40,7 +40,7 @@
 //   server-side when wiring the real `pre_session_briefs` read.
 
 import { useTranslations } from 'next-intl'
-import { Clock, Gift, PawPrint, Quote, Sparkles, Target } from 'lucide-react'
+import { Clock, Gift, PawPrint, Quote, Sparkles, Target, Wand2 } from 'lucide-react'
 
 export interface PreSessionBrief {
   /** True = first-ever visit for this customer → render the warm-
@@ -97,7 +97,24 @@ export function PreSessionBriefCard({
           {t('firstTimeBody', { name: customerName ?? '' })}
         </p>
         {brief.reservationMemo && (
-          <MemoBlock memo={brief.reservationMemo} label={t('reservationMemo')} className="mt-4" />
+          <>
+            <MemoBlock memo={brief.reservationMemo} label={t('reservationMemo')} className="mt-4" />
+            <AiCapabilityHint
+              label={t('aiHintLabel')}
+              body={t('aiHintMemoAnalysis')}
+              className="mt-2"
+            />
+          </>
+        )}
+        {/* No memo? Surface the same AI capability hint so staff
+         *  knows what'll fill this gap once customers leave booking
+         *  notes (or once we wire that field in the booking form). */}
+        {!brief.reservationMemo && (
+          <AiCapabilityHint
+            label={t('aiHintLabel')}
+            body={t('aiHintNoMemo')}
+            className="mt-4"
+          />
         )}
       </section>
     )
@@ -129,12 +146,25 @@ export function PreSessionBriefCard({
       {/* Reservation memo — surface FIRST when present (it's literal
        *  customer text for THIS visit, not AI-synthesized history).
        *  Most relevant hook staff should open with. */}
-      {brief.reservationMemo && (
-        <MemoBlock memo={brief.reservationMemo} label={t('reservationMemo')} className="mb-4" />
+      {brief.reservationMemo ? (
+        <>
+          <MemoBlock memo={brief.reservationMemo} label={t('reservationMemo')} className="mb-2" />
+          <AiCapabilityHint
+            label={t('aiHintLabel')}
+            body={t('aiHintMemoAnalysis')}
+            className="mb-4"
+          />
+        </>
+      ) : (
+        <AiCapabilityHint
+          label={t('aiHintLabel')}
+          body={t('aiHintNoMemo')}
+          className="mb-4"
+        />
       )}
 
       {/* Conversation hooks — most actionable, surface near top */}
-      {brief.hooks.length > 0 && (
+      {brief.hooks.length > 0 ? (
         <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
           <ul className="space-y-1">
             {brief.hooks.map((h, i) => (
@@ -151,10 +181,14 @@ export function PreSessionBriefCard({
             ))}
           </ul>
         </BriefSection>
+      ) : (
+        <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
+          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
+        </BriefSection>
       )}
 
       {/* Last concerns — clinical recap */}
-      {brief.concerns.length > 0 && (
+      {brief.concerns.length > 0 ? (
         <BriefSection
           icon={<Clock className="size-3" />}
           title={t('concerns')}
@@ -172,10 +206,18 @@ export function PreSessionBriefCard({
             ))}
           </ul>
         </BriefSection>
+      ) : (
+        <BriefSection
+          icon={<Clock className="size-3" />}
+          title={t('concerns')}
+          divider
+        >
+          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
+        </BriefSection>
       )}
 
       {/* Last product + reaction */}
-      {brief.lastProduct && (
+      {brief.lastProduct ? (
         <BriefSection
           icon={<Gift className="size-3" />}
           title={t('lastProduct')}
@@ -188,10 +230,18 @@ export function PreSessionBriefCard({
             )}
           </div>
         </BriefSection>
+      ) : (
+        <BriefSection
+          icon={<Gift className="size-3" />}
+          title={t('lastProduct')}
+          divider
+        >
+          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
+        </BriefSection>
       )}
 
       {/* AI-suggested focus for this session */}
-      {brief.recommendedFocus && (
+      {brief.recommendedFocus ? (
         <BriefSection
           icon={<Target className="size-3" />}
           title={t('recommendedFocus')}
@@ -200,6 +250,14 @@ export function PreSessionBriefCard({
           <p className="text-[13px] leading-relaxed text-foreground/85">
             {brief.recommendedFocus}
           </p>
+        </BriefSection>
+      ) : (
+        <BriefSection
+          icon={<Target className="size-3" />}
+          title={t('recommendedFocus')}
+          divider
+        >
+          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
         </BriefSection>
       )}
     </section>
@@ -256,6 +314,44 @@ function MemoBlock({
       <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
         {memo}
       </p>
+    </div>
+  )
+}
+
+// AI-capability scaffolding hint — surfaces what the (not-yet-wired) AI
+// function will produce for a given section. Lets staff + Anthony see
+// the contract before the nightly batch job exists. Visual language
+// matches the karute project's existing "対応予定" pill convention
+// (CustomerMemoryCard).
+//
+// ANTHONY: remove this component (and its callers) once the
+// pre_session_briefs table is populated by the AI batch job — at that
+// point real content fills the sections and the scaffolding hint is
+// no longer informative.
+function AiCapabilityHint({
+  label,
+  body,
+  className,
+}: {
+  label: string
+  body: string
+  className?: string
+}) {
+  return (
+    <div
+      className={`flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-2.5 dark:border-blue-500/30 dark:bg-blue-500/[0.06] ${className ?? ''}`}
+    >
+      <Wand2 className="mt-0.5 size-3 shrink-0 text-blue-500/80 dark:text-blue-300/80" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="mb-0.5 flex items-center gap-1.5">
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
+            {label}
+          </span>
+        </div>
+        <p className="text-[11px] italic leading-relaxed text-muted-foreground">
+          {body}
+        </p>
+      </div>
     </div>
   )
 }
