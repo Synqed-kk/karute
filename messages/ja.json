@@ -482,7 +482,13 @@
         "photos": "写真",
         "privacy": "プライバシー",
         "aria": "プロフィールタブ"
-      }
+      },
+      "lastVisitPrefix": "前回",
+      "usualServicePrefix": "よく選ぶコース",
+      "visitsSuffix": "{n}回目",
+      "edit": "編集",
+      "editDialogTitle": "顧客情報を編集",
+      "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
     },
     "toast": {
       "created": "顧客を作成しました",
@@ -667,7 +673,15 @@
       "lastUpdated": "最終更新: {date}",
       "comingSoonEdit": "編集・ピン留め・手動追加機能は対応予定です（Anthonyが実装中）。",
       "sectionEmpty": "対応予定 — このカテゴリーにはまだ情報がありません",
-      "comingSoonPill": "対応予定"
+      "comingSoonPill": "対応予定",
+      "intakeEmpty": "初診情報は初回の問診票が完了すると、ここに表示されます。",
+      "intakeFields": {
+        "firstVisit": "初診",
+        "occupation": "職業",
+        "maintenance": "メンテナンス希望",
+        "referral": "来店きっかけ"
+      },
+      "talkingPointsEmpty": "録音内容からAIが特徴的なポイントを抽出すると、ここに会話のきっかけが表示されます。"
     },
     "tabHeading": "カルテ",
     "recordList": {

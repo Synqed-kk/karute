@@ -54,6 +54,7 @@ import {
 import { Button } from '@/components/ui/button'
 import {
   EMPTY_MEMORY,
+  type CustomerIntake,
   type CustomerMemory,
   type MemoryCategory,
   type MemoryItem,
@@ -117,7 +118,6 @@ const CATEGORY_KEYS: MemoryCategory[] = [
 export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Props) {
   const t = useTranslations('karute.memorySection')
   const [stubOpen, setStubOpen] = useState(false)
-  const isEmpty = memory.items.length === 0
   const talkingPoints = memory.items.filter((i) => i.suggestTalkingPoint)
   const byCategory = groupByCategory(memory.items)
 
@@ -173,49 +173,30 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
           )}
         </div>
 
-        {/* Intake summary line */}
-        {memory.intake && (
-          <p className="text-[11px] text-muted-foreground">
-            <span className="font-medium text-foreground">{t('intakePrefix')}</span>{' '}
-            {memory.intake.firstVisitAt}
-            {memory.intake.highlights.length > 0 && (
-              <>
-                {memory.intake.highlights.map((h, i) => (
-                  <span key={i}>
-                    <span aria-hidden> · </span>
-                    {h}
-                  </span>
-                ))}
-              </>
-            )}
-          </p>
-        )}
+        {/* Intake block — ALWAYS renders as a structured 2-col grid
+         *  of fields (初診 / 職業 / メンテナンス希望 / 来店きっかけ).
+         *  Empty fields show "—" so the scaffold is visible from
+         *  day-one. ANTHONY: these fields come from the intake form
+         *  (a future flow — see docs/SPIKE_ROADMAP.md). For now they
+         *  fall back to whatever's stored on `memory.intake`. */}
+        <IntakeBlock intake={memory.intake} />
 
-        {/* Overall empty state — shown when the customer has no memory
-         *  items yet. The 5 category sections below ALSO render in
-         *  this case (as a structure preview with "対応予定" indicators)
-         *  so staff sees what'll populate over time. */}
-        {isEmpty && (
-          <div className="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center dark:border-white/10 dark:bg-white/[0.03]">
-            <Brain className="mx-auto mb-1.5 size-5 text-gray-400 dark:text-gray-500" />
-            <div className="text-[13px] font-medium text-foreground">
-              {t('emptyTitle')}
-            </div>
-            <p className="mx-auto mt-1 max-w-sm text-[11px] leading-relaxed text-muted-foreground">
-              {t('emptyBody')}
-            </p>
+        {/* Talking points block — ALWAYS renders. When AI hasn't
+         *  extracted any points yet, shows an inline placeholder
+         *  explaining what'll go here. Once `suggestTalkingPoint`
+         *  items appear, the placeholder is replaced by the list. */}
+        <div className="mt-3 rounded-lg border border-blue-200/70 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/[0.05]">
+          <div className="mb-2 flex items-center gap-1.5">
+            <MessageCircle className="size-3.5 text-blue-700 dark:text-blue-300" />
+            <h4 className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+              {t('talkingPoints')}
+            </h4>
           </div>
-        )}
-
-        {/* Talking points block */}
-        {!isEmpty && talkingPoints.length > 0 && (
-          <div className="mt-3 rounded-lg border border-blue-200/70 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/[0.05]">
-            <div className="mb-2 flex items-center gap-1.5">
-              <MessageCircle className="size-3.5 text-blue-700 dark:text-blue-300" />
-              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
-                {t('talkingPoints')}
-              </h4>
-            </div>
+          {talkingPoints.length === 0 ? (
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              {t('talkingPointsEmpty')}
+            </p>
+          ) : (
             <ul className="space-y-1.5">
               {talkingPoints.map((item) => (
                 <li
@@ -236,8 +217,8 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
                 </li>
               ))}
             </ul>
-          </div>
-        )}
+          )}
+        </div>
 
         {/* Categorized sections — ALWAYS render all 5 categories, even
          *  when empty. Empty sections show a "対応予定" indicator in
@@ -300,6 +281,50 @@ export function CustomerMemoryCard({ customerName, memory = EMPTY_MEMORY }: Prop
 // ─────────────────────────────────────────────────────────────
 // Subcomponents — kept file-local since they're not reused
 // ─────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────
+// Intake block — structured 2-col grid of intake fields. Always
+// renders; empty fields show "—" so the scaffold is visible from
+// the moment the customer is created.
+// ─────────────────────────────────────────────────────────────
+function IntakeBlock({
+  intake,
+}: {
+  intake: CustomerIntake | null
+}) {
+  const t = useTranslations('karute.memorySection.intakeFields')
+  const tCard = useTranslations('karute.memorySection')
+  return (
+    <div className="mt-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+      <div className="grid grid-cols-1 gap-1.5 text-[11px] sm:grid-cols-2">
+        <IntakeField label={t('firstVisit')} value={intake?.firstVisitAt} />
+        <IntakeField label={t('occupation')} value={intake?.occupation} />
+        <IntakeField label={t('maintenance')} value={intake?.maintenanceFreq} />
+        <IntakeField label={t('referral')} value={intake?.referralSource} />
+      </div>
+      {!intake && (
+        <p className="mt-2 text-[10px] italic text-muted-foreground/70">
+          {tCard('intakeEmpty')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+function IntakeField({
+  label,
+  value,
+}: {
+  label: string
+  value: string | null | undefined
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="shrink-0 text-muted-foreground">{label}</span>
+      <span className="truncate text-foreground">{value ?? '—'}</span>
+    </div>
+  )
+}
 
 function CategorySection({
   category,

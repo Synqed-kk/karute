@@ -482,7 +482,13 @@
         "photos": "Photos",
         "privacy": "Privacy",
         "aria": "Profile tabs"
-      }
+      },
+      "lastVisitPrefix": "Last visit",
+      "usualServicePrefix": "Usual",
+      "visitsSuffix": "{n} visits",
+      "edit": "Edit",
+      "editDialogTitle": "Edit customer",
+      "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
     },
     "toast": {
       "created": "Customer created",
@@ -667,7 +673,15 @@
       "lastUpdated": "Last updated: {date}",
       "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony.",
       "sectionEmpty": "Coming soon — nothing here yet",
-      "comingSoonPill": "Coming soon"
+      "comingSoonPill": "Coming soon",
+      "intakeEmpty": "Intake info will appear here once the first intake form is completed.",
+      "intakeFields": {
+        "firstVisit": "First visit",
+        "occupation": "Occupation",
+        "maintenance": "Maintenance preference",
+        "referral": "How they found us"
+      },
+      "talkingPointsEmpty": "Talking points appear here once AI extracts memorable details from session recordings."
     },
     "tabHeading": "Karute",
     "recordList": {

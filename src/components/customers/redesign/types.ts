@@ -44,6 +44,15 @@ export interface CustomerProfileData {
   memoryCount: number
   sessionCount: number
   photoCount: number
+  /** Most recent visit, locale-pretty formatted ("2026年4月19日" /
+   *  "Apr 19, 2026"). Null when the customer has no recorded visits
+   *  yet — the identity card renders "—" in that case. */
+  lastVisitDate?: string | null
+  /** "Usual course" — the customer's most-frequent service across
+   *  their karute records. Anthony's data model TODO until karute
+   *  records carry a `service` column; identity card falls back to
+   *  "—" when omitted. */
+  usualService?: string | null
 }
 
 // Display strings live in `messages/{en,ja}.json` under

@@ -32,11 +32,21 @@ export interface MemoryItem {
 }
 
 export interface CustomerIntake {
-  /** ISO date of first visit. */
-  firstVisitAt: string
-  /** Short fragments shown on the intake summary row.
-   *  ex: ['Instagram経由', '定期メンテナンス希望'] */
-  highlights: string[]
+  /** ISO date of first visit. Null when the customer hasn't been
+   *  yet (placeholder rows on the karute tab). */
+  firstVisitAt: string | null
+  /** Free-form occupation string ("ITエンジニア（在宅中心）" /
+   *  "Marketing manager" / etc.). Captured on the intake form. */
+  occupation?: string | null
+  /** Maintenance frequency preference ("定期メンテナンス希望" /
+   *  "Monthly" / "As needed"). Captured on the intake form. */
+  maintenanceFreq?: string | null
+  /** Referral source — how the customer found the salon
+   *  ("Instagram経由" / "Friend referral" / "Walked in"). */
+  referralSource?: string | null
+  /** Free-form additional highlights for the intake summary line.
+   *  Optional; the structured fields above are preferred. */
+  highlights?: string[]
 }
 
 export interface CustomerMemory {

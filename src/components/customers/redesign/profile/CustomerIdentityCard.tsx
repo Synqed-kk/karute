@@ -3,19 +3,25 @@
 // LIFTED FROM SPIKE (structure: matches spike's CustomerHeaderCard.tsx)
 //   src: /Users/liam/Documents/synqed-karute-design-spike/src/components/karute/CustomerHeaderCard.tsx
 //
-// The previous version wrapped everything in a `rounded-2xl border bg-card
-// shadow-sm` floating card, which was the "box around the customer's name"
-// Liam flagged. Spike's pattern is FLAT: edge-to-edge `bg-card` section
-// with a thin `border-b` at the bottom — no rounded corners, no shadow,
-// no extra ring. Same treatment on mobile and desktop so the karute
-// detail page reads as one continuous vertical stack of sections rather
-// than mixing carded + flat blocks.
+// Flat section (no card chrome) — bg-card + border-b only, edge-to-edge
+// on mobile + desktop. Meta row shows: age · gender · visit count ·
+// last visit · usual course · joined date — the at-a-glance facts
+// staff scans before a session.
 
-import { Calendar, Clipboard, Edit3, Mail, Phone, User } from 'lucide-react'
+import {
+  Calendar,
+  Clipboard,
+  Heart,
+  Mail,
+  Phone,
+  Sparkles,
+  User,
+} from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
+import { CustomerEditDialog } from './CustomerEditDialog'
 
 interface CustomerIdentityCardProps {
   c: CustomerProfileData
@@ -23,6 +29,7 @@ interface CustomerIdentityCardProps {
 
 export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
   const t = useTranslations('customers.list')
+  const tProfile = useTranslations('customers.profile')
   const status = STATUS_STYLES[c.status]
   return (
     <section className="bg-card px-4 pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
@@ -47,7 +54,9 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             </span>
           </div>
 
-          {/* Meta — age/gender (stub) + joined + visits */}
+          {/* Meta — age/gender + visit count + last visit + usual
+           *  service + joined date. The at-a-glance facts staff scans
+           *  before a session, matching the spike's customer header. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <span
               className="inline-flex items-center gap-1 opacity-40"
@@ -58,12 +67,24 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               <span> · </span>
               <span>{c.gender ?? '—'}</span>
             </span>
-            <Meta icon={<Calendar size={12} />}>
-              {t('joined', { date: c.joinDate })}
-            </Meta>
             <Meta icon={<Clipboard size={12} />}>
               <span className="tabular-nums">{c.totalKarute}</span>
-              <span> 回</span>
+              <span>{' 回'}</span>
+            </Meta>
+            <Meta icon={<Heart size={12} />}>
+              <span className="text-muted-foreground/70">
+                {tProfile('lastVisitPrefix')}
+              </span>{' '}
+              <span className="tabular-nums">{c.lastVisitDate ?? '—'}</span>
+            </Meta>
+            <Meta icon={<Sparkles size={12} />}>
+              <span className="text-muted-foreground/70">
+                {tProfile('usualServicePrefix')}
+              </span>{' '}
+              <span>{c.usualService ?? '—'}</span>
+            </Meta>
+            <Meta icon={<Calendar size={12} />}>
+              {t('joined', { date: c.joinDate })}
             </Meta>
           </div>
 
@@ -97,18 +118,11 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
           </div>
         </div>
 
-        {/* Edit pencil — flush right, matches spike's inline placement
-         *  (replaces the absolute-positioned button pattern) */}
-        <button
-          type="button"
-          disabled
-          className="inline-flex h-8 shrink-0 cursor-not-allowed items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground/60 opacity-60"
-          aria-label="Edit customer"
-          title="Coming soon — inline edit not wired"
-        >
-          <Edit3 size={13} />
-          <span className="hidden sm:inline">編集</span>
-        </button>
+        {/* Edit pencil — opens CustomerEditDialog. Form pre-populates
+         *  with current customer data; save calls updateCustomer +
+         *  revalidates the page so the header re-renders with new
+         *  values. */}
+        <CustomerEditDialog customer={c} />
       </div>
     </section>
   )
