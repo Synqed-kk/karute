@@ -63,9 +63,8 @@ describe('Migrated staff actions', () => {
     await createStaff({ name: 'Ada', email: 'ada@example.com', position: '', phone: '' })
 
     // user_id is best-effort: createStaff looks up an existing auth profile by
-    // email so synqed.staff is seeded with the link from day one. When no
-    // matching profile exists the field is null and the resolver self-heals
-    // later in src/lib/synqed/staff-map.ts.
+    // email so synqed.staff is seeded with the link when one exists. When no
+    // matching profile exists the field is left null.
     expect(staff.create).toHaveBeenCalledWith({
       name: 'Ada',
       email: 'ada@example.com',

@@ -61,16 +61,12 @@ const appointments = {
 const karuteRecords = {
   list: jest.fn(),
 }
-const staff = {
-  list: jest.fn(),
-}
 
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     customers,
     appointments,
     karuteRecords,
-    staff,
   })),
 }))
 
