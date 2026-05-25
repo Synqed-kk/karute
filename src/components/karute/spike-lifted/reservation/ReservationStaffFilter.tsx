@@ -32,9 +32,20 @@ interface Props {
   selfStaffId: string | null
   /** Active filter key from the URL — 'all' | 'self' | <staffId>. */
   selected: string
+  /** Optional content rendered BEFORE the Self/All segmented toggle in the
+   *  same flex row. Used by the reservation page to place the
+   *  Day/Week/Month toggle on the same line as the scope toggle, mirroring
+   *  the spike's `ViewModeSelector` `prependSlot` pattern. Wraps with the
+   *  toggle on narrow viewports. */
+  prependSlot?: React.ReactNode
 }
 
-export function ReservationStaffFilter({ staffList, selfStaffId, selected }: Props) {
+export function ReservationStaffFilter({
+  staffList,
+  selfStaffId,
+  selected,
+  prependSlot,
+}: Props) {
   const t = useTranslations('reservation.staffFilter')
   const router = useRouter()
   const pathname = usePathname()
@@ -56,22 +67,27 @@ export function ReservationStaffFilter({ staffList, selfStaffId, selected }: Pro
 
   return (
     <div className={`flex flex-col gap-2 ${isPending ? 'opacity-60' : ''}`}>
-      {/* Self / All segmented toggle */}
-      <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
-        {selfStaffId && (
+      {/* Row 1: prepend slot (Day/Week/Month toggle in practice) +
+       *  Self/All segmented toggle. Same row so the chrome above the
+       *  agenda is one line on most viewports. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {prependSlot}
+        <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
+          {selfStaffId && (
+            <SegmentButton
+              active={selected === 'self'}
+              onClick={() => setStaff('self')}
+              icon={<User size={13} />}
+              label={t('self')}
+            />
+          )}
           <SegmentButton
-            active={selected === 'self'}
-            onClick={() => setStaff('self')}
-            icon={<User size={13} />}
-            label={t('self')}
+            active={selected === 'all'}
+            onClick={() => setStaff('all')}
+            icon={<Users size={13} />}
+            label={t('all')}
           />
-        )}
-        <SegmentButton
-          active={selected === 'all'}
-          onClick={() => setStaff('all')}
-          icon={<Users size={13} />}
-          label={t('all')}
-        />
+        </div>
       </div>
 
       {/* Per-staff pills with deterministic colors. >3 staff still renders

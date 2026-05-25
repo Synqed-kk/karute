@@ -241,8 +241,12 @@ export function KaruteRecordListView({
         })}
       </div>
 
-      {/* List — date-grouped sections */}
-      <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
+      {/* List — date-grouped sections. Bleeds past the layout's 16px
+       *  horizontal padding on mobile so the list reaches the screen
+       *  edges (matches the spike + the customer list + the appointments
+       *  agenda). Inset reverts on md+ so the list sits inside the
+       *  desktop container. */}
+      <div className="-mx-4 mt-4 overflow-hidden border-y border-border/60 bg-card md:mx-0 md:rounded-2xl md:border">
         {grouped.length === 0 && placeholders.length === 0 ? (
           <div className="px-6 py-12 text-center">
             <p className="text-sm font-medium text-foreground">{t('empty')}</p>
@@ -281,7 +285,7 @@ export function KaruteRecordListView({
        *  Sits below the date-grouped records so brand-new customers are
        *  visible on this tab without polluting the session-record list. */}
       {placeholders.length > 0 && (
-        <div className="mt-4 overflow-hidden rounded-2xl border border-border/60 bg-card">
+        <div className="-mx-4 mt-4 overflow-hidden border-y border-border/60 bg-card md:mx-0 md:rounded-2xl md:border">
           <div className="border-b border-border/40 bg-muted/30 px-4 py-2 text-[11px] text-muted-foreground md:px-5">
             <span className="font-medium text-foreground">
               {t('newCustomersHeader')}

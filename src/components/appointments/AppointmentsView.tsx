@@ -162,11 +162,18 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         onNewBooking={() => setDialogOpen(true)}
       />
 
-      {/* Self/All + per-staff filter — mirrors the spike's reservation
-       *  picker. Defaults to "全スタッフ" so the agenda reads as the
-       *  whole-salon schedule (matches the spike's mobile screenshot
-       *  Liam shared). Picker mutates ?staff= which the page reads
-       *  server-side to refilter reservationViews. */}
+      {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
+       *  Row 1: DWM toggle (localized via copy prop — defaults to English
+       *         in @synqed-kk/ui, which read wrong on the JA build) +
+       *         Self/All segmented toggle on the same line.
+       *  Row 2: per-staff colored pills.
+       *  Wrapped in ReservationStaffFilter so the picker owns its own URL
+       *  state — DWM is just slotted in via prependSlot.
+       *
+       *  Defaults to "全スタッフ" so the agenda reads as the whole-salon
+       *  schedule (matches the spike's mobile screenshot Liam shared).
+       *  Picker mutates ?staff= which the page reads server-side to
+       *  refilter reservationViews. */}
       <ReservationStaffFilter
         staffList={props.staff.map<ReservationStaffEntry>((s) => ({
           id: s.id,
@@ -175,27 +182,40 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         }))}
         selfStaffId={props.activeStaffId}
         selected={props.staffFilter}
+        prependSlot={
+          <DayWeekMonthToggle
+            view={view}
+            onChange={(v) => navigateTo(v, selectedDate)}
+            copy={{
+              day: tReservation('view.day'),
+              week: tReservation('view.week'),
+              month: tReservation('view.month'),
+            }}
+          />
+        }
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <DayWeekMonthToggle
-          view={view}
-          onChange={(v) => navigateTo(v, selectedDate)}
-        />
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="text-muted-foreground">{tReservation('legend.label')}</span>
-          {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map((tone) => (
-            <span key={tone} className="inline-flex items-center gap-1.5">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{
-                  background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
-                  border: `1px ${tone === 'pending' || tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
-                }}
-              />
-              {tReservation(`status.${tone}`)}
-            </span>
-          ))}
+      {/* Legend — wrapped in a bordered card matching the spike. Same row
+       *  as the loading spinner so the spinner anchors flush right. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs">
+          <span className="text-muted-foreground">
+            {tReservation('legend.label')}
+          </span>
+          {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map(
+            (tone) => (
+              <span key={tone} className="inline-flex items-center gap-1.5">
+                <span
+                  className="inline-block h-2.5 w-2.5 rounded-sm"
+                  style={{
+                    background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
+                    border: `1px ${tone === 'pending' || tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
+                  }}
+                />
+                {tReservation(`status.${tone}`)}
+              </span>
+            ),
+          )}
           <span className="inline-flex items-center gap-1.5">
             <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
             {tReservation('legend.block')}
@@ -203,7 +223,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         </div>
         {isPending && (
           <span
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
             role="status"
             aria-live="polite"
           >
@@ -227,7 +247,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 onSelect={setSelected}
               />
             </div>
-            <div className="md:hidden">
+            {/* Bleed the mobile agenda past the layout's 16px horizontal
+             *  padding so the rounded list container reaches the screen
+             *  edges. Matches the spike's mobile screenshot where the
+             *  list is full-bleed and the chrome above stays inset.
+             *  -mx-4 cancels the layout's p-4; md:mx-0 restores it. */}
+            <div className="-mx-4 md:mx-0 md:hidden">
               <ReservationMobileAgenda
                 reservations={props.reservationViews}
                 onSelect={setSelected}
