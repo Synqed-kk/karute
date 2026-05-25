@@ -3,13 +3,13 @@
 import { useTranslations } from 'next-intl'
 import {
   BookOpen,
-  Sparkles,
   Star,
   Target,
   TrendingUp,
 } from 'lucide-react'
 
 import { CoachingScaffoldCard } from './CoachingScaffoldCard'
+import { MonthlyGrowthCard } from './MonthlyGrowthCard'
 
 // ─────────────────────────────────────────────────────────────
 // Staff coaching dashboard — SCAFFOLD ONLY
@@ -39,15 +39,10 @@ export function StaffDashboardScaffold() {
     <div className="space-y-5">
       {/* Row 1 — Layer 1 personal growth + Layer 2 team patterns */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr]">
-        {/* data-source: usePersonalGrowthData() — staff_id = auth.uid() */}
-        <CoachingScaffoldCard
-          icon={<Sparkles size={18} />}
-          title={t('monthlyGrowth.title')}
-          subtitle={t('monthlyGrowth.subtitle')}
-          body={t('monthlyGrowth.body')}
-          privacyLayer="layer1"
-          tone="indigo"
-        />
+        {/* HERO CARD — real visual chrome lifted from spike. Renders
+         *  em-dash placeholders + 対応予定 footer until Anthony wires
+         *  usePersonalGrowthData(). */}
+        <MonthlyGrowthCard growth={null} />
         {/* data-source: useTopPerformerPatternsData() — anonymized
          *  patterns from top performers, no identifying staff_id. */}
         <CoachingScaffoldCard

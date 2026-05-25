@@ -810,6 +810,10 @@
     "selectCustomerAndSave": "Select customer & save"
   },
   "coaching": {
+    "common": {
+      "privacyLayer1Badge": "Only you can see this",
+      "scaffoldLabel": "Coming soon"
+    },
     "header": {
       "title": "Coaching",
       "subtitleStaff": "Learn from top performers and grow your own technique.",
@@ -819,7 +823,12 @@
       "monthlyGrowth": {
         "title": "This month's growth",
         "subtitle": "Your staff-private data (Layer 1)",
-        "body": "AI analyzes your sessions and surfaces your monthly score, change-from-last-month, sessions analyzed, and patterns mastered vs in-progress. Lights up when Anthony wires usePersonalGrowthData()."
+        "body": "AI analyzes your sessions and surfaces your monthly score, change-from-last-month, sessions analyzed, and patterns mastered vs in-progress. Lights up when Anthony wires usePersonalGrowthData().",
+        "vsLastMonth": "vs last month",
+        "statSessionsAnalyzed": "Sessions analyzed",
+        "statPatternsMastered": "Patterns mastered",
+        "statPatternsInProgress": "In progress",
+        "emptyHint": "AI will analyze your sessions and surface your monthly score + pattern mastery here. Lights up when Anthony wires growth-data retrieval."
       },
       "learnFromTop": {
         "title": "Learn from top performers",
@@ -844,7 +853,15 @@
       "teamPerformance": {
         "title": "Team performance",
         "subtitle": "Aggregated data (Layer 3)",
-        "body": "Monthly summary of the team's key metrics (revenue, rebooking rate, customer satisfaction, per-customer revenue). Aggregated values only — no individual staff identification. Lights up when Anthony wires useStaffPerformanceData()."
+        "body": "Monthly summary of the team's key metrics (revenue, rebooking rate, customer satisfaction, per-customer revenue). Aggregated values only — no individual staff identification. Lights up when Anthony wires useStaffPerformanceData().",
+        "cardTitle": "Store-wide performance",
+        "vsLastMonth": "vs last month",
+        "metricClosing": "Avg closing rate",
+        "metricRebooking": "Avg rebooking rate",
+        "metricAvgRevenue": "Avg per-customer revenue",
+        "metricSatisfaction": "Avg satisfaction",
+        "totalSessionsLabel": "Total sessions this month ·",
+        "emptyHint": "Store-wide aggregated key metrics surface here. Lights up when Anthony wires the team summary retrieval."
       },
       "teamTrends": {
         "title": "Team trends",
