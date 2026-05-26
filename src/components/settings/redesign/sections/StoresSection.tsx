@@ -136,7 +136,14 @@ export function StoresSection({
         onSave={handleFormSave}
       />
 
-      <SubscriptionSummaryCard />
+      {/* SubscriptionSummaryCard hidden until Stripe wires up — the
+       *  mock seed renders a fake trial banner that misleads owners
+       *  (`tier: 'trial'`, countdown to 2026-06-15). Gated by the
+       *  same NEXT_PUBLIC_FEATURE_SUBSCRIPTION flag that hides the
+       *  subscription tab. */}
+      {process.env.NEXT_PUBLIC_FEATURE_SUBSCRIPTION === 'true' && (
+        <SubscriptionSummaryCard />
+      )}
 
       {/* Owner permissions banner — only renders for owners */}
       {isOwner && (
@@ -165,7 +172,13 @@ export function StoresSection({
             {t('storesCount', { n: stores.length })}
           </p>
         </div>
-        {isOwner && (
+        {/* "+ 店舗を追加" hidden until multi-store ships. Today the
+         *  flow saves to local React useState only — owner adds Store
+         *  B, switches to it, but no other route filters by
+         *  active_store_id (the column doesn't exist yet either).
+         *  Same flag as subscription gating since the two land
+         *  together (additional seats → subscription change). */}
+        {isOwner && process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true' && (
           <Button
             onClick={() => setSubscriptionStepOpen(true)}
             className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"

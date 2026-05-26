@@ -120,13 +120,24 @@ const TABS: TabDef[] = [
     descriptionKey: 'bookingSyncDescription',
     icon: RefreshCw,
   },
-  {
-    id: 'subscription',
-    labelKey: 'subscription.label',
-    descriptionKey: 'subscriptionDescription',
-    icon: CreditCard,
-    ownerOnly: true,
-  },
+  // Subscription tab is gated behind NEXT_PUBLIC_FEATURE_SUBSCRIPTION.
+  // The underlying SubscriptionSection renders subscriptionMockSeed
+  // (`tier: 'trial'`, `trialEndsAt: '2026-06-15'`) — a fake countdown
+  // banner that would mislead salon owners into thinking we're charging
+  // them. Tab + SubscriptionSummaryCard (mounted inside StoresSection)
+  // both hide until Stripe wiring lands. ANTHONY: when subscriptions
+  // are real, set NEXT_PUBLIC_FEATURE_SUBSCRIPTION=true.
+  ...(process.env.NEXT_PUBLIC_FEATURE_SUBSCRIPTION === 'true'
+    ? [
+        {
+          id: 'subscription' as const,
+          labelKey: 'subscription.label',
+          descriptionKey: 'subscriptionDescription',
+          icon: CreditCard,
+          ownerOnly: true,
+        },
+      ]
+    : []),
   {
     id: 'audit',
     labelKey: 'auditLog.label',
