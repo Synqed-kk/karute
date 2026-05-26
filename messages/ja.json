@@ -948,6 +948,36 @@
         "seeAllModules": "すべてのモジュールを見る",
         "emptyHint": "AIが推薦する未割り当ての上位3モジュールと、同意取得済みスタッフへのクイック割り当てチップをここに表示します。Anthonyが useLearningModulesData() と learning_assignments の挿入／削除サーバーアクションを実装後に有効化されます。"
       }
+    },
+    "staffDrill": {
+      "back": "コーチングに戻る",
+      "topPerformerBadge": "トップパフォーマー",
+      "roleAndTenure": "{role} · 在籍{months}ヶ月 · 今月{sessions}件",
+      "assignModulesCta": "学習モジュールを割り当てる",
+      "privacyNotice": "このスタッフの会話内容や個別セッションの詳細は、プライバシー保護のため表示されません。パフォーマンスの傾向と成長エリアのみ表示しています。",
+      "metricClosing": "成約率",
+      "metricRebooking": "再来店率",
+      "metricRevenue": "平均客単価",
+      "metricSatisfaction": "満足度",
+      "metricSatisfactionValue": "{score} / 5.0",
+      "metricScaffoldValue": "—",
+      "metricsScaffoldHint": "成約率・再来店率・平均客単価・満足度の月次集計をここに表示します。Anthonyが useStaffPerformanceData() を実装後に有効化されます。",
+      "chartTitle": "{name}さんの成長推移",
+      "chartSubtitle": "カテゴリースコアの月次推移",
+      "chartEmptyHint": "カテゴリースコアの月次推移グラフをここに表示します。Layer 2 の集計のみ（AI不要）。Anthonyが trajectoryL2 を含む useStaffPerformanceData() を実装後に有効化されます。",
+      "gapTitle": "成長エリアの分析",
+      "gapSubtitle": "カテゴリー別 · トップパフォーマーとの差",
+      "gapPriorityHigh": "優先度・高",
+      "gapPriorityMedium": "優先度・中",
+      "gapPriorityStable": "安定",
+      "gapDiffFromTop": "トップ層との差 {pct}%",
+      "gapEmptyHint": "カテゴリー別の成長エリアと、トップパフォーマーとの差をここに表示します。週次バッチで claude-sonnet による分析を生成し、顧客名やセッション詳細を含まない「成長エリア」「サポートポイント」の語彙のみ使用します。Anthonyが useCategoricalInsightsData(staffId) を実装後に有効化されます。",
+      "modal": {
+        "title": "{name}さんの個別データを確認します",
+        "description": "プライバシー保護のため、会話の録音・文字起こし・具体的なお客様とのやり取りは表示されません。パフォーマンス指標と成長エリア（カテゴリーレベル）のみ表示します。",
+        "cancel": "キャンセル",
+        "confirm": "確認する"
+      }
     }
   },
   "dashboard": {
