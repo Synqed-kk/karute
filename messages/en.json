@@ -874,20 +874,27 @@
       "learnFromTop": {
         "title": "Learn from top performers",
         "subtitle": "Anonymized team-shared data (Layer 2)",
-        "body": "Conversational patterns extracted from the salon's top performers, surfaced without identifying who. AI extracts natural conversation framing + proposal phrasing and suggests how to apply them in today's session."
+        "body": "Conversational patterns extracted from the salon's top performers, surfaced without identifying who. AI extracts natural conversation framing + proposal phrasing and suggests how to apply them in today's session.",
+        "seeAll": "See all",
+        "emptyHint": "AI-extracted patterns from the salon's top performers surface here, anonymized + ready to apply in today's session. Lights up when Anthony wires the pattern-extraction pipeline."
       },
       "strengths": {
         "title": "Your strengths",
-        "body": "AI extracts your strongest categories from past sessions — proposals + conversation patterns you can lean into with confidence. Staff-private (Layer 1)."
+        "body": "AI extracts your strongest categories from past sessions — proposals + conversation patterns you can lean into with confidence. Staff-private (Layer 1).",
+        "emptyHint": "AI analyzes your past sessions and surfaces your strongest categories + conversation patterns here. Lights up when Anthony wires growth-data retrieval."
       },
       "nextFocus": {
         "title": "Next focus",
-        "body": "Growth-opportunity categories + a concrete action you can try in today's session to develop them. Staff-private (Layer 1)."
+        "body": "Growth-opportunity categories + a concrete action you can try in today's session to develop them. Staff-private (Layer 1).",
+        "emptyHint": "AI identifies growth-opportunity categories + suggests concrete actions you can try in today's session. Lights up when Anthony wires growth-data retrieval."
       },
       "recentModules": {
         "title": "Recent learning modules",
         "subtitle": "Modules assigned to you by the owner (Layer 1)",
-        "body": "Learning modules assigned by the owner (scripts, videos, tests) with progress. Lights up when Anthony wires useLearningModulesData()."
+        "body": "Learning modules assigned by the owner (scripts, videos, tests) with progress. Lights up when Anthony wires useLearningModulesData().",
+        "durationMin": "{n} min",
+        "assignedBy": "from {name}",
+        "emptyHint": "Modules assigned by your owner — with progress — surface here. Lights up when Anthony wires the module-assignment retrieval."
       }
     },
     "owner": {
