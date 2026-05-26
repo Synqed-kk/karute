@@ -21,10 +21,16 @@
 //                                  on records + filters; per-staff
 //                                  scoping can layer in later)
 
-import { Bell } from 'lucide-react'
+import { FilePlus2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
-import { CustomerSearchInput } from '@/components/customers/redesign/list/CustomerSearchInput'
+
+import {
+  CustomersStaffFilter,
+  type StaffFilterEntry,
+  type StaffFilterKey,
+} from '@/components/customers/redesign/list/CustomersStaffFilter'
+
 import { KaruteListRow } from './KaruteListRow'
 import type { KaruteListFilter, KaruteListItem } from './types'
 
@@ -43,6 +49,11 @@ interface Props {
    * records — they're customers waiting for their first session).
    */
   placeholders?: KaruteListItem[]
+  /** Staff list for the "your customers / all customers" filter. */
+  staffList?: StaffFilterEntry[]
+  /** The viewer's staff id — drives the "Me" filter pill. Null when
+   *  the session has no active staff. */
+  currentStaffId?: string | null
 }
 
 const PAGE_SIZE = 12
@@ -59,11 +70,14 @@ export function KaruteRecordListView({
   items,
   monthCount,
   placeholders = [],
+  staffList = [],
+  currentStaffId = null,
 }: Props) {
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
   const locale = useLocale()
   const [filter, setFilter] = useState<KaruteListFilter>('all')
+  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [page, setPage] = useState(0)
 
@@ -71,7 +85,7 @@ export function KaruteRecordListView({
   // narrower result set strands the viewer on an empty page.
   useEffect(() => {
     setPage(0)
-  }, [filter, searchQuery])
+  }, [filter, searchQuery, staffFilter])
 
   const counts = useMemo(() => {
     const sevenDaysAgo = new Date()
@@ -88,6 +102,17 @@ export function KaruteRecordListView({
 
   const filtered = useMemo(() => {
     let result = items
+
+    // Staff scope: 'all' shows every record; 'self' filters to the
+    // current viewer's records only; a specific id filters to that
+    // staff. Records with no staffId are kept on 'all', dropped
+    // on any specific scope.
+    if (staffFilter === 'self' && currentStaffId) {
+      result = result.filter((i) => i.staffId === currentStaffId)
+    } else if (staffFilter !== 'all' && staffFilter !== 'self') {
+      result = result.filter((i) => i.staffId === staffFilter)
+    }
+
     const sevenDaysAgo = new Date()
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
     const cutoff = sevenDaysAgo.toISOString().slice(0, 10)
@@ -111,7 +136,7 @@ export function KaruteRecordListView({
       })
     }
     return result
-  }, [items, filter, searchQuery])
+  }, [items, filter, searchQuery, staffFilter, currentStaffId])
 
   // Page slice (in-memory, same approach as customer list)
   const pageItems = useMemo(() => {
@@ -159,40 +184,43 @@ export function KaruteRecordListView({
     // `-mx-4 md:-mx-6` to bleed back to viewport edges for the iOS
     // sticky-header pattern (its bg + border line span full-width).
     <main className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
-      {/* Sticky title bar — same pattern as customers list */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:px-6">
-        <div className="relative flex items-center justify-center py-2">
-          <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
+      {/* Single header row — title + stats on left, primary CTA on
+       *  right. Matches the spike's KaruteListPageHeader layout. */}
+      <div className="mt-3 flex flex-wrap items-start justify-between gap-3 md:mt-5">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-[26px]">
             {tHead('tabHeading')}
           </h1>
-          <button
-            type="button"
-            className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label="通知"
-          >
-            <Bell size={16} />
-          </button>
+          <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+            {t('statusLine', { monthCount, showingCount: filtered.length })}
+          </p>
         </div>
+        {/* + 新規カルテ — primary CTA. ANTHONY wires the create-karute
+         *  flow; today the button routes staff to /sessions to start a
+         *  recording (the canonical karute-creation entry point). */}
+        <a
+          href={`/${locale}/sessions`}
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-4 text-[13px] font-medium text-white transition-colors hover:bg-indigo-700"
+        >
+          <FilePlus2 className="size-3.5" aria-hidden />
+          {t('newKarute')}
+        </a>
       </div>
 
-      {/* Status line + New karute button */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-4 pt-3 md:px-6">
-        <p className="text-xs tabular-nums text-muted-foreground">
-          {t('statusLine', { monthCount, showingCount: filtered.length })}
-        </p>
-        {/* + 新規カルテ button (stub — Anthony wires create-karute flow) */}
-        <button
-          type="button"
-          disabled
-          title="Coming soon — new karute flow not wired"
-          className="inline-flex h-9 cursor-not-allowed items-center gap-1.5 rounded-md bg-foreground/90 px-3 text-[13px] font-medium text-background opacity-90"
-        >
-          {t('newKarute')}
-        </button>
-      </div>
+      {/* Staff-scope filter — "your customers / all / specific staff" */}
+      {staffList.length > 0 && (
+        <div className="mt-3">
+          <CustomersStaffFilter
+            staffList={staffList}
+            selfStaffId={currentStaffId ?? null}
+            selected={staffFilter}
+            onChange={setStaffFilter}
+          />
+        </div>
+      )}
 
       {/* Search input — reuses the customer search input visually */}
-      <div className="px-4 pt-3 md:px-6">
+      <div className="pt-3">
         <label className="flex w-full items-center gap-2 rounded-[10px] border border-border bg-card px-3 focus-within:border-sky-500">
           <svg
             xmlns="http://www.w3.org/2000/svg"
@@ -220,7 +248,7 @@ export function KaruteRecordListView({
       </div>
 
       {/* Filter chips */}
-      <div className="flex flex-wrap items-center gap-2 px-4 pt-3 md:px-6">
+      <div className="flex flex-wrap items-center gap-2 pt-3">
         {FILTER_KEYS.map((key) => {
           const isActive = filter === key
           return (
@@ -303,7 +331,7 @@ export function KaruteRecordListView({
 
       {/* Simple pagination footer (reused conceptually from customers list) */}
       {filtered.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between gap-3 px-4 pt-3 md:px-6">
+        <div className="flex items-center justify-between gap-3 pt-3">
           <p className="text-xs tabular-nums text-muted-foreground">
             {(page * PAGE_SIZE + 1).toLocaleString()}-
             {Math.min((page + 1) * PAGE_SIZE, filtered.length).toLocaleString()} /
