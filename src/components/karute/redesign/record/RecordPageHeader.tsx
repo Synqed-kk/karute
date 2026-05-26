@@ -1,106 +1,32 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { useState } from 'react'
-import { Bell, ChevronLeft } from 'lucide-react'
 
-import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
-import { useUnreadCount } from '@/lib/notifications/hooks'
-import { useGlobalRecorder } from '@/hooks/use-global-recorder'
-
-// Record-page header — TWO variants stacked, gated by viewport:
+// Record-page header — desktop-only big page heading + subtitle.
 //
-//   • Mobile (md:hidden)  Sticky top chrome matching the spike's
-//                         MobileHeader: back button left, centered
-//                         「録音」 title, bell right (opens
-//                         NotificationsPanel sheet).
-//                         Bleeds out of the parent's p-4 padding via
-//                         `-mx-4 ... px-4` so it spans full width.
+// Mobile chrome moved to the global MobileHeader (layout-level) when
+// it landed in PR #57. The earlier local mobile-only chrome block
+// duplicated MobileHeader at the top of the screen — two title bars,
+// two bells. MobileHeader now owns mobile title + bell across every
+// (app) route, so the record page just contributes a desktop heading.
 //
-//   • Desktop (hidden md:block)  Big page heading + subtitle. The
-//                         desktop sidebar already provides a 「録音」
-//                         nav entry + back affordance, so we keep the
-//                         existing 2xl/3xl typography there.
-//
-// Spike source: src/components/layout/MobileHeader.tsx (lines 32-101).
-//
-// Bell opens the NotificationsPanel (PR-22-ish). Badge surfaces an
-// unread count from `useUnreadCount()`. State + mutations are
-// localStorage-backed via src/lib/notifications/hooks.ts — Anthony
-// swaps for a Supabase realtime channel; the API surface stays the
-// same so this component doesn't change.
+// Recording-aware bell hiding — the prior local chrome hid the bell
+// while recording so DiscreetRecordingIndicator could occupy the
+// top-right without overlapping. MobileHeader's bell is always
+// visible today (per its docstring: "useRecording() not yet wired
+// in karute"). DiscreetRecordingIndicator still surfaces recording
+// state via its floating top-right pill. Anthony can plumb the
+// useGlobalRecorder hook into MobileHeader when the recording UX
+// gets a polish pass; the surface is small.
 export function RecordPageHeader() {
   const t = useTranslations('recording')
-  const tCommon = useTranslations('common')
-  const router = useRouter()
-  const [notificationsOpen, setNotificationsOpen] = useState(false)
-  const unreadCount = useUnreadCount()
-  // Hide the bell while recording — matches the spike's posture
-  // (recording state owns the top-right; the floating
-  // DiscreetRecordingIndicator surfaces in the bell's vacated
-  // spot, so they never overlap on scroll). Bell returns the
-  // instant recording stops. Notifications aren't reachable
-  // mid-recording but staff aren't checking them anyway —
-  // they're in front of the customer.
-  const { state: recState } = useGlobalRecorder()
-  const isRecording = recState === 'recording' || recState === 'paused'
 
   return (
-    <>
-      {/* Mobile chrome — sticky, full-bleed, back + centered title + bell */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-2 backdrop-blur md:hidden">
-        <div className="relative flex h-12 items-center">
-          <button
-            type="button"
-            onClick={() => router.back()}
-            aria-label={tCommon('back')}
-            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          >
-            <ChevronLeft size={20} />
-          </button>
-          <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold tracking-tight text-foreground">
-            {t('title')}
-          </h1>
-          {isRecording ? (
-            // Spacer — keeps the title centered when the bell is
-            // hidden so the chrome doesn't shift. The floating
-            // DiscreetRecordingIndicator (layout-level) renders
-            // here visually since it's fixed top-right.
-            <span aria-hidden className="ml-auto h-10 w-10 shrink-0" />
-          ) : (
-            <button
-              type="button"
-              onClick={() => setNotificationsOpen(true)}
-              className="relative ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-              aria-label={tCommon('notifications')}
-            >
-              <Bell size={18} />
-              {unreadCount > 0 && (
-                <span
-                  aria-hidden
-                  className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
-                >
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Desktop heading — kept as-is from the prior visual pass */}
-      <div className="hidden flex-col gap-1.5 md:flex">
-        <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
-          {t('title')}
-        </h1>
-        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
-      </div>
-
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
-    </>
+    <div className="hidden flex-col gap-1.5 md:flex">
+      <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
+        {t('title')}
+      </h1>
+      <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
+    </div>
   )
 }

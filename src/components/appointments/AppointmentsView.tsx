@@ -192,7 +192,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  later without restructuring (spike uses `useUnreadCount()`).
        *  ─────────────────────────────────────────────────────────────
        */}
-      <div className="sticky top-0 z-20 -mx-4 border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:px-6">
+      {/* Mobile-hidden — the global MobileHeader (layout-level) now
+       *  owns mobile chrome (title + bell). Showing both produced
+       *  doubled bars at the top of every list page. Desktop keeps
+       *  this local sticky bar so the title + bell stay reachable
+       *  on wider viewports. */}
+      <div className="sticky top-0 z-20 -mx-4 hidden border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:block md:px-6">
         <div className="relative flex items-center justify-center py-2">
           <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             {tReservation('title')}
