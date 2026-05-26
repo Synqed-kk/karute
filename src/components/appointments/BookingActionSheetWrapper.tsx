@@ -14,9 +14,13 @@ interface BookingActionSheetWrapperProps {
   forceMobile?: boolean
 }
 
-function deriveKaruteNumber(id: string): string {
-  return id.replace(/-/g, '').slice(0, 5).toUpperCase()
-}
+// `deriveKaruteNumber` removed — the hex slice produced an
+// `#A1B2C`-style number that didn't match the real `#00001`
+// sequence rendered on the karute list / customer profile.
+// Passing `karuteNumber={undefined}` lets BookingActionSheet
+// hide the chip instead of showing inconsistent IDs. ANTHONY:
+// thread the real number through via the customer-list query
+// + `assignSequentialKaruteNumbers` when this sheet needs it.
 
 function useIsMobile() {
   const [isMobile, setIsMobile] = useState(false)
@@ -85,11 +89,7 @@ export function BookingActionSheetWrapper({
         if (!o) onClose()
       }}
       customerName={selected.customerName}
-      karuteNumber={
-        selected.karuteRecordId
-          ? deriveKaruteNumber(selected.karuteRecordId)
-          : undefined
-      }
+      karuteNumber={undefined}
       hasExistingKarute={hasKarute}
       isFirstTimeVisit={selected.isFirstTimeVisit}
       isMobile={forceMobile ?? isMobile}

@@ -8,21 +8,18 @@ import { listCustomerPhotos } from '@/actions/customers'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
-  deriveKaruteNumber,
   deriveStatus,
   formatJoinDate,
 } from '@/lib/customers/list-enrich'
+import {
+  assignSequentialKaruteNumbers,
+  deriveFamilyInitials,
+} from '@/lib/customers/identity'
 import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
 import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
-}
-
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -38,28 +35,36 @@ function prettyDate(iso: string): string {
 export default async function CustomerProfilePage({
   params,
 }: CustomerProfilePageProps) {
-  const { id } = await params
+  const { id, locale } = await params
   const customer = await getCustomer(id).catch(() => null)
   if (!customer) notFound()
 
   // Fetch supporting data in parallel: contact (cached), staff list (cached),
   // this customer's karute records (via synqed-core — the source of truth),
-  // and photos.
-  const [contact, staffList, karuteRes, photosResult] = await Promise.all([
-    getCustomerContact(id),
-    getStaffList(),
-    getSynqedClient().then((c) =>
-      c.karuteRecords.list({ customer_id: id, page_size: 100 }),
-    ),
-    listCustomerPhotos(id).catch(() => ({
-      photos: [] as Array<{
-        id: string
-        signed_url: string | null
-        category: string
-        caption: string | null
-      }>,
-    })),
-  ])
+  // the full customer list (for the sequential karute number, consistent with
+  // the list page), and photos.
+  const synqed = await getSynqedClient()
+
+  const [contact, staffList, karuteRes, photosResult, allCustomersList] =
+    await Promise.all([
+      getCustomerContact(id),
+      getStaffList(),
+      synqed.karuteRecords.list({ customer_id: id, page_size: 100 }),
+      listCustomerPhotos(id).catch(() => ({
+        photos: [] as Array<{
+          id: string
+          signed_url: string | null
+          category: string
+          caption: string | null
+        }>,
+      })),
+      synqed.customers.list({
+        page: 1,
+        page_size: 500,
+        sort_by: 'created_at',
+        sort_order: 'asc',
+      }),
+    ])
 
   type KaruteRow = {
     id: string
@@ -101,8 +106,14 @@ export default async function CustomerProfilePage({
       karuteId: r.id,
       date: prettyDate(r.session_date ?? r.created_at),
       weekday: WEEKDAYS[dt.getDay()],
-      service: 'Session',
-      duration: 60,
+      // Service '—' + duration 0 instead of literal 'Session' /
+      // 60 — same '施術' bug fixed on the main karute list. The
+      // session-row renderer should gate the duration display on
+      // `duration > 0` so the line hides instead of rendering "0 min".
+      // ANTHONY: when karute_records gains `service` + `duration_minutes`
+      // columns, pass the real values.
+      service: '—',
+      duration: 0,
       summary: r.summary ?? '—',
       staffName: r.staff_profile_id
         ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
@@ -119,11 +130,14 @@ export default async function CustomerProfilePage({
   const profile: CustomerProfileData = {
     id: customer.id,
     name: customer.name,
-    initials: deriveInitials(customer.name),
-    karuteNumber: deriveKaruteNumber(customer.id),
+    initials: deriveFamilyInitials(customer.name),
+    karuteNumber:
+      assignSequentialKaruteNumbers(allCustomersList.customers).get(
+        customer.id,
+      ) ?? '#00000',
     age: null,
     gender: null,
-    joinDate: formatJoinDate(customer.created_at),
+    joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,

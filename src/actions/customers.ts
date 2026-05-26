@@ -5,6 +5,39 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 // ---------------------------------------------------------------------------
+// Backend error → user-facing message
+// ---------------------------------------------------------------------------
+
+/**
+ * Translate raw backend errors (Prisma / synqed-core throws) into
+ * locale-aware messages the form's toast can safely display.
+ *
+ * The synqed-core service layer propagates Prisma errors verbatim
+ * (e.g. ``Unique constraint failed on the fields: (`business_id`,
+ * `email`)``). Showing that to a user is both ugly and a minor info
+ * leak (column names, stack frames). This helper pattern-matches the
+ * common shapes and falls back to a generic "save failed" message
+ * so users never see Prisma internals.
+ *
+ * Raw error is still surfaced to server logs in the caller so
+ * Anthony can debug from the synqed-core side.
+ */
+async function translateBackendError(err: unknown): Promise<string> {
+  const message = err instanceof Error ? err.message : String(err)
+  // Dynamic import: keeps next-intl's ESM out of the module-load path so jest
+  // (which doesn't transform next-intl) can import this action's other exports.
+  const { getTranslations } = await import('next-intl/server')
+  const t = await getTranslations('customers.form')
+  if (/Unique constraint failed.*\bemail\b/i.test(message)) {
+    return t('duplicateEmail')
+  }
+  if (/Unique constraint failed.*\bphone\b/i.test(message)) {
+    return t('duplicatePhone')
+  }
+  return t('saveFailedGeneric')
+}
+
+// ---------------------------------------------------------------------------
 // Validation schema
 // ---------------------------------------------------------------------------
 
@@ -62,8 +95,10 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
 
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    // Keep the raw error in the server log so Anthony can debug; show
+    // the user a clean translated message via translateBackendError.
+    console.error('[createCustomer] backend error:', err)
+    return { success: false, error: await translateBackendError(err) }
   }
 }
 
@@ -130,8 +165,8 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
     updateTag('customers')
     return { success: true, id }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    console.error('[updateCustomer] backend error:', err)
+    return { success: false, error: await translateBackendError(err) }
   }
 }
 

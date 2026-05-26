@@ -1,6 +1,12 @@
 'use client'
 
-import { Brain, Clipboard, Image as ImageIcon, ShieldAlert } from 'lucide-react'
+// MATCHES SPIKE'S tab nav from src/app/[locale]/(app)/customers/[id]/page.tsx
+// Horizontal-scroll on mobile, static on desktop. Active tab: no fill,
+// blue underline + blue icon. Inactive: muted text, no underline.
+// Count badge sits inline next to the label (same as spike).
+
+import { Brain, ClipboardList, Images, ShieldCheck } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 
 export type CustomerProfileTab = 'memory' | 'sessions' | 'photos' | 'privacy'
 
@@ -12,18 +18,22 @@ interface CustomerTabBarProps {
 
 const TABS: Array<{
   id: CustomerProfileTab
-  label: string
+  labelKey: string
   icon: typeof Brain
 }> = [
-  { id: 'memory', label: 'Memory', icon: Brain },
-  { id: 'sessions', label: 'Sessions', icon: Clipboard },
-  { id: 'photos', label: 'Photos', icon: ImageIcon },
-  { id: 'privacy', label: 'Privacy', icon: ShieldAlert },
+  { id: 'memory', labelKey: 'memory', icon: Brain },
+  { id: 'sessions', labelKey: 'sessions', icon: ClipboardList },
+  { id: 'photos', labelKey: 'photos', icon: Images },
+  { id: 'privacy', labelKey: 'privacy', icon: ShieldCheck },
 ]
 
 export function CustomerTabBar({ active, onChange, counts }: CustomerTabBarProps) {
+  const t = useTranslations('customers.profile.tabs')
   return (
-    <div className="flex items-center gap-1 overflow-x-auto rounded-xl border border-border bg-card p-1">
+    <nav
+      aria-label={t('aria')}
+      className="-mx-4 flex items-center gap-1 overflow-x-auto border-b border-black/5 px-4 dark:border-white/5 md:mx-0 md:overflow-visible md:px-0"
+    >
       {TABS.map((tab) => {
         const Icon = tab.icon
         const isActive = tab.id === active
@@ -40,26 +50,34 @@ export function CustomerTabBar({ active, onChange, counts }: CustomerTabBarProps
             key={tab.id}
             type="button"
             onClick={() => onChange(tab.id)}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors ${
+            className={`relative inline-flex h-10 items-center gap-1.5 whitespace-nowrap px-3 text-[13px] font-medium transition-colors ${
               isActive
-                ? 'bg-sky-500/15 text-sky-200'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                ? 'text-foreground'
+                : 'text-muted-foreground hover:text-foreground'
             }`}
           >
-            <Icon size={14} />
-            <span>{tab.label}</span>
+            <Icon
+              size={14}
+              className={
+                isActive ? 'text-blue-600 dark:text-blue-300' : undefined
+              }
+              aria-hidden
+            />
+            <span>{t(tab.labelKey)}</span>
             {count !== undefined && (
-              <span
-                className={`tabular-nums ${
-                  isActive ? 'text-sky-300' : 'text-muted-foreground/70'
-                }`}
-              >
+              <span className="text-[10px] tabular-nums text-muted-foreground">
                 {count}
               </span>
+            )}
+            {isActive && (
+              <span
+                aria-hidden
+                className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-blue-600 dark:bg-blue-300"
+              />
             )}
           </button>
         )
       })}
-    </div>
+    </nav>
   )
 }

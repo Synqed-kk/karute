@@ -25,7 +25,8 @@
     "email": "メールアドレス",
     "phone": "電話番号",
     "somethingWentWrong": "エラーが発生しました。",
-    "saved": "保存済み"
+    "saved": "保存済み",
+    "notifications": "通知"
   },
   "auth": {
     "title": "カルテにサインイン",
@@ -106,7 +107,8 @@
     "dataImport": "インポート",
     "dataExport": "エクスポート",
     "settings": "設定",
-    "menu": "メニュー"
+    "menu": "メニュー",
+    "pickBooking": "予約を選択"
   },
   "reservation": {
     "title": "予約",
@@ -137,7 +139,8 @@
     "card": {
       "duration": "{n}分",
       "appointments": "{n}件の予約",
-      "customerSuffix": "様"
+      "customerSuffix": "様",
+      "tantou": "担当 {name}"
     },
     "mobile": {
       "empty": "本日の予約はありません",
@@ -183,6 +186,10 @@
     },
     "empty": {
       "noData": "データがありません。"
+    },
+    "staffFilter": {
+      "self": "自分",
+      "all": "全スタッフ"
     }
   },
   "karuteList": {
@@ -337,20 +344,42 @@
       "current": "現在",
       "seeAllToday": "本日の予約をすべて表示",
       "noBooking": "予約が選択されていません",
-      "staffPrefix": "担当: {name}",
+      "staffPrefix": "担当：{name}",
       "defaultService": "セッション",
       "statusInSession": "施術中",
       "statusDone": "完了",
-      "statusBooked": "予約済み"
+      "statusBooked": "予約済み",
+      "firstVisit": "新規",
+      "booked": "予約済",
+      "honorific": "様",
+      "noBookingPrimary": "予約を選択してください",
+      "noBookingSecondary": "右上の「別の予約を選択」から本日の予約を選ぶと、お客様情報・時間・担当者などがここに表示されます。",
+      "pickerScaffoldLabel": "対応予定",
+      "pickerScaffoldBody": "本日の予約一覧を取得して切り替えるピッカーは対応予定です。Anthonyが予約取得関数を実装後、本日の予約から録音対象を選択できるようになります。",
+      "sheetTitle": "録音する予約を選択",
+      "sheetDescription": "本日のご自身の予約一覧です。タップで録音対象を切り替えます。",
+      "durationMinutes": "{n}分"
     },
     "brief": {
-      "title": "事前ブリーフ",
+      "title": "セッション前ブリーフィング",
       "lastVisit": "前回来店: {date} ({ago})",
       "hooks": "会話のきっかけ",
-      "concerns": "前回の懸念事項",
-      "lastProduct": "前回の提案商品",
-      "recommendedFocus": "本日の推奨フォーカス",
-      "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。"
+      "concerns": "前回の主訴・経過",
+      "lastProduct": "前回の商品提案",
+      "recommendedFocus": "本日のおすすめフォーカス",
+      "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。",
+      "lastVisitInline": "前回 {date}（{ago}）",
+      "subtitleScaffold": "予約を選択すると、以下の項目に内容が表示されます",
+      "reservationMemo": "ご予約時のメモ",
+      "firstTimeHeader": "初めてのお客様",
+      "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
+      "aiHintLabel": "対応予定",
+      "aiHintMemoAnalysis": "AIがご予約メモを解析し、お悩みの兆候・期待・トーンを抽出して、施術前に注意したいポイントとして要約します（Anthonyが夜間バッチで実装予定）。",
+      "aiHintNoMemo": "予約フォームでメモが入力された場合、AIが意図・期待・トーンを抽出し、ここに要約を表示します（予約フォーム連携後にAnthonyが実装予定）。",
+      "aiHintHooks": "過去のカルテ・会話履歴から、自然な雑談のきっかけ（ペット・家族・趣味・最近の出来事など）をAIが抽出し、本日の会話の糸口として提示します。",
+      "aiHintConcerns": "前回までのカルテから主訴・施術内容・経過観察ポイントをAIが時系列で整理し、本日のセッションで確認すべき事項を要約します。",
+      "aiHintLastProduct": "前回提案した商品・サービスと、お客様の反応（購入／検討中／断りの言い回し）をAIがカルテから抽出し、本日の提案戦略のヒントとして表示します。",
+      "aiHintRecommendedFocus": "カルテ履歴・商品反応・季節要因・サロン目標を踏まえ、本日のセッションで重点的に扱うべき角度（深掘り質問・提案商品・ケア方針）をAIが提案します。"
     },
     "source": {
       "phoneMic": "スマホマイク",
@@ -410,7 +439,25 @@
       "saving": "保存中...",
       "duplicateWarning": "「{name}」という名前の顧客が既に存在します",
       "nameRequired": "名前は必須です",
-      "invalidEmail": "メールアドレスが無効です"
+      "invalidEmail": "メールアドレスが無効です",
+      "titleNew": "新規顧客の追加",
+      "description": "新しいお客様の基本情報を登録します",
+      "familyName": "姓",
+      "familyNamePlaceholder": "田中",
+      "givenName": "名",
+      "givenNamePlaceholder": "美咲",
+      "age": "年齢",
+      "agePlaceholder": "32",
+      "gender": "性別",
+      "female": "女性",
+      "male": "男性",
+      "other": "その他",
+      "preferredStaff": "指名スタッフ",
+      "noPreference": "指名なし",
+      "comingSoon": "対応予定",
+      "duplicateEmail": "このメールアドレスは既に別のお客様に登録されています。",
+      "duplicatePhone": "この電話番号は既に別のお客様に登録されています。",
+      "saveFailedGeneric": "顧客を保存できませんでした。もう一度お試しいただくか、解決しない場合はサポートまでご連絡ください。"
     },
     "table": {
       "name": "名前",
@@ -419,70 +466,6 @@
       "visitCount": "来店回数",
       "noCustomers": "顧客がまだいません",
       "noResults": "顧客が見つかりませんでした"
-    },
-    "profile": {
-      "edit": "編集",
-      "save": "保存",
-      "cancel": "キャンセル",
-      "visits": "{count}回来店",
-      "lastVisit": "最終来店: {date}",
-      "noVisits": "まだ来店がありません",
-      "karuteHistory": "施術履歴",
-      "back": "戻る",
-      "staff": "スタッフ",
-      "registered": "{date}に登録",
-      "notes": "メモ",
-      "type": "タイプ",
-      "none": "なし",
-      "internalNotesPlaceholder": "内部メモ...",
-      "churnAlert": "最終来店から{days}日経過"
-    },
-    "toast": {
-      "created": "顧客を作成しました",
-      "updated": "顧客を更新しました",
-      "error": "エラーが発生しました",
-      "deleted": "顧客を削除しました"
-    },
-    "empty": {
-      "title": "顧客がまだいません",
-      "description": "最初の顧客を作成しましょう"
-    },
-    "filters": {
-      "all": "すべて",
-      "nominated": "指名",
-      "walkin": "フリー",
-      "sort": "並び替え",
-      "sortName": "名前順",
-      "sortRecent": "最近",
-      "sortNewest": "新しい順",
-      "sortOldest": "古い順"
-    },
-    "cards": {
-      "deleteConfirm": "{name}を削除しますか？元に戻せません。",
-      "deleted": "{name}を削除しました",
-      "added": "{date}に追加"
-    },
-    "list": {
-      "total": "合計 {total}",
-      "joined": "登録 {date}",
-      "karuteCount": "カルテ {n} 件",
-      "noMatch": "「{query}」に一致するお客様はいません",
-      "noMatchHint": "別のキーワードで検索するか、フィルタを解除してください。",
-      "col": {
-        "visits": "来店",
-        "lastVisit": "最終来店",
-        "aiPredict": "AI予測",
-        "status": "状態",
-        "total": "合計"
-      }
-    },
-    "listFilter": {
-      "all": "すべて",
-      "preferredStaff": "指名スタッフ",
-      "newRecent": "新規（30日以内）",
-      "followup": "要フォロー",
-      "dormant": "休眠（90日以上）",
-      "sortLastVisit": "最終来店（新しい順）"
     },
     "profile": {
       "backToList": "お客様一覧に戻る",
@@ -521,13 +504,164 @@
         "deleteBody": "すべてのデータを論理削除し、30日後に完全削除をスケジュールします（APPIの妥当な期間）。対象：カルテ、メモリー、写真、録音。30日以内は取り消せます。",
         "deleteCta": "データを削除",
         "footer": "これらの操作は監査ログに記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。"
+      },
+      "tabs": {
+        "memory": "メモリー",
+        "sessions": "セッション履歴",
+        "photos": "写真",
+        "privacy": "プライバシー",
+        "aria": "プロフィールタブ"
+      },
+      "lastVisitPrefix": "前回",
+      "usualServicePrefix": "よく選ぶコース",
+      "visitsSuffix": "{n}回目",
+      "edit": "編集",
+      "editDialogTitle": "顧客情報を編集",
+      "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
+    },
+    "toast": {
+      "created": "顧客を作成しました",
+      "updated": "顧客を更新しました",
+      "error": "エラーが発生しました",
+      "deleted": "顧客を削除しました"
+    },
+    "empty": {
+      "title": "顧客がまだいません",
+      "description": "最初の顧客を作成しましょう"
+    },
+    "filters": {
+      "all": "すべて",
+      "nominated": "指名",
+      "walkin": "フリー",
+      "sort": "並び替え",
+      "sortName": "名前順",
+      "sortRecent": "最近",
+      "sortNewest": "新しい順",
+      "sortOldest": "古い順"
+    },
+    "cards": {
+      "deleteConfirm": "{name}を削除しますか？元に戻せません。",
+      "deleted": "{name}を削除しました",
+      "added": "{date}に追加"
+    },
+    "list": {
+      "total": "合計 {total}",
+      "joined": "登録 {date}",
+      "karuteCount": "カルテ {n} 件",
+      "noMatch": "「{query}」に一致するお客様はいません",
+      "noMatchHint": "別のキーワードで検索するか、フィルタを解除してください。",
+      "col": {
+        "visits": "来店",
+        "lastVisit": "最終来店",
+        "aiPredict": "AI予測",
+        "status": "状態",
+        "total": "合計",
+        "customer": "顧客",
+        "recommend": "推奨",
+        "staff": "担当"
+      },
+      "row": {
+        "honorific": "様",
+        "lastVisitPrefix": "前回",
+        "staff": "担当：{name}",
+        "recommendPrefix": "推奨来店",
+        "visitsSuffix": "来店{n}回"
+      },
+      "heading": "顧客",
+      "showing": "{n}名を表示中",
+      "status": {
+        "on-track": "継続中",
+        "new": "新規",
+        "needs-followup": "要フォロー",
+        "dormant": "休眠"
+      },
+      "filters": {
+        "all": "すべて",
+        "preferredStaff": "指名あり",
+        "newRecent": "新規（30日以内）",
+        "followup": "要フォロー",
+        "dormant": "休眠（90日以上）"
+      },
+      "staffFilter": {
+        "self": "自分",
+        "all": "全スタッフ"
+      },
+      "statusLine": "登録中の顧客 · 全{total} · {showing}名を表示中",
+      "notifications": "通知",
+      "lastVisit": {
+        "noVisits": "来店履歴なし",
+        "today": "本日",
+        "oneDayAgo": "1日前",
+        "daysAgo": "{n}日前",
+        "monthsAgo": "{n}ヶ月前"
+      },
+      "paginatedShowing": "{total}名中 {from}〜{to}名を表示",
+      "previousPage": "前のページ",
+      "nextPage": "次のページ",
+      "goToPage": "{n}ページ目",
+      "aiStatusChip": {
+        "bodyPrediction": "体調予測",
+        "outreach": "推奨",
+        "summary": "要約",
+        "transcript": "録音",
+        "comingSoonShort": "対応予定"
+      }
+    },
+    "listFilter": {
+      "all": "すべて",
+      "preferredStaff": "指名スタッフ",
+      "newRecent": "新規（30日以内）",
+      "followup": "要フォロー",
+      "dormant": "休眠（90日以上）",
+      "sortLastVisit": "最終来店（新しい順）"
+    },
+    "deletionBanner": {
+      "title": "{name}様は削除予定です — 残り{days}日",
+      "titleToday": "{name}様は本日削除されます",
+      "body": "{date} に完全削除されます。{window}日間の復旧期間中です。",
+      "blocked": "新規カルテ作成・録音・写真アップロードは一時停止中です。取り消しを実行すると通常操作に戻ります。",
+      "undoButton": "削除を取り消す"
+    },
+    "visitHistoryChain": {
+      "aria": "直近{window}回中{attended}回来店。通算{total}回。"
+    },
+    "profileUpcoming": {
+      "sectionLabel": "対応予定",
+      "aiBodyPrediction": {
+        "title": "AI体調予測",
+        "description": "セッション履歴からお客様の現在の状態と次回推奨来店日を予測し、判断の根拠も提示します。信頼度（%）も表示されるため、スタッフはどの程度参考にすべきか判断できます。"
+      },
+      "aiOutreach": {
+        "title": "AI推奨メッセージ",
+        "description": "お客様メモリーと今回のセッションメモから、施術後のフォローアップメッセージ（LINE／SMS／メール）を自動生成します。送信前にスタッフが編集することも、そのまま承認することも可能です。"
+      },
+      "aiSummary": {
+        "title": "AI要約",
+        "description": "今回のセッションで話されたお悩み、施術内容、ご提案商品、次回の予定を箇条書きで自動要約します。録音内容とエントリーから抽出されます。"
+      },
+      "recordingTranscript": {
+        "title": "録音・文字起こし",
+        "description": "セッション全体の音声録音と検索可能な文字起こし、話者識別（誰が何を話したか）、同意バッジを含みます。次回セッション前に再生して文脈を振り返ることができます。"
+      },
+      "reengagement": {
+        "title": "AI再エンゲージメント",
+        "description": "お客様メモリーとセッション履歴から、パーソナルな再エンゲージメントメッセージを自動生成します。タブの上に表示されるため、プロフィールを開いた瞬間にスタッフが気付けます。編集してLINE／SMS／メールで送信できます。"
       }
     }
   },
   "karute": {
     "title": "カルテ",
     "summary": "AIサマリー",
-    "transcript": "トランスクリプト",
+    "transcript": {
+      "title": "録音・文字起こし",
+      "consentLabel": "録音同意済み",
+      "empty": "まだ録音がありません。セッションを録音すると、文字起こしと話者識別付きの再生がここに表示されます。",
+      "comingSoonPlayer": "音声プレイヤーは対応予定です。AnthonyがSupabase Storageの署名付きURLを実装します。",
+      "speakers": "話者",
+      "speakerStaff": "スタッフ",
+      "speakerCustomer": "お客様",
+      "speakerUnknown": "不明（背景）"
+    },
     "entries": "エントリー",
     "addEntry": "エントリーを追加",
     "noEntries": "エントリーがまだありません",
@@ -556,6 +690,156 @@
       "next_visit": "次回来店",
       "product": "製品",
       "other": "その他"
+    },
+    "photoSection": {
+      "title": "写真記録",
+      "subtitle": "お客様の経過写真・参考画像",
+      "add": "写真を追加",
+      "showCustomer": "お客様に見せる",
+      "seeAll": "すべて見る",
+      "emptyTitle": "まだ写真がありません",
+      "emptyBody": "「写真を追加」からカテゴリーを選んで登録できます。前回との比較や経過の可視化に使えます。"
+    },
+    "photoCapture": {
+      "title": "写真を追加",
+      "description": "カテゴリーを選んで写真を登録します。お客様の同意のうえで撮影してください。",
+      "categoryLabel": "カテゴリー",
+      "chooseFile": "ファイルを選択",
+      "captionLabel": "キャプション（任意）",
+      "captionPlaceholder": "例：施術前・気になる部位",
+      "consentLabel": "お客様の同意を得て撮影しました",
+      "cancel": "キャンセル",
+      "submit": "追加する"
+    },
+    "photoCompare": {
+      "sideBySide": "並べて比較",
+      "overlay": "重ねて比較",
+      "opacity": "不透明度"
+    },
+    "photoGallery": {
+      "header": "{name}様 · 写真ギャラリー",
+      "filterAll": "すべて",
+      "comparePickHint": "比較する2枚の写真を選んでください",
+      "compareToggle": "2枚を比較",
+      "compareExit": "比較を終了",
+      "back": "戻る",
+      "close": "閉じる",
+      "noCaption": "キャプションはありません",
+      "takenBy": "撮影: {name}"
+    },
+    "memorySection": {
+      "title": "お客様メモリー",
+      "subtitle": "{name}様のこれまで",
+      "updatedBadge": "今日のセッションで{n}件更新",
+      "talkingPoints": "今日の会話のきっかけ",
+      "emptyTitle": "まだメモリーがありません",
+      "emptyBody": "新しいお客様なので、今日から記憶を蓄積していきます。",
+      "intakePrefix": "初診",
+      "categoryPersonal": "プライベート",
+      "categoryBody": "体・健康",
+      "categoryPreference": "好み・嗜好",
+      "categoryGoal": "ゴール",
+      "categoryLifestyle": "ライフスタイル",
+      "sourceAi": "AI抽出",
+      "sourceStaff": "スタッフ追加",
+      "sourceIntake": "初診カルテより",
+      "addManually": "手動で追加",
+      "lastUpdated": "最終更新: {date}",
+      "comingSoonEdit": "編集・ピン留め・手動追加機能は対応予定です（Anthonyが実装中）。",
+      "sectionEmpty": "対応予定 — このカテゴリーにはまだ情報がありません",
+      "comingSoonPill": "対応予定",
+      "intakeEmpty": "初診情報は初回の問診票が完了すると、ここに表示されます。",
+      "intakeFields": {
+        "firstVisit": "初診",
+        "occupation": "職業",
+        "maintenance": "メンテナンス希望",
+        "referral": "来店きっかけ"
+      },
+      "talkingPointsEmpty": "録音内容からAIが特徴的なポイントを抽出すると、ここに会話のきっかけが表示されます。",
+      "sessionsBadge": "{n}件のセッション記録から学習",
+      "sessionsBadgeTooltip": "過去の録音から抽出された情報数。多いほど信頼度が高くなります。",
+      "noSessionsBadge": "セッション記録なし",
+      "noSessionsBadgeTooltip": "まだ録音がありません。セッションを録音すると、AIが特徴的なポイントを抽出してここに蓄積されます。"
+    },
+    "tabHeading": "カルテ",
+    "recordList": {
+      "statusLine": "今月のカルテ · {monthCount} · 過去14日間 · {showingCount}件を表示中",
+      "newKarute": "+ 新規カルテ",
+      "searchPlaceholder": "顧客名・サービス・スタッフで検索...",
+      "filters": {
+        "all": "すべて",
+        "thisWeek": "今週",
+        "aiPending": "AI補完待ち",
+        "needsReview": "レビュー要",
+        "draft": "下書き"
+      },
+      "dateGroup": {
+        "today": "本日",
+        "yesterday": "昨日",
+        "suffix": "{n}件のカルテ"
+      },
+      "aiStatus": {
+        "summarized": "AI要約済",
+        "pending": "AI補完待ち",
+        "needsReview": "レビュー要",
+        "draft": "下書き"
+      },
+      "conversionStatus": {
+        "provisional": "仮カルテ"
+      },
+      "minutesSuffix": "分",
+      "empty": "カルテはまだありません",
+      "newCustomersHeader": "新規のお客様 · まだセッションなし",
+      "noSessionYet": "まだセッションなし",
+      "newKaruteDialog": {
+        "title": "新規カルテの作成",
+        "description": "お客様のセッション記録を手動で作成します",
+        "customerLabel": "お客様",
+        "customerPlaceholder": "名前で検索",
+        "customerNotFound": "該当するお客様が見つかりません",
+        "customerClear": "クリア",
+        "dateLabel": "セッション日",
+        "durationLabel": "所要時間",
+        "staffLabel": "担当スタッフ",
+        "serviceLabel": "サービス",
+        "servicePlaceholder": "例：フェイシャル・保湿強化",
+        "tipMessage": "💡 録音を使うとAIが自動でカルテ項目を生成します。録音セッションを開始するには下のナビゲーションの「録音」を利用してください。",
+        "cancel": "キャンセル",
+        "create": "作成",
+        "creating": "作成中...",
+        "errorGeneric": "作成に失敗しました。もう一度お試しください。"
+      }
+    },
+    "outreach": {
+      "title": "AI推奨メッセージ",
+      "subscript": "{customerName}様 · {channel}送信予定",
+      "emptyBody": "お客様メモリーと直近のセッションから、AIが下書きしたフォローアップメッセージがここに表示されます。",
+      "edit": "編集",
+      "approveSend": "承認して送信",
+      "channels": {
+        "sms": "SMS",
+        "email": "メール",
+        "copy": "コピー"
+      },
+      "comingSoonEdit": "編集機能は対応予定です。AnthonyがAIドラフトを送信前にスタッフが調整できるフォームを実装します。",
+      "comingSoonSend": "送信機能は対応予定です。Anthonyがメール／SMSのチャネルAPIとクリップボードコピーの導線を実装します。"
+    },
+    "session": {
+      "title": "今回のセッション",
+      "empty": "まだセッションが記録されていません。録音すると、AIがエントリーをここに抽出します。",
+      "categories": {
+        "treatment": "施術",
+        "concern": "相談",
+        "condition": "体調",
+        "product": "商品提案",
+        "next": "次回"
+      }
+    },
+    "aiAssist": {
+      "heading": "AI支援",
+      "summaryTitle": "AI要約",
+      "summarySubtitle": "本日のセッションの主要ポイント",
+      "transcriptSubtitleEmpty": "録音はまだありません"
     }
   },
   "review": {
@@ -662,7 +946,7 @@
     "active": "有効",
     "noStaff": "スタッフがまだいません",
     "organization": "組織",
-    "organizationDescription": "組織の詳細を表示",
+    "organizationDescription": "事業名、業種、営業時間",
     "businessName": "事業名",
     "businessType": "業種",
     "hoursOfOperation": "営業時間",
@@ -672,13 +956,24 @@
     "webhookUrl": "Webhook URL",
     "webhookDescription": "カルテ作成時にこのURLにPOSTします。",
     "aiSettings": "AI設定",
-    "aiDescription": "AI処理の設定を管理",
-    "aiModel": "優先AIモデル",
+    "aiDescription": "モデル・分類閾値・自動化",
+    "aiModel": {
+      "tierFast": "高速",
+      "tierBest": "高精度",
+      "label": "AIモデル"
+    },
     "confidenceThreshold": "分類確信度閾値",
     "recordingSettings": "録音設定",
-    "recordingDescription": "録音品質と動作を設定",
-    "audioQuality": "音声品質",
-    "autoStop": "自動停止タイマー（分）",
+    "recordingDescription": "音質・同意テンプレート",
+    "audioQuality": {
+      "low": "低",
+      "standard": "標準",
+      "high": "高"
+    },
+    "autoStop": {
+      "off": "オフ",
+      "minutes": "{n} 分"
+    },
     "settingsSaved": "設定を保存しました",
     "staffMembers": "スタッフメンバー",
     "addStaffMember": "スタッフを追加",
@@ -690,17 +985,234 @@
     "position": "役職",
     "manageStaff": "スタッフ管理",
     "selectPosition": "役職を選択...",
-    "theme": "テーマ",
-    "themeDescription": "タイムラインバーの色をカスタマイズ",
+    "theme": {
+      "bar": {
+        "open": "営業中",
+        "booking": "予約",
+        "recording": "録音中",
+        "completed": "完了",
+        "blocked": "ブロック",
+        "processing": "処理中"
+      },
+      "label": "テーマ"
+    },
+    "themeDescription": "サイドバー・テーマ・言語",
     "resetToDefaults": "初期設定に戻す",
     "preview": "プレビュー",
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
-    "bookingSyncDescription": "Quick Reserveから予約カレンダーに予約を同期",
-    "stores": "店舗",
-    "coaching": "コーチング",
-    "subscription": "サブスクリプション",
-    "auditLog": "監査ログ",
+    "bookingSyncDescription": "Quick Reserve 等との同期",
+    "stores": {
+      "title": "店舗一覧",
+      "unnamedStore": "未設定の店舗",
+      "ownerView": "オーナー権限",
+      "ownerDesc": "すべての店舗のデータ（予約・カルテ・AI分析）を閲覧・管理できます。",
+      "storesCount": "{n}店舗を運営中",
+      "addStore": "追加",
+      "primaryBadge": "本店",
+      "activeBadge": "営業中",
+      "staffUnit": "スタッフ{n}名",
+      "customersUnit": "顧客{n}名",
+      "viewing": "閲覧中",
+      "switchTo": "切り替え",
+      "edit": "編集",
+      "emptyState": "店舗が登録されていません。「追加」から登録してください。",
+      "activeStoreScopeNote": "「切り替え」は現在UI表示のみのプレビューです。各タブのデータが選択店舗に絞り込まれる挙動は、店舗テーブルの実装後に有効化されます。",
+      "addStoreSubscription": {
+        "freeAtLimitTitle": "店舗追加にはアップグレードが必要です",
+        "freeAtLimitBody": "Freeプランは1店舗までです。スタンダードまたはプロフェッショナルにアップグレードすると、店舗を追加できます。",
+        "seePlansCta": "プランを見る",
+        "enterpriseTitle": "Enterpriseプランのお客様",
+        "enterpriseBody": "店舗の追加は営業担当までご相談ください。契約内容に応じた追加処理を行います。",
+        "blockedStatusTitle": "お支払い状況をご確認ください",
+        "blockedStatusBody": "現在のサブスクリプション状態では店舗を追加できません。先にお支払いを更新してください。",
+        "fixBillingCta": "お支払いを更新",
+        "trialingTitle": "店舗を追加（トライアル中）",
+        "trialingBody": "トライアル中は無料で店舗を追加できます。トライアル終了日（{trialEnd}）に課金が開始されます。",
+        "addSeatCta": "追加する",
+        "paidTitle": "店舗を追加",
+        "paidBody": "{tier}プランでは1店舗あたり{perStore}/月が課金されます。確認のうえ追加してください。",
+        "rowCurrent": "現在の{n}店舗",
+        "rowAfter": "追加後の{n}店舗",
+        "prorationNote": "請求は日割り計算され、次回請求に反映されます。",
+        "confirmAddCta": "追加して続行",
+        "cancel": "キャンセル"
+      },
+      "form": {
+        "addTitle": "新規店舗を追加",
+        "addDescription": "新しい店舗を登録します。スタッフや予約はあとから設定できます。",
+        "editTitle": "店舗情報を編集",
+        "editDescription": "店舗名・住所・電話番号を変更します。スタッフ・予約データには影響しません。",
+        "storeName": "店舗名",
+        "storeNamePlaceholder": "例：La Estro 渋谷店",
+        "address": "住所",
+        "addressPlaceholder": "東京都渋谷区...",
+        "phone": "電話番号",
+        "cancel": "キャンセル",
+        "save": "店舗を追加",
+        "saveEdit": "変更を保存",
+        "saved": "保存しました"
+      }
+    },
+    "coaching": {
+      "title": "コーチング設定",
+      "intro": "セッションの会話を分析し、スタッフの成長に役立つフィードバックを提供する機能（フェーズ3予定）。設定はあらかじめスキャフォルドされており、機能が有効化された際に即座に利用できます。",
+      "masterEnable": "マスター有効化",
+      "masterEnableDesc": "店舗全体でコーチング機能を有効にします。スタッフ個人の同意は別途必要です。",
+      "weightsTitle": "評価指標の重み",
+      "weightsDesc": "上位パフォーマー判定に使用する各指標の重み（合計100%）。AI抽出パターンの学習対象を決定します。",
+      "weightRevenue": "売上",
+      "weightRebooking": "再来店率",
+      "weightSatisfaction": "顧客満足度",
+      "weightPerCustomer": "客単価",
+      "minSessionsLabel": "最低セッション数",
+      "minSessionsDesc": "上位パフォーマー判定に必要な最低セッション数。データ不足によるノイズを防ぎます。",
+      "autoDeclineLabel": "未対応の自動辞退（日数）",
+      "autoDeclineDesc": "コーチング提案が未対応のまま指定日数を経過した場合、自動的に却下扱いとなります。",
+      "policyTitle": "プライバシーポリシーテンプレート",
+      "policyDesc": "スタッフが同意する際に表示される文章。会話内容の取り扱いやオーナーへの共有範囲を明示します。",
+      "consentStatusTitle": "スタッフ同意状況",
+      "consentStatusDesc": "現在のスタッフ各員のコーチング機能利用同意状況。撤回はスタッフ本人のみが行えます。",
+      "crossStaffNamesTitle": "他スタッフ名の表示",
+      "crossStaffNamesDesc": "コーチングダッシュボードで他スタッフの実名を表示します。匿名化したい場合はオフ。",
+      "comingPhase": "対応予定（フェーズ3）",
+      "label": "コーチング",
+      "phaseBanner": "コーチング機能はフェーズ3で本格稼働します。以下の設定は事前にスキャフォルドされており、機能が有効化された際に即座に利用可能です。スライダーやトグルは触って動作確認できますが、値はまだ保存されません。",
+      "masterSectionTitle": "コーチング機能",
+      "privacySectionTitle": "スタッフ間のプライバシー",
+      "crossStaffReservation": "予約・顧客リストで他のスタッフの顧客名を表示する",
+      "crossStaffReservationDesc": "オフの場合、スタッフが他のスタッフの予約・顧客リストを閲覧する際、時間とサービス種別のみが表示され顧客名は伏せられます。オーナー・マネージャーは常に完全な情報を閲覧できます。",
+      "crossStaffKarute": "カルテで他のスタッフの顧客名を表示する",
+      "crossStaffKaruteDesc": "カルテは担当外のお客様が来店した際にも閲覧が必要になることが多いため、既定ではオンです。店舗のプライバシー方針でより厳格に管理したい場合のみオフにしてください。",
+      "weightsHelper": "AIがトップパフォーマーを特定する際の指標の重みを調整します。合計が100%になるように設定してください。",
+      "weightTotal": "合計",
+      "minSessionsCardTitle": "分析の最低セッション数",
+      "minSessionsRowLabel": "インサイト生成のしきい値",
+      "minSessionsRowDesc": "スタッフのセッション数がこの数に達するまで、AIは成長エリアの分析を行いません。少なすぎるデータでの判断を避けるための安全策です。",
+      "minSessionsUnit": "件",
+      "provisionalKaruteTitle": "仮カルテの自動不成約期間",
+      "provisionalKaruteRowLabel": "未決のまま放置された仮カルテを自動的に不成約へ移行する日数",
+      "provisionalKaruteRowDesc": "初回のお客様セッションで作成した「仮カルテ」が、この日数以内に成約または不成約として解決されなかった場合、自動で「不成約」として保存されます。不成約カルテはAIコーチング学習データとして保持されますが、顧客一覧には表示されません。",
+      "provisionalKaruteUnit": "日",
+      "policySectionTitle": "同意文面テンプレート",
+      "policyHelper": "スタッフ同意ダイアログに表示される文面のテンプレートです。法務チェック後にご使用ください。",
+      "policyDefault": "コーチング機能では、セッションの会話を分析し、あなたの成長に役立つフィードバックをお届けします。個別の会話内容はあなたにしか表示されず、オーナー・マネージャーにはカテゴリーレベルの分析結果のみが共有されます。",
+      "consentStatusEmpty": "スタッフ同意状況はコーチング機能が有効化された後に表示されます。各スタッフがダイアログから同意・撤回した際の履歴がここに蓄積されます。",
+      "enabledLabel": "有効",
+      "disabledLabel": "無効",
+      "shownLabel": "表示",
+      "hiddenLabel": "非表示"
+    },
+    "subscription": {
+      "label": "契約",
+      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。",
+      "tierLabels": {
+        "trial": "トライアル",
+        "free": "Free",
+        "standard": "Standard",
+        "professional": "Professional",
+        "enterprise": "Enterprise"
+      },
+      "summary": {
+        "pastDueTitle": "お支払いに問題があります",
+        "pastDueBody": "決済が失敗しました。7日以内にお支払い情報を更新しないとサービスが制限されます。",
+        "pastDueCta": "お支払いを更新",
+        "trialTitle": "Professional トライアル — 残り{days}日",
+        "trialEndedTitle": "トライアル期間が終了しました",
+        "trialBody": "トライアル終了時にプランを選択してください。選択しない場合、Freeプランにダウングレードされます。",
+        "trialCta": "プランを選ぶ",
+        "freeTitle": "現在 Free プランをご利用中",
+        "freeBody": "1店舗・15顧客・月10録音まで。AIカルテ自動生成・メモリー抽出などの主要機能はアップグレードで利用可能になります。",
+        "freeCta": "プランを見る",
+        "activeTitle": "{tier} プラン",
+        "activeBody": "{total} / 月（{perStore} × 店舗数） · 次回請求 {nextDate}",
+        "storeCount": "{n}店舗",
+        "manageCta": "契約を管理"
+      },
+      "page": {
+        "plansTitle": "プラン",
+        "plansDesc": "プランはいつでも変更できます。アップグレードは即時反映され、日割り計算されます。",
+        "paymentTitle": "お支払い方法",
+        "expires": "有効期限",
+        "updateCard": "変更",
+        "invoicesTitle": "請求履歴",
+        "download": "ダウンロード",
+        "trialInvoice": "トライアル（無料）",
+        "invoiceLine": "{tier} · {stores}店舗",
+        "dangerTitle": "解約",
+        "cancelTitle": "サブスクリプションを解約",
+        "cancelBody": "Freeプランにダウングレードされ、AI機能は使えなくなります"
+      },
+      "plans": {
+        "trialBannerTitle": "14日間の無料トライアル",
+        "trialBannerBody": "Professional プランを14日間お試しいただけます。期間中はいつでもキャンセル可能です。",
+        "trialBannerCta": "トライアル開始",
+        "freeTitle": "Free",
+        "freePrice": "¥0",
+        "freePitch": "まずはお試しで。主要な AI 機能は含まれませんが、カルテ作成と顧客管理の基本が体験できます。",
+        "freeFeature1": "1店舗まで",
+        "freeFeature2": "15顧客まで",
+        "freeFeature3": "月10回の録音まで",
+        "freeFeature4": "× AIカルテ自動生成",
+        "freeFeature5": "× お客様メモリー自動抽出",
+        "freeFeature6": "× AI次回来店メッセージ",
+        "freeFeature7": "× コーチング分析",
+        "standardTitle": "Standard",
+        "standardPrice": "{price} / 店舗 / 月",
+        "standardPitch": "主要なAI機能が全て使えるメインプラン。ほとんどの美容系店舗はこちらで十分。",
+        "standardFeature1": "店舗数無制限",
+        "standardFeature2": "顧客数無制限",
+        "standardFeature3": "録音回数無制限",
+        "standardFeature4": "AIカルテ自動生成",
+        "standardFeature5": "お客様メモリー自動抽出",
+        "standardFeature6": "AI次回来店メッセージ",
+        "standardFeature7": "基本コーチングインサイト",
+        "standardFeature8": "× 高度なコーチング分析",
+        "standardFeature9": "× 優先サポート",
+        "professionalTitle": "Professional",
+        "professionalPrice": "{price} / 店舗 / 月",
+        "professionalPitch": "チーム運営・多店舗展開の方向け。コーチングの高度な分析 + SYNQED Reserve 連携割引。",
+        "professionalFeature1": "Standard の全機能",
+        "professionalFeature2": "高度なコーチング分析（カテゴリ別・成長推移）",
+        "professionalFeature3": "AIアクションの優先ランキング",
+        "professionalFeature4": "SYNQED Reserve 連携割引（開始時）",
+        "professionalFeature5": "優先サポート",
+        "professionalFeature6": "14日間無料トライアル可",
+        "enterpriseTitle": "Enterprise",
+        "enterprisePitch": "5店舗以上の多店舗チェーン・大型サロン向け。ボリューム割引・SLA・専任サポート・カスタム統合をご相談ください。",
+        "enterpriseCta": "お問い合わせ",
+        "actionCurrent": "ご利用中",
+        "actionDowngradeFree": "Freeにダウングレード",
+        "actionUpgrade": "{tier}にアップグレード",
+        "downgradeConfirm": "Freeプランにダウングレードしますか？\n\n店舗数は1店舗に制限され、AIカルテ生成・メモリー抽出などの機能は使えなくなります。過去のデータは引き続き閲覧できます。",
+        "mostPopular": "人気",
+        "currentPill": "現プラン"
+      },
+      "cancel": {
+        "dialogTitle": "本当に解約しますか？",
+        "dialogBody": "サブスクリプションを解約すると、次のような影響があります。",
+        "point1": "店舗数が1店舗に制限されます（過去のデータは引き続き閲覧可能）",
+        "point2": "AIカルテ自動生成・お客様メモリー抽出・AI次回来店メッセージが使えなくなります",
+        "point3": "現在の請求期間の終わりまでは現プランのまま使えます",
+        "keepSubscription": "利用を続ける",
+        "confirmCancel": "解約する"
+      },
+      "paymentUpdate": {
+        "title": "お支払い方法を変更",
+        "body": "本番環境では Stripe の安全な入力フォームが表示されます。カード情報は Synqed のサーバーには保存されません。",
+        "stripeElementsStub": "（現在はスタブ表示です。Anthonyが Stripe Elements を統合すると、ここでカード番号・有効期限・セキュリティコードを入力できるようになります。）",
+        "gotIt": "閉じる"
+      },
+      "demo": {
+        "title": "デモ用コントロール",
+        "body": "各サブスクリプション状態での表示をプレビューします。本番環境には存在しません（Stripe webhook で自動反映されるため）。",
+        "statusLabel": "ステータス"
+      }
+    },
+    "auditLog": {
+      "searchPlaceholder": "イベントを検索…",
+      "label": "監査ログ"
+    },
     "comingSoon": "近日公開",
     "loginId": "ログインID",
     "loginIdPlaceholder": "Quick Reserve ログインID",
@@ -757,9 +1269,9 @@
     "enrollVoice": "音声を登録",
     "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
-    "subscriptionDescription": "プランと請求を管理。",
-    "auditLogDescription": "誰がいつ何を変更したかを記録。",
-    "storesDescription": "店舗の場所を管理。",
+    "subscriptionDescription": "プラン・請求・支払い方法の管理",
+    "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
+    "storesDescription": "店舗の管理と追加",
     "coachingTabDescription": "コーチング設定は近日公開。",
     "planFree": "無料",
     "planStandard": "スタンダード",
@@ -785,20 +1297,7 @@
     "provider": "プロバイダー",
     "save": "保存",
     "closed": "休業",
-    "voiceEnrolled": "音声登録済み",
-    "audioQuality": {
-      "low": "低",
-      "standard": "標準",
-      "high": "高"
-    },
-    "autoStop": {
-      "off": "オフ",
-      "minutes": "{n} 分"
-    },
-    "aiModel": {
-      "tierFast": "高速",
-      "tierBest": "高精度"
-    },
+    "voiceEnrolled": "声登録済",
     "syncSection": {
       "errorPrefix": "エラー：{error}",
       "configSaved": "設定を保存しました",
@@ -821,7 +1320,60 @@
         "auditLog": "監査ログ",
         "prioritySupport": "優先サポート"
       }
-    }
+    },
+    "audioQualityLabel": "音質",
+    "autoStopLabel": "自動停止",
+    "intakeForm": {
+      "title": "問診フォームのカスタマイズ",
+      "subtitle": "初回来店時の問診で取得する項目を、お店ごとに追加できます。現在のカスタム項目: {count}件。",
+      "guardrail": "問診はお客様のためのもの。聞いてはいけない・聞く必要のない情報は項目に追加しないでください。",
+      "baseScaffoldLabel": "対応予定",
+      "baseScaffoldHint": "業種別の標準項目（Synqed推薦）は、AnthonyがBusinessProfileのintakeHintsを実装後にここに表示されます。それまでは下のカスタム項目のみが問診フォームに反映されます。",
+      "sectionTitles": {
+        "symptoms": "症状・お悩み",
+        "posture": "姿勢・体の状態",
+        "beauty": "美容面",
+        "goals": "ゴール・希望"
+      },
+      "itemCount": "カスタム {custom}件",
+      "customHeader": "あなたが追加した項目",
+      "addPlaceholderJa": "項目名（日本語）",
+      "addPlaceholderEn": "Label (English)",
+      "addButton": "追加",
+      "removeCustomTitle": "削除",
+      "removeCustomConfirm": "この項目を削除しますか？",
+      "resetLabel": "リセット",
+      "resetConfirm": "すべてのカスタマイズを削除しますか？\n\nこの操作は元に戻せません。",
+      "preview": {
+        "label": "プレビュー",
+        "greeting": "ようこそ。問診にご協力ください",
+        "subtitle": "より良い施術のため、以下の項目をお聞かせください。",
+        "emptyState": "まだ項目がありません。左の編集欄から項目を追加してください。",
+        "footer": "回答は施術スタッフのみが閲覧します。"
+      }
+    },
+    "storesTab": "店舗",
+    "brandColorsDesc": "Synqedブランドパレット。閲覧専用です。",
+    "sidebarAppearance": "サイドバーの見た目",
+    "sidebarAppearanceDesc": "ライトまたはダークを選んでください。両方とも長時間の業務でも目に優しい配色です。",
+    "sidebarLightLabel": "ライト",
+    "sidebarLightDesc": "明るく控えめ。長時間の業務に最適。",
+    "sidebarDarkLabel": "ダーク",
+    "sidebarDarkDesc": "コントラスト強め。視認性を重視。",
+    "sidebarApplied": "適用中",
+    "subtitle": "組織情報、テーマ、AI、録音、スタッフ、予約同期の設定を管理します",
+    "backToList": "設定に戻る",
+    "staffDescription": "スタッフ一覧と権限",
+    "staffCountSuffix": "{n}名のスタッフ",
+    "pinNotSet": "PIN未設定",
+    "consentGranted": "同意済み",
+    "voiceUnregistered": "未登録",
+    "editStaffDialogTitle": "スタッフ情報を編集",
+    "editStaffDialogSubtitle": "{name}さんの情報を更新します。変更内容は監査ログに記録されます。",
+    "emailChangeNotice": "変更するとメール確認が必要になります。",
+    "voiceEnrollCta": "声を登録（任意）",
+    "voiceRevoke": "声紋を削除",
+    "coachingDescription": "マスター設定・重み・同意"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -838,7 +1390,7 @@
   },
   "dataImport": {
     "title": "データインポート",
-    "description": "CSV・Excelファイルから顧客や予約をインポート",
+    "description": "CSV・Excel・JSONファイルから顧客・予約・カルテをインポート",
     "dropOrClick": "ファイルをドロップまたはクリックしてアップロード",
     "supportedTypes": "CSV、Excel（.xlsx）、JSONファイルに対応",
     "chooseFile": "ファイルを選択",
@@ -848,7 +1400,49 @@
     "excelTitle": "Excel（.xlsx）",
     "excelDescription": "最初のシートを使用。1行目がヘッダー。",
     "jsonTitle": "JSON",
-    "jsonDescription": "name、phone、emailフィールドを持つ顧客オブジェクトの配列。"
+    "jsonDescription": "name、phone、emailフィールドを持つ顧客オブジェクトの配列。",
+    "stepper": {
+      "stepUpload": "アップロード",
+      "stepMapping": "マッピング",
+      "stepValidate": "検証",
+      "stepDone": "完了"
+    },
+    "scope": {
+      "question": "何をインポートしますか？",
+      "scopeCustomers": "顧客",
+      "scopeCustomersDesc": "名前・連絡先・基本情報",
+      "scopeReservations": "予約",
+      "scopeReservationsDesc": "日時・サービス・担当スタッフ",
+      "scopeKarute": "カルテ",
+      "scopeKaruteDesc": "セッション履歴・メモ"
+    },
+    "dropzone": {
+      "dropOrClick": "{scope}データをドロップまたは選択してアップロード",
+      "supportedFormats": "CSV / Excel (.xlsx) / JSON",
+      "maxSize": "最大25MB",
+      "chooseFile": "ファイルを選択",
+      "csvTitle": "CSV",
+      "csvDesc": "UTF-8またはShift-JISエンコード。カラムマッピングを自動検出。",
+      "excelTitle": "Excel (.xlsx)",
+      "excelDesc": "最初のシートを使用。1行目がヘッダー。",
+      "jsonTitle": "JSON",
+      "jsonDesc": "オブジェクトの配列。フィールド名が直接マッピングされます。",
+      "recommendedCols": "推奨カラム ({scope})"
+    },
+    "recent": {
+      "title": "最近のインポート",
+      "count": "{n}件",
+      "successRate": "成功率 {pct}%",
+      "failedCount": "失敗 {n}件",
+      "downloadAria": "元ファイルをダウンロード",
+      "emptyState": "まだインポート履歴がありません。"
+    },
+    "status": {
+      "statusCompleted": "完了",
+      "statusProcessing": "処理中",
+      "statusFailed": "失敗",
+      "statusValidating": "検証中"
+    }
   },
   "dataExport": {
     "title": "データエクスポート",
@@ -870,7 +1464,7 @@
     "recommendedNote": "推奨列が事前に選択されています。",
     "presetRecommended": "推奨",
     "presetNoPii": "PIIなし",
-    "presetAll": "すべて",
+    "presetAll": "全期間",
     "presetMinimal": "最小",
     "selectedColumns": "選択中の列",
     "noColumnsSelected": "列が未選択です — ファイルは空になります。",
@@ -896,7 +1490,6 @@
     "preset30d": "過去30日",
     "preset90d": "過去90日",
     "presetYtd": "年初から",
-    "presetAll": "全期間",
     "presetCustom": "カスタム…",
     "advanced": "詳細設定",
     "advancedDescription": "プライバシーと配信オプション。APPIコンプライアンスの初期設定。",
@@ -966,7 +1559,8 @@
     "pinRemoved": "{name}のPINを解除しました",
     "removePin": "PINを解除",
     "setPin": "PINを設定",
-    "pin": "PIN"
+    "pin": "PIN",
+    "resetPin": "PIN再設定"
   },
   "miniRecorder": {
     "paused": "一時停止中",
@@ -1090,5 +1684,488 @@
     "entries": "エントリー",
     "quote": "引用",
     "transcript": "トランスクリプト"
+  },
+  "coaching": {
+    "common": {
+      "privacyLayer1Badge": "あなただけが見ることができます",
+      "scaffoldLabel": "対応予定"
+    },
+    "consentBadge": {
+      "granted": "同意済み",
+      "notYet": "未同意",
+      "grantedTooltip": "同意日: {date}"
+    },
+    "consent": {
+      "bannerTitle": "コーチング機能の同意が必要です",
+      "bannerBody": "あなたのセッションを分析して成長をサポートします。データの取り扱いをご確認のうえ、同意の有無をお選びください。",
+      "bannerCta": "確認する",
+      "summaryGranted": "コーチング機能に同意済み",
+      "summaryDeclined": "コーチング機能は無効です",
+      "summaryReview": "再確認する",
+      "headerTitle": "コーチング機能について",
+      "section1Title": "記録・分析される内容",
+      "section1Bullet1": "セッションの会話（録音・文字起こし）",
+      "section1Bullet2": "あなたの会話パターンとスタイル",
+      "section1Bullet3": "パフォーマンス指標",
+      "section2Title": "オーナー・マネージャーが閲覧できる情報",
+      "section2Bullet1": "あなたのパフォーマンス指標（成約率、再来店率など）",
+      "section2Bullet2": "成長の傾向",
+      "section2Bullet3": "AIによる成長エリアの分析（カテゴリーレベル）",
+      "section2Bullet4": "学習モジュールの進捗",
+      "section3Title": "オーナー・マネージャーが閲覧できない情報",
+      "section3Bullet1": "会話の録音・文字起こし",
+      "section3Bullet2": "個別のセッション詳細",
+      "section3Bullet3": "具体的なお客様とのやり取り",
+      "section3Bullet4": "あなたが受け取る個別の学習提案",
+      "section4Title": "Synqedによるデータ利用",
+      "section4Intro": "Synqedは本サービスの提供事業者として、お店のオーナー・マネージャーとは別の立場で、コーチング機能の運営と継続的な改善のために、以下の範囲でデータにアクセスします。",
+      "section4Bullet1": "匿名化された会話パターンの抽出（チーム共有のパターンライブラリ生成のため）",
+      "section4Bullet2": "AIモデルの継続的な改善（個人を特定できない形で学習データとして利用）",
+      "section4Bullet3": "サブ処理事業者: Anthropic（AI推論）、Supabase（データ保管）",
+      "section4Bullet4": "人間がデータを閲覧するのは、削除リクエスト・技術サポート・法的要請の対応時のみで、すべて監査ログに記録されます",
+      "reassurance": "この区別により、あなたのプライバシーを守りながら、必要なサポートを受けられるようにしています。",
+      "retentionLabel": "データ保持期間",
+      "retentionTbd": "セッションごとに最大365日。削除リクエスト後は30日以内に完全削除されます。",
+      "declineFootnote": "同意しなくても仕事には影響しません。",
+      "checkboxLabel": "上記のデータ閲覧範囲を理解しました",
+      "agree": "同意する",
+      "decline": "同意しない"
+    },
+    "panel": {
+      "panelTitle": "AIコーチング",
+      "panelDescription": "このセッションに対するリアルタイム提案",
+      "staffOnlyLabel": "あなた専用",
+      "mobileRowTitle": "AIコーチング",
+      "mobileRowCount": "セッション中のリアルタイム提案 · {n}件",
+      "mobileRowEmpty": "セッション中のリアルタイム提案",
+      "collapseAria": "閉じる",
+      "intro": "セッション中のリアルタイム提案です。オーナーやマネージャーには表示されません。",
+      "emptyHint": "セッション中、AIが約30秒ごとに最新2分間の会話を分析し、次の質問・トップパフォーマーのヒント・クロージングのタイミング等を提案します。AnthonyがHaikuベースの提案生成器とSupabase Realtimeチャネル（session_id + staff_id でフィルタ）を実装後、ここに自動表示されます。"
+    },
+    "header": {
+      "title": "コーチング",
+      "subtitleStaff": "トップパフォーマーから学び、あなた自身の成長をサポートします。",
+      "subtitleOwner": "チームの成長をカテゴリー別のパフォーマンスから支援します。"
+    },
+    "staff": {
+      "monthlyGrowth": {
+        "title": "今月の成長",
+        "subtitle": "あなたのスタッフ非公開データ（Layer 1）",
+        "body": "AIがあなたのセッションを分析し、月間スコア・先月比の変化・分析済みセッション数・習得済み／学習中パターン数を表示します。Anthonyが usePersonalGrowthData() を実装後に有効化されます。",
+        "vsLastMonth": "先月比",
+        "statSessionsAnalyzed": "分析済みセッション",
+        "statPatternsMastered": "習得済みパターン",
+        "statPatternsInProgress": "学習中",
+        "emptyHint": "AIがあなたのセッションを分析し、月間スコアとパターン習得状況をここに表示します。Anthonyが成長データの取得を実装後に有効化されます。",
+        "seeFullGrowth": "詳細を見る"
+      },
+      "learnFromTop": {
+        "title": "トップパフォーマーから学ぶ",
+        "subtitle": "匿名化されたチーム共有データ（Layer 2）",
+        "body": "サロンのトップパフォーマーから抽出された接客パターンを、スタッフを特定できない形で表示します。AIが自然な会話の組み立て方や提案の言い回しを抽出し、本日のセッションでの応用方法を提示します。",
+        "seeAll": "すべて見る",
+        "emptyHint": "トップパフォーマーの会話パターンをAIが抽出し、本日のセッションで応用できる形でここに表示します。Anthonyがパターン抽出パイプラインを実装後に有効化されます。"
+      },
+      "strengths": {
+        "title": "あなたの強み",
+        "body": "過去のセッションから AI があなたの得意分野を抽出し、自信を持って提案できるカテゴリーや会話の運び方を提示します。スタッフ非公開（Layer 1）。",
+        "emptyHint": "AIがあなたの過去セッションを分析し、得意なカテゴリーや会話パターンを強みとしてここに表示します。Anthonyが成長データの取得を実装後に有効化されます。"
+      },
+      "nextFocus": {
+        "title": "次のフォーカス",
+        "body": "成長機会のあるカテゴリーと、それを伸ばすために本日試せる具体的なアクションを AI が提案します。スタッフ非公開（Layer 1）。",
+        "emptyHint": "AIが成長機会のあるカテゴリーを特定し、本日試せる具体的なアクションをここに提案します。Anthonyが成長データの取得を実装後に有効化されます。"
+      },
+      "recentModules": {
+        "title": "最近の学習モジュール",
+        "subtitle": "あなたに割り当てられた学習モジュール（Layer 1）",
+        "body": "オーナーから割り当てられた学習モジュール（接客スクリプト・動画・テストなど）と進捗状況を表示します。Anthonyが useLearningModulesData() を実装後に有効化されます。",
+        "durationMin": "{n}分",
+        "assignedBy": "{name}から",
+        "emptyHint": "オーナーから割り当てられた学習モジュールと進捗状況をここに表示します。Anthonyがモジュール割り当ての取得を実装後に有効化されます。"
+      }
+    },
+    "owner": {
+      "teamPerformance": {
+        "title": "チームのパフォーマンス",
+        "subtitle": "集計済みデータ（Layer 3）",
+        "body": "チーム全体の主要指標（売上・再来店率・顧客満足度・客単価）の月次サマリーを表示します。スタッフ個人を特定できない集計値のみ。Anthonyが useStaffPerformanceData() を実装後に有効化されます。",
+        "cardTitle": "店舗全体のパフォーマンス",
+        "vsLastMonth": "先月比",
+        "metricClosing": "平均成約率",
+        "metricRebooking": "平均再来店率",
+        "metricAvgRevenue": "平均客単価",
+        "metricSatisfaction": "平均満足度",
+        "totalSessionsLabel": "今月のセッション合計 ·",
+        "emptyHint": "店舗全体の主要指標の集計値をここに表示します。Anthonyがチームサマリーの取得を実装後に有効化されます。"
+      },
+      "teamTrends": {
+        "title": "チームのトレンド",
+        "tileGrowing": "成長中",
+        "tileStable": "安定",
+        "tileNeedsSupport": "サポート必要",
+        "headCount": "名",
+        "focusAreasHeader": "チーム全体のサポートエリア（頻度順）",
+        "emptyHint": "成長中／安定／サポート必要のスタッフ数と、AIが抽出したサポートエリアの頻度ランキングをここに表示します。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+      },
+      "topPerformers": {
+        "cardTitle": "トップパフォーマー",
+        "cardIntro": "総合指標の上位層です。パターンライブラリの元ソースとしてスタッフに（匿名化した上で）共有されています。",
+        "closingShort": "成約 {pct}%",
+        "rebookingShort": "再来店 {pct}%",
+        "emptyHint": "トップパフォーマーのスタッフ名・役職・成約率・再来店率をここに表示します（オーナー専用、Layer 2 名前付き）。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+      },
+      "staffTable": {
+        "cardTitle": "スタッフ一覧",
+        "headerSummary": "{n}名 · 成約率 = 成約カルテ ÷（成約 + 不成約）",
+        "headerSummaryEmpty": "スタッフ別の指標は同意取得後に表示されます",
+        "colStaff": "スタッフ",
+        "colClosing": "成約率",
+        "colRebooking": "再来店率",
+        "colRevenue": "客単価",
+        "colSatisfaction": "満足度",
+        "colTrend": "成長傾向",
+        "sessionsCount": "セッション{n}件",
+        "vsLastMonth": "先月比",
+        "emptyHint": "同意取得済みスタッフの月次パフォーマンス指標（成約率・再来店率・客単価・満足度・成長傾向）を一覧でここに表示します。各行は /coaching/staff/[id] のドリルダウンへリンクします。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+      },
+      "assignModules": {
+        "cardTitle": "学習モジュールを割り当てる",
+        "cardIntro": "モジュールを選んで、サポートしたいスタッフに割り当てます。割り当てを受けたスタッフに通知が届きます。",
+        "durationMin": "{n}分",
+        "seeAllModules": "すべてのモジュールを見る",
+        "emptyHint": "AIが推薦する未割り当ての上位3モジュールと、同意取得済みスタッフへのクイック割り当てチップをここに表示します。Anthonyが useLearningModulesData() と learning_assignments の挿入／削除サーバーアクションを実装後に有効化されます。"
+      }
+    },
+    "staffDrill": {
+      "back": "コーチングに戻る",
+      "ownerOnlyNotice": "このページはオーナー・マネージャー専用です。",
+      "topPerformerBadge": "トップパフォーマー",
+      "roleAndTenure": "{role} · 在籍{months}ヶ月 · 今月{sessions}件",
+      "assignModulesCta": "学習モジュールを割り当てる",
+      "privacyNotice": "このスタッフの会話内容や個別セッションの詳細は、プライバシー保護のため表示されません。パフォーマンスの傾向と成長エリアのみ表示しています。",
+      "metricClosing": "成約率",
+      "metricRebooking": "再来店率",
+      "metricRevenue": "平均客単価",
+      "metricSatisfaction": "満足度",
+      "metricSatisfactionValue": "{score} / 5.0",
+      "metricScaffoldValue": "—",
+      "metricsScaffoldHint": "成約率・再来店率・平均客単価・満足度の月次集計をここに表示します。Anthonyが useStaffPerformanceData() を実装後に有効化されます。",
+      "chartTitle": "{name}さんの成長推移",
+      "chartSubtitle": "カテゴリースコアの月次推移",
+      "chartEmptyHint": "カテゴリースコアの月次推移グラフをここに表示します。Layer 2 の集計のみ（AI不要）。Anthonyが trajectoryL2 を含む useStaffPerformanceData() を実装後に有効化されます。",
+      "gapTitle": "成長エリアの分析",
+      "gapSubtitle": "カテゴリー別 · トップパフォーマーとの差",
+      "gapPriorityHigh": "優先度・高",
+      "gapPriorityMedium": "優先度・中",
+      "gapPriorityStable": "安定",
+      "gapDiffFromTop": "トップ層との差 {pct}%",
+      "gapEmptyHint": "カテゴリー別の成長エリアと、トップパフォーマーとの差をここに表示します。週次バッチで claude-sonnet による分析を生成し、顧客名やセッション詳細を含まない「成長エリア」「サポートポイント」の語彙のみ使用します。Anthonyが useCategoricalInsightsData(staffId) を実装後に有効化されます。",
+      "modal": {
+        "title": "{name}さんの個別データを確認します",
+        "description": "プライバシー保護のため、会話の録音・文字起こし・具体的なお客様とのやり取りは表示されません。パフォーマンス指標と成長エリア（カテゴリーレベル）のみ表示します。",
+        "cancel": "キャンセル",
+        "confirm": "確認する"
+      }
+    },
+    "modules": {
+      "back": "コーチングに戻る",
+      "title": "学習モジュール",
+      "subtitle": "チームの成長を促す、AIが厳選した学習モジュールのライブラリ。カテゴリや担当で絞り込み、スタッフに割り当ててください。",
+      "aiCalloutTitle": "AIが毎週新しいモジュールを提案します",
+      "aiCalloutBody": "トップパフォーマーの行動パターンから学習モジュールを自動生成。効果の高いモジュールほど、今後の推薦に重み付けされます。",
+      "staffContextTitle": "{name}さん向けにモジュールを選んでいます",
+      "staffContextBody": "割り当てを外すには、フィルターをクリアして全スタッフから選べます。",
+      "clearStaff": "絞り込みを解除",
+      "searchPh": "モジュール名・カテゴリで検索...",
+      "clearFilters": "クリア",
+      "tab": {
+        "all": "すべて",
+        "assigned": "割り当て済",
+        "ai": "AIが生成",
+        "unassigned": "未割り当て"
+      },
+      "allCategories": "全カテゴリ",
+      "emptyTitle": "該当するモジュールがありません",
+      "emptyBody": "検索語やフィルターを変更するか、トップパフォーマーの新しいパターンから AI モジュールが生成されるまでお待ちください。",
+      "scaffoldHint": "AIが厳選した学習モジュールのカタログ、検索／タブ／カテゴリ絞り込み、3カラムのカードグリッド、そしてスタッフへの割り当てチップをここに表示します。Anthonyが useLearningModulesData() と useStaffPerformanceData() を実装後に有効化されます。割り当て書き込みは learning_assignments への INSERT／DELETE サーバーアクション（オーナー限定）で行います。",
+      "durationMin": "{n}分",
+      "completion": "進捗",
+      "assignTo": "スタッフに割り当て",
+      "assignedCount": "{n}名に割り当て済",
+      "noEligibleStaff": "同意済みのスタッフがまだいません。",
+      "aiGenerated": "AI生成"
+    },
+    "patterns": {
+      "back": "コーチングに戻る",
+      "title": "トップパフォーマーのパターン",
+      "subtitleStaff": "トップパフォーマーの実例から、すぐに試せる型を学びましょう",
+      "subtitleOwner": "チームで共有されているパターンライブラリ。スタッフには匿名化して表示されます。",
+      "learnersFooter": "このパターンを学習中のスタッフ · {n}名",
+      "sectionEmptyHint": "AIがトップパフォーマーの会話から抽出したパターン例（実際の言い回し、学習中スタッフ数、オーナー向け出典名）をここに表示します。Anthonyが useTopPerformerPatternsData() を実装後に有効化されます。週次バッチ生成、スタッフには出典が匿名化されます。",
+      "categories": {
+        "counseling_questions": {
+          "title": "カウンセリング質問例",
+          "description": "お客様のお悩みを深く理解するための質問の型。トップパフォーマーが実際に使っている言い回しです。"
+        },
+        "conversation_flow": {
+          "title": "会話フロー",
+          "description": "カウンセリングから提案、リブッキングまでの自然な流れを作るための構造パターン。"
+        },
+        "closing": {
+          "title": "クロージングパターン",
+          "description": "お客様が前向きに決断できるタイミングと言葉の運び方。"
+        },
+        "rebooking": {
+          "title": "リブッキング会話",
+          "description": "次回の目的を一緒に描き、自然にご予約に繋げる会話の型。"
+        },
+        "objection_handling": {
+          "title": "反対意見への対応",
+          "description": "「高い」「考えます」を受け止め、選択肢に変換するアプローチ。"
+        }
+      }
+    },
+    "growth": {
+      "back": "コーチングに戻る",
+      "title": "あなたの成長",
+      "subtitle": "あなただけが見ることができる、詳細な成長記録です。",
+      "staffOnlyNotice": "このページはスタッフ個人のプライベートな成長ページです。オーナー・マネージャーには、カテゴリー別の成長エリアのみがコーチングダッシュボードからご確認いただけます。",
+      "chartTitle": "成長の推移",
+      "chartEmptyHint": "あなたの月次成長スコアの推移グラフをここに表示します（Layer 1・スタッフ非公開）。Anthonyが usePersonalGrowthData() を実装後に有効化されます。",
+      "monthAxisLabel": "{mm}月",
+      "statSessions": "分析済みセッション",
+      "statMastered": "習得済みパターン",
+      "statInProgress": "学習中パターン",
+      "masteredTitle": "パターンの習得状況",
+      "masteredHeader": "習得済み · {n}件",
+      "inProgressHeader": "学習中 · {n}件",
+      "masteredEmpty": "まだ習得済みのパターンはありません。",
+      "inProgressEmpty": "学習中のパターンはありません。",
+      "masteredEmptyHint": "あなたに割り当てられた学習モジュールの習得状況（完了率付き）をここに表示します。Anthonyが useLearningModulesData({ assignedTo }) を実装後に有効化されます。",
+      "insightsTitle": "最近受け取ったコーチング提案",
+      "insightsIntro": "個別のセッションで受け取った具体的な提案です。あなた以外には表示されません。",
+      "insightsEmptyHint": "セッション中に受け取った具体的な提案と、それを試した結果（効果あり／試してみた／スキップ／未確認）の履歴をここに表示します。Anthonyが usePersonalCoachingInsightsData() を実装後に有効化されます。",
+      "outcomeWorked": "効果あり",
+      "outcomeTried": "試してみた",
+      "outcomeSkipped": "スキップ",
+      "outcomeUnconfirmed": "未確認",
+      "transcriptsTitle": "会話の抜粋とコーチングメモ",
+      "transcriptsIntro": "あなたのセッションからの抜粋と、AIが付けたコーチングメモです。オーナー・マネージャーには表示されません。",
+      "coachingNoteLabel": "AIコーチングメモ",
+      "transcriptsEmptyHint": "あなたのセッションの会話抜粋と、AIが特定の発話に付けたコーチングメモをここに表示します（最も機密性が高いLayer 1の表面）。Anthonyが useSessionTranscriptsData() を実装後に有効化されます。"
+    },
+    "data": {
+      "back": "コーチングに戻る",
+      "title": "あなたのデータについて",
+      "subtitleStaff": "コーチング機能で扱われるあなたの情報と、オーナーに見える範囲を明確にしています。",
+      "subtitleOwner": "このページはスタッフ自身のプライバシー確認画面です。オーナー・マネージャーも参考として閲覧できます。",
+      "transparencyLink": "あなたのデータについて",
+      "missionTitle": "プライバシーに関する考え方",
+      "missionBody": "コーチング機能は「成長のサポート」を目的に、個別のセッション内容をAIが分析します。ただし、あなたの会話内容そのものや個別の学習提案は、オーナー・マネージャーに表示されない仕組みになっています。サポートはチームで、プライバシーはあなただけに。",
+      "staffOnly": {
+        "title": "あなたにしか見えない情報",
+        "recordings": "会話の録音・文字起こし",
+        "sessionDetail": "個別のセッション詳細",
+        "customerInteractions": "具体的なお客様とのやり取り",
+        "personalSuggestions": "あなたが受け取る個別の学習提案",
+        "personalNotes": "個人的なメモ"
+      },
+      "ownerVisible": {
+        "title": "オーナー・マネージャーに見える情報",
+        "metrics": "パフォーマンス指標（成約率、再来店率など）",
+        "trends": "成長の傾向",
+        "categoricalAi": "AIによる成長エリアの分析（カテゴリーレベル）",
+        "moduleProgress": "学習モジュールの進捗"
+      },
+      "synqedAccess": {
+        "title": "Synqedによるデータ利用",
+        "intro": "Synqedは本サービスの提供事業者として、お店のオーナー・マネージャーとは別の立場で、コーチング機能の運営と継続的な改善のために、以下の範囲でデータにアクセスします。",
+        "patternMining": "匿名化された会話パターンの抽出（チーム共有のパターンライブラリ生成のため）",
+        "modelImprovement": "AIモデルの継続的な改善（個人を特定できない形で学習データとして利用）",
+        "subProcessors": "サブ処理事業者: Anthropic（AI推論）、Supabase（データ保管）",
+        "humanAccess": "人間がデータを閲覧するのは、削除リクエスト・技術サポート・法的要請の対応時のみで、すべて監査ログに記録されます"
+      },
+      "reviewConsentTitle": "同意内容の確認",
+      "reviewConsentBody": "コーチング機能のデータ利用範囲を、いつでも再確認できます。",
+      "reviewConsentCta": "同意内容を見る",
+      "deletionTitle": "データ削除リクエスト",
+      "deletionBody": "コーチングで蓄積されたあなた固有のデータ（会話の録音・文字起こし・個別の学習提案）を削除することができます。リクエストはオーナーに通知されますが、削除自体はあなたの意思が尊重されます。",
+      "deletion": {
+        "cta": "データ削除リクエスト",
+        "confirmTitle": "コーチングデータの削除をリクエスト",
+        "confirmBody": "コーチング機能であなたが蓄積したデータ（会話の録音・文字起こし・個別の学習提案・AIによる分析結果）の削除をリクエストできます。パフォーマンス指標などの業務データはこの対象に含まれません。",
+        "cancel": "キャンセル",
+        "submit": "リクエストを送信",
+        "submittedTitle": "リクエストを受け付けました",
+        "submittedBody": "オーナーに通知が送られました。処理完了までに最大30日お時間をいただくことがあります。"
+      }
+    },
+    "devPreview": {
+      "label": "開発プレビュー",
+      "regionLabel": "コーチング開発プレビュー",
+      "asReal": "実 ({role})",
+      "renderingAs": "現在のロール: {role}",
+      "clearAria": "オーバーライドを解除",
+      "role": {
+        "owner": "オーナー",
+        "staff": "スタッフ"
+      }
+    }
+  },
+  "notifications": {
+    "title": "お知らせ",
+    "description": "最新のお知らせを確認できます。",
+    "markAllRead": "すべて既読",
+    "clearRead": "既読を削除",
+    "today": "今日",
+    "thisWeek": "今週",
+    "older": "それ以前",
+    "emptyTitle": "新しいお知らせはありません",
+    "emptyBody": "予約・請求・メモリー確認・コーチングなどのお知らせがここに表示されます。",
+    "scaffoldLabel": "対応予定",
+    "scaffoldBody": "通知システムは実装中です。AnthonyがSupabaseの通知テーブルとリアルタイム購読を実装後、予約・請求・コーチング等のイベントがここに自動表示されます。",
+    "justNow": "たった今",
+    "minutesAgo": "{n}分前",
+    "hoursAgo": "{n}時間前",
+    "daysAgo": "{n}日前"
+  },
+  "profile": {
+    "pageTitle": "プロフィール",
+    "pageSubtitle": "あなたのアカウント情報と直近の活動。",
+    "activitySection": "今月の活動",
+    "statSessionsMonth": "実施セッション",
+    "statRecordingsMonth": "録音件数",
+    "statConsentRate": "同意取得率",
+    "statUniqueCustomers": "ユニーク顧客",
+    "scaffoldLabel": "対応予定",
+    "activityScaffoldBody": "あなたの今月のセッション数・録音件数・同意取得率・ユニーク顧客数をここに表示します。AnthonyがRLSで auth.uid() に絞った月次集計クエリを実装後に有効化されます。",
+    "quickLinksSection": "クイックリンク",
+    "linkMyGrowth": "あなたの成長",
+    "linkMyData": "プライバシーとデータ",
+    "linkOpenSettings": "設定を開く",
+    "preferencesSection": "表示設定",
+    "languageLabel": "表示言語",
+    "languageJa": "日本語",
+    "languageEn": "English",
+    "logoutButton": "ログアウト",
+    "logoutPending": "ログアウト中…",
+    "versionLabel": "バージョン"
+  },
+  "discreetIndicator": {
+    "dotAria": "録音中。長押しで操作メニューを表示",
+    "dotTitle": "長押しで操作メニュー",
+    "recordingActive": "録音中",
+    "close": "閉じる",
+    "modeHint": "お客様の目に付かないよう、控えめな表示になっています。録音は通常通り進行しています。",
+    "privacyNote": "店舗のプライバシーポリシーに「AI録音の利用目的」を明記している前提で機能します。",
+    "openPage": "録音画面を開く",
+    "stop": "録音を停止"
+  },
+  "messageCompose": {
+    "title": "メッセージを作成",
+    "noCustomer": "顧客情報が見つかりません",
+    "copyPasteHint": "コピーして手元のアプリから送信",
+    "aiDraftedBadge": "AI下書き — 内容を確認してください",
+    "bodyPlaceholder": "メッセージ本文…",
+    "charCount": "{n} 文字",
+    "softLimitHint": "（長文は既読率が下がる傾向があります）",
+    "channelLabel": "送信手段:",
+    "channelEmail": "メール",
+    "channelOther": "その他",
+    "workflowExplainer": "このメッセージをコピーして、普段お客様とやり取りしているLINE・SMS・メール等からご送信ください。「コピーして送信済みにする」を押すと、送信記録として保存されます。",
+    "copyOnly": "コピー",
+    "copied": "コピーしました",
+    "copyAndMarkSent": "コピーして送信済みにする",
+    "markedSentTitle": "記録しました",
+    "markedSentDesc": "{name}様宛のメッセージをクリップボードにコピーし、送信済みとして記録しました。LINE等から貼り付けて送信してください。",
+    "cancel": "キャンセル"
+  },
+  "landing": {
+    "header": {
+      "login": "ログイン"
+    },
+    "hero": {
+      "badge": "AI搭載のセッション記録",
+      "title": "カルテを手書きで書く必要は、もうありません",
+      "subtitle": "施術セッションを録音するだけ。KaruteのAIが自動で文字起こしし、重要なポイントを抽出して、完成したカルテを生成します。",
+      "ctaPrimary": "無料で始める",
+      "ctaSecondary": "使い方を見る"
+    },
+    "stats": {
+      "sessionsRecorded": "録音セッション",
+      "timeSaved": "時間削減",
+      "salonsClinics": "サロン・クリニック"
+    },
+    "howItWorks": {
+      "heading": "使い方",
+      "subtitle": "セッションからカルテまで、わずか3ステップ",
+      "stepPrefix": "ステップ {step}",
+      "step1Title": "録音",
+      "step1Description": "セッション中に録音ボタンを押すだけ。Karuteがバックグラウンドで会話を記録するので、お客様に集中できます。",
+      "step2Title": "AIが処理",
+      "step2Description": "Karuteが音声を文字起こしし、好み・施術内容・お悩みを抽出して、構造化されたサマリーを生成します。",
+      "step3Title": "確認して保存",
+      "step3Description": "AI生成のカルテを確認・編集して保存。顧客と予約に自動的にリンクされます。"
+    },
+    "features": {
+      "heading": "必要な機能、すべて",
+      "voiceRecording": {
+        "title": "音声録音",
+        "description": "ワンタップでセッションを録音。マイク付きのどのデバイスでも動作します。"
+      },
+      "aiTranscription": {
+        "title": "AI文字起こし",
+        "description": "Whisper搭載で、日本語・英語の高精度な音声テキスト変換。"
+      },
+      "smartExtraction": {
+        "title": "スマート抽出",
+        "description": "AIが会話から好み・施術内容・健康上の懸念などを自動で識別します。"
+      },
+      "appointmentSync": {
+        "title": "予約との連携",
+        "description": "録音を予約にリンク。スケジュールとカルテ履歴を1つの画面で確認できます。"
+      },
+      "multiStaff": {
+        "title": "マルチスタッフ対応",
+        "description": "スタッフごとに個別のプロフィール・スケジュール・カルテ記録を、PIN保護付きで管理。"
+      },
+      "exportShare": {
+        "title": "エクスポート・共有",
+        "description": "カルテをPDFまたはテキストでエクスポート。チームと共有したり、お客様用に印刷できます。"
+      }
+    },
+    "cta": {
+      "heading": "カルテ作成を自動化しませんか？",
+      "subtitle": "AIセッションノートで毎週何時間も節約しているサロン・クリニックの仲間に加わりましょう。",
+      "button": "無料で始める"
+    },
+    "footer": {
+      "copyright": "© {year} Karute. All rights reserved."
+    }
+  },
+  "voiceEnrollment": {
+    "title": "自分の声を登録（任意）",
+    "description": "{name}さんの声を登録すると、話者識別の精度が少し向上します。登録は任意です — 話者分離は登録なしでも動作します。",
+    "privacyTitle": "プライバシーについて",
+    "privacyItem1": "録音音声は声紋データ（256次元ベクトル）に変換後、元の音声は破棄されます。",
+    "privacyItem2": "声紋はサーバー側の話者分離処理のみで使用され、アプリには送信されません。",
+    "privacyItem3": "個人情報保護法（APPI）に準拠した暗号化ストレージで保管されます。",
+    "privacyItem4": "いつでも「削除」をクリックして、声紋と関連データを30日以内に完全削除できます。",
+    "biometricNotice": "声紋は生体情報（バイオメトリクス）に分類されます。登録は完全に任意で、業務上の強制はありません。登録しなくても、「最初の話者＝スタッフ」のヒューリスティックで話者分離は動作します。",
+    "consentCheck": "上記のプライバシー条件を理解し、自分の声を登録することに同意します。",
+    "recordInstruction": "下記のフレーズを自然な声で読み上げてください。約15秒間録音します。",
+    "phraseToRead": "本日はお越しいただき、ありがとうございます。今日のお身体の調子はいかがですか。気になるところがあればお気軽にお伝えください。",
+    "startRecord": "録音開始",
+    "stopRecord": "録音停止",
+    "recordingHint": "自然な声で読み上げてください...",
+    "readyHint": "マイクのアイコンをタップして録音を開始します",
+    "completeTitle": "登録が完了しました",
+    "completeBody": "{name}さんの声が登録されました。次回以降の録音から、話者識別が向上します。",
+    "revokeHint": "設定 > スタッフ > 声の登録 から、いつでも声紋を削除できます。削除後、新規セッションでは一般的な話者分離が使われます。",
+    "cancel": "キャンセル",
+    "proceed": "次へ",
+    "back": "戻る",
+    "done": "完了"
   }
 }

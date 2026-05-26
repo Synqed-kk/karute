@@ -1,3 +1,4 @@
+import { getLocale, getTranslations } from 'next-intl/server'
 import { getStaffList } from '@/lib/staff'
 import { getActiveStaffId } from '@/lib/active-staff'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -5,20 +6,18 @@ import { CustomersListView } from '@/components/customers/redesign/list/Customer
 import type { CustomerListRow } from '@/components/customers/redesign/types'
 import {
   defaultAiPredict,
-  deriveKaruteNumber,
   deriveStatus,
   enrichCustomers,
   formatJoinDate,
   formatLastVisit,
+  type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
+import {
+  assignSequentialKaruteNumbers,
+  deriveFamilyInitials,
+} from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
-
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
 
 export default async function CustomersPage({
   searchParams,
@@ -31,10 +30,10 @@ export default async function CustomersPage({
   const t = startTiming(`customers q="${query}"`)
   const synqed = await getSynqedClient()
 
-  // Fetch the full tenant customer list (capped at 500 — same as the cached
-  // list elsewhere). For search/sort/pagination we'd switch to the original
-  // server-side params, but the redesigned list filters in-memory.
-  const [list, staffList, activeStaffId, businessId] = await Promise.all([
+  // Locale + translated relative-time strings, pulled once at page level
+  // and threaded into the (synchronous) formatters so JP users see
+  // "前回 2026年5月24日 (本日)" instead of "Today" / "May 24, 2026".
+  const [list, staffList, activeStaffId, businessId, locale, lvT] = await Promise.all([
     t.phase('customers.list', () =>
       synqed.customers.list({
         search: query.trim() || undefined,
@@ -47,7 +46,17 @@ export default async function CustomersPage({
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getActiveStaffId()),
     t.phase('businessId', () => getBusinessId()),
+    getLocale(),
+    getTranslations('customers.list.lastVisit'),
   ])
+
+  const lastVisitStrings: LastVisitStrings = {
+    noVisits: lvT('noVisits'),
+    today: lvT('today'),
+    oneDayAgo: lvT('oneDayAgo'),
+    daysAgo: (n) => lvT('daysAgo', { n }),
+    monthsAgo: (n) => lvT('monthsAgo', { n }),
+  }
 
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
@@ -59,21 +68,27 @@ export default async function CustomersPage({
   )
   t.end()
 
+  // Sequential per-tenant karute numbers — sorted by created_at so the
+  // oldest customer gets #00001, etc. Computed in-memory until Anthony
+  // adds the real `customers.karute_number` column. Same helper used on
+  // the profile page so a customer's number is consistent across views.
+  const karuteNumberById = assignSequentialKaruteNumbers(list.customers)
+
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
     const lastVisitIso = enriched?.lastVisitIso ?? null
     const status = deriveStatus(c.created_at, lastVisitIso)
-    const last = formatLastVisit(lastVisitIso)
+    const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
     const totalKarute = enriched?.totalKarute ?? 0
     return {
       id: c.id,
       name: c.name,
-      initials: deriveInitials(c.name),
-      karuteNumber: deriveKaruteNumber(c.id),
+      initials: deriveFamilyInitials(c.name),
+      karuteNumber: karuteNumberById.get(c.id) ?? '#00000',
       // Stubs — these fields don't exist on the customer record yet.
       age: null,
       gender: null,
-      joinDate: formatJoinDate(c.created_at),
+      joinDate: formatJoinDate(c.created_at, locale),
       joinDateIso: c.created_at ?? null,
       visitsDone: Math.min(totalKarute, 5),
       visitsTotal: 5,
@@ -91,12 +106,22 @@ export default async function CustomersPage({
     }
   })
 
+  // Project the staff roster into the lightweight shape the filter pills
+  // need (id + display name + initials). Initials reuse `deriveInitials`
+  // so the same algorithm runs for both customer avatars and staff pills
+  // — kanji names get a single-char initial, ASCII names get first+last.
+  const staffForFilter = staffList.map((s) => {
+    const name = s.full_name ?? 'Unknown'
+    return { id: s.id, name, initials: deriveFamilyInitials(name) }
+  })
+
   return (
     <CustomersListView
       rows={rows}
       totalRegistered={list.total}
       query={query}
       selfStaffId={activeStaffId}
+      staffList={staffForFilter}
     />
   )
 }

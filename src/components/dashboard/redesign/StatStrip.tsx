@@ -1,5 +1,19 @@
 import { TrendingDown, TrendingUp } from 'lucide-react'
 
+// `trend` / `trendLabel` props preserved on the prop schema and the
+// StatTile component, even though no producer in dashboard/page.tsx
+// sets them today. Keeping the surface means Anthony can see the
+// exact shape the trend producer needs to feed (signed delta + an
+// optional label like "vs last week"). When the calc lands, set
+// trend/trendLabel on the stats and the TrendingUp/Down icon + delta
+// pill lights up automatically.
+//
+// ANTHONY producers needed:
+//   - weeklyRecordings.trend: count delta vs the previous 7-day
+//     window, expressed as a percentage
+//   - rebookingRate.value + .trend: returning-customer / total-
+//     customer ratio with the same delta calc
+
 export interface StatStripData {
   weeklyRecordings: { value: number; trend?: number | null; trendLabel?: string }
   todaysCustomers: { value: number }

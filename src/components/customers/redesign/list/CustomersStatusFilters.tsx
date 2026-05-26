@@ -1,6 +1,7 @@
 'use client'
 
 import { ChevronDown } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import type { CustomerStatusKey } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
 
@@ -25,12 +26,12 @@ interface CustomersStatusFiltersProps {
   counts: CustomerListCounts
 }
 
-const ITEMS: Array<{ id: CustomerListFilterKey; label: string }> = [
-  { id: 'all', label: 'All' },
-  { id: 'preferredStaff', label: 'Preferred Staff' },
-  { id: 'newRecent', label: 'New (last 30d)' },
-  { id: 'followup', label: 'Needs follow-up' },
-  { id: 'dormant', label: 'Dormant (90d+)' },
+const FILTER_KEYS: CustomerListFilterKey[] = [
+  'all',
+  'preferredStaff',
+  'newRecent',
+  'followup',
+  'dormant',
 ]
 
 export function CustomersStatusFilters({
@@ -38,27 +39,28 @@ export function CustomersStatusFilters({
   onChange,
   counts,
 }: CustomersStatusFiltersProps) {
+  const t = useTranslations('customers.list')
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
-        {ITEMS.map((item) => {
-          const isActive = item.id === active
+        {FILTER_KEYS.map((key) => {
+          const isActive = key === active
           return (
             <button
-              key={item.id}
+              key={key}
               type="button"
-              onClick={() => onChange(item.id)}
+              onClick={() => onChange(key)}
               className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
                 isActive
-                  ? 'border-sky-500/60 bg-sky-500/15 text-sky-200'
-                  : 'border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground'
+                  ? 'border-foreground bg-foreground text-background'
+                  : 'border-border bg-card text-foreground hover:bg-muted'
               }`}
             >
-              <span>{item.label}</span>
+              <span>{t(`filters.${key}`)}</span>
               <span
-                className={`tabular-nums ${isActive ? 'text-sky-300' : 'text-muted-foreground/70'}`}
+                className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
               >
-                {counts[item.id]}
+                {counts[key]}
               </span>
             </button>
           )

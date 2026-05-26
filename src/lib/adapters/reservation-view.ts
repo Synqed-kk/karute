@@ -11,14 +11,19 @@ import { getStaffColor, type StaffColorKey } from '@/lib/staff-colors'
 //   end < now                     -> 'completed'
 //   source !== MANUAL             -> 'pending'    (externally synced, not yet
 //                                                  confirmed by staff)
-//   visitCount === 0              -> 'new'        (first-time customer)
+//   isFirstTimeCustomer === true  -> 'new'        (first-ever appointment for
+//                                                  this customer at this salon)
 //   else                          -> 'booked'
 //
 // "Pending" and "new" are derived signals — no extra columns required:
 // • pending: every Appointment carries a `source` enum from synqed-core, so
 //   QUICKRESERVE/SALON_BOARD/etc. surface as pending until staff acts on them.
-// • new: visit count is computed once per page from `karute_records` via
-//   `enrichCustomers`, then passed in here keyed by client_id.
+// • new: derived from past-appointment count (NOT karute count). A customer
+//   who's been in 5 times without us recording karute is still NOT new —
+//   they exist in the customer list. Previously this used karute count which
+//   meant every existing customer showed as 新規 until we recorded their first
+//   karute. Liam hit this — the live Vercel preview rendered all bookings as
+//   新規 even for customers already in his list.
 //
 // Precedence: terminal > in-session > time-completed > pending > new > booked.
 // A first-time customer whose booking also came from QuickReserve renders as
@@ -35,6 +40,10 @@ export type DisplayStatus =
 export interface ReservationView {
   id: string
   staffId: string
+  /** Display name of the assigned staff — populated from the staff list at
+   *  adapter time so the mobile agenda row can render "担当 {name}" without
+   *  re-looking it up. Empty string when the staff record is missing. */
+  staffName: string
   startTimeHm: string
   durationMin: number
   customerName: string
@@ -46,7 +55,9 @@ export interface ReservationView {
   clientId: string
   /** Set when a karute_record already exists for this appointment. */
   karuteRecordId: string | null
-  /** Derived from visit count — drives "first-time" copy in the action sheet. */
+  /** Derived from past-appointment count — drives "first-time" copy in the
+   *  action sheet AND the 'new' displayStatus. True only when this is the
+   *  customer's first-ever appointment at this salon. */
   isFirstTimeVisit: boolean
 }
 
@@ -72,8 +83,10 @@ function initialsOf(name: string): string {
 }
 
 export interface DisplayStatusOptions {
-  /** Past karute count for this client. 0 → first-time customer (=> 'new'). */
-  visitCount?: number
+  /** True only when this booking is the customer's first-ever appointment at
+   *  this salon. Drives the 'new' (新規) status. NOT the same as "no karute
+   *  recorded yet" — see header comment. */
+  isFirstTimeCustomer?: boolean
 }
 
 export function computeDisplayStatus(
@@ -89,32 +102,41 @@ export function computeDisplayStatus(
   if (now.getTime() >= start) return 'in_session'
   // Future SCHEDULED bookings get a finer-grained label.
   if (row.source !== 'MANUAL') return 'pending'
-  if (opts.visitCount === 0) return 'new'
+  if (opts.isFirstTimeCustomer === true) return 'new'
   return 'booked'
 }
 
 export function appointmentsToReservationViews(
   rows: AppointmentRow[],
-  _staffList: StaffMember[],
+  staffList: StaffMember[],
   now: Date,
-  visitCountByClient: Map<string, number> = new Map(),
+  isFirstTimeByClient: Map<string, boolean> = new Map(),
 ): ReservationView[] {
+  const staffNameById = new Map<string, string>()
+  for (const s of staffList) {
+    if (s.full_name) staffNameById.set(s.id, s.full_name)
+  }
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
-    const visitCount = visitCountByClient.get(r.client_id)
+    const isFirstTimeCustomer = isFirstTimeByClient.get(r.client_id) ?? false
     return {
       id: r.id,
       staffId: r.staff_profile_id,
+      staffName: staffNameById.get(r.staff_profile_id) ?? '',
       startTimeHm: hm(r.start_time),
       durationMin: r.duration_minutes,
       customerName,
       customerInitials: initialsOf(customerName),
-      service: r.title ?? 'セッション',
-      displayStatus: computeDisplayStatus(r, now, { visitCount }),
+      // Empty string when no title set — the agenda row hides the service
+      // line rather than printing a generic 'セッション' fallback that read
+      // as misleading copy on Liam's preview (every row said "セッション").
+      // The left time column already shows duration prominently.
+      service: r.title ?? '',
+      displayStatus: computeDisplayStatus(r, now, { isFirstTimeCustomer }),
       staffColorKey: getStaffColor(r.staff_profile_id).key,
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
-      isFirstTimeVisit: visitCount === 0,
+      isFirstTimeVisit: isFirstTimeCustomer,
     }
   })
 }

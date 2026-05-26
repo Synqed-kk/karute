@@ -40,7 +40,12 @@ export interface RecordPageNextAppointment {
   durationMinutes: number
   title: string | null
   notes: string | null
+  /** Server-derived status at render time. Decouples this client
+   *  component from `Date.now()` (which React Compiler flags as
+   *  impure during render). */
+  statusKey?: 'in-session' | 'booked' | 'done'
   staffId: string
+  /** Resolved staff display name (server looks it up from the staff list). */
   staffName: string
 }
 
@@ -226,7 +231,10 @@ export function RecordPageView({
     )
   }
 
-  // Map nextAppointment to the target card shape
+  // Map nextAppointment to the target card shape. Status key comes
+  // from the server (sessions/page.tsx derives it from now vs the
+  // appointment window — keeps this client component pure for
+  // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null = nextAppointment
     ? {
         id: nextAppointment.id,
@@ -241,7 +249,10 @@ export function RecordPageView({
           )
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
-        staffName: nextAppointment.staffName,
+        // Real staffName threaded from sessions/page.tsx via the staff lookup.
+        staffName: nextAppointment.staffName ?? '—',
+        statusKey: nextAppointment.statusKey ?? 'booked',
+        isNew: brief?.isFirstTimeVisit ?? false,
       }
     : null
 
@@ -340,7 +351,10 @@ export function RecordPageView({
               nearbyBookings={nearbyBookings}
               onSwitchBooking={(b) => setSelectedTargetId(b.id)}
             />
-            <PreSessionBriefCard brief={brief} />
+            <PreSessionBriefCard
+              brief={brief}
+              customerName={nextAppointment?.customerName ?? null}
+            />
           </div>
           <div className="self-start">{recorderColumn}</div>
         </div>
@@ -350,6 +364,10 @@ export function RecordPageView({
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
             onSwitchBooking={(b) => setSelectedTargetId(b.id)}
+          />
+          <PreSessionBriefCard
+            brief={brief}
+            customerName={nextAppointment?.customerName ?? null}
           />
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>

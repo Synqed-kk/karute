@@ -13,9 +13,12 @@ export default function KaruteLoading() {
       {/* Search bar */}
       <div className="h-11 rounded-[10px] bg-muted" />
 
-      {/* 5 status filter chips */}
+      {/* 4 status filter chips — matches the live list (レビュー要
+       *  was dropped in PR #63 because no data path assigned it).
+       *  Earlier value of 5 caused a chip-count flash on every page
+       *  load. */}
       <div className="flex flex-wrap items-center gap-2">
-        {Array.from({ length: 5 }).map((_, i) => (
+        {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="h-8 w-24 rounded-full bg-muted" />
         ))}
       </div>

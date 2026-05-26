@@ -1,6 +1,9 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
+import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
+import { useUnreadCount } from '@/lib/notifications/hooks'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import {
   DayWeekMonthToggle,
   MonthGrid,
@@ -11,7 +14,7 @@ import {
   type WeekDayCardData,
 } from '@synqed-kk/ui'
 import { useTranslations, useLocale } from 'next-intl'
-import { Loader2 } from 'lucide-react'
+import { Bell, CalendarPlus } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
 import {
   formatCompactDateJst,
@@ -20,7 +23,11 @@ import {
   ymdInJst,
 } from '@/lib/date/jst'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
-import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
+import { ReservationMobileAgenda } from '@/components/karute/spike-lifted/reservation/ReservationMobileAgenda'
+import {
+  ReservationStaffFilter,
+  type ReservationStaffEntry,
+} from '@/components/karute/spike-lifted/reservation/ReservationStaffFilter'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
@@ -53,6 +60,10 @@ interface AppointmentsViewProps {
   reservationViews: ReservationView[]
   reservationStaff: ReservationStaff[]
   businessHours: BusinessHours
+  /** Active staff filter ('all' | 'self' | <staffId>) read from ?staff= URL
+   *  param by the server. The ReservationStaffFilter widget mutates the URL
+   *  to change scope; this prop is just for highlighting the active pill. */
+  staffFilter: string
 }
 
 // formatLongDate / formatCompactDate / formatYmd all delegate to the JST
@@ -76,6 +87,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const [isPending, startTransition] = useTransition()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selected, setSelected] = useState<ReservationView | null>(null)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const unreadCount = useUnreadCount()
+  // Hide the bell while recording (same posture as RecordPageHeader)
+  // so the layout-level DiscreetRecordingIndicator doesn't overlap
+  // it on scroll. Bell returns when recording stops.
+  const { state: recState } = useGlobalRecorder()
+  const isRecording = recState === 'recording' || recState === 'paused'
   const datePickerRef = useRef<HTMLInputElement>(null)
 
   const view = props.initialView
@@ -132,7 +150,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const headerDate = selectedDate
 
   return (
-    <div className="relative space-y-3 p-4 md:p-6">
+    // System padding rule: page wrapper owns its horizontal padding
+    // (the (app) layout no longer provides any). Matches the spike's
+    // reservation page wrapper (`px-4 md:px-6`). Cards inside this
+    // wrapper sit at 16/24px from edge — chrome (date selector, toggles,
+    // legend) lands at the same offset for visual alignment.
+    <div className="relative space-y-3 px-4 md:px-6">
       {/* Hidden native date picker; opened by the header's date button. */}
       <input
         ref={datePickerRef}
@@ -144,24 +167,172 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         tabIndex={-1}
       />
 
-      <ReservationPageHeader
-        dateDisplay={formatLongDateJst(headerDate, locale)}
-        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
-        onPrev={handlePrev}
-        onNext={handleNext}
-        onToday={handleToday}
-        onPickDate={handlePickDate}
-        onNewBooking={() => setDialogOpen(true)}
+      {/* ─────────────────────────────────────────────────────────────
+       *  Sticky title bar — 予約 + bell. Pattern matches the existing
+       *  CustomersListHeader / KaruteRecordListView sticky bars so the
+       *  three top-level mobile pages share the same chrome.
+       *
+       *  Bell is a STUB. Spike has the full notifications system built
+       *  (8 categories, localStorage pub/sub + documented Supabase swap
+       *  path). See MERGE_NOTES_FOR_ANTHONY.md "Notifications system"
+       *  section for the end-to-end handoff:
+       *    spike sources →
+       *      src/lib/notifications.ts          (state layer + Supabase
+       *                                          swap docs inline)
+       *      src/mock/notifications.ts         (NotificationItem schema +
+       *                                          8 categories)
+       *      src/components/notifications/NotificationsPanel.tsx
+       *                                         (drawer UI)
+       *      src/components/layout/MobileHeader.tsx (bell + unread badge)
+       *
+       *  Pre-merge: click does nothing. Bell can stay a stub for the
+       *  visual; notifications land in their own PR. The button is
+       *  positioned absolutely on the right of the centered title so a
+       *  red `<span>` unread-count badge can be overlaid on the icon
+       *  later without restructuring (spike uses `useUnreadCount()`).
+       *  ─────────────────────────────────────────────────────────────
+       */}
+      {/* Mobile-hidden — the global MobileHeader (layout-level) now
+       *  owns mobile chrome (title + bell). Showing both produced
+       *  doubled bars at the top of every list page. Desktop keeps
+       *  this local sticky bar so the title + bell stay reachable
+       *  on wider viewports. */}
+      <div className="sticky top-0 z-20 -mx-4 hidden border-b border-border/40 bg-background/80 px-4 backdrop-blur md:-mx-6 md:block md:px-6">
+        <div className="relative flex items-center justify-center py-2">
+          <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
+            {tReservation('title')}
+          </h1>
+          {!isRecording && (
+            <button
+              type="button"
+              onClick={() => setNotificationsOpen(true)}
+              className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={tCommon('notifications')}
+            >
+              <Bell size={16} />
+              {unreadCount > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Wrapper scopes --color-accent to blue so the package's Today
+       *  button (which uses `text-[var(--color-accent)]`) renders blue
+       *  + clickable, matching the spike. Hover gets a blue tint via
+       *  the package's `hover:bg-[var(--color-accent)]/10`. CSS rule
+       *  defined in globals.css under `.reservation-today-blue`.
+       *
+       *  newBookingSlot is REQUIRED here — the package's default
+       *  new-booking button also uses --color-accent for its bg,
+       *  which would tint blue from our wrapper. The spike + Liam
+       *  want it dark/black (primary contrast against the page).
+       *  Custom slot below uses bg-foreground / text-background so
+       *  it's independent of --color-accent. */}
+      <div className="reservation-today-blue">
+        <ReservationPageHeader
+          dateDisplay={formatLongDateJst(headerDate, locale)}
+          dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onToday={handleToday}
+          onPickDate={handlePickDate}
+          onNewBooking={() => setDialogOpen(true)}
+          // @synqed-kk/ui ships English defaults baked into the component
+          // ("Today", "New Reservation", etc.). Same pattern as the
+          // DayWeekMonthToggle — pass localized strings via the `copy`
+          // prop so the JA build reads "今日" instead of "Today".
+          copy={{
+            title: tReservation('title'),
+            todayLabel: tReservation('today'),
+            newReservationLabel: tReservation('new'),
+            prevLabel: tReservation('prev'),
+            nextLabel: tReservation('next'),
+          }}
+          // Replaces the package's default new-booking button so the
+          // wrapper's blue --color-accent override doesn't leak into
+          // the button's bg. Mirrors the package's default markup
+          // (mobile icon-button, desktop labeled button) but uses
+          // bg-foreground/text-background so the styling is locked
+          // to dark regardless of the surrounding accent scope.
+          newBookingSlot={
+            <>
+              <button
+                type="button"
+                onClick={() => setDialogOpen(true)}
+                aria-label={tReservation('new')}
+                className="inline-flex size-9 shrink-0 items-center justify-center rounded-md bg-foreground text-background transition-colors hover:opacity-90 md:hidden"
+              >
+                <CalendarPlus className="size-4" aria-hidden />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDialogOpen(true)}
+                className="hidden h-9 shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 text-sm font-medium text-background transition-colors hover:opacity-90 md:inline-flex"
+              >
+                <CalendarPlus className="size-3.5" aria-hidden />
+                {tReservation('new')}
+              </button>
+            </>
+          }
+        />
+      </div>
+
+      {/* Chrome: Day/Week/Month toggle + Self/All segmented + per-staff pills
+       *  Row 1: DWM toggle (localized via copy prop — defaults to English
+       *         in @synqed-kk/ui, which read wrong on the JA build) +
+       *         Self/All segmented toggle on the same line.
+       *  Row 2: per-staff colored pills.
+       *  Wrapped in ReservationStaffFilter so the picker owns its own URL
+       *  state — DWM is just slotted in via prependSlot.
+       *
+       *  Defaults to "全スタッフ" so the agenda reads as the whole-salon
+       *  schedule (matches the spike's mobile screenshot Liam shared).
+       *  Picker mutates ?staff= which the page reads server-side to
+       *  refilter reservationViews. */}
+      <ReservationStaffFilter
+        staffList={props.staff.map<ReservationStaffEntry>((s) => ({
+          id: s.id,
+          name: s.name,
+          initials: s.avatarInitials,
+        }))}
+        selfStaffId={props.activeStaffId}
+        selected={props.staffFilter}
+        prependSlot={
+          <DayWeekMonthToggle
+            view={view}
+            onChange={(v) => navigateTo(v, selectedDate)}
+            copy={{
+              day: tReservation('view.day'),
+              week: tReservation('view.week'),
+              month: tReservation('view.month'),
+            }}
+          />
+        }
       />
 
-      <div className="flex flex-wrap items-center gap-3">
-        <DayWeekMonthToggle
-          view={view}
-          onChange={(v) => navigateTo(v, selectedDate)}
-        />
-        <div className="flex flex-wrap items-center gap-3 text-xs">
-          <span className="text-muted-foreground">{tReservation('legend.label')}</span>
-          {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map((tone) => (
+      {/* Legend — wrapped in a bordered card matching the spike.
+       *
+       *  Previously had a Loader2 chip rendered next to this box when
+       *  `isPending` fired (during date-nav transitions). The chip
+       *  appeared inline-after the legend, which forced flex-wrap to
+       *  re-flow the legend pills around it — Liam called this out as
+       *  "pushes one of the sections to the side, looks random and
+       *  weird". Removed: the agenda's `transition-opacity` below
+       *  already provides loading feedback (content drops to 50%
+       *  opacity during pending). No additional indicator needed. */}
+      <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs">
+        <span className="text-muted-foreground">
+          {tReservation('legend.label')}
+        </span>
+        {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map(
+          (tone) => (
             <span key={tone} className="inline-flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
@@ -172,26 +343,24 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               />
               {tReservation(`status.${tone}`)}
             </span>
-          ))}
-          <span className="inline-flex items-center gap-1.5">
-            <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
-            {tReservation('legend.block')}
-          </span>
-        </div>
-        {isPending && (
-          <span
-            className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
-            role="status"
-            aria-live="polite"
-          >
-            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
-            {tCommon('loading')}
-          </span>
+          ),
         )}
+        <span className="inline-flex items-center gap-1.5">
+          <span className="reservation-block-pattern inline-block h-2.5 w-4 rounded-sm border border-border" />
+          {tReservation('legend.block')}
+        </span>
       </div>
 
+      {/* space-y-6 (24px) — agenda card has visual weight (bg + rounded
+       *  corners + content); the ReservationTotals beneath is light
+       *  tabular text. Without explicit spacing the totals visually
+       *  touched the card's bottom border (no space-y here previously,
+       *  just transition-opacity). System rhythm convention for this
+       *  page: chrome rows = space-y-3 (12px, tight); agenda → summary
+       *  stats = space-y-6 (24px, generous so the eye reads them as
+       *  distinct sections rather than a continuation of the list). */}
       <div
-        className={`transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
+        className={`space-y-6 transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
         aria-busy={isPending}
       >
         {view === 'day' ? (
@@ -205,7 +374,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
               />
             </div>
             <div className="md:hidden">
-              <MobileReservationAgenda
+              <ReservationMobileAgenda
                 reservations={props.reservationViews}
                 onSelect={setSelected}
               />
@@ -246,6 +415,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <BookingActionSheetWrapper
         selected={selected}
         onClose={() => setSelected(null)}
+      />
+
+      <NotificationsPanel
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
       />
     </div>
   )

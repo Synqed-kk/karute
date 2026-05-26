@@ -1,10 +1,18 @@
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { MobileHeader } from '@/components/layout/MobileHeader'
 import { Sidebar } from '@/components/layout/sidebar'
-import { AIChatFAB } from '@/components/ai/AIChatFAB'
-import { MiniRecorder } from '@/components/recording/MiniRecorder'
+// AIChatFAB removed — the floating action button overlapped the
+// bottom-nav's メニュー tab on mobile, making it un-tappable. AI chat
+// is reachable via the /ask-ai route from the menu drawer. If we
+// want a quick-access affordance back later, it should be inside the
+// bottom-nav strip (e.g. as a center-action mic-style button), not
+// floating over it.
+// import { AIChatFAB } from '@/components/ai/AIChatFAB'
+import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
 import { getStaffList } from '@/lib/staff'
 import { getActiveStaffId } from '@/lib/active-staff'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getNextCustomer } from '@/lib/appointments/next-customer'
 import { SessionProvider } from '@/providers/session-provider'
 import { TopBar } from '@/components/layout/top-bar'
 
@@ -21,11 +29,16 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
     getOrgSettings(),
+    // Bottom-nav next-customer label. Fanned out in parallel with
+    // the other layout queries so it doesn't add a serial step.
+    // Failure is non-fatal — bottom nav falls back to its scaffold
+    // copy ("予約を選択") if this query errors.
+    getNextCustomer().catch(() => null),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
@@ -61,16 +74,22 @@ export default async function DashboardLayout({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
           <main className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-bg)]">
+            {/* Staff switcher chip (PIN-gated active staff) — desktop + mobile. */}
             <TopBar />
+            {/* Mobile-only sticky chrome — back arrow + page title + bell.
+             *  md:hidden so the sidebar owns the chrome on desktop. */}
+            <MobileHeader />
             <div className="flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-7xl p-4 md:p-6">{children}</div>
+              {/* No horizontal padding here — the spike's (app) layout provides
+               *  vertical-only padding; each page owns its own px-* per the
+               *  spike. Cards own their internal p-4. */}
+              <div className="mx-auto max-w-7xl py-4 md:py-6">{children}</div>
             </div>
           </main>
         </div>
-        <MiniRecorder />
-        <AIChatFAB locale={locale} />
+        <DiscreetRecordingIndicator />
         <div className="md:hidden">
-          <BottomNav />
+          <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>
       </div>
     </SessionProvider>
