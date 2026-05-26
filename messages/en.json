@@ -913,22 +913,40 @@
       },
       "teamTrends": {
         "title": "Team trends",
-        "body": "Six-month trend chart of team metrics — useful for spotting seasonal patterns and campaign impact. Aggregated only (Layer 3)."
+        "tileGrowing": "Growing",
+        "tileStable": "Stable",
+        "tileNeedsSupport": "Needs support",
+        "headCount": " staff",
+        "focusAreasHeader": "Team-wide focus areas (by frequency)",
+        "emptyHint": "Head-count of growing / stable / needs-support staff plus AI-extracted focus-area frequency ranking surfaces here. Lights up when Anthony wires useStaffPerformanceData()."
       },
       "topPerformers": {
-        "title": "Top performers",
-        "subtitle": "Anonymized team-shared data (Layer 2)",
-        "body": "Top performers ranked anonymously so owners learn 'what' works rather than 'who'. Identification is intentionally suppressed."
+        "cardTitle": "Top performers",
+        "cardIntro": "Top tier on aggregate metrics. Their patterns power the (anonymized) team pattern library.",
+        "closingShort": "Close {pct}%",
+        "rebookingShort": "Rebook {pct}%",
+        "emptyHint": "Named top-performing staff with closing + rebooking rates surface here (owner-only, Layer 2 named). Lights up when Anthony wires useStaffPerformanceData()."
       },
       "staffTable": {
-        "title": "Per-staff performance",
-        "subtitle": "Shown only for consenting staff (Layer 2)",
-        "body": "Per-staff performance metrics + coaching status. Rows only appear for staff who have individually granted consent; each staff member can withdraw at any time."
+        "cardTitle": "Staff list",
+        "headerSummary": "{n} staff · closing rate = closed karute ÷ (closed + lost)",
+        "headerSummaryEmpty": "Per-staff metrics appear once staff grant consent",
+        "colStaff": "Staff",
+        "colClosing": "Close rate",
+        "colRebooking": "Rebook rate",
+        "colRevenue": "Avg revenue",
+        "colSatisfaction": "Satisfaction",
+        "colTrend": "Trend",
+        "sessionsCount": "{n} sessions",
+        "vsLastMonth": "vs last month",
+        "emptyHint": "Monthly performance metrics for consenting staff (closing, rebooking, avg revenue, satisfaction, growth trend) surface here as a sortable table. Each row links to /coaching/staff/[id]. Lights up when Anthony wires useStaffPerformanceData()."
       },
       "assignModules": {
-        "title": "Assign learning modules",
-        "subtitle": "Module-to-staff assignment (Layer 2)",
-        "body": "Assign learning modules to staff and track progress. AI recommends modules based on each staff member's growth opportunities."
+        "cardTitle": "Assign learning modules",
+        "cardIntro": "Pick a module and assign it to the staff you want to support. They receive a notification when assigned.",
+        "durationMin": "{n} min",
+        "seeAllModules": "See all modules",
+        "emptyHint": "Top 3 AI-recommended unassigned modules + quick-assign chips for consenting staff surface here. Lights up when Anthony wires useLearningModulesData() and the learning_assignments insert/delete server action."
       }
     }
   },

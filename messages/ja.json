@@ -913,22 +913,40 @@
       },
       "teamTrends": {
         "title": "チームのトレンド",
-        "body": "過去6ヶ月のチーム指標の推移グラフ。季節要因やキャンペーン効果の分析に活用できます。集計済みデータのみ（Layer 3）。"
+        "tileGrowing": "成長中",
+        "tileStable": "安定",
+        "tileNeedsSupport": "サポート必要",
+        "headCount": "名",
+        "focusAreasHeader": "チーム全体のサポートエリア（頻度順）",
+        "emptyHint": "成長中／安定／サポート必要のスタッフ数と、AIが抽出したサポートエリアの頻度ランキングをここに表示します。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
       },
       "topPerformers": {
-        "title": "トップパフォーマー",
-        "subtitle": "匿名化されたチーム共有データ（Layer 2）",
-        "body": "上位パフォーマーをランキング形式で表示します。スタッフを特定できない匿名表示のため、オーナーが「誰が」ではなく「何が」効果的かを学べる設計です。"
+        "cardTitle": "トップパフォーマー",
+        "cardIntro": "総合指標の上位層です。パターンライブラリの元ソースとしてスタッフに（匿名化した上で）共有されています。",
+        "closingShort": "成約 {pct}%",
+        "rebookingShort": "再来店 {pct}%",
+        "emptyHint": "トップパフォーマーのスタッフ名・役職・成約率・再来店率をここに表示します（オーナー専用、Layer 2 名前付き）。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
       },
       "staffTable": {
-        "title": "スタッフ別パフォーマンス",
-        "subtitle": "同意取得済みスタッフのみ表示（Layer 2）",
-        "body": "個別スタッフのパフォーマンス指標とコーチング状況の一覧。スタッフが個別に同意した場合のみ表示されます。撤回はスタッフ本人がいつでも可能。"
+        "cardTitle": "スタッフ一覧",
+        "headerSummary": "{n}名 · 成約率 = 成約カルテ ÷（成約 + 不成約）",
+        "headerSummaryEmpty": "スタッフ別の指標は同意取得後に表示されます",
+        "colStaff": "スタッフ",
+        "colClosing": "成約率",
+        "colRebooking": "再来店率",
+        "colRevenue": "客単価",
+        "colSatisfaction": "満足度",
+        "colTrend": "成長傾向",
+        "sessionsCount": "セッション{n}件",
+        "vsLastMonth": "先月比",
+        "emptyHint": "同意取得済みスタッフの月次パフォーマンス指標（成約率・再来店率・客単価・満足度・成長傾向）を一覧でここに表示します。各行は /coaching/staff/[id] のドリルダウンへリンクします。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
       },
       "assignModules": {
-        "title": "学習モジュールの割り当て",
-        "subtitle": "スタッフへの学習割り当て（Layer 2）",
-        "body": "学習モジュールをスタッフに割り当て、進捗を確認します。AIが各スタッフの成長機会に基づいて推奨モジュールを提案します。"
+        "cardTitle": "学習モジュールを割り当てる",
+        "cardIntro": "モジュールを選んで、サポートしたいスタッフに割り当てます。割り当てを受けたスタッフに通知が届きます。",
+        "durationMin": "{n}分",
+        "seeAllModules": "すべてのモジュールを見る",
+        "emptyHint": "AIが推薦する未割り当ての上位3モジュールと、同意取得済みスタッフへのクイック割り当てチップをここに表示します。Anthonyが useLearningModulesData() と learning_assignments の挿入／削除サーバーアクションを実装後に有効化されます。"
       }
     }
   },
