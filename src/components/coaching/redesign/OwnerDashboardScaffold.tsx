@@ -1,18 +1,7 @@
 'use client'
 
-import { useTranslations } from 'next-intl'
-import {
-  Award,
-  BookOpen,
-  TrendingUp,
-  Users,
-} from 'lucide-react'
-
-import { CoachingScaffoldCard } from './CoachingScaffoldCard'
-import { TeamPerformanceCard } from './TeamPerformanceCard'
-
 // ─────────────────────────────────────────────────────────────
-// Owner coaching dashboard — SCAFFOLD ONLY
+// Owner coaching dashboard
 // ─────────────────────────────────────────────────────────────
 // Mirrors the spike's OwnerDashboard grid (synqed-karute-design-
 // spike/src/components/coaching/OwnerDashboard.tsx). All cards
@@ -20,74 +9,49 @@ import { TeamPerformanceCard } from './TeamPerformanceCard'
 // ever surfaces in the owner view.
 //
 //   Row 1  | TeamPerformanceCard  | TeamTrendsCard
-//          | (Layer 3, aggregate) | (Layer 3, trends)
+//          | (Layer 3, aggregate) | (Layer 2, categorical)
 //
-//   Row 2  | TopPerformersCard (full width, anonymized standouts)
+//   Row 2  | TopPerformersCard (full width, Layer 2 named)
 //
 //   Row 3  | StaffPerformanceTable (Layer 2, per-staff with consent)
 //
-//   Row 4  | AssignModulesCard (Layer 2, module-to-staff assignment)
+//   Row 4  | AssignModulesCard (Layer 3 owner action)
 //
-// ANTHONY: same swap pattern as StaffDashboardScaffold — each slot
-// maps 1:1 to a spike component; data hooks are noted inline.
-export function OwnerDashboardScaffold() {
-  const t = useTranslations('coaching.owner')
+// All 5 cards now lifted from spike with real visual chrome.
+// Each accepts nullable data props; renders empty state with
+// 対応予定 hint until Anthony wires the data hooks.
 
+import { AssignModulesCard } from './AssignModulesCard'
+import { StaffPerformanceTable } from './StaffPerformanceTable'
+import { TeamPerformanceCard } from './TeamPerformanceCard'
+import { TeamTrendsCard } from './TeamTrendsCard'
+import { TopPerformersCard } from './TopPerformersCard'
+
+export function OwnerDashboardScaffold() {
   return (
     <div className="space-y-5">
-      {/* Row 1 — Layer 3 team aggregates */}
+      {/* Row 1 — Layer 3 team aggregates + Layer 2 categorical trends
+       *  ANTHONY: useStaffPerformanceData().teamSummary → TeamPerformanceCard
+       *           useStaffPerformanceData().staff → TeamTrendsCard.staff */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.2fr_1fr]">
-        {/* HERO CARD — real visual chrome lifted from spike. Renders
-         *  em-dash placeholders + 対応予定 footer until Anthony wires
-         *  useStaffPerformanceData().teamSummary. */}
         <TeamPerformanceCard summary={null} />
-        {/* data-source: useStaffPerformanceData().staff → trends aggregate */}
-        <CoachingScaffoldCard
-          icon={<TrendingUp size={18} />}
-          title={t('teamTrends.title')}
-          body={t('teamTrends.body')}
-          privacyLayer="layer3"
-          tone="amber"
-        />
+        <TeamTrendsCard staff={null} />
       </div>
 
-      {/* Row 2 — anonymized top performers, full width */}
-      {/* data-source: useStaffPerformanceData().staff (sorted), shown
-       *  WITHOUT identifying staff_id (Layer 2 anonymized rank). */}
-      <CoachingScaffoldCard
-        icon={<Award size={18} />}
-        title={t('topPerformers.title')}
-        subtitle={t('topPerformers.subtitle')}
-        body={t('topPerformers.body')}
-        privacyLayer="layer2"
-        tone="amber"
-        spanCols={2}
-      />
+      {/* Row 2 — named top performers (Layer 2, owner-only)
+       *  ANTHONY: useStaffPerformanceData().staff.filter(isTopPerformer) */}
+      <TopPerformersCard staff={null} />
 
-      {/* Row 3 — per-staff drill-down table (gated by consent_status) */}
-      {/* data-source: useStaffPerformanceData().staff (full),
-       *  RLS-filtered by per-staff coaching_consent.granted_at. */}
-      <CoachingScaffoldCard
-        icon={<Users size={18} />}
-        title={t('staffTable.title')}
-        subtitle={t('staffTable.subtitle')}
-        body={t('staffTable.body')}
-        privacyLayer="layer2"
-        tone="amber"
-        spanCols={2}
-      />
+      {/* Row 3 — per-staff drill-down table (Layer 2, links to
+       *  /coaching/staff/[id] which gates on consent)
+       *  ANTHONY: useStaffPerformanceData().staff (full list) */}
+      <StaffPerformanceTable staff={null} />
 
-      {/* Row 4 — assign learning modules to staff */}
-      {/* data-source: useLearningModulesData() + assignment mutation */}
-      <CoachingScaffoldCard
-        icon={<BookOpen size={18} />}
-        title={t('assignModules.title')}
-        subtitle={t('assignModules.subtitle')}
-        body={t('assignModules.body')}
-        privacyLayer="layer2"
-        tone="amber"
-        spanCols={2}
-      />
+      {/* Row 4 — assign learning modules to staff (Layer 3 owner action)
+       *  ANTHONY: useLearningModulesData() catalog + useStaffPerformanceData().staff
+       *           Toggle handler inserts/deletes learning_assignments rows
+       *           + sends realtime notification to the assigned staff. */}
+      <AssignModulesCard modules={null} staff={null} />
     </div>
   )
 }
