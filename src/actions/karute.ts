@@ -1,125 +1,74 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getActiveStaffId, getTenantId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
 
 /**
- * Save a karute record with all AI-extracted entries.
+ * Validate the attribution target is a member of the signed-in org's roster.
+ * Returns an error result to short-circuit the save, or null when valid.
  *
- * Pattern: sequential inserts with cleanup on failure.
- * Step 1: Insert karute_records row, capture new ID.
- * Step 2: Bulk-insert all entries with that karute_record_id.
- * Cleanup: If entries insert fails, delete the orphaned karute_records row.
+ * getStaffList() degrades to [] when synqed-core is unreachable, so an empty
+ * roster is treated as a transient fetch failure — not a (misleading)
+ * "not part of your salon" rejection.
+ */
+async function validateStaffId(staffId: string): Promise<{ error: string } | null> {
+  const roster = await getStaffList()
+  if (roster.length === 0) {
+    return { error: 'Could not load your staff roster. Please try again.' }
+  }
+  if (!roster.some((s) => s.id === staffId)) {
+    return { error: 'Selected staff is not part of your salon.' }
+  }
+  return null
+}
+
+/**
+ * Save a karute record with all AI-extracted entries in a single atomic
+ * API call.
  *
  * IMPORTANT: redirect() is called OUTSIDE the try/catch block.
  * redirect() throws a Next.js control-flow exception that would be swallowed
  * by try/catch, silently preventing navigation.
- *
- * Schema note (001_initial_schema.sql):
- * - client_id: FK → customers.id (the individual salon client)
- * - customer_id: business tenant UUID (for RLS, from profiles.customer_id)
- * - staff_profile_id: FK → profiles.id
  */
 export async function saveKaruteRecord(
   input: SaveKaruteInput,
 ): Promise<{ error: string } | void> {
-  const supabase = await createClient()
-
   let recordId: string
 
   try {
-    // Determine staff: if linked to an appointment, use the appointment's staff.
-    // Otherwise fall back to the active-staff cookie.
-    let staffProfileId = await getActiveStaffId()
+    const synqed = await getSynqedClient()
 
-    if (input.appointmentId) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { data: appt } = await (supabase as any)
-        .from('appointments')
-        .select('staff_profile_id')
-        .eq('id', input.appointmentId)
-        .single()
-      if (appt?.staff_profile_id) {
-        staffProfileId = appt.staff_profile_id
-      }
-    }
+    // staffId comes from the UI (live booking or picker). Validate it belongs
+    // to this org's roster — never trust a raw client id against the FK.
+    const staffError = await validateStaffId(input.staffId)
+    if (staffError) return staffError
 
-    if (!staffProfileId) {
-      return { error: 'No active staff member selected. Please select a staff member from the header.' }
-    }
-
-    const tenantId = await getTenantId()
-
-    // Step 1: Insert the karute record and get its generated ID.
-    // customer_id = business tenant UUID (for RLS).
-    // client_id   = FK → customers.id (the individual salon client).
-    const { data: record, error: recordError } = await supabase
-      .from('karute_records')
-      .insert({
-        customer_id: tenantId,
-        client_id: input.customerId,
-        staff_profile_id: staffProfileId,
-        transcript: input.transcript,
-        summary: input.summary,
-      })
-      .select('id')
-      .single()
-
-    if (recordError) {
-      return { error: recordError.message }
-    }
-
-    recordId = record.id
-
-    // Step 2: Bulk-insert all AI-extracted entries linked to the new record
-    const { error: entriesError } = await supabase.from('entries').insert(
-      input.entries.map((entry) => ({
-        karute_record_id: recordId,
-        customer_id: tenantId,
-        category: entry.category,
+    const record = await synqed.karuteRecords.create({
+      customer_id: input.customerId,
+      staff_id: input.staffId,
+      appointment_id: input.appointmentId ?? null,
+      transcript: input.transcript,
+      ai_summary: input.summary,
+      entries: input.entries.map((entry) => ({
+        category: entry.category.toUpperCase() as 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE' | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER',
         content: entry.content,
-        source_quote: entry.sourceQuote ?? null,
-        confidence_score: entry.confidenceScore,
+        original_quote: entry.sourceQuote ?? null,
+        confidence: entry.confidenceScore,
         is_manual: false,
       })),
-    )
-
-    if (entriesError) {
-      // Cleanup: delete the orphaned karute_records row so the customer's
-      // history doesn't show a record with no entries
-      await supabase
-        .from('karute_records')
-        .delete()
-        .eq('id', recordId)
-
-      return { error: entriesError.message }
-    }
+    })
+    recordId = record.id
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
-  }
-
-  // Link karute to appointment if provided
-  if (input.appointmentId) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: linkError } = await (supabase as any)
-      .from('appointments')
-      .update({ karute_record_id: recordId })
-      .eq('id', input.appointmentId)
-    if (linkError) {
-      console.error('[saveKaruteRecord] Failed to link appointment:', linkError.message)
-    } else {
-      console.log('[saveKaruteRecord] Linked karute', recordId, 'to appointment', input.appointmentId)
-    }
-  } else {
-    console.log('[saveKaruteRecord] No appointmentId provided')
   }
 
   // revalidate and redirect OUTSIDE try/catch — redirect() throws internally
   revalidatePath(`/customers/${input.customerId}`)
   revalidatePath('/dashboard')
+  updateTag('dashboard')
   redirect(`/karute/${recordId}`)
 }
 
@@ -130,70 +79,107 @@ export async function saveKaruteRecord(
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
 ): Promise<{ id: string } | { error: string }> {
-  const supabase = await createClient()
+  try {
+    const synqed = await getSynqedClient()
 
-  const staffProfileId = await getActiveStaffId()
-  if (!staffProfileId) {
-    return { error: 'No active staff member selected.' }
-  }
+    // staffId comes from the UI (live booking or picker). Validate it belongs
+    // to this org's roster — never trust a raw client id against the FK.
+    const staffError = await validateStaffId(input.staffId)
+    if (staffError) return staffError
 
-  const tenantId = await getTenantId()
-
-  const { data: record, error: recordError } = await supabase
-    .from('karute_records')
-    .insert({
-      customer_id: tenantId,
-      client_id: input.customerId,
-      staff_profile_id: staffProfileId,
+    const record = await synqed.karuteRecords.create({
+      customer_id: input.customerId,
+      staff_id: input.staffId,
+      appointment_id: input.appointmentId ?? null,
       transcript: input.transcript,
-      summary: input.summary,
+      ai_summary: input.summary,
+      entries: input.entries.map((entry) => ({
+        category: entry.category.toUpperCase() as 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE' | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER',
+        content: entry.content,
+        original_quote: entry.sourceQuote ?? null,
+        confidence: entry.confidenceScore,
+        is_manual: false,
+      })),
     })
-    .select('id')
-    .single()
 
-  if (recordError) return { error: recordError.message }
-
-  const { error: entriesError } = await supabase.from('entries').insert(
-    input.entries.map((entry) => ({
-      karute_record_id: record.id,
-      customer_id: tenantId,
-      category: entry.category,
-      content: entry.content,
-      source_quote: entry.sourceQuote ?? null,
-      confidence_score: entry.confidenceScore,
-      is_manual: false,
-    })),
-  )
-
-  if (entriesError) {
-    await supabase.from('karute_records').delete().eq('id', record.id)
-    return { error: entriesError.message }
+    revalidatePath(`/customers/${input.customerId}`)
+    updateTag('dashboard')
+    return { id: record.id }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
-
-  revalidatePath(`/customers/${input.customerId}`)
-  return { id: record.id }
 }
 
 export async function deleteKaruteRecord(karuteId: string): Promise<{ success: true } | { error: string }> {
-  const supabase = await createClient()
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.karuteRecords.delete(karuteId)
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
 
-  // Unlink from any appointment first
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any)
-    .from('appointments')
-    .update({ karute_record_id: null })
-    .eq('karute_record_id', karuteId)
+/**
+ * Create a karute record from the manual-entry dialog (+ 新規カルテ on
+ * the karute list). Separate from saveKaruteRecord, which is the
+ * recording-flow path that lands with a transcript + AI-extracted
+ * entries already in hand.
+ *
+ * Manual creation is a "draft" record — no transcript, no entries.
+ * Staff fills in the entries themselves on the karute detail page,
+ * OR they later attach a recording (and the AI pass populates the
+ * entries from the transcript).
+ *
+ * ANTHONY contracts:
+ *   • `service` (text) and `duration_minutes` (int) are captured by
+ *     the dialog UI but NOT yet persisted — the karute_records
+ *     schema doesn't have those columns. Add them + a follow-up
+ *     migration backfills existing rows with null. The list-row
+ *     renderer (KaruteListRow) already expects both fields; this
+ *     will close that gap.
+ *   • `session_date` (date) — same situation. The dialog lets staff
+ *     pick a date for backdating; today the create call uses
+ *     `created_at` (now) implicitly. Adding the column lets staff
+ *     log a session from yesterday.
+ *
+ * Until those columns land, the captured values are dropped server-
+ * side. The dialog stays functional — staff get a draft karute
+ * record they can open and start adding entries to.
+ */
+export async function createManualKaruteRecord(input: {
+  customerId: string
+  staffId: string
+  sessionDate: string // YYYY-MM-DD — captured but not persisted yet
+  durationMinutes: number // captured but not persisted yet
+  service: string // captured but not persisted yet
+}): Promise<{ error: string } | void> {
+  let recordId: string
 
-  // Entries have FK cascade or we delete manually
-  await supabase.from('entries').delete().eq('karute_record_id', karuteId)
+  try {
+    const synqed = await getSynqedClient()
 
-  const { error } = await supabase
-    .from('karute_records')
-    .delete()
-    .eq('id', karuteId)
+    const record = await synqed.karuteRecords.create({
+      customer_id: input.customerId,
+      staff_id: input.staffId,
+      status: 'DRAFT',
+      // No transcript / no entries on manual create — staff fills
+      // those in on the detail page (or via a later recording).
+      transcript: null,
+      ai_summary: null,
+      entries: [],
+    })
+    recordId = record.id
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unexpected error' }
+  }
 
-  if (error) return { error: error.message }
-
-  revalidatePath('/dashboard')
-  return { success: true }
+  // revalidate + redirect outside try/catch — redirect() throws a
+  // control-flow exception that try/catch would swallow.
+  revalidatePath(`/customers/${input.customerId}`)
+  revalidatePath('/karute')
+  updateTag('dashboard')
+  redirect(`/karute/${recordId}`)
 }

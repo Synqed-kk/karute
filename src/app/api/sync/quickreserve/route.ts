@@ -65,14 +65,14 @@ async function runSync() {
 
     console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
 
-    // Get staff for name matching (scoped to tenant if set)
+    // Get staff for name matching (scoped to business if set)
     const staffQuery = supabase
       .from('profiles')
       .select('id, full_name')
       .not('full_name', 'is', null)
 
-    if (config.tenant_id) {
-      staffQuery.eq('customer_id', config.tenant_id)
+    if (config.business_id) {
+      staffQuery.eq('customer_id', config.business_id)
     }
 
     const { data: ourStaff } = await staffQuery
@@ -114,8 +114,8 @@ async function runSync() {
         .eq('name', mapped.customerName)
         .limit(1)
 
-      if (config.tenant_id) {
-        customerQuery.eq('tenant_id', config.tenant_id)
+      if (config.business_id) {
+        customerQuery.eq('tenant_id', config.business_id)
       }
 
       let { data: customer } = await customerQuery.single()
@@ -125,7 +125,7 @@ async function runSync() {
           .from('customers')
           .insert({
             id: crypto.randomUUID(),
-            tenant_id: config.tenant_id,
+            tenant_id: config.business_id,
             name: mapped.customerName,
             furigana: mapped.customerKana || null,
             phone: mapped.customerPhone || null,

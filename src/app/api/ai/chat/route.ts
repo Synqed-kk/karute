@@ -1,44 +1,43 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getRecentKaruteForAI } from '@/lib/karute/recent'
+import { getOrgSettings } from '@/actions/org-settings'
+import { getBusinessProfile } from '@/lib/welcome/business-types'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('chat')
+  if (limited) return limited
   try {
     const { message, locale, history } = await request.json()
-    const supabase = await createClient()
 
-    // Fetch recent karute + customer data for context
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: records } = await (supabase as any)
-      .from('karute_records')
-      .select('summary, created_at, customers:client_id ( name ), entries ( category, content )')
-      .order('created_at', { ascending: false })
-      .limit(5)
+    // Recent karute + customer data for context, both from synqed-core.
+    const synqed = await getSynqedClient()
+    const [records, customerResult] = await Promise.all([
+      getRecentKaruteForAI(5),
+      synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc' }),
+    ])
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: customers } = await (supabase as any)
-      .from('customers')
-      .select('name')
-      .order('updated_at', { ascending: false })
-      .limit(10)
-
-    const karuteContext = (records ?? []).map((r: { summary: string; created_at: string; customers: { name: string } | null; entries: { category: string; content: string }[] }) => {
-      const name = (r.customers as { name: string } | null)?.name ?? 'Unknown'
-      const entries = (r.entries || []).map((e: { category: string; content: string }) => `[${e.category}] ${e.content}`).join(', ')
-      return `${name} (${r.created_at}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
+    const karuteContext = records.map((r) => {
+      const entries = r.entries.map((e) => `[${e.category}] ${e.content}`).join(', ')
+      return `${r.customerName} (${r.created_at}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
     }).join('\n')
 
-    const customerNames = (customers ?? []).map((c: { name: string }) => c.name).join(', ')
+    const customerNames = customerResult.customers.map((c) => c.name).join(', ')
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
-    const businessType = orgSettings?.business_type || 'salon/clinic'
+    // Reads from synqed-core org settings (a JSON blob). The previous
+    // `from('organization_settings')` query targeted a table that doesn't
+    // exist in karute's Supabase — it was silently 500-ing and falling back
+    // to "salon/clinic".
+    const orgSettings = await getOrgSettings()
+    const businessProfile = orgSettings?.business_type
+      ? getBusinessProfile(orgSettings.business_type)
+      : null
+    const businessType = businessProfile?.label || 'salon/clinic'
 
     const langInstruction = locale === 'ja' ? 'Respond in Japanese.' : 'Respond in English.'
 
@@ -51,10 +50,12 @@ export async function POST(request: Request) {
 
 ${langInstruction}
 
-Recent karute records:
-${karuteContext || 'No records yet.'}
+${defensivePreamble(locale)}
 
-Customer list: ${customerNames || 'No customers yet.'}
+Recent karute records:
+${karuteContext ? wrapUntrustedContent('karute_records', karuteContext) : 'No records yet.'}
+
+Customer list: ${customerNames ? wrapUntrustedContent('customer_names', customerNames) : 'No customers yet.'}
 
 Keep responses concise and actionable. Use the data to give specific, personalized answers.`,
       },
@@ -73,6 +74,9 @@ Keep responses concise and actionable. Use the data to give specific, personaliz
     })
 
     const reply = completion.choices[0]?.message?.content ?? ''
+    if (completion.usage) {
+      void reportAiUsage('chat', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     return NextResponse.json({ reply })
   } catch (error) {
     console.error('[/api/ai/chat]', error)

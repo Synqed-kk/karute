@@ -4,10 +4,14 @@ import { SummaryResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
 import { createClient } from '@/lib/supabase/server'
+import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
 export const maxDuration = 60
 
 export async function POST(request: Request) {
+  const limited = await enforceAiRateLimit('summarize')
+  if (limited) return limited
   try {
     const body = await request.json()
     const { transcript, locale } = body
@@ -30,19 +34,26 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.parse({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
           role: 'user',
-          content: `Summarize this ${businessType} session transcript:\n\n${transcript}`,
+          content: `Summarize this ${businessType} session transcript:\n\n${wrapUntrustedContent('transcript', transcript)}`,
         },
       ],
       response_format: zodResponseFormat(SummaryResultSchema, 'summary_result'),
     })
 
     const result = completion.choices[0].message.parsed
-
+    if (completion.usage) {
+      void reportAiUsage('summarize', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
+    }
     return NextResponse.json(result)
-  } catch {
-    return NextResponse.json({ error: 'Summary generation failed' }, { status: 500 })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[api/ai/summarize]', message)
+    return NextResponse.json(
+      { error: 'Summary generation failed', detail: message },
+      { status: 500 },
+    )
   }
 }

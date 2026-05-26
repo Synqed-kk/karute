@@ -20,12 +20,23 @@ export type PipelineResult = {
  * - First failure: waits 1.5 seconds, then retries.
  * - Second failure: throws.
  */
+async function readErrorMessage(res: Response): Promise<string> {
+  const text = await res.text()
+  try {
+    const json = JSON.parse(text)
+    const detail = typeof json.detail === 'string' ? json.detail : null
+    const error = typeof json.error === 'string' ? json.error : null
+    return [error, detail].filter(Boolean).join(' — ') || `HTTP ${res.status}`
+  } catch {
+    return `HTTP ${res.status}: ${text.slice(0, 200)}`
+  }
+}
+
 async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
   try {
     const res = await fn()
     if (!res.ok) {
-      const errText = await res.text()
-      throw new Error(`HTTP ${res.status}: ${errText}`)
+      throw new Error(await readErrorMessage(res))
     }
     return res
   } catch (firstError) {
@@ -75,7 +86,7 @@ export async function runAIPipeline(
   // Get a signed URL (valid 10 min) for the server to download
   const { data: signedData, error: signError } = await supabase.storage
     .from('recordings')
-    .createSignedUrl(fileName, 600)
+    .createSignedUrl(fileName, 3600)
 
   if (signError || !signedData?.signedUrl) {
     throw new Error(`Failed to get signed URL: ${signError?.message}`)

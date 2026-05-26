@@ -1,4 +1,7 @@
-import { createClient } from '@/lib/supabase/server'
+import { unstable_cache } from 'next/cache'
+import { SynqedClient } from '@synqed-kk/client'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId } from '@/lib/staff'
 import type { Customer } from '@/types/database'
 
 // ---------------------------------------------------------------------------
@@ -25,76 +28,122 @@ export interface ListCustomersResult {
 // listCustomers
 // ---------------------------------------------------------------------------
 
+interface FetchArgs {
+  search?: string
+  page: number
+  pageSize: number
+  sortBy: 'name' | 'created_at' | 'updated_at'
+  sortOrder: 'asc' | 'desc'
+}
+
+async function fetchCustomers(
+  businessId: string,
+  args: FetchArgs,
+): Promise<ListCustomersResult> {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  }
+  const client = new SynqedClient({ baseUrl, apiKey, businessId })
+  const result = await client.customers.list({
+    search: args.search,
+    page: args.page,
+    page_size: args.pageSize,
+    sort_by: args.sortBy,
+    sort_order: args.sortOrder,
+  })
+  const customers: Customer[] = result.customers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    furigana: c.furigana,
+    phone: c.phone,
+    email: c.email,
+    contact_info: c.contact_info,
+    notes: c.notes,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  }))
+  return {
+    customers,
+    totalCount: result.total,
+    totalPages: result.total_pages,
+  }
+}
+
+// Cache only the default landing-page params — that's the hot path everyone
+// hits when they click "Customers" in the nav. Search/sort/page combinations
+// have too much cardinality to cache effectively.
+const cachedLandingPage = unstable_cache(
+  async (
+    businessId: string,
+    pageSize: number,
+  ): Promise<ListCustomersResult> =>
+    fetchCustomers(businessId, {
+      page: 1,
+      pageSize,
+      sortBy: 'updated_at',
+      sortOrder: 'desc',
+    }),
+  ['customers-landing-v1'],
+  { revalidate: 60, tags: ['customers'] },
+)
+
 export async function listCustomers({
   query,
   page = 1,
   pageSize = 10,
   sortBy = 'updated_at',
   sortOrder = 'desc',
-  staffId,
-  customerType,
 }: ListCustomersOptions = {}): Promise<ListCustomersResult> {
-  const supabase = await createClient()
+  const isLanding =
+    !query?.trim() &&
+    page === 1 &&
+    sortBy === 'updated_at' &&
+    sortOrder === 'desc'
 
-  const from = (page - 1) * pageSize
-  const to = from + pageSize - 1
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let dbQuery = (supabase as any)
-    .from('customers')
-    .select('*', { count: 'exact' })
-
-  if (query && query.trim().length > 0) {
-    const q = query.trim()
-    dbQuery = dbQuery.or(
-      `name.ilike.%${q}%,furigana.ilike.%${q}%,phone.ilike.%${q}%,email.ilike.%${q}%`
-    )
+  if (isLanding) {
+    const businessId = await getBusinessId()
+    return cachedLandingPage(businessId, pageSize)
   }
 
-  if (staffId && staffId !== 'all') {
-    dbQuery = dbQuery.eq('assigned_staff_id', staffId)
-  }
-
-  if (customerType && customerType !== 'all') {
-    dbQuery = dbQuery.eq('customer_type', customerType)
-  }
-
-  const { data, count, error } = await dbQuery
-    .order(sortBy, { ascending: sortOrder === 'asc' })
-    .range(from, to)
-
-  if (error) {
-    throw new Error(`[listCustomers] ${error.message}`)
-  }
-
-  const totalCount = count ?? 0
-  const totalPages = Math.ceil(totalCount / pageSize)
-
-  return {
-    customers: (data as Customer[]) ?? [],
-    totalCount,
-    totalPages,
-  }
+  // Non-default views (search, deep pagination, alternate sort) skip the cache
+  // and go straight to synqed-core. These have too many parameter combinations
+  // to cache without blowing up the cache size.
+  const businessId = await getBusinessId()
+  return fetchCustomers(businessId, {
+    search: query?.trim() || undefined,
+    page,
+    pageSize,
+    sortBy: sortBy as 'name' | 'created_at' | 'updated_at',
+    sortOrder,
+  })
 }
 
 // ---------------------------------------------------------------------------
 // getCustomer
 // ---------------------------------------------------------------------------
 
-export async function getCustomer(id: string): Promise<Customer> {
-  const supabase = await createClient()
+export interface CustomerWithStaff extends Customer {
+  assigned_staff_id: string | null
+}
 
-  const { data, error } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('id', id)
-    .single()
+export async function getCustomer(id: string): Promise<CustomerWithStaff> {
+  const synqed = await getSynqedClient()
+  const c = await synqed.customers.get(id)
 
-  if (error) {
-    throw new Error(`[getCustomer] ${error.message}`)
+  return {
+    id: c.id,
+    name: c.name,
+    furigana: c.furigana,
+    phone: c.phone,
+    email: c.email,
+    contact_info: c.contact_info,
+    notes: c.notes,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+    assigned_staff_id: c.assigned_staff_id ?? null,
   }
-
-  return data as Customer
 }
 
 // ---------------------------------------------------------------------------
@@ -104,22 +153,11 @@ export async function getCustomer(id: string): Promise<Customer> {
 export async function checkDuplicateName(
   name: string
 ): Promise<{ exists: boolean; existingName?: string }> {
-  const supabase = await createClient()
-
-  const { data, error } = await supabase
-    .from('customers')
-    .select('id, name')
-    .ilike('name', name)
-    .limit(1)
-
-  if (error) {
-    console.error('[checkDuplicateName] Supabase error:', error.message)
+  try {
+    const synqed = await getSynqedClient()
+    const result = await synqed.customers.checkDuplicate(name)
+    return { exists: result.exists, existingName: result.existing_name }
+  } catch {
     return { exists: false }
   }
-
-  if (data && data.length > 0) {
-    return { exists: true, existingName: data[0].name as string }
-  }
-
-  return { exists: false }
 }

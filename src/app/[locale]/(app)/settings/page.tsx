@@ -1,8 +1,9 @@
 import { getTranslations } from 'next-intl/server'
-import { createClient } from '@/lib/supabase/server'
-import { getStaffList, getActiveStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getOrgSettings } from '@/actions/org-settings'
-import { SettingsTabs } from '@/components/settings/SettingsTabs'
+import { SettingsShell } from '@/components/settings/redesign/SettingsShell'
+import { SettingsPageChrome } from '@/components/settings/SettingsPageChrome'
 
 export default async function SettingsPage({
   params,
@@ -10,8 +11,6 @@ export default async function SettingsPage({
   params: Promise<{ locale: string }>
 }) {
   const { locale } = await params
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
 
   const [staffList, activeStaffId, t, orgSettings] = await Promise.all([
     getStaffList(),
@@ -20,17 +19,19 @@ export default async function SettingsPage({
     getOrgSettings(),
   ])
 
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
+  const isOwner = staffList.some(
+    (s) => s.id === activeStaffId && s.display_role === 'owner',
+  )
 
-      <SettingsTabs
+  return (
+    <SettingsPageChrome title={t('title')}>
+      <SettingsShell
         orgSettings={orgSettings}
         staffList={staffList}
         activeStaffId={activeStaffId}
         locale={locale}
-        authProfileId={user?.id ?? null}
+        isOwner={isOwner}
       />
-    </div>
+    </SettingsPageChrome>
   )
 }

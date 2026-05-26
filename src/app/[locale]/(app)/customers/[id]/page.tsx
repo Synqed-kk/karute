@@ -1,97 +1,161 @@
 import { notFound } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import { CustomerProfileHeader } from '@/components/customers/CustomerProfileHeader'
-import { CustomerDetailTabs } from '@/components/customers/CustomerDetailTabs'
-import type { CustomerRow } from '@/types/database'
+
+import { getCustomer } from '@/lib/customers/queries'
+import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
+import { getStaffList } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { listCustomerPhotos } from '@/actions/customers'
+import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
+import type { CustomerProfileData } from '@/components/customers/redesign/types'
+import {
+  deriveStatus,
+  formatJoinDate,
+} from '@/lib/customers/list-enrich'
+import {
+  assignSequentialKaruteNumbers,
+  deriveFamilyInitials,
+} from '@/lib/customers/identity'
+import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
+import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
-  searchParams: Promise<{ historyPage?: string }>
+}
+
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+
+function prettyDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  })
 }
 
 export default async function CustomerProfilePage({
   params,
 }: CustomerProfilePageProps) {
   const { id, locale } = await params
+  const customer = await getCustomer(id).catch(() => null)
+  if (!customer) notFound()
 
-  const supabase = await createClient()
+  // Fetch supporting data in parallel: contact (cached), staff list (cached),
+  // this customer's karute records (via synqed-core — the source of truth),
+  // the full customer list (for the sequential karute number, consistent with
+  // the list page), and photos.
+  const synqed = await getSynqedClient()
 
-  // Fetch customer + karute records with entries and staff profiles in parallel
-  const [customerResult, karuteResult] = await Promise.all([
-    supabase.from('customers').select('*').eq('id', id).single(),
-    supabase
-      .from('karute_records')
-      .select(
-        `
-        id,
-        created_at,
-        session_date,
-        summary,
-        transcript,
-        staff_profile_id,
-        profiles:staff_profile_id ( full_name ),
-        entries (
-          id,
-          category,
-          content,
-          source_quote,
-          confidence_score,
-          is_manual,
-          created_at
-        )
-      `,
-        { count: 'exact' },
-      )
-      .eq('client_id', id)
-      .order('session_date', { ascending: false }),
-  ])
+  const [contact, staffList, karuteRes, photosResult, allCustomersList] =
+    await Promise.all([
+      getCustomerContact(id),
+      getStaffList(),
+      synqed.karuteRecords.list({ customer_id: id, page_size: 100 }),
+      listCustomerPhotos(id).catch(() => ({
+        photos: [] as Array<{
+          id: string
+          signed_url: string | null
+          category: string
+          caption: string | null
+        }>,
+      })),
+      synqed.customers.list({
+        page: 1,
+        page_size: 500,
+        sort_by: 'created_at',
+        sort_order: 'asc',
+      }),
+    ])
 
-  if (customerResult.error || !customerResult.data) {
-    notFound()
-  }
-
-  const customer = customerResult.data as CustomerRow
-
-  type KaruteRecordWithEntries = {
+  type KaruteRow = {
     id: string
+    session_date: string | null
     created_at: string
-    session_date: string
     summary: string | null
-    transcript: string | null
     staff_profile_id: string | null
-    profiles: { full_name: string } | null
-    entries: Array<{
-      id: string
-      category: string
-      content: string
-      source_quote: string | null
-      confidence_score: number | null
-      is_manual: boolean
-      created_at: string
-    }>
+    entries: Array<{ count: number }> | null
   }
+  const karuteRecords: KaruteRow[] = karuteRes.karute_records.map((r) => ({
+    id: r.id,
+    // synqed-core has no session_date column; created_at drives the date.
+    session_date: r.created_at,
+    created_at: r.created_at,
+    summary: r.ai_summary,
+    staff_profile_id: r.staff_id,
+    entries: [{ count: r.entry_count ?? 0 }],
+  }))
+  const staffNameById = new Map(
+    staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
+  )
 
-  const karuteRecords = (karuteResult.data ?? []) as KaruteRecordWithEntries[]
-  const totalVisitCount = karuteResult.count ?? 0
+  const lastVisitIso =
+    karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
+  const status = deriveStatus(customer.created_at, lastVisitIso)
 
-  const lastVisit: string | null = karuteRecords[0]?.session_date ?? null
+  const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
+    id: p.id,
+    signedUrl: p.signed_url,
+    category: p.category,
+    caption: p.caption,
+  }))
+
+  const sessions: CustomerSessionEntry[] = karuteRecords.map((r, i) => {
+    const dt = new Date(r.session_date ?? r.created_at)
+    const entryCount = Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0
+    return {
+      id: r.id,
+      karuteId: r.id,
+      date: prettyDate(r.session_date ?? r.created_at),
+      weekday: WEEKDAYS[dt.getDay()],
+      // Service '—' + duration 0 instead of literal 'Session' /
+      // 60 — same '施術' bug fixed on the main karute list. The
+      // session-row renderer should gate the duration display on
+      // `duration > 0` so the line hides instead of rendering "0 min".
+      // ANTHONY: when karute_records gains `service` + `duration_minutes`
+      // columns, pass the real values.
+      service: '—',
+      duration: 0,
+      summary: r.summary ?? '—',
+      staffName: r.staff_profile_id
+        ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
+        : 'Unknown',
+      entryCount,
+      aiSummarized: Boolean(r.summary),
+      memoryAdded: null,
+      isLatest: i === 0,
+    }
+  })
+
+  const preferredStaffId: string | null = customer.assigned_staff_id ?? null
+
+  const profile: CustomerProfileData = {
+    id: customer.id,
+    name: customer.name,
+    initials: deriveFamilyInitials(customer.name),
+    karuteNumber:
+      assignSequentialKaruteNumbers(allCustomersList.customers).get(
+        customer.id,
+      ) ?? '#00000',
+    age: null,
+    gender: null,
+    joinDate: formatJoinDate(customer.created_at, locale),
+    totalKarute: karuteRecords.length,
+    phone: contact.phone ?? customer.phone,
+    email: contact.email ?? customer.email,
+    preferredStaffName: preferredStaffId
+      ? (staffNameById.get(preferredStaffId) ?? null)
+      : null,
+    nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
+    status,
+    memoryCount: 0, // Customer Memory backend not built yet
+    sessionCount: karuteRecords.length,
+    photoCount: photos.length,
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Profile header with inline edit */}
-      <CustomerProfileHeader
-        customer={customer}
-        visitCount={totalVisitCount}
-        lastVisit={lastVisit}
-      />
-
-      {/* Tabbed detail content */}
-      <CustomerDetailTabs
-        customer={customer}
-        karuteRecords={karuteRecords}
-        totalVisitCount={totalVisitCount}
-        locale={locale}
-      />
-    </div>
+    <CustomerProfileView
+      customer={profile}
+      sessions={sessions}
+      photos={photos}
+    />
   )
 }

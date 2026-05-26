@@ -19,7 +19,14 @@ const config: Config = {
   // Resolve @/* path aliases from tsconfig (next/jest may not auto-detect with moduleResolution: bundler)
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
+    // ESM .js extensions inside @synqed-kk/client's transpiled output — strip
+    // the suffix so jest's transform resolves the TS source via CJS.
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+
+  // Allow jest to transform the @synqed-kk/client ESM package (everything
+  // else under node_modules stays untransformed per next/jest defaults)
+  transformIgnorePatterns: ['/node_modules/(?!@synqed-kk/)'],
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async

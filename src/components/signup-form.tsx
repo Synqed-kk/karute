@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'
 
 export function SignupForm({ locale }: { locale: string }) {
   const t = useTranslations('auth')
@@ -17,9 +18,16 @@ export function SignupForm({ locale }: { locale: string }) {
     setLoading(true)
     setError(null)
     const formData = new FormData(e.currentTarget)
+    const salonName = (formData.get('salonName') as string).trim()
     const email = formData.get('email') as string
     const password = formData.get('password') as string
     const confirmPassword = formData.get('confirmPassword') as string
+
+    if (!salonName) {
+      setError(t('salonNameRequired'))
+      setLoading(false)
+      return
+    }
 
     if (password !== confirmPassword) {
       setError(t('passwordsDoNotMatch'))
@@ -27,19 +35,51 @@ export function SignupForm({ locale }: { locale: string }) {
       return
     }
 
-    const { error } = await supabase.auth.signUp({ email, password })
-    if (error) {
-      setError(error.message)
+    const { data, error: signupError } = await supabase.auth.signUp({ email, password })
+    if (signupError) {
+      setError(signupError.message)
       setLoading(false)
-    } else {
-      // After signup, redirect to sessions (Supabase auto-confirms in dev if email confirm is off)
-      router.push(`/${locale}/sessions`)
-      router.refresh()
+      return
     }
+    if (!data.user) {
+      setError(t('signupNoUser'))
+      setLoading(false)
+      return
+    }
+    // Supabase returns an obfuscated user object (identities: []) when the
+    // email is already registered — meant to block account enumeration.
+    // Without this guard, bootstrap would fail later with a confusing
+    // "User not found in auth" because the id may not resolve.
+    if (data.user.identities && data.user.identities.length === 0) {
+      setError(t('emailAlreadyRegistered'))
+      setLoading(false)
+      return
+    }
+
+    const result = await bootstrapBusinessForNewUser(salonName, data.user.id)
+    if (!result.ok) {
+      setError(result.error)
+      setLoading(false)
+      return
+    }
+
+    router.push(`/${locale}/sessions`)
+    router.refresh()
   }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 w-full max-w-sm">
+      <div>
+        <label htmlFor="salonName" className="block text-sm font-medium mb-1">{t('salonName')}</label>
+        <input
+          id="salonName"
+          name="salonName"
+          type="text"
+          required
+          maxLength={100}
+          className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+        />
+      </div>
       <div>
         <label htmlFor="email" className="block text-sm font-medium mb-1">{t('email')}</label>
         <input

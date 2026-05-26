@@ -11,7 +11,11 @@ const inter = Inter({
 
 const notoSansJP = Noto_Sans_JP({
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  // Include 600 — components calling `font-semibold` resolve to weight
+  // 600. Without it loaded, the browser synthesizes bold from 500 or
+  // interpolates, which renders less crisp than the actual cut.
+  // Matches the design spike's font loader.
+  weight: ["400", "500", "600", "700"],
   variable: "--font-noto-sans-jp",
 });
 
@@ -26,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-theme="karute" suppressHydrationWarning>
       <body
         className={`${inter.variable} ${notoSansJP.variable} font-sans antialiased`}
       >

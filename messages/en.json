@@ -25,13 +25,16 @@
     "email": "Email",
     "phone": "Phone",
     "somethingWentWrong": "Something went wrong.",
-    "saved": "Saved"
+    "saved": "Saved",
+    "notifications": "Notifications"
   },
   "auth": {
     "title": "Sign in to Karute",
     "subtitle": "Sign in to continue",
     "signupTitle": "Create your Karute account",
     "signupSubtitle": "Create your business account",
+    "salonName": "Salon name",
+    "salonNameRequired": "Salon name is required",
     "email": "Email",
     "emailPlaceholder": "you@example.com",
     "password": "Password",
@@ -46,7 +49,52 @@
     "noAccount": "No account?",
     "signupLink": "Sign up",
     "hasAccount": "Already have an account?",
-    "signinLink": "Sign in"
+    "signinLink": "Sign in",
+    "signupNoUser": "Signup did not return a user. Try again.",
+    "emailAlreadyRegistered": "This email is already registered. Please sign in instead."
+  },
+  "welcome": {
+    "title": "Set up your store",
+    "back": "Back",
+    "next": "Next",
+    "saving": "Saving…",
+    "finish": "Finish setup",
+    "steps": {
+      "business": "Business info",
+      "disclosure": "Recording disclosure",
+      "review": "Review"
+    },
+    "step1": {
+      "intro": "Tell us the basics about your store. Your business type shapes how the AI is tuned.",
+      "appLanguage": "App language",
+      "appLanguageAria": "App language",
+      "languageHint": "You can change this anytime from the EN/JP toggle in the sidebar.",
+      "storeName": "Store name",
+      "storeNamePlaceholder": "e.g., La Estro 美容整体",
+      "businessType": "Business type",
+      "selectBusinessType": "Select a business type",
+      "aiTuningHeading": "AI tuning for this business type",
+      "includedInProfile": "Included in this profile",
+      "priorityTopics": "{n} priority topics",
+      "coachingFocus": "{n} coaching focus areas",
+      "topPatterns": "{n} top-performer patterns",
+      "quickStartPrompts": "{n} AI quick-start prompts",
+      "customizeHint": "You can add + edit your own items later in Settings → AI. SYNQED-curated base items are read-only."
+    },
+    "step2": {
+      "intro": "Choose how transparent you want recording to be. Japanese law doesn't require explicit notification — pick the mode that matches your brand, industry, and clientele.",
+      "modeLabel": "Mode {mode}",
+      "privacyConfirm": "Our privacy policy includes the AI-recording purpose-of-use",
+      "modeAWarning": "Mode A requires your privacy policy to disclose \"AI voice recording\" as a purpose-of-use (APPI Art. 17). Pick Mode B or C if your policy isn't updated yet."
+    },
+    "step3": {
+      "intro": "Confirm your choices and finish setup. You can change everything later in Settings.",
+      "storeName": "Store name",
+      "businessType": "Business type",
+      "disclosureMode": "Disclosure mode",
+      "modeValue": "Mode {mode} — {label}",
+      "footnote": "All settings can be changed anytime in Settings after setup."
+    }
   },
   "sidebar": {
     "recording": "Recording",
@@ -54,9 +102,208 @@
     "appointments": "Appointments",
     "customers": "Customers",
     "karute": "Karute",
+    "coaching": "Coaching",
     "askAi": "Ask AI",
     "dataImport": "Import",
-    "settings": "Settings"
+    "dataExport": "Export",
+    "settings": "Settings",
+    "menu": "More",
+    "pickBooking": "Pick booking"
+  },
+  "reservation": {
+    "title": "Appointments",
+    "new": "New booking",
+    "today": "Today",
+    "prev": "Previous",
+    "next": "Next",
+    "view": {
+      "day": "Day",
+      "week": "Week",
+      "month": "Month"
+    },
+    "mode": {
+      "self": "Mine",
+      "all": "All staff"
+    },
+    "legend": {
+      "label": "Legend",
+      "block": "Owner duties"
+    },
+    "status": {
+      "booked": "Booked",
+      "in_session": "In session",
+      "completed": "Completed",
+      "pending": "Pending",
+      "new": "New"
+    },
+    "card": {
+      "duration": "{n} min",
+      "appointments": "{n} appts",
+      "customerSuffix": "",
+      "tantou": "Staff: {name}"
+    },
+    "mobile": {
+      "empty": "No appointments",
+      "dayHeader": "{date} ({weekday})"
+    },
+    "grid": {
+      "blockOwner": "Not taking bookings (owner)",
+      "staffMeta": "{role} · {count} appts",
+      "staffColumnLabel": "STAFF"
+    },
+    "totals": {
+      "today": "Today's bookings: {n}"
+    },
+    "newBookingDialog": {
+      "title": "New booking",
+      "description": "Add an appointment for an existing customer.",
+      "customer": "Customer",
+      "customerPlaceholder": "Search customers…",
+      "createCustomerHint": "Create new customers from the Customers tab first.",
+      "date": "Date",
+      "time": "Time",
+      "duration": "Duration",
+      "staff": "Staff",
+      "service": "Service",
+      "servicePlaceholder": "What's being done?",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "toasts": {
+        "customerMissing": "Pick a customer",
+        "invalidDuration": "Invalid duration",
+        "invalidDateTime": "Invalid date or time"
+      }
+    },
+    "toasts": {
+      "bookingCreated": "Booking saved"
+    },
+    "errors": {
+      "overlap": "This time slot overlaps with an existing booking.",
+      "durationPositive": "Duration must be a positive number of minutes.",
+      "invalidStart": "Invalid appointment start time.",
+      "outsideHours": "Appointment must be within operating hours ({open}–{close})."
+    },
+    "empty": {
+      "noData": "No data."
+    },
+    "staffFilter": {
+      "self": "Mine",
+      "all": "All staff"
+    }
+  },
+  "karuteList": {
+    "title": "Karute",
+    "stats": {
+      "thisMonth": "This month · {n}",
+      "last14": "Last 14 days · {n}",
+      "showing": "{n} showing"
+    },
+    "newKarute": "New Karute",
+    "searchPlaceholder": "Search by customer, service, or staff…",
+    "filter": {
+      "all": "All",
+      "week": "This week",
+      "aiPending": "AI pending",
+      "review": "Review needed",
+      "draft": "Draft"
+    },
+    "status": {
+      "summarized": "AI summarized",
+      "pending": "AI pending",
+      "review": "Review needed",
+      "draft": "Draft"
+    },
+    "row": {
+      "entries": "{n} entries",
+      "duration": "{n} min",
+      "staffPrefix": "Staff: {name}"
+    },
+    "group": {
+      "today": "Today",
+      "yesterday": "Yesterday",
+      "daysAgo": "{n} days ago",
+      "count": "{n} karute"
+    },
+    "empty": {
+      "title": "No karute yet",
+      "hint": "Records will appear here once a session is recorded."
+    }
+  },
+  "karuteDetail": {
+    "breadcrumb": {
+      "customers": "Customers",
+      "karute": "Karute {date}"
+    },
+    "actions": {
+      "exportPdf": "Export PDF",
+      "share": "Share",
+      "edit": "Edit"
+    },
+    "header": {
+      "staff": "Staff",
+      "phone": "Phone",
+      "email": "Email"
+    },
+    "memory": {
+      "title": "Customer Memory",
+      "subtitle": "AI-curated profile of everything {name} has shared — small-talk hooks, body history, preferences, and goals.",
+      "newToday": "{n} new from today",
+      "talkingPoints": "TALKING POINTS FOR TODAY",
+      "addManually": "Add manually",
+      "lastUpdated": "Last updated: {date}",
+      "sections": {
+        "personal": "Personal",
+        "body": "Body & health",
+        "preferences": "Preferences",
+        "goals": "Goals",
+        "lifestyle": "Lifestyle"
+      },
+      "source": {
+        "ai": "AI-extracted",
+        "intake": "From intake form",
+        "manual": "Manual"
+      }
+    },
+    "photos": {
+      "title": "Photo records",
+      "subtitle": "Customer progress photos & references",
+      "showToCustomer": "Show to customer",
+      "empty": "No photos yet — upload from the customer profile."
+    },
+    "bodyPrediction": {
+      "title": "AI BODY PREDICTION",
+      "confidence": "Confidence",
+      "vsLast": "vs last",
+      "recommended": "Recommended",
+      "rationale": "AI rationale"
+    },
+    "suggestedMessage": {
+      "title": "AI SUGGESTED MESSAGE",
+      "scheduledVia": "scheduled via",
+      "edit": "Edit",
+      "approveSend": "Approve & send"
+    },
+    "currentSession": {
+      "title": "Current session",
+      "tunedFor": "Tuned for:",
+      "categories": {
+        "treatment": "Treatment",
+        "concern": "Concern",
+        "condition": "Condition",
+        "product": "Product",
+        "next": "Next"
+      }
+    },
+    "aiSummary": {
+      "title": "AI summary"
+    },
+    "transcript": {
+      "title": "Recording · transcript",
+      "consentOnFile": "Consent on file",
+      "duration": "Duration {duration}",
+      "noTranscript": "No transcript yet"
+    }
   },
   "recording": {
     "title": "Record",
@@ -76,11 +323,104 @@
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",
     "noBookingDescription": "You don't have an upcoming appointment. You can still record — it will be saved to your karute but won't be linked to any booking.",
-    "recordAnyway": "Record anyway"
+    "recordAnyway": "Record anyway",
+    "consentGrantedTitle": "Recording consent on file",
+    "consentGrantedDesc": " has consented to having sessions recorded for karute generation and quality improvement. You can start recording.",
+    "consentGrantedWhen": "Granted ",
+    "consentMissingTitle": "Consent missing",
+    "consentMissingDesc": " has not consented yet. The record button is disabled.",
+    "consentStartFlow": "Start consent flow",
+    "consentDialogTitle": "Obtain recording consent",
+    "consentDialogInstructions": "Read the script below to the customer. Tap \"Customer agreed\" only after they verbally confirm.",
+    "consentScript": "{customerName}, with your permission we'll record today's session so I can focus on you and have an accurate record afterward. The audio is used only to generate your karute and improve our service. Is that OK?",
+    "consentConfirmButton": "Customer agreed",
+    "longRecordingWarning": "Long session — consider stopping and starting a new recording",
+    "subtitle": "Record a session — AI will auto-generate the karute for you.",
+    "target": {
+      "title": "Recording target",
+      "inSession": "In session",
+      "choose": "Choose different booking",
+      "nearbyAround": "Bookings around {time}",
+      "current": "Current",
+      "seeAllToday": "See all today's bookings",
+      "noBooking": "No booking selected",
+      "staffPrefix": "Staff: {name}",
+      "defaultService": "Session",
+      "statusInSession": "In session",
+      "statusDone": "Done",
+      "statusBooked": "Booked",
+      "firstVisit": "First visit",
+      "booked": "Booked",
+      "honorific": "",
+      "noBookingPrimary": "Pick a booking to record",
+      "noBookingSecondary": "Tap 'Choose different booking' in the top-right to pick from today's appointments. Once selected, the customer, time, and staff details show here.",
+      "pickerScaffoldLabel": "Coming soon",
+      "pickerScaffoldBody": "Fetching + switching today's bookings from the picker is coming soon — Anthony wires the booking-list query, then this dropdown surfaces today's appointments so staff can switch the recording target.",
+      "sheetTitle": "Pick a booking to record",
+      "sheetDescription": "Today's bookings for you. Tap to switch the recording target.",
+      "durationMinutes": "{n} min"
+    },
+    "brief": {
+      "title": "Pre-session brief",
+      "lastVisit": "Last visit {date} ({ago})",
+      "hooks": "Conversation hooks",
+      "concerns": "Last session concerns",
+      "lastProduct": "Last product offered",
+      "recommendedFocus": "Recommended focus today",
+      "empty": "Pre-session brief unavailable — AI will generate one after the first karute.",
+      "lastVisitInline": "Last visit {date} ({ago})",
+      "subtitleScaffold": "Each section below shows what will appear once a booking is selected",
+      "reservationMemo": "Booking note",
+      "firstTimeHeader": "First-time customer",
+      "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
+      "aiHintLabel": "Coming soon",
+      "aiHintMemoAnalysis": "AI will parse the booking note to extract concerns, expectations, and tone, surfacing a short pre-session summary of what to watch for (Anthony wires the nightly batch job).",
+      "aiHintNoMemo": "When the customer leaves a booking note, AI will extract intent, expectations, and tone and summarize it here (Anthony wires this after the booking-form field lands).",
+      "aiHintHooks": "From past karute + conversation history, AI will surface natural small-talk hooks — pets, family, hobbies, recent events — to help staff open the session warmly.",
+      "aiHintConcerns": "AI will pull the main complaints, treatments delivered, and follow-up notes from prior karute entries into a chronological recap of what to verify today.",
+      "aiHintLastProduct": "AI will pull the last product or service proposed and how the customer responded (purchased / considering / declined-phrasing) to inform today's recommendation strategy.",
+      "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction."
+    },
+    "source": {
+      "phoneMic": "Phone mic",
+      "phoneMicSub": "Default. Clear capture within 1–2m of the customer.",
+      "modeA": "Mode A — Discreet (seamless)",
+      "modeASub": "Records automatically at session start. No customer-facing popup."
+    },
+    "button": {
+      "startTitle": "Start Recording",
+      "startSub": "{name}'s session will be recorded.",
+      "recording": "RECORDING",
+      "stopAria": "Stop recording",
+      "startAria": "Start recording"
+    },
+    "consent": {
+      "onFile": "Consent on file"
+    },
+    "recent": {
+      "title": "Recent recordings",
+      "showAll": "Show all",
+      "karuteCreated": "Karute created",
+      "entries": "{n} entries",
+      "notCreated": "Karute not created",
+      "convert": "Convert to karute",
+      "empty": "No recordings yet.",
+      "playAria": "Play",
+      "durationFmt": "{m} min {s} sec"
+    },
+    "liveTranscript": {
+      "title": "Live transcript",
+      "sub": "Diarized conversation, streamed in real time",
+      "connected": "Connected",
+      "disconnected": "Disconnected",
+      "speakerCustomer": "Customer",
+      "speakerStaff": "{name} (Staff)"
+    }
   },
   "customers": {
     "title": "Customers",
     "newCustomer": "+ New Customer",
+    "unknownName": "Unknown",
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
     },
@@ -99,7 +439,25 @@
       "saving": "Saving...",
       "duplicateWarning": "A customer named \"{name}\" already exists",
       "nameRequired": "Name is required",
-      "invalidEmail": "Invalid email"
+      "invalidEmail": "Invalid email",
+      "titleNew": "Add New Customer",
+      "description": "Register a new customer's basic info",
+      "familyName": "Family name",
+      "familyNamePlaceholder": "Tanaka",
+      "givenName": "Given name",
+      "givenNamePlaceholder": "Misaki",
+      "age": "Age",
+      "agePlaceholder": "32",
+      "gender": "Gender",
+      "female": "Female",
+      "male": "Male",
+      "other": "Other",
+      "preferredStaff": "Preferred staff",
+      "noPreference": "No preference",
+      "comingSoon": "Coming soon",
+      "duplicateEmail": "A customer with this email already exists in your salon.",
+      "duplicatePhone": "A customer with this phone number already exists in your salon.",
+      "saveFailedGeneric": "Could not save customer. Please try again or contact support if the problem persists."
     },
     "table": {
       "name": "Name",
@@ -110,21 +468,56 @@
       "noResults": "No customers found"
     },
     "profile": {
+      "backToList": "Back to customers",
+      "preferredStaff": "Preferred staff",
+      "nextVisitPredicted": "Next visit predicted:",
+      "tab": {
+        "memory": "Memory",
+        "sessions": "Sessions",
+        "photos": "Photos",
+        "privacy": "Privacy"
+      },
+      "memory": {
+        "emptyBody": "AI-curated profile: personal context, body / health, preferences, goals, lifestyle. Built up automatically from recordings + intake forms."
+      },
+      "photos": {
+        "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+        "totalCount": "{n} total"
+      },
+      "sessions": {
+        "count": "{n} sessions",
+        "empty": "No sessions recorded yet.",
+        "memoryAdded": "Memory +{n}",
+        "openKarute": "Open full karute record →",
+        "noKaruteLinked": "No karute record linked to this session yet."
+      },
+      "privacy": {
+        "heading": "Privacy & data",
+        "intro": "APPI-compliant actions for {customerName}'s data. Owner or assigned-staff permission required.",
+        "accessTitle": "Access history",
+        "accessBody": "See which staff accessed or modified {customerName}'s data, when, and from where (audit log).",
+        "viewHistory": "View history",
+        "exportTitle": "Export data",
+        "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, valid 24 hours).",
+        "export": "Export",
+        "deleteTitle": "Delete customer data",
+        "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable period). Scope: karute, memory, photos, recordings. Reversible within 30 days.",
+        "deleteCta": "Delete data",
+        "footer": "These actions are logged to the audit trail. After 30 days, deletions are irreversible. Owner confirmation recommended."
+      },
+      "tabs": {
+        "memory": "Memory",
+        "sessions": "Sessions",
+        "photos": "Photos",
+        "privacy": "Privacy",
+        "aria": "Profile tabs"
+      },
+      "lastVisitPrefix": "Last visit",
+      "usualServicePrefix": "Usual",
+      "visitsSuffix": "{n} visits",
       "edit": "Edit",
-      "save": "Save",
-      "cancel": "Cancel",
-      "visits": "{count} visits",
-      "lastVisit": "Last visit: {date}",
-      "noVisits": "No visits yet",
-      "karuteHistory": "Session History",
-      "back": "Back",
-      "staff": "Staff",
-      "registered": "Registered {date}",
-      "notes": "Notes",
-      "type": "Type",
-      "none": "None",
-      "internalNotesPlaceholder": "Internal notes...",
-      "churnAlert": "Last visit was {days} days ago"
+      "editDialogTitle": "Edit customer",
+      "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
     },
     "toast": {
       "created": "Customer created",
@@ -150,12 +543,125 @@
       "deleteConfirm": "Delete {name}? This cannot be undone.",
       "deleted": "{name} deleted",
       "added": "Added {date}"
+    },
+    "list": {
+      "total": "Total {total}",
+      "joined": "Joined {date}",
+      "karuteCount": "{n} karute",
+      "noMatch": "No customers match \"{query}\"",
+      "noMatchHint": "Try a different search term or clear filters.",
+      "col": {
+        "visits": "Visits",
+        "lastVisit": "Last visit",
+        "aiPredict": "AI predict",
+        "status": "Status",
+        "total": "Total",
+        "customer": "Customer",
+        "recommend": "Recommend",
+        "staff": "Staff"
+      },
+      "row": {
+        "honorific": "",
+        "lastVisitPrefix": "Last visit",
+        "staff": "Staff: {name}",
+        "recommendPrefix": "Recommend",
+        "visitsSuffix": "{n} visits"
+      },
+      "heading": "Customers",
+      "showing": "{n} showing",
+      "status": {
+        "on-track": "On track",
+        "new": "New",
+        "needs-followup": "Needs follow-up",
+        "dormant": "Dormant"
+      },
+      "filters": {
+        "all": "All",
+        "preferredStaff": "Preferred Staff",
+        "newRecent": "New (last 30d)",
+        "followup": "Needs follow-up",
+        "dormant": "Dormant (90d+)"
+      },
+      "staffFilter": {
+        "self": "Self",
+        "all": "All staff"
+      },
+      "statusLine": "Registered customers · Total {total} · {showing} showing",
+      "notifications": "Notifications",
+      "lastVisit": {
+        "noVisits": "No visits",
+        "today": "Today",
+        "oneDayAgo": "1 day ago",
+        "daysAgo": "{n} days ago",
+        "monthsAgo": "{n} mo ago"
+      },
+      "paginatedShowing": "Showing {from}–{to} of {total}",
+      "previousPage": "Previous page",
+      "nextPage": "Next page",
+      "goToPage": "Go to page {n}",
+      "aiStatusChip": {
+        "bodyPrediction": "Body prediction",
+        "outreach": "Outreach",
+        "summary": "Summary",
+        "transcript": "Transcript",
+        "comingSoonShort": "soon"
+      }
+    },
+    "listFilter": {
+      "all": "All",
+      "preferredStaff": "Preferred Staff",
+      "newRecent": "New (last 30d)",
+      "followup": "Needs follow-up",
+      "dormant": "Dormant (90d+)",
+      "sortLastVisit": "Last visit (recent)"
+    },
+    "deletionBanner": {
+      "title": "{name} is scheduled for deletion — {days} days remaining",
+      "titleToday": "{name} will be deleted today",
+      "body": "Permanent deletion on {date}. Inside the {window}-day recovery window.",
+      "blocked": "New karute, recording, and photo uploads are paused for this customer. Undo to resume normal operation.",
+      "undoButton": "Undo deletion"
+    },
+    "visitHistoryChain": {
+      "aria": "Attended {attended} of last {window} visits. {total} total."
+    },
+    "profileUpcoming": {
+      "sectionLabel": "Coming soon",
+      "aiBodyPrediction": {
+        "title": "AI Body Condition Prediction",
+        "description": "Estimates the customer's current condition + recommended next-visit window from session history, with rationale. Includes a confidence % so staff know how heavily to weight it."
+      },
+      "aiOutreach": {
+        "title": "AI Recommended Message",
+        "description": "Drafts a follow-up LINE / SMS / email after each session based on the customer's memory + this visit's notes. Staff can edit before sending, or approve as-is."
+      },
+      "aiSummary": {
+        "title": "AI Session Summary",
+        "description": "Bullet-list summary of what happened in today's session — concerns raised, treatments done, products discussed, next steps. Auto-extracted from the recording + entries."
+      },
+      "recordingTranscript": {
+        "title": "Recording & Transcript",
+        "description": "Full audio recording with searchable transcript, speaker diarization (who said what), and consent badge. Played back during the next session for context."
+      },
+      "reengagement": {
+        "title": "AI Follow-up Message",
+        "description": "Drafts a personal re-engagement message from this customer's memory + session history. Sits above the tabs so staff catch it on profile open without a tab switch. Edit and send via LINE / SMS / email."
+      }
     }
   },
   "karute": {
     "title": "Karute",
     "summary": "AI Summary",
-    "transcript": "Transcript",
+    "transcript": {
+      "title": "Recording & transcript",
+      "consentLabel": "Recorded with consent",
+      "empty": "No recording yet. Once a session is captured, transcript + speaker-separated playback appear here.",
+      "comingSoonPlayer": "Audio player coming soon — Anthony wires Supabase Storage signed URLs.",
+      "speakers": "Speakers",
+      "speakerStaff": "Staff",
+      "speakerCustomer": "Customer",
+      "speakerUnknown": "Background"
+    },
     "entries": "Entries",
     "addEntry": "Add entry",
     "noEntries": "No entries yet",
@@ -169,6 +675,7 @@
     "saveKarute": "Save karute",
     "saving": "Saving...",
     "selectCustomerFirst": "Please select a customer before saving",
+    "selectStaff": "Select a staff member",
     "noDraftFound": "No draft data found. Please go back and complete the AI review step before saving.",
     "deleted": "Karute deleted",
     "deleteConfirm": "Delete this karute? This cannot be undone.",
@@ -183,6 +690,156 @@
       "next_visit": "Next Visit",
       "product": "Product",
       "other": "Other"
+    },
+    "photoSection": {
+      "title": "Photo records",
+      "subtitle": "Customer progress photos & references",
+      "add": "Add photo",
+      "showCustomer": "Show to customer",
+      "seeAll": "See all",
+      "emptyTitle": "No photos yet",
+      "emptyBody": "Use \"Add photo\" to pick a category and register an image. Great for progress tracking and references."
+    },
+    "photoCapture": {
+      "title": "Add a photo",
+      "description": "Pick a category and add a photo. Capture with the customer's consent.",
+      "categoryLabel": "Category",
+      "chooseFile": "Choose file",
+      "captionLabel": "Caption (optional)",
+      "captionPlaceholder": "e.g., before treatment, area of concern",
+      "consentLabel": "Captured with customer consent",
+      "cancel": "Cancel",
+      "submit": "Add photo"
+    },
+    "photoCompare": {
+      "sideBySide": "Side by side",
+      "overlay": "Overlay",
+      "opacity": "Opacity"
+    },
+    "photoGallery": {
+      "header": "{name} · Photo gallery",
+      "filterAll": "All",
+      "comparePickHint": "Pick two photos to compare",
+      "compareToggle": "Compare two",
+      "compareExit": "Exit compare",
+      "back": "Back",
+      "close": "Close",
+      "noCaption": "No caption",
+      "takenBy": "Taken by {name}"
+    },
+    "memorySection": {
+      "title": "Customer Memory",
+      "subtitle": "Everything we know about {name} so far",
+      "updatedBadge": "{n} new from today",
+      "talkingPoints": "Today's talking points",
+      "emptyTitle": "No memory yet",
+      "emptyBody": "New customer — we'll start building memory from today's session.",
+      "intakePrefix": "Intake",
+      "categoryPersonal": "Personal",
+      "categoryBody": "Body & health",
+      "categoryPreference": "Preferences",
+      "categoryGoal": "Goals",
+      "categoryLifestyle": "Lifestyle",
+      "sourceAi": "AI extracted",
+      "sourceStaff": "Staff added",
+      "sourceIntake": "From intake",
+      "addManually": "Add manually",
+      "lastUpdated": "Last updated: {date}",
+      "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony.",
+      "sectionEmpty": "Coming soon — nothing here yet",
+      "comingSoonPill": "Coming soon",
+      "intakeEmpty": "Intake info will appear here once the first intake form is completed.",
+      "intakeFields": {
+        "firstVisit": "First visit",
+        "occupation": "Occupation",
+        "maintenance": "Maintenance preference",
+        "referral": "How they found us"
+      },
+      "talkingPointsEmpty": "Talking points appear here once AI extracts memorable details from session recordings.",
+      "sessionsBadge": "Learned from {n} session record(s)",
+      "sessionsBadgeTooltip": "Number of past recordings the memory is grounded in. More sessions = higher confidence.",
+      "noSessionsBadge": "No session records yet",
+      "noSessionsBadgeTooltip": "No recordings yet. Once you record a session, the AI will extract key points and accumulate them here."
+    },
+    "tabHeading": "Karute",
+    "recordList": {
+      "statusLine": "This month {monthCount} karute · past 14 days · showing {showingCount}",
+      "newKarute": "+ New karute",
+      "searchPlaceholder": "Search by customer · service · staff",
+      "filters": {
+        "all": "All",
+        "thisWeek": "This week",
+        "aiPending": "AI pending",
+        "needsReview": "Needs review",
+        "draft": "Draft"
+      },
+      "dateGroup": {
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "suffix": "{n} karute"
+      },
+      "aiStatus": {
+        "summarized": "AI summarized",
+        "pending": "AI pending",
+        "needsReview": "Needs review",
+        "draft": "Draft"
+      },
+      "conversionStatus": {
+        "provisional": "Provisional"
+      },
+      "minutesSuffix": " min",
+      "empty": "No karute records yet",
+      "newCustomersHeader": "New customers · no session yet",
+      "noSessionYet": "No session yet",
+      "newKaruteDialog": {
+        "title": "Create new karute",
+        "description": "Manually create a session record for a customer",
+        "customerLabel": "Customer",
+        "customerPlaceholder": "Search by name",
+        "customerNotFound": "No matching customer",
+        "customerClear": "Clear",
+        "dateLabel": "Session date",
+        "durationLabel": "Duration",
+        "staffLabel": "Staff",
+        "serviceLabel": "Service",
+        "servicePlaceholder": "e.g., Facial · Moisture boost",
+        "tipMessage": "💡 Use the recorder for fastest entry — AI auto-generates karute fields from session audio. Start a recording from the bottom-nav 「録音」 button.",
+        "cancel": "Cancel",
+        "create": "Create karute",
+        "creating": "Creating...",
+        "errorGeneric": "Could not create the karute. Please try again."
+      }
+    },
+    "outreach": {
+      "title": "AI recommended message",
+      "subscript": "{customerName} · scheduled via {channel}",
+      "emptyBody": "The AI-drafted follow-up message will appear here. Generated nightly from the customer memory + most recent session.",
+      "edit": "Edit",
+      "approveSend": "Approve & send",
+      "channels": {
+        "sms": "SMS",
+        "email": "Email",
+        "copy": "Copy to clipboard"
+      },
+      "comingSoonEdit": "Editor coming soon — Anthony wires the form for staff to tweak the AI draft before sending.",
+      "comingSoonSend": "Send coming soon — Anthony wires the channel API (Email / SMS) + clipboard copy flow."
+    },
+    "session": {
+      "title": "This session",
+      "empty": "No session entries yet. Record a session — AI extracts entries here.",
+      "categories": {
+        "treatment": "Treatment",
+        "concern": "Concern",
+        "condition": "Condition",
+        "product": "Product",
+        "next": "Next visit"
+      }
+    },
+    "aiAssist": {
+      "heading": "AI assistance",
+      "summaryTitle": "AI Summary",
+      "summarySubtitle": "Today's key session points",
+      "transcriptSubtitleEmpty": "No recording yet"
     }
   },
   "review": {
@@ -194,6 +851,8 @@
     "addEntry": "Add Entry",
     "customer": "Customer:",
     "selectCustomer": "Please select a customer",
+    "staff": "Staff",
+    "selectStaff": "Select a staff member",
     "processingTitle": "Processing recording",
     "processingDescription": "Please wait while AI analyzes your session...",
     "processingFailed": "Processing failed",
@@ -249,10 +908,35 @@
     "failedToCreateAppointment": "Failed to create appointment",
     "failedToCreateCustomer": "Failed to create customer",
     "operatingHoursError": "Appointment must be within operating hours ({open}-{close}).",
-    "noDurationFits": "No valid duration fits within operating hours ({open}-{close})."
+    "noDurationFits": "No valid duration fits within operating hours ({open}-{close}).",
+    "greeting": {
+      "night": "Good night",
+      "morning": "Good morning",
+      "afternoon": "Good afternoon",
+      "evening": "Good evening"
+    },
+    "ownerView": "Owner view",
+    "setupStoreButton": "Setup store",
+    "onboardingBanner": {
+      "title": "Finish setting up your store",
+      "body": "Pick your business type + recording disclosure mode so the AI is tuned to your salon. Takes about 2 minutes.",
+      "start": "Start setup",
+      "dismiss": "Dismiss"
+    },
+    "aiHero": {
+      "waitingCount": "{n} waiting",
+      "emptyTitle": "No AI suggestions yet",
+      "emptyBody": "Once you've recorded a few sessions, AI will surface follow-up reminders, draft messages, and karute that need review."
+    },
+    "stats": {
+      "weeklyRecordings": "Recordings this week",
+      "todaysCustomers": "Today's customers",
+      "monthlyKarute": "Monthly karute",
+      "rebookingRate": "Rebooking rate"
+    }
   },
   "settings": {
-    "title": "Settings",
+    "title": "Configuration",
     "staffManagement": "Staff Management",
     "addStaff": "Add staff",
     "editStaff": "Edit staff",
@@ -262,7 +946,7 @@
     "active": "Active",
     "noStaff": "No staff members yet",
     "organization": "Organization",
-    "organizationDescription": "View organization details",
+    "organizationDescription": "Business name, type, hours",
     "businessName": "Business Name",
     "businessType": "Business Type",
     "hoursOfOperation": "Hours of operation",
@@ -272,13 +956,24 @@
     "webhookUrl": "Webhook URL",
     "webhookDescription": "POSTs to this URL when a karute is created.",
     "aiSettings": "AI Settings",
-    "aiDescription": "Manage AI processing preferences",
-    "aiModel": "Preferred AI Model",
+    "aiDescription": "Model, thresholds, automation",
+    "aiModel": {
+      "tierFast": "Fast",
+      "tierBest": "Best",
+      "label": "AI model"
+    },
     "confidenceThreshold": "Classification Confidence Threshold",
     "recordingSettings": "Recording Settings",
-    "recordingDescription": "Configure recording quality and behavior",
-    "audioQuality": "Audio Quality",
-    "autoStop": "Auto-Stop Timer (minutes)",
+    "recordingDescription": "Audio quality, consent template",
+    "audioQuality": {
+      "low": "Low",
+      "standard": "Standard",
+      "high": "High"
+    },
+    "autoStop": {
+      "off": "Off",
+      "minutes": "{n} min"
+    },
     "settingsSaved": "Settings saved",
     "staffMembers": "Staff Members",
     "addStaffMember": "Add Staff Member",
@@ -290,13 +985,235 @@
     "position": "Position",
     "manageStaff": "Manage Staff",
     "selectPosition": "Select position...",
-    "theme": "Theme",
-    "themeDescription": "Customize timeline bar colors",
+    "theme": {
+      "bar": {
+        "open": "Open",
+        "booking": "Booking",
+        "recording": "Recording",
+        "completed": "Completed",
+        "blocked": "Blocked",
+        "processing": "Processing"
+      },
+      "label": "Theme"
+    },
+    "themeDescription": "Sidebar, theme, language",
     "resetToDefaults": "Reset to Defaults",
     "preview": "Preview",
     "tableColors": "Table Colors",
     "bookingSync": "Booking Sync",
-    "bookingSyncDescription": "Sync appointments from Quick Reserve into your booking calendar",
+    "bookingSyncDescription": "Sync with Quick Reserve etc.",
+    "stores": {
+      "title": "Stores",
+      "unnamedStore": "Unnamed store",
+      "ownerView": "Owner permissions",
+      "ownerDesc": "You can view and manage data (bookings, karute, AI analysis) across all stores.",
+      "storesCount": "{n} {n, plural, one {store} other {stores}} active",
+      "addStore": "Add",
+      "primaryBadge": "Main",
+      "activeBadge": "Active",
+      "staffUnit": "{n} staff",
+      "customersUnit": "{n} customers",
+      "viewing": "Active",
+      "switchTo": "Switch",
+      "edit": "Edit",
+      "emptyState": "No stores yet. Tap Add to register one.",
+      "activeStoreScopeNote": "The Switch button is a UI preview today — filtering each tab's data by the active store lights up when the stores table lands.",
+      "addStoreSubscription": {
+        "freeAtLimitTitle": "Upgrade to add another store",
+        "freeAtLimitBody": "The Free plan is limited to 1 store. Upgrade to Standard or Professional to add more.",
+        "seePlansCta": "See plans",
+        "enterpriseTitle": "Enterprise customer",
+        "enterpriseBody": "Contact your sales rep to add a store — additions are handled per your contract.",
+        "blockedStatusTitle": "Resolve your billing first",
+        "blockedStatusBody": "Your current subscription state blocks adding stores. Update your payment method first.",
+        "fixBillingCta": "Update payment",
+        "trialingTitle": "Add a store (trial)",
+        "trialingBody": "Adding a store is free during the trial. Billing starts when the trial ends on {trialEnd}.",
+        "addSeatCta": "Add",
+        "paidTitle": "Add a store",
+        "paidBody": "The {tier} plan charges {perStore}/month per store. Confirm to add the seat.",
+        "rowCurrent": "Current ({n} stores)",
+        "rowAfter": "After ({n} stores)",
+        "prorationNote": "Billing is prorated and reflected on your next invoice.",
+        "confirmAddCta": "Confirm + continue",
+        "cancel": "Cancel"
+      },
+      "form": {
+        "addTitle": "Add a new store",
+        "addDescription": "Register a new store. Staff and bookings can be configured later.",
+        "editTitle": "Edit store",
+        "editDescription": "Update name, address, and phone. Staff and booking data are unaffected.",
+        "storeName": "Store name",
+        "storeNamePlaceholder": "e.g., La Estro Shibuya",
+        "address": "Address",
+        "addressPlaceholder": "Shibuya, Tokyo...",
+        "phone": "Phone",
+        "cancel": "Cancel",
+        "save": "Add store",
+        "saveEdit": "Save changes",
+        "saved": "Saved"
+      }
+    },
+    "coaching": {
+      "title": "Coaching settings",
+      "intro": "Feature that analyzes session conversations and gives staff growth-oriented feedback (Phase 3 planned). Settings are scaffolded here so they're ready when the feature ships.",
+      "masterEnable": "Master toggle",
+      "masterEnableDesc": "Enable coaching for the whole store. Individual staff consent is still required.",
+      "weightsTitle": "Metric weights",
+      "weightsDesc": "Weight per metric for top-performer ranking (sums to 100%). Determines what AI-extracted patterns the system learns from.",
+      "weightRevenue": "Revenue",
+      "weightRebooking": "Rebooking rate",
+      "weightSatisfaction": "Customer satisfaction",
+      "weightPerCustomer": "Avg. ticket",
+      "minSessionsLabel": "Min. session count",
+      "minSessionsDesc": "Minimum sessions required to rank as a top performer. Filters out noise from low-data members.",
+      "autoDeclineLabel": "Auto-decline (days)",
+      "autoDeclineDesc": "If a coaching suggestion is not actioned within this many days, it's auto-rejected.",
+      "policyTitle": "Privacy policy template",
+      "policyDesc": "The text shown to staff at consent time. Spells out how conversation data is handled + what's shared with owners.",
+      "consentStatusTitle": "Staff consent status",
+      "consentStatusDesc": "Current consent state for each staff member. Only the staff themselves can revoke.",
+      "crossStaffNamesTitle": "Show other staff names",
+      "crossStaffNamesDesc": "Display other staff members' names in coaching dashboards. Turn off for anonymized view.",
+      "comingPhase": "Coming in Phase 3",
+      "label": "Coaching",
+      "phaseBanner": "Coaching ships in Phase 3. These settings are scaffolded so they're ready the moment the feature lights up. Sliders + toggles are interactive for preview purposes; values are NOT yet persisted.",
+      "masterSectionTitle": "Coaching feature",
+      "privacySectionTitle": "Cross-staff privacy",
+      "crossStaffReservation": "Show other staff's customer names in reservation + customer list",
+      "crossStaffReservationDesc": "When off, staff viewing OTHER staff's reservations or customer list see only time + service type — names are hidden. Owners + managers always see full info.",
+      "crossStaffKarute": "Show other staff's customer names in karute",
+      "crossStaffKaruteDesc": "Karute is often viewed by staff covering someone else's customer, so this defaults ON. Turn off only if your store's privacy policy requires stricter scoping.",
+      "weightsHelper": "Weights the AI uses when identifying top performers. Set so the total equals 100%.",
+      "weightTotal": "Total",
+      "minSessionsCardTitle": "Minimum sessions for analysis",
+      "minSessionsRowLabel": "Insight-generation threshold",
+      "minSessionsRowDesc": "Until a staff member hits this session count, the AI will NOT analyze growth areas for them. Safety guard against drawing conclusions from too little data.",
+      "minSessionsUnit": "sessions",
+      "provisionalKaruteTitle": "Auto-decline window for provisional karute",
+      "provisionalKaruteRowLabel": "Days before an unresolved provisional karute auto-declines",
+      "provisionalKaruteRowDesc": "If a first-session 'provisional karute' isn't resolved (closed-won or closed-lost) within this many days, it's auto-saved as declined. Declined karute is kept for AI coaching training data but hidden from the customer list.",
+      "provisionalKaruteUnit": "days",
+      "policySectionTitle": "Consent text template",
+      "policyHelper": "Text shown to staff in the consent dialog. Have legal review it before use.",
+      "policyDefault": "Coaching analyzes session conversations to give you growth-oriented feedback. Individual conversation details are visible only to you; owners + managers see category-level aggregates only.",
+      "consentStatusEmpty": "Staff consent status appears here after coaching is enabled. Each staff member's grant + revoke history is recorded.",
+      "enabledLabel": "On",
+      "disabledLabel": "Off",
+      "shownLabel": "Shown",
+      "hiddenLabel": "Hidden"
+    },
+    "subscription": {
+      "label": "Subscription",
+      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades.",
+      "tierLabels": {
+        "trial": "Trial",
+        "free": "Free",
+        "standard": "Standard",
+        "professional": "Professional",
+        "enterprise": "Enterprise"
+      },
+      "summary": {
+        "pastDueTitle": "There's an issue with your payment",
+        "pastDueBody": "Your last charge failed. Service will be restricted if the payment method isn't updated within 7 days.",
+        "pastDueCta": "Update payment",
+        "trialTitle": "Professional trial — {days} {days, plural, one {day} other {days}} left",
+        "trialEndedTitle": "Your trial has ended",
+        "trialBody": "Pick a plan before your trial ends. Otherwise your account downgrades to Free.",
+        "trialCta": "Choose a plan",
+        "freeTitle": "You're on the Free plan",
+        "freeBody": "1 store, 15 customers, 10 recordings/month. AI karute generation and memory auto-extraction unlock on upgrade.",
+        "freeCta": "See plans",
+        "activeTitle": "{tier} plan",
+        "activeBody": "{total} / month ({perStore} × stores) · Next charge {nextDate}",
+        "storeCount": "{n} {n, plural, one {store} other {stores}}",
+        "manageCta": "Manage subscription"
+      },
+      "page": {
+        "plansTitle": "Plans",
+        "plansDesc": "Switch plans any time. Upgrades take effect immediately and are prorated.",
+        "paymentTitle": "Payment method",
+        "expires": "Expires",
+        "updateCard": "Update",
+        "invoicesTitle": "Invoice history",
+        "download": "Download",
+        "trialInvoice": "Trial (free)",
+        "invoiceLine": "{tier} · {stores} {stores, plural, one {store} other {stores}}",
+        "dangerTitle": "Cancel",
+        "cancelTitle": "Cancel subscription",
+        "cancelBody": "You'll downgrade to Free and lose access to AI features"
+      },
+      "plans": {
+        "trialBannerTitle": "14-day free trial",
+        "trialBannerBody": "Try Professional free for 14 days. Cancel anytime during the trial.",
+        "trialBannerCta": "Start trial",
+        "freeTitle": "Free",
+        "freePrice": "¥0",
+        "freePitch": "Try the basics. No AI features, but core karute + customer management works.",
+        "freeFeature1": "1 store max",
+        "freeFeature2": "15 customers max",
+        "freeFeature3": "10 recordings / month",
+        "freeFeature4": "× AI karute auto-generation",
+        "freeFeature5": "× Customer memory auto-extract",
+        "freeFeature6": "× AI re-engagement drafts",
+        "freeFeature7": "× Coaching insights",
+        "standardTitle": "Standard",
+        "standardPrice": "{price} / store / month",
+        "standardPitch": "All the core AI features. Right for most single-site and small-team salons.",
+        "standardFeature1": "Unlimited stores",
+        "standardFeature2": "Unlimited customers",
+        "standardFeature3": "Unlimited recordings",
+        "standardFeature4": "AI karute auto-generation",
+        "standardFeature5": "Customer memory auto-extract",
+        "standardFeature6": "AI re-engagement drafts",
+        "standardFeature7": "Basic coaching insights",
+        "standardFeature8": "× Advanced coaching analytics",
+        "standardFeature9": "× Priority support",
+        "professionalTitle": "Professional",
+        "professionalPrice": "{price} / store / month",
+        "professionalPitch": "For team-run / multi-site operations. Advanced coaching + SYNQED Reserve bundle discount.",
+        "professionalFeature1": "Everything in Standard",
+        "professionalFeature2": "Advanced coaching analytics (categorical + growth trends)",
+        "professionalFeature3": "Priority AI action ranking",
+        "professionalFeature4": "SYNQED Reserve bundle discount (at launch)",
+        "professionalFeature5": "Priority support",
+        "professionalFeature6": "14-day free trial available",
+        "enterpriseTitle": "Enterprise",
+        "enterprisePitch": "For chains with 5+ stores. Volume discount, SLA, dedicated support, custom integrations — contact sales.",
+        "enterpriseCta": "Contact sales",
+        "actionCurrent": "Current plan",
+        "actionDowngradeFree": "Downgrade to Free",
+        "actionUpgrade": "Upgrade to {tier}",
+        "downgradeConfirm": "Downgrade to Free?\n\nYour store count drops to 1 and AI features (karute generation, memory extraction, outreach drafts) will no longer be available. Past data stays viewable.",
+        "mostPopular": "Popular",
+        "currentPill": "Current"
+      },
+      "cancel": {
+        "dialogTitle": "Cancel your subscription?",
+        "dialogBody": "Canceling affects your account in the following ways:",
+        "point1": "Store count drops to 1 (past data remains viewable)",
+        "point2": "AI karute generation, memory auto-extract, and re-engagement drafts stop working",
+        "point3": "You keep full access until the end of your current billing period",
+        "keepSubscription": "Keep subscription",
+        "confirmCancel": "Cancel subscription"
+      },
+      "paymentUpdate": {
+        "title": "Update payment method",
+        "body": "In production, Stripe's secure input form appears here. Your card details never reach Synqed's servers.",
+        "stripeElementsStub": "(Stub display today. Once Anthony integrates Stripe Elements, the card number / expiry / CVC inputs render here.)",
+        "gotIt": "Close"
+      },
+      "demo": {
+        "title": "Demo controls",
+        "body": "Preview what the owner sees in different subscription states. Not visible in production — Stripe webhooks drive status there.",
+        "statusLabel": "Status"
+      }
+    },
+    "auditLog": {
+      "searchPlaceholder": "Search events…",
+      "label": "Audit log"
+    },
+    "comingSoon": "Coming soon",
     "loginId": "Login ID",
     "loginIdPlaceholder": "Quick Reserve login ID",
     "autoSyncTitle": "Auto-sync every 15 minutes",
@@ -307,7 +1224,156 @@
     "businessTypeAutoNote": "AI classification categories will automatically adjust based on the business type.",
     "salonNamePlaceholder": "Your salon name...",
     "fullName": "Full name",
-    "enterPosition": "Enter position..."
+    "enterPosition": "Enter position...",
+    "coachingComingSoon": "Coaching settings — coming soon",
+    "timezone": "Timezone",
+    "timezoneDescription": "Used for booking and reminder timestamps.",
+    "setupComplete": "Initial setup complete",
+    "setupIncomplete": "Initial setup incomplete",
+    "rerunSetup": "Re-run setup",
+    "businessTypeProfile": "Tuned for",
+    "aiAutoSummary": "Auto-generate karute summary",
+    "aiAutoSummaryDescription": "Summarize each karute when it's saved.",
+    "aiAutoOutreach": "Auto-draft outreach messages",
+    "aiAutoOutreachDescription": "Suggest follow-up messages for customers (coming soon).",
+    "aiVoiceStyle": "Voice style",
+    "aiVoiceStyleFormal": "Formal",
+    "aiVoiceStylePolite": "Polite",
+    "aiVoiceStyleFriendly": "Friendly",
+    "aiVoiceStyleDescription": "Tone the AI uses when drafting messages.",
+    "aiCustomizeProfile": "Customize your AI profile",
+    "aiCustomizeProfileDescription": "Priority topics, coaching focus, top-performer patterns.",
+    "aiIntakeForms": "Intake form customization",
+    "aiIntakeFormsDescription": "Customize what each visit captures.",
+    "comingInV2": "Coming in v2",
+    "audioSource": "Microphone input",
+    "audioSourcePhone": "Phone",
+    "audioSourceBluetooth": "Bluetooth",
+    "audioSourceWired": "Wired",
+    "audioSourceDescription": "Where the recorder pulls audio from.",
+    "noiseSuppression": "Noise suppression",
+    "noiseSuppressionDescription": "Reduce background noise during recording.",
+    "speakerSeparation": "Speaker separation",
+    "speakerSeparationDescription": "Separate staff vs customer in the transcript.",
+    "voiceRecognition": "Improved voice recognition",
+    "voiceRecognitionDescription": "Uses enrolled staff voices to boost transcript accuracy.",
+    "recordingDisclosure": "Recording disclosure mode",
+    "disclosureModeA": "Mode A — Public consent",
+    "disclosureModeB": "Mode B — Posted notice",
+    "disclosureModeC": "Mode C — Verbal at start",
+    "privacyPolicyConfirmed": "Privacy policy reviewed",
+    "consentRequired": "Require recording consent",
+    "consentRequiredDescription": "Only meaningful in Mode C.",
+    "consentTemplate": "Consent template text",
+    "consentTemplatePlaceholder": "We record this consultation to improve your care…",
+    "enrollVoice": "Enroll voice",
+    "voiceEnrollmentSoon": "Voice enrollment — coming soon",
+    "contactSales": "Contact sales",
+    "subscriptionDescription": "Plan, billing, payment method",
+    "auditLogDescription": "Access history — APPI compliance + governance",
+    "storesDescription": "Manage and add stores",
+    "coachingTabDescription": "Coaching settings — coming soon.",
+    "planFree": "Free",
+    "planStandard": "Standard",
+    "planProfessional": "Professional",
+    "planCurrent": "Current plan",
+    "addStore": "Add store",
+    "mainStore": "Main",
+    "activeStore": "Active",
+    "stores1": "1 store",
+    "singleStoreNote": "Multi-store is coming soon. You're on a single-store plan today.",
+    "auditLogEmpty": "Audit logging starts when you upgrade to Professional. Talk to sales.",
+    "displayLanguage": "Display language",
+    "displayLanguageDescription": "Switches the entire UI.",
+    "displayMode": "Display mode",
+    "displayModeDescription": "Light, dark, or follow system.",
+    "modeLight": "Light",
+    "modeDark": "Dark",
+    "modeSystem": "System",
+    "brandColors": "Brand colors",
+    "brandColorsDescription": "Read-only — locked to the Synqed palette.",
+    "advancedTimelineColors": "Advanced — Timeline colors",
+    "providerLockedNote": "Other providers are coming soon.",
+    "provider": "Provider",
+    "save": "Save",
+    "closed": "Closed",
+    "voiceEnrolled": "Voice enrolled",
+    "syncSection": {
+      "errorPrefix": "Error: {error}",
+      "configSaved": "Config saved",
+      "saveFailed": "Failed to save",
+      "result": "Synced: {created} created, {updated} updated, {skipped} skipped",
+      "failedPrefix": "Failed: {msg}",
+      "unknownError": "Unknown"
+    },
+    "plan": {
+      "perMonth": "/month",
+      "feature": {
+        "singleStore": "Single store",
+        "staff3": "3 staff",
+        "standardRecording": "Standard recording",
+        "staff10": "10 staff",
+        "highQualityRecording": "High-quality recording",
+        "emailSupport": "Email support",
+        "multiStore": "Multi-store",
+        "unlimitedStaff": "Unlimited staff",
+        "auditLog": "Audit log",
+        "prioritySupport": "Priority support"
+      }
+    },
+    "audioQualityLabel": "Audio quality",
+    "autoStopLabel": "Auto-stop",
+    "intakeForm": {
+      "title": "Intake form customization",
+      "subtitle": "Add custom questions captured during the first visit. Custom fields today: {count}.",
+      "guardrail": "Intake exists to serve your customer. Don't add fields you can't justify needing.",
+      "baseScaffoldLabel": "Coming soon",
+      "baseScaffoldHint": "Per-business-type recommended fields (Synqed base) surface here once Anthony adds intakeHints to BusinessProfile. Until then, only the custom fields below flow into the intake form.",
+      "sectionTitles": {
+        "symptoms": "Symptoms / concerns",
+        "posture": "Posture / body state",
+        "beauty": "Beauty",
+        "goals": "Goals / hopes"
+      },
+      "itemCount": "{custom} custom",
+      "customHeader": "Your custom fields",
+      "addPlaceholderJa": "Label (Japanese)",
+      "addPlaceholderEn": "Label (English)",
+      "addButton": "Add",
+      "removeCustomTitle": "Remove",
+      "removeCustomConfirm": "Remove this field?",
+      "resetLabel": "Reset",
+      "resetConfirm": "Reset all customizations?\n\nThis can't be undone.",
+      "preview": {
+        "label": "Preview",
+        "greeting": "Welcome — please complete this intake",
+        "subtitle": "To give you the best care, please share the following.",
+        "emptyState": "No fields yet. Add fields in the editor on the left.",
+        "footer": "Answers are visible only to the staff caring for you."
+      }
+    },
+    "storesTab": "Stores",
+    "brandColorsDesc": "Synqed brand palette. Display only.",
+    "sidebarAppearance": "Sidebar appearance",
+    "sidebarAppearanceDesc": "Pick light or dark. Both are tuned for long working days.",
+    "sidebarLightLabel": "Light",
+    "sidebarLightDesc": "Bright and understated. Best for long sessions.",
+    "sidebarDarkLabel": "Dark",
+    "sidebarDarkDesc": "Stronger contrast. Prioritizes legibility.",
+    "sidebarApplied": "Applied",
+    "subtitle": "Manage organization, theme, AI, recording, staff, and booking sync settings.",
+    "backToList": "Back to settings",
+    "staffDescription": "Staff list and permissions",
+    "staffCountSuffix": "{n} staff",
+    "pinNotSet": "PIN not set",
+    "consentGranted": "Consented",
+    "voiceUnregistered": "Not enrolled",
+    "editStaffDialogTitle": "Edit staff member",
+    "editStaffDialogSubtitle": "Update {name}'s information. Changes are recorded in the audit log.",
+    "emailChangeNotice": "Changing the email requires re-confirmation.",
+    "voiceEnrollCta": "Enroll voice (optional)",
+    "voiceRevoke": "Delete voice profile",
+    "coachingDescription": "Master settings, weights, consent"
   },
   "aiActions": {
     "title": "AI Recommended Actions",
@@ -324,7 +1390,7 @@
   },
   "dataImport": {
     "title": "Data Import",
-    "description": "Import customers and appointments from CSV or Excel files",
+    "description": "Import customers, reservations, and karute from CSV / Excel / JSON files",
     "dropOrClick": "Drop a file here or click to upload",
     "supportedTypes": "Supports CSV, Excel (.xlsx), and JSON files",
     "chooseFile": "Choose File",
@@ -334,7 +1400,137 @@
     "excelTitle": "Excel (.xlsx)",
     "excelDescription": "First sheet is used. Headers in first row.",
     "jsonTitle": "JSON",
-    "jsonDescription": "Array of customer objects with name, phone, email fields."
+    "jsonDescription": "Array of customer objects with name, phone, email fields.",
+    "stepper": {
+      "stepUpload": "Upload",
+      "stepMapping": "Mapping",
+      "stepValidate": "Validate",
+      "stepDone": "Done"
+    },
+    "scope": {
+      "question": "What are you importing?",
+      "scopeCustomers": "Customers",
+      "scopeCustomersDesc": "Names, contact info, basic profile",
+      "scopeReservations": "Reservations",
+      "scopeReservationsDesc": "Dates, services, assigned staff",
+      "scopeKarute": "Karute",
+      "scopeKaruteDesc": "Session history, notes"
+    },
+    "dropzone": {
+      "dropOrClick": "Drop {scope} data or click to upload",
+      "supportedFormats": "CSV / Excel (.xlsx) / JSON",
+      "maxSize": "Up to 25MB",
+      "chooseFile": "Choose file",
+      "csvTitle": "CSV",
+      "csvDesc": "UTF-8 or Shift-JIS encoded. Auto-detects column mapping.",
+      "excelTitle": "Excel (.xlsx)",
+      "excelDesc": "First sheet is used. Headers in first row.",
+      "jsonTitle": "JSON",
+      "jsonDesc": "Array of objects. Field names map directly.",
+      "recommendedCols": "Recommended columns ({scope})"
+    },
+    "recent": {
+      "title": "Recent imports",
+      "count": "{n}",
+      "successRate": "Success {pct}%",
+      "failedCount": "Failed {n}",
+      "downloadAria": "Download original file",
+      "emptyState": "No imports yet."
+    },
+    "status": {
+      "statusCompleted": "Completed",
+      "statusProcessing": "Processing",
+      "statusFailed": "Failed",
+      "statusValidating": "Validating"
+    }
+  },
+  "dataExport": {
+    "title": "Data Export",
+    "eyebrow": "Data Portability",
+    "description": "Pull customers, bookings, and karute records out of Karute as CSV, Excel, or JSON. APPI-aware — set redaction once, applies across every column.",
+    "switchToImport": "Switch to Import",
+    "exportSettings": "Export settings",
+    "stepScope": "Scope",
+    "stepColumns": "Columns",
+    "stepFilter": "Filter",
+    "stepDownload": "Download",
+    "scopeQuestion": "What do you want to export?",
+    "fileFormat": "File format",
+    "recordsAvailable": "{count} records available",
+    "notAvailableFor": "Not available for {scope}",
+    "pdfHint": "PDF exports use the per-karute print layout. One file per record, packed into a ZIP for batches above 1.",
+    "columns": "Columns",
+    "columnsSummary": "{selected} selected · {total} available",
+    "recommendedNote": "Recommended columns are pre-selected.",
+    "presetRecommended": "Recommended",
+    "presetNoPii": "No PII",
+    "presetAll": "All time",
+    "presetMinimal": "Minimal",
+    "selectedColumns": "Selected columns",
+    "noColumnsSelected": "No columns selected — file would be empty.",
+    "piiCount": "{count} PII column",
+    "piiCountPlural": "{count} PII columns",
+    "redacted": "redacted",
+    "hideColumns": "Hide full column list",
+    "showColumns": "Show full column list",
+    "filterColumns": "Filter columns…",
+    "required": "Required",
+    "rec": "Rec.",
+    "pii": "PII",
+    "filter": "Filter",
+    "noFilters": "no filters",
+    "filtersActive": "{count} active",
+    "clearAll": "Clear all",
+    "narrowDescription": "Narrow which records make it into the file.",
+    "dateRange": "Date range",
+    "dateRegistered": "registered at",
+    "dateScheduled": "scheduled for",
+    "dateSession": "session date",
+    "preset7d": "Last 7 days",
+    "preset30d": "Last 30 days",
+    "preset90d": "Last 90 days",
+    "presetYtd": "Year to date",
+    "presetCustom": "Custom…",
+    "advanced": "Advanced",
+    "advancedDescription": "Privacy + delivery options. Defaults match Karute's APPI compliance baseline.",
+    "redactPii": "Redact personal information",
+    "redactPiiRecommended": "Recommended",
+    "redactPiiDescription": "Replace names, contact info, and transcript text with pseudonymous tokens. IDs are preserved so you can re-join with the source. Required for off-store sharing under APPI.",
+    "runSchedule": "Run schedule",
+    "scheduleOnce": "One-time",
+    "scheduleWeekly": "Weekly",
+    "scheduleMonthly": "Monthly",
+    "scheduleHintWeekly": "We'll email a signed link every Monday at 09:00 JST.",
+    "scheduleHintMonthly": "We'll email a signed link on the 1st of the month at 09:00 JST.",
+    "karuteShareWarning": "Karute exports include diarized transcripts and customer memory. Verify the recipient has signed your data processing agreement before sharing externally.",
+    "exportSummary": "Export summary",
+    "scope": "Scope",
+    "format": "Format",
+    "filters": "Filters",
+    "noneApplied": "None",
+    "privacy": "Privacy",
+    "redactPiiShort": "Redact PII",
+    "rawValues": "Raw values",
+    "exportRows": "Export {count} rows",
+    "preparing": "Preparing…",
+    "auditNote": "Exports are logged in the audit trail. Files are encrypted at rest and a signed-URL link expires after 24 hours.",
+    "generating": "Generating",
+    "exportReady": "Export ready",
+    "linkValid": "Link valid for 24 hours.",
+    "downloadFile": "Download {ext}",
+    "copySignedUrl": "Copy signed URL",
+    "recentExports": "Recent exports",
+    "refresh": "Refresh",
+    "completed": "Completed",
+    "failed": "Failed",
+    "rows": "rows",
+    "rowsExported": "rows exported",
+    "cols": "{count} cols",
+    "filtersCount": "{count} filters",
+    "comingSoonExport": "This combination is coming soon — only customers + CSV is wired today.",
+    "exportFailed": "Export failed — please try again.",
+    "footerNote": "All exports are logged in the audit trail",
+    "footerVersion": "Karute · Data portability v1"
   },
   "staff": {
     "switchStaff": "Switch Staff",
@@ -363,7 +1559,8 @@
     "pinRemoved": "PIN removed for {name}",
     "removePin": "Remove PIN",
     "setPin": "Set PIN",
-    "pin": "PIN"
+    "pin": "PIN",
+    "resetPin": "Reset PIN"
   },
   "miniRecorder": {
     "paused": "Paused",
@@ -409,6 +1606,11 @@
     "noPhotosYet": "No photos yet",
     "uploadPhotosDescription": "Upload photos to track visual progress over time",
     "uploadFirstPhoto": "Upload First Photo",
+    "uploading": "Uploading...",
+    "deletePhoto": "Delete photo",
+    "deletePhotoConfirm": "Are you sure you want to delete this photo?",
+    "photoUploadError": "Failed to upload photo",
+    "photoDeleteError": "Failed to delete photo",
     "customerDetails": "Customer Details",
     "registered": "Registered",
     "totalVisits": "Total Visits",
@@ -444,7 +1646,35 @@
     "suggestion2": "Any trends in recent clients?",
     "suggestion3": "Who needs a follow-up?",
     "suggestion4": "How can I increase revenue?",
-    "error": "Sorry, something went wrong."
+    "error": "Sorry, something went wrong.",
+    "headerTitle": "AI Assistant",
+    "headerSubtitle": "Ask anything about your business — answers ground in your karute, customer, and recording data.",
+    "dataConnected": "Data connected",
+    "noReply": "Sorry, no reply.",
+    "recommendedPrompts": "Recommended prompts",
+    "conversation": "Conversation",
+    "startHint": "Tap a prompt above or type your own question to start a conversation.",
+    "thinking": "Thinking through your business data…",
+    "inputPlaceholder": "Ask about your business — try \"Which customers are due for rebook this week?\"",
+    "sendAria": "Send",
+    "inputHint": "Answers are grounded in your business data · Shift + Enter for a new line",
+    "sources": "Sources",
+    "tryPrompt": "Try this prompt",
+    "profileHint": {
+      "notSet": "No business type set",
+      "notSetBody": "Set your business type in Settings to tune the AI to your shop's vocabulary and unlock business-type-specific prompt suggestions.",
+      "setupCta": "Set up",
+      "tunedFor": "Tuned for",
+      "changeTitle": "Change business type in Settings",
+      "change": "Change"
+    }
+  },
+  "switcher": {
+    "switchStaff": "Switch staff",
+    "enterPinFor": "Enter {name}'s PIN",
+    "incorrectPin": "Incorrect PIN",
+    "switchOut": "Switch out",
+    "selectStaff": "Select staff"
   },
   "karuteExport": {
     "title": "Karute",
@@ -454,5 +1684,488 @@
     "entries": "Entries",
     "quote": "Quote",
     "transcript": "Transcript"
+  },
+  "coaching": {
+    "common": {
+      "privacyLayer1Badge": "Only you can see this",
+      "scaffoldLabel": "Coming soon"
+    },
+    "consentBadge": {
+      "granted": "Consented",
+      "notYet": "Not yet",
+      "grantedTooltip": "Granted on {date}"
+    },
+    "consent": {
+      "bannerTitle": "Coaching consent required",
+      "bannerBody": "AI analyzes your sessions to support your growth. Review what's shared with the owner before deciding.",
+      "bannerCta": "Review",
+      "summaryGranted": "Coaching enabled",
+      "summaryDeclined": "Coaching disabled",
+      "summaryReview": "Review again",
+      "headerTitle": "About the coaching feature",
+      "section1Title": "What's recorded + analyzed",
+      "section1Bullet1": "Session conversations (audio + transcript)",
+      "section1Bullet2": "Your conversational patterns and style",
+      "section1Bullet3": "Performance metrics",
+      "section2Title": "What owners + managers can see",
+      "section2Bullet1": "Your performance metrics (closing rate, rebooking, etc.)",
+      "section2Bullet2": "Growth trends",
+      "section2Bullet3": "AI category-level growth analysis",
+      "section2Bullet4": "Learning-module progress",
+      "section3Title": "What owners + managers CANNOT see",
+      "section3Bullet1": "Conversation audio + transcripts",
+      "section3Bullet2": "Individual session details",
+      "section3Bullet3": "Specific customer exchanges",
+      "section3Bullet4": "Personal learning recommendations sent to you",
+      "section4Title": "How Synqed uses this data",
+      "section4Intro": "Synqed is the service provider behind this product — a separate party from your salon's owner and manager. To operate the coaching features and continuously improve them, Synqed accesses data within the scope below.",
+      "section4Bullet1": "Anonymized pattern extraction (powers the team-shared pattern library)",
+      "section4Bullet2": "Continuous AI improvement (training data is anonymized; no individual can be re-identified)",
+      "section4Bullet3": "Sub-processors: Anthropic (model inference), Supabase (data storage)",
+      "section4Bullet4": "Human access is limited to deletion requests, technical support, and legal compliance — all audit-logged",
+      "reassurance": "This split protects your privacy while still letting you receive the support you need.",
+      "retentionLabel": "Data retention period",
+      "retentionTbd": "Up to 365 days per session. Full deletion within 30 days of a deletion request.",
+      "declineFootnote": "Declining won't affect your work in any way.",
+      "checkboxLabel": "I understand the data-access split above",
+      "agree": "Agree",
+      "decline": "Decline"
+    },
+    "panel": {
+      "panelTitle": "AI coaching",
+      "panelDescription": "Real-time suggestions for this session",
+      "staffOnlyLabel": "Just for you",
+      "mobileRowTitle": "AI coaching",
+      "mobileRowCount": "Real-time session tips · {n}",
+      "mobileRowEmpty": "Real-time session tips",
+      "collapseAria": "Collapse",
+      "intro": "Real-time suggestions during the session. Owners and managers can't see this.",
+      "emptyHint": "During a session, AI analyzes the last 2 minutes of conversation every ~30s and suggests next questions, top-performer phrasing, and closing timing. Lights up when Anthony wires the Haiku-backed generator + the Supabase Realtime channel (filtered by session_id + staff_id)."
+    },
+    "header": {
+      "title": "Coaching",
+      "subtitleStaff": "Learn from top performers and grow your own technique.",
+      "subtitleOwner": "Support team growth across performance categories."
+    },
+    "staff": {
+      "monthlyGrowth": {
+        "title": "This month's growth",
+        "subtitle": "Your staff-private data (Layer 1)",
+        "body": "AI analyzes your sessions and surfaces your monthly score, change-from-last-month, sessions analyzed, and patterns mastered vs in-progress. Lights up when Anthony wires usePersonalGrowthData().",
+        "vsLastMonth": "vs last month",
+        "statSessionsAnalyzed": "Sessions analyzed",
+        "statPatternsMastered": "Patterns mastered",
+        "statPatternsInProgress": "In progress",
+        "emptyHint": "AI will analyze your sessions and surface your monthly score + pattern mastery here. Lights up when Anthony wires growth-data retrieval.",
+        "seeFullGrowth": "See full growth"
+      },
+      "learnFromTop": {
+        "title": "Learn from top performers",
+        "subtitle": "Anonymized team-shared data (Layer 2)",
+        "body": "Conversational patterns extracted from the salon's top performers, surfaced without identifying who. AI extracts natural conversation framing + proposal phrasing and suggests how to apply them in today's session.",
+        "seeAll": "See all",
+        "emptyHint": "AI-extracted patterns from the salon's top performers surface here, anonymized + ready to apply in today's session. Lights up when Anthony wires the pattern-extraction pipeline."
+      },
+      "strengths": {
+        "title": "Your strengths",
+        "body": "AI extracts your strongest categories from past sessions — proposals + conversation patterns you can lean into with confidence. Staff-private (Layer 1).",
+        "emptyHint": "AI analyzes your past sessions and surfaces your strongest categories + conversation patterns here. Lights up when Anthony wires growth-data retrieval."
+      },
+      "nextFocus": {
+        "title": "Next focus",
+        "body": "Growth-opportunity categories + a concrete action you can try in today's session to develop them. Staff-private (Layer 1).",
+        "emptyHint": "AI identifies growth-opportunity categories + suggests concrete actions you can try in today's session. Lights up when Anthony wires growth-data retrieval."
+      },
+      "recentModules": {
+        "title": "Recent learning modules",
+        "subtitle": "Modules assigned to you by the owner (Layer 1)",
+        "body": "Learning modules assigned by the owner (scripts, videos, tests) with progress. Lights up when Anthony wires useLearningModulesData().",
+        "durationMin": "{n} min",
+        "assignedBy": "from {name}",
+        "emptyHint": "Modules assigned by your owner — with progress — surface here. Lights up when Anthony wires the module-assignment retrieval."
+      }
+    },
+    "owner": {
+      "teamPerformance": {
+        "title": "Team performance",
+        "subtitle": "Aggregated data (Layer 3)",
+        "body": "Monthly summary of the team's key metrics (revenue, rebooking rate, customer satisfaction, per-customer revenue). Aggregated values only — no individual staff identification. Lights up when Anthony wires useStaffPerformanceData().",
+        "cardTitle": "Store-wide performance",
+        "vsLastMonth": "vs last month",
+        "metricClosing": "Avg closing rate",
+        "metricRebooking": "Avg rebooking rate",
+        "metricAvgRevenue": "Avg per-customer revenue",
+        "metricSatisfaction": "Avg satisfaction",
+        "totalSessionsLabel": "Total sessions this month ·",
+        "emptyHint": "Store-wide aggregated key metrics surface here. Lights up when Anthony wires the team summary retrieval."
+      },
+      "teamTrends": {
+        "title": "Team trends",
+        "tileGrowing": "Growing",
+        "tileStable": "Stable",
+        "tileNeedsSupport": "Needs support",
+        "headCount": " staff",
+        "focusAreasHeader": "Team-wide focus areas (by frequency)",
+        "emptyHint": "Head-count of growing / stable / needs-support staff plus AI-extracted focus-area frequency ranking surfaces here. Lights up when Anthony wires useStaffPerformanceData()."
+      },
+      "topPerformers": {
+        "cardTitle": "Top performers",
+        "cardIntro": "Top tier on aggregate metrics. Their patterns power the (anonymized) team pattern library.",
+        "closingShort": "Close {pct}%",
+        "rebookingShort": "Rebook {pct}%",
+        "emptyHint": "Named top-performing staff with closing + rebooking rates surface here (owner-only, Layer 2 named). Lights up when Anthony wires useStaffPerformanceData()."
+      },
+      "staffTable": {
+        "cardTitle": "Staff list",
+        "headerSummary": "{n} staff · closing rate = closed karute ÷ (closed + lost)",
+        "headerSummaryEmpty": "Per-staff metrics appear once staff grant consent",
+        "colStaff": "Staff",
+        "colClosing": "Close rate",
+        "colRebooking": "Rebook rate",
+        "colRevenue": "Avg revenue",
+        "colSatisfaction": "Satisfaction",
+        "colTrend": "Trend",
+        "sessionsCount": "{n} sessions",
+        "vsLastMonth": "vs last month",
+        "emptyHint": "Monthly performance metrics for consenting staff (closing, rebooking, avg revenue, satisfaction, growth trend) surface here as a sortable table. Each row links to /coaching/staff/[id]. Lights up when Anthony wires useStaffPerformanceData()."
+      },
+      "assignModules": {
+        "cardTitle": "Assign learning modules",
+        "cardIntro": "Pick a module and assign it to the staff you want to support. They receive a notification when assigned.",
+        "durationMin": "{n} min",
+        "seeAllModules": "See all modules",
+        "emptyHint": "Top 3 AI-recommended unassigned modules + quick-assign chips for consenting staff surface here. Lights up when Anthony wires useLearningModulesData() and the learning_assignments insert/delete server action."
+      }
+    },
+    "staffDrill": {
+      "back": "Back to coaching",
+      "ownerOnlyNotice": "This page is for owners and managers only.",
+      "topPerformerBadge": "Top performer",
+      "roleAndTenure": "{role} · {months} mo tenure · {sessions} sessions this month",
+      "assignModulesCta": "Assign learning modules",
+      "privacyNotice": "Conversation content and per-session detail for this staff member are intentionally hidden. Only performance trends and growth areas surface here.",
+      "metricClosing": "Close rate",
+      "metricRebooking": "Rebook rate",
+      "metricRevenue": "Avg revenue",
+      "metricSatisfaction": "Satisfaction",
+      "metricSatisfactionValue": "{score} / 5.0",
+      "metricScaffoldValue": "—",
+      "metricsScaffoldHint": "Monthly closing / rebooking / avg-revenue / satisfaction aggregates surface here. Lights up when Anthony wires useStaffPerformanceData().",
+      "chartTitle": "{name}'s growth trajectory",
+      "chartSubtitle": "Monthly category-score series",
+      "chartEmptyHint": "Monthly category-score series chart surfaces here. Layer 2 aggregate only (no AI). Lights up when Anthony wires useStaffPerformanceData() including the trajectoryL2 series.",
+      "gapTitle": "Growth-area analysis",
+      "gapSubtitle": "Categorical · gap to top performers",
+      "gapPriorityHigh": "High priority",
+      "gapPriorityMedium": "Medium priority",
+      "gapPriorityStable": "Stable",
+      "gapDiffFromTop": "Gap to top {pct}%",
+      "gapEmptyHint": "Categorical growth areas + gap to top-performer baseline surface here. Weekly claude-sonnet batch; prompt guard rejects any output that names customers or quotes sessions — only 'growth areas' and 'support points' vocabulary is allowed. Lights up when Anthony wires useCategoricalInsightsData(staffId).",
+      "modal": {
+        "title": "Opening {name}'s individual data",
+        "description": "For privacy, conversation recordings, transcripts, and specific customer interactions are not shown. Only performance metrics and growth areas (categorical level) are displayed.",
+        "cancel": "Cancel",
+        "confirm": "Confirm"
+      }
+    },
+    "modules": {
+      "back": "Back to coaching",
+      "title": "Learning modules",
+      "subtitle": "An AI-curated library of short learning modules for your team. Filter by category or staff and assign what helps each person grow.",
+      "aiCalloutTitle": "AI proposes new modules every week",
+      "aiCalloutBody": "Modules are generated from your top performers' behaviour patterns. Effective modules get weighted higher in future recommendations.",
+      "staffContextTitle": "Choosing modules for {name}",
+      "staffContextBody": "Clear the filter to pick assignees from the full team.",
+      "clearStaff": "Clear staff filter",
+      "searchPh": "Search by title, category...",
+      "clearFilters": "Clear",
+      "tab": {
+        "all": "All",
+        "assigned": "Assigned",
+        "ai": "AI-generated",
+        "unassigned": "Unassigned"
+      },
+      "allCategories": "All categories",
+      "emptyTitle": "No modules match these filters",
+      "emptyBody": "Try changing the search or clearing filters. AI-generated modules arrive weekly as the top-performer pattern bank grows.",
+      "scaffoldHint": "An AI-curated catalog of learning modules, search / tab / category filters, a 3-column card grid, and per-staff assignment chips surface here. Lights up when Anthony wires useLearningModulesData() + useStaffPerformanceData(). Assignment writes go through a learning_assignments INSERT/DELETE server action (owner-only).",
+      "durationMin": "{n} min",
+      "completion": "Progress",
+      "assignTo": "Assign to",
+      "assignedCount": "Assigned to {n}",
+      "noEligibleStaff": "No staff have given coaching consent yet.",
+      "aiGenerated": "AI-generated"
+    },
+    "patterns": {
+      "back": "Back to coaching",
+      "title": "Top performer patterns",
+      "subtitleStaff": "Learn ready-to-try patterns from your top performers — examples you can apply in today's session.",
+      "subtitleOwner": "Team-shared pattern library. Source attribution is anonymized for staff viewers.",
+      "learnersFooter": "Staff currently learning this · {n}",
+      "sectionEmptyHint": "AI-extracted patterns from top performers (the actual phrasing, how many staff are learning it, source attribution for owners) surface here. Lights up when Anthony wires useTopPerformerPatternsData(). Weekly batch; source name stripped server-side for staff viewers.",
+      "categories": {
+        "counseling_questions": {
+          "title": "Counseling questions",
+          "description": "Question patterns top performers use to understand the customer's real concerns. Lifted verbatim from real sessions."
+        },
+        "conversation_flow": {
+          "title": "Conversation flow",
+          "description": "Structural patterns for moving naturally from counseling → recommendation → rebooking in one conversation."
+        },
+        "closing": {
+          "title": "Closing patterns",
+          "description": "Timing and phrasing that helps the customer decide with confidence."
+        },
+        "rebooking": {
+          "title": "Rebooking conversation",
+          "description": "Patterns for co-designing the next visit's goal and turning it into a natural booking."
+        },
+        "objection_handling": {
+          "title": "Handling objections",
+          "description": "Approaches for receiving '高い' / '考えます' and reframing as options."
+        }
+      }
+    },
+    "growth": {
+      "back": "Back to coaching",
+      "title": "Your growth",
+      "subtitle": "A private, detailed view of your own growth — only you can see this.",
+      "staffOnlyNotice": "This is a staff-private growth page. Owners and managers only see categorical growth areas via the coaching dashboard.",
+      "chartTitle": "Growth trajectory",
+      "chartEmptyHint": "Your monthly score trajectory chart surfaces here (Layer 1, staff-private). Lights up when Anthony wires usePersonalGrowthData().",
+      "monthAxisLabel": "{mm}",
+      "statSessions": "Sessions analyzed",
+      "statMastered": "Patterns mastered",
+      "statInProgress": "In progress",
+      "masteredTitle": "Pattern mastery",
+      "masteredHeader": "Mastered · {n}",
+      "inProgressHeader": "In progress · {n}",
+      "masteredEmpty": "No mastered patterns yet.",
+      "inProgressEmpty": "No patterns in progress.",
+      "masteredEmptyHint": "Your assigned learning modules and per-module completion rate surface here. Lights up when Anthony wires useLearningModulesData({ assignedTo }).",
+      "insightsTitle": "Recent coaching suggestions",
+      "insightsIntro": "Specific suggestions you received during individual sessions. Only you can see these.",
+      "insightsEmptyHint": "Past in-session and post-session AI suggestions, plus your outcome on each (worked / tried / skipped / unconfirmed), surface here. Lights up when Anthony wires usePersonalCoachingInsightsData().",
+      "outcomeWorked": "Worked",
+      "outcomeTried": "Tried",
+      "outcomeSkipped": "Skipped",
+      "outcomeUnconfirmed": "Unconfirmed",
+      "transcriptsTitle": "Conversation excerpts + coaching notes",
+      "transcriptsIntro": "Excerpts from your sessions with AI coaching notes attached to specific moments. Owners and managers cannot see this.",
+      "coachingNoteLabel": "AI coaching note",
+      "transcriptsEmptyHint": "Conversation excerpts from your sessions plus the AI coaching notes attached at specific timestamps surface here (the most sensitive Layer-1 surface). Lights up when Anthony wires useSessionTranscriptsData()."
+    },
+    "data": {
+      "back": "Back to coaching",
+      "title": "Your data",
+      "subtitleStaff": "What gets recorded for coaching, and exactly what your owners can and can't see.",
+      "subtitleOwner": "This page is the staff's own privacy disclosure. Owners and managers can read it as reference.",
+      "transparencyLink": "Your data",
+      "missionTitle": "How we think about privacy",
+      "missionBody": "Coaching analyzes individual session content to support your growth — but your conversations and personal AI suggestions are intentionally hidden from owners and managers. Support is for the team; privacy is yours.",
+      "staffOnly": {
+        "title": "Only you can see",
+        "recordings": "Conversation recordings + transcripts",
+        "sessionDetail": "Individual session detail",
+        "customerInteractions": "Specific customer interactions",
+        "personalSuggestions": "Personal learning suggestions you receive",
+        "personalNotes": "Personal notes"
+      },
+      "ownerVisible": {
+        "title": "Owners and managers see",
+        "metrics": "Performance metrics (close rate, rebook rate, etc.)",
+        "trends": "Growth trends",
+        "categoricalAi": "AI growth-area analysis (categorical only)",
+        "moduleProgress": "Learning module progress"
+      },
+      "synqedAccess": {
+        "title": "How Synqed uses this data",
+        "intro": "Synqed is the service provider behind this product — a separate party from your salon's owner and manager. To operate the coaching features and continuously improve them, Synqed accesses data within the scope below.",
+        "patternMining": "Anonymized pattern extraction (powers the team-shared pattern library)",
+        "modelImprovement": "Continuous AI improvement (training data is anonymized; no individual can be re-identified)",
+        "subProcessors": "Sub-processors: Anthropic (model inference), Supabase (data storage)",
+        "humanAccess": "Human access is limited to deletion requests, technical support, and legal compliance — all audit-logged"
+      },
+      "reviewConsentTitle": "Review your consent",
+      "reviewConsentBody": "Revisit the coaching data-use scope any time.",
+      "reviewConsentCta": "See consent details",
+      "deletionTitle": "Request data deletion",
+      "deletionBody": "Delete the coaching data accumulated specifically for you (recordings, transcripts, personal suggestions). The owner is notified, but the decision is yours alone.",
+      "deletion": {
+        "cta": "Request data deletion",
+        "confirmTitle": "Request deletion of your coaching data",
+        "confirmBody": "Request deletion of the data accumulated for you by coaching (recordings, transcripts, personal AI suggestions, analysis output). Business-level performance metrics are not included in this request.",
+        "cancel": "Cancel",
+        "submit": "Send request",
+        "submittedTitle": "Request received",
+        "submittedBody": "The owner has been notified. Processing can take up to 30 days."
+      }
+    },
+    "devPreview": {
+      "label": "Dev preview",
+      "regionLabel": "Coaching dev preview",
+      "asReal": "Real ({role})",
+      "renderingAs": "Currently rendering as: {role}",
+      "clearAria": "Clear preview override",
+      "role": {
+        "owner": "Owner",
+        "staff": "Staff"
+      }
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "description": "Recent activity and alerts.",
+    "markAllRead": "Mark all read",
+    "clearRead": "Clear read",
+    "today": "Today",
+    "thisWeek": "This week",
+    "older": "Older",
+    "emptyTitle": "You're all caught up",
+    "emptyBody": "Bookings, billing, memory reviews, coaching reports, and mentions will surface here.",
+    "scaffoldLabel": "Coming soon",
+    "scaffoldBody": "Notifications system is in development. Once Anthony wires the Supabase notifications table + realtime subscription, booking / billing / coaching events surface here automatically.",
+    "justNow": "just now",
+    "minutesAgo": "{n} min ago",
+    "hoursAgo": "{n}h ago",
+    "daysAgo": "{n}d ago"
+  },
+  "profile": {
+    "pageTitle": "Profile",
+    "pageSubtitle": "Your account + recent activity.",
+    "activitySection": "Activity this month",
+    "statSessionsMonth": "Sessions",
+    "statRecordingsMonth": "Recordings",
+    "statConsentRate": "Consent rate",
+    "statUniqueCustomers": "Unique customers",
+    "scaffoldLabel": "Coming soon",
+    "activityScaffoldBody": "Your this-month sessions count, recordings count, consent rate, and unique customers will surface here. Lights up when Anthony wires the RLS-scoped monthly aggregate queries (staff_id = auth.uid()).",
+    "quickLinksSection": "Quick links",
+    "linkMyGrowth": "Your growth",
+    "linkMyData": "Privacy & data",
+    "linkOpenSettings": "Open settings",
+    "preferencesSection": "Preferences",
+    "languageLabel": "Language",
+    "languageJa": "日本語",
+    "languageEn": "English",
+    "logoutButton": "Log out",
+    "logoutPending": "Logging out…",
+    "versionLabel": "Version"
+  },
+  "discreetIndicator": {
+    "dotAria": "Recording. Long-press for controls",
+    "dotTitle": "Long-press for controls",
+    "recordingActive": "Recording",
+    "close": "Close",
+    "modeHint": "Intentionally subtle so the customer doesn't notice. Recording proceeds normally.",
+    "privacyNote": "Relies on your store's privacy policy disclosing AI recording as a purpose of use.",
+    "openPage": "Open recording page",
+    "stop": "Stop recording"
+  },
+  "messageCompose": {
+    "title": "Compose message",
+    "noCustomer": "Customer not found",
+    "copyPasteHint": "Copy and paste into your own messaging app",
+    "aiDraftedBadge": "AI draft — review before using",
+    "bodyPlaceholder": "Message body…",
+    "charCount": "{n} chars",
+    "softLimitHint": "(long messages tend to see lower read rates)",
+    "channelLabel": "Send via:",
+    "channelEmail": "Email",
+    "channelOther": "Other",
+    "workflowExplainer": "Copy this message and send it through whichever app you normally use with this customer (LINE, SMS, email, etc.). Click 'Copy & mark sent' to log the send.",
+    "copyOnly": "Copy",
+    "copied": "Copied",
+    "copyAndMarkSent": "Copy & mark sent",
+    "markedSentTitle": "Logged",
+    "markedSentDesc": "Message for {name} copied to clipboard and logged as sent. Paste it into LINE or wherever you talk to them.",
+    "cancel": "Cancel"
+  },
+  "landing": {
+    "header": {
+      "login": "Log in"
+    },
+    "hero": {
+      "badge": "AI-Powered Session Recording",
+      "title": "Never write a karute by hand again",
+      "subtitle": "Record your client sessions. Karute uses AI to transcribe, extract key details, and generate a complete karute — automatically.",
+      "ctaPrimary": "Get started free",
+      "ctaSecondary": "See how it works"
+    },
+    "stats": {
+      "sessionsRecorded": "Sessions recorded",
+      "timeSaved": "Time saved",
+      "salonsClinics": "Salons & clinics"
+    },
+    "howItWorks": {
+      "heading": "How it works",
+      "subtitle": "Three simple steps to go from session to karute",
+      "stepPrefix": "Step {step}",
+      "step1Title": "Record",
+      "step1Description": "Hit record during your session. Karute captures the conversation in the background while you focus on your client.",
+      "step2Title": "AI Processes",
+      "step2Description": "Karute transcribes the audio, extracts preferences, treatments, and concerns, then generates a structured summary.",
+      "step3Title": "Review & Save",
+      "step3Description": "Review the AI-generated karute, make any edits, and save. It's linked to the customer and appointment automatically."
+    },
+    "features": {
+      "heading": "Everything you need",
+      "voiceRecording": {
+        "title": "Voice Recording",
+        "description": "Record sessions with one tap. Works on any device with a microphone."
+      },
+      "aiTranscription": {
+        "title": "AI Transcription",
+        "description": "Accurate speech-to-text in Japanese and English, powered by Whisper."
+      },
+      "smartExtraction": {
+        "title": "Smart Extraction",
+        "description": "AI identifies preferences, treatments, health concerns, and more from the conversation."
+      },
+      "appointmentSync": {
+        "title": "Appointment Sync",
+        "description": "Link recordings to appointments. See your schedule and karute history in one place."
+      },
+      "multiStaff": {
+        "title": "Multi-Staff",
+        "description": "Each staff member has their own profile, schedule, and karute records with PIN protection."
+      },
+      "exportShare": {
+        "title": "Export & Share",
+        "description": "Export karute as PDF or text. Share with your team or print for the client."
+      }
+    },
+    "cta": {
+      "heading": "Ready to automate your karute?",
+      "subtitle": "Join salons and clinics already saving hours every week with AI-powered session notes.",
+      "button": "Get started free"
+    },
+    "footer": {
+      "copyright": "© {year} Karute. All rights reserved."
+    }
+  },
+  "voiceEnrollment": {
+    "title": "Enroll your voice (optional)",
+    "description": "Enrolling {name}'s voice slightly improves speaker recognition accuracy. Enrollment is optional — diarization works without it.",
+    "privacyTitle": "About privacy",
+    "privacyItem1": "Recorded audio is converted to a voice embedding (256-dim vector); the raw audio is then discarded.",
+    "privacyItem2": "Embeddings are used only by the server-side diarization job; they're never sent back to the app.",
+    "privacyItem3": "Stored in encrypted storage compliant with Japan's Personal Information Protection Act (APPI).",
+    "privacyItem4": "Click 'delete' at any time to permanently remove your voice profile within 30 days.",
+    "biometricNotice": "Voice embeddings are classified as biometric data. Enrollment is fully voluntary — never required for work. Without enrollment, diarization still works via the 'first speaker = staff' heuristic.",
+    "consentCheck": "I understand the privacy conditions above and consent to enrolling my voice.",
+    "recordInstruction": "Please read the phrase below in your natural voice. Recording lasts ~15 seconds.",
+    "phraseToRead": "Thank you for visiting today. How are you feeling? Please let me know if anything feels off.",
+    "startRecord": "Start recording",
+    "stopRecord": "Stop recording",
+    "recordingHint": "Read naturally...",
+    "readyHint": "Tap the mic icon to start recording",
+    "completeTitle": "Enrollment complete",
+    "completeBody": "{name}'s voice is enrolled. Speaker recognition will improve starting with your next session.",
+    "revokeHint": "You can delete your voice profile anytime in Settings > Staff > Voice Enrollment. After deletion, new sessions will use generic diarization.",
+    "cancel": "Cancel",
+    "proceed": "Next",
+    "back": "Back",
+    "done": "Done"
   }
 }

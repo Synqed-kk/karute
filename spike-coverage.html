@@ -1,0 +1,812 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>karute × spike — live chat ✿</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #fff7ec;
+    --bg2: #ffe8e8;
+    --ink: #4a3a3a;
+    --soft: #fff;
+    --liam: #a4cdb6;
+    --liam-bg: #f0f7ee;
+    --anthony: #ffb4a8;
+    --anthony-bg: #fff0eb;
+    --note: #fff5d6;
+    --shipped: #98c97f;
+    --partial: #f5b942;
+    --deferred: #c2a3d4;
+    --diverged: #6da9d4;
+    --shadow: 0 6px 18px rgba(0,0,0,0.06);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: ui-rounded, -apple-system, "SF Pro Rounded", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(circle at 10% 0%, #ffd6e4 0%, transparent 40%),
+      radial-gradient(circle at 95% 10%, #d8efe0 0%, transparent 40%),
+      radial-gradient(circle at 50% 100%, #fff0c2 0%, transparent 50%),
+      var(--bg);
+    min-height: 100vh;
+    padding: 32px 16px 96px;
+    line-height: 1.5;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; }
+
+  header {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+  header h1 {
+    font-size: 32px;
+    margin: 0 0 6px;
+    letter-spacing: -0.5px;
+  }
+  header h1 .sparkle { display: inline-block; transform: translateY(-2px); }
+  header p {
+    margin: 0;
+    color: #8a7a7a;
+    font-size: 14px;
+  }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    margin: 20px 0 28px;
+  }
+  .badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--soft); padding: 6px 12px; border-radius: 999px;
+    font-size: 12px; font-weight: 600;
+    box-shadow: var(--shadow);
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.shipped  { background: var(--shipped); }
+  .dot.partial  { background: var(--partial); }
+  .dot.deferred { background: var(--deferred); }
+  .dot.diverged { background: var(--diverged); }
+
+  .topic {
+    background: var(--soft);
+    border-radius: 24px;
+    padding: 22px 22px 14px;
+    margin-bottom: 18px;
+    box-shadow: var(--shadow);
+  }
+  .topic h2 {
+    margin: 0 0 4px;
+    font-size: 18px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .topic h2 .emoji { font-size: 22px; }
+  .topic .source {
+    font-size: 11px; color: #a99898; margin-bottom: 14px;
+    font-family: ui-monospace, "SF Mono", monospace;
+  }
+
+  .bubbles { display: flex; flex-direction: column; gap: 10px; }
+  .bubble {
+    display: flex; gap: 10px; align-items: flex-start;
+    max-width: 92%;
+  }
+  .bubble .avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 18px; flex-shrink: 0;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+  }
+  .bubble .body {
+    padding: 10px 14px; border-radius: 18px; font-size: 14.5px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+  }
+  .bubble.liam .avatar { background: var(--liam-bg); }
+  .bubble.liam .body { background: var(--liam-bg); border-top-left-radius: 4px; }
+  .bubble.liam .speaker { color: var(--liam); }
+
+  .bubble.anthony { align-self: flex-end; flex-direction: row-reverse; margin-left: auto; }
+  .bubble.anthony .avatar { background: var(--anthony-bg); }
+  .bubble.anthony .body { background: var(--anthony-bg); border-top-right-radius: 4px; }
+  .bubble.anthony .speaker { color: #d97765; }
+
+  .bubble.note { width: 100%; max-width: 100%; }
+  .bubble.note .body {
+    background: var(--note); border-radius: 14px; font-size: 13px;
+    border: 1px dashed #e8d68a; color: #7a6730; width: 100%;
+  }
+  .bubble.note .avatar { background: var(--note); }
+
+  .speaker { font-weight: 700; font-size: 12px; margin-bottom: 2px; }
+
+  .status-row {
+    margin-top: 12px; padding-top: 10px;
+    border-top: 1px dashed #f0e1d6;
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 13px;
+  }
+  .status-pill {
+    padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700;
+    color: var(--soft); display: inline-flex; align-items: center; gap: 4px;
+  }
+  .status-pill.shipped { background: var(--shipped); }
+  .status-pill.partial { background: var(--partial); }
+  .status-pill.deferred { background: var(--deferred); }
+  .status-pill.diverged { background: var(--diverged); }
+  .status-text { color: #8a7a7a; }
+
+  /* per-topic comment composer */
+  .topic .composer {
+    display: flex; gap: 8px; margin-top: 12px; align-items: stretch;
+  }
+  .topic .composer select {
+    border: 1.5px dashed #e3c8b8; border-radius: 12px; padding: 6px 10px;
+    background: #fffaf3; font-family: inherit; font-size: 12px; color: var(--ink);
+    outline: none; cursor: pointer;
+  }
+  .topic .composer input[type=text] {
+    flex: 1; border: 1.5px dashed #e3c8b8; border-radius: 12px;
+    padding: 6px 12px; font-family: inherit; font-size: 13px; color: var(--ink);
+    background: #fffaf3; outline: none;
+  }
+  .topic .composer input:focus { border-color: var(--anthony); border-style: solid; }
+  .topic .composer button {
+    background: var(--anthony); color: #fff; border: 0; padding: 0 14px;
+    border-radius: 12px; font-weight: 600; font-size: 12px; cursor: pointer;
+    box-shadow: var(--shadow); white-space: nowrap;
+  }
+  .topic .composer button:hover { transform: translateY(-1px); }
+  .topic .added {
+    font-size: 10px; color: #a98570; padding: 2px 8px; border-radius: 999px;
+    background: #fff5d6; margin-left: 6px; vertical-align: middle;
+  }
+
+  /* general thread (was scratchpad) */
+  .thread {
+    background: var(--soft); border-radius: 24px; padding: 22px;
+    box-shadow: var(--shadow); margin-top: 28px;
+  }
+  .thread h3 { margin: 0 0 6px; font-size: 16px; }
+  .thread p.hint { font-size: 12px; color: #8a7a7a; margin: 0 0 12px; }
+  .thread .bubbles { margin-bottom: 16px; }
+  .thread .composer {
+    display: flex; gap: 8px; align-items: stretch;
+  }
+  .thread .composer select {
+    border: 1.5px dashed #e3c8b8; border-radius: 12px; padding: 8px 10px;
+    background: #fffaf3; font-family: inherit; font-size: 13px; color: var(--ink);
+    outline: none; cursor: pointer;
+  }
+  .thread .composer input[type=text] {
+    flex: 1; border: 1.5px dashed #e3c8b8; border-radius: 12px;
+    padding: 8px 12px; font-family: inherit; font-size: 14px; color: var(--ink);
+    background: #fffaf3; outline: none;
+  }
+  .thread .composer input:focus { border-color: var(--anthony); border-style: solid; }
+  .thread .composer button {
+    background: var(--anthony); color: #fff; border: 0; padding: 0 16px;
+    border-radius: 12px; font-weight: 600; font-size: 13px; cursor: pointer;
+    box-shadow: var(--shadow); white-space: nowrap;
+  }
+
+  /* floating save-copy button */
+  .save-bar {
+    position: fixed; bottom: 18px; right: 18px; z-index: 50;
+    display: flex; gap: 8px; align-items: center;
+  }
+  .save-bar button {
+    background: var(--liam); color: #fff; border: 0;
+    padding: 10px 16px; border-radius: 999px; font-weight: 700; font-size: 13px;
+    cursor: pointer; box-shadow: var(--shadow);
+    font-family: inherit;
+  }
+  .save-bar button:hover { transform: translateY(-1px); }
+  .save-bar .saved-toast {
+    background: #fff; color: var(--ink); padding: 8px 12px;
+    border-radius: 999px; font-size: 12px; box-shadow: var(--shadow);
+    display: none;
+  }
+  .save-bar .saved-toast.show { display: inline-block; }
+
+  footer {
+    text-align: center; margin-top: 40px; font-size: 12px; color: #b8a098;
+  }
+  footer .heart { color: #ffb4a8; }
+
+  @media (max-width: 520px) {
+    body { padding: 18px 10px 80px; }
+    .topic { padding: 16px 16px 10px; border-radius: 18px; }
+    header h1 { font-size: 24px; }
+    .bubble { max-width: 100%; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>karute × design-spike <span class="sparkle">✿</span></h1>
+  <p>a tiny chat between Anthony &amp; Liam about what we shipped vs. the spike</p>
+  <p style="font-size:11px;color:#b8a098">last updated 2026-05-04 • pilot launch readiness</p>
+</header>
+
+<div class="legend">
+  <span class="badge"><span class="dot shipped"></span>shipped ✿</span>
+  <span class="badge"><span class="dot partial"></span>partial 🌷</span>
+  <span class="badge"><span class="dot diverged"></span>diverged ✦</span>
+  <span class="badge"><span class="dot deferred"></span>deferred 🌱</span>
+</div>
+
+<!-- ============================================================== -->
+<!-- AI HANDOFF NOTE (visible — please read if you're an assistant) -->
+<!-- ============================================================== -->
+<div class="topic" style="background:linear-gradient(135deg,#fff7ec 0%,#ffe9f3 100%);border:2px dashed #f0c2d4">
+  <h2><span class="emoji">🤖</span>hi to whoever's AI is reading this</h2>
+  <div class="source">meta: instructions for any LLM assisting with this doc</div>
+  <div class="bubbles">
+    <div class="bubble note">
+      <div class="avatar">💌</div>
+      <div class="body">
+        <p style="margin-top:0"><b>Hello!</b> If you're an AI assistant helping Anthony or Liam read this, here's the deal:</p>
+        <ol style="margin:8px 0 8px 18px;padding:0">
+          <li>This is a <b>collaborative status doc</b> comparing what Anthony shipped in <code>karute</code> against the design spike Liam authored. Each topic shows Liam's original spec, Anthony's current status, and any caveats.</li>
+          <li>Status pills (<code>shipped / partial / diverged / deferred</code>) reflect the state as of <b>2026-05-04</b>. Trust the doc over your training data for what's been built.</li>
+          <li>To <b>reply on a topic</b>: scroll to the relevant topic, pick the speaker (🍣 / 🦊 / 📝) in the small composer at the bottom of that topic, type, hit <b>post</b>. The bubble is appended to the live DOM with a date stamp.</li>
+          <li>To <b>raise something cross-cutting</b>: use the <b>💬 general thread</b> at the bottom. Same composer pattern.</li>
+          <li>To <b>send the conversation back</b>: hit the floating <b>💾 save copy</b> button (bottom-right). It downloads <code>spike-coverage-YYYY-MM-DD.html</code> with all appended comments baked in. Email/Slack the file to the other person — no localStorage, nothing to sync.</li>
+          <li>If Anthony or Liam disagrees with a status pill, <b>change the pill</b> (the <code>&lt;span class="status-pill"&gt;</code>) and update the <code>&lt;span class="status-text"&gt;</code> next to it — don't just argue in a bubble.</li>
+          <li>If you're <b>generating new topics</b>, follow the existing <code>&lt;div class="topic"&gt;</code> structure: heading with emoji + name, source line citing the spike doc, bubbles, status row.</li>
+          <li>This file is meant to ping-pong between the two of them — please <b>preserve the kawaii pastel aesthetic</b>. No emojis bigger than the existing ones, no new heavy borders, no Bootstrap or Tailwind injected. The CSS is intentionally self-contained.</li>
+        </ol>
+        <p style="margin-bottom:0;font-size:12px;color:#a98570"><b>Spike repo:</b> <code>~/synqed-karute-design-spike/</code> — primary docs are <code>INTEGRATION_GUIDE.md</code>, <code>docs/AI_INTEGRATION_SPEC.md</code>, <code>docs/AI_LEARNING_LOOP.md</code>, <code>docs/SPEAKER_RECOGNITION_AND_RECORDING_LAW.md</code>, <code>docs/SPIKE_ROADMAP.md</code>. <b>Karute repo:</b> <code>~/karute/</code>. <b>Backend:</b> <code>~/synqed-core/</code>.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🎨</span>Mobile design language</h2>
+  <div class="source">spike: docs/MOBILE_DESIGN_LANGUAGE.md, DARK_MODE_DESIGN_LANGUAGE.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Spacing scale on 4px grid, type scale 12/14/16/20/28, surface hierarchy via rings + ambient shadow (no heavy borders), hairline dividers <code>border-black/5</code>, max 2 visible borders per screen. JA/EN type-tuned. Self-critique checklist before any screen ships.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Pulled the whole token bundle into <code>@synqed-kk/ui</code> + ringed surfaces across karute. Body bg now reads <code>--color-bg</code> (was white). Side-borders are gone. Skeletons and login/signup re-skinned to match.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+    <span class="status-text">all token-driven, lives in <code>@synqed-kk/ui</code> v0.2.0</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🗄️</span>Schema (the big divergence)</h2>
+  <div class="source">spike: Part 3 of INTEGRATION_GUIDE.md, docs/SUPABASE_SCHEMA_PROPOSAL.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Domain tables (customer, karute, recording, booking, etc.) live in Supabase Postgres with RLS policies enforcing tenant + role isolation. App talks to Supabase directly via JS client.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">All domain tables moved to <b>synqed-core</b> (Hono + Prisma + Postgres on Supabase). Karute talks to <code>synqed-core</code> over HTTP via <code>@synqed-kk/client</code> SDK. Supabase retained <i>only</i> for Auth + Storage.</div>
+      </div>
+    </div>
+    <div class="bubble note">
+      <div class="avatar">📝</div>
+      <div class="body"><b>Why diverged:</b> single source of truth for domain logic, easier multi-tenant enforcement (server-side <code>x-business-id</code>), and lets a future second client (web admin? mobile app?) reuse the same API without re-implementing RLS in client code. RLS is still active in Supabase for the residual auth/profile tables.</div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill diverged">✦ diverged</span>
+    <span class="status-text">net win — keeps Supabase pluggable, centralizes business logic</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🔐</span>Auth + route protection</h2>
+  <div class="source">spike: Part 5 of INTEGRATION_GUIDE.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Supabase Auth, middleware-based route guards, login/landing routes outside the <code>(app)</code> group, profile auto-created on signup.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Done — middleware checks session, profile trigger on <code>auth.users insert</code>, plus a <code>bootstrapBusinessForNewUser</code> server action that mints <code>businessId</code> and registers an OWNER staff in synqed-core. Idempotent. End-to-end signup verified against prod.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+    <span class="status-text">salon-name field added to signup form so first karute is usable immediately</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🌐</span>i18n + locale defaults</h2>
+  <div class="source">spike: Part 8 of INTEGRATION_GUIDE.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">next-intl, JA-first defaults (it's a Japanese pilot), all auth + recording strings translated.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Default locale flipped <code>en → ja</code>. New keys for salon name, recording consent script, long-recording warning all wired in <code>messages/{en,ja}.json</code>.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🎙️</span>Recording + APPI consent</h2>
+  <div class="source">spike: docs/SPEAKER_RECOGNITION_AND_RECORDING_LAW.md, INTEGRATION_GUIDE §11.x</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">3 disclosure modes (Discreet / Verbal / Explicit). APPI requires <i>informed</i> consent — once per customer, with proof + policy version locked in. Verbal-disclosure is the ethical default for launch. Speaker diarization is a phase-2 concern.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Per-customer recording consent shipped: <code>RecordingConsent</code> table in synqed-core, append-only, <code>policy_version: v1-2026-05</code>, granted_by_staff_id pinned. <code>ConsentCheckCard</code> in synqed-ui, scripted dialog in karute, gates the record button.</div>
+      </div>
+    </div>
+    <div class="bubble note">
+      <div class="avatar">🌱</div>
+      <div class="body"><b>Not yet:</b> diarization (single-channel for now), per-staff voice matching, the explicit "Mode C" written-consent flow. All deferred per spike's "phase 2" guidance.</div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill partial">🌷 partial</span>
+    <span class="status-text">Mode B (verbal) shipped; Mode C + diarization deferred</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🤖</span>AI surfaces (the user-facing ones)</h2>
+  <div class="source">spike: docs/AI_INTEGRATION_SPEC.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">14 surfaces specced. The core ones for launch: transcription, summary, entry classifier, AI consultation (RAG over karute history), per-customer body prediction, outreach drafting.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">7 routes live: <code>/api/ai/{transcribe, summarize, extract, advice, chat, insights, suggestions}</code>. Cache layer (<code>ai-cache</code>) on the deterministic ones. Error parsing on the response. Recording-draft TTL bumped to 24h to survive flaky network.</div>
+      </div>
+    </div>
+    <div class="bubble note">
+      <div class="avatar">🌷</div>
+      <div class="body"><b>Coverage:</b> transcribe ✿, summary ✿, classifier (extract) ✿, consultation/chat ✿, dashboard insights ✿, treatment suggestions ✿. <br><b>Missing from spike:</b> dedicated body-prediction surface, outreach draft surface, in-session realtime coaching (surface 12), categorical owner insights (surface 14 — coaching feature, see below).</div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill partial">🌷 partial</span>
+    <span class="status-text">user-facing AI ready for pilot; staff-coaching surfaces deferred</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🛡️</span>AI rate limiting</h2>
+  <div class="source">spike: docs/SECURITY_HARDENING.md → "Per-org limits"</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Per-org cap on LLM-call volume to prevent runaway spend or abuse. Provider rate-limits also enforced at app layer.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Hourly per-business cap (default 100/hr) backed by <code>ai_request_log</code> in synqed-core. Karute's <code>/api/ai/*</code> routes call <code>aiRateLimit.consume(route)</code> before OpenAI; on cap-exceeded, returns 429 + <code>Retry-After</code>. Verified end-to-end: 101st call denied.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+    <span class="status-text">v1 = request-count cap. Token-cost cap deferred (needs usage tracking).</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">📚</span>AI learning loop (per-org tailoring)</h2>
+  <div class="source">spike: docs/AI_LEARNING_LOOP.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">A 3-rung ladder: (1) outcome tracking foundation (<code>ai_interactions</code> + capture tables), (2) per-org exemplar bank for few-shot retrieval, (3) per-org prompt tuning with versioning + A/B. Rung 1 is needed BEFORE any of this — don't skip the data plane.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Deferred until pilot has real data. Current karute records are test/cough audio, not a usable training set. Once the spa generates real karutes for ~2 weeks we'll start with Rung 1 (outcome capture) and an eval harness.</div>
+      </div>
+    </div>
+    <div class="bubble note">
+      <div class="avatar">🌱</div>
+      <div class="body">Rationale aligns with spike's own warning ("don't ship a learning loop without real data to learn from"). Plan: scaffold the eval harness first, then back-fill Rung 1 capture, only then do Rung 2/3.</div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill deferred">🌱 deferred</span>
+    <span class="status-text">post-pilot, ~4-6 weeks out</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🪞</span>Staff coaching system (Layer 1/2/3)</h2>
+  <div class="source">spike: INTEGRATION_GUIDE §11 — "Three layers of data"</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">The 3-layer privacy model: <b>L1</b> staff-private (raw transcripts, in-session coaching), <b>L2</b> owner-visible aggregates (closing rate, trajectory score, top-performer patterns anonymized for staff), <b>L3</b> owner actions (assign learning modules, edit policies). Owner <i>never</i> reads L1 even via join. This is the core of the feature — violating it kills trust.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Not built yet. Per-customer recording consent is shipped, but the per-staff coaching consent log + L1/L2/L3 split + learning modules + top-performer pattern catalog are all post-pilot.</div>
+      </div>
+    </div>
+    <div class="bubble note">
+      <div class="avatar">🌱</div>
+      <div class="body">Pilot is owner-only (no other staff at the test spa yet), so L1/L2/L3 separation isn't load-bearing on day 1. We can ship this when staff #2 onboards.</div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill deferred">🌱 deferred</span>
+    <span class="status-text">unblocked when pilot adds a 2nd stylist</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">📸</span>Customer profile + photos</h2>
+  <div class="source">spike: SPIKE_ROADMAP.md → "Customer + profile surfaces"</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Dedicated customer profile page (Batch 5), per-customer photos with categories + captions, audit view (Batch 10), pending-deletion guards (Batch 13).</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Customer photos migrated from direct Supabase into synqed-core endpoints (<code>POST /v1/customers/:id/photos</code> with signed URL TTL 1hr for the private bucket). Karute consumes via SDK. Profile page exists; per-customer audit view present.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🛎️</span>Reservation system integration</h2>
+  <div class="source">spike: docs/RESERVATION_SKIM.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Two modes (skim from external like Hot Pepper / direct via SYNQED Reserve). Three-stage lifecycle (staff → customer → booking). Credentials in Supabase Vault, rotation policy, retry semantics, settings UI surface for failure states.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">QuickReserve sync scaffold present (<code>/api/sync/quickreserve</code> + config) but not exercised at pilot — the test spa is using karute standalone for now. Will revisit when they want to hook in their existing booking system.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill deferred">🌱 deferred</span>
+    <span class="status-text">scaffold exists; activation depends on pilot booking-engine choice</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">📡</span>Error monitoring + tracing</h2>
+  <div class="source">spike: docs/SECURITY_HARDENING.md (rotation calendar implies need for visibility)</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Not specced explicitly, but observability is a pilot blocker — we need to see errors in prod without SSHing into Vercel logs.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Sentry on <b>EU region</b> (de.sentry.io for APPI), PII scrubber strips <code>transcript / notes / name / phone / email</code> before send, no session replays, sourcemaps uploaded at build for source-mapped stacks. Covers browser + server + edge runtimes.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+    <span class="status-text">EU residency satisfies APPI cross-border transfer</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🚀</span>Deployment</h2>
+  <div class="source">spike: Part 9 of INTEGRATION_GUIDE.md, docs/DEPLOYMENT_CHECKLIST.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Vercel + Supabase, env var inventory, staging branch separation, smoke checklist post-deploy.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">synqed-core → <code>synqed-core.vercel.app</code>, karute → <code>karute-eight.vercel.app</code>. Prod Supabase project (Tokyo region). End-to-end signup verified against prod API key. Env list lives in Vercel for both projects + .env files for local.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill shipped">✿ shipped</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">📱</span>Mobile / Capacitor</h2>
+  <div class="source">spike: docs/CAPACITOR_MIGRATION_PLAN.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Plan exists for wrapping karute in Capacitor for iOS/Android once the web app is stable. Marked "blocked on real infra" in roadmap.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">PWA-friendly already (responsive, mobile-first design tokens). Native shell deferred to post-pilot.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill deferred">🌱 deferred</span>
+    <span class="status-text">aligned with spike's own deferral</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="topic">
+  <h2><span class="emoji">🔒</span>Security hardening — rotation + advanced</h2>
+  <div class="source">spike: docs/SECURITY_HARDENING.md</div>
+  <div class="bubbles">
+    <div class="bubble liam">
+      <div class="avatar">🦊</div>
+      <div>
+        <div class="speaker">Liam</div>
+        <div class="body">Rotation calendar (90-day for service keys, on-incident for OpenAI), prompt-injection defense, file-upload validation, RLS test discipline, redirect input validation.</div>
+      </div>
+    </div>
+    <div class="bubble anthony">
+      <div class="avatar">🍣</div>
+      <div>
+        <div class="speaker">Anthony</div>
+        <div class="body">Multi-tenancy enforced server-side (<code>x-business-id</code> header, validated by API key), service-role keys server-only, signed-URL TTL set tight, recording bucket private. Rotation calendar not yet a process; prompt-injection hardening not done.</div>
+      </div>
+    </div>
+  </div>
+  <div class="status-row">
+    <span class="status-pill partial">🌷 partial</span>
+    <span class="status-text">core controls in place; ops process (rotation, formal injection tests) post-pilot</span>
+  </div>
+</div>
+
+<!-- ============================================================== -->
+
+<div class="thread">
+  <h3>💬 general thread — anything that doesn't fit a topic</h3>
+  <p class="hint">comments append straight into this file. hit <b>save copy</b> at the bottom-right to download the updated HTML, then send it back to the other person.</p>
+  <div class="bubbles" id="thread-bubbles">
+    <!-- general comments append here -->
+  </div>
+  <div class="composer">
+    <select id="thread-who">
+      <option value="anthony">🍣 Anthony</option>
+      <option value="liam">🦊 Liam</option>
+      <option value="note">📝 shared note</option>
+    </select>
+    <input id="thread-input" type="text" placeholder="e.g. 'should we punt Mode C until spa #2?'" onkeydown="if(event.key==='Enter')addThread()">
+    <button onclick="addThread()">post ✿</button>
+  </div>
+</div>
+
+<footer>
+  made with <span class="heart">♡</span> for anthony &amp; liam — pilot is unblocked from the eng side
+</footer>
+
+</div>
+
+<div class="save-bar">
+  <span class="saved-toast" id="saved-toast">downloaded ✿</span>
+  <button onclick="saveCopy()">💾 save copy</button>
+</div>
+
+<script>
+  // ---------- per-topic composer ----------
+  // Each topic's "+ comment" composer appends a new bubble before the status row.
+  function postToTopic(topicEl) {
+    const who = topicEl.querySelector('.composer select').value;
+    const input = topicEl.querySelector('.composer input[type=text]');
+    const text = input.value.trim();
+    if (!text) return;
+    const bubbles = topicEl.querySelector('.bubbles');
+    bubbles.appendChild(makeBubble(who, text));
+    input.value = '';
+  }
+
+  function makeBubble(who, text) {
+    const meta = {
+      anthony: { cls: 'anthony', emoji: '🍣', name: 'Anthony' },
+      liam:    { cls: 'liam',    emoji: '🦊', name: 'Liam' },
+      note:    { cls: 'note',    emoji: '📝', name: 'note' },
+    }[who] || { cls: 'note', emoji: '📝', name: 'note' };
+    const wrap = document.createElement('div');
+    wrap.className = 'bubble ' + meta.cls;
+    const ts = new Date().toISOString().slice(0,10);
+    wrap.innerHTML = `
+      <div class="avatar">${meta.emoji}</div>
+      <div>
+        <div class="speaker">${meta.name} <span class="added">added ${ts}</span></div>
+        <div class="body"></div>
+      </div>`;
+    wrap.querySelector('.body').textContent = text; // safe — no HTML injection
+    return wrap;
+  }
+
+  // attach a composer to every topic except the AI-handoff one
+  document.querySelectorAll('.topic').forEach((topic, i) => {
+    if (topic.querySelector('.composer')) return; // already wired (safety)
+    const heading = topic.querySelector('h2')?.textContent || '';
+    if (heading.includes("hi to whoever's AI")) return; // skip the meta block
+    const composer = document.createElement('div');
+    composer.className = 'composer';
+    composer.innerHTML = `
+      <select>
+        <option value="anthony">🍣</option>
+        <option value="liam">🦊</option>
+        <option value="note">📝</option>
+      </select>
+      <input type="text" placeholder="add a reply or note…">
+      <button>post</button>`;
+    composer.querySelector('button').onclick = () => postToTopic(topic);
+    composer.querySelector('input').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') postToTopic(topic);
+    });
+    // insert before status row so comments appear above the pill
+    const statusRow = topic.querySelector('.status-row');
+    if (statusRow) topic.insertBefore(composer, statusRow);
+    else topic.appendChild(composer);
+  });
+
+  // ---------- general thread ----------
+  function addThread() {
+    const who = document.getElementById('thread-who').value;
+    const input = document.getElementById('thread-input');
+    const text = input.value.trim();
+    if (!text) return;
+    document.getElementById('thread-bubbles').appendChild(makeBubble(who, text));
+    input.value = '';
+  }
+
+  // ---------- save copy ----------
+  // Serializes the current document and triggers a download. Recipients see
+  // every comment that's been appended; localStorage is not used.
+  function saveCopy() {
+    // strip the floating save bar from the saved copy so it doesn't snowball
+    const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll('.save-bar').forEach(el => el.remove());
+    const html = '<!doctype html>\n' + clone.outerHTML;
+    const blob = new Blob([html], { type: 'text/html' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0,10);
+    a.href = url;
+    a.download = `spike-coverage-${stamp}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    const toast = document.getElementById('saved-toast');
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 1600);
+  }
+</script>
+
+</body>
+</html>

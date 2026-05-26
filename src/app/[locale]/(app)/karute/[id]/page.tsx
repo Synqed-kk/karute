@@ -1,6 +1,22 @@
+import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
+
 import { getKaruteRecord } from '@/lib/supabase/karute'
-import { KaruteDetailView } from '@/components/karute/KaruteDetailView'
+import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
+import {
+  PhotoRecordsServer,
+  PhotoRecordsSkeleton,
+} from '@/components/karute/redesign/detail/PhotoRecordsServer'
+import {
+  karuteToHeader,
+  karuteEntriesToSessionEntries,
+  karuteSummaryToBullets,
+  deriveKaruteNumber,
+} from '@/lib/adapters/karute-detail'
+import {
+  getCustomerContact,
+  getCachedCustomerConsent,
+} from '@/lib/customers/customer-detail-cached'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -12,14 +28,63 @@ export default async function KaruteDetailPage({
   const { id } = await params
 
   const karute = await getKaruteRecord(id)
+  if (!karute) notFound()
 
-  if (!karute) {
-    notFound()
+  const customerId =
+    (karute as unknown as { client_id?: string | null }).client_id ?? null
+  const header = karuteToHeader(karute)
+  const sessionEntries = karuteEntriesToSessionEntries(karute)
+  const summaryBullets = karuteSummaryToBullets(karute)
+  const transcript =
+    (karute as unknown as { transcript?: string | null }).transcript ?? null
+  const karuteNumber = deriveKaruteNumber(id)
+
+  // Customer contact + consent are both cached per-customer with their own tag
+  // invalidation. Photos are NOT awaited here; they're streamed in via a
+  // Suspense boundary below so the shell paints first.
+  let phone: string | null = null
+  let email: string | null = null
+  let consentOnFile = false
+  if (customerId) {
+    const [contact, consentResult] = await Promise.all([
+      getCustomerContact(customerId),
+      getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
+    ])
+    phone = contact.phone
+    email = contact.email
+    consentOnFile = Boolean(consentResult.consent)
   }
 
   return (
-    <div>
-      <KaruteDetailView karute={karute} />
-    </div>
+    <KaruteDetailView
+      karuteId={id}
+      customerId={customerId}
+      header={{
+        customerName: header.customerName,
+        initials: header.customerInitials,
+        karuteNumber,
+        service: null,
+        sessionDateLong: header.sessionDateLong,
+        staffName: header.staffName === '—' ? null : header.staffName,
+        phone,
+        email,
+      }}
+      sessionDateLong={header.sessionDateLong}
+      entries={sessionEntries}
+      summaryBullets={summaryBullets}
+      transcript={transcript}
+      consentOnFile={consentOnFile}
+      transcriptDurationLabel={null}
+      photosSlot={
+        customerId ? (
+          <Suspense fallback={<PhotoRecordsSkeleton />}>
+            <PhotoRecordsServer customerId={customerId} />
+          </Suspense>
+        ) : null
+      }
+      memory={null}
+      bodyPrediction={null}
+      suggestedMessage={null}
+    />
   )
 }

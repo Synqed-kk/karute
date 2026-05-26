@@ -1,26 +1,25 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
+import {
+  SynqedError,
+  type Appointment,
+  type AppointmentSource,
+  type AppointmentStatus,
+} from '@synqed-kk/client'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
-  formatMinuteOfDay,
-  normalizeOperatingHours,
-  utcToLocalDayAndMinute,
-} from '@/lib/operating-hours'
+  validateAppointmentTime,
+  type AppointmentInput,
+} from '@/lib/appointments'
 
-export interface AppointmentInput {
-  staffProfileId: string
-  clientId: string
-  startTime: string
-  durationMinutes: number
-  tzOffsetMinutes?: number
-  title?: string
-  notes?: string
-}
+export { validateAppointmentTime, type AppointmentInput }
 
 export interface AppointmentRow {
   id: string
+  // Holds the synqed staff id; name kept to avoid churn in calendar adapters.
   staff_profile_id: string
   client_id: string
   start_time: string
@@ -30,31 +29,13 @@ export interface AppointmentRow {
   karute_record_id: string | null
   created_at: string
   customers: { name: string } | null
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseAny = any
-
-export async function validateAppointmentTime(input: AppointmentInput, operatingHours: unknown): Promise<string | null> {
-  if (!Number.isInteger(input.durationMinutes) || input.durationMinutes <= 0) {
-    return 'Duration must be a positive number of minutes.'
-  }
-
-  const startDate = new Date(input.startTime)
-  if (Number.isNaN(startDate.getTime())) {
-    return 'Invalid appointment start time.'
-  }
-
-  const tzOffsetMinutes = Number.isFinite(input.tzOffsetMinutes) ? (input.tzOffsetMinutes as number) : 0
-  const { dayKey, minuteOfDay } = utcToLocalDayAndMinute(startDate, tzOffsetMinutes)
-  const hours = normalizeOperatingHours(operatingHours)[dayKey]
-  const endMinute = minuteOfDay + input.durationMinutes
-
-  if (minuteOfDay < hours.openMinute || endMinute > hours.closeMinute) {
-    return `Appointment must be within operating hours (${formatMinuteOfDay(hours.openMinute)}-${formatMinuteOfDay(hours.closeMinute)}).`
-  }
-
-  return null
+  synqed_status: AppointmentStatus
+  /**
+   * Origin of the booking. Bookings imported from external systems
+   * (QUICKRESERVE, SALON_BOARD, etc.) start as "pending" in the UI until a
+   * staff member confirms them; manually entered bookings skip that state.
+   */
+  source: AppointmentSource
 }
 
 export async function createAppointment(input: AppointmentInput) {
@@ -62,135 +43,144 @@ export async function createAppointment(input: AppointmentInput) {
   const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
   if (hoursError) return { error: hoursError }
 
-  const supabase = await createClient()
-
-  // Check for overlapping appointments on the same staff
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
-  const { data: overlapping } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .select('id')
-    .eq('staff_profile_id', input.staffProfileId)
-    .lt('start_time', endTime.toISOString())
-    .gte('start_time', new Date(startTime.getTime() - 24 * 60 * 60 * 1000).toISOString())
-
-  if (overlapping && overlapping.length > 0) {
-    // Check actual overlap (start_time + duration overlaps with new appointment)
-    for (const existing of overlapping) {
-      const { data: full } = await (supabase as SupabaseAny)
-        .from('appointments')
-        .select('start_time, duration_minutes')
-        .eq('id', existing.id)
-        .single()
-      if (full) {
-        const existStart = new Date(full.start_time).getTime()
-        const existEnd = existStart + full.duration_minutes * 60000
-        const newStart = startTime.getTime()
-        const newEnd = endTime.getTime()
-        if (newStart < existEnd && newEnd > existStart) {
-          return { error: 'This time slot overlaps with an existing booking.' }
-        }
-      }
-    }
-  }
-
-  const { data, error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .insert({
-      staff_profile_id: input.staffProfileId,
-      client_id: input.clientId,
-      start_time: input.startTime,
+  try {
+    const synqed = await getSynqedClient()
+    const appt = await synqed.appointments.create({
+      customer_id: input.clientId,
+      staff_id: input.staffId,
+      starts_at: startTime.toISOString(),
+      ends_at: endTime.toISOString(),
       duration_minutes: input.durationMinutes,
       title: input.title ?? null,
       notes: input.notes ?? null,
     })
-    .select('id')
-    .single()
-
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/dashboard')
-  return { id: (data as { id: string }).id }
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
+    return { id: appt.id }
+  } catch (err) {
+    if (err instanceof SynqedError && err.status === 409) {
+      return { error: 'This time slot overlaps with an existing booking.' }
+    }
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }
 
-export async function getAppointmentsByDate(dateStr: string, tzOffsetMinutes: number = 0) {
-  const supabase = await createClient()
+export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: number = 540): Promise<AppointmentRow[]> {
+  // dateStr is a JST calendar day (YYYY-MM-DD). Frame the fetch window as
+  // JST midnight → next-day JST midnight by appending the +09:00 offset
+  // directly; the runtime then converts to the correct UTC instants for
+  // synqed-core's `from`/`to` filter. The legacy tzOffsetMinutes parameter
+  // is kept for call-site compatibility but ignored — karute is JST-only.
+  const dayStartUTC = new Date(`${dateStr}T00:00:00+09:00`)
+  const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
 
-  const dayStartUTC = new Date(`${dateStr}T00:00:00Z`)
-  dayStartUTC.setUTCMinutes(dayStartUTC.getUTCMinutes() + tzOffsetMinutes)
-  const dayEndUTC = new Date(`${dateStr}T23:59:59Z`)
-  dayEndUTC.setUTCMinutes(dayEndUTC.getUTCMinutes() + tzOffsetMinutes)
+  try {
+    const synqed = await getSynqedClient()
+    const list = await synqed.appointments.list({
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 200,
+    })
 
-  const { data, error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .select(`
-      id,
-      staff_profile_id,
-      client_id,
-      start_time,
-      duration_minutes,
-      title,
-      notes,
-      karute_record_id,
-      created_at,
-      customers:client_id ( name )
-    `)
-    .gte('start_time', dayStartUTC.toISOString())
-    .lte('start_time', dayEndUTC.toISOString())
-    .order('start_time', { ascending: true })
+    // Customer names come from the already-cached tenant customer list (60s
+    // TTL per tenant), so on warm requests there's no extra HTTP roundtrip.
+    // Previously this fanned out N parallel customers.get(id) calls per page
+    // load — visibly slow once the day had a handful of unique customers.
+    const [cachedCustomers, karuteList] = await Promise.all([
+      getCachedCustomerList(),
+      synqed.karuteRecords.list({
+        from: dayStartUTC.toISOString(),
+        to: dayEndUTC.toISOString(),
+        page_size: 200,
+      }),
+    ])
+    const nameById = new Map(cachedCustomers.map((c) => [c.id, c.name]))
+    const karuteByAppointment = new Map<string, string>()
+    for (const k of karuteList.karute_records) {
+      if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
+    }
 
-  if (error || !data) return []
-
-  return data as AppointmentRow[]
+    return list.appointments.map((a) => ({
+      id: a.id,
+      staff_profile_id: a.staff_id,
+      client_id: a.customer_id,
+      start_time: a.starts_at,
+      duration_minutes: a.duration_minutes ?? 0,
+      title: a.title,
+      notes: a.notes,
+      karute_record_id: karuteByAppointment.get(a.id) ?? null,
+      created_at: a.created_at,
+      customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
+      synqed_status: a.status,
+      source: a.source,
+    }))
+  } catch {
+    return []
+  }
 }
 
-export async function linkKaruteToAppointment(appointmentId: string, karuteRecordId: string) {
-  const supabase = await createClient()
-
-  const { error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .update({ karute_record_id: karuteRecordId })
-    .eq('id', appointmentId)
-
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/dashboard')
-  return { success: true }
+export async function getAppointmentsInRange(
+  fromIso: string,
+  toIso: string,
+): Promise<Appointment[]> {
+  try {
+    const synqed = await getSynqedClient()
+    const list = await synqed.appointments.list({
+      from: fromIso,
+      to: toIso,
+      page_size: 500,
+    })
+    return list.appointments
+  } catch {
+    return []
+  }
 }
 
 export async function deleteAppointment(appointmentId: string) {
-  const supabase = await createClient()
-
-  const { error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .delete()
-    .eq('id', appointmentId)
-
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/dashboard')
-  return { success: true }
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.appointments.delete(appointmentId)
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }
 
 export async function updateAppointment(
   appointmentId: string,
-  updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number }
+  updates: { staffId?: string; startTime?: string; durationMinutes?: number },
 ) {
-  const supabase = await createClient()
+  try {
+    const synqed = await getSynqedClient()
+    const patch: {
+      staff_id?: string
+      starts_at?: string
+      ends_at?: string
+      duration_minutes?: number
+    } = {}
 
-  const updateData: Record<string, unknown> = {}
-  if (updates.staffProfileId) updateData.staff_profile_id = updates.staffProfileId
-  if (updates.startTime) updateData.start_time = updates.startTime
-  if (updates.durationMinutes) updateData.duration_minutes = updates.durationMinutes
+    if (updates.staffId) {
+      patch.staff_id = updates.staffId
+    }
+    if (updates.startTime) patch.starts_at = updates.startTime
+    if (updates.durationMinutes) patch.duration_minutes = updates.durationMinutes
 
-  const { error } = await (supabase as SupabaseAny)
-    .from('appointments')
-    .update(updateData)
-    .eq('id', appointmentId)
+    // If start + duration change, server needs both starts_at and ends_at
+    if (updates.startTime && updates.durationMinutes) {
+      const start = new Date(updates.startTime)
+      patch.ends_at = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
+    }
 
-  if (error) return { error: (error as { message: string }).message }
-
-  revalidatePath('/appointments')
-  return { success: true }
+    await synqed.appointments.update(appointmentId, patch)
+    revalidatePath('/appointments')
+    updateTag('dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }

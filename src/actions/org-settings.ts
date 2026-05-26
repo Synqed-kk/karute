@@ -1,7 +1,9 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag, unstable_cache } from 'next/cache'
+import { SynqedClient } from '@synqed-kk/client'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId } from '@/lib/staff'
 import {
   type OperatingHours,
   normalizeOperatingHours,
@@ -11,8 +13,9 @@ import {
 import type { ThemeColors } from '@/lib/theme'
 import { DEFAULT_THEME_COLORS } from '@/lib/theme'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SupabaseAny = any
+export type RecordingDisclosureMode = 'A' | 'B' | 'C'
+export type AudioSource = 'phone' | 'bluetooth' | 'wired'
+export type AIVoiceStyle = 'formal' | 'polite' | 'friendly'
 
 export interface OrgSettings {
   id: string
@@ -25,31 +28,121 @@ export interface OrgSettings {
   auto_stop_minutes: number
   operating_hours: OperatingHours
   theme_colors: ThemeColors
+  // Onboarding-wizard fields. Null until the user finishes /welcome.
+  recording_disclosure_mode: RecordingDisclosureMode | null
+  recording_disclosure_privacy_confirmed: boolean
+  setup_completed_at: string | null
+  // Redesigned-settings fields. All optional with defaults; no schema change
+  // needed since the synqed-core org-settings settings is a JSON blob.
+  timezone: string
+  solo_mode: boolean
+  ai_auto_summary: boolean
+  ai_auto_outreach: boolean
+  ai_voice_style: AIVoiceStyle
+  audio_source: AudioSource
+  noise_suppression: boolean
+  speaker_diarization: boolean
+  voice_recognition_improved: boolean
+  recording_consent_required: boolean
+  recording_consent_template: string
 }
 
+// businessId is the cache key — Next includes function args in the key automatically.
+// upsertOrgSettings revalidates with the 'org-settings' tag.
+const orgSettingsByBusiness = unstable_cache(
+  async (businessId: string): Promise<OrgSettings | null> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return null
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    try {
+      const raw = await client.orgSettings.get()
+      if (!raw) return null
+
+      const s = (raw.settings ?? {}) as Partial<OrgSettings> & {
+        operating_hours?: unknown
+        theme_colors?: unknown
+      }
+
+      return {
+        id: raw.business_id,
+        salon_name: raw.name ?? s.salon_name ?? '',
+        business_type: s.business_type ?? '',
+        webhook_url: s.webhook_url ?? '',
+        ai_model: s.ai_model ?? '',
+        confidence_threshold: s.confidence_threshold ?? 0,
+        audio_quality: s.audio_quality ?? '',
+        auto_stop_minutes: s.auto_stop_minutes ?? 0,
+        operating_hours: normalizeOperatingHours(s.operating_hours),
+        theme_colors: {
+          ...DEFAULT_THEME_COLORS,
+          ...(typeof s.theme_colors === 'object' && s.theme_colors !== null
+            ? (s.theme_colors as Partial<ThemeColors>)
+            : {}),
+        },
+        recording_disclosure_mode:
+          (s.recording_disclosure_mode as RecordingDisclosureMode | undefined) ?? null,
+        recording_disclosure_privacy_confirmed: Boolean(
+          s.recording_disclosure_privacy_confirmed,
+        ),
+        setup_completed_at:
+          (s.setup_completed_at as string | null | undefined) ?? null,
+        timezone: (s.timezone as string | undefined) ?? 'Asia/Tokyo',
+        solo_mode: Boolean(s.solo_mode),
+        ai_auto_summary: s.ai_auto_summary === undefined ? true : Boolean(s.ai_auto_summary),
+        ai_auto_outreach: Boolean(s.ai_auto_outreach),
+        ai_voice_style: (s.ai_voice_style as AIVoiceStyle | undefined) ?? 'polite',
+        audio_source: (s.audio_source as AudioSource | undefined) ?? 'phone',
+        noise_suppression: s.noise_suppression === undefined ? true : Boolean(s.noise_suppression),
+        speaker_diarization: s.speaker_diarization === undefined ? true : Boolean(s.speaker_diarization),
+        voice_recognition_improved: Boolean(s.voice_recognition_improved),
+        recording_consent_required: Boolean(s.recording_consent_required),
+        recording_consent_template:
+          (s.recording_consent_template as string | undefined) ?? '',
+      }
+    } catch {
+      return null
+    }
+  },
+  ['org-settings-v1'],
+  { revalidate: 300, tags: ['org-settings'] },
+)
+
 export async function getOrgSettings(): Promise<OrgSettings | null> {
-  const supabase = await createClient()
-  const { data, error } = await (supabase as SupabaseAny)
-    .from('organization_settings')
-    .select('*')
-    .limit(1)
-    .maybeSingle()
-
-  if (error || !data) return null
-
-  const settings = data as Omit<OrgSettings, 'operating_hours' | 'theme_colors'> & { operating_hours?: unknown; theme_colors?: unknown }
-  return {
-    ...settings,
-    operating_hours: normalizeOperatingHours(settings.operating_hours),
-    theme_colors: { ...DEFAULT_THEME_COLORS, ...(typeof settings.theme_colors === 'object' && settings.theme_colors !== null ? settings.theme_colors : {}) },
+  try {
+    const businessId = await getBusinessId()
+    return orgSettingsByBusiness(businessId)
+  } catch {
+    return null
   }
 }
 
-export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: 'Not authenticated' }
+/**
+ * Persists the answers from the /welcome wizard and marks setup as complete.
+ * Called from WelcomeWizard's "Finish setup" button. Idempotent: re-running
+ * just bumps setup_completed_at.
+ */
+export async function completeOnboarding(input: {
+  businessName: string
+  businessType: string
+  disclosureMode: RecordingDisclosureMode
+  privacyConfirmed: boolean
+}): Promise<{ success: true } | { error: string }> {
+  if (!input.businessName.trim()) return { error: 'Store name is required' }
+  if (!input.businessType) return { error: 'Business type is required' }
+  if (input.disclosureMode === 'A' && !input.privacyConfirmed) {
+    return { error: 'Privacy policy confirmation required for Mode A' }
+  }
+  return upsertOrgSettings({
+    salon_name: input.businessName.trim(),
+    business_type: input.businessType,
+    recording_disclosure_mode: input.disclosureMode,
+    recording_disclosure_privacy_confirmed: input.privacyConfirmed,
+    setup_completed_at: new Date().toISOString(),
+  }) as Promise<{ success: true } | { error: string }>
+}
 
+export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   const nextSettings: Partial<OrgSettings> = { ...settings }
 
   if (settings.operating_hours) {
@@ -60,22 +153,26 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
     nextSettings.operating_hours = normalizedHours
   }
 
-  // Check if settings exist
-  const existing = await getOrgSettings()
+  try {
+    const synqed = await getSynqedClient()
 
-  if (existing) {
-    const { error } = await (supabase as SupabaseAny)
-      .from('organization_settings')
-      .update(nextSettings)
-      .eq('id', existing.id)
-    if (error) return { error: (error as { message: string }).message }
-  } else {
-    const { error } = await (supabase as SupabaseAny)
-      .from('organization_settings')
-      .insert({ ...nextSettings, owner_profile_id: user.id })
-    if (error) return { error: (error as { message: string }).message }
+    // Merge with existing settings so partial updates don't wipe other fields
+    const existing = await synqed.orgSettings.get()
+    const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
+
+    // salon_name maps to the top-level `name` column; everything else lives in
+    // the settings JSON
+    const { salon_name, id: _id, ...rest } = nextSettings as OrgSettings & { id?: string }
+
+    await synqed.orgSettings.upsert({
+      ...(salon_name !== undefined ? { name: salon_name } : {}),
+      settings: { ...existingSettings, ...rest },
+    })
+
+    revalidatePath('/settings')
+    updateTag('org-settings')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
-
-  revalidatePath('/settings')
-  return { success: true }
 }

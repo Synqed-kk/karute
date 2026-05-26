@@ -27,6 +27,8 @@ interface ReviewScreenProps {
   duration?: number
   appointmentId?: string
   appointmentCustomerId?: string
+  staffId?: string
+  staffOptions: { id: string; name: string }[]
   onSaved: () => void
 }
 
@@ -38,6 +40,8 @@ export function ReviewScreen({
   duration,
   appointmentId,
   appointmentCustomerId,
+  staffId,
+  staffOptions,
   onSaved,
 }: ReviewScreenProps) {
   const t = useTranslations('review')
@@ -46,6 +50,7 @@ export function ReviewScreen({
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
     appointmentCustomerId ?? null
   )
+  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(staffId ?? null)
   const [suggestions, setSuggestions] = useState<{ text: string; type: string }[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
 
@@ -98,12 +103,17 @@ export function ReviewScreen({
       toast.error(t('selectCustomer'))
       return
     }
+    if (!selectedStaffId) {
+      toast.error(t('selectStaff'))
+      return
+    }
 
     setSaving(true)
     try {
       const customerId = appointmentCustomerId ?? selectedCustomerId!
       const result = await saveKaruteRecord({
         customerId,
+        staffId: selectedStaffId,
         transcript,
         summary: data.summary,
         entries: data.entries.map((e) => ({
@@ -250,11 +260,31 @@ export function ReviewScreen({
               />
             </div>
           )}
+          <span className="text-sm text-muted-foreground shrink-0">{t('staff')}</span>
+          {staffId ? (
+            <span className="text-sm font-medium text-foreground">
+              {staffOptions.find((o) => o.id === staffId)?.name ?? '—'}
+            </span>
+          ) : (
+            <select
+              value={selectedStaffId ?? ''}
+              onChange={(e) => setSelectedStaffId(e.target.value || null)}
+              disabled={saving}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
+            >
+              <option value="">{t('selectStaff')}</option>
+              {staffOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <button
           type="button"
           onClick={handleSubmit(handleSave)}
-          disabled={saving || (!appointmentCustomerId && !selectedCustomerId)}
+          disabled={saving || (!appointmentCustomerId && !selectedCustomerId) || !selectedStaffId}
           className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
         >
           {saving ? tc('saving') : tc('save')}
