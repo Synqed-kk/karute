@@ -421,6 +421,16 @@
     "title": "顧客",
     "newCustomer": "+ 新規顧客",
     "unknownName": "不明",
+    "deletionBanner": {
+      "title": "{name}様は削除予定です — 残り{days}日",
+      "titleToday": "{name}様は本日削除されます",
+      "body": "{date} に完全削除されます。{window}日間の復旧期間中です。",
+      "blocked": "新規カルテ作成・録音・写真アップロードは一時停止中です。取り消しを実行すると通常操作に戻ります。",
+      "undoButton": "削除を取り消す"
+    },
+    "visitHistoryChain": {
+      "aria": "直近{window}回中{attended}回来店。通算{total}回。"
+    },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
     },

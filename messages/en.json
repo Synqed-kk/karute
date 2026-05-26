@@ -421,6 +421,16 @@
     "title": "Customers",
     "newCustomer": "+ New Customer",
     "unknownName": "Unknown",
+    "deletionBanner": {
+      "title": "{name} is scheduled for deletion — {days} days remaining",
+      "titleToday": "{name} will be deleted today",
+      "body": "Permanent deletion on {date}. Inside the {window}-day recovery window.",
+      "blocked": "New karute, recording, and photo uploads are paused for this customer. Undo to resume normal operation.",
+      "undoButton": "Undo deletion"
+    },
+    "visitHistoryChain": {
+      "aria": "Attended {attended} of last {window} visits. {total} total."
+    },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
     },
