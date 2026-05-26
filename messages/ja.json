@@ -869,7 +869,8 @@
         "statSessionsAnalyzed": "分析済みセッション",
         "statPatternsMastered": "習得済みパターン",
         "statPatternsInProgress": "学習中",
-        "emptyHint": "AIがあなたのセッションを分析し、月間スコアとパターン習得状況をここに表示します。Anthonyが成長データの取得を実装後に有効化されます。"
+        "emptyHint": "AIがあなたのセッションを分析し、月間スコアとパターン習得状況をここに表示します。Anthonyが成長データの取得を実装後に有効化されます。",
+        "seeFullGrowth": "詳細を見る"
       },
       "learnFromTop": {
         "title": "トップパフォーマーから学ぶ",
@@ -1037,6 +1038,35 @@
           "description": "「高い」「考えます」を受け止め、選択肢に変換するアプローチ。"
         }
       }
+    },
+    "growth": {
+      "back": "コーチングに戻る",
+      "title": "あなたの成長",
+      "subtitle": "あなただけが見ることができる、詳細な成長記録です。",
+      "staffOnlyNotice": "このページはスタッフ個人のプライベートな成長ページです。オーナー・マネージャーには、カテゴリー別の成長エリアのみがコーチングダッシュボードからご確認いただけます。",
+      "chartTitle": "成長の推移",
+      "chartEmptyHint": "あなたの月次成長スコアの推移グラフをここに表示します（Layer 1・スタッフ非公開）。Anthonyが usePersonalGrowthData() を実装後に有効化されます。",
+      "monthAxisLabel": "{mm}月",
+      "statSessions": "分析済みセッション",
+      "statMastered": "習得済みパターン",
+      "statInProgress": "学習中パターン",
+      "masteredTitle": "パターンの習得状況",
+      "masteredHeader": "習得済み · {n}件",
+      "inProgressHeader": "学習中 · {n}件",
+      "masteredEmpty": "まだ習得済みのパターンはありません。",
+      "inProgressEmpty": "学習中のパターンはありません。",
+      "masteredEmptyHint": "あなたに割り当てられた学習モジュールの習得状況（完了率付き）をここに表示します。Anthonyが useLearningModulesData({ assignedTo }) を実装後に有効化されます。",
+      "insightsTitle": "最近受け取ったコーチング提案",
+      "insightsIntro": "個別のセッションで受け取った具体的な提案です。あなた以外には表示されません。",
+      "insightsEmptyHint": "セッション中に受け取った具体的な提案と、それを試した結果（効果あり／試してみた／スキップ／未確認）の履歴をここに表示します。Anthonyが usePersonalCoachingInsightsData() を実装後に有効化されます。",
+      "outcomeWorked": "効果あり",
+      "outcomeTried": "試してみた",
+      "outcomeSkipped": "スキップ",
+      "outcomeUnconfirmed": "未確認",
+      "transcriptsTitle": "会話の抜粋とコーチングメモ",
+      "transcriptsIntro": "あなたのセッションからの抜粋と、AIが付けたコーチングメモです。オーナー・マネージャーには表示されません。",
+      "coachingNoteLabel": "AIコーチングメモ",
+      "transcriptsEmptyHint": "あなたのセッションの会話抜粋と、AIが特定の発話に付けたコーチングメモをここに表示します（最も機密性が高いLayer 1の表面）。Anthonyが useSessionTranscriptsData() を実装後に有効化されます。"
     },
     "devPreview": {
       "label": "開発プレビュー",

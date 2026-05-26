@@ -20,8 +20,9 @@
 // numeric props populate + the delta indicator + footer 対応予定
 // hint disappear automatically (presence-checks below).
 
-import { useTranslations } from 'next-intl'
-import { Sparkles, TrendingUp, Wand2 } from 'lucide-react'
+import Link from 'next/link'
+import { useLocale, useTranslations } from 'next-intl'
+import { ArrowRight, Sparkles, TrendingUp, Wand2 } from 'lucide-react'
 
 import { PrivacyLockBadge } from './PrivacyLockBadge'
 
@@ -42,6 +43,7 @@ interface MonthlyGrowthCardProps {
 export function MonthlyGrowthCard({ growth = null }: MonthlyGrowthCardProps) {
   const t = useTranslations('coaching.staff.monthlyGrowth')
   const tHints = useTranslations('coaching.common')
+  const locale = useLocale()
 
   const score = growth?.score ?? null
   const delta = growth?.delta ?? null
@@ -87,6 +89,19 @@ export function MonthlyGrowthCard({ growth = null }: MonthlyGrowthCardProps) {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Drill-down link to /coaching/growth — the staff-only detail
+       *  page with the longitudinal chart, mastered patterns, past
+       *  AI suggestions, and transcript excerpts. */}
+      <div className="mt-3 flex justify-end">
+        <Link
+          href={`/${locale}/coaching/growth`}
+          className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900 dark:text-indigo-300"
+        >
+          {t('seeFullGrowth')}
+          <ArrowRight className="size-3" aria-hidden />
+        </Link>
       </div>
 
       {/* Empty-state footer — only shows when growth isn't wired yet. */}
