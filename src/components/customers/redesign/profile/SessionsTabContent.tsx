@@ -79,9 +79,16 @@ function SessionRow({ s }: { s: CustomerSessionEntry }) {
             <span className="text-sm font-medium text-foreground">
               {s.service}
             </span>
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {s.duration} min
-            </span>
+            {/* Duration hidden when 0 — karute_records doesn't have a
+             *  `duration_minutes` column yet so every row would have
+             *  read "0 min" as if it were real data. Same pattern as
+             *  the karute list row's gating. ANTHONY: when the column
+             *  ships, the conditional auto-shows real values. */}
+            {s.duration > 0 && (
+              <span className="text-[11px] tabular-nums text-muted-foreground">
+                {s.duration} min
+              </span>
+            )}
           </div>
           <p className="line-clamp-2 text-xs text-muted-foreground">{s.summary}</p>
           <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">

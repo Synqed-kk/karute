@@ -46,6 +46,11 @@ export interface RecordPageNextAppointment {
    *  impure during render). Re-derive on the next server render
    *  if the page is revisited. */
   statusKey?: 'in-session' | 'booked' | 'done'
+  /** Resolved staff display name for the recording-target card. Server
+   *  looks it up from the staff list at render time (the appointment
+   *  query already selects staff_profile_id). Earlier version hardcoded
+   *  '—' even when staff_profile_id was set. */
+  staffName?: string
 }
 
 export interface RecordPageViewProps {
@@ -228,7 +233,11 @@ export function RecordPageView({
           )
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
-        staffName: '—',
+        // Real staffName threaded from sessions/page.tsx via the
+        // staff list lookup. Earlier the value was hardcoded '—'
+        // even though staff_profile_id was selected on the
+        // appointment row.
+        staffName: nextAppointment.staffName ?? '—',
         statusKey: nextAppointment.statusKey ?? 'booked',
         isNew: brief?.isFirstTimeVisit ?? false,
       }

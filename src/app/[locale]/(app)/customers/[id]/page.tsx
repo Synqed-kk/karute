@@ -115,8 +115,14 @@ export default async function CustomerProfilePage({
       karuteId: r.id,
       date: prettyDate(r.session_date ?? r.created_at),
       weekday: WEEKDAYS[dt.getDay()],
-      service: 'Session',
-      duration: 60,
+      // Service '—' + duration 0 instead of literal 'Session' /
+      // 60 — same '施術' bug fixed on the main karute list. The
+      // session-row renderer should gate the duration display on
+      // `duration > 0` so the line hides instead of rendering "0 min".
+      // ANTHONY: when karute_records gains `service` + `duration_minutes`
+      // columns, pass the real values.
+      service: '—',
+      duration: 0,
       summary: r.summary ?? '—',
       staffName: r.staff_profile_id
         ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')

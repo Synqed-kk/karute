@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { getTranslations } from 'next-intl/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
@@ -15,9 +16,13 @@ function pad2(n: number): string {
 function hhmm(d: Date): string {
   return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
 }
-function deriveKaruteNumber(id: string): string {
-  return id.replace(/-/g, '').slice(0, 5).toUpperCase()
-}
+// `deriveKaruteNumber` removed — the local hex-slice produced
+// `#A1B2C` noise that didn't match the real `#00001` sequence used
+// on the karute list + customer profile. Cards here pass
+// `karuteNumber: null` so the conditional render hides the chip
+// rather than showing inconsistent IDs. ANTHONY: thread the real
+// value via the customer list query + `assignSequentialKaruteNumbers`
+// when the dashboard surfaces need this back.
 function formatLongDate(d: Date): string {
   return d.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -46,12 +51,14 @@ export default async function DashboardPage() {
     activeStaffId,
     dashboard,
     orgSettings,
+    tStatus,
   ] = await Promise.all([
     t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('dashboardData', () => getDashboardData()),
     t.phase('orgSettings', () => getOrgSettings()),
+    getTranslations('reservation.status'),
   ])
   t.end()
 
@@ -69,21 +76,20 @@ export default async function DashboardPage() {
         : isPast
           ? 'completed'
           : 'booked'
+      // i18n via reservation.status — earlier version hardcoded
+      // Japanese literals so EN locale rendered Japanese.
       const statusLabel =
-        statusKey === 'completed'
-          ? '完了'
-          : statusKey === 'booked'
-            ? '予約済'
-            : statusKey
+        statusKey === 'completed' ? tStatus('completed') : tStatus('booked')
       return {
         id: a.id,
         time: hhmm(start),
         duration: a.duration_minutes,
         customerName: a.customers?.name ?? 'Unknown',
-        karuteNumber: a.karute_record_id
-          ? deriveKaruteNumber(a.karute_record_id)
-          : null,
-        service: a.title ?? 'Session',
+        // karuteNumber dropped — see top-of-file comment.
+        karuteNumber: null,
+        // a.title is the customer's booking note — '—' when null instead
+        // of an English literal 'Session' masquerading as real data.
+        service: a.title ?? '—',
         staffName: staffNameById.get(a.staff_profile_id) ?? 'Unknown',
         staffColor: getStaffColor(a.staff_profile_id),
         statusKey,
@@ -102,7 +108,9 @@ export default async function DashboardPage() {
       return {
         id: r.id,
         customerName: r.customers?.name ?? 'Unknown',
-        karuteNumber: deriveKaruteNumber(r.id),
+        // karuteNumber dropped — see top-of-file comment. Card renders
+        // the row without the chip when null.
+        karuteNumber: null,
         sessionDate: formatShortDate(dt),
         summary: r.summary ?? '—',
         entryCount,
@@ -127,11 +135,18 @@ export default async function DashboardPage() {
   const businessProfile = orgSettings?.business_type
     ? getBusinessProfile(orgSettings.business_type)
     : null
+  // Owner detection from the active staff's display_role. Earlier
+  // hardcoded `true` made every signed-in user see the Crown
+  // "Owner view" badge regardless of role. Now: only renders when
+  // the active staff's display_role is 'owner'.
+  const isOwner =
+    (activeStaff as { display_role?: string | null } | null)?.display_role ===
+    'owner'
 
   return (
     <DashboardPageView
       staffName={activeStaff?.full_name ?? user?.email ?? 'User'}
-      isOwner={true /* TODO: derive from profile role once roles are wired */}
+      isOwner={isOwner}
       dateFormatted={formatLongDate(now)}
       onboardingComplete={onboardingComplete}
       businessProfile={businessProfile}

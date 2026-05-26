@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getTranslations } from 'next-intl/server'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomerConsent } from '@/actions/customers'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
@@ -8,9 +9,6 @@ import type { RecordTargetBooking } from '@/components/karute/redesign/record/Re
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
-}
 function hhmm(d: Date): string {
   // Always render in JST — Vercel server is UTC, so .getHours() would
   // otherwise show UTC hours on the recording-target pill.
@@ -20,16 +18,17 @@ function hhmm(d: Date): string {
     minute: '2-digit',
   })
 }
-function deriveKaruteNumber(id: string): string {
-  const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
-  return `#${hex}`
-}
+// `deriveKaruteNumber` removed — the local hex-slice produced
+// `#A1B2C`-style noise that didn't match the real `#00001`-style
+// sequence rendered on the main karute list and customer profile
+// (computed via `assignSequentialKaruteNumbers` over the customer
+// list). Surfaces here pass `karuteNumber: null` so the row's
+// existing conditional render hides the chip rather than showing
+// a fake number. ANTHONY: once karute_records has a real
+// `karute_number` column (or we add the customer list query +
+// map lookup here like /karute/page.tsx already does), thread the
+// real value through.
 
-function durationLabel(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m} min ${pad2(s)} sec`
-}
 
 export default async function SessionsPage({
   params,
@@ -40,6 +39,9 @@ export default async function SessionsPage({
   const supabase = await createClient()
 
   const activeStaffId = await getCurrentUserStaffId()
+  const staffList = await getStaffList()
+  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  const tStatus = await getTranslations('reservation.status')
 
   const now = new Date()
   const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
@@ -93,6 +95,7 @@ export default async function SessionsPage({
     title: string | null
     notes: string | null
     statusKey?: 'in-session' | 'booked' | 'done'
+    staffName: string
   } | null = null
 
   // Nearby bookings (today, around the target time) — fed into the target card switcher
@@ -166,6 +169,12 @@ export default async function SessionsPage({
       title: unlinked.title ?? null,
       notes: unlinked.notes ?? null,
       statusKey,
+      // Real staff name from the staff list lookup. Earlier the
+      // recording-target card hardcoded staffName='—' even though
+      // staff_profile_id was selected on the appointment query.
+      staffName: unlinked.staff_profile_id
+        ? (staffNameById.get(unlinked.staff_profile_id) ?? '—')
+        : '—',
     }
   }
 
@@ -196,10 +205,24 @@ export default async function SessionsPage({
       customer: customerName,
       initials: deriveFamilyInitials(customerName),
       karute: null,
-      service: a.title ?? 'Session',
-      staff: '—',
+      // a.title is the customer's free-text booking note — '—' when
+      // null instead of an English literal 'Session' that other rows
+      // would carry as if it were real data.
+      service: a.title ?? '—',
+      // Real staff lookup — staff_profile_id is selected in the query,
+      // earlier version hardcoded '—' even though the data was in hand.
+      staff: a.staff_profile_id
+        ? (staffNameById.get(a.staff_profile_id) ?? '—')
+        : '—',
       statusKey,
-      statusLabel: inSessionNow ? 'In session' : isDone ? 'Done' : 'Booked',
+      // i18n via reservation.status — earlier version hardcoded the
+      // English literals 'In session' / 'Done' / 'Booked' so EN locale
+      // worked but JA showed English copy in the recording-target card.
+      statusLabel: inSessionNow
+        ? tStatus('in_session')
+        : isDone
+          ? tStatus('completed')
+          : tStatus('booked'),
     }
   })
 
@@ -223,8 +246,15 @@ export default async function SessionsPage({
       id: r.id,
       customerName,
       initials: deriveFamilyInitials(customerName),
-      karuteNumber: deriveKaruteNumber(r.id),
-      service: 'Session',
+      // karuteNumber dropped — see top-of-file comment. The card's
+      // existing `karuteNumber && ...` conditional hides the chip
+      // when null so the row reads cleanly instead of showing
+      // `#A1B2C` hash noise.
+      karuteNumber: null,
+      // Service '—' instead of literal 'Session' until karute_records
+      // has a real `service` column. Same '施術' bug fixed on the
+      // main karute list.
+      service: '—',
       date: dt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
         timeZone: 'Asia/Tokyo',
         year: 'numeric',
@@ -232,7 +262,10 @@ export default async function SessionsPage({
         day: 'numeric',
       }),
       startTime: hhmm(dt),
-      durationLabel: durationLabel(0), // duration is not stored on karute_records; placeholder
+      // Duration label '—' until karute_records has a `duration_minutes`
+      // column. Earlier "0 min 00 sec" rendered on every row as if it
+      // were real data.
+      durationLabel: '—',
       karuteLinked: !!r.summary,
       entryCount,
       karuteId: r.id,
