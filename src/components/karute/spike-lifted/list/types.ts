@@ -12,7 +12,12 @@
 //   - has neither           → 'draft'
 //   - 'needsReview' is a future status — needs a per-record review
 //     flag on the schema. ANTHONY: add `karute_records.review_needed
-//     boolean` to surface this in real data.
+//     boolean` to surface this in real data. Until that lands, the
+//     "レビュー要" filter chip is omitted from FILTER_KEYS in
+//     KaruteRecordListView so it doesn't render as a perpetually-
+//     empty pill (would have read "レビュー要 0" forever). The
+//     union member + i18n key + chip style stay so adding the
+//     column re-lights the filter automatically.
 //
 // `conversionStatus` is best-effort:
 //   - record has ≥1 entry → 'active'

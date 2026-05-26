@@ -66,11 +66,17 @@ interface Props {
 
 const PAGE_SIZE = 12
 
+// `needsReview` intentionally omitted from the visible filter row —
+// no code path assigns `aiStatus === 'needsReview'` today, so the
+// chip would always show "レビュー要 0" and filter to an empty list.
+// The union member + i18n key + chip style stay in the codebase so
+// the filter lights up automatically once ANTHONY adds a
+// `karute_records.review_needed boolean` column and we set the
+// status in page.tsx's derivation block (see types.ts ANTHONY note).
 const FILTER_KEYS: KaruteListFilter[] = [
   'all',
   'thisWeek',
   'aiPending',
-  'needsReview',
   'draft',
 ]
 
