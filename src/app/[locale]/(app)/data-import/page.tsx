@@ -31,7 +31,11 @@ export default async function DataImportPage() {
 
   return (
     <div className="space-y-6">
-      <div>
+      {/* Desktop-only title block — MobileHeader already shows
+       *  データインポート on mobile, so the page-body heading
+       *  duplicated it. Description still carries useful context
+       *  so we keep it visible on desktop alongside the h1. */}
+      <div className="hidden md:block">
         <h1 className="text-2xl font-semibold tracking-tight">{t('title')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('description')}
