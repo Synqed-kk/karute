@@ -1,0 +1,140 @@
+'use client'
+
+// ─────────────────────────────────────────────────────────────
+// MobileHeader — sticky top bar with back arrow + title + bell
+// ─────────────────────────────────────────────────────────────
+// LIFTED FROM SPIKE: components/layout/MobileHeader.tsx
+// Karute adaptations:
+//   - useT() → useTranslations() + locale-aware route matching
+//   - useRecording() not yet wired in karute — recording-state
+//     branch deferred; bell always renders (DiscreetRecordingIndicator
+//     mounted at the layout root handles the recording UX
+//     separately for now)
+//   - useUnreadCount uses karute's existing notifications hook
+//
+// Mobile-only (md:hidden). Desktop uses the sidebar.
+//
+// THREE SLOTS:
+//   left  — back arrow on sub-routes; empty spacer on bottom-tab roots
+//   center — page title looked up from pathname
+//   right — bell with notification count badge
+
+import { useState } from 'react'
+import { usePathname, useRouter } from 'next/navigation'
+import { Bell, ChevronLeft } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+
+import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
+import { useUnreadCount } from '@/lib/notifications/hooks'
+
+export function MobileHeader() {
+  const pathname = usePathname()
+  const router = useRouter()
+  const tSidebar = useTranslations('sidebar')
+  const tCommon = useTranslations('common')
+  const unreadCount = useUnreadCount()
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+
+  const title = titleFor(pathname, tSidebar)
+  const showBack = isSubRoute(pathname)
+
+  return (
+    <header
+      data-mobile-chrome="true"
+      className="sticky top-0 z-30 border-b border-black/5 bg-white/80 pt-[env(safe-area-inset-top)] supports-backdrop-filter:bg-white/70 supports-backdrop-filter:backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-neutral-900/85 supports-backdrop-filter:dark:bg-neutral-900/70"
+    >
+      <div className="flex h-14 items-center gap-1 px-2">
+        {/* Left — back arrow on sub-routes, spacer on bottom-tab roots */}
+        {showBack ? (
+          <button
+            type="button"
+            onClick={() => router.back()}
+            aria-label={tCommon('back')}
+            className="inline-flex size-11 items-center justify-center rounded-full text-gray-700 transition-colors active:bg-black/5 dark:text-gray-300"
+          >
+            <ChevronLeft className="size-5" />
+          </button>
+        ) : (
+          <span aria-hidden className="size-11 shrink-0" />
+        )}
+
+        <h1 className="flex-1 truncate px-1 text-center text-[17px] font-semibold tracking-tight">
+          {title}
+        </h1>
+
+        {/* Right — bell with unread badge */}
+        <button
+          type="button"
+          onClick={() => setNotificationsOpen(true)}
+          aria-label={tCommon('notifications')}
+          className="relative inline-flex size-11 items-center justify-center rounded-full text-gray-700 transition-colors active:bg-black/5 dark:text-gray-300"
+        >
+          <Bell className="size-5" />
+          {unreadCount > 0 && (
+            <span
+              aria-hidden
+              className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-white dark:ring-neutral-900"
+            >
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
+        </button>
+      </div>
+
+      <NotificationsPanel
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+      />
+    </header>
+  )
+}
+
+/** True for any page that isn't a bottom-nav root tab. The
+ *  bottom nav owns the primary roots — adding a back arrow there
+ *  would be redundant. Sub-routes (settings, coaching/*, profile,
+ *  ask-ai, data-import, data-export, karute detail, sessions,
+ *  welcome) get a back arrow so staff can undo a nav. */
+function isSubRoute(pathname: string | null): boolean {
+  if (!pathname) return false
+  // Match the bottom-nav primary destinations. Same set rendered
+  // by src/components/layout/bottom-nav.tsx.
+  const bottomTabPrimary = [
+    '/ja',
+    '/en',
+    '/ja/dashboard',
+    '/en/dashboard',
+    '/ja/appointments',
+    '/en/appointments',
+    '/ja/karute',
+    '/en/karute',
+    '/ja/customers',
+    '/en/customers',
+  ]
+  return !bottomTabPrimary.includes(pathname)
+}
+
+/** Maps a route path to its display title. Locale-prefix
+ *  stripping happens inline so a single match handles both
+ *  /ja/* and /en/* paths. Falls back to "SYNQED". */
+function titleFor(
+  pathname: string | null,
+  tSidebar: ReturnType<typeof useTranslations>,
+): string {
+  if (!pathname) return 'SYNQED'
+  // Strip the locale prefix so all matches are locale-agnostic.
+  const tail = pathname.replace(/^\/(ja|en)/, '')
+  if (tail === '' || tail === '/') return tSidebar('dashboard')
+  if (tail.startsWith('/dashboard')) return tSidebar('dashboard')
+  if (tail.startsWith('/appointments')) return tSidebar('appointments')
+  if (tail.startsWith('/customers')) return tSidebar('customers')
+  if (tail.startsWith('/karute')) return tSidebar('karute')
+  if (tail.startsWith('/sessions')) return tSidebar('recording')
+  if (tail.startsWith('/coaching')) return tSidebar('coaching')
+  if (tail.startsWith('/ask-ai')) return tSidebar('askAi')
+  if (tail.startsWith('/data-import')) return tSidebar('dataImport')
+  if (tail.startsWith('/data-export')) return tSidebar('dataExport')
+  if (tail.startsWith('/profile')) return tSidebar('settings')
+  if (tail.startsWith('/settings')) return tSidebar('settings')
+  if (tail.startsWith('/welcome')) return 'SYNQED'
+  return 'SYNQED'
+}
