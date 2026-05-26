@@ -3,12 +3,15 @@
 import { ArrowRight, Clock, MessageCircle } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 
-export type AppointmentStatusKey =
-  | 'booked'
-  | 'in-session'
-  | 'completed'
-  | 'pending'
-  | 'new'
+// Narrowed from the 5-member spike union — dashboard/page.tsx only
+// ever assigns 'booked' or 'completed'. The other three styles
+// ('in-session' / 'pending' / 'new') had no producer, so the pill
+// styles never rendered. Same class of bug as the レビュー要 filter
+// chip from PR #63. ANTHONY: when in-session tracking + provisional
+// booking states are wired (probably alongside the reservation
+// agenda's display_status work), restore the union + STATUS_STYLES
+// entries.
+export type AppointmentStatusKey = 'booked' | 'completed'
 
 export interface DashboardAppointment {
   id: string
@@ -21,16 +24,12 @@ export interface DashboardAppointment {
   staffColor: string | null // hex
   statusKey: AppointmentStatusKey
   statusLabel: string
-  isNew?: boolean
   reservationMemo?: string | null
 }
 
 const STATUS_STYLES: Record<AppointmentStatusKey, { bg: string; text: string; border: string }> = {
   booked: { bg: 'bg-sky-500/15', text: 'text-sky-300', border: 'border-sky-500/30' },
-  'in-session': { bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' },
   completed: { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' },
-  pending: { bg: 'bg-orange-500/15', text: 'text-orange-300', border: 'border-orange-500/30' },
-  new: { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30' },
 }
 
 export function TodaysAppointmentsCard({
@@ -103,11 +102,12 @@ function AppointmentRow({ a }: { a: DashboardAppointment }) {
               #{a.karuteNumber}
             </span>
           )}
-          {a.isNew && (
-            <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-300">
-              New
-            </span>
-          )}
+          {/* "New" badge removed — `isNew` field was never set by
+           *  the dashboard page producer, so the badge never showed.
+           *  Same class of bug as レビュー要. ANTHONY: when first-
+           *  visit detection lands (probably via a customers join +
+           *  visitCount === 0 check), restore as a real DashboardAppointment
+           *  field + this conditional. */}
           <span
             className={`ml-auto rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
           >

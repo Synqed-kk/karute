@@ -25,7 +25,13 @@ export function AIActionsHero({ businessProfile }: AIActionsHeroProps) {
             <h2 className="text-base font-semibold text-foreground">
               AI suggested actions
             </h2>
-            <div className="text-xs text-muted-foreground">0 waiting</div>
+            {/* "0 waiting" header counter removed — was hardcoded
+             *  literal pretending to be a real counter. The empty-
+             *  state below already says "No AI suggestions yet"
+             *  so the header sub-line was double-saying nothing.
+             *  ANTHONY: when the AI suggestion queue is wired,
+             *  restore this as `{count} waiting` driven by a real
+             *  count prop. */}
           </div>
         </div>
         {businessProfile && (
