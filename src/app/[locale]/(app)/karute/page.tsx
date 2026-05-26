@@ -119,8 +119,14 @@ export default async function KaruteRecordsListPage() {
       date: isoDate,
       weekday,
       // ANTHONY: service + duration aren't on karute_records yet —
-      // fallback values until the schema gets those columns.
-      service: '施術',
+      // schema gap also flagged in the manual-create dialog's server
+      // action (createManualKaruteRecord in src/actions/karute.ts).
+      // Sending '—' instead of a hardcoded '施術' so the row reads
+      // honestly as "unset" rather than printing the same generic
+      // label on every record. Once the columns land, swap to the
+      // real fields and the row's existing `duration > 0 && ...`
+      // guard hides the duration line when truly unknown.
+      service: '—',
       duration: 0,
       staffId: r.staff_profile_id,
       staffName: r.staff_profile_id
