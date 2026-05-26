@@ -55,6 +55,7 @@ import { useLocale, useTranslations } from 'next-intl'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useEffectiveCoachingRole } from '@/lib/coaching-dev-preview/hooks'
 
 import type { LearningModule, StaffPerformance } from './owner-types'
 
@@ -72,10 +73,14 @@ interface LearningModulesViewProps {
 }
 
 export function LearningModulesView({
-  role,
+  role: realRole,
   modules = null,
   staff = null,
 }: LearningModulesViewProps) {
+  // Dev preview override (see DevPreviewToggle). Drives the
+  // canAssign decision below — flipping to "staff" preview
+  // disables the assignment chips, matching real-staff UX.
+  const role = useEffectiveCoachingRole(realRole)
   const t = useTranslations('coaching.modules')
   const tCommon = useTranslations('coaching.common')
   const locale = useLocale()

@@ -23,6 +23,7 @@
 import { notFound, redirect } from 'next/navigation'
 
 import { StaffDrillDownView } from '@/components/coaching/redesign/StaffDrillDownView'
+import { isDevPreviewEnabled } from '@/lib/coaching-dev-preview/hooks'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 
 interface PageProps {
@@ -61,7 +62,12 @@ export default async function CoachingStaffDrillDownPage({ params }: PageProps) 
 
   // Frontend gate. Staff bouncing to their own /coaching root is
   // less jarring than a 403 — backend still enforces the API gate.
-  if (role !== 'owner') {
+  //
+  // EXCEPTION: when the dev-preview env flag is on, we let the
+  // request through so a developer who flipped the preview pill
+  // to "staff" can still load the page and see how it'd render
+  // for a real staff (StaffDrillDownView handles that branch).
+  if (role !== 'owner' && !isDevPreviewEnabled()) {
     redirect(`/${locale}/coaching`)
   }
 
@@ -80,6 +86,7 @@ export default async function CoachingStaffDrillDownPage({ params }: PageProps) 
       staffName={displayName}
       initials={initials}
       role={displayRole}
+      viewerRealRole={role}
       performance={null}
       insights={null}
     />
