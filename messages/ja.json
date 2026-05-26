@@ -779,7 +779,25 @@
       "minutesSuffix": "分",
       "empty": "カルテはまだありません",
       "newCustomersHeader": "新規のお客様 · まだセッションなし",
-      "noSessionYet": "まだセッションなし"
+      "noSessionYet": "まだセッションなし",
+      "newKaruteDialog": {
+        "title": "新規カルテの作成",
+        "description": "お客様のセッション記録を手動で作成します",
+        "customerLabel": "お客様",
+        "customerPlaceholder": "名前で検索",
+        "customerNotFound": "該当するお客様が見つかりません",
+        "customerClear": "クリア",
+        "dateLabel": "セッション日",
+        "durationLabel": "所要時間",
+        "staffLabel": "担当スタッフ",
+        "serviceLabel": "サービス",
+        "servicePlaceholder": "例：フェイシャル・保湿強化",
+        "tipMessage": "💡 録音を使うとAIが自動でカルテ項目を生成します。録音セッションを開始するには下のナビゲーションの「録音」を利用してください。",
+        "cancel": "キャンセル",
+        "create": "作成",
+        "creating": "作成中...",
+        "errorGeneric": "作成に失敗しました。もう一度お試しください。"
+      }
     },
     "outreach": {
       "title": "AI推奨メッセージ",

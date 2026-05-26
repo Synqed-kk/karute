@@ -177,6 +177,17 @@ export default async function KaruteRecordsListPage() {
   const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
 
+  // Customer combobox source for the NewKaruteDialog. Reuses the same
+  // list we already loaded above for the customer-name lookup map —
+  // no extra round trip. Karute number is precomputed so the dialog
+  // can show #00001-style suffixes next to each name (helps staff
+  // disambiguate customers with similar names).
+  const customerOptions = allCustomersList.customers.map((c) => ({
+    id: c.id,
+    name: c.name,
+    karuteNumber: karuteNumberByCustomerId.get(c.id) ?? undefined,
+  }))
+
   return (
     <KaruteRecordListView
       items={items}
@@ -188,6 +199,7 @@ export default async function KaruteRecordsListPage() {
         initials: deriveFamilyInitials(s.full_name ?? ''),
       }))}
       currentStaffId={currentStaffId}
+      customerOptions={customerOptions}
     />
   )
 }

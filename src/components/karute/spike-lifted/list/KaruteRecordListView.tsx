@@ -32,6 +32,7 @@ import {
 } from '@/components/customers/redesign/list/CustomersStaffFilter'
 
 import { KaruteListRow } from './KaruteListRow'
+import { NewKaruteDialog } from './NewKaruteDialog'
 import type { KaruteListFilter, KaruteListItem } from './types'
 
 interface Props {
@@ -54,6 +55,11 @@ interface Props {
   /** The viewer's staff id — drives the "Me" filter pill. Null when
    *  the session has no active staff. */
   currentStaffId?: string | null
+  /** All customers for this business — feeds the NewKaruteDialog's
+   *  customer combobox so manual karute creation binds to a real
+   *  customer_id instead of free text. Page already loads this for
+   *  the customer lookup map; we pass it down. */
+  customerOptions?: Array<{ id: string; name: string; karuteNumber?: string }>
 }
 
 const PAGE_SIZE = 12
@@ -72,6 +78,7 @@ export function KaruteRecordListView({
   placeholders = [],
   staffList = [],
   currentStaffId = null,
+  customerOptions = [],
 }: Props) {
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
@@ -80,6 +87,7 @@ export function KaruteRecordListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [page, setPage] = useState(0)
+  const [newKaruteOpen, setNewKaruteOpen] = useState(false)
 
   // Reset to first page when filter or search changes — otherwise a
   // narrower result set strands the viewer on an empty page.
@@ -201,16 +209,21 @@ export function KaruteRecordListView({
           <p className="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
             {t('statusLine', { monthCount, showingCount: filtered.length })}
           </p>
-          {/* + 新規カルテ — primary CTA. ANTHONY wires the create-karute
-           *  flow; today the button routes staff to /sessions to start a
-           *  recording (the canonical karute-creation entry point). */}
-          <a
-            href={`/${locale}/sessions`}
+          {/* + 新規カルテ — primary CTA. Opens the manual-entry dialog
+           *  (NewKaruteDialog) so staff can backdate or log a session
+           *  without going through the recording flow. The bottom-nav
+           *  「録音」 button stays the canonical AI-assisted path —
+           *  earlier this CTA routed there too, conflating manual entry
+           *  with starting a recording. Two distinct intents now have
+           *  two distinct surfaces. */}
+          <button
+            type="button"
+            onClick={() => setNewKaruteOpen(true)}
             className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-sage-800 px-4 text-[13px] font-medium text-white transition-colors hover:bg-sage-900"
           >
             <FilePlus2 className="size-3.5" aria-hidden />
             {t('newKarute')}
-          </a>
+          </button>
         </div>
       </div>
 
@@ -365,6 +378,17 @@ export function KaruteRecordListView({
           </div>
         </div>
       )}
+
+      {/* Manual-entry dialog for the "+ 新規カルテ" CTA. Renders at
+       *  the root of the page so it overlays the whole viewport
+       *  cleanly (Portal-mounted via the shadcn Dialog primitive). */}
+      <NewKaruteDialog
+        open={newKaruteOpen}
+        onOpenChange={setNewKaruteOpen}
+        staffList={staffList.map((s) => ({ id: s.id, name: s.name }))}
+        customers={customerOptions}
+        defaultStaffId={currentStaffId}
+      />
     </main>
   )
 }
