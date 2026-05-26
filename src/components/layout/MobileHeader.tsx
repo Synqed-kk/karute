@@ -6,18 +6,22 @@
 // LIFTED FROM SPIKE: components/layout/MobileHeader.tsx
 // Karute adaptations:
 //   - useT() → useTranslations() + locale-aware route matching
-//   - useRecording() not yet wired in karute — recording-state
-//     branch deferred; bell always renders (DiscreetRecordingIndicator
-//     mounted at the layout root handles the recording UX
-//     separately for now)
 //   - useUnreadCount uses karute's existing notifications hook
+//   - Recording-aware bell hiding: when staff is recording (state
+//     ∈ {recording, paused}), the bell collapses to a spacer so
+//     the floating DiscreetRecordingIndicator (layout-level, fixed
+//     top-right) can occupy the corner without overlapping. Bell
+//     returns the moment recording stops. This logic lived in
+//     RecordPageHeader's local mobile chrome before MobileHeader
+//     was introduced; centralised here so every (app) route gets
+//     the same posture without per-page re-implementation.
 //
 // Mobile-only (md:hidden). Desktop uses the sidebar.
 //
 // THREE SLOTS:
 //   left  — back arrow on sub-routes; empty spacer on bottom-tab roots
 //   center — page title looked up from pathname
-//   right — bell with notification count badge
+//   right — bell with notification count badge (hidden during recording)
 
 import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
@@ -26,6 +30,7 @@ import { useTranslations } from 'next-intl'
 
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
 export function MobileHeader() {
   const pathname = usePathname()
@@ -34,6 +39,12 @@ export function MobileHeader() {
   const tCommon = useTranslations('common')
   const unreadCount = useUnreadCount()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
+  // Hide bell while recording — DiscreetRecordingIndicator (fixed
+  // top-right, mounted at the (app) layout root) takes over the
+  // corner. Staff aren't checking notifications mid-session anyway;
+  // they're with the customer.
+  const { state: recState } = useGlobalRecorder()
+  const isRecording = recState === 'recording' || recState === 'paused'
 
   const title = titleFor(pathname, tSidebar)
   const showBack = isSubRoute(pathname)
@@ -62,23 +73,30 @@ export function MobileHeader() {
           {title}
         </h1>
 
-        {/* Right — bell with unread badge */}
-        <button
-          type="button"
-          onClick={() => setNotificationsOpen(true)}
-          aria-label={tCommon('notifications')}
-          className="relative inline-flex size-11 items-center justify-center rounded-full text-gray-700 transition-colors active:bg-black/5 dark:text-gray-300"
-        >
-          <Bell className="size-5" />
-          {unreadCount > 0 && (
-            <span
-              aria-hidden
-              className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-white dark:ring-neutral-900"
-            >
-              {unreadCount > 9 ? '9+' : unreadCount}
-            </span>
-          )}
-        </button>
+        {/* Right — bell with unread badge. Hidden during recording so
+         *  DiscreetRecordingIndicator (layout-level fixed top-right)
+         *  can occupy the corner without overlapping. Spacer keeps
+         *  the title centered when the bell collapses. */}
+        {isRecording ? (
+          <span aria-hidden className="size-11 shrink-0" />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setNotificationsOpen(true)}
+            aria-label={tCommon('notifications')}
+            className="relative inline-flex size-11 items-center justify-center rounded-full text-gray-700 transition-colors active:bg-black/5 dark:text-gray-300"
+          >
+            <Bell className="size-5" />
+            {unreadCount > 0 && (
+              <span
+                aria-hidden
+                className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-white dark:ring-neutral-900"
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
+          </button>
+        )}
       </div>
 
       <NotificationsPanel
