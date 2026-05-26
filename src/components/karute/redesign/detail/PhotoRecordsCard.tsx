@@ -1,7 +1,19 @@
 'use client'
 
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Image as ImageIcon } from 'lucide-react'
+import { Eye, EyeOff, Image as ImageIcon } from 'lucide-react'
+
+import { cn } from '@/lib/utils'
+
+// Presenter mode gated on NEXT_PUBLIC_FEATURE_PRESENTER_MODE.
+// ANTHONY: needs a full-screen photo viewer component that staff
+// turns the phone to show the customer. The toggle below is the
+// affordance shape; the onClick should open that viewer with the
+// current photo set. Keep the state at the card level for now so
+// the spec is obvious when the feature flips on.
+const FEATURE_PRESENTER_MODE =
+  process.env.NEXT_PUBLIC_FEATURE_PRESENTER_MODE === 'true'
 
 export interface PhotoRecord {
   id: string
@@ -27,6 +39,7 @@ function toneFor(category: string) {
 
 export function PhotoRecordsCard({ photos }: PhotoRecordsCardProps) {
   const t = useTranslations('karuteDetail')
+  const [showToCustomer, setShowToCustomer] = useState(false)
 
   if (photos.length === 0) return null
 
@@ -46,13 +59,21 @@ export function PhotoRecordsCard({ photos }: PhotoRecordsCardProps) {
             </div>
           </div>
         </div>
-        {/* "Show to customer" eye toggle removed — earlier render had
-         *  local boolean state that styled the button itself but never
-         *  propagated anywhere else, so clicking on/off changed
-         *  nothing the customer sees. ANTHONY: when a real "presenter
-         *  mode" overlay ships (probably a full-screen photo viewer
-         *  the staff turns the phone to show the customer), restore
-         *  this button to trigger it. */}
+        {FEATURE_PRESENTER_MODE && (
+          <button
+            type="button"
+            onClick={() => setShowToCustomer((v) => !v)}
+            className={cn(
+              'inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium transition-colors',
+              showToCustomer
+                ? 'bg-sky-500/15 text-sky-500'
+                : 'text-sky-500 hover:bg-sky-500/10',
+            )}
+          >
+            {showToCustomer ? <EyeOff size={14} /> : <Eye size={14} />}
+            <span>{t('photos.showToCustomer')}</span>
+          </button>
+        )}
       </header>
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {photos.map((p) => {

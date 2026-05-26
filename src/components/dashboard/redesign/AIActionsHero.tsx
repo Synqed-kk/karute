@@ -11,9 +11,13 @@ import type { BusinessProfile } from '@/lib/welcome/business-types'
 // dashboard layout reads correctly, with an empty state instead of fake data.
 interface AIActionsHeroProps {
   businessProfile: BusinessProfile | null
+  /** Pending-suggestion queue depth. `null` hides the sub-line —
+   *  ANTHONY: pass a real number when the AI suggestion producer
+   *  ships. */
+  waitingCount?: number | null
 }
 
-export function AIActionsHero({ businessProfile }: AIActionsHeroProps) {
+export function AIActionsHero({ businessProfile, waitingCount = null }: AIActionsHeroProps) {
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -25,13 +29,17 @@ export function AIActionsHero({ businessProfile }: AIActionsHeroProps) {
             <h2 className="text-base font-semibold text-foreground">
               AI suggested actions
             </h2>
-            {/* "0 waiting" header counter removed — was hardcoded
-             *  literal pretending to be a real counter. The empty-
-             *  state below already says "No AI suggestions yet"
-             *  so the header sub-line was double-saying nothing.
-             *  ANTHONY: when the AI suggestion queue is wired,
-             *  restore this as `{count} waiting` driven by a real
-             *  count prop. */}
+            {/* `waitingCount` is the AI suggestion queue depth.
+             *  ANTHONY: when the suggestion queue table ships, pass
+             *  a real count via this prop and the sub-line lights up.
+             *  Until then, `null` correctly hides the header — the
+             *  empty-state below carries the "No suggestions yet"
+             *  message. */}
+            {waitingCount != null && (
+              <div className="text-xs text-muted-foreground">
+                {waitingCount} waiting
+              </div>
+            )}
           </div>
         </div>
         {businessProfile && (

@@ -11,23 +11,25 @@
 //                            (this dialog)
 //   bottom-nav 「録音」     → start an AI-assisted recording flow
 //
-// SCOPE NOTE — fields shown vs schema
-// ────────────────────────────────────
+// SCHEMA-GATED FIELDS
+// ────────────────────
 // karute_records currently persists customer_id + staff_id + status.
-// The spike's dialog had session_date / duration_minutes / service
-// inputs, BUT karute_records has no columns for those today, so
-// shipping the inputs would mean staff fills them in and the values
-// silently vanish on submit — same '施術' fallback shape we just
-// cleaned up across the codebase. So the dialog renders only the
-// two fields that actually persist (customer + staff) and a banner
-// pointing at the recording flow for the rest.
+// The dialog renders 5 fields though — customer, session date,
+// duration, staff, service — because the spec for the dialog is
+// what owner needs to log a backdated session manually.
 //
-// ANTHONY: once karute_records has `service text`,
-// `duration_minutes int`, `session_date date` columns, restore the
-// three inputs by un-commenting the marked blocks below and
-// passing them through createManualKaruteRecord. The server action
-// already accepts the values (and drops them); flipping the
-// schema lights up the full payload without further changes here.
+// Three of those (session date / duration / service) are rendered
+// DISABLED with a Coming-Soon chip today because karute_records
+// has no `session_date`, `duration_minutes`, or `service` column.
+// The inputs are intentionally visible (not deleted) so:
+//   • Anthony sees the spec at code-review time — the schema
+//     columns he needs are right here next to the disabled inputs.
+//   • The dialog stays honest — staff can't fill the fields but
+//     can see the intent (and the recording-flow tip banner
+//     redirects them for full session capture today).
+//   • Re-enabling is a one-line change per field when the
+//     columns ship: remove the `disabled` prop, drop the
+//     ComingSoon chip, plumb the value through handleSubmit.
 //
 // Customer picker uses the same CustomerCombobox + QuickCreateCustomer
 // pair the recording flow uses (SaveKaruteFlow / RecordingPanel),
@@ -44,7 +46,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { ComingSoonChip } from '@/components/customers/redesign/ComingSoonChip'
 
 import {
   CustomerCombobox,
@@ -53,6 +57,9 @@ import {
 import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
 
 import { createManualKaruteRecord } from '@/actions/karute'
+
+const DURATION_OPTIONS = [30, 45, 60, 90] as const
+type Duration = (typeof DURATION_OPTIONS)[number]
 
 interface StaffOption {
   id: string
@@ -96,9 +103,16 @@ export function NewKaruteDialog({
     useState<string | null>(null)
   const [customerFlow, setCustomerFlow] =
     useState<CustomerFlowState>('combobox')
+  // date / duration / service kept in local state so the inputs
+  // render with sensible placeholders today. ANTHONY: when the
+  // columns ship, drop the `disabled` props in the JSX below and
+  // these values flow straight through handleSubmit.
+  const [date, setDate] = useState<string>(todayIso())
+  const [duration, setDuration] = useState<Duration>(60)
   const [staffId, setStaffId] = useState<string>(
     defaultStaffId ?? staffList[0]?.id ?? '',
   )
+  const [service, setService] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
@@ -118,7 +132,10 @@ export function NewKaruteDialog({
     setCustomerList(customers)
     setSelectedCustomerId(null)
     setCustomerFlow('combobox')
+    setDate(todayIso())
+    setDuration(60)
     setStaffId(defaultStaffId ?? staffList[0]?.id ?? '')
+    setService('')
     setError(null)
   }
 
@@ -140,14 +157,12 @@ export function NewKaruteDialog({
       const result = await createManualKaruteRecord({
         customerId: selectedCustomer.id,
         staffId,
-        // ANTHONY: session_date / duration / service hardcoded
-        // defaults because karute_records has no columns for them
-        // yet. The server action accepts + drops the values. Once
-        // the schema lands, plumb real values from re-added inputs
-        // above (see SCOPE NOTE at the top of this file).
-        sessionDate: todayIso(),
-        durationMinutes: 60,
-        service: '',
+        // ANTHONY: passing real local state through even though the
+        // server action drops these today — when the columns land
+        // the values flow without further code change here.
+        sessionDate: date,
+        durationMinutes: duration,
+        service: service.trim(),
       })
       // On success the action redirects — we never reach here.
       // Only error returns land here.
@@ -166,7 +181,7 @@ export function NewKaruteDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {/* Customer picker — combobox + inline quick-create */}
+          {/* Customer picker — combobox + inline quick-create. ACTIVE. */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">
               {t('customerLabel')}
@@ -191,8 +206,59 @@ export function NewKaruteDialog({
             )}
           </div>
 
-          {/* Staff picker — native <select> until karute ships a
-           *  shadcn Select primitive. */}
+          {/* Date + Duration — two-up. SCHEMA-GATED — disabled until
+           *  karute_records has `session_date date` and
+           *  `duration_minutes int` columns. Inputs visible so the
+           *  spec is obvious to Anthony at code review time. */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <label
+                  htmlFor="new-karute-date"
+                  className="text-xs font-medium text-foreground"
+                >
+                  {t('dateLabel')}
+                </label>
+                <ComingSoonChip />
+              </div>
+              <Input
+                id="new-karute-date"
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                disabled
+                className="h-10"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <label
+                  htmlFor="new-karute-duration"
+                  className="text-xs font-medium text-foreground"
+                >
+                  {t('durationLabel')}
+                </label>
+                <ComingSoonChip />
+              </div>
+              <select
+                id="new-karute-duration"
+                value={duration}
+                onChange={(e) =>
+                  setDuration(Number(e.target.value) as Duration)
+                }
+                disabled
+                className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {DURATION_OPTIONS.map((m) => (
+                  <option key={m} value={m}>
+                    {m} min
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Staff — ACTIVE. karute_records has staff_id, this persists. */}
           <div className="space-y-1.5">
             <label
               htmlFor="new-karute-staff"
@@ -215,12 +281,27 @@ export function NewKaruteDialog({
             </select>
           </div>
 
-          {/* Session date / duration / service intentionally NOT
-           *  shown — karute_records has no columns for them, so
-           *  the server action would drop the values silently.
-           *  See SCOPE NOTE at the top of this file. The tip
-           *  banner below redirects staff to the recording flow
-           *  for everything beyond customer + staff. */}
+          {/* Service — SCHEMA-GATED — disabled until karute_records has
+           *  a `service text` column. */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <label
+                htmlFor="new-karute-service"
+                className="text-xs font-medium text-foreground"
+              >
+                {t('serviceLabel')}
+              </label>
+              <ComingSoonChip />
+            </div>
+            <Input
+              id="new-karute-service"
+              value={service}
+              onChange={(e) => setService(e.target.value)}
+              placeholder={t('servicePlaceholder')}
+              disabled
+              className="h-10"
+            />
+          </div>
 
           {/* Tip banner — encourage the recording flow for full
               session capture with AI auto-fill. */}
