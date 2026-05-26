@@ -55,7 +55,7 @@ export function AISection({ orgSettings }: AISectionProps) {
       </div>
 
       <div>
-        <label className="text-sm font-medium mb-1.5 block">{t('aiModel')}</label>
+        <label className="text-sm font-medium mb-1.5 block">{t('aiModel.label')}</label>
         <select
           value={aiModel}
           onChange={(e) => {

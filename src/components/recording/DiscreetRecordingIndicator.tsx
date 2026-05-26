@@ -77,6 +77,18 @@ export function DiscreetRecordingIndicator() {
     return () => clearInterval(id)
   }, [state, startedAt])
 
+  // When recording stops, explicitly close the popover BEFORE
+  // unmount. Without this, the component unmounts with `open=true`
+  // mid-cycle — the mousedown / setTimeout cleanups still run, but
+  // React's effect-order during unmount has occasionally left
+  // pointer-capture state lingering on the dot button, which in
+  // Chrome can block page-level scroll until a hard reload.
+  // Closing first lets the open-effect's cleanup run cleanly,
+  // then the unmount removes the rest.
+  useEffect(() => {
+    if (!isActive && open) setOpen(false)
+  }, [isActive, open])
+
   // Auto-close the popover after AUTO_CLOSE_MS of no interaction.
   useEffect(() => {
     if (!open) return
