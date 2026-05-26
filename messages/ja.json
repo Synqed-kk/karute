@@ -978,6 +978,34 @@
         "cancel": "キャンセル",
         "confirm": "確認する"
       }
+    },
+    "modules": {
+      "back": "コーチングに戻る",
+      "title": "学習モジュール",
+      "subtitle": "チームの成長を促す、AIが厳選した学習モジュールのライブラリ。カテゴリや担当で絞り込み、スタッフに割り当ててください。",
+      "aiCalloutTitle": "AIが毎週新しいモジュールを提案します",
+      "aiCalloutBody": "トップパフォーマーの行動パターンから学習モジュールを自動生成。効果の高いモジュールほど、今後の推薦に重み付けされます。",
+      "staffContextTitle": "{name}さん向けにモジュールを選んでいます",
+      "staffContextBody": "割り当てを外すには、フィルターをクリアして全スタッフから選べます。",
+      "clearStaff": "絞り込みを解除",
+      "searchPh": "モジュール名・カテゴリで検索...",
+      "clearFilters": "クリア",
+      "tab": {
+        "all": "すべて",
+        "assigned": "割り当て済",
+        "ai": "AIが生成",
+        "unassigned": "未割り当て"
+      },
+      "allCategories": "全カテゴリ",
+      "emptyTitle": "該当するモジュールがありません",
+      "emptyBody": "検索語やフィルターを変更するか、トップパフォーマーの新しいパターンから AI モジュールが生成されるまでお待ちください。",
+      "scaffoldHint": "AIが厳選した学習モジュールのカタログ、検索／タブ／カテゴリ絞り込み、3カラムのカードグリッド、そしてスタッフへの割り当てチップをここに表示します。Anthonyが useLearningModulesData() と useStaffPerformanceData() を実装後に有効化されます。割り当て書き込みは learning_assignments への INSERT／DELETE サーバーアクション（オーナー限定）で行います。",
+      "durationMin": "{n}分",
+      "completion": "進捗",
+      "assignTo": "スタッフに割り当て",
+      "assignedCount": "{n}名に割り当て済",
+      "noEligibleStaff": "同意済みのスタッフがまだいません。",
+      "aiGenerated": "AI生成"
     }
   },
   "dashboard": {

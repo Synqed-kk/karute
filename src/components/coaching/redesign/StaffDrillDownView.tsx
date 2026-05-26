@@ -118,7 +118,7 @@ export function StaffDrillDownView({
             </p>
           </div>
           <Link
-            href={`/${locale}/coaching?staff=${staffId}`}
+            href={`/${locale}/coaching/modules?staff=${staffId}`}
             className={cn(
               buttonVariants({ variant: 'default' }),
               'hidden shrink-0 bg-indigo-600 hover:bg-indigo-700 md:inline-flex',
@@ -130,7 +130,7 @@ export function StaffDrillDownView({
         </div>
         {/* Mobile: full-width assign button below the header row */}
         <Link
-          href={`/${locale}/coaching?staff=${staffId}`}
+          href={`/${locale}/coaching/modules?staff=${staffId}`}
           className={cn(
             buttonVariants({ variant: 'default' }),
             'mt-3 w-full bg-indigo-600 hover:bg-indigo-700 md:hidden',
