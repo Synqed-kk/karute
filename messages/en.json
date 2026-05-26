@@ -1652,7 +1652,49 @@
   },
   "dataImport": {
     "title": "Data Import",
-    "description": "Import customers and appointments from CSV or Excel files",
+    "description": "Import customers, reservations, and karute from CSV / Excel / JSON files",
+    "stepper": {
+      "stepUpload": "Upload",
+      "stepMapping": "Mapping",
+      "stepValidate": "Validate",
+      "stepDone": "Done"
+    },
+    "scope": {
+      "question": "What are you importing?",
+      "scopeCustomers": "Customers",
+      "scopeCustomersDesc": "Names, contact info, basic profile",
+      "scopeReservations": "Reservations",
+      "scopeReservationsDesc": "Dates, services, assigned staff",
+      "scopeKarute": "Karute",
+      "scopeKaruteDesc": "Session history, notes"
+    },
+    "dropzone": {
+      "dropOrClick": "Drop {scope} data or click to upload",
+      "supportedFormats": "CSV / Excel (.xlsx) / JSON",
+      "maxSize": "Up to 25MB",
+      "chooseFile": "Choose file",
+      "csvTitle": "CSV",
+      "csvDesc": "UTF-8 or Shift-JIS encoded. Auto-detects column mapping.",
+      "excelTitle": "Excel (.xlsx)",
+      "excelDesc": "First sheet is used. Headers in first row.",
+      "jsonTitle": "JSON",
+      "jsonDesc": "Array of objects. Field names map directly.",
+      "recommendedCols": "Recommended columns ({scope})"
+    },
+    "recent": {
+      "title": "Recent imports",
+      "count": "{n}",
+      "successRate": "Success {pct}%",
+      "failedCount": "Failed {n}",
+      "downloadAria": "Download original file",
+      "emptyState": "No imports yet."
+    },
+    "status": {
+      "statusCompleted": "Completed",
+      "statusProcessing": "Processing",
+      "statusFailed": "Failed",
+      "statusValidating": "Validating"
+    },
     "dropOrClick": "Drop a file here or click to upload",
     "supportedTypes": "Supports CSV, Excel (.xlsx), and JSON files",
     "chooseFile": "Choose File",

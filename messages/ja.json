@@ -1651,7 +1651,49 @@
   },
   "dataImport": {
     "title": "データインポート",
-    "description": "CSV・Excelファイルから顧客や予約をインポート",
+    "description": "CSV・Excel・JSONファイルから顧客・予約・カルテをインポート",
+    "stepper": {
+      "stepUpload": "アップロード",
+      "stepMapping": "マッピング",
+      "stepValidate": "検証",
+      "stepDone": "完了"
+    },
+    "scope": {
+      "question": "何をインポートしますか？",
+      "scopeCustomers": "顧客",
+      "scopeCustomersDesc": "名前・連絡先・基本情報",
+      "scopeReservations": "予約",
+      "scopeReservationsDesc": "日時・サービス・担当スタッフ",
+      "scopeKarute": "カルテ",
+      "scopeKaruteDesc": "セッション履歴・メモ"
+    },
+    "dropzone": {
+      "dropOrClick": "{scope}データをドロップまたは選択してアップロード",
+      "supportedFormats": "CSV / Excel (.xlsx) / JSON",
+      "maxSize": "最大25MB",
+      "chooseFile": "ファイルを選択",
+      "csvTitle": "CSV",
+      "csvDesc": "UTF-8またはShift-JISエンコード。カラムマッピングを自動検出。",
+      "excelTitle": "Excel (.xlsx)",
+      "excelDesc": "最初のシートを使用。1行目がヘッダー。",
+      "jsonTitle": "JSON",
+      "jsonDesc": "オブジェクトの配列。フィールド名が直接マッピングされます。",
+      "recommendedCols": "推奨カラム ({scope})"
+    },
+    "recent": {
+      "title": "最近のインポート",
+      "count": "{n}件",
+      "successRate": "成功率 {pct}%",
+      "failedCount": "失敗 {n}件",
+      "downloadAria": "元ファイルをダウンロード",
+      "emptyState": "まだインポート履歴がありません。"
+    },
+    "status": {
+      "statusCompleted": "完了",
+      "statusProcessing": "処理中",
+      "statusFailed": "失敗",
+      "statusValidating": "検証中"
+    },
     "dropOrClick": "ファイルをドロップまたはクリックしてアップロード",
     "supportedTypes": "CSV、Excel（.xlsx）、JSONファイルに対応",
     "chooseFile": "ファイルを選択",
