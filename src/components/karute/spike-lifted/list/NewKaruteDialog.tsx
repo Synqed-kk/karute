@@ -19,24 +19,24 @@
 //   useT() / useTheme()      → useTranslations()
 //   Hard-coded BOOKABLE_STAFF → real karute getStaffList() output,
 //                              passed as a prop from the page
-//   Customer text input      → real combobox over the page's
-//                              customer list, so submit binds to
-//                              a real customer_id (the spike just
-//                              stored the typed text)
-//   setTimeout stub          → calls createManualKaruteRecord
-//                              server action which calls
-//                              synqed.karuteRecords.create with
-//                              status='DRAFT' (ANTHONY: schema
-//                              gaps for service / duration /
-//                              session_date documented inline)
+//   Plain text customer field → existing CustomerCombobox +
+//                              QuickCreateCustomer pair (the same
+//                              picker the recording flow uses in
+//                              SaveKaruteFlow / RecordingPanel —
+//                              so walk-in customers can be created
+//                              inline without leaving the dialog,
+//                              matching the recording flow's UX)
+//   setTimeout stub          → createManualKaruteRecord server
+//                              action → synqed.karuteRecords.create
+//                              with status='DRAFT'
 //
-// On successful create the server action redirects to
-// /karute/[id] — staff drops directly into the new record to
-// start filling in entries.
+// ANTHONY: service / duration_minutes / session_date columns aren't
+// yet on karute_records, so those three dialog fields are captured
+// but dropped server-side. Add the columns + this dialog persists
+// the full payload without further changes here.
 
-import { useId, useMemo, useRef, useState, useTransition } from 'react'
+import { useMemo, useState, useTransition } from 'react'
 import { useTranslations } from 'next-intl'
-import { Search, X } from 'lucide-react'
 
 import {
   Dialog,
@@ -49,6 +49,12 @@ import {
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 
+import {
+  CustomerCombobox,
+  type CustomerOption,
+} from '@/components/karute/CustomerCombobox'
+import { QuickCreateCustomer } from '@/components/karute/QuickCreateCustomer'
+
 import { createManualKaruteRecord } from '@/actions/karute'
 
 const DURATION_OPTIONS = [30, 45, 60, 90] as const
@@ -59,12 +65,6 @@ interface StaffOption {
   name: string
 }
 
-interface CustomerOption {
-  id: string
-  name: string
-  karuteNumber?: string
-}
-
 interface NewKaruteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -73,6 +73,8 @@ interface NewKaruteDialogProps {
   /** Viewer's staff id — pre-selects the staff dropdown when known. */
   defaultStaffId?: string | null
 }
+
+type CustomerFlowState = 'combobox' | 'quick-create'
 
 function todayIso(): string {
   // Local time, not UTC — staff picks "today" in their tz.
@@ -93,9 +95,13 @@ export function NewKaruteDialog({
   const t = useTranslations('karute.recordList.newKaruteDialog')
 
   // ── form state ─────────────────────────────────────────────
-  const [selectedCustomer, setSelectedCustomer] =
-    useState<CustomerOption | null>(null)
-  const [customerQuery, setCustomerQuery] = useState('')
+  // Local mirror so QuickCreateCustomer appends + auto-selects
+  // without a server round-trip back to the page.
+  const [customerList, setCustomerList] = useState<CustomerOption[]>(customers)
+  const [selectedCustomerId, setSelectedCustomerId] =
+    useState<string | null>(null)
+  const [customerFlow, setCustomerFlow] =
+    useState<CustomerFlowState>('combobox')
   const [date, setDate] = useState<string>(todayIso())
   const [duration, setDuration] = useState<Duration>(60)
   const [staffId, setStaffId] = useState<string>(
@@ -105,28 +111,23 @@ export function NewKaruteDialog({
   const [error, setError] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
 
-  const customerInputRef = useRef<HTMLInputElement>(null)
-  const customerListboxId = useId()
-
-  // ── derived ────────────────────────────────────────────────
-  // Filter the customer list as staff types. Cap at 8 entries so
-  // a 500-customer salon doesn't render a giant scroll list under
-  // a short query.
-  const matchingCustomers = useMemo(() => {
-    const q = customerQuery.trim().toLowerCase()
-    if (selectedCustomer || q === '') return []
-    return customers
-      .filter((c) => c.name.toLowerCase().includes(q))
-      .slice(0, 8)
-  }, [customerQuery, customers, selectedCustomer])
+  const selectedCustomer = useMemo(
+    () => customerList.find((c) => c.id === selectedCustomerId) ?? null,
+    [customerList, selectedCustomerId],
+  )
 
   const canSubmit =
-    !!selectedCustomer && !!staffId && date.length > 0 && !pending
+    !!selectedCustomer &&
+    !!staffId &&
+    date.length > 0 &&
+    customerFlow === 'combobox' &&
+    !pending
 
   // ── handlers ───────────────────────────────────────────────
   const reset = () => {
-    setSelectedCustomer(null)
-    setCustomerQuery('')
+    setCustomerList(customers)
+    setSelectedCustomerId(null)
+    setCustomerFlow('combobox')
     setDate(todayIso())
     setDuration(60)
     setStaffId(defaultStaffId ?? staffList[0]?.id ?? '')
@@ -137,6 +138,14 @@ export function NewKaruteDialog({
   const handleOpenChange = (next: boolean) => {
     if (!next) reset()
     onOpenChange(next)
+  }
+
+  const handleCustomerCreated = (newCustomer: CustomerOption) => {
+    // Mirror SaveKaruteFlow's pattern: prepend to local list, auto-select,
+    // return to combobox view.
+    setCustomerList((prev) => [newCustomer, ...prev])
+    setSelectedCustomerId(newCustomer.id)
+    setCustomerFlow('combobox')
   }
 
   const handleSubmit = () => {
@@ -167,7 +176,9 @@ export function NewKaruteDialog({
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {/* Customer combobox */}
+          {/* Customer picker — uses the same combobox + quick-create
+           *  pair the recording flow uses (SaveKaruteFlow). Walk-in
+           *  customers can be created inline. */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-foreground">
               {t('customerLabel')}
@@ -175,85 +186,20 @@ export function NewKaruteDialog({
                 *
               </span>
             </label>
-            {selectedCustomer ? (
-              <div className="inline-flex w-full items-center justify-between gap-2 rounded-lg border border-input bg-muted/40 px-3 py-2">
-                <div className="flex min-w-0 flex-col">
-                  <span className="truncate text-sm font-medium text-foreground">
-                    {selectedCustomer.name}
-                  </span>
-                  {selectedCustomer.karuteNumber && (
-                    <span className="text-[11px] tabular-nums text-muted-foreground">
-                      {selectedCustomer.karuteNumber}
-                    </span>
-                  )}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedCustomer(null)
-                    setCustomerQuery('')
-                    // Restore focus to the search input so staff can
-                    // immediately retype if they picked the wrong row.
-                    setTimeout(() => customerInputRef.current?.focus(), 0)
-                  }}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                  aria-label={t('customerClear')}
-                >
-                  <X className="size-4" aria-hidden />
-                </button>
-              </div>
+            {customerFlow === 'quick-create' ? (
+              <QuickCreateCustomer
+                onCreated={handleCustomerCreated}
+                onCancel={() => setCustomerFlow('combobox')}
+              />
             ) : (
-              <div className="relative">
-                <Search
-                  className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-                  aria-hidden
-                />
-                <Input
-                  ref={customerInputRef}
-                  value={customerQuery}
-                  onChange={(e) => setCustomerQuery(e.target.value)}
-                  placeholder={t('customerPlaceholder')}
-                  autoComplete="off"
-                  role="combobox"
-                  aria-controls={customerListboxId}
-                  aria-expanded={matchingCustomers.length > 0}
-                  className="h-10 pl-8"
-                />
-                {customerQuery.trim().length > 0 && (
-                  <div
-                    id={customerListboxId}
-                    role="listbox"
-                    className="mt-1 max-h-56 overflow-y-auto rounded-lg border border-border bg-card shadow-sm"
-                  >
-                    {matchingCustomers.length === 0 ? (
-                      <div className="px-3 py-2 text-xs text-muted-foreground">
-                        {t('customerNotFound')}
-                      </div>
-                    ) : (
-                      matchingCustomers.map((c) => (
-                        <button
-                          key={c.id}
-                          type="button"
-                          role="option"
-                          aria-selected={false}
-                          onClick={() => {
-                            setSelectedCustomer(c)
-                            setCustomerQuery('')
-                          }}
-                          className="flex w-full items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-left text-sm text-foreground transition-colors last:border-b-0 hover:bg-muted"
-                        >
-                          <span className="truncate">{c.name}</span>
-                          {c.karuteNumber && (
-                            <span className="shrink-0 text-[11px] tabular-nums text-muted-foreground">
-                              {c.karuteNumber}
-                            </span>
-                          )}
-                        </button>
-                      ))
-                    )}
-                  </div>
-                )}
-              </div>
+              <CustomerCombobox
+                customers={customerList}
+                selectedId={selectedCustomerId}
+                onSelect={(id) => setSelectedCustomerId(id)}
+                onCreateNew={() => setCustomerFlow('quick-create')}
+                placeholder={t('customerPlaceholder')}
+                disabled={pending}
+              />
             )}
           </div>
 
@@ -274,6 +220,7 @@ export function NewKaruteDialog({
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
+                disabled={pending}
                 className="h-10"
               />
             </div>
@@ -294,7 +241,8 @@ export function NewKaruteDialog({
                 onChange={(e) =>
                   setDuration(Number(e.target.value) as Duration)
                 }
-                className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                disabled={pending}
+                className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {DURATION_OPTIONS.map((m) => (
                   <option key={m} value={m}>
@@ -317,7 +265,8 @@ export function NewKaruteDialog({
               id="new-karute-staff"
               value={staffId}
               onChange={(e) => setStaffId(e.target.value)}
-              className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              disabled={pending}
+              className="h-10 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {staffList.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -340,6 +289,7 @@ export function NewKaruteDialog({
               value={service}
               onChange={(e) => setService(e.target.value)}
               placeholder={t('servicePlaceholder')}
+              disabled={pending}
               className="h-10"
             />
           </div>

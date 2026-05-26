@@ -58,8 +58,10 @@ interface Props {
   /** All customers for this business — feeds the NewKaruteDialog's
    *  customer combobox so manual karute creation binds to a real
    *  customer_id instead of free text. Page already loads this for
-   *  the customer lookup map; we pass it down. */
-  customerOptions?: Array<{ id: string; name: string; karuteNumber?: string }>
+   *  the customer lookup map; we pass it down. Shape matches the
+   *  shared CustomerOption type used by the recording flow's
+   *  CustomerCombobox / QuickCreateCustomer pair. */
+  customerOptions?: Array<{ id: string; name: string }>
 }
 
 const PAGE_SIZE = 12
