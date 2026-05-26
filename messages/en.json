@@ -1361,10 +1361,6 @@
       "shownLabel": "Shown",
       "hiddenLabel": "Hidden"
     },
-    "subscription": {
-      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades.",
-      "label": "Contract"
-    },
     "auditLog": {
       "searchPlaceholder": "Search events…",
       "label": "Audit log"
@@ -1516,6 +1512,8 @@
       }
     },
     "subscription": {
+      "label": "Subscription",
+      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades.",
       "tierLabels": {
         "trial": "Trial",
         "free": "Free",
