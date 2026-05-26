@@ -1,9 +1,16 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { Clock, FileText } from 'lucide-react'
+import { Clock, FileText, Play } from 'lucide-react'
 
 import { Link } from '@/i18n/navigation'
+
+// Feature flags — flip in .env when backends ship. Preserved code so
+// Anthony can see the per-row affordance spec at code review time.
+const FEATURE_RECORDING_PLAYBACK =
+  process.env.NEXT_PUBLIC_FEATURE_RECORDING_PLAYBACK === 'true'
+const FEATURE_RECORDING_CONVERT =
+  process.env.NEXT_PUBLIC_FEATURE_RECORDING_CONVERT === 'true'
 
 export interface RecentRecording {
   id: string
@@ -56,14 +63,24 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
           {recordings.map((rec) => (
             <li
               key={rec.id}
-              className="grid items-center gap-3 border-b border-border py-3 last:border-b-0 md:grid-cols-[36px_minmax(0,1fr)_140px_minmax(120px,auto)]"
+              className={`grid items-center gap-3 border-b border-border py-3 last:border-b-0 md:grid-cols-[${
+                FEATURE_RECORDING_PLAYBACK ? '28px_36px' : '36px'
+              }_minmax(0,1fr)_140px_minmax(120px,auto)]`}
             >
-              {/* Play button removed — earlier render had no onClick and
-               *  the recording-audio playback isn't wired (no signed
-               *  URL from storage, no <audio> element, no transport).
-               *  ANTHONY: when transcript playback ships, restore as a
-               *  real <button onClick={() => seek(rec.id)}> with the
-               *  lucide Play icon and a transport state. */}
+              {/* Play button — gated on NEXT_PUBLIC_FEATURE_RECORDING_PLAYBACK.
+               *  Wiring spec: needs a signed Storage URL for the recording
+               *  audio file + an <audio> element + transport state managed
+               *  at the card level. The button below is the affordance shape;
+               *  the onClick should set the active rec.id + seek(0). */}
+              {FEATURE_RECORDING_PLAYBACK && (
+                <button
+                  type="button"
+                  aria-label="Play"
+                  className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/10 text-foreground hover:bg-foreground/15"
+                >
+                  <Play size={11} className="ml-0.5" />
+                </button>
+              )}
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
                 {rec.initials}
               </span>
@@ -100,13 +117,23 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
                 ) : (
                   <div className="inline-flex items-center gap-2">
                     <span className="text-[12px] text-muted-foreground">{t('notCreated')}</span>
-                    {/* "Convert" button removed — earlier render had
-                     *  no onClick. The transcript-to-karute conversion
-                     *  flow isn't wired here (it normally lands via the
-                     *  recording pipeline's ReviewScreen + saveKarute).
-                     *  ANTHONY: when manual "promote orphan recording
-                     *  to karute" is wired, restore as a button that
-                     *  calls a server action with rec.id. */}
+                    {/* "Convert" button — gated on
+                     *  NEXT_PUBLIC_FEATURE_RECORDING_CONVERT. The orphan-
+                     *  recording-to-karute path is a separate server
+                     *  action from saveKarute (which only takes a fresh
+                     *  transcript + entries). ANTHONY: add a
+                     *  promoteRecordingToKarute(recordingId) action that
+                     *  reads the transcript + entries off the recording
+                     *  row and inserts a karute_records row in DRAFT,
+                     *  then the onClick here calls it. */}
+                    {FEATURE_RECORDING_CONVERT && (
+                      <button
+                        type="button"
+                        className="rounded-md bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-400 hover:bg-sky-500/15"
+                      >
+                        {t('convert')}
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
