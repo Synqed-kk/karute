@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { useTranslations } from 'next-intl'
-import { ShieldCheck } from 'lucide-react'
+import Link from 'next/link'
+import { useLocale, useTranslations } from 'next-intl'
+import { ArrowRight, Shield, ShieldCheck } from 'lucide-react'
 
 import { CoachingHeader } from './CoachingHeader'
 import { StaffDashboardScaffold } from './StaffDashboardScaffold'
@@ -50,6 +51,8 @@ export function CoachingPageView({
   // opposite shell without flipping their DB role.
   const role = useEffectiveCoachingRole(realRole)
   const t = useTranslations('coaching.consent')
+  const tData = useTranslations('coaching.data')
+  const locale = useLocale()
   const consent = useCoachingConsent()
   const { grant, decline, reset } = useCoachingConsentMutations()
   const [dialogOpen, setDialogOpen] = useState(false)
@@ -123,6 +126,21 @@ export function CoachingPageView({
       )}
 
       {role === 'owner' ? <OwnerDashboardScaffold /> : <StaffDashboardScaffold />}
+
+      {/* Transparency page link — reachable from /coaching for
+       *  both roles. Staff: their own privacy disclosure +
+       *  deletion request. Owner: same content as reference
+       *  for what staff see. */}
+      <div className="flex justify-end">
+        <Link
+          href={`/${locale}/coaching/data`}
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+        >
+          <Shield className="size-3.5" aria-hidden />
+          {tData('transparencyLink')}
+          <ArrowRight className="size-3" aria-hidden />
+        </Link>
+      </div>
 
       <CoachingConsentDialog
         open={dialogOpen}

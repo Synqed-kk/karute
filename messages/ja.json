@@ -1068,6 +1068,44 @@
       "coachingNoteLabel": "AIコーチングメモ",
       "transcriptsEmptyHint": "あなたのセッションの会話抜粋と、AIが特定の発話に付けたコーチングメモをここに表示します（最も機密性が高いLayer 1の表面）。Anthonyが useSessionTranscriptsData() を実装後に有効化されます。"
     },
+    "data": {
+      "back": "コーチングに戻る",
+      "title": "あなたのデータについて",
+      "subtitleStaff": "コーチング機能で扱われるあなたの情報と、オーナーに見える範囲を明確にしています。",
+      "subtitleOwner": "このページはスタッフ自身のプライバシー確認画面です。オーナー・マネージャーも参考として閲覧できます。",
+      "transparencyLink": "あなたのデータについて",
+      "missionTitle": "プライバシーに関する考え方",
+      "missionBody": "コーチング機能は「成長のサポート」を目的に、個別のセッション内容をAIが分析します。ただし、あなたの会話内容そのものや個別の学習提案は、オーナー・マネージャーに表示されない仕組みになっています。サポートはチームで、プライバシーはあなただけに。",
+      "staffOnly": {
+        "title": "あなたにしか見えない情報",
+        "recordings": "会話の録音・文字起こし",
+        "sessionDetail": "個別のセッション詳細",
+        "customerInteractions": "具体的なお客様とのやり取り",
+        "personalSuggestions": "あなたが受け取る個別の学習提案",
+        "personalNotes": "個人的なメモ"
+      },
+      "ownerVisible": {
+        "title": "オーナー・マネージャーに見える情報",
+        "metrics": "パフォーマンス指標（成約率、再来店率など）",
+        "trends": "成長の傾向",
+        "categoricalAi": "AIによる成長エリアの分析（カテゴリーレベル）",
+        "moduleProgress": "学習モジュールの進捗"
+      },
+      "reviewConsentTitle": "同意内容の確認",
+      "reviewConsentBody": "コーチング機能のデータ利用範囲を、いつでも再確認できます。",
+      "reviewConsentCta": "同意内容を見る",
+      "deletionTitle": "データ削除リクエスト",
+      "deletionBody": "コーチングで蓄積されたあなた固有のデータ（会話の録音・文字起こし・個別の学習提案）を削除することができます。リクエストはオーナーに通知されますが、削除自体はあなたの意思が尊重されます。",
+      "deletion": {
+        "cta": "データ削除リクエスト",
+        "confirmTitle": "コーチングデータの削除をリクエスト",
+        "confirmBody": "コーチング機能であなたが蓄積したデータ（会話の録音・文字起こし・個別の学習提案・AIによる分析結果）の削除をリクエストできます。パフォーマンス指標などの業務データはこの対象に含まれません。",
+        "cancel": "キャンセル",
+        "submit": "リクエストを送信",
+        "submittedTitle": "リクエストを受け付けました",
+        "submittedBody": "オーナーに通知が送られました。処理完了までに最大30日お時間をいただくことがあります。"
+      }
+    },
     "devPreview": {
       "label": "開発プレビュー",
       "regionLabel": "コーチング開発プレビュー",
