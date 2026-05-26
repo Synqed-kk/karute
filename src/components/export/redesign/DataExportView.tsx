@@ -164,7 +164,14 @@ export function DataExportView({
             recipientEmail={recipientEmail}
           />
 
-          <RecentExportsTable />
+          {/* RecentExportsTable hidden — backend for export history
+           *  (`export_jobs` or similar) doesn't exist yet, so the
+           *  table always renders empty with a disabled refresh
+           *  button + hardcoded "0" count. ANTHONY: when an
+           *  export-history backend ships, unwrap this gate. */}
+          {process.env.NEXT_PUBLIC_FEATURE_EXPORT_HISTORY === 'true' && (
+            <RecentExportsTable />
+          )}
         </div>
 
         <div className="hidden xl:block">
