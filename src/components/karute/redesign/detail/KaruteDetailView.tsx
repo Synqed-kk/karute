@@ -84,6 +84,7 @@ export function KaruteDetailView({
         <div className="flex flex-col gap-4">
           <AISuggestedMessageCard
             customerName={header.customerName}
+            customerId={customerId}
             draft={suggestedMessage}
           />
           <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />

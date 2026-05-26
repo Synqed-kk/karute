@@ -1405,6 +1405,25 @@
     "openPage": "録音画面を開く",
     "stop": "録音を停止"
   },
+  "messageCompose": {
+    "title": "メッセージを作成",
+    "noCustomer": "顧客情報が見つかりません",
+    "copyPasteHint": "コピーして手元のアプリから送信",
+    "aiDraftedBadge": "AI下書き — 内容を確認してください",
+    "bodyPlaceholder": "メッセージ本文…",
+    "charCount": "{n} 文字",
+    "softLimitHint": "（長文は既読率が下がる傾向があります）",
+    "channelLabel": "送信手段:",
+    "channelEmail": "メール",
+    "channelOther": "その他",
+    "workflowExplainer": "このメッセージをコピーして、普段お客様とやり取りしているLINE・SMS・メール等からご送信ください。「コピーして送信済みにする」を押すと、送信記録として保存されます。",
+    "copyOnly": "コピー",
+    "copied": "コピーしました",
+    "copyAndMarkSent": "コピーして送信済みにする",
+    "markedSentTitle": "記録しました",
+    "markedSentDesc": "{name}様宛のメッセージをクリップボードにコピーし、送信済みとして記録しました。LINE等から貼り付けて送信してください。",
+    "cancel": "キャンセル"
+  },
   "miniRecorder": {
     "paused": "一時停止中",
     "recording": "録音中",
