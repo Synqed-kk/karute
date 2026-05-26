@@ -936,7 +936,7 @@
     }
   },
   "settings": {
-    "title": "Settings",
+    "title": "Configuration",
     "staffManagement": "Staff Management",
     "addStaff": "Add staff",
     "editStaff": "Edit staff",
