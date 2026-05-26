@@ -76,7 +76,43 @@ export interface LearningModule {
   /** Owner-side: is this module assigned to a staff yet? */
   assigned?: boolean
   /** staffId of the owner/manager who made the assignment. */
-  assignedBy?: string
+  assignedBy?: string | null
   /** staffId — owner-side bookkeeping. */
   assignedTo?: string
+}
+
+// ─────────────────────────────────────────────────────────────
+// Coaching data-hook contracts (for Anthony)
+// ─────────────────────────────────────────────────────────────
+// Centralized so the hook signatures are explicit, not implicit
+// from call-site patterns. Anthony's real hooks live in
+// src/lib/data/coaching/* — the names + arg shapes here are the
+// frontend contract.
+
+/** Args for useLearningModulesData. */
+export interface UseLearningModulesDataArgs {
+  /** Filter to modules assigned to this staff. Omit for the
+   *  full catalog (owner view). */
+  assignedTo?: string
+}
+
+/** Return for useLearningModulesData. */
+export interface UseLearningModulesDataResult {
+  /** Loading state — undefined while in-flight, defined after. */
+  data?: { modules: LearningModule[] }
+}
+
+/** Return for useStaffPerformanceData. */
+export interface UseStaffPerformanceDataResult {
+  data?: {
+    staff: StaffPerformance[]
+    /** Team-wide rollup. Undefined while staff list still loading. */
+    teamSummary?: {
+      avgClosingRate: number
+      avgRebookingRate: number
+      avgRevenueJpy: number
+      avgSatisfaction: number
+      totalSessionsThisMonth: number
+    }
+  }
 }

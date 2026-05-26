@@ -63,11 +63,13 @@ import { PrivacyLockBadge } from './PrivacyLockBadge'
 import { ScaffoldHint } from './ScaffoldHint'
 
 // Suggestion shape — Anthony's data hook returns an array of these.
-// Matches the spike's MOCK_SUGGESTIONS shape so the swap is direct.
+//
+// ICON: derived client-side from `category` via the category→icon
+// mapping at the bottom of this file. Backend doesn't need to return
+// a React component class — would never serialize cleanly anyway.
+// If we ever want a per-suggestion icon override, add an optional
+// `iconKey: string` enum field and map it in the same helper.
 export interface CoachingSuggestion {
-  /** Lucide icon component. The category-icon mapping below picks
-   *  a sensible default if you pass `null`. */
-  icon: LucideIcon | null
   category: string
   title: string
   body: string
@@ -214,7 +216,7 @@ function SuggestionsBody({
           {items.map((s, i) => (
             <CoachingSuggestionCard
               key={i}
-              icon={s.icon ?? defaultIconForCategory(s.category)}
+              icon={defaultIconForCategory(s.category)}
               category={s.category}
               title={s.title}
               body={s.body}
