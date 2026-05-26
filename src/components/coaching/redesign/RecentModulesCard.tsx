@@ -21,15 +21,7 @@ import { useTranslations } from 'next-intl'
 import { BookOpen, Clock } from 'lucide-react'
 
 import { ScaffoldHint } from './ScaffoldHint'
-
-export interface LearningModule {
-  id: string
-  title: string
-  category: string
-  durationMin: number
-  completionRate?: number // 0..1
-  assignedBy?: string | null
-}
+import type { LearningModule } from './owner-types'
 
 interface RecentModulesCardProps {
   modules?: LearningModule[] | null
