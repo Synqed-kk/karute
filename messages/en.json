@@ -869,7 +869,8 @@
         "statSessionsAnalyzed": "Sessions analyzed",
         "statPatternsMastered": "Patterns mastered",
         "statPatternsInProgress": "In progress",
-        "emptyHint": "AI will analyze your sessions and surface your monthly score + pattern mastery here. Lights up when Anthony wires growth-data retrieval."
+        "emptyHint": "AI will analyze your sessions and surface your monthly score + pattern mastery here. Lights up when Anthony wires growth-data retrieval.",
+        "seeFullGrowth": "See full growth"
       },
       "learnFromTop": {
         "title": "Learn from top performers",
@@ -1037,6 +1038,35 @@
           "description": "Approaches for receiving '高い' / '考えます' and reframing as options."
         }
       }
+    },
+    "growth": {
+      "back": "Back to coaching",
+      "title": "Your growth",
+      "subtitle": "A private, detailed view of your own growth — only you can see this.",
+      "staffOnlyNotice": "This is a staff-private growth page. Owners and managers only see categorical growth areas via the coaching dashboard.",
+      "chartTitle": "Growth trajectory",
+      "chartEmptyHint": "Your monthly score trajectory chart surfaces here (Layer 1, staff-private). Lights up when Anthony wires usePersonalGrowthData().",
+      "monthAxisLabel": "{mm}",
+      "statSessions": "Sessions analyzed",
+      "statMastered": "Patterns mastered",
+      "statInProgress": "In progress",
+      "masteredTitle": "Pattern mastery",
+      "masteredHeader": "Mastered · {n}",
+      "inProgressHeader": "In progress · {n}",
+      "masteredEmpty": "No mastered patterns yet.",
+      "inProgressEmpty": "No patterns in progress.",
+      "masteredEmptyHint": "Your assigned learning modules and per-module completion rate surface here. Lights up when Anthony wires useLearningModulesData({ assignedTo }).",
+      "insightsTitle": "Recent coaching suggestions",
+      "insightsIntro": "Specific suggestions you received during individual sessions. Only you can see these.",
+      "insightsEmptyHint": "Past in-session and post-session AI suggestions, plus your outcome on each (worked / tried / skipped / unconfirmed), surface here. Lights up when Anthony wires usePersonalCoachingInsightsData().",
+      "outcomeWorked": "Worked",
+      "outcomeTried": "Tried",
+      "outcomeSkipped": "Skipped",
+      "outcomeUnconfirmed": "Unconfirmed",
+      "transcriptsTitle": "Conversation excerpts + coaching notes",
+      "transcriptsIntro": "Excerpts from your sessions with AI coaching notes attached to specific moments. Owners and managers cannot see this.",
+      "coachingNoteLabel": "AI coaching note",
+      "transcriptsEmptyHint": "Conversation excerpts from your sessions plus the AI coaching notes attached at specific timestamps surface here (the most sensitive Layer-1 surface). Lights up when Anthony wires useSessionTranscriptsData()."
     },
     "devPreview": {
       "label": "Dev preview",
