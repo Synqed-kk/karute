@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { deleteStaff, uploadStaffAvatar } from '@/actions/staff'
+import { StaffConsentStatusBadge } from '@/components/coaching/redesign/StaffConsentStatusBadge'
 import { StaffForm } from './StaffForm'
 import { PinSetup } from './PinSetup'
 import { VoiceEnrollmentDialog } from './VoiceEnrollmentDialog'
@@ -56,6 +57,24 @@ interface StaffMember {
    *  exist. */
   voice_enrolled_at?: string | null
   recording_consent?: boolean | null
+  /** ANTHONY: per-staff coaching-consent rollup (different from
+   *  recording_consent above — this is the AI coaching opt-in
+   *  managed by CoachingConsentDialog). When the
+   *  coaching_consent_rollup view lands, hydrate this field
+   *  per row:
+   *
+   *    select staff_id, granted, given_at, policy_version
+   *    from coaching_consent_rollup
+   *    where business_id = $1
+   *
+   *  RLS: owner of the staff's store reads the rollup. Owners
+   *  NEVER see the raw consent_log rows (decline reasons,
+   *  flip-flops).
+   *
+   *  Render contract: StaffRow shows <StaffConsentStatusBadge>
+   *  only when this field is non-null. Pending / pre-decision
+   *  staff leave it null and the badge stays hidden. */
+  coachingConsent?: { granted: boolean; givenAt?: string | null } | null
 }
 
 interface StaffListProps {
@@ -378,6 +397,7 @@ function StaffRow({
          *  render when their values are set. */}
         {(!staff.has_pin ||
           staff.recording_consent ||
+          staff.coachingConsent ||
           voiceEnrolledAt ||
           canEdit) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -390,6 +410,16 @@ function StaffRow({
               <span className="inline-flex h-5 items-center rounded-full bg-green-50 px-2 text-[10px] font-medium text-green-700 ring-1 ring-green-200/70 dark:bg-green-500/15 dark:text-green-300 dark:ring-green-500/20">
                 ✓ {labels.consentGranted}
               </span>
+            )}
+            {/* Coaching consent (separate from recording_consent above)
+             *  — only renders when Anthony's coaching_consent_rollup
+             *  data is hydrated into staff.coachingConsent. See the
+             *  StaffMember interface above for the wiring contract. */}
+            {staff.coachingConsent && !isOwner && (
+              <StaffConsentStatusBadge
+                granted={staff.coachingConsent.granted}
+                givenAt={staff.coachingConsent.givenAt}
+              />
             )}
             {voiceEnrolledAt ? (
               <span className="inline-flex h-5 items-center gap-1.5 rounded-full bg-blue-50 px-2 text-[10px] font-medium tabular-nums text-blue-700 ring-1 ring-blue-200/70 dark:bg-blue-500/15 dark:text-blue-300 dark:ring-blue-500/20">
