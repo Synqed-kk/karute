@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from 'react'
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import {
   DayWeekMonthToggle,
   MonthGrid,
@@ -88,6 +89,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const [selected, setSelected] = useState<ReservationView | null>(null)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const unreadCount = useUnreadCount()
+  // Hide the bell while recording (same posture as RecordPageHeader)
+  // so the layout-level DiscreetRecordingIndicator doesn't overlap
+  // it on scroll. Bell returns when recording stops.
+  const { state: recState } = useGlobalRecorder()
+  const isRecording = recState === 'recording' || recState === 'paused'
   const datePickerRef = useRef<HTMLInputElement>(null)
 
   const view = props.initialView
@@ -191,22 +197,24 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             {tReservation('title')}
           </h1>
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen(true)}
-            className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={tCommon('notifications')}
-          >
-            <Bell size={16} />
-            {unreadCount > 0 && (
-              <span
-                aria-hidden
-                className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
-              >
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+          {!isRecording && (
+            <button
+              type="button"
+              onClick={() => setNotificationsOpen(true)}
+              className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={tCommon('notifications')}
+            >
+              <Bell size={16} />
+              {unreadCount > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 

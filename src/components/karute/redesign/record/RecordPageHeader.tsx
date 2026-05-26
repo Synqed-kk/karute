@@ -7,6 +7,7 @@ import { Bell, ChevronLeft } from 'lucide-react'
 
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
 // Record-page header — TWO variants stacked, gated by viewport:
 //
@@ -35,6 +36,15 @@ export function RecordPageHeader() {
   const router = useRouter()
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const unreadCount = useUnreadCount()
+  // Hide the bell while recording — matches the spike's posture
+  // (recording state owns the top-right; the floating
+  // DiscreetRecordingIndicator surfaces in the bell's vacated
+  // spot, so they never overlap on scroll). Bell returns the
+  // instant recording stops. Notifications aren't reachable
+  // mid-recording but staff aren't checking them anyway —
+  // they're in front of the customer.
+  const { state: recState } = useGlobalRecorder()
+  const isRecording = recState === 'recording' || recState === 'paused'
 
   return (
     <>
@@ -52,22 +62,30 @@ export function RecordPageHeader() {
           <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold tracking-tight text-foreground">
             {t('title')}
           </h1>
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen(true)}
-            className="relative ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={tCommon('notifications')}
-          >
-            <Bell size={18} />
-            {unreadCount > 0 && (
-              <span
-                aria-hidden
-                className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
-              >
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+          {isRecording ? (
+            // Spacer — keeps the title centered when the bell is
+            // hidden so the chrome doesn't shift. The floating
+            // DiscreetRecordingIndicator (layout-level) renders
+            // here visually since it's fixed top-right.
+            <span aria-hidden className="ml-auto h-10 w-10 shrink-0" />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setNotificationsOpen(true)}
+              className="relative ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label={tCommon('notifications')}
+            >
+              <Bell size={18} />
+              {unreadCount > 0 && (
+                <span
+                  aria-hidden
+                  className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
+                >
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
+            </button>
+          )}
         </div>
       </div>
 
