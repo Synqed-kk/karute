@@ -12,6 +12,7 @@ import {
   useCoachingConsent,
   useCoachingConsentMutations,
 } from '@/lib/coaching-consent/hooks'
+import { useEffectiveCoachingRole } from '@/lib/coaching-dev-preview/hooks'
 
 // ─────────────────────────────────────────────────────────────
 // Coaching root view — role-aware dashboard router
@@ -39,7 +40,15 @@ import {
 //    Frontend role check for UI rendering only.
 //    Backend MUST enforce the same distinction via RLS +
 //    API-layer checks."
-export function CoachingPageView({ role }: { role: 'owner' | 'staff' }) {
+export function CoachingPageView({
+  role: realRole,
+}: {
+  role: 'owner' | 'staff'
+}) {
+  // Dev preview override (env-gated): in production this always
+  // collapses to realRole. In dev it lets Liam/Anthony QA the
+  // opposite shell without flipping their DB role.
+  const role = useEffectiveCoachingRole(realRole)
   const t = useTranslations('coaching.consent')
   const consent = useCoachingConsent()
   const { grant, decline, reset } = useCoachingConsentMutations()

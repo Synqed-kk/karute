@@ -25,11 +25,12 @@
 import { useCallback, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, BookPlus, Crown } from 'lucide-react'
+import { ArrowLeft, BookPlus, Crown, Shield } from 'lucide-react'
 import { useLocale, useTranslations } from 'next-intl'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { buttonVariants } from '@/components/ui/button'
+import { useEffectiveCoachingRole } from '@/lib/coaching-dev-preview/hooks'
 import { cn } from '@/lib/utils'
 
 import { GapAnalysisList } from './GapAnalysisList'
@@ -44,7 +45,12 @@ interface StaffDrillDownViewProps {
   staffId: string
   staffName: string
   initials: string
+  /** The drilled-into staff's display role / position (e.g.
+   *  "スタイリスト"). Distinct from `viewerRealRole`. */
   role: string
+  /** The viewer's session-derived role. Drives the owner-only
+   *  gate together with the dev-preview override below. */
+  viewerRealRole: 'owner' | 'staff'
   /** Live performance data — null until Anthony wires
    *  useStaffPerformanceData() on the server page. */
   performance?: StaffPerformance | null
@@ -58,6 +64,7 @@ export function StaffDrillDownView({
   staffName,
   initials,
   role,
+  viewerRealRole,
   performance = null,
   insights = null,
 }: StaffDrillDownViewProps) {
@@ -65,10 +72,37 @@ export function StaffDrillDownView({
   const locale = useLocale()
   const router = useRouter()
   const [confirmed, setConfirmed] = useState(false)
+  const viewerEffectiveRole = useEffectiveCoachingRole(viewerRealRole)
 
   const backHref = `/${locale}/coaching`
   const onCancel = useCallback(() => router.push(backHref), [router, backHref])
   const onConfirm = useCallback(() => setConfirmed(true), [])
+
+  // Frontend gate that mirrors a real staff's experience. The
+  // server page only lets non-owner callers reach this point when
+  // dev preview is enabled; when the dev flips the preview pill
+  // to "staff" we show the same owner-only notice they'd see in
+  // production rather than the drill-down content.
+  if (viewerEffectiveRole !== 'owner') {
+    return (
+      <main className="mx-auto max-w-[1280px] px-4 py-5 md:px-8 md:py-8">
+        <Link
+          href={backHref}
+          className="mb-4 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-3.5" aria-hidden />
+          {t('back')}
+        </Link>
+        <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-slate-50/60 p-6 text-sm text-muted-foreground dark:border-white/10 dark:bg-white/[0.04]">
+          <Shield
+            className="mt-0.5 size-4 shrink-0 text-slate-500 dark:text-slate-400"
+            aria-hidden
+          />
+          <p className="leading-relaxed">{t('ownerOnlyNotice')}</p>
+        </div>
+      </main>
+    )
+  }
 
   const hasMetrics = performance !== null
   const isTop = performance?.isTopPerformer === true

@@ -951,6 +951,7 @@
     },
     "staffDrill": {
       "back": "コーチングに戻る",
+      "ownerOnlyNotice": "このページはオーナー・マネージャー専用です。",
       "topPerformerBadge": "トップパフォーマー",
       "roleAndTenure": "{role} · 在籍{months}ヶ月 · 今月{sessions}件",
       "assignModulesCta": "学習モジュールを割り当てる",
@@ -1006,6 +1007,17 @@
       "assignedCount": "{n}名に割り当て済",
       "noEligibleStaff": "同意済みのスタッフがまだいません。",
       "aiGenerated": "AI生成"
+    },
+    "devPreview": {
+      "label": "開発プレビュー",
+      "regionLabel": "コーチング開発プレビュー",
+      "asReal": "実 ({role})",
+      "renderingAs": "現在のロール: {role}",
+      "clearAria": "オーバーライドを解除",
+      "role": {
+        "owner": "オーナー",
+        "staff": "スタッフ"
+      }
     }
   },
   "dashboard": {

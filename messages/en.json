@@ -951,6 +951,7 @@
     },
     "staffDrill": {
       "back": "Back to coaching",
+      "ownerOnlyNotice": "This page is for owners and managers only.",
       "topPerformerBadge": "Top performer",
       "roleAndTenure": "{role} · {months} mo tenure · {sessions} sessions this month",
       "assignModulesCta": "Assign learning modules",
@@ -1006,6 +1007,17 @@
       "assignedCount": "Assigned to {n}",
       "noEligibleStaff": "No staff have given coaching consent yet.",
       "aiGenerated": "AI-generated"
+    },
+    "devPreview": {
+      "label": "Dev preview",
+      "regionLabel": "Coaching dev preview",
+      "asReal": "Real ({role})",
+      "renderingAs": "Currently rendering as: {role}",
+      "clearAria": "Clear preview override",
+      "role": {
+        "owner": "Owner",
+        "staff": "Staff"
+      }
     }
   },
   "dashboard": {
