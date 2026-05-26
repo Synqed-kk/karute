@@ -33,20 +33,6 @@ const BAR_COLOR_FIELDS: { key: keyof ThemeColors; label: string }[] = [
   { key: 'barProcessing', label: 'Processing' },
 ]
 
-/** Spike's BRAND_SWATCHES, identical hex values. Read-only
- *  display today — a future enhancement could let owners
- *  override individual swatches per business. */
-const BRAND_SWATCHES = [
-  { label: 'Primary', hex: '#1f2937' },
-  { label: 'Accent', hex: '#2563eb' },
-  { label: 'Success', hex: '#16a34a' },
-  { label: 'Live', hex: '#ea580c' },
-  { label: 'Warning', hex: '#eab308' },
-  { label: 'Alert', hex: '#dc2626' },
-  { label: 'Purple', hex: '#7c3aed' },
-  { label: 'Background', hex: '#fafaf9' },
-] as const
-
 const SIDEBAR_OPTIONS: {
   key: SidebarStyle
   icon: typeof PanelLeft
@@ -229,34 +215,11 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
         </div>
       </div>
 
-      {/* Brand color swatches — read-only display. Documents the
-       *  brand palette so owners + design reviewers can reference
-       *  the exact hex values. */}
-      <div className="border-t border-border/30 pt-6">
-        <div className="mb-2">
-          <h4 className="text-sm font-medium">{t('brandColors')}</h4>
-          <p className="text-xs text-muted-foreground">
-            {t('brandColorsDesc')}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          {BRAND_SWATCHES.map((s) => (
-            <div key={s.label} className="flex flex-col items-center gap-1">
-              <span
-                className="size-9 rounded-md border border-gray-200 shadow-sm dark:border-white/10"
-                style={{ backgroundColor: s.hex }}
-                title={`${s.label}: ${s.hex}`}
-              />
-              <span className="font-mono text-[10px] text-gray-500 dark:text-gray-400">
-                {s.hex}
-              </span>
-              <span className="text-[10px] text-gray-500 dark:text-gray-400">
-                {s.label}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
+      {/* Brand color swatches removed — was a read-only chip grid
+       *  showing 8 hex values from the design tokens. Decoration
+       *  only; no interaction, no per-owner override. ANTHONY: when
+       *  per-owner brand-color customization ships, restore here
+       *  with real color-picker inputs writing to org_settings. */}
 
       <div className="border-t border-border/30 pt-6">
         <button
