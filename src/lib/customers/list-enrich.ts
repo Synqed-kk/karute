@@ -40,7 +40,9 @@ export async function enrichCustomers(
   // as karute did; route it through synqed-core too.
   const idSet = new Set(customerIds)
   const [karuteRes, apptRes] = await Promise.all([
-    getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 500 })),
+    // synqed-core caps karute page_size at 200 (unlike customers, which allows
+    // 500). 200 most-recent records is plenty for last-visit + count enrichment.
+    getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 200 })),
     sb
       .from('appointments')
       .select('client_id, start_time')
