@@ -47,6 +47,7 @@ import {
 import { type CustomerPhoto } from './PhotosTabContent'
 import { PrivacyTabContent } from './PrivacyTabContent'
 import { CustomerReengagementPreview } from './UpcomingAiFeatures'
+import { CustomerDeletionBanner } from '../CustomerDeletionBanner'
 import { PhotoRecordCard } from '@/components/karute/spike-lifted/photos/PhotoRecordCard'
 
 interface CustomerProfileViewProps {
@@ -78,7 +79,15 @@ export function CustomerProfileView({
         </Link>
       </div>
 
-      {/* 2. Identity */}
+      {/* 2. Pending-deletion banner — only renders if this customer
+       *     is inside the 30-day soft-delete window. Banner returns
+       *     null when status.isScheduled is false. */}
+      <CustomerDeletionBanner
+        customerId={customer.id}
+        customerName={customer.name}
+      />
+
+      {/* 3. Identity */}
       <CustomerIdentityCard c={customer} />
 
       {/* 3. AI re-engagement card — sits ABOVE tabs so staff catch
