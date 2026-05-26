@@ -1391,6 +1391,35 @@
     "aiCustomizeProfileDescription": "Priority topics, coaching focus, top-performer patterns.",
     "aiIntakeForms": "Intake form customization",
     "aiIntakeFormsDescription": "Customize what each visit captures.",
+    "intakeForm": {
+      "title": "Intake form customization",
+      "subtitle": "Add custom questions captured during the first visit. Custom fields today: {count}.",
+      "guardrail": "Intake exists to serve your customer. Don't add fields you can't justify needing.",
+      "baseScaffoldLabel": "Coming soon",
+      "baseScaffoldHint": "Per-business-type recommended fields (Synqed base) surface here once Anthony adds intakeHints to BusinessProfile. Until then, only the custom fields below flow into the intake form.",
+      "sectionTitles": {
+        "symptoms": "Symptoms / concerns",
+        "posture": "Posture / body state",
+        "beauty": "Beauty",
+        "goals": "Goals / hopes"
+      },
+      "itemCount": "{custom} custom",
+      "customHeader": "Your custom fields",
+      "addPlaceholderJa": "Label (Japanese)",
+      "addPlaceholderEn": "Label (English)",
+      "addButton": "Add",
+      "removeCustomTitle": "Remove",
+      "removeCustomConfirm": "Remove this field?",
+      "resetLabel": "Reset",
+      "resetConfirm": "Reset all customizations?\n\nThis can't be undone.",
+      "preview": {
+        "label": "Preview",
+        "greeting": "Welcome — please complete this intake",
+        "subtitle": "To give you the best care, please share the following.",
+        "emptyState": "No fields yet. Add fields in the editor on the left.",
+        "footer": "Answers are visible only to the staff caring for you."
+      }
+    },
     "comingInV2": "Coming in v2",
     "audioSource": "Microphone input",
     "audioSourcePhone": "Phone",
