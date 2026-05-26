@@ -1,4 +1,5 @@
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { MobileHeader } from '@/components/layout/MobileHeader'
 import { Sidebar } from '@/components/layout/sidebar'
 // AIChatFAB removed — the floating action button overlapped the
 // bottom-nav's メニュー tab on mobile, making it un-tappable. AI chat
@@ -74,6 +75,13 @@ export default async function DashboardLayout({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
           <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)]">
+            {/* Mobile-only sticky top bar — back arrow + page
+             *  title + notification bell. Replaces the per-page
+             *  centered title bars that used to live in each
+             *  view, giving every mobile screen a consistent
+             *  app-chrome surface. md:hidden so the sidebar owns
+             *  the chrome on desktop. */}
+            <MobileHeader />
             {/* No horizontal padding here — matches the spike's
              *  (app) layout which provides ZERO padding. Each page
              *  component owns its own `px-4 md:px-6` (or whatever
