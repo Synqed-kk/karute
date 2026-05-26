@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { usePathname, Link } from '@/i18n/navigation'
+import { usePathname, Link, useRouter } from '@/i18n/navigation'
 import {
   Calendar,
   ClipboardList,
@@ -11,6 +11,7 @@ import {
   Home,
   Mic,
   Sparkles,
+  Square,
   Upload,
   Users,
   Settings,
@@ -18,6 +19,7 @@ import {
   X,
 } from 'lucide-react'
 import type { NextCustomerInfo } from '@/lib/appointments/next-customer'
+import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
 type Route = { href: string; label: string; icon: React.ComponentType<{ className?: string }> }
 
@@ -180,44 +182,37 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
           {renderNavItem(PRIMARY[0])}
           {renderNavItem(PRIMARY[1])}
 
-          {/* Center mic FAB — matches the spike's BottomTabRecordButton
-           *  (synqed-karute-design-spike/src/components/layout/
-           *   BottomTabRecordButton.tsx): size-11 mic, -mt-3 lift (sits
-           *  slightly above the row, not floating high above it), and
-           *  a customer-name label beneath so staff can see *who* their
-           *  next session is with from any screen.
+          {/* Center mic FAB — role-aware per spike's BottomTabRecord-
+           *  Button (synqed-karute-design-spike/src/components/layout/
+           *   BottomTabRecordButton.tsx, lines 61-196).
            *
-           *  Label is SCAFFOLDED: shows the spike's empty-state copy
-           *  (「予約を選択」 / "Pick booking") until the next-customer
-           *  lookup lands on its own branch (feat/bottom-nav-next-
-           *  customer). When that ships, the label flips to the actual
-           *  customer name + honorific automatically — no UI change
-           *  needed here. */}
-          <div className="flex flex-1 flex-col items-center justify-start pt-1">
-            <Link
-              href={'/sessions' as Parameters<typeof Link>[0]['href']}
-              onClick={() => setMenuOpen(false)}
-              className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
-              aria-label={
-                nextCustomer
-                  ? locale === 'ja'
-                    ? `${centerLabel}の録音準備画面を開く`
-                    : `Open pre-session screen for ${centerLabel}`
-                  : label('recording')
-              }
-              aria-current={isActive('/sessions') ? 'page' : undefined}
-            >
-              <Mic className="h-5 w-5" />
-            </Link>
-            <span className="mt-2 max-w-[88px] truncate text-[10px] font-medium leading-none text-foreground">
-              {centerLabel}
-            </span>
-            {centerHint && (
-              <span className="mt-0.5 text-[9px] leading-none tabular-nums text-muted-foreground">
-                {centerHint}
-              </span>
-            )}
-          </div>
+           *  Behavior matrix:
+           *
+           *    Recording + on /sessions      → tap STOPS the recording.
+           *                                    Icon = stop-square,
+           *                                    label = elapsed time.
+           *    Recording + NOT on /sessions  → tap NAVIGATES to /sessions.
+           *                                    Mic stays on. Icon = mic,
+           *                                    label = elapsed time.
+           *    Idle                          → tap navigates to /sessions
+           *                                    (existing pre-flight). Icon
+           *                                    = mic, label = next-
+           *                                    customer name OR scaffold
+           *                                    「予約を選択」. */}
+          <CenterRecordButton
+            menuOpen={menuOpen}
+            setMenuOpen={setMenuOpen}
+            nextCustomerName={centerLabel}
+            isOnSessionsPage={isActive('/sessions')}
+            ariaLabelIdle={
+              nextCustomer
+                ? locale === 'ja'
+                  ? `${centerLabel}の録音準備画面を開く`
+                  : `Open pre-session screen for ${centerLabel}`
+                : label('recording')
+            }
+            centerHint={centerHint}
+          />
 
           {renderNavItem(PRIMARY[2])}
 
@@ -248,4 +243,125 @@ function buildMinutesHint(minutesFromNow: number, locale: string): string | null
   if (minutesFromNow <= 0) return null
   const n = Math.round(minutesFromNow)
   return locale === 'ja' ? `あと${n}分` : `in ${n} min`
+}
+
+// ─────────────────────────────────────────────────────────────
+// Center mic FAB — role-aware during recording
+// ─────────────────────────────────────────────────────────────
+// Splits into a separate component so its useGlobalRecorder
+// subscription only re-renders the FAB cell, not the entire
+// BottomNav (which would re-run the per-route active checks on
+// every recording tick).
+function CenterRecordButton({
+  menuOpen,
+  setMenuOpen,
+  nextCustomerName,
+  isOnSessionsPage,
+  ariaLabelIdle,
+  centerHint,
+}: {
+  menuOpen: boolean
+  setMenuOpen: (v: boolean) => void
+  nextCustomerName: string
+  isOnSessionsPage: boolean
+  ariaLabelIdle: string
+  centerHint: string | null
+}) {
+  const router = useRouter()
+  const { state, startedAt, stopRecording } = useGlobalRecorder()
+  const isActive = state === 'recording' || state === 'paused'
+  const [elapsed, setElapsed] = useState(() =>
+    startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0,
+  )
+  useEffect(() => {
+    if (state !== 'recording' || !startedAt) return
+    const id = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startedAt) / 1000))
+    }, 1000)
+    return () => clearInterval(id)
+  }, [state, startedAt])
+
+  const elapsedStr = (() => {
+    const m = Math.floor(elapsed / 60)
+    const s = elapsed % 60
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  })()
+
+  const closeMenuIfOpen = () => {
+    if (menuOpen) setMenuOpen(false)
+  }
+
+  // Recording + viewing /sessions → stop button (with pulsing
+  // ring + stop-square icon + elapsed-time label).
+  if (isActive && isOnSessionsPage) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-start pt-1">
+        <button
+          type="button"
+          onClick={() => {
+            closeMenuIfOpen()
+            stopRecording()
+          }}
+          aria-label="録音を停止"
+          className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-600 text-white shadow-lg shadow-red-600/30 ring-4 ring-background transition-transform active:scale-95"
+        >
+          <span className="absolute inset-0 rounded-full bg-red-500/40 animate-ping" />
+          <Square className="relative h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
+        </button>
+        <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
+          {elapsedStr}
+        </span>
+      </div>
+    )
+  }
+
+  // Recording + NOT viewing /sessions → tap returns to /sessions
+  // (mic stays on). Icon stays as Mic so the tap contract reads
+  // "live, tap to view" rather than "tap to stop". Global stop
+  // is always one tap away via the DiscreetRecordingIndicator's
+  // long-press popover, so no stop affordance is lost here.
+  if (isActive) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-start pt-1">
+        <button
+          type="button"
+          onClick={() => {
+            closeMenuIfOpen()
+            router.push('/sessions')
+          }}
+          aria-label="録音画面に戻る"
+          className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform active:scale-95"
+        >
+          <span className="absolute inset-0 rounded-full bg-red-500/40 animate-ping" />
+          <Mic className="relative h-5 w-5" strokeWidth={2.25} />
+        </button>
+        <span className="mt-2 text-[10px] font-semibold leading-none tabular-nums text-red-600 dark:text-red-300">
+          {elapsedStr}
+        </span>
+      </div>
+    )
+  }
+
+  // Idle → original Link behavior (navigate to /sessions).
+  return (
+    <div className="flex flex-1 flex-col items-center justify-start pt-1">
+      <Link
+        href={'/sessions' as Parameters<typeof Link>[0]['href']}
+        onClick={closeMenuIfOpen}
+        className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
+        aria-label={ariaLabelIdle}
+        aria-current={isOnSessionsPage ? 'page' : undefined}
+      >
+        <Mic className="h-5 w-5" />
+      </Link>
+      <span className="mt-2 max-w-[88px] truncate text-[10px] font-medium leading-none text-foreground">
+        {nextCustomerName}
+      </span>
+      {centerHint && (
+        <span className="mt-0.5 text-[9px] leading-none tabular-nums text-muted-foreground">
+          {centerHint}
+        </span>
+      )}
+    </div>
+  )
 }

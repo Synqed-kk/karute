@@ -1395,6 +1395,16 @@
     "logoutPending": "Logging out…",
     "versionLabel": "Version"
   },
+  "discreetIndicator": {
+    "dotAria": "Recording. Long-press for controls",
+    "dotTitle": "Long-press for controls",
+    "recordingActive": "Recording",
+    "close": "Close",
+    "modeHint": "Intentionally subtle so the customer doesn't notice. Recording proceeds normally.",
+    "privacyNote": "Relies on your store's privacy policy disclosing AI recording as a purpose of use.",
+    "openPage": "Open recording page",
+    "stop": "Stop recording"
+  },
   "miniRecorder": {
     "paused": "Paused",
     "recording": "Recording",

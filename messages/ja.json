@@ -1395,6 +1395,16 @@
     "logoutPending": "ログアウト中…",
     "versionLabel": "バージョン"
   },
+  "discreetIndicator": {
+    "dotAria": "録音中。長押しで操作メニューを表示",
+    "dotTitle": "長押しで操作メニュー",
+    "recordingActive": "録音中",
+    "close": "閉じる",
+    "modeHint": "お客様の目に付かないよう、控えめな表示になっています。録音は通常通り進行しています。",
+    "privacyNote": "店舗のプライバシーポリシーに「AI録音の利用目的」を明記している前提で機能します。",
+    "openPage": "録音画面を開く",
+    "stop": "録音を停止"
+  },
   "miniRecorder": {
     "paused": "一時停止中",
     "recording": "録音中",

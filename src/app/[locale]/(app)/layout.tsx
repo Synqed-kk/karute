@@ -7,7 +7,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 // bottom-nav strip (e.g. as a center-action mic-style button), not
 // floating over it.
 // import { AIChatFAB } from '@/components/ai/AIChatFAB'
-import { MiniRecorder } from '@/components/recording/MiniRecorder'
+import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getNextCustomer } from '@/lib/appointments/next-customer'
@@ -95,7 +95,7 @@ export default async function DashboardLayout({
             </div>
           </main>
         </div>
-        <MiniRecorder />
+        <DiscreetRecordingIndicator />
         <div className="md:hidden">
           <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>
