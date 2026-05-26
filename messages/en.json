@@ -1362,6 +1362,28 @@
     "hoursAgo": "{n}h ago",
     "daysAgo": "{n}d ago"
   },
+  "profile": {
+    "pageTitle": "Profile",
+    "pageSubtitle": "Your account + recent activity.",
+    "activitySection": "Activity this month",
+    "statSessionsMonth": "Sessions",
+    "statRecordingsMonth": "Recordings",
+    "statConsentRate": "Consent rate",
+    "statUniqueCustomers": "Unique customers",
+    "scaffoldLabel": "Coming soon",
+    "activityScaffoldBody": "Your this-month sessions count, recordings count, consent rate, and unique customers will surface here. Lights up when Anthony wires the RLS-scoped monthly aggregate queries (staff_id = auth.uid()).",
+    "quickLinksSection": "Quick links",
+    "linkMyGrowth": "Your growth",
+    "linkMyData": "Privacy & data",
+    "linkOpenSettings": "Open settings",
+    "preferencesSection": "Preferences",
+    "languageLabel": "Language",
+    "languageJa": "日本語",
+    "languageEn": "English",
+    "logoutButton": "Log out",
+    "logoutPending": "Logging out…",
+    "versionLabel": "Version"
+  },
   "miniRecorder": {
     "paused": "Paused",
     "recording": "Recording",

@@ -1362,6 +1362,28 @@
     "hoursAgo": "{n}時間前",
     "daysAgo": "{n}日前"
   },
+  "profile": {
+    "pageTitle": "プロフィール",
+    "pageSubtitle": "あなたのアカウント情報と直近の活動。",
+    "activitySection": "今月の活動",
+    "statSessionsMonth": "実施セッション",
+    "statRecordingsMonth": "録音件数",
+    "statConsentRate": "同意取得率",
+    "statUniqueCustomers": "ユニーク顧客",
+    "scaffoldLabel": "対応予定",
+    "activityScaffoldBody": "あなたの今月のセッション数・録音件数・同意取得率・ユニーク顧客数をここに表示します。AnthonyがRLSで auth.uid() に絞った月次集計クエリを実装後に有効化されます。",
+    "quickLinksSection": "クイックリンク",
+    "linkMyGrowth": "あなたの成長",
+    "linkMyData": "プライバシーとデータ",
+    "linkOpenSettings": "設定を開く",
+    "preferencesSection": "表示設定",
+    "languageLabel": "表示言語",
+    "languageJa": "日本語",
+    "languageEn": "English",
+    "logoutButton": "ログアウト",
+    "logoutPending": "ログアウト中…",
+    "versionLabel": "バージョン"
+  },
   "miniRecorder": {
     "paused": "一時停止中",
     "recording": "録音中",
