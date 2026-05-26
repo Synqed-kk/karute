@@ -677,9 +677,34 @@
       "showCustomer": "Show to customer",
       "seeAll": "See all",
       "emptyTitle": "No photos yet",
-      "emptyBody": "Use \"Add photo\" to pick a category and register an image. Great for progress tracking and references.",
-      "galleryComingSoon": "Gallery + comparison view — coming soon. Photo capture + Supabase Storage wiring tracked for Anthony.",
-      "captureComingSoon": "Photo capture — coming soon. Full implementation lifted from the design spike pending Anthony's Storage wiring."
+      "emptyBody": "Use \"Add photo\" to pick a category and register an image. Great for progress tracking and references."
+    },
+    "photoCapture": {
+      "title": "Add a photo",
+      "description": "Pick a category and add a photo. Capture with the customer's consent.",
+      "categoryLabel": "Category",
+      "chooseFile": "Choose file",
+      "captionLabel": "Caption (optional)",
+      "captionPlaceholder": "e.g., before treatment, area of concern",
+      "consentLabel": "Captured with customer consent",
+      "cancel": "Cancel",
+      "submit": "Add photo"
+    },
+    "photoCompare": {
+      "sideBySide": "Side by side",
+      "overlay": "Overlay",
+      "opacity": "Opacity"
+    },
+    "photoGallery": {
+      "header": "{name} · Photo gallery",
+      "filterAll": "All",
+      "comparePickHint": "Pick two photos to compare",
+      "compareToggle": "Compare two",
+      "compareExit": "Exit compare",
+      "back": "Back",
+      "close": "Close",
+      "noCaption": "No caption",
+      "takenBy": "Taken by {name}"
     },
     "memorySection": {
       "title": "Customer Memory",
