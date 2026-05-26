@@ -108,3 +108,65 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
+
+/**
+ * Create a karute record from the manual-entry dialog (+ 新規カルテ on
+ * the karute list). Separate from saveKaruteRecord, which is the
+ * recording-flow path that lands with a transcript + AI-extracted
+ * entries already in hand.
+ *
+ * Manual creation is a "draft" record — no transcript, no entries.
+ * Staff fills in the entries themselves on the karute detail page,
+ * OR they later attach a recording (and the AI pass populates the
+ * entries from the transcript).
+ *
+ * ANTHONY contracts:
+ *   • `service` (text) and `duration_minutes` (int) are captured by
+ *     the dialog UI but NOT yet persisted — the karute_records
+ *     schema doesn't have those columns. Add them + a follow-up
+ *     migration backfills existing rows with null. The list-row
+ *     renderer (KaruteListRow) already expects both fields; this
+ *     will close that gap.
+ *   • `session_date` (date) — same situation. The dialog lets staff
+ *     pick a date for backdating; today the create call uses
+ *     `created_at` (now) implicitly. Adding the column lets staff
+ *     log a session from yesterday.
+ *
+ * Until those columns land, the captured values are dropped server-
+ * side. The dialog stays functional — staff get a draft karute
+ * record they can open and start adding entries to.
+ */
+export async function createManualKaruteRecord(input: {
+  customerId: string
+  staffId: string
+  sessionDate: string // YYYY-MM-DD — captured but not persisted yet
+  durationMinutes: number // captured but not persisted yet
+  service: string // captured but not persisted yet
+}): Promise<{ error: string } | void> {
+  let recordId: string
+
+  try {
+    const synqed = await getSynqedClient()
+
+    const record = await synqed.karuteRecords.create({
+      customer_id: input.customerId,
+      staff_id: input.staffId,
+      status: 'DRAFT',
+      // No transcript / no entries on manual create — staff fills
+      // those in on the detail page (or via a later recording).
+      transcript: null,
+      ai_summary: null,
+      entries: [],
+    })
+    recordId = record.id
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unexpected error' }
+  }
+
+  // revalidate + redirect outside try/catch — redirect() throws a
+  // control-flow exception that try/catch would swallow.
+  revalidatePath(`/customers/${input.customerId}`)
+  revalidatePath('/karute')
+  updateTag('dashboard')
+  redirect(`/karute/${recordId}`)
+}

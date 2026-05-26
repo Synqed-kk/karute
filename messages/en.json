@@ -779,7 +779,25 @@
       "minutesSuffix": " min",
       "empty": "No karute records yet",
       "newCustomersHeader": "New customers · no session yet",
-      "noSessionYet": "No session yet"
+      "noSessionYet": "No session yet",
+      "newKaruteDialog": {
+        "title": "Create new karute",
+        "description": "Manually create a session record for a customer",
+        "customerLabel": "Customer",
+        "customerPlaceholder": "Search by name",
+        "customerNotFound": "No matching customer",
+        "customerClear": "Clear",
+        "dateLabel": "Session date",
+        "durationLabel": "Duration",
+        "staffLabel": "Staff",
+        "serviceLabel": "Service",
+        "servicePlaceholder": "e.g., Facial · Moisture boost",
+        "tipMessage": "💡 Use the recorder for fastest entry — AI auto-generates karute fields from session audio. Start a recording from the bottom-nav 「録音」 button.",
+        "cancel": "Cancel",
+        "create": "Create karute",
+        "creating": "Creating...",
+        "errorGeneric": "Could not create the karute. Please try again."
+      }
     },
     "outreach": {
       "title": "AI recommended message",
