@@ -814,6 +814,11 @@
       "privacyLayer1Badge": "あなただけが見ることができます",
       "scaffoldLabel": "対応予定"
     },
+    "consentBadge": {
+      "granted": "同意済み",
+      "notYet": "未同意",
+      "grantedTooltip": "同意日: {date}"
+    },
     "consent": {
       "bannerTitle": "コーチング機能の同意が必要です",
       "bannerBody": "あなたのセッションを分析して成長をサポートします。データの取り扱いをご確認のうえ、同意の有無をお選びください。",

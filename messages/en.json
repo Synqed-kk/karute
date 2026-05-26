@@ -814,6 +814,11 @@
       "privacyLayer1Badge": "Only you can see this",
       "scaffoldLabel": "Coming soon"
     },
+    "consentBadge": {
+      "granted": "Consented",
+      "notYet": "Not yet",
+      "grantedTooltip": "Granted on {date}"
+    },
     "consent": {
       "bannerTitle": "Coaching consent required",
       "bannerBody": "AI analyzes your sessions to support your growth. Review what's shared with the owner before deciding.",
