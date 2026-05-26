@@ -168,7 +168,7 @@ export function StoresSection({
         {isOwner && (
           <Button
             onClick={() => setSubscriptionStepOpen(true)}
-            className="h-10 gap-1.5 bg-indigo-600 text-white hover:bg-indigo-700"
+            className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"
           >
             <Plus className="size-3.5" />
             {t('addStore')}

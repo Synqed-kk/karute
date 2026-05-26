@@ -253,7 +253,7 @@ export function PhotoCaptureDialog({
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+            className="bg-sage-800 text-white hover:bg-sage-900 disabled:opacity-50"
           >
             {t('submit')}
           </Button>

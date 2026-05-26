@@ -200,7 +200,7 @@ export function KaruteRecordListView({
          *  recording (the canonical karute-creation entry point). */}
         <a
           href={`/${locale}/sessions`}
-          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-4 text-[13px] font-medium text-white transition-colors hover:bg-indigo-700"
+          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-sage-800 px-4 text-[13px] font-medium text-white transition-colors hover:bg-sage-900"
         >
           <FilePlus2 className="size-3.5" aria-hidden />
           {t('newKarute')}
