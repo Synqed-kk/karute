@@ -1,23 +1,12 @@
 'use client'
 
-import { useTranslations } from 'next-intl'
-import {
-  BookOpen,
-  Star,
-  Target,
-  TrendingUp,
-} from 'lucide-react'
-
-import { CoachingScaffoldCard } from './CoachingScaffoldCard'
-import { MonthlyGrowthCard } from './MonthlyGrowthCard'
-
 // ─────────────────────────────────────────────────────────────
-// Staff coaching dashboard — SCAFFOLD ONLY
+// Staff coaching dashboard
 // ─────────────────────────────────────────────────────────────
 // Mirrors the spike's StaffDashboard grid (synqed-karute-design-
 // spike/src/components/coaching/StaffDashboard.tsx) so the layout
-// + privacy posture survive when Anthony swaps each scaffold card
-// for its real implementation. Cards (top-to-bottom, left-to-right):
+// + privacy posture stay aligned when Anthony swaps the data
+// hooks in. Cards (top-to-bottom, left-to-right):
 //
 //   Row 1  | MonthlyGrowthCard    | LearnFromTopCard
 //          | (Layer 1, staff-     | (Layer 2, team-
@@ -28,64 +17,40 @@ import { MonthlyGrowthCard } from './MonthlyGrowthCard'
 //
 //   Row 3  | RecentModulesCard (full width, Layer 1 assignments)
 //
-// ANTHONY: each <CoachingScaffoldCard> slot maps 1:1 to a spike
-// component. Replace one at a time — the data hooks are listed
-// inline next to each scaffold's `data-source` comment so you
-// know what to wire.
-export function StaffDashboardScaffold() {
-  const t = useTranslations('coaching.staff')
+// All 5 cards now lifted from spike with real visual chrome.
+// Each renders an empty-state 対応予定 hint inside until
+// Anthony passes real data through its respective prop.
 
+import { LearnFromTopCard } from './LearnFromTopCard'
+import { MonthlyGrowthCard } from './MonthlyGrowthCard'
+import { NextFocusCard } from './NextFocusCard'
+import { RecentModulesCard } from './RecentModulesCard'
+import { StrengthsCard } from './StrengthsCard'
+
+export function StaffDashboardScaffold() {
   return (
     <div className="space-y-5">
-      {/* Row 1 — Layer 1 personal growth + Layer 2 team patterns */}
+      {/* Row 1 — Layer 1 personal growth + Layer 2 team patterns
+       *  ANTHONY: usePersonalGrowthData() → MonthlyGrowthCard.growth
+       *           useTopPerformerPatternsData() → LearnFromTopCard.patterns
+       *           (staff view passes showSource=false; owner view true) */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1.1fr_1fr]">
-        {/* HERO CARD — real visual chrome lifted from spike. Renders
-         *  em-dash placeholders + 対応予定 footer until Anthony wires
-         *  usePersonalGrowthData(). */}
         <MonthlyGrowthCard growth={null} />
-        {/* data-source: useTopPerformerPatternsData() — anonymized
-         *  patterns from top performers, no identifying staff_id. */}
-        <CoachingScaffoldCard
-          icon={<Star size={18} />}
-          title={t('learnFromTop.title')}
-          subtitle={t('learnFromTop.subtitle')}
-          body={t('learnFromTop.body')}
-          privacyLayer="layer2"
-          tone="violet"
-        />
+        <LearnFromTopCard patterns={null} showSource={false} />
       </div>
 
-      {/* Row 2 — Layer 1 strengths + next focus, both from growth hook */}
+      {/* Row 2 — Layer 1 strengths + next focus, both from growth hook
+       *  ANTHONY: usePersonalGrowthData().growth.strengths → StrengthsCard
+       *           usePersonalGrowthData().growth.focusRecommendations → NextFocusCard */}
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        {/* data-source: usePersonalGrowthData().growth.strengths */}
-        <CoachingScaffoldCard
-          icon={<TrendingUp size={18} />}
-          title={t('strengths.title')}
-          body={t('strengths.body')}
-          privacyLayer="layer1"
-          tone="emerald"
-        />
-        {/* data-source: usePersonalGrowthData().growth.focusRecommendations */}
-        <CoachingScaffoldCard
-          icon={<Target size={18} />}
-          title={t('nextFocus.title')}
-          body={t('nextFocus.body')}
-          privacyLayer="layer1"
-          tone="indigo"
-        />
+        <StrengthsCard strengths={null} />
+        <NextFocusCard focus={null} />
       </div>
 
-      {/* Row 3 — Assigned learning modules, full width */}
-      {/* data-source: useLearningModulesData({ assignedTo: viewerId }) */}
-      <CoachingScaffoldCard
-        icon={<BookOpen size={18} />}
-        title={t('recentModules.title')}
-        subtitle={t('recentModules.subtitle')}
-        body={t('recentModules.body')}
-        privacyLayer="layer1"
-        tone="indigo"
-        spanCols={2}
-      />
+      {/* Row 3 — Assigned learning modules, full width
+       *  ANTHONY: useLearningModulesData({ assignedTo: viewerStaffId })
+       *           → RecentModulesCard.modules */}
+      <RecentModulesCard modules={null} />
     </div>
   )
 }
