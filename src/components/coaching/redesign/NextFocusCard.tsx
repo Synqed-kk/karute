@@ -12,9 +12,11 @@
 // AI: generator identifies focus areas from staff's own sessions.
 
 import { useTranslations } from 'next-intl'
-import { Target, Wand2 } from 'lucide-react'
+import { Target } from 'lucide-react'
 
 import { PrivacyLockBadge } from './PrivacyLockBadge'
+
+import { ScaffoldHint } from './ScaffoldHint'
 
 export interface FocusRecommendation {
   label: string
@@ -58,22 +60,7 @@ export function NextFocusCard({ focus = null }: NextFocusCardProps) {
           ))}
         </div>
       ) : (
-        <div className="flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-3 dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
-          <Wand2
-            className="mt-0.5 size-3 shrink-0 text-blue-500/80 dark:text-blue-300/80"
-            aria-hidden
-          />
-          <div className="min-w-0 flex-1">
-            <div className="mb-0.5 inline-flex items-center">
-              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                {tCommon('scaffoldLabel')}
-              </span>
-            </div>
-            <p className="text-[11px] italic leading-relaxed text-muted-foreground">
-              {t('emptyHint')}
-            </p>
-          </div>
-        </div>
+        <ScaffoldHint hint={t('emptyHint')} />
       )}
     </div>
   )
