@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getTranslations } from 'next-intl/server'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData } from '@/lib/dashboard/cached'
@@ -55,7 +56,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
-    t.phase('activeStaffId', () => getCurrentUserStaffId()),
+    t.phase('activeStaffId', () => getActiveStaffId()),
     t.phase('dashboardData', () => getDashboardData()),
     t.phase('orgSettings', () => getOrgSettings()),
     getTranslations('reservation.status'),

@@ -1,103 +1,97 @@
-import { createClient } from '@/lib/supabase/server'
-import type { QueryData } from '@supabase/supabase-js'
-import { createServerClient } from '@supabase/ssr'
-import type { Database } from '@/types/database'
-
-/** Synchronous Supabase client type for QueryData inference (not called at runtime) */
-type SyncSupabaseClient = ReturnType<typeof createServerClient<Database>>
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getStaffById } from '@/lib/staff'
+import { SynqedError } from '@synqed-kk/client'
 
 /**
- * Reference query used to derive the KaruteWithRelations type.
- * Uses the synchronous client type for QueryData inference.
- * Not called directly — createClient() is called per-request inside getKaruteRecord().
+ * Karute record + related customer/staff/entries, shaped for the detail page
+ * and its adapters (`lib/adapters/karute-detail.ts`), the PDF/text exporters,
+ * and `formatKaruteText`.
  *
- * Column names match database.ts (Supabase CLI format):
- *  - client_id       = FK → customers.id (the individual salon client)
- *  - staff_profile_id = FK → profiles.id (the staff who ran the session)
- *  - session_date    = actual appointment date (timestamptz)
+ * Field names are the frontend's historical (legacy-Supabase) names so the
+ * many consumers don't change:
+ *   - client_id        = the individual salon client (synqed `customer_id`)
+ *   - staff_profile_id = the staff who ran the session (synqed `staff_id`)
+ *   - summary          = synqed `ai_summary`
+ *   - session_date     = no dedicated column upstream; mirrors `created_at`
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-const _karuteWithRelationsQuery = (supabase: SyncSupabaseClient) =>
-  supabase
-    .from('karute_records')
-    .select(
-      `
-      id,
-      created_at,
-      session_date,
-      summary,
-      transcript,
-      customer_id,
-      client_id,
-      staff_profile_id,
-      profiles:staff_profile_id ( id, full_name ),
-      customers:client_id ( id, name ),
-      entries (
-        id,
-        category,
-        content,
-        source_quote,
-        confidence_score,
-        is_manual,
-        created_at
-      )
-    `,
-    )
-    .eq('id', '')
-    .single()
-
-/** Inferred TypeScript type for a karute record with nested customer and entries */
-export type KaruteWithRelations = QueryData<
-  ReturnType<typeof _karuteWithRelationsQuery>
->
+export interface KaruteWithRelations {
+  id: string
+  created_at: string
+  session_date: string | null
+  summary: string | null
+  transcript: string | null
+  customer_id: string | null
+  client_id: string | null
+  staff_profile_id: string | null
+  profiles: { id: string; full_name: string } | null
+  customers: { id: string; name: string } | null
+  entries: Array<{
+    id: string
+    category: string
+    content: string
+    source_quote: string | null
+    confidence_score: number
+    is_manual: boolean
+    created_at: string
+  }>
+}
 
 /**
- * Fetch a single karute record with its related customer and entries.
- * Entries are ordered by created_at ascending so AI entries (inserted first)
- * appear before manually added entries in a consistent order.
+ * Fetch a single karute record with its customer, staff, and entries.
  *
- * @throws {Error} if Supabase returns an error (propagates to the page for error boundaries)
- * @returns null if no record found with the given id
+ * Reads through synqed-core (the source of truth) rather than querying
+ * `karute_records` directly in Supabase — that table is a legacy empty shell;
+ * the live data lives in synqed-core, which is also where the save path writes
+ * (`actions/karute.ts` → `synqed.karuteRecords.create`). synqed-core returns
+ * `customer_id`/`staff_id`/`ai_summary`; we resolve the customer + staff names
+ * and remap to the frontend's historical field names above.
+ *
+ * @returns null if no record exists with the given id (→ notFound() upstream).
+ * @throws on any non-404 fetch failure (propagates to the error boundary).
  */
 export async function getKaruteRecord(
   id: string,
 ): Promise<KaruteWithRelations | null> {
-  const supabase = await createClient()
+  const synqed = await getSynqedClient()
 
-  const { data, error } = await supabase
-    .from('karute_records')
-    .select(
-      `
-      id,
-      created_at,
-      session_date,
-      summary,
-      transcript,
-      customer_id,
-      client_id,
-      staff_profile_id,
-      profiles:staff_profile_id ( id, full_name ),
-      customers:client_id ( id, name ),
-      entries (
-        id,
-        category,
-        content,
-        source_quote,
-        confidence_score,
-        is_manual,
-        created_at
-      )
-    `,
-    )
-    .eq('id', id)
-    .order('created_at', { foreignTable: 'entries', ascending: true })
-    .single()
-
-  if (error) {
-    // PGRST116 = "The result contains 0 rows" — return null for notFound() handling
-    if (error.code === 'PGRST116') return null
-    throw new Error(error.message)
+  let rec
+  try {
+    rec = await synqed.karuteRecords.get(id, { include_entries: true })
+  } catch (err) {
+    if (err instanceof SynqedError && err.status === 404) return null
+    throw err
   }
 
-  return data
+  // Names aren't joined by synqed-core's get(); resolve them in parallel.
+  const [staff, customer] = await Promise.all([
+    getStaffById(rec.staff_id).catch(() => null),
+    rec.customer_id
+      ? synqed.customers
+          .get(rec.customer_id)
+          .then((c) => ({ id: c.id, name: c.name }))
+          .catch(() => null)
+      : Promise.resolve(null),
+  ])
+
+  return {
+    id: rec.id,
+    created_at: rec.created_at,
+    session_date: rec.created_at,
+    summary: rec.ai_summary,
+    transcript: rec.transcript,
+    customer_id: null,
+    client_id: rec.customer_id,
+    staff_profile_id: rec.staff_id,
+    profiles: staff ? { id: staff.id, full_name: staff.full_name ?? '—' } : null,
+    customers: customer,
+    entries: (rec.entries ?? []).map((e) => ({
+      id: e.id,
+      category: e.category.toLowerCase(),
+      content: e.content,
+      source_quote: e.original_quote,
+      confidence_score: e.confidence,
+      is_manual: e.is_manual,
+      created_at: e.created_at,
+    })),
+  }
 }

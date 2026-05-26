@@ -13,6 +13,8 @@ interface PipelineContainerProps {
   duration?: number
   appointmentId?: string
   appointmentCustomerId?: string
+  staffId?: string
+  staffOptions: { id: string; name: string }[]
   onCancel: () => void
   onSaved: () => void
 }
@@ -26,6 +28,8 @@ export function PipelineContainer({
   duration,
   appointmentId,
   appointmentCustomerId,
+  staffId,
+  staffOptions,
   onCancel,
   onSaved,
 }: PipelineContainerProps) {
@@ -83,6 +87,8 @@ export function PipelineContainer({
       duration={duration}
       appointmentId={appointmentId}
       appointmentCustomerId={appointmentCustomerId}
+      staffId={staffId}
+      staffOptions={staffOptions}
       onSaved={onSaved}
     />
   )

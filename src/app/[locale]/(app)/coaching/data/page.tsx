@@ -25,12 +25,13 @@
 // notify the owner + background job performs the actual purge.
 
 import { PersonalDataView } from '@/components/coaching/redesign/PersonalDataView'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 
 export default async function CoachingDataPage() {
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   const activeStaff = activeStaffId

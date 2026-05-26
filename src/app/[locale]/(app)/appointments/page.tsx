@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsByDate, getAppointmentsInRange } from '@/actions/appointments'
@@ -140,7 +141,7 @@ export default async function AppointmentsPage({
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
     getAppointmentsByDate(selectedDateStr),

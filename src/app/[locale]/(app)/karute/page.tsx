@@ -1,8 +1,5 @@
-import {
-  getBusinessId,
-  getCurrentUserStaffId,
-  getStaffList,
-} from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import {
   assignSequentialKaruteNumbers,
@@ -18,40 +15,20 @@ import type {
 /**
  * カルテ tab — RECORD-CENTRIC list of karute sessions.
  *
- * Phase A (this commit): one row per karute record, date-grouped,
- * AI status badges, karute-specific filters. Matches the design
- * spike's KaruteList structure end-to-end.
+ * Reads through synqed-core (the source of truth) — the same path the detail
+ * page and the save flow use. One row per karute record, date-grouped, with AI
+ * status badges; plus placeholder rows for customers with no records yet so
+ * brand-new customers still appear.
  *
- * Phase B (next): append placeholder rows for customers with NO
- * karute records yet so brand-new customers still appear (Liam's
- * earlier ask). Today they're invisible on this tab; the customer-
- * centric chip-row view we shipped previously is still reachable
- * via the 顧客 tab → tap a customer → karute detail page.
- *
- * ANTHONY: karute_records currently lacks `service` (text) and
- * `duration_minutes` (int) columns. The row renderer expects both;
- * for now we fall back to "施術" + 0 minutes. Adding those columns
- * (+ a brief service-type config UI) makes the row read with real
- * salon-treatment context.
+ * ANTHONY: karute_records lacks `service` (text) and `duration_minutes` (int).
+ * The row renderer expects both; we send '—' + 0 until those columns land.
  */
 export default async function KaruteRecordsListPage() {
-  const supabase = await createClient()
-  const businessId = await getBusinessId()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
   const synqed = await getSynqedClient()
 
   const [recordsRes, staffList, allCustomersList, currentStaffId] =
     await Promise.all([
-      sb
-        .from('karute_records')
-        .select(
-          'id, session_date, created_at, summary, transcript, staff_profile_id, client_id, entries(count)',
-        )
-        .eq('customer_id', businessId)
-        .order('session_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(200),
+      synqed.karuteRecords.list({ page_size: 200 }),
       getStaffList(),
       synqed.customers.list({
         page: 1,
@@ -59,7 +36,7 @@ export default async function KaruteRecordsListPage() {
         sort_by: 'created_at',
         sort_order: 'asc',
       }),
-      getCurrentUserStaffId(),
+      getActiveStaffId(),
     ])
 
   type RecordRow = {
@@ -73,7 +50,18 @@ export default async function KaruteRecordsListPage() {
     entries: Array<{ count: number }> | null
   }
 
-  const records = ((recordsRes.data ?? []) as RecordRow[]).map((r) => r)
+  // synqed-core is the source of truth; remap to the row shape this view uses
+  // (customer_id→client_id person, staff_id→staff_profile_id, ai_summary→summary).
+  const records: RecordRow[] = recordsRes.karute_records.map((r) => ({
+    id: r.id,
+    session_date: r.created_at,
+    created_at: r.created_at,
+    summary: r.ai_summary,
+    transcript: r.transcript,
+    staff_profile_id: r.staff_id,
+    client_id: r.customer_id ?? '',
+    entries: [{ count: r.entry_count ?? 0 }],
+  }))
 
   // Build lookup maps
   const staffNameById = new Map(
@@ -118,14 +106,8 @@ export default async function KaruteRecordsListPage() {
         karuteNumberByCustomerId.get(r.client_id) ?? '#00000',
       date: isoDate,
       weekday,
-      // ANTHONY: service + duration aren't on karute_records yet —
-      // schema gap also flagged in the manual-create dialog's server
-      // action (createManualKaruteRecord in src/actions/karute.ts).
-      // Sending '—' instead of a hardcoded '施術' so the row reads
-      // honestly as "unset" rather than printing the same generic
-      // label on every record. Once the columns land, swap to the
-      // real fields and the row's existing `duration > 0 && ...`
-      // guard hides the duration line when truly unknown.
+      // ANTHONY: service + duration aren't on karute_records yet — sending '—'
+      // + 0 so the row reads honestly as "unset" until the columns land.
       service: '—',
       duration: 0,
       staffId: r.staff_profile_id,
@@ -139,10 +121,8 @@ export default async function KaruteRecordsListPage() {
     }
   })
 
-  // Phase B: synthesize placeholder rows for customers with NO records
-  // yet. Each links to /karute/customer/[id] (the customer's karute
-  // folder view) so staff can drop in and start the first session.
-  // Sorted newest-customer-first so the most recent signups bubble up.
+  // Synthesize placeholder rows for customers with NO records yet. Each links
+  // to /karute/customer/[id] so staff can drop in and start the first session.
   const placeholders: KaruteListItem[] = allCustomersList.customers
     .filter((c) => !recordedCustomerIds.has(c.id))
     .sort((a, b) =>
@@ -161,9 +141,6 @@ export default async function KaruteRecordsListPage() {
           karuteNumberByCustomerId.get(c.id) ?? '#00000',
         date: isoDate,
         weekday,
-        // ANTHONY: when service + duration columns land on karute_records,
-        // these stay empty for placeholder rows (no session yet). The
-        // string here is the user-facing label shown in lieu of a service.
         service: 'まだセッションなし',
         duration: 0,
         staffId: c.assigned_staff_id ?? null,
@@ -183,12 +160,7 @@ export default async function KaruteRecordsListPage() {
   const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
 
-  // Customer combobox source for the NewKaruteDialog. Reuses the same
-  // list we already loaded above for the customer-name lookup map —
-  // no extra round trip. Shape matches the shared CustomerOption
-  // contract from src/components/karute/CustomerCombobox (id + name)
-  // so the dialog plugs straight into the same picker the recording
-  // flow uses.
+  // Customer combobox source for the NewKaruteDialog (reuses the loaded list).
   const customerOptions = allCustomersList.customers.map((c) => ({
     id: c.id,
     name: c.name,
@@ -209,7 +181,3 @@ export default async function KaruteRecordsListPage() {
     />
   )
 }
-
-// Local createClient import — avoids re-resolving via the top-level
-// import dance that depends on cookies()
-import { createClient } from '@/lib/supabase/server'

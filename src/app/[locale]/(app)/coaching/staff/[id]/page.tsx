@@ -24,7 +24,8 @@ import { notFound, redirect } from 'next/navigation'
 
 import { StaffDrillDownView } from '@/components/coaching/redesign/StaffDrillDownView'
 import { isDevPreviewEnabled } from '@/lib/coaching-dev-preview/hooks'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 
 interface PageProps {
   params: Promise<{ locale: string; id: string }>
@@ -49,7 +50,7 @@ export default async function CoachingStaffDrillDownPage({ params }: PageProps) 
 
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   const activeStaff = activeStaffId

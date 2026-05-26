@@ -1,8 +1,11 @@
-import { createClient } from '@/lib/supabase/server'
 import { getTranslations } from 'next-intl/server'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getAppointmentsByDate } from '@/actions/appointments'
 import { getCustomerConsent } from '@/actions/customers'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -18,17 +21,6 @@ function hhmm(d: Date): string {
     minute: '2-digit',
   })
 }
-// `deriveKaruteNumber` removed — the local hex-slice produced
-// `#A1B2C`-style noise that didn't match the real `#00001`-style
-// sequence rendered on the main karute list and customer profile
-// (computed via `assignSequentialKaruteNumbers` over the customer
-// list). Surfaces here pass `karuteNumber: null` so the row's
-// existing conditional render hides the chip rather than showing
-// a fake number. ANTHONY: once karute_records has a real
-// `karute_number` column (or we add the customer list query +
-// map lookup here like /karute/page.tsx already does), thread the
-// real value through.
-
 
 export default async function SessionsPage({
   params,
@@ -36,72 +28,32 @@ export default async function SessionsPage({
   params: Promise<{ locale: string }>
 }) {
   const { locale } = await params
-  const supabase = await createClient()
 
-  const activeStaffId = await getCurrentUserStaffId()
-  const staffList = await getStaffList()
-  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
-  const tStatus = await getTranslations('reservation.status')
+  const today = jstStartOfToday()
+  const todayStr = ymdInJst(today)
+
+  // All reads via synqed-core (the source of truth). Today's bookings are NOT
+  // filtered by staff — the picker shows the whole day so staff can record a
+  // colleague's booking; the DEFAULT target still prefers the active staff's
+  // bookings (see priority selection below). Recent karute via the same path
+  // as the list + detail pages.
+  const [activeStaffId, staffList, customers, todays, recentRes, tStatus] =
+    await Promise.all([
+      getActiveStaffId(),
+      getStaffList(),
+      getCachedCustomerList(),
+      getAppointmentsByDate(todayStr),
+      getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 5 })),
+      getTranslations('reservation.status'),
+    ])
+
+  const staffNameById = new Map(
+    staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
+  )
+  const customerNameById = new Map(customers.map((c) => [c.id, c.name]))
 
   const now = new Date()
-  const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-  const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-
-  // Fan out the independent reads in parallel:
-  //   1. Customer list (HTTP → synqed-core)
-  //   2. ALL today's bookings (DB) — NOT filtered by staff. The picker
-  //      (SelectBookingSheet-style dropdown in RecordingTargetCard) shows
-  //      the whole day so staff can manually switch to a booking
-  //      assigned to someone else (covering a colleague, walk-in
-  //      reassignment, recording on behalf of). The DEFAULT target
-  //      still prefers the active staff's bookings — see the priority
-  //      selection below. Previously this was `.eq('staff_profile_id',
-  //      activeStaffId)` and Liam hit it: a 佐竹なな booking wasn't
-  //      showing up under 録音対象 because she was assigned to a
-  //      different staff. Matches the spike's record page which uses
-  //      the org-wide `todaysBookings` from useDashboardData().
-  //   3. Recent karute records (DB)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const [customers, appointmentsRes, recentRows] = await Promise.all([
-    getCachedCustomerList(),
-    sb
-      .from('appointments')
-      .select(
-        'id, start_time, duration_minutes, client_id, staff_profile_id, title, notes, karute_record_id, customers:client_id ( name )',
-      )
-      .gte('start_time', windowStart.toISOString())
-      .lte('start_time', windowEnd.toISOString())
-      .order('start_time', { ascending: true })
-      .limit(20),
-    sb
-      .from('karute_records')
-      .select(
-        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
-      )
-      .order('session_date', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(5)
-      .then((res: { data: unknown }) => res),
-  ])
-
-  // Next unlinked appointment for this staff (used as recording target)
-  let nextAppointment: {
-    id: string
-    customerName: string
-    customerId: string
-    startTime: string
-    durationMinutes: number
-    title: string | null
-    notes: string | null
-    statusKey?: 'in-session' | 'booked' | 'done'
-    staffName: string
-  } | null = null
-
-  // Nearby bookings (today, around the target time) — fed into the target card switcher
-  let nearbyBookings: RecordTargetBooking[] = []
-
-  const appointments = (appointmentsRes as { data: unknown }).data
+  const nowMs = now.getTime()
 
   type ApptRow = {
     id: string
@@ -114,14 +66,11 @@ export default async function SessionsPage({
     customers: { name: string } | null
     karute_record_id?: string | null
   }
-  const list = (appointments ?? []) as ApptRow[]
+  const list = (todays ?? []) as unknown as ApptRow[]
 
   // Default-target priority — prefer the ACTIVE STAFF's bookings first
-  // (in-session > upcoming > any unlinked), but if they have nothing
-  // in the window, fall back to ANY booking in the salon. Matches the
-  // spike's posture: staff can record bookings even when not the
-  // assigned stylist (covering a colleague, walk-in handoff, etc.).
-  const nowMs = now.getTime()
+  // (in-session > upcoming > any unlinked), falling back to ANY booking in
+  // the salon so staff can record even when not the assigned stylist.
   const isInSession = (a: ApptRow) => {
     if (a.karute_record_id) return false
     const startMs = new Date(a.start_time).getTime()
@@ -133,25 +82,30 @@ export default async function SessionsPage({
   const isUnlinked = (a: ApptRow) => !a.karute_record_id
 
   function findFirst(rows: ApptRow[]): ApptRow | undefined {
-    return (
-      rows.find(isInSession) ??
-      rows.find(isUpcoming) ??
-      rows.find(isUnlinked)
-    )
+    return rows.find(isInSession) ?? rows.find(isUpcoming) ?? rows.find(isUnlinked)
   }
 
   const myRows = activeStaffId
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
-  // Fall back to any salon booking when the active staff has nothing
-  // queued. This is the path that surfaces 佐竹なな-style bookings when
-  // she's assigned to a colleague rather than the signed-in user.
   const unlinked = findFirst(myRows) ?? findFirst(list)
 
+  let nextAppointment:
+    | {
+        id: string
+        customerName: string
+        customerId: string
+        startTime: string
+        durationMinutes: number
+        title: string | null
+        notes: string | null
+        statusKey?: 'in-session' | 'booked' | 'done'
+        staffId: string
+        staffName: string
+      }
+    | null = null
+
   if (unlinked) {
-    // Derive status server-side (in-session / booked / done) so the
-    // client component stays pure for React Compiler — no Date.now()
-    // calls during render.
     const startMs = new Date(unlinked.start_time).getTime()
     const endMs = startMs + unlinked.duration_minutes * 60_000
     const statusKey: 'in-session' | 'booked' | 'done' =
@@ -169,24 +123,20 @@ export default async function SessionsPage({
       title: unlinked.title ?? null,
       notes: unlinked.notes ?? null,
       statusKey,
-      // Real staff name from the staff list lookup. Earlier the
-      // recording-target card hardcoded staffName='—' even though
-      // staff_profile_id was selected on the appointment query.
+      staffId: unlinked.staff_profile_id ?? '',
       staffName: unlinked.staff_profile_id
         ? (staffNameById.get(unlinked.staff_profile_id) ?? '—')
         : '—',
     }
   }
 
-  // Picker rows = ALL today's bookings (active-staff first, then the
-  // rest). Limit to keep the dropdown tractable — staff with 20+
-  // bookings/day is rare and they'd scroll.
+  // Picker rows = ALL today's bookings (active-staff first, then the rest).
   const orderedForPicker = [
     ...myRows,
     ...list.filter((a) => !myRows.some((m) => m.id === a.id)),
   ].slice(0, 12)
 
-  nearbyBookings = orderedForPicker.map((a) => {
+  const nearbyBookings: RecordTargetBooking[] = orderedForPicker.map((a) => {
     const start = new Date(a.start_time)
     const end = new Date(start.getTime() + a.duration_minutes * 60_000)
     const isCurrent = nextAppointment && a.id === nextAppointment.id
@@ -205,19 +155,11 @@ export default async function SessionsPage({
       customer: customerName,
       initials: deriveFamilyInitials(customerName),
       karute: null,
-      // a.title is the customer's free-text booking note — '—' when
-      // null instead of an English literal 'Session' that other rows
-      // would carry as if it were real data.
       service: a.title ?? '—',
-      // Real staff lookup — staff_profile_id is selected in the query,
-      // earlier version hardcoded '—' even though the data was in hand.
       staff: a.staff_profile_id
         ? (staffNameById.get(a.staff_profile_id) ?? '—')
         : '—',
       statusKey,
-      // i18n via reservation.status — earlier version hardcoded the
-      // English literals 'In session' / 'Done' / 'Booked' so EN locale
-      // worked but JA showed English copy in the recording-target card.
       statusLabel: inSessionNow
         ? tStatus('in_session')
         : isDone
@@ -226,34 +168,16 @@ export default async function SessionsPage({
     }
   })
 
-  type RecentRow = {
-    id: string
-    session_date: string | null
-    created_at: string
-    summary: string | null
-    transcript: string | null
-    customers: { name: string } | null
-    entries: Array<{ count: number }> | null
-  }
-
-  const recentRecordings: RecentRecording[] = (
-    ((recentRows as { data: RecentRow[] | null })?.data ?? []) as RecentRow[]
-  ).map((r) => {
-    const dt = new Date(r.session_date ?? r.created_at)
-    const customerName = r.customers?.name ?? 'Unknown'
-    const entryCount = Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0
+  const recentRecordings: RecentRecording[] = recentRes.karute_records.map((r) => {
+    const dt = new Date(r.created_at)
+    const customerName = r.customer_id
+      ? (customerNameById.get(r.customer_id) ?? 'Unknown')
+      : 'Unknown'
     return {
       id: r.id,
       customerName,
       initials: deriveFamilyInitials(customerName),
-      // karuteNumber dropped — see top-of-file comment. The card's
-      // existing `karuteNumber && ...` conditional hides the chip
-      // when null so the row reads cleanly instead of showing
-      // `#A1B2C` hash noise.
       karuteNumber: null,
-      // Service '—' instead of literal 'Session' until karute_records
-      // has a real `service` column. Same '施術' bug fixed on the
-      // main karute list.
       service: '—',
       date: dt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
         timeZone: 'Asia/Tokyo',
@@ -262,12 +186,10 @@ export default async function SessionsPage({
         day: 'numeric',
       }),
       startTime: hhmm(dt),
-      // Duration label '—' until karute_records has a `duration_minutes`
-      // column. Earlier "0 min 00 sec" rendered on every row as if it
-      // were real data.
+      // Duration label '—' until karute_records has a `duration_minutes` column.
       durationLabel: '—',
-      karuteLinked: !!r.summary,
-      entryCount,
+      karuteLinked: !!r.ai_summary,
+      entryCount: r.entry_count ?? 0,
       karuteId: r.id,
     }
   })
@@ -288,34 +210,29 @@ export default async function SessionsPage({
     }
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // Pre-session brief — derived from the customer's last karute
-  // record + reservation memo. Today this is mechanical:
-  //   • last karute record present → returning-visit framing
-  //     (lastVisitDate, AI summary → concerns, entries of category
-  //      'product' → lastProduct, 'next' → recommendedFocus)
-  //   • no karute records → first-visit framing
-  //     (isFirstTimeVisit=true, reservationMemo if appointment.notes)
-  //
-  // ANTHONY (function-branch wiring): replace this derivation with
-  // a NIGHTLY AI-generated brief read from a new `pre_session_briefs`
-  // table or jsonb column on `appointments`. Spec lives in spike's
-  // PreSessionBriefCard.tsx header (search "AI_PROMPTS.md §15 — to be
-  // added"). The shape returned here is the contract; the AI call
-  // produces the same shape with richer text (talking-point hooks
-  // generated from CustomerMemory items, AI-summarized concerns,
-  // AI-recommended focus). Cache for 24h keyed by (customer_id,
-  // appointment_id).
+  // Pre-session brief — derived from the customer's last karute record +
+  // reservation memo. Reads through synqed-core (returning-visit recap from
+  // entries by category; first-visit framing when no prior karute).
   let brief: PreSessionBrief | null = null
   if (nextAppointment?.customerId) {
     brief = await buildPreSessionBriefFor(
-      sb,
       nextAppointment.customerId,
       nextAppointment.notes,
       now,
       locale,
     )
   }
+
+  const staffRoster = staffList.map((s) => ({ id: s.id, name: s.full_name ?? '—' }))
+  const bookingTargets = list.map((a) => ({
+    id: a.id,
+    customerId: a.client_id,
+    customerName: a.customers?.name ?? 'Unknown',
+    staffId: a.staff_profile_id ?? '',
+    staffName: a.staff_profile_id
+      ? (staffNameById.get(a.staff_profile_id) ?? '—')
+      : '—',
+  }))
 
   return (
     <RecordPageView
@@ -326,56 +243,33 @@ export default async function SessionsPage({
       brief={brief}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      staffRoster={staffRoster}
+      bookingTargets={bookingTargets}
+      defaultStaffId={activeStaffId}
     />
   )
 }
 
 // ─────────────────────────────────────────────────────────────
-// Pre-session brief derivation — mechanical version
-//
-// Today: pulls the customer's most recent karute record + its entries,
-// and projects them into the PreSessionBrief shape the
-// PreSessionBriefCard renders. Returning customer → recap brief with
-// concerns/product/focus extracted from entries by category. Brand-
-// new customer → first-visit framing with optional reservation memo.
-//
-// Tomorrow (function branch): replace this body with a single read
-// from a `pre_session_briefs` table populated by the nightly AI job.
-// The shape returned here is the contract — once the job lands, the
-// card lights up with richer text without touching the page.
+// Pre-session brief derivation — reads the customer's most recent karute
+// record + entries from synqed-core and projects them into PreSessionBrief.
+// ANTHONY (function branch): replace with a read from an AI-populated
+// `pre_session_briefs` table; the shape returned here is the contract.
 // ─────────────────────────────────────────────────────────────
-// Supabase client is intentionally untyped (the rest of the file uses
-// `sb as any` for the same reason — synqed-core's generated types
-// don't cover karute_records yet). Disable two related lint rules
-// just for this signature.
-type SupabaseLike = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  from(table: string): any
-}
-
 async function buildPreSessionBriefFor(
-  sb: SupabaseLike,
   customerId: string,
   reservationMemo: string | null,
   now: Date,
   locale: string,
 ): Promise<PreSessionBrief | null> {
-  // Last karute record for this customer (the brief's primary source).
-  const { data: lastRows } = await sb
-    .from('karute_records')
-    .select(
-      'id, session_date, created_at, summary, entries ( id, category, content )',
-    )
-    .eq('client_id', customerId)
-    .order('session_date', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-    .limit(1)
+  const synqed = await getSynqedClient()
+  const { karute_records } = await synqed.karuteRecords
+    .list({ customer_id: customerId, page_size: 1 })
+    .catch(() => ({ karute_records: [] }))
+  const lastMeta = karute_records[0] ?? null
 
-  const last = Array.isArray(lastRows) && lastRows.length > 0 ? lastRows[0] : null
-
-  // FIRST-VISIT FRAMING — no prior karute. Card renders the
-  // "初めてのお客様" header + optional reservation memo block.
-  if (!last) {
+  // FIRST-VISIT FRAMING — no prior karute.
+  if (!lastMeta) {
     return {
       isFirstTimeVisit: true,
       lastVisitDate: '',
@@ -388,14 +282,16 @@ async function buildPreSessionBriefFor(
     }
   }
 
-  // RETURNING-VISIT FRAMING — derive from the most recent karute.
-  type EntryRow = { id: string; category: string; content: string }
-  const entries: EntryRow[] = Array.isArray(last.entries) ? last.entries : []
+  const last = await synqed.karuteRecords
+    .get(lastMeta.id, { include_entries: true })
+    .catch(() => null)
+  const entries = (last?.entries ?? []).map((e) => ({
+    id: e.id,
+    category: e.category,
+    content: e.content,
+  }))
 
-  // Talking-point hooks = preference + lifestyle entries (the kinds
-  // staff want to open with). Cap at 3 so the card stays scannable.
-  // ANTHONY: real impl reads from customer_memory_items with
-  // suggestTalkingPoint=true (per spike §11 memory extractor).
+  // Talking-point hooks = preference + lifestyle entries (cap 3).
   const hooks = entries
     .filter((e) => e.category === 'PREFERENCE' || e.category === 'LIFESTYLE')
     .slice(0, 3)
@@ -407,19 +303,15 @@ async function buildPreSessionBriefFor(
     .slice(0, 3)
     .map((e) => e.content)
 
-  // Last product offered — most recent product-category entry.
   const productEntry = entries.find((e) => e.category === 'PRODUCT')
   const lastProduct = productEntry
     ? { name: productEntry.content, reaction: null as string | null }
     : null
 
-  // Recommended focus = first next-visit entry (what the customer
-  // said they wanted next time, or what staff flagged for follow-up).
   const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
-  const recommendedFocus = nextEntry?.content ?? last.summary ?? null
+  const recommendedFocus = nextEntry?.content ?? lastMeta.ai_summary ?? null
 
-  // Format the last visit date + relative "X日前".
-  const lastDt = new Date(last.session_date ?? last.created_at)
+  const lastDt = new Date(lastMeta.created_at)
   const lastVisitDate = lastDt.toLocaleDateString(
     locale === 'ja' ? 'ja-JP' : 'en-US',
     { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric' },

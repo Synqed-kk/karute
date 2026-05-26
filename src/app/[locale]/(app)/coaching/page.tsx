@@ -17,13 +17,14 @@
 // posture (Layer 1 / 2 / 3) is preserved in each scaffold card's
 // `privacyLayer` prop so you don't have to re-derive it.
 
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { CoachingPageView } from '@/components/coaching/redesign/CoachingPageView'
 
 export default async function CoachingPage() {
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   // Default to 'staff' if we can't pin down the user's role.

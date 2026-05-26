@@ -7,7 +7,6 @@ import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { PipelineContainer } from '@/components/review/PipelineContainer'
-import { useTimetableStore } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
@@ -43,14 +42,11 @@ export interface RecordPageNextAppointment {
   notes: string | null
   /** Server-derived status at render time. Decouples this client
    *  component from `Date.now()` (which React Compiler flags as
-   *  impure during render). Re-derive on the next server render
-   *  if the page is revisited. */
+   *  impure during render). */
   statusKey?: 'in-session' | 'booked' | 'done'
-  /** Resolved staff display name for the recording-target card. Server
-   *  looks it up from the staff list at render time (the appointment
-   *  query already selects staff_profile_id). Earlier version hardcoded
-   *  '—' even when staff_profile_id was set. */
-  staffName?: string
+  staffId: string
+  /** Resolved staff display name (server looks it up from the staff list). */
+  staffName: string
 }
 
 export interface RecordPageViewProps {
@@ -62,6 +58,19 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  staffRoster: { id: string; name: string }[]
+  bookingTargets: {
+    id: string
+    customerId: string
+    customerName: string
+    staffId: string
+    staffName: string
+  }[]
+  /**
+   * The PIN-selected active staff, used to pre-select attribution when the
+   * recording has no booking target (booking attribution always wins).
+   */
+  defaultStaffId?: string | null
 }
 
 function deriveInitials(name: string): string {
@@ -88,10 +97,15 @@ export function RecordPageView({
   brief,
   recentRecordings,
   consentDate,
+  staffRoster,
+  bookingTargets,
+  defaultStaffId,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
-  const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(
+    nextAppointment?.id ?? null,
+  )
 
   const {
     state: recState,
@@ -199,16 +213,18 @@ export function RecordPageView({
 
   // Pipeline phase — delegate to existing review/save flow
   if (phase === 'pipeline' && result) {
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
-    const effectiveCustomerId = recordingAppointmentId ? undefined : nextAppointment?.customerId
+    const selectedTarget =
+      bookingTargets.find((b) => b.id === selectedTargetId) ?? null
     return (
       <PipelineContainer
         audioBlob={result.blob}
         locale={locale}
         customers={customers}
         duration={Math.round(result.durationMs / 1000)}
-        appointmentId={effectiveAppointmentId}
-        appointmentCustomerId={effectiveCustomerId}
+        appointmentId={selectedTarget?.id}
+        appointmentCustomerId={selectedTarget?.customerId}
+        staffId={selectedTarget?.staffId ?? defaultStaffId ?? undefined}
+        staffOptions={staffRoster}
         onCancel={handleNewSession}
         onSaved={handleNewSession}
       />
@@ -233,10 +249,7 @@ export function RecordPageView({
           )
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
-        // Real staffName threaded from sessions/page.tsx via the
-        // staff list lookup. Earlier the value was hardcoded '—'
-        // even though staff_profile_id was selected on the
-        // appointment row.
+        // Real staffName threaded from sessions/page.tsx via the staff lookup.
         staffName: nextAppointment.staffName ?? '—',
         statusKey: nextAppointment.statusKey ?? 'booked',
         isNew: brief?.isFirstTimeVisit ?? false,
@@ -336,6 +349,7 @@ export function RecordPageView({
             <RecordingTargetCard
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
+              onSwitchBooking={(b) => setSelectedTargetId(b.id)}
             />
             <PreSessionBriefCard
               brief={brief}
@@ -349,6 +363,7 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
+            onSwitchBooking={(b) => setSelectedTargetId(b.id)}
           />
           <PreSessionBriefCard
             brief={brief}

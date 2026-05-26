@@ -22,7 +22,8 @@ import { redirect } from 'next/navigation'
 
 import { PersonalGrowthView } from '@/components/coaching/redesign/PersonalGrowthView'
 import { isDevPreviewEnabled } from '@/lib/coaching-dev-preview/hooks'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 
 interface PageProps {
   params: Promise<{ locale: string }>
@@ -33,7 +34,7 @@ export default async function CoachingGrowthPage({ params }: PageProps) {
 
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   const activeStaff = activeStaffId

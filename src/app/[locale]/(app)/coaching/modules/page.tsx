@@ -27,13 +27,14 @@
 import { Suspense } from 'react'
 
 import { LearningModulesView } from '@/components/coaching/redesign/LearningModulesView'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import CoachingModulesLoading from './loading'
 
 export default async function CoachingModulesPage() {
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   const activeStaff = activeStaffId

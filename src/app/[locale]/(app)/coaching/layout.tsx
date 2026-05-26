@@ -11,7 +11,8 @@
 // from anywhere under /coaching/* without re-mounting.
 
 import { DevPreviewToggle } from '@/components/coaching/redesign/DevPreviewToggle'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 
 export default async function CoachingLayout({
   children,
@@ -20,7 +21,7 @@ export default async function CoachingLayout({
 }) {
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   const activeStaff = activeStaffId

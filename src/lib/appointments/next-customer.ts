@@ -25,7 +25,7 @@
 // schema-drift fix, update this file too — it's a single SELECT.
 
 import { createClient } from '@/lib/supabase/server'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 
 export interface NextCustomerInfo {
   customerId: string
@@ -42,7 +42,7 @@ export interface NextCustomerInfo {
 /** Returns the next-customer info for the signed-in staff, or
  *  null if there's nothing in the window or no staff identity. */
 export async function getNextCustomer(): Promise<NextCustomerInfo | null> {
-  const staffId = await getCurrentUserStaffId().catch(() => null)
+  const staffId = await getActiveStaffId().catch(() => null)
   if (!staffId) return null
 
   const supabase = await createClient()

@@ -2,7 +2,6 @@
 
 import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
-import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 // ---------------------------------------------------------------------------
@@ -25,6 +24,9 @@ import { getSynqedClient } from '@/lib/synqed/client'
  */
 async function translateBackendError(err: unknown): Promise<string> {
   const message = err instanceof Error ? err.message : String(err)
+  // Dynamic import: keeps next-intl's ESM out of the module-load path so jest
+  // (which doesn't transform next-intl) can import this action's other exports.
+  const { getTranslations } = await import('next-intl/server')
   const t = await getTranslations('customers.form')
   if (/Unique constraint failed.*\bemail\b/i.test(message)) {
     return t('duplicateEmail')
@@ -267,12 +269,12 @@ export async function grantCustomerConsent(
   customerId: string,
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
 ) {
-  const { getCurrentUserStaffId } = await import('@/lib/staff')
-  const staffId = await getCurrentUserStaffId()
+  const { getActiveStaffId } = await import('@/lib/active-staff')
+  const staffId = await getActiveStaffId()
   if (!staffId) {
     return {
       ok: false as const,
-      error: 'No staff identity for the signed-in user.',
+      error: 'No active staff selected.',
     }
   }
   try {
@@ -294,10 +296,10 @@ export async function grantCustomerConsent(
 }
 
 export async function revokeCustomerConsent(customerId: string) {
-  const { getCurrentUserStaffId } = await import('@/lib/staff')
-  const staffId = await getCurrentUserStaffId()
+  const { getActiveStaffId } = await import('@/lib/active-staff')
+  const staffId = await getActiveStaffId()
   if (!staffId) {
-    return { ok: false as const, error: 'No staff identity for the signed-in user.' }
+    return { ok: false as const, error: 'No active staff selected.' }
   }
   try {
     const synqed = await getSynqedClient()

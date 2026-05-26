@@ -1,5 +1,6 @@
 import { getLocale, getTranslations } from 'next-intl/server'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import type { CustomerListRow } from '@/components/customers/redesign/types'
@@ -43,7 +44,7 @@ export default async function CustomersPage({
       }),
     ),
     t.phase('staffList', () => getStaffList()),
-    t.phase('activeStaffId', () => getCurrentUserStaffId()),
+    t.phase('activeStaffId', () => getActiveStaffId()),
     t.phase('businessId', () => getBusinessId()),
     getLocale(),
     getTranslations('customers.list.lastVisit'),

@@ -21,12 +21,13 @@
 // shows the SHAPE of the library, not a blank canvas.
 
 import { PatternLibrary } from '@/components/coaching/redesign/PatternLibrary'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 
 export default async function CoachingPatternsPage() {
   const [staffList, activeStaffId] = await Promise.all([
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
   ])
 
   const activeStaff = activeStaffId

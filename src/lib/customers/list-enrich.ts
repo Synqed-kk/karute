@@ -8,6 +8,7 @@
 //   - status enum — we derive a best-guess from cadence (see derive)
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { getSynqedClient } from '@/lib/synqed/client'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
 export interface CustomerEnrichment {
@@ -33,14 +34,13 @@ export async function enrichCustomers(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = service as any
 
-  // Tenant scope: karute_records.customer_id = businessId. Use client_id to bucket by salon-client.
-  // Two queries fan out in parallel; both filtered by tenant + the customer set.
+  // Karute comes from synqed-core (the source of truth), bucketed by the
+  // person (synqed `customer_id`). The appointment last-visit fallback still
+  // reads Supabase directly — TODO: that table has the same legacy-drift issue
+  // as karute did; route it through synqed-core too.
+  const idSet = new Set(customerIds)
   const [karuteRes, apptRes] = await Promise.all([
-    sb
-      .from('karute_records')
-      .select('client_id, session_date, created_at')
-      .eq('customer_id', businessId)
-      .in('client_id', customerIds),
+    getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 500 })),
     sb
       .from('appointments')
       .select('client_id, start_time')
@@ -51,10 +51,11 @@ export async function enrichCustomers(
   type ApptRow = { client_id: string; start_time: string }
 
   const karuteByClient = new Map<string, KaruteRow[]>()
-  for (const r of (karuteRes.data ?? []) as KaruteRow[]) {
-    const arr = karuteByClient.get(r.client_id) ?? []
-    arr.push(r)
-    karuteByClient.set(r.client_id, arr)
+  for (const r of karuteRes.karute_records) {
+    if (!r.customer_id || !idSet.has(r.customer_id)) continue
+    const arr = karuteByClient.get(r.customer_id) ?? []
+    arr.push({ client_id: r.customer_id, session_date: r.created_at, created_at: r.created_at })
+    karuteByClient.set(r.customer_id, arr)
   }
 
   const apptByClient = new Map<string, ApptRow[]>()

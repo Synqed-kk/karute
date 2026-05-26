@@ -4,7 +4,7 @@
 // Resolves the signed-in user's staff row + email + role server-
 // side and passes them down to ProfilePageView. The page itself
 // is Layer 1 (staff-private) — RLS on the staff query already
-// scopes by auth.uid() via getCurrentUserStaffId().
+// scopes by auth.uid() via getActiveStaffId().
 //
 // Spike source: src/app/[locale]/(app)/profile/page.tsx (the
 // view portion lives in components/profile/redesign/...). The
@@ -13,7 +13,8 @@
 // by the (app)/layout, so there's no extra round-trip.
 
 import { createClient } from '@/lib/supabase/server'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   ProfilePageView,
@@ -39,7 +40,7 @@ export default async function ProfilePage() {
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
     getOrgSettings(),
   ])
 
