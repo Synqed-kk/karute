@@ -44,25 +44,29 @@ import {
   SessionsTabContent,
   type CustomerSessionEntry,
 } from './SessionsTabContent'
-import { type CustomerPhoto } from './PhotosTabContent'
+import { PhotosTabContent, type CustomerPhoto } from './PhotosTabContent'
 import { PrivacyTabContent } from './PrivacyTabContent'
 import { CustomerReengagementPreview } from './UpcomingAiFeatures'
 import { CustomerDeletionBanner } from '../CustomerDeletionBanner'
-import { PhotoRecordCard } from '@/components/karute/spike-lifted/photos/PhotoRecordCard'
 
 interface CustomerProfileViewProps {
   customer: CustomerProfileData
   sessions: CustomerSessionEntry[]
-  /** Reserved for the lifted PhotoGallerySheet (step 2 of the photo
-   *  lift). PhotoRecordCard currently reads from its own placeholder
-   *  store and ignores this prop. */
+  /** Server-loaded customer photos via listCustomerPhotos action.
+   *  Threaded into PhotosTabContent (read-only thumbnail grid).
+   *  Earlier this prop was discarded (`_photos`) and the Photos tab
+   *  mounted PhotoRecordCard, which uses an in-memory usePhotoStore
+   *  with no Supabase Storage wiring — real DB photos never rendered,
+   *  and uploads vanished on reload. PhotosTabContent already exists
+   *  with the right shape (signedUrl/category/caption) for read-only
+   *  display, so the fix is mounting it here. */
   photos: CustomerPhoto[]
 }
 
 export function CustomerProfileView({
   customer,
   sessions,
-  photos: _photos,
+  photos,
 }: CustomerProfileViewProps) {
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
 
@@ -114,12 +118,14 @@ export function CustomerProfileView({
           />
         )}
         {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
-        {tab === 'photos' && (
-          <PhotoRecordCard
-            customerName={customer.name}
-            customerId={customer.id}
-          />
-        )}
+        {/* PhotosTabContent renders the real photos prop loaded
+         *  server-side via listCustomerPhotos. Read-only thumbnail
+         *  grid until uploads ship. ANTHONY: the upload + capture
+         *  flow lives in PhotoRecordCard / PhotoCaptureDialog under
+         *  spike-lifted/photos/ — those still need wiring against
+         *  uploadCustomerPhoto + Storage signed URLs before they're
+         *  swapped back in here. */}
+        {tab === 'photos' && <PhotosTabContent photos={photos} />}
         {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
       </div>
     </main>
