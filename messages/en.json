@@ -988,9 +988,12 @@
     "aiSettings": "AI Settings",
     "aiDescription": "Model, thresholds, automation",
     "aiModel": {
+      "label": "AI model",
       "tierFast": "Fast",
       "tierBest": "Best"
     },
+    "audioQualityLabel": "Audio quality",
+    "autoStopLabel": "Auto-stop",
     "confidenceThreshold": "Classification Confidence Threshold",
     "recordingSettings": "Recording Settings",
     "recordingDescription": "Audio quality, consent template",

@@ -988,9 +988,12 @@
     "aiSettings": "AI設定",
     "aiDescription": "モデル・分類閾値・自動化",
     "aiModel": {
+      "label": "AIモデル",
       "tierFast": "高速",
       "tierBest": "高精度"
     },
+    "audioQualityLabel": "音質",
+    "autoStopLabel": "自動停止",
     "confidenceThreshold": "分類確信度閾値",
     "recordingSettings": "録音設定",
     "recordingDescription": "音質・同意テンプレート",

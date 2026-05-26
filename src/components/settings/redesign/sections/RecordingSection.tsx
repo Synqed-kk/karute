@@ -94,7 +94,7 @@ export function RecordingSection({ orgSettings }: RecordingSectionProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-sm font-medium mb-1.5 block">
-            {t('audioQuality')}
+            {t('audioQualityLabel')}
           </label>
           <select
             value={audioQuality}
@@ -113,7 +113,7 @@ export function RecordingSection({ orgSettings }: RecordingSectionProps) {
         </div>
         <div>
           <label className="text-sm font-medium mb-1.5 block">
-            {t('autoStop')}
+            {t('autoStopLabel')}
           </label>
           <select
             value={autoStop}
