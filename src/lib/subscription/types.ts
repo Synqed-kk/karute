@@ -107,10 +107,27 @@ export const TIER_FEATURES: Record<SubscriptionTier, TierFeatures> = {
 }
 
 export interface PaymentMethodSummary {
-  brand: 'visa' | 'mastercard' | 'amex' | 'jcb' | 'unknown'
+  brand: 'visa' | 'mastercard' | 'amex' | 'jcb'
   last4: string
-  expiryMonth: number
-  expiryYear: number
+  /** MM portion of card expiry. */
+  expMonth: number
+  /** Full year (e.g. 2027) portion of card expiry. */
+  expYear: number
+}
+
+export interface InvoiceRow {
+  id: string
+  /** Localized display date (e.g. "2026年5月15日"). */
+  issuedDate: string
+  /** Tax-inclusive total in JPY. Spike includes consumption tax;
+   *  prod computes via Stripe tax. */
+  amountJpy: number
+  status: 'paid' | 'pending' | 'failed'
+  /** How many seats this invoice billed for. */
+  storeCount: number
+  tier: SubscriptionTier
+  /** Spike: mock URL. Prod: signed Stripe hosted invoice URL. */
+  downloadHref?: string
 }
 
 export interface SubscriptionState {
@@ -122,7 +139,12 @@ export interface SubscriptionState {
   nextBillingDate: string | null
   /** ISO date when the trial ends. Non-null only when status === 'trialing'. */
   trialEndsAt: string | null
+  /** ISO date — initial sign-up. */
+  createdAt: string
   paymentMethod: PaymentMethodSummary | null
+  /** Most recent invoices, newest first. Spike caps at 6; prod
+   *  paginates via Stripe. */
+  recentInvoices: InvoiceRow[]
 }
 
 /** Initial state — Professional on trial. Matches spike default
@@ -135,10 +157,11 @@ export const subscriptionMockSeed: SubscriptionState = {
   storeCount: 1,
   nextBillingDate: null,
   trialEndsAt: (() => {
-    // Default to ~14 days from arbitrary fixed date so SSR ↔
-    // client hydrate identically. Real impl reads from Stripe.
-    const d = new Date('2026-06-15T00:00:00Z')
-    return d.toISOString()
+    // Default to ~14 days from a fixed date so SSR ↔ client
+    // hydrate identically. Real impl reads from Stripe.
+    return new Date('2026-06-15T00:00:00Z').toISOString()
   })(),
+  createdAt: '2026-05-15T00:00:00Z',
   paymentMethod: null,
+  recentInvoices: [],
 }
