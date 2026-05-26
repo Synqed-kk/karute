@@ -1,8 +1,9 @@
-import { getLocale } from 'next-intl/server'
-
-import { getBusinessId, getStaffList } from '@/lib/staff'
+import {
+  getBusinessId,
+  getCurrentUserStaffId,
+  getStaffList,
+} from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { createServiceClient } from '@/lib/supabase/service'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -40,25 +41,26 @@ export default async function KaruteRecordsListPage() {
   const sb = supabase as any
   const synqed = await getSynqedClient()
 
-  const [recordsRes, staffList, allCustomersList, _locale] = await Promise.all([
-    sb
-      .from('karute_records')
-      .select(
-        'id, session_date, created_at, summary, transcript, staff_profile_id, client_id, entries(count)',
-      )
-      .eq('customer_id', businessId)
-      .order('session_date', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(200),
-    getStaffList(),
-    synqed.customers.list({
-      page: 1,
-      page_size: 500,
-      sort_by: 'created_at',
-      sort_order: 'asc',
-    }),
-    getLocale(),
-  ])
+  const [recordsRes, staffList, allCustomersList, currentStaffId] =
+    await Promise.all([
+      sb
+        .from('karute_records')
+        .select(
+          'id, session_date, created_at, summary, transcript, staff_profile_id, client_id, entries(count)',
+        )
+        .eq('customer_id', businessId)
+        .order('session_date', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .limit(200),
+      getStaffList(),
+      synqed.customers.list({
+        page: 1,
+        page_size: 500,
+        sort_by: 'created_at',
+        sort_order: 'asc',
+      }),
+      getCurrentUserStaffId(),
+    ])
 
   type RecordRow = {
     id: string
@@ -180,6 +182,12 @@ export default async function KaruteRecordsListPage() {
       items={items}
       monthCount={monthCount}
       placeholders={placeholders}
+      staffList={staffList.map((s) => ({
+        id: s.id,
+        name: s.full_name ?? 'Unknown',
+        initials: deriveFamilyInitials(s.full_name ?? ''),
+      }))}
+      currentStaffId={currentStaffId}
     />
   )
 }
