@@ -28,7 +28,7 @@
 // dialog itself is mostly self-explanatory for any reader.
 
 import { useState } from 'react'
-import { Eye, FileText, Lock, Shield } from 'lucide-react'
+import { Cloud, Eye, FileText, Lock, Shield } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { Button } from '@/components/ui/button'
@@ -132,6 +132,45 @@ export function TransparencyPage() {
             ))}
           </ul>
         </div>
+      </div>
+
+      {/* Synqed (service provider) access — full-width pane.
+       *  Legally precise disclosure of what the SaaS provider does
+       *  with data, distinct from what the salon owner sees above.
+       *  This is the section that lets pattern extraction + AI
+       *  improvement happen with explicit (not implicit) consent. */}
+      <div className="rounded-lg border border-violet-200 bg-violet-50/40 p-5 dark:border-violet-500/20 dark:bg-violet-500/[0.06]">
+        <div className="mb-3 flex items-center gap-2">
+          <Cloud
+            className="size-4 text-violet-700 dark:text-violet-300"
+            aria-hidden
+          />
+          <h3 className="text-sm font-semibold text-violet-900 dark:text-violet-200">
+            {t('synqedAccess.title')}
+          </h3>
+        </div>
+        <p className="mb-3 text-sm leading-relaxed text-slate-800 dark:text-slate-200">
+          {t('synqedAccess.intro')}
+        </p>
+        <ul className="space-y-2">
+          {[
+            t('synqedAccess.patternMining'),
+            t('synqedAccess.modelImprovement'),
+            t('synqedAccess.subProcessors'),
+            t('synqedAccess.humanAccess'),
+          ].map((item) => (
+            <li
+              key={item}
+              className="flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300"
+            >
+              <span
+                className="mt-1.5 inline-block size-1.5 shrink-0 rounded-full bg-violet-500"
+                aria-hidden
+              />
+              <span>{item}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* Two-col actions: review consent + request deletion */}

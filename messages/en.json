@@ -841,6 +841,12 @@
       "section3Bullet2": "Individual session details",
       "section3Bullet3": "Specific customer exchanges",
       "section3Bullet4": "Personal learning recommendations sent to you",
+      "section4Title": "How Synqed uses this data",
+      "section4Intro": "Synqed is the service provider behind this product — a separate party from your salon's owner and manager. To operate the coaching features and continuously improve them, Synqed accesses data within the scope below.",
+      "section4Bullet1": "Anonymized pattern extraction (powers the team-shared pattern library)",
+      "section4Bullet2": "Continuous AI improvement (training data is anonymized; no individual can be re-identified)",
+      "section4Bullet3": "Sub-processors: Anthropic (model inference), Supabase (data storage)",
+      "section4Bullet4": "Human access is limited to deletion requests, technical support, and legal compliance — all audit-logged",
       "reassurance": "This split protects your privacy while still letting you receive the support you need.",
       "retentionLabel": "Data retention period",
       "retentionTbd": "(Anthony confirms at wire time)",
@@ -1095,6 +1101,14 @@
         "trends": "Growth trends",
         "categoricalAi": "AI growth-area analysis (categorical only)",
         "moduleProgress": "Learning module progress"
+      },
+      "synqedAccess": {
+        "title": "How Synqed uses this data",
+        "intro": "Synqed is the service provider behind this product — a separate party from your salon's owner and manager. To operate the coaching features and continuously improve them, Synqed accesses data within the scope below.",
+        "patternMining": "Anonymized pattern extraction (powers the team-shared pattern library)",
+        "modelImprovement": "Continuous AI improvement (training data is anonymized; no individual can be re-identified)",
+        "subProcessors": "Sub-processors: Anthropic (model inference), Supabase (data storage)",
+        "humanAccess": "Human access is limited to deletion requests, technical support, and legal compliance — all audit-logged"
       },
       "reviewConsentTitle": "Review your consent",
       "reviewConsentBody": "Revisit the coaching data-use scope any time.",
