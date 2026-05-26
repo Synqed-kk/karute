@@ -1068,6 +1068,44 @@
       "coachingNoteLabel": "AI coaching note",
       "transcriptsEmptyHint": "Conversation excerpts from your sessions plus the AI coaching notes attached at specific timestamps surface here (the most sensitive Layer-1 surface). Lights up when Anthony wires useSessionTranscriptsData()."
     },
+    "data": {
+      "back": "Back to coaching",
+      "title": "Your data",
+      "subtitleStaff": "What gets recorded for coaching, and exactly what your owners can and can't see.",
+      "subtitleOwner": "This page is the staff's own privacy disclosure. Owners and managers can read it as reference.",
+      "transparencyLink": "Your data",
+      "missionTitle": "How we think about privacy",
+      "missionBody": "Coaching analyzes individual session content to support your growth — but your conversations and personal AI suggestions are intentionally hidden from owners and managers. Support is for the team; privacy is yours.",
+      "staffOnly": {
+        "title": "Only you can see",
+        "recordings": "Conversation recordings + transcripts",
+        "sessionDetail": "Individual session detail",
+        "customerInteractions": "Specific customer interactions",
+        "personalSuggestions": "Personal learning suggestions you receive",
+        "personalNotes": "Personal notes"
+      },
+      "ownerVisible": {
+        "title": "Owners and managers see",
+        "metrics": "Performance metrics (close rate, rebook rate, etc.)",
+        "trends": "Growth trends",
+        "categoricalAi": "AI growth-area analysis (categorical only)",
+        "moduleProgress": "Learning module progress"
+      },
+      "reviewConsentTitle": "Review your consent",
+      "reviewConsentBody": "Revisit the coaching data-use scope any time.",
+      "reviewConsentCta": "See consent details",
+      "deletionTitle": "Request data deletion",
+      "deletionBody": "Delete the coaching data accumulated specifically for you (recordings, transcripts, personal suggestions). The owner is notified, but the decision is yours alone.",
+      "deletion": {
+        "cta": "Request data deletion",
+        "confirmTitle": "Request deletion of your coaching data",
+        "confirmBody": "Request deletion of the data accumulated for you by coaching (recordings, transcripts, personal AI suggestions, analysis output). Business-level performance metrics are not included in this request.",
+        "cancel": "Cancel",
+        "submit": "Send request",
+        "submittedTitle": "Request received",
+        "submittedBody": "The owner has been notified. Processing can take up to 30 days."
+      }
+    },
     "devPreview": {
       "label": "Dev preview",
       "regionLabel": "Coaching dev preview",
