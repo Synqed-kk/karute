@@ -26,6 +26,39 @@ export interface StaffPerformance {
    *  with status='granted'. Owner-side mutations (assign module,
    *  show in StaffPerformanceTable) should gate on this. */
   consentGiven: boolean
+  /** Drill-down only: months at the salon (header sub-label). */
+  tenureMonths?: number
+  /** Drill-down only: month-by-month Layer 2 score series for
+   *  the trajectory chart. Each point is a pure aggregate; no
+   *  AI calls, just rolled-up category scores. */
+  trajectoryL2?: TrajectoryPoint[]
+}
+
+export interface TrajectoryPoint {
+  /** ISO-ish "YYYY-MM" — the chart slices the year for the x-axis label. */
+  month: string
+  /** 0..100 category score (Layer 2 aggregate). */
+  score: number
+}
+
+export type InsightPriority = 'high' | 'medium' | 'low'
+
+/** Drill-down only: per-staff categorical gap analysis.
+ *  Server-side prompt guard MUST reject + regenerate any output
+ *  that references a specific customer, session date, or
+ *  transcript quote before it is returned to the owner. */
+export interface CategoricalInsight {
+  id: string
+  staffId: string
+  /** Category label only — e.g. "質問の深さ". Never a session ID. */
+  category: string
+  /** Generic narrative; must not name customers or quote transcripts. */
+  summary: string
+  /** Percentage gap to the top-performer baseline (0..100). */
+  gapFromTopPerformerPct: number
+  priority: InsightPriority
+  /** Pattern library IDs that address this gap. */
+  suggestedPatternIds: string[]
 }
 
 export interface LearningModule {

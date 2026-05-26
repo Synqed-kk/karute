@@ -948,6 +948,36 @@
         "seeAllModules": "See all modules",
         "emptyHint": "Top 3 AI-recommended unassigned modules + quick-assign chips for consenting staff surface here. Lights up when Anthony wires useLearningModulesData() and the learning_assignments insert/delete server action."
       }
+    },
+    "staffDrill": {
+      "back": "Back to coaching",
+      "topPerformerBadge": "Top performer",
+      "roleAndTenure": "{role} · {months} mo tenure · {sessions} sessions this month",
+      "assignModulesCta": "Assign learning modules",
+      "privacyNotice": "Conversation content and per-session detail for this staff member are intentionally hidden. Only performance trends and growth areas surface here.",
+      "metricClosing": "Close rate",
+      "metricRebooking": "Rebook rate",
+      "metricRevenue": "Avg revenue",
+      "metricSatisfaction": "Satisfaction",
+      "metricSatisfactionValue": "{score} / 5.0",
+      "metricScaffoldValue": "—",
+      "metricsScaffoldHint": "Monthly closing / rebooking / avg-revenue / satisfaction aggregates surface here. Lights up when Anthony wires useStaffPerformanceData().",
+      "chartTitle": "{name}'s growth trajectory",
+      "chartSubtitle": "Monthly category-score series",
+      "chartEmptyHint": "Monthly category-score series chart surfaces here. Layer 2 aggregate only (no AI). Lights up when Anthony wires useStaffPerformanceData() including the trajectoryL2 series.",
+      "gapTitle": "Growth-area analysis",
+      "gapSubtitle": "Categorical · gap to top performers",
+      "gapPriorityHigh": "High priority",
+      "gapPriorityMedium": "Medium priority",
+      "gapPriorityStable": "Stable",
+      "gapDiffFromTop": "Gap to top {pct}%",
+      "gapEmptyHint": "Categorical growth areas + gap to top-performer baseline surface here. Weekly claude-sonnet batch; prompt guard rejects any output that names customers or quotes sessions — only 'growth areas' and 'support points' vocabulary is allowed. Lights up when Anthony wires useCategoricalInsightsData(staffId).",
+      "modal": {
+        "title": "Opening {name}'s individual data",
+        "description": "For privacy, conversation recordings, transcripts, and specific customer interactions are not shown. Only performance metrics and growth areas (categorical level) are displayed.",
+        "cancel": "Cancel",
+        "confirm": "Confirm"
+      }
     }
   },
   "dashboard": {
