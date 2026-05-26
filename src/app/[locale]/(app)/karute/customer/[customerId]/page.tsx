@@ -101,8 +101,12 @@ export default async function KaruteCustomerDetailPage({
         day: 'numeric',
       }).format(dt),
       weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][dt.getDay()],
-      service: 'Session',
-      duration: 60,
+      // Service '—' + duration 0 instead of 'Session'/60 — same
+      // '施術' bug fixed on the karute list. ANTHONY: thread real
+      // values once karute_records gets the service + duration_minutes
+      // columns.
+      service: '—',
+      duration: 0,
       summary: r.summary ?? '—',
       staffName: r.staff_profile_id
         ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
