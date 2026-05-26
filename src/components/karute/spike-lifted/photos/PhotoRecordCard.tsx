@@ -1,38 +1,22 @@
 'use client'
 
+// ─────────────────────────────────────────────────────────────
+// PhotoRecordCard — entry point for the photos sub-system
+// ─────────────────────────────────────────────────────────────
 // LIFTED FROM SPIKE (visual: ~95% verbatim; hooks + button targets adapted)
 //   src: /Users/liam/Documents/synqed-karute-design-spike/src/components/karute/photos/PhotoRecordCard.tsx
-// Adaptations:
-//   - useT()                → useTranslations('karute.photoSection')
-//   - useTheme().language   → useLocale() (only consulted for the
-//                             deletion-tooltip below, kept as-is for
-//                             feature parity)
-//   - usePhotosForKarute    → usePhotoStore (local placeholder)
-//   - useLocalPhotoStore    → folded into the same hook
-//   - useCustomerDeletionStatus → not lifted yet; deletion guard is
-//                             a no-op for now (assume not deleted).
-//                             Anthony reinstates when scheduled-
-//                             deletions plumbing is in place.
-//   - PhotoGallerySheet     → stub button opens a Coming-Soon dialog
-//                             (lifting it is step 2 of the lift)
-//   - PhotoCaptureDialog    → same stub treatment
 //
-// What WORKS now (step 1):
-//   - Thumbnail strip with the spike's exact card chrome, category
-//     badges, gradient overlays, dates.
-//   - Empty-state copy + chrome match spike pixel-for-pixel.
-//   - Show-to-customer + see-all + add-photo buttons render and open
-//     a small Coming-Soon notice so the surface area is real.
+// STEP 2 LIFT (this commit): Coming-Soon stub replaced with the
+// real PhotoCaptureDialog + PhotoGallerySheet (+ PhotoCompareView
+// inside). Lifted in PR alongside this file.
 //
-// What's STEP 2 (separate commit if Liam wants it):
-//   - PhotoGallerySheet (full gallery + compare modes)
-//   - PhotoCaptureDialog (file picker + category select + consent)
-//   - PhotoCompareView (side-by-side + overlay-with-opacity)
-//   - PhotoCategoryPicker (the category select inside capture)
+// Wires:
+//   "Add photo" button     → PhotoCaptureDialog
+//   "Show customer" / "See all" / thumbnail tap → PhotoGallerySheet
 //
 // ANTHONY: integration spec — see
-//   docs/SUPABASE_SCHEMA_PROPOSAL.md  (photo_records table)
-//   docs/AI_INTEGRATION_SPEC.md       (photos NOT in AI surfaces)
+//   spike's docs/SUPABASE_SCHEMA_PROPOSAL.md  (photo_records table)
+//   spike's docs/AI_INTEGRATION_SPEC.md       (photos NOT in AI surfaces)
 // Production swap is one file: replace usePhotoStore body with the
 // Supabase query template at the top of the spike's
 // src/lib/data/karute/photos.ts.
@@ -40,35 +24,46 @@
 import { useState } from 'react'
 import { Camera, Eye, Images, Plus } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { usePhotoStore } from './usePhotoStore'
+
+import { useSession } from '@/providers/session-provider'
+
+import { PhotoCaptureDialog } from './PhotoCaptureDialog'
+import { PhotoGallerySheet } from './PhotoGallerySheet'
 import { PhotoThumbnail } from './PhotoThumbnail'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { Button } from '@/components/ui/button'
+import { usePhotoStore } from './usePhotoStore'
 
 interface Props {
   /** Customer this karute belongs to. Threaded through so the hook
    *  call gets the right scope once it's wired to Supabase. Display
    *  uses the customer's name in the gallery sheet title. */
   customerName: string
+  /** Customer id — required so newly-captured photos record the
+   *  right anchor. */
+  customerId?: string
+  /** Optional karute_record_id. Pass when this card is rendered
+   *  inside a specific recording session's karute detail. Omit
+   *  when on the customer profile (photos get anchored to the
+   *  customer, not a particular session). */
+  karuteId?: string
 }
 
-export function PhotoRecordCard({ customerName: _customerName }: Props) {
+export function PhotoRecordCard({
+  customerName,
+  customerId = '',
+  karuteId,
+}: Props) {
   const t = useTranslations('karute.photoSection')
-  const { photos } = usePhotoStore()
+  const session = useSession()
+  const { photos, addPhoto } = usePhotoStore()
 
   const recent = photos.slice(0, 4)
   const hasPhotos = recent.length > 0
 
-  const [comingSoonOpen, setComingSoonOpen] = useState<
-    null | 'capture' | 'gallery'
-  >(null)
+  const [captureOpen, setCaptureOpen] = useState(false)
+  const [galleryOpen, setGalleryOpen] = useState(false)
+
+  const currentStaffId = session.activeStaff?.id ?? session.userId
+  const currentStaffName = session.activeStaff?.name ?? ''
 
   return (
     <>
@@ -89,7 +84,7 @@ export function PhotoRecordCard({ customerName: _customerName }: Props) {
           {hasPhotos && (
             <button
               type="button"
-              onClick={() => setComingSoonOpen('gallery')}
+              onClick={() => setGalleryOpen(true)}
               className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md px-2.5 text-[12px] font-medium text-blue-700 transition-colors hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-500/10"
             >
               <Eye className="size-3.5" />
@@ -105,7 +100,7 @@ export function PhotoRecordCard({ customerName: _customerName }: Props) {
               <PhotoThumbnail
                 key={photo.id}
                 photo={photo}
-                onClick={() => setComingSoonOpen('gallery')}
+                onClick={() => setGalleryOpen(true)}
               />
             ))}
           </div>
@@ -125,7 +120,7 @@ export function PhotoRecordCard({ customerName: _customerName }: Props) {
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
-            onClick={() => setComingSoonOpen('capture')}
+            onClick={() => setCaptureOpen(true)}
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-foreground px-3 text-[13px] font-medium text-background transition-colors hover:opacity-90"
           >
             <Plus className="size-3.5" />
@@ -134,7 +129,7 @@ export function PhotoRecordCard({ customerName: _customerName }: Props) {
           {hasPhotos && (
             <button
               type="button"
-              onClick={() => setComingSoonOpen('gallery')}
+              onClick={() => setGalleryOpen(true)}
               className="text-[12px] font-medium text-muted-foreground transition-colors hover:text-foreground"
             >
               {t('seeAll')}（{photos.length}）
@@ -143,34 +138,22 @@ export function PhotoRecordCard({ customerName: _customerName }: Props) {
         </div>
       </section>
 
-      {/* Coming-Soon stub for the capture + gallery dialogs. Lifting
-       *  the real PhotoCaptureDialog (266 lines) and PhotoGallerySheet
-       *  (289 lines) is step 2 — separate commit if Liam wants it. */}
-      <Dialog
-        open={comingSoonOpen !== null}
-        onOpenChange={(open) => !open && setComingSoonOpen(null)}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>
-              {comingSoonOpen === 'capture' ? t('add') : t('showCustomer')}
-            </DialogTitle>
-            <DialogDescription>
-              {comingSoonOpen === 'capture'
-                ? t('captureComingSoon')
-                : t('galleryComingSoon')}
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setComingSoonOpen(null)}
-            >
-              OK
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <PhotoCaptureDialog
+        open={captureOpen}
+        onOpenChange={setCaptureOpen}
+        customerId={customerId}
+        karuteId={karuteId}
+        currentStaffId={currentStaffId}
+        currentStaffName={currentStaffName}
+        onPhotoCaptured={addPhoto}
+      />
+
+      <PhotoGallerySheet
+        open={galleryOpen}
+        onOpenChange={setGalleryOpen}
+        photos={photos}
+        customerName={customerName}
+      />
     </>
   )
 }

@@ -677,9 +677,34 @@
       "showCustomer": "お客様に見せる",
       "seeAll": "すべて見る",
       "emptyTitle": "まだ写真がありません",
-      "emptyBody": "「写真を追加」からカテゴリーを選んで登録できます。前回との比較や経過の可視化に使えます。",
-      "galleryComingSoon": "ギャラリー・比較表示は対応予定です。写真キャプチャとSupabase Storageの実装はAnthonyが対応します。",
-      "captureComingSoon": "写真キャプチャは対応予定です。デザインスパイクから移植した実装は、AnthonyのStorage実装後に有効化されます。"
+      "emptyBody": "「写真を追加」からカテゴリーを選んで登録できます。前回との比較や経過の可視化に使えます。"
+    },
+    "photoCapture": {
+      "title": "写真を追加",
+      "description": "カテゴリーを選んで写真を登録します。お客様の同意のうえで撮影してください。",
+      "categoryLabel": "カテゴリー",
+      "chooseFile": "ファイルを選択",
+      "captionLabel": "キャプション（任意）",
+      "captionPlaceholder": "例：施術前・気になる部位",
+      "consentLabel": "お客様の同意を得て撮影しました",
+      "cancel": "キャンセル",
+      "submit": "追加する"
+    },
+    "photoCompare": {
+      "sideBySide": "並べて比較",
+      "overlay": "重ねて比較",
+      "opacity": "不透明度"
+    },
+    "photoGallery": {
+      "header": "{name}様 · 写真ギャラリー",
+      "filterAll": "すべて",
+      "comparePickHint": "比較する2枚の写真を選んでください",
+      "compareToggle": "2枚を比較",
+      "compareExit": "比較を終了",
+      "back": "戻る",
+      "close": "閉じる",
+      "noCaption": "キャプションはありません",
+      "takenBy": "撮影: {name}"
     },
     "memorySection": {
       "title": "お客様メモリー",

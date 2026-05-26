@@ -105,7 +105,12 @@ export function CustomerProfileView({
           />
         )}
         {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
-        {tab === 'photos' && <PhotoRecordCard customerName={customer.name} />}
+        {tab === 'photos' && (
+          <PhotoRecordCard
+            customerName={customer.name}
+            customerId={customer.id}
+          />
+        )}
         {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
       </div>
     </main>
