@@ -145,7 +145,7 @@ function StoreFormDialogBody({
         <Button
           onClick={handleSave}
           disabled={!canSave}
-          className="bg-indigo-600 hover:bg-indigo-700"
+          className="bg-sage-800 hover:bg-sage-900"
         >
           {saved ? t('saved') : isEdit ? t('saveEdit') : t('save')}
         </Button>

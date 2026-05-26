@@ -232,12 +232,12 @@ function PlanCard({
         </span>
       )}
       {isCurrent && !highlight && (
-        <span className="absolute -top-2.5 left-4 inline-flex h-5 items-center gap-1 rounded-full bg-indigo-600 px-2 text-[10px] font-semibold text-white">
+        <span className="absolute -top-2.5 left-4 inline-flex h-5 items-center gap-1 rounded-full bg-sage-800 px-2 text-[10px] font-semibold text-white">
           {currentPill}
         </span>
       )}
       {isCurrent && highlight && (
-        <span className="absolute -top-2.5 right-4 inline-flex h-5 items-center gap-1 rounded-full bg-indigo-600 px-2 text-[10px] font-semibold text-white">
+        <span className="absolute -top-2.5 right-4 inline-flex h-5 items-center gap-1 rounded-full bg-sage-800 px-2 text-[10px] font-semibold text-white">
           {currentPill}
         </span>
       )}
@@ -287,7 +287,7 @@ function PlanCard({
             ? 'cursor-not-allowed bg-gray-100 text-muted-foreground dark:bg-white/[0.06]'
             : highlight
               ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-indigo-600 text-white hover:bg-indigo-700'
+              : 'bg-sage-800 text-white hover:bg-sage-900'
         }`}
       >
         {actionLabel}

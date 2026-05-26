@@ -111,7 +111,7 @@ export function AddStoreSubscriptionDialog({
                 href={manageHref}
                 className={cn(
                   buttonVariants({ variant: 'default' }),
-                  'bg-indigo-600 hover:bg-indigo-700',
+                  'bg-sage-800 hover:bg-sage-900',
                 )}
               >
                 {t('seePlansCta')}
@@ -192,7 +192,7 @@ export function AddStoreSubscriptionDialog({
               </Button>
               <Button
                 onClick={handleConfirm}
-                className="bg-indigo-600 hover:bg-indigo-700"
+                className="bg-sage-800 hover:bg-sage-900"
               >
                 {t('addSeatCta')}
               </Button>
@@ -241,7 +241,7 @@ export function AddStoreSubscriptionDialog({
               </Button>
               <Button
                 onClick={handleConfirm}
-                className="bg-indigo-600 hover:bg-indigo-700"
+                className="bg-sage-800 hover:bg-sage-900"
               >
                 {t('confirmAddCta')}
               </Button>
