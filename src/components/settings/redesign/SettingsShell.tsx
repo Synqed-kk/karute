@@ -71,7 +71,7 @@ const TABS: TabDef[] = [
   },
   {
     id: 'stores',
-    labelKey: 'stores',
+    labelKey: 'storesTab',
     descriptionKey: 'storesDescription',
     icon: Store,
   },
@@ -169,7 +169,7 @@ export function SettingsShell({
       case 'organization':
         return <OrganizationSection orgSettings={orgSettings} locale={locale} />
       case 'stores':
-        return <StoresSection orgSettings={orgSettings} />
+        return <StoresSection orgSettings={orgSettings} isOwner={isOwner} />
       case 'theme':
         return <ThemeSection orgSettings={orgSettings} locale={locale} />
       case 'ai':
