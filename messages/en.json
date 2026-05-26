@@ -978,6 +978,34 @@
         "cancel": "Cancel",
         "confirm": "Confirm"
       }
+    },
+    "modules": {
+      "back": "Back to coaching",
+      "title": "Learning modules",
+      "subtitle": "An AI-curated library of short learning modules for your team. Filter by category or staff and assign what helps each person grow.",
+      "aiCalloutTitle": "AI proposes new modules every week",
+      "aiCalloutBody": "Modules are generated from your top performers' behaviour patterns. Effective modules get weighted higher in future recommendations.",
+      "staffContextTitle": "Choosing modules for {name}",
+      "staffContextBody": "Clear the filter to pick assignees from the full team.",
+      "clearStaff": "Clear staff filter",
+      "searchPh": "Search by title, category...",
+      "clearFilters": "Clear",
+      "tab": {
+        "all": "All",
+        "assigned": "Assigned",
+        "ai": "AI-generated",
+        "unassigned": "Unassigned"
+      },
+      "allCategories": "All categories",
+      "emptyTitle": "No modules match these filters",
+      "emptyBody": "Try changing the search or clearing filters. AI-generated modules arrive weekly as the top-performer pattern bank grows.",
+      "scaffoldHint": "An AI-curated catalog of learning modules, search / tab / category filters, a 3-column card grid, and per-staff assignment chips surface here. Lights up when Anthony wires useLearningModulesData() + useStaffPerformanceData(). Assignment writes go through a learning_assignments INSERT/DELETE server action (owner-only).",
+      "durationMin": "{n} min",
+      "completion": "Progress",
+      "assignTo": "Assign to",
+      "assignedCount": "Assigned to {n}",
+      "noEligibleStaff": "No staff have given coaching consent yet.",
+      "aiGenerated": "AI-generated"
     }
   },
   "dashboard": {

@@ -66,8 +66,17 @@ export interface LearningModule {
   title: string
   category: string
   durationMin: number
+  /** Module library page surface — short marketing-style blurb shown
+   *  under the title. Safe to omit on assignment-card surfaces where
+   *  space is tight. */
+  description?: string
+  /** 0..1 progress for the assigned staff. Only meaningful when
+   *  `assigned` is true; otherwise leave undefined. */
+  completionRate?: number
   /** Owner-side: is this module assigned to a staff yet? */
   assigned?: boolean
+  /** staffId of the owner/manager who made the assignment. */
+  assignedBy?: string
   /** staffId — owner-side bookkeeping. */
   assignedTo?: string
 }

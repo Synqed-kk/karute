@@ -128,7 +128,7 @@ export function AssignModulesCard({
           </div>
 
           <Link
-            href={`/${locale}/coaching`}
+            href={`/${locale}/coaching/modules`}
             className={cn(
               buttonVariants({ variant: 'ghost' }),
               'mt-4 w-full text-indigo-700 hover:bg-indigo-50 hover:text-indigo-900 dark:text-indigo-300 dark:hover:bg-indigo-500/10 dark:hover:text-indigo-200',
