@@ -188,13 +188,13 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
         <div className="mt-2 divide-y divide-black/5 dark:divide-white/5">
           {isStaff && (
             <QuickLink
-              href={`/${locale}/coaching`}
+              href={`/${locale}/coaching/growth`}
               icon={<GraduationCap className="size-4 text-indigo-600 dark:text-indigo-300" />}
               label={t('linkMyGrowth')}
             />
           )}
           <QuickLink
-            href={`/${locale}/settings`}
+            href={`/${locale}/coaching/data`}
             icon={<Shield className="size-4 text-slate-600 dark:text-slate-300" />}
             label={t('linkMyData')}
           />
