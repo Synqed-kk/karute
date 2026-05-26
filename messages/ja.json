@@ -1391,6 +1391,35 @@
     "aiCustomizeProfileDescription": "優先トピック、コーチング、トップ実績パターン。",
     "aiIntakeForms": "問診フォームのカスタマイズ",
     "aiIntakeFormsDescription": "来店ごとに取得する項目を設定。",
+    "intakeForm": {
+      "title": "問診フォームのカスタマイズ",
+      "subtitle": "初回来店時の問診で取得する項目を、お店ごとに追加できます。現在のカスタム項目: {count}件。",
+      "guardrail": "問診はお客様のためのもの。聞いてはいけない・聞く必要のない情報は項目に追加しないでください。",
+      "baseScaffoldLabel": "対応予定",
+      "baseScaffoldHint": "業種別の標準項目（Synqed推薦）は、AnthonyがBusinessProfileのintakeHintsを実装後にここに表示されます。それまでは下のカスタム項目のみが問診フォームに反映されます。",
+      "sectionTitles": {
+        "symptoms": "症状・お悩み",
+        "posture": "姿勢・体の状態",
+        "beauty": "美容面",
+        "goals": "ゴール・希望"
+      },
+      "itemCount": "カスタム {custom}件",
+      "customHeader": "あなたが追加した項目",
+      "addPlaceholderJa": "項目名（日本語）",
+      "addPlaceholderEn": "Label (English)",
+      "addButton": "追加",
+      "removeCustomTitle": "削除",
+      "removeCustomConfirm": "この項目を削除しますか？",
+      "resetLabel": "リセット",
+      "resetConfirm": "すべてのカスタマイズを削除しますか？\n\nこの操作は元に戻せません。",
+      "preview": {
+        "label": "プレビュー",
+        "greeting": "ようこそ。問診にご協力ください",
+        "subtitle": "より良い施術のため、以下の項目をお聞かせください。",
+        "emptyState": "まだ項目がありません。左の編集欄から項目を追加してください。",
+        "footer": "回答は施術スタッフのみが閲覧します。"
+      }
+    },
     "comingInV2": "v2で公開予定",
     "audioSource": "マイク入力",
     "audioSourcePhone": "電話",
