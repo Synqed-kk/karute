@@ -1361,10 +1361,6 @@
       "shownLabel": "表示",
       "hiddenLabel": "非表示"
     },
-    "subscription": {
-      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。",
-      "label": "契約"
-    },
     "auditLog": {
       "searchPlaceholder": "イベントを検索…",
       "label": "監査ログ"
@@ -1516,6 +1512,8 @@
       }
     },
     "subscription": {
+      "label": "契約",
+      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。",
       "tierLabels": {
         "trial": "トライアル",
         "free": "Free",
