@@ -541,6 +541,7 @@
     "saveKarute": "カルテを保存",
     "saving": "保存中...",
     "selectCustomerFirst": "保存前に顧客を選択してください",
+    "selectStaff": "スタッフを選択してください",
     "noDraftFound": "下書きデータが見つかりません。保存前にAIレビュー手順を完了してください。",
     "deleted": "カルテを削除しました",
     "deleteConfirm": "このカルテを削除しますか？元に戻せません。",
@@ -566,6 +567,8 @@
     "addEntry": "エントリーを追加",
     "customer": "顧客:",
     "selectCustomer": "顧客を選択してください",
+    "staff": "スタッフ",
+    "selectStaff": "スタッフを選択してください",
     "processingTitle": "録音を処理中",
     "processingDescription": "AIがセッションを分析しています...",
     "processingFailed": "処理に失敗しました",
@@ -796,9 +799,6 @@
       "tierFast": "高速",
       "tierBest": "高精度"
     },
-    "auditLog": {
-      "searchPlaceholder": "イベントを検索…"
-    },
     "syncSection": {
       "errorPrefix": "エラー：{error}",
       "configSaved": "設定を保存しました",
@@ -820,19 +820,6 @@
         "unlimitedStaff": "スタッフ無制限",
         "auditLog": "監査ログ",
         "prioritySupport": "優先サポート"
-      }
-    },
-    "subscription": {
-      "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。"
-    },
-    "theme": {
-      "bar": {
-        "open": "営業中",
-        "booking": "予約",
-        "recording": "録音中",
-        "completed": "完了",
-        "blocked": "ブロック",
-        "processing": "処理中"
       }
     }
   },
@@ -1087,6 +1074,13 @@
       "changeTitle": "「設定」で業種を変更",
       "change": "変更"
     }
+  },
+  "switcher": {
+    "switchStaff": "スタッフを切り替え",
+    "enterPinFor": "{name}のPINを入力",
+    "incorrectPin": "PINが正しくありません",
+    "switchOut": "切り替えを解除",
+    "selectStaff": "スタッフを選択"
   },
   "karuteExport": {
     "title": "カルテ",

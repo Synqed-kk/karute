@@ -2,9 +2,11 @@ import { BottomNav } from '@/components/layout/bottom-nav'
 import { Sidebar } from '@/components/layout/sidebar'
 import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { MiniRecorder } from '@/components/recording/MiniRecorder'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { SessionProvider } from '@/providers/session-provider'
+import { TopBar } from '@/components/layout/top-bar'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -22,7 +24,7 @@ export default async function DashboardLayout({
   const [{ data: { user }, error }, staffList, activeStaffId, orgSettings] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
-    getCurrentUserStaffId(),
+    getActiveStaffId(),
     getOrgSettings(),
   ])
   if (!user || error) {
@@ -37,10 +39,7 @@ export default async function DashboardLayout({
     hasPin: !!(s as { has_pin?: boolean }).has_pin,
   }))
 
-  let activeStaff = staffItems.find((s) => s.id === activeStaffId) ?? null
-  if (!activeStaff && staffItems.length > 0) {
-    activeStaff = staffItems.find((s) => s.id === user.id) ?? staffItems[0]
-  }
+  const activeStaff = staffItems.find((s) => s.id === activeStaffId) ?? null
 
   const sessionData = {
     userId: user.id,
@@ -61,9 +60,10 @@ export default async function DashboardLayout({
       <div className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]">
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
-          <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)]">
-            <div className="mx-auto max-w-7xl p-4 md:p-6">
-              {children}
+          <main className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-bg)]">
+            <TopBar />
+            <div className="flex-1 overflow-y-auto">
+              <div className="mx-auto max-w-7xl p-4 md:p-6">{children}</div>
             </div>
           </main>
         </div>

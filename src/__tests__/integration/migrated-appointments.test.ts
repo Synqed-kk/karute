@@ -17,7 +17,6 @@ jest.mock('next/cache', () => ({
 }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getCurrentUserStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
 }))
 
 // Stub getOrgSettings so validateAppointmentTime treats operating hours as permissive
@@ -61,16 +60,12 @@ const appointments = {
 const karuteRecords = {
   list: jest.fn(),
 }
-const staff = {
-  list: jest.fn(),
-}
 
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     customers,
     appointments,
     karuteRecords,
-    staff,
   })),
 }))
 
@@ -79,14 +74,6 @@ jest.mock('@/lib/synqed/client', () => ({
 const cachedCustomerList: Array<{ id: string; name: string }> = []
 jest.mock('@/lib/customers/cached', () => ({
   getCachedCustomerList: jest.fn(async () => cachedCustomerList),
-}))
-
-// Profile-id → synqed-staff-id translation moved into its own cached module
-// (src/lib/synqed/staff-map.ts). Mock the resolver directly so tests don't
-// need to stub the inner SynqedClient construction.
-const resolveSynqedStaffIdMock = jest.fn(async (id: string) => id)
-jest.mock('@/lib/synqed/staff-map', () => ({
-  resolveSynqedStaffId: (id: string) => resolveSynqedStaffIdMock(id),
 }))
 
 import {
@@ -103,17 +90,11 @@ describe('Migrated appointment actions', () => {
   })
 
   describe('createAppointment', () => {
-    it('translates supabase profile id → synqed staff id before insert', async () => {
-      // synqed-core's appointments.staff_id FKs to staff.id, but the UI passes
-      // profiles.id (== staff.user_id). Without this translation the insert
-      // fails with appointments_staff_id_fkey on synqed-core.
+    it('passes synqed staff id straight through to synqed-core', async () => {
       appointments.create.mockResolvedValue({ id: 'appt-1' })
-      resolveSynqedStaffIdMock.mockImplementationOnce(async (id: string) =>
-        id === 'profile-1' ? 'synqed-staff-1' : id,
-      )
 
       const result = await createAppointment({
-        staffProfileId: 'profile-1',
+        staffId: 'synqed-staff-1',
         clientId: 'cust-1',
         startTime: '2026-05-10T10:00:00.000Z',
         durationMinutes: 60,
@@ -137,7 +118,7 @@ describe('Migrated appointment actions', () => {
       appointments.create.mockRejectedValue(new SynqedError(409, 'overlap'))
 
       const result = await createAppointment({
-        staffProfileId: 'staff-1',
+        staffId: 'staff-1',
         clientId: 'cust-1',
         startTime: '2026-05-10T10:00:00.000Z',
         durationMinutes: 60,
@@ -186,9 +167,6 @@ describe('Migrated appointment actions', () => {
       )
       karuteRecords.list.mockResolvedValue({
         karute_records: [{ id: 'k-1', appointment_id: 'appt-1' }, { id: 'k-2', appointment_id: null }],
-      })
-      staff.list.mockResolvedValue({
-        staff: [{ id: 'staff-1', user_id: 'staff-1' }],
       })
 
       const rows = await getAppointmentsByDate('2026-05-10', 0)

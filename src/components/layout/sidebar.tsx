@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
+import { clearActiveStaff } from '@/actions/active-staff'
 import { useSession } from '@/providers/session-provider'
 
 function MicIcon() {
@@ -170,18 +171,18 @@ function SidebarProfileChip() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
 
-  const { activeStaff, orgName } = session
+  const { orgName } = session
 
   async function handleLogout() {
+    await clearActiveStaff()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login' as Parameters<typeof router.push>[0])
     router.refresh()
   }
 
-  const activeInitials = activeStaff ? getInitials(activeStaff.name) : '??'
-  const activeRole =
-    activeStaff?.displayRole === 'owner' ? 'Owner' : 'Stylist'
+  const orgDisplayName = orgName ?? 'Salon'
+  const orgInitials = getInitials(orgDisplayName)
   const triggerActiveClass = open
     ? 'border-blue-500/60 bg-blue-500/5'
     : 'border-transparent hover:bg-muted/40'
@@ -193,16 +194,16 @@ function SidebarProfileChip() {
           className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${triggerActiveClass}`}
         >
             <Avatar
-              name={activeStaff?.name ?? '??'}
-              initials={activeInitials}
-              avatarUrl={activeStaff?.avatarUrl}
+              name={orgDisplayName}
+              initials={orgInitials}
+              avatarUrl={undefined}
               tone="active"
             />
             <div className="flex-1 min-w-0">
               <p className="text-[13.5px] font-semibold truncate">
-                {activeStaff?.name ?? t('selectStaff')}
+                {orgDisplayName}
               </p>
-              <p className="text-[11px] text-muted-foreground">{activeRole}</p>
+              <p className="text-[11px] text-muted-foreground">Owner</p>
             </div>
             {open ? (
               <ChevronUp className="size-3.5 text-muted-foreground" />

@@ -541,6 +541,7 @@
     "saveKarute": "Save karute",
     "saving": "Saving...",
     "selectCustomerFirst": "Please select a customer before saving",
+    "selectStaff": "Select a staff member",
     "noDraftFound": "No draft data found. Please go back and complete the AI review step before saving.",
     "deleted": "Karute deleted",
     "deleteConfirm": "Delete this karute? This cannot be undone.",
@@ -566,6 +567,8 @@
     "addEntry": "Add Entry",
     "customer": "Customer:",
     "selectCustomer": "Please select a customer",
+    "staff": "Staff",
+    "selectStaff": "Select a staff member",
     "processingTitle": "Processing recording",
     "processingDescription": "Please wait while AI analyzes your session...",
     "processingFailed": "Processing failed",
@@ -796,9 +799,6 @@
       "tierFast": "Fast",
       "tierBest": "Best"
     },
-    "auditLog": {
-      "searchPlaceholder": "Search events…"
-    },
     "syncSection": {
       "errorPrefix": "Error: {error}",
       "configSaved": "Config saved",
@@ -820,19 +820,6 @@
         "unlimitedStaff": "Unlimited staff",
         "auditLog": "Audit log",
         "prioritySupport": "Priority support"
-      }
-    },
-    "subscription": {
-      "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades."
-    },
-    "theme": {
-      "bar": {
-        "open": "Open",
-        "booking": "Booking",
-        "recording": "Recording",
-        "completed": "Completed",
-        "blocked": "Blocked",
-        "processing": "Processing"
       }
     }
   },
@@ -1087,6 +1074,13 @@
       "changeTitle": "Change business type in Settings",
       "change": "Change"
     }
+  },
+  "switcher": {
+    "switchStaff": "Switch staff",
+    "enterPinFor": "Enter {name}'s PIN",
+    "incorrectPin": "Incorrect PIN",
+    "switchOut": "Switch out",
+    "selectStaff": "Select staff"
   },
   "karuteExport": {
     "title": "Karute",

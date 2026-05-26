@@ -5,7 +5,7 @@ import {
 } from '@/lib/operating-hours'
 
 export interface AppointmentInput {
-  staffProfileId: string
+  staffId: string
   clientId: string
   startTime: string
   durationMinutes: number

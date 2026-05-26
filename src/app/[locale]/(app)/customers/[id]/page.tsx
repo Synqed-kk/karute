@@ -2,8 +2,8 @@ import { notFound } from 'next/navigation'
 
 import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
-import { getStaffList, getBusinessId } from '@/lib/staff'
-import { createServiceClient } from '@/lib/supabase/service'
+import { getStaffList } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { listCustomerPhotos } from '@/actions/customers'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
@@ -43,24 +43,14 @@ export default async function CustomerProfilePage({
   if (!customer) notFound()
 
   // Fetch supporting data in parallel: contact (cached), staff list (cached),
-  // karute_records for the customer, and photos.
-  const businessId = await getBusinessId()
-  const service = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = service as any
-
+  // this customer's karute records (via synqed-core — the source of truth),
+  // and photos.
   const [contact, staffList, karuteRes, photosResult] = await Promise.all([
     getCustomerContact(id),
     getStaffList(),
-    sb
-      .from('karute_records')
-      .select(
-        'id, session_date, created_at, summary, staff_profile_id, customer_id, client_id, entries(count)',
-      )
-      .eq('customer_id', businessId)
-      .eq('client_id', id)
-      .order('session_date', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false }),
+    getSynqedClient().then((c) =>
+      c.karuteRecords.list({ customer_id: id, page_size: 100 }),
+    ),
     listCustomerPhotos(id).catch(() => ({
       photos: [] as Array<{
         id: string
@@ -79,7 +69,15 @@ export default async function CustomerProfilePage({
     staff_profile_id: string | null
     entries: Array<{ count: number }> | null
   }
-  const karuteRecords = (karuteRes.data ?? []) as KaruteRow[]
+  const karuteRecords: KaruteRow[] = karuteRes.karute_records.map((r) => ({
+    id: r.id,
+    // synqed-core has no session_date column; created_at drives the date.
+    session_date: r.created_at,
+    created_at: r.created_at,
+    summary: r.ai_summary,
+    staff_profile_id: r.staff_id,
+    entries: [{ count: r.entry_count ?? 0 }],
+  }))
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
