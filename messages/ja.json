@@ -1345,6 +1345,23 @@
     "pin": "PIN",
     "resetPin": "PIN再設定"
   },
+  "notifications": {
+    "title": "お知らせ",
+    "description": "最新のお知らせを確認できます。",
+    "markAllRead": "すべて既読",
+    "clearRead": "既読を削除",
+    "today": "今日",
+    "thisWeek": "今週",
+    "older": "それ以前",
+    "emptyTitle": "新しいお知らせはありません",
+    "emptyBody": "予約・請求・メモリー確認・コーチングなどのお知らせがここに表示されます。",
+    "scaffoldLabel": "対応予定",
+    "scaffoldBody": "通知システムは実装中です。AnthonyがSupabaseの通知テーブルとリアルタイム購読を実装後、予約・請求・コーチング等のイベントがここに自動表示されます。",
+    "justNow": "たった今",
+    "minutesAgo": "{n}分前",
+    "hoursAgo": "{n}時間前",
+    "daysAgo": "{n}日前"
+  },
   "miniRecorder": {
     "paused": "一時停止中",
     "recording": "録音中",
