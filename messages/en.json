@@ -1405,6 +1405,25 @@
     "openPage": "Open recording page",
     "stop": "Stop recording"
   },
+  "messageCompose": {
+    "title": "Compose message",
+    "noCustomer": "Customer not found",
+    "copyPasteHint": "Copy and paste into your own messaging app",
+    "aiDraftedBadge": "AI draft — review before using",
+    "bodyPlaceholder": "Message body…",
+    "charCount": "{n} chars",
+    "softLimitHint": "(long messages tend to see lower read rates)",
+    "channelLabel": "Send via:",
+    "channelEmail": "Email",
+    "channelOther": "Other",
+    "workflowExplainer": "Copy this message and send it through whichever app you normally use with this customer (LINE, SMS, email, etc.). Click 'Copy & mark sent' to log the send.",
+    "copyOnly": "Copy",
+    "copied": "Copied",
+    "copyAndMarkSent": "Copy & mark sent",
+    "markedSentTitle": "Logged",
+    "markedSentDesc": "Message for {name} copied to clipboard and logged as sent. Paste it into LINE or wherever you talk to them.",
+    "cancel": "Cancel"
+  },
   "miniRecorder": {
     "paused": "Paused",
     "recording": "Recording",
