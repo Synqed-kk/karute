@@ -841,6 +841,12 @@
       "section3Bullet2": "個別のセッション詳細",
       "section3Bullet3": "具体的なお客様とのやり取り",
       "section3Bullet4": "あなたが受け取る個別の学習提案",
+      "section4Title": "Synqedによるデータ利用",
+      "section4Intro": "Synqedは本サービスの提供事業者として、お店のオーナー・マネージャーとは別の立場で、コーチング機能の運営と継続的な改善のために、以下の範囲でデータにアクセスします。",
+      "section4Bullet1": "匿名化された会話パターンの抽出（チーム共有のパターンライブラリ生成のため）",
+      "section4Bullet2": "AIモデルの継続的な改善（個人を特定できない形で学習データとして利用）",
+      "section4Bullet3": "サブ処理事業者: Anthropic（AI推論）、Supabase（データ保管）",
+      "section4Bullet4": "人間がデータを閲覧するのは、削除リクエスト・技術サポート・法的要請の対応時のみで、すべて監査ログに記録されます",
       "reassurance": "この区別により、あなたのプライバシーを守りながら、必要なサポートを受けられるようにしています。",
       "retentionLabel": "データ保持期間",
       "retentionTbd": "（Anthonyが実装時に確定）",
@@ -1095,6 +1101,14 @@
         "trends": "成長の傾向",
         "categoricalAi": "AIによる成長エリアの分析（カテゴリーレベル）",
         "moduleProgress": "学習モジュールの進捗"
+      },
+      "synqedAccess": {
+        "title": "Synqedによるデータ利用",
+        "intro": "Synqedは本サービスの提供事業者として、お店のオーナー・マネージャーとは別の立場で、コーチング機能の運営と継続的な改善のために、以下の範囲でデータにアクセスします。",
+        "patternMining": "匿名化された会話パターンの抽出（チーム共有のパターンライブラリ生成のため）",
+        "modelImprovement": "AIモデルの継続的な改善（個人を特定できない形で学習データとして利用）",
+        "subProcessors": "サブ処理事業者: Anthropic（AI推論）、Supabase（データ保管）",
+        "humanAccess": "人間がデータを閲覧するのは、削除リクエスト・技術サポート・法的要請の対応時のみで、すべて監査ログに記録されます"
       },
       "reviewConsentTitle": "同意内容の確認",
       "reviewConsentBody": "コーチング機能のデータ利用範囲を、いつでも再確認できます。",

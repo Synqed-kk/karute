@@ -36,7 +36,7 @@
 
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Check, Shield } from 'lucide-react'
+import { Check, Cloud, Shield } from 'lucide-react'
 
 import {
   Dialog,
@@ -129,6 +129,28 @@ export function CoachingConsentDialog({
             </ul>
           </section>
 
+          {/* Section 4 — Synqed (service provider) access. Legally
+           *  precise disclosure: the SaaS provider is a separate
+           *  party from the salon owner with a different data-use
+           *  relationship governed by ToS + DPA. Without this
+           *  section we'd be relying on implicit consent for
+           *  anonymized pattern extraction + AI training. */}
+          <section className="rounded-lg bg-violet-50/50 p-4 ring-1 ring-violet-100 dark:bg-violet-500/[0.06] dark:ring-violet-500/15">
+            <h3 className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wider text-violet-900 dark:text-violet-200">
+              <Cloud className="size-3.5" aria-hidden />
+              {t('section4Title')}
+            </h3>
+            <p className="mb-2 text-[13px] leading-relaxed text-foreground/85">
+              {t('section4Intro')}
+            </p>
+            <ul className="space-y-1.5 text-foreground/90">
+              <BulletItem text={t('section4Bullet1')} dot="violet" />
+              <BulletItem text={t('section4Bullet2')} dot="violet" />
+              <BulletItem text={t('section4Bullet3')} dot="violet" />
+              <BulletItem text={t('section4Bullet4')} dot="violet" />
+            </ul>
+          </section>
+
           <p className="text-[13px] leading-relaxed text-muted-foreground">
             {t('reassurance')}
           </p>
@@ -189,18 +211,22 @@ export function CoachingConsentDialog({
 // Bullet — muted (gray) for sections 1+2, indigo for Layer-1
 // section 3 (visual cue that those items are the "protected"
 // content).
-function BulletItem({ text, dot }: { text: string; dot: 'muted' | 'indigo' }) {
+function BulletItem({
+  text,
+  dot,
+}: {
+  text: string
+  dot: 'muted' | 'indigo' | 'violet'
+}) {
+  const color =
+    dot === 'indigo'
+      ? 'text-indigo-400 dark:text-indigo-300'
+      : dot === 'violet'
+        ? 'text-violet-400 dark:text-violet-300'
+        : 'text-gray-400 dark:text-gray-500'
   return (
     <li className="flex gap-2">
-      <span
-        className={`shrink-0 ${
-          dot === 'indigo'
-            ? 'text-indigo-400 dark:text-indigo-300'
-            : 'text-gray-400 dark:text-gray-500'
-        }`}
-      >
-        •
-      </span>
+      <span className={`shrink-0 ${color}`}>•</span>
       <span>{text}</span>
     </li>
   )
