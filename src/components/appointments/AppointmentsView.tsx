@@ -1,6 +1,8 @@
 'use client'
 
 import { useRef, useState, useTransition } from 'react'
+import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
+import { useUnreadCount } from '@/lib/notifications/hooks'
 import {
   DayWeekMonthToggle,
   MonthGrid,
@@ -84,6 +86,8 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const [isPending, startTransition] = useTransition()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selected, setSelected] = useState<ReservationView | null>(null)
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const unreadCount = useUnreadCount()
   const datePickerRef = useRef<HTMLInputElement>(null)
 
   const view = props.initialView
@@ -189,12 +193,19 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           </h1>
           <button
             type="button"
+            onClick={() => setNotificationsOpen(true)}
             className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-label={tCommon('notifications')}
-            // STUB — click does nothing yet. See ANTHONY block above
-            // and MERGE_NOTES_FOR_ANTHONY.md for the full build-out.
           >
             <Bell size={16} />
+            {unreadCount > 0 && (
+              <span
+                aria-hidden
+                className="absolute -right-0.5 -top-0.5 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-600 px-1 text-[9px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -391,6 +402,11 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <BookingActionSheetWrapper
         selected={selected}
         onClose={() => setSelected(null)}
+      />
+
+      <NotificationsPanel
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
       />
     </div>
   )

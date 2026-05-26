@@ -2,13 +2,18 @@
 
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import { useState } from 'react'
 import { Bell, ChevronLeft } from 'lucide-react'
+
+import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
+import { useUnreadCount } from '@/lib/notifications/hooks'
 
 // Record-page header — TWO variants stacked, gated by viewport:
 //
 //   • Mobile (md:hidden)  Sticky top chrome matching the spike's
 //                         MobileHeader: back button left, centered
-//                         「録音」 title, bell right (notifications stub).
+//                         「録音」 title, bell right (opens
+//                         NotificationsPanel sheet).
 //                         Bleeds out of the parent's p-4 padding via
 //                         `-mx-4 ... px-4` so it spans full width.
 //
@@ -19,16 +24,17 @@ import { Bell, ChevronLeft } from 'lucide-react'
 //
 // Spike source: src/components/layout/MobileHeader.tsx (lines 32-101).
 //
-// Bell is a STUB matching the karute project's existing pattern
-// (see AppointmentsView.tsx lines 185-200). The full notifications
-// system (8 categories, panel UI, unread badge) lands in its own PR —
-// see MERGE_NOTES_FOR_ANTHONY.md "Notifications system" handoff.
-// When the badge wires up, it overlays on the bell via an absolute
-// <span> without restructuring this component.
+// Bell opens the NotificationsPanel (PR-22-ish). Badge surfaces an
+// unread count from `useUnreadCount()`. State + mutations are
+// localStorage-backed via src/lib/notifications/hooks.ts — Anthony
+// swaps for a Supabase realtime channel; the API surface stays the
+// same so this component doesn't change.
 export function RecordPageHeader() {
   const t = useTranslations('recording')
   const tCommon = useTranslations('common')
   const router = useRouter()
+  const [notificationsOpen, setNotificationsOpen] = useState(false)
+  const unreadCount = useUnreadCount()
 
   return (
     <>
@@ -48,12 +54,19 @@ export function RecordPageHeader() {
           </h1>
           <button
             type="button"
-            className="ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            onClick={() => setNotificationsOpen(true)}
+            className="relative ml-auto inline-flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
             aria-label={tCommon('notifications')}
-            // STUB — bell stays a stub until notifications PR lands.
-            // See MERGE_NOTES_FOR_ANTHONY.md "Notifications system".
           >
             <Bell size={18} />
+            {unreadCount > 0 && (
+              <span
+                aria-hidden
+                className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-background"
+              >
+                {unreadCount > 9 ? '9+' : unreadCount}
+              </span>
+            )}
           </button>
         </div>
       </div>
@@ -65,6 +78,11 @@ export function RecordPageHeader() {
         </h1>
         <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
       </div>
+
+      <NotificationsPanel
+        open={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+      />
     </>
   )
 }

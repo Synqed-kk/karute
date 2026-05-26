@@ -1345,6 +1345,23 @@
     "pin": "PIN",
     "resetPin": "Reset PIN"
   },
+  "notifications": {
+    "title": "Notifications",
+    "description": "Recent activity and alerts.",
+    "markAllRead": "Mark all read",
+    "clearRead": "Clear read",
+    "today": "Today",
+    "thisWeek": "This week",
+    "older": "Older",
+    "emptyTitle": "You're all caught up",
+    "emptyBody": "Bookings, billing, memory reviews, coaching reports, and mentions will surface here.",
+    "scaffoldLabel": "Coming soon",
+    "scaffoldBody": "Notifications system is in development. Once Anthony wires the Supabase notifications table + realtime subscription, booking / billing / coaching events surface here automatically.",
+    "justNow": "just now",
+    "minutesAgo": "{n} min ago",
+    "hoursAgo": "{n}h ago",
+    "daysAgo": "{n}d ago"
+  },
   "miniRecorder": {
     "paused": "Paused",
     "recording": "Recording",
