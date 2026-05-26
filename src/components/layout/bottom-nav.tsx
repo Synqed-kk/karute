@@ -29,11 +29,19 @@ const PRIMARY: Route[] = [
   { href: '/customers', label: 'customers', icon: Users },
 ]
 
+// /coaching + /data-import gated behind feature flags — same
+// rationale as the desktop sidebar (every coaching page renders
+// ScaffoldHint placeholders; data-import drop zone fires
+// console.info on file pick, no upload).
 const MENU: Route[] = [
   { href: '/dashboard', label: 'dashboard', icon: Home },
-  { href: '/coaching', label: 'coaching', icon: GraduationCap },
+  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
+    ? [{ href: '/coaching' as const, label: 'coaching', icon: GraduationCap }]
+    : []),
   { href: '/ask-ai', label: 'askAi', icon: Sparkles },
-  { href: '/data-import', label: 'dataImport', icon: Upload },
+  ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
+    ? [{ href: '/data-import' as const, label: 'dataImport', icon: Upload }]
+    : []),
   { href: '/data-export', label: 'dataExport', icon: Download },
   { href: '/settings', label: 'settings', icon: Settings },
 ]

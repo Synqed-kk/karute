@@ -71,15 +71,35 @@ type NavRoute = {
   Icon: () => React.ReactElement
 }
 
+// /coaching + /data-import gated behind feature flags.
+//
+// /coaching: every page in src/app/[locale]/(app)/coaching/ passes
+// `null` to its view component (growth, insights, patterns,
+// modules, transparency). Each renders a ScaffoldHint placeholder.
+// The privacy Layer 1/2/3 badges are decorative — no data to
+// scope. Nav entry hides until the producers ship.
+//
+// /data-import: ImportDropzone.tsx fires `console.info('[dev]
+// Import file selected', …)` on file pick. No upload, no
+// session, no progress. Owner picks a CSV and watches nothing
+// happen. Nav entry hides until uploadImportCsv ships.
+//
+// /data-export stays — CSV / JSON exports for customers run for
+// real via the /api/export route (other combinations toast
+// "coming soon" honestly via `isWired()` in DataExportView).
 const NAV_ROUTES: NavRoute[] = [
   { id: 'recording', href: '/sessions', labelKey: 'recording', Icon: MicIcon },
   { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', Icon: HomeIcon },
   { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon },
   { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon },
-  { id: 'coaching', href: '/coaching', labelKey: 'coaching', Icon: GraduationCapIcon },
+  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
+    ? [{ id: 'coaching' as const, href: '/coaching', labelKey: 'coaching' as const, Icon: GraduationCapIcon }]
+    : []),
   { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon },
-  { id: 'dataImport', href: '/data-import', labelKey: 'dataImport', Icon: ImportIcon },
+  ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
+    ? [{ id: 'dataImport' as const, href: '/data-import', labelKey: 'dataImport' as const, Icon: ImportIcon }]
+    : []),
   { id: 'dataExport', href: '/data-export', labelKey: 'dataExport', Icon: ExportIcon },
   { id: 'settings', href: '/settings', labelKey: 'settings', Icon: SettingsIcon },
 ]
