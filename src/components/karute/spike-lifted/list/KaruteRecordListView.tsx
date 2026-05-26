@@ -184,27 +184,34 @@ export function KaruteRecordListView({
     // `-mx-4 md:-mx-6` to bleed back to viewport edges for the iOS
     // sticky-header pattern (its bg + border line span full-width).
     <main className="mx-auto w-full max-w-6xl flex-col px-4 pb-6 md:px-6">
-      {/* Single header row — title + stats on left, primary CTA on
-       *  right. Matches the spike's KaruteListPageHeader layout. */}
-      <div className="mt-3 flex flex-wrap items-start justify-between gap-3 md:mt-5">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-[26px]">
-            {tHead('tabHeading')}
-          </h1>
-          <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+      {/* Title row — h1 visible on desktop only (MobileHeader
+       *  handles the mobile title to avoid the duplicate
+       *  "カルテ" rendering at top + below). Stats + primary CTA
+       *  share a non-wrapping flex row so the button stays
+       *  pinned right at every viewport width.
+       *
+       *  Earlier version used flex-wrap which pushed the button
+       *  below the stats column on mobile, making it invisible
+       *  inside the viewport. */}
+      <div className="mt-3 md:mt-5">
+        <h1 className="hidden text-2xl font-semibold tracking-tight text-foreground md:block md:text-[26px]">
+          {tHead('tabHeading')}
+        </h1>
+        <div className="mt-1 flex items-start justify-between gap-3">
+          <p className="min-w-0 flex-1 text-xs tabular-nums text-muted-foreground">
             {t('statusLine', { monthCount, showingCount: filtered.length })}
           </p>
+          {/* + 新規カルテ — primary CTA. ANTHONY wires the create-karute
+           *  flow; today the button routes staff to /sessions to start a
+           *  recording (the canonical karute-creation entry point). */}
+          <a
+            href={`/${locale}/sessions`}
+            className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-sage-800 px-4 text-[13px] font-medium text-white transition-colors hover:bg-sage-900"
+          >
+            <FilePlus2 className="size-3.5" aria-hidden />
+            {t('newKarute')}
+          </a>
         </div>
-        {/* + 新規カルテ — primary CTA. ANTHONY wires the create-karute
-         *  flow; today the button routes staff to /sessions to start a
-         *  recording (the canonical karute-creation entry point). */}
-        <a
-          href={`/${locale}/sessions`}
-          className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md bg-sage-800 px-4 text-[13px] font-medium text-white transition-colors hover:bg-sage-900"
-        >
-          <FilePlus2 className="size-3.5" aria-hidden />
-          {t('newKarute')}
-        </a>
       </div>
 
       {/* Staff-scope filter — "your customers / all / specific staff" */}
