@@ -814,6 +814,17 @@
       "privacyLayer1Badge": "Only you can see this",
       "scaffoldLabel": "Coming soon"
     },
+    "panel": {
+      "panelTitle": "AI coaching",
+      "panelDescription": "Real-time suggestions for this session",
+      "staffOnlyLabel": "Just for you",
+      "mobileRowTitle": "AI coaching",
+      "mobileRowCount": "Real-time session tips · {n}",
+      "mobileRowEmpty": "Real-time session tips",
+      "collapseAria": "Collapse",
+      "intro": "Real-time suggestions during the session. Owners and managers can't see this.",
+      "emptyHint": "During a session, AI analyzes the last 2 minutes of conversation every ~30s and suggests next questions, top-performer phrasing, and closing timing. Lights up when Anthony wires the Haiku-backed generator + the Supabase Realtime channel (filtered by session_id + staff_id)."
+    },
     "header": {
       "title": "Coaching",
       "subtitleStaff": "Learn from top performers and grow your own technique.",

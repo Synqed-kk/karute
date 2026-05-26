@@ -814,6 +814,17 @@
       "privacyLayer1Badge": "あなただけが見ることができます",
       "scaffoldLabel": "対応予定"
     },
+    "panel": {
+      "panelTitle": "AIコーチング",
+      "panelDescription": "このセッションに対するリアルタイム提案",
+      "staffOnlyLabel": "あなた専用",
+      "mobileRowTitle": "AIコーチング",
+      "mobileRowCount": "セッション中のリアルタイム提案 · {n}件",
+      "mobileRowEmpty": "セッション中のリアルタイム提案",
+      "collapseAria": "閉じる",
+      "intro": "セッション中のリアルタイム提案です。オーナーやマネージャーには表示されません。",
+      "emptyHint": "セッション中、AIが約30秒ごとに最新2分間の会話を分析し、次の質問・トップパフォーマーのヒント・クロージングのタイミング等を提案します。AnthonyがHaikuベースの提案生成器とSupabase Realtimeチャネル（session_id + staff_id でフィルタ）を実装後、ここに自動表示されます。"
+    },
     "header": {
       "title": "コーチング",
       "subtitleStaff": "トップパフォーマーから学び、あなた自身の成長をサポートします。",
