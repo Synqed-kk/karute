@@ -1008,6 +1008,36 @@
       "noEligibleStaff": "同意済みのスタッフがまだいません。",
       "aiGenerated": "AI生成"
     },
+    "patterns": {
+      "back": "コーチングに戻る",
+      "title": "トップパフォーマーのパターン",
+      "subtitleStaff": "トップパフォーマーの実例から、すぐに試せる型を学びましょう",
+      "subtitleOwner": "チームで共有されているパターンライブラリ。スタッフには匿名化して表示されます。",
+      "learnersFooter": "このパターンを学習中のスタッフ · {n}名",
+      "sectionEmptyHint": "AIがトップパフォーマーの会話から抽出したパターン例（実際の言い回し、学習中スタッフ数、オーナー向け出典名）をここに表示します。Anthonyが useTopPerformerPatternsData() を実装後に有効化されます。週次バッチ生成、スタッフには出典が匿名化されます。",
+      "categories": {
+        "counseling_questions": {
+          "title": "カウンセリング質問例",
+          "description": "お客様のお悩みを深く理解するための質問の型。トップパフォーマーが実際に使っている言い回しです。"
+        },
+        "conversation_flow": {
+          "title": "会話フロー",
+          "description": "カウンセリングから提案、リブッキングまでの自然な流れを作るための構造パターン。"
+        },
+        "closing": {
+          "title": "クロージングパターン",
+          "description": "お客様が前向きに決断できるタイミングと言葉の運び方。"
+        },
+        "rebooking": {
+          "title": "リブッキング会話",
+          "description": "次回の目的を一緒に描き、自然にご予約に繋げる会話の型。"
+        },
+        "objection_handling": {
+          "title": "反対意見への対応",
+          "description": "「高い」「考えます」を受け止め、選択肢に変換するアプローチ。"
+        }
+      }
+    },
     "devPreview": {
       "label": "開発プレビュー",
       "regionLabel": "コーチング開発プレビュー",

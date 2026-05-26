@@ -1008,6 +1008,36 @@
       "noEligibleStaff": "No staff have given coaching consent yet.",
       "aiGenerated": "AI-generated"
     },
+    "patterns": {
+      "back": "Back to coaching",
+      "title": "Top performer patterns",
+      "subtitleStaff": "Learn ready-to-try patterns from your top performers — examples you can apply in today's session.",
+      "subtitleOwner": "Team-shared pattern library. Source attribution is anonymized for staff viewers.",
+      "learnersFooter": "Staff currently learning this · {n}",
+      "sectionEmptyHint": "AI-extracted patterns from top performers (the actual phrasing, how many staff are learning it, source attribution for owners) surface here. Lights up when Anthony wires useTopPerformerPatternsData(). Weekly batch; source name stripped server-side for staff viewers.",
+      "categories": {
+        "counseling_questions": {
+          "title": "Counseling questions",
+          "description": "Question patterns top performers use to understand the customer's real concerns. Lifted verbatim from real sessions."
+        },
+        "conversation_flow": {
+          "title": "Conversation flow",
+          "description": "Structural patterns for moving naturally from counseling → recommendation → rebooking in one conversation."
+        },
+        "closing": {
+          "title": "Closing patterns",
+          "description": "Timing and phrasing that helps the customer decide with confidence."
+        },
+        "rebooking": {
+          "title": "Rebooking conversation",
+          "description": "Patterns for co-designing the next visit's goal and turning it into a natural booking."
+        },
+        "objection_handling": {
+          "title": "Handling objections",
+          "description": "Approaches for receiving '高い' / '考えます' and reframing as options."
+        }
+      }
+    },
     "devPreview": {
       "label": "Dev preview",
       "regionLabel": "Coaching dev preview",

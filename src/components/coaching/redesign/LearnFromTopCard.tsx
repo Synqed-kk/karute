@@ -24,14 +24,28 @@ import { ArrowRight, BookOpen } from 'lucide-react'
 
 import { ScaffoldHint } from './ScaffoldHint'
 
+import type { PatternCategory } from './pattern-categories'
+
 export interface TopPerformerPattern {
   id: string
+  /** Strongly-typed category key — drives /coaching/patterns
+   *  category filtering. Optional for legacy summary surfaces
+   *  that only display the human label. */
+  category?: PatternCategory
+  /** Human-readable category label (shown on the summary card). */
   categoryLabel: string
   title: string
   description: string
   /** Owner-only — anonymized away for staff viewers via
    *  showSource=false. */
   sourceStaffName?: string | null
+  /** /coaching/patterns library cards show the actual quoted
+   *  pattern as an indented blockquote. Optional — summary
+   *  card surfaces omit it for space. */
+  exampleText?: string
+  /** Number of staff currently learning this pattern. Shown as
+   *  a small footer on the library card. */
+  learningCount?: number
 }
 
 interface LearnFromTopCardProps {
@@ -58,7 +72,7 @@ export function LearnFromTopCard({
           <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
         </div>
         <Link
-          href={`/${locale}/coaching`}
+          href={`/${locale}/coaching/patterns`}
           className="inline-flex items-center gap-1 text-xs font-medium text-indigo-700 hover:text-indigo-900 dark:text-indigo-300"
         >
           {t('seeAll')}
