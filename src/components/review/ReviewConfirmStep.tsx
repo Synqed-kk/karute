@@ -11,6 +11,7 @@ interface ReviewConfirmStepProps {
   summary: string
   entries: Entry[]
   customers: CustomerOption[]
+  staffOptions: { id: string; name: string }[]
   duration?: number
   appointmentId?: string
   appointmentCustomerId?: string
@@ -21,6 +22,7 @@ export function ReviewConfirmStep({
   summary,
   entries,
   customers,
+  staffOptions,
   duration,
   appointmentId,
   appointmentCustomerId,
@@ -48,6 +50,7 @@ export function ReviewConfirmStep({
         <h3 className="mb-3 text-sm font-semibold text-muted-foreground">{t('selectCustomerAndSave')}</h3>
         <SaveKaruteFlow
           customers={customers}
+          staffOptions={staffOptions}
           appointmentCustomerId={appointmentCustomerId}
           directDraft={{
             transcript,

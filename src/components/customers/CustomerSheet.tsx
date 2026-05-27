@@ -4,16 +4,24 @@ import { useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetTrigger,
-} from '@/components/ui/sheet'
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { CustomerForm } from '@/components/customers/CustomerForm'
 
+/**
+ * "+ 新規顧客" button → centered modal dialog for creating a new
+ * customer. Previously a side-sliding Sheet; switched to Dialog to
+ * mirror the design spike's `NewCustomerDialog` UX. File/export name
+ * kept (`CustomerSheet`) to avoid churning callsites — the component
+ * still owns the trigger + dialog wrapper, only the underlying
+ * primitive changed.
+ */
 export function CustomerSheet() {
   const t = useTranslations('customers')
   const [open, setOpen] = useState(false)
@@ -25,28 +33,24 @@ export function CustomerSheet() {
   }
 
   return (
-    <Sheet open={open} onOpenChange={setOpen}>
-      <SheetTrigger
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger
         render={
           <Button>
             {t('newCustomer')}
           </Button>
         }
       />
-      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-        <SheetHeader>
-          <SheetTitle>{t('form.create')}</SheetTitle>
-          <SheetDescription className="sr-only">
-            {t('form.create')}
-          </SheetDescription>
-        </SheetHeader>
-        <div className="p-4 pt-2">
-          <CustomerForm
-            onSuccess={handleSuccess}
-            onCancel={() => setOpen(false)}
-          />
-        </div>
-      </SheetContent>
-    </Sheet>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('form.titleNew')}</DialogTitle>
+          <DialogDescription>{t('form.description')}</DialogDescription>
+        </DialogHeader>
+        <CustomerForm
+          onSuccess={handleSuccess}
+          onCancel={() => setOpen(false)}
+        />
+      </DialogContent>
+    </Dialog>
   )
 }

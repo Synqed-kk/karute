@@ -1,16 +1,24 @@
 'use client'
 
 import { Control, useController } from 'react-hook-form'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { ENTRY_CATEGORIES, EntryCategory } from '@/types/ai'
+import { getCategoryConfig } from '@/lib/karute/categories'
 
+/**
+ * Tailwind classes per category. Keys MUST match the lowercase
+ * canonical enum values in `src/types/ai.ts` and `src/lib/karute/categories.ts`.
+ * Falls back to a neutral chip if the AI ever returns an off-list value.
+ */
 const CATEGORY_COLORS: Record<EntryCategory, string> = {
-  Preference: 'bg-blue-500/20 text-blue-600 border-blue-500/30 dark:text-blue-300',
-  Treatment: 'bg-green-500/20 text-green-600 border-green-500/30 dark:text-green-300',
-  Lifestyle: 'bg-purple-500/20 text-purple-600 border-purple-500/30 dark:text-purple-300',
-  Health: 'bg-red-500/20 text-red-600 border-red-500/30 dark:text-red-300',
-  Allergy: 'bg-orange-500/20 text-orange-600 border-orange-500/30 dark:text-orange-300',
-  Style: 'bg-pink-500/20 text-pink-600 border-pink-500/30 dark:text-pink-300',
+  symptom: 'bg-red-500/20 text-red-600 border-red-500/30 dark:text-red-300',
+  treatment: 'bg-green-500/20 text-green-600 border-green-500/30 dark:text-green-300',
+  body_area: 'bg-purple-500/20 text-purple-600 border-purple-500/30 dark:text-purple-300',
+  preference: 'bg-blue-500/20 text-blue-600 border-blue-500/30 dark:text-blue-300',
+  lifestyle: 'bg-emerald-500/20 text-emerald-600 border-emerald-500/30 dark:text-emerald-300',
+  next_visit: 'bg-cyan-500/20 text-cyan-600 border-cyan-500/30 dark:text-cyan-300',
+  product: 'bg-pink-500/20 text-pink-600 border-pink-500/30 dark:text-pink-300',
+  other: 'bg-gray-500/20 text-gray-600 border-gray-500/30 dark:text-gray-300',
 }
 
 interface EntryCardProps {
@@ -22,6 +30,7 @@ interface EntryCardProps {
 
 export function EntryCard({ index, control, onRemove }: EntryCardProps) {
   const t = useTranslations('review')
+  const locale = useLocale()
 
   const { field: categoryField } = useController({
     control,
@@ -44,6 +53,14 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
   const confidencePercent = Math.round((confidenceField.value as number) * 100)
   const categoryColor = CATEGORY_COLORS[category] ?? 'bg-gray-500/20 text-gray-600 border-gray-500/30 dark:text-gray-300'
 
+  // Display label comes from the shared category config so the dropdown
+  // shows "症状" / "施術" in JA and "Symptom" / "Treatment" in EN while
+  // the form value stays the canonical lowercase enum string.
+  const displayLabel = (cat: EntryCategory): string => {
+    const cfg = getCategoryConfig(cat)
+    return locale === 'ja' ? cfg.labelJa : cfg.label
+  }
+
   return (
     <div className="rounded-xl border border-border bg-card p-4 space-y-3">
       {/* Top row: category selector + confidence badge + remove button */}
@@ -54,7 +71,7 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
         >
           {ENTRY_CATEGORIES.map((cat) => (
             <option key={cat} value={cat} className="bg-card text-foreground">
-              {cat}
+              {displayLabel(cat)}
             </option>
           ))}
         </select>

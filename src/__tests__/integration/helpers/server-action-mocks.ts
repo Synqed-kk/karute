@@ -19,19 +19,16 @@ export const TEST_STAFF_PROFILE_ID = '28318e68-6b73-46ed-a1a2-c21299deee3f'
 /**
  * REFERENCE: Copy these jest.mock blocks to the top level of your test file.
  *
- * Mock 1: next/headers — provides a fake cookies() that returns TEST_STAFF_PROFILE_ID
- * for 'active_staff_id'. This is how server actions read the active staff member.
+ * Mock 1: @/lib/staff — provides a fake getStaffList() containing
+ * TEST_STAFF_PROFILE_ID. Save actions validate the supplied staffId against
+ * this org roster (synqed-core sourced in production).
  *
  * ```typescript
- * jest.mock('next/headers', () => ({
- *   cookies: jest.fn(() => ({
- *     get: jest.fn((name: string) => {
- *       if (name === 'active_staff_id') return { value: '28318e68-6b73-46ed-a1a2-c21299deee3f' }
- *       return undefined
- *     }),
- *     getAll: jest.fn(() => []),
- *     set: jest.fn(),
- *   })),
+ * jest.mock('@/lib/staff', () => ({
+ *   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
+ *   getStaffList: jest.fn(async () => [
+ *     { id: '28318e68-6b73-46ed-a1a2-c21299deee3f', full_name: 'Test Staff', has_pin: false, created_at: '' },
+ *   ]),
  * }))
  * ```
  *
@@ -47,7 +44,7 @@ export const TEST_STAFF_PROFILE_ID = '28318e68-6b73-46ed-a1a2-c21299deee3f'
  * jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
  * ```
  *
- * Mock 4: @/lib/supabase/server — redirects server actions to use test Supabase client.
+ * Mock 4: @/lib/supabase/server — redirects server actions to use the test Supabase client.
  * This also covers transitive dependencies like checkDuplicateName in customers/queries.ts.
  *
  * ```typescript

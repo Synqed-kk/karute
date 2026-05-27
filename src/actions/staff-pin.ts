@@ -1,5 +1,6 @@
 'use server'
 
+import { updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 /**
@@ -13,6 +14,7 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
   try {
     const synqed = await getSynqedClient()
     await synqed.staff.setPin(staffId, pin)
+    updateTag('staff-list')
     return {}
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -26,6 +28,7 @@ export async function removeStaffPin(staffId: string): Promise<{ error?: string 
   try {
     const synqed = await getSynqedClient()
     await synqed.staff.removePin(staffId)
+    updateTag('staff-list')
     return {}
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

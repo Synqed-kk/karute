@@ -1,11 +1,7 @@
 import type { ExtractionResult, SummaryResult } from '@/types/ai'
 
-/**
- * Mock transcription text returned by whisper API.
- * Used as the resolved value for openai.audio.transcriptions.create mock.
- */
-export const mockTranscriptionResult =
-  'Client mentioned she prefers a natural brown color and has sensitive scalp.'
+// Transcription mocks moved to Deepgram — see api-transcribe.test.ts.
+// This helper now only feeds summary/extract tests, which still use OpenAI.
 
 /**
  * Mock extraction result matching ExtractionResult shape.
@@ -14,13 +10,13 @@ export const mockTranscriptionResult =
 export const mockExtractionResult: ExtractionResult = {
   entries: [
     {
-      category: 'Preference',
+      category: 'preference',
       title: 'Natural brown color',
       source_quote: 'prefers a natural brown color',
       confidence_score: 0.92,
     },
     {
-      category: 'Health',
+      category: 'symptom',
       title: 'Sensitive scalp',
       source_quote: 'has sensitive scalp',
       confidence_score: 0.88,
@@ -51,11 +47,6 @@ export const mockSummaryResult: SummaryResult = {
 export function getOpenAIMockFactory() {
   return {
     openai: {
-      audio: {
-        transcriptions: {
-          create: jest.fn().mockResolvedValue(mockTranscriptionResult),
-        },
-      },
       chat: {
         completions: {
           parse: jest.fn(),

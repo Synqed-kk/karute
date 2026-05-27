@@ -1,8 +1,12 @@
+import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 
 import { getKaruteRecord } from '@/lib/supabase/karute'
-import { createClient } from '@/lib/supabase/server'
 import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
+import {
+  PhotoRecordsServer,
+  PhotoRecordsSkeleton,
+} from '@/components/karute/redesign/detail/PhotoRecordsServer'
 import {
   karuteToHeader,
   karuteEntriesToSessionEntries,
@@ -10,9 +14,9 @@ import {
   deriveKaruteNumber,
 } from '@/lib/adapters/karute-detail'
 import {
-  listCustomerPhotos,
-  getCustomerConsent,
-} from '@/actions/customers'
+  getCustomerContact,
+  getCachedCustomerConsent,
+} from '@/lib/customers/customer-detail-cached'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -35,38 +39,21 @@ export default async function KaruteDetailPage({
     (karute as unknown as { transcript?: string | null }).transcript ?? null
   const karuteNumber = deriveKaruteNumber(id)
 
-  // Customer contact details (phone/email) — fetched separately because the
-  // base karute query only joins {id, name} for the embedded customer.
+  // Customer contact + consent are both cached per-customer with their own tag
+  // invalidation. Photos are NOT awaited here; they're streamed in via a
+  // Suspense boundary below so the shell paints first.
   let phone: string | null = null
   let email: string | null = null
+  let consentOnFile = false
   if (customerId) {
-    const supabase = await createClient()
-    const { data: customer } = await supabase
-      .from('customers')
-      .select('phone, email')
-      .eq('id', customerId)
-      .maybeSingle()
-    phone = customer?.phone ?? null
-    email = customer?.email ?? null
+    const [contact, consentResult] = await Promise.all([
+      getCustomerContact(customerId),
+      getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
+    ])
+    phone = contact.phone
+    email = contact.email
+    consentOnFile = Boolean(consentResult.consent)
   }
-
-  // Photos and consent in parallel (both gated on customerId).
-  const [photosResult, consentResult] = customerId
-    ? await Promise.all([
-        listCustomerPhotos(customerId).catch(() => ({ photos: [] })),
-        getCustomerConsent(customerId).catch(() => ({ consent: null })),
-      ])
-    : [{ photos: [] }, { consent: null }]
-
-  const photos = (photosResult.photos ?? []).map((p) => ({
-    id: p.id,
-    signedUrl: p.signed_url,
-    category: p.category,
-    caption: p.caption,
-  }))
-  const consentOnFile = Boolean(
-    (consentResult as { consent?: unknown }).consent,
-  )
 
   return (
     <KaruteDetailView
@@ -88,7 +75,13 @@ export default async function KaruteDetailPage({
       transcript={transcript}
       consentOnFile={consentOnFile}
       transcriptDurationLabel={null}
-      photos={photos}
+      photosSlot={
+        customerId ? (
+          <Suspense fallback={<PhotoRecordsSkeleton />}>
+            <PhotoRecordsServer customerId={customerId} />
+          </Suspense>
+        ) : null
+      }
       memory={null}
       bodyPrediction={null}
       suggestedMessage={null}

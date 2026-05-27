@@ -5,6 +5,16 @@ import { ChevronRight, FileText, Share2 } from 'lucide-react'
 
 import { Link } from '@/i18n/navigation'
 
+// Share gated on NEXT_PUBLIC_FEATURE_KARUTE_SHARE. ANTHONY needs to
+// add: signed-URL generation for the karute detail page (probably
+// /api/karute/[id]/share-link with expiry + scope), plus a decision
+// on whether the share target is owner-only (intra-org) or customer-
+// shareable (read-only link with PII scrub). The button shape below
+// is the affordance spec; the onClick should POST to that endpoint
+// and call navigator.share() with the returned URL.
+const FEATURE_KARUTE_SHARE =
+  process.env.NEXT_PUBLIC_FEATURE_KARUTE_SHARE === 'true'
+
 interface DetailBreadcrumbProps {
   customerId: string | null
   customerName: string
@@ -62,13 +72,15 @@ export function DetailBreadcrumb({
           <FileText size={14} />
           <span>{t('actions.exportPdf')}</span>
         </Link>
-        <button
-          type="button"
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
-        >
-          <Share2 size={14} />
-          <span>{t('actions.share')}</span>
-        </button>
+        {FEATURE_KARUTE_SHARE && (
+          <button
+            type="button"
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
+          >
+            <Share2 size={14} />
+            <span>{t('actions.share')}</span>
+          </button>
+        )}
       </div>
     </div>
   )

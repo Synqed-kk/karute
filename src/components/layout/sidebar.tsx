@@ -1,68 +1,127 @@
 'use client'
 
-import React from 'react'
-import { usePathname, Link } from '@/i18n/navigation'
+import { useState } from 'react'
+import { usePathname, Link, useRouter } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
+import {
+  Building2,
+  ChevronDown,
+  ChevronUp,
+  Crown,
+  LogOut,
+  User as UserIcon,
+  Check,
+} from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { createClient } from '@/lib/supabase/client'
+import { clearActiveStaff } from '@/actions/active-staff'
+import { useSession } from '@/providers/session-provider'
+import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
 
 function MicIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
 }
 function HomeIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" /><path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></svg>
 }
 function CalendarIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="18" height="18" x="3" y="4" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></svg>
 }
 function UsersIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" /></svg>
 }
 function ClipboardIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1" /><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" /><path d="M12 11h4M12 16h4M8 11h.01M8 16h.01" /></svg>
+}
+function GraduationCapIcon() {
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21.42 10.922a1 1 0 0 0-.019-1.838L12.83 5.18a2 2 0 0 0-1.66 0L2.6 9.08a1 1 0 0 0 0 1.832l8.57 3.908a2 2 0 0 0 1.66 0z" /><path d="M22 10v6" /><path d="M6 12.5V16a6 3 0 0 0 12 0v-3.5" /></svg>
 }
 function SparklesIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z" /></svg>
 }
 function ImportIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4" /><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v12M8 11l4 4 4-4" /><path d="M8 5H4a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
+}
+function ExportIcon() {
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 17V5M8 9l4-4 4 4" /><path d="M8 19H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h4M16 19h4a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-4" /></svg>
 }
 function SettingsIcon() {
-  return <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
+  return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></svg>
 }
 
-type SidebarLabelKey = 'recording' | 'dashboard' | 'appointments' | 'customers' | 'karute' | 'askAi' | 'dataImport' | 'settings'
+type SidebarLabelKey =
+  | 'recording'
+  | 'dashboard'
+  | 'appointments'
+  | 'customers'
+  | 'karute'
+  | 'coaching'
+  | 'askAi'
+  | 'dataImport'
+  | 'dataExport'
+  | 'settings'
 
 type NavRoute = {
   id: string
   href: string
   labelKey: SidebarLabelKey
-  icon: () => React.ReactElement
+  Icon: () => React.ReactElement
 }
 
+// /coaching + /data-import gated behind feature flags.
+//
+// /coaching: every page in src/app/[locale]/(app)/coaching/ passes
+// `null` to its view component (growth, insights, patterns,
+// modules, transparency). Each renders a ScaffoldHint placeholder.
+// The privacy Layer 1/2/3 badges are decorative — no data to
+// scope. Nav entry hides until the producers ship.
+//
+// /data-import: ImportDropzone.tsx fires `console.info('[dev]
+// Import file selected', …)` on file pick. No upload, no
+// session, no progress. Owner picks a CSV and watches nothing
+// happen. Nav entry hides until uploadImportCsv ships.
+//
+// /data-export stays — CSV / JSON exports for customers run for
+// real via the /api/export route (other combinations toast
+// "coming soon" honestly via `isWired()` in DataExportView).
 const NAV_ROUTES: NavRoute[] = [
-  { id: 'recording', href: '/sessions', labelKey: 'recording', icon: MicIcon },
-  { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', icon: HomeIcon },
-  { id: 'appointments', href: '/appointments', labelKey: 'appointments', icon: CalendarIcon },
-  { id: 'customers', href: '/customers', labelKey: 'customers', icon: UsersIcon },
-  { id: 'karute', href: '/karute', labelKey: 'karute', icon: ClipboardIcon },
-  { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', icon: SparklesIcon },
-  { id: 'dataImport', href: '/data-import', labelKey: 'dataImport', icon: ImportIcon },
-  { id: 'settings', href: '/settings', labelKey: 'settings', icon: SettingsIcon },
+  { id: 'recording', href: '/sessions', labelKey: 'recording', Icon: MicIcon },
+  { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', Icon: HomeIcon },
+  { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon },
+  { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon },
+  { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon },
+  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
+    ? [{ id: 'coaching' as const, href: '/coaching', labelKey: 'coaching' as const, Icon: GraduationCapIcon }]
+    : []),
+  { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon },
+  ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
+    ? [{ id: 'dataImport' as const, href: '/data-import', labelKey: 'dataImport' as const, Icon: ImportIcon }]
+    : []),
+  { id: 'dataExport', href: '/data-export', labelKey: 'dataExport', Icon: ExportIcon },
+  { id: 'settings', href: '/settings', labelKey: 'settings', Icon: SettingsIcon },
 ]
 
 const LABEL_FALLBACKS: Record<SidebarLabelKey, string> = {
-  recording: 'Recording',
+  recording: 'Record',
   dashboard: 'Dashboard',
-  appointments: 'Appointments',
+  appointments: 'Bookings',
   customers: 'Customers',
   karute: 'Karute',
-  askAi: 'Ask AI',
+  coaching: 'Coaching',
+  askAi: 'AI Assistant',
   dataImport: 'Import',
+  dataExport: 'Export',
   settings: 'Settings',
 }
 
 export function Sidebar() {
   const pathname = usePathname()
   const t = useTranslations('sidebar')
+  const sidebarStyle = useSidebarStyle()
   const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
 
   function getLabel(key: SidebarLabelKey): string {
@@ -73,31 +132,215 @@ export function Sidebar() {
     }
   }
 
+  // Sidebar style picker (Settings → Theme) writes 'light' | 'dark' to
+  // localStorage; this hook is the consumer. Earlier the picker wrote
+  // the value but no surface read it — staff would tap Dark, see
+  // "適用済み" badge, and notice no visible change. Now: 'dark' applies
+  // the same dark-mode `.dark` token cascade the global theme uses,
+  // scoped to this <aside>.
   return (
-    <nav
-      className="hidden h-full w-[90px] flex-col items-center gap-0.5 rounded-[28px] bg-[var(--color-bg-card)] py-4 md:flex"
+    <aside
+      className={`hidden h-full w-[244px] shrink-0 flex-col border-r border-border/30 py-5 md:flex ${
+        sidebarStyle === 'dark' ? 'dark bg-neutral-900' : 'bg-[var(--color-bg-card)]'
+      }`}
       aria-label="Main navigation"
     >
-      {NAV_ROUTES.map((route) => {
-        const isActive = route.id === activeId
-        const Icon = route.icon
+      <div className="px-5 pb-4 border-b border-border/20">
+        <div className="text-[20px] font-extrabold leading-tight tracking-tight">
+          SYNQED
+        </div>
+        <div className="text-[11px] font-medium tracking-[0.25em] uppercase text-muted-foreground mt-0.5">
+          Karute
+        </div>
+      </div>
 
-        return (
-          <Link
-            key={route.id}
-            href={route.href as Parameters<typeof Link>[0]['href']}
-            className={`flex w-full min-h-[44px] min-w-[44px] flex-col items-center gap-1 px-2 py-2.5 transition ${
-              isActive
-                ? 'text-[var(--color-text)]'
-                : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'
-            }`}
-            aria-current={isActive ? 'page' : undefined}
-          >
-            <Icon />
-            <span className="w-full truncate text-center text-[10px] font-medium">{getLabel(route.labelKey)}</span>
-          </Link>
-        )
-      })}
-    </nav>
+      <nav className="flex-1 flex flex-col gap-0.5 px-3 py-4 overflow-y-auto">
+        {NAV_ROUTES.map((route) => {
+          const isActive = route.id === activeId
+          const Icon = route.Icon
+          return (
+            <Link
+              key={route.id}
+              href={route.href as Parameters<typeof Link>[0]['href']}
+              className="relative flex items-center"
+              aria-current={isActive ? 'page' : undefined}
+            >
+              {isActive && (
+                <span
+                  className="absolute left-[-12px] top-1/2 -translate-y-1/2 h-5 w-0.5 rounded-r-full bg-blue-500"
+                  aria-hidden="true"
+                />
+              )}
+              <span
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2 text-[14px] transition-colors ${
+                  isActive
+                    ? 'bg-blue-500/10 text-blue-600 dark:text-blue-300 font-semibold'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/40'
+                }`}
+              >
+                <Icon />
+                {getLabel(route.labelKey)}
+              </span>
+            </Link>
+          )
+        })}
+      </nav>
+
+      <SidebarProfileChip />
+    </aside>
+  )
+}
+
+function getInitials(name: string): string {
+  return name.slice(0, 2).toUpperCase()
+}
+
+function SidebarProfileChip() {
+  const session = useSession()
+  const t = useTranslations('staff')
+  const router = useRouter()
+  const [open, setOpen] = useState(false)
+
+  const { orgName } = session
+
+  async function handleLogout() {
+    await clearActiveStaff()
+    const supabase = createClient()
+    await supabase.auth.signOut()
+    router.push('/login' as Parameters<typeof router.push>[0])
+    router.refresh()
+  }
+
+  const orgDisplayName = orgName ?? 'Salon'
+  const orgInitials = getInitials(orgDisplayName)
+  const triggerActiveClass = open
+    ? 'border-blue-500/60 bg-blue-500/5'
+    : 'border-transparent hover:bg-muted/40'
+
+  return (
+    <div className="px-3 pt-4 border-t border-border/20">
+      <DropdownMenu open={open} onOpenChange={setOpen}>
+        <DropdownMenuTrigger
+          className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${triggerActiveClass}`}
+        >
+            <Avatar
+              name={orgDisplayName}
+              initials={orgInitials}
+              avatarUrl={undefined}
+              tone="active"
+            />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13.5px] font-semibold truncate">
+                {orgDisplayName}
+              </p>
+              <p className="text-[11px] text-muted-foreground">Owner</p>
+            </div>
+            {open ? (
+              <ChevronUp className="size-3.5 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="size-3.5 text-muted-foreground" />
+            )}
+        </DropdownMenuTrigger>
+
+        <DropdownMenuContent
+          side="top"
+          align="start"
+          sideOffset={8}
+          className="w-[260px] p-0 overflow-hidden"
+        >
+          <div className="px-3 py-2 border-b border-border/20 bg-muted/30">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground flex items-center gap-1.5">
+              <Building2 className="size-3" />
+              Store
+            </p>
+          </div>
+          <div className="py-1">
+            <StoreRow name={orgName ?? 'Karute'} role="Owner" active />
+          </div>
+
+          <div className="border-t border-border/20">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false)
+                router.push('/settings' as Parameters<typeof router.push>[0])
+              }}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-foreground hover:bg-muted/50 text-left"
+            >
+              <UserIcon className="size-3.5 text-muted-foreground" />
+              View profile
+            </button>
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-red-500 dark:text-red-400 hover:bg-red-500/5 text-left border-t border-border/20"
+            >
+              <LogOut className="size-3.5" />
+              {t('logOut')}
+            </button>
+          </div>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  )
+}
+
+function Avatar({
+  name,
+  initials,
+  avatarUrl,
+  tone,
+}: {
+  name: string
+  initials: string
+  avatarUrl?: string
+  tone: 'active' | 'muted'
+}) {
+  if (avatarUrl) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        className="h-7 w-7 shrink-0 rounded-full object-cover"
+      />
+    )
+  }
+  return (
+    <div
+      className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ${
+        tone === 'active'
+          ? 'bg-blue-500 text-white'
+          : 'bg-muted text-muted-foreground'
+      }`}
+    >
+      {initials}
+    </div>
+  )
+}
+
+function StoreRow({
+  name,
+  role,
+  active,
+}: {
+  name: string
+  role: string
+  active: boolean
+}) {
+  return (
+    <div className="flex items-start gap-2.5 px-3 py-2 bg-muted/30">
+      <Check
+        className={`size-3.5 shrink-0 mt-0.5 ${
+          active ? 'text-blue-500' : 'text-transparent'
+        }`}
+      />
+      <div className="flex-1 min-w-0">
+        <p className="text-[13.5px] font-semibold truncate">{name}</p>
+        <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+          <Crown className="size-3" />
+          {role}
+        </p>
+      </div>
+    </div>
   )
 }

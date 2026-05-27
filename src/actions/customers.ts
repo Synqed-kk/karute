@@ -1,8 +1,41 @@
 'use server'
 
 import { z } from 'zod'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
+
+// ---------------------------------------------------------------------------
+// Backend error → user-facing message
+// ---------------------------------------------------------------------------
+
+/**
+ * Translate raw backend errors (Prisma / synqed-core throws) into
+ * locale-aware messages the form's toast can safely display.
+ *
+ * The synqed-core service layer propagates Prisma errors verbatim
+ * (e.g. ``Unique constraint failed on the fields: (`business_id`,
+ * `email`)``). Showing that to a user is both ugly and a minor info
+ * leak (column names, stack frames). This helper pattern-matches the
+ * common shapes and falls back to a generic "save failed" message
+ * so users never see Prisma internals.
+ *
+ * Raw error is still surfaced to server logs in the caller so
+ * Anthony can debug from the synqed-core side.
+ */
+async function translateBackendError(err: unknown): Promise<string> {
+  const message = err instanceof Error ? err.message : String(err)
+  // Dynamic import: keeps next-intl's ESM out of the module-load path so jest
+  // (which doesn't transform next-intl) can import this action's other exports.
+  const { getTranslations } = await import('next-intl/server')
+  const t = await getTranslations('customers.form')
+  if (/Unique constraint failed.*\bemail\b/i.test(message)) {
+    return t('duplicateEmail')
+  }
+  if (/Unique constraint failed.*\bphone\b/i.test(message)) {
+    return t('duplicatePhone')
+  }
+  return t('saveFailedGeneric')
+}
 
 // ---------------------------------------------------------------------------
 // Validation schema
@@ -58,11 +91,14 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     })
 
     revalidatePath('/customers')
+    updateTag('customers')
 
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    // Keep the raw error in the server log so Anthony can debug; show
+    // the user a clean translated message via translateBackendError.
+    console.error('[createCustomer] backend error:', err)
+    return { success: false, error: await translateBackendError(err) }
   }
 }
 
@@ -86,6 +122,7 @@ export async function createQuickCustomer(
     const customer = await synqed.customers.create({ name: trimmedName })
 
     revalidatePath('/customers')
+    updateTag('customers')
 
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
@@ -125,10 +162,11 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
 
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
+    updateTag('customers')
     return { success: true, id }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    console.error('[updateCustomer] backend error:', err)
+    return { success: false, error: await translateBackendError(err) }
   }
 }
 
@@ -158,6 +196,7 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     await synqed.customers.delete(id)
 
     revalidatePath('/customers')
+    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
@@ -230,12 +269,12 @@ export async function grantCustomerConsent(
   customerId: string,
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
 ) {
-  const { getValidatedActiveStaffId } = await import('@/lib/staff')
-  const staffId = await getValidatedActiveStaffId()
+  const { getActiveStaffId } = await import('@/lib/active-staff')
+  const staffId = await getActiveStaffId()
   if (!staffId) {
     return {
       ok: false as const,
-      error: 'No active staff selected. Switch to your stylist account first.',
+      error: 'No active staff selected.',
     }
   }
   try {
@@ -246,6 +285,7 @@ export async function grantCustomerConsent(
       method: input.method ?? 'VERBAL',
     })
     revalidatePath(`/customers/${customerId}`)
+    updateTag('customer-consent')
     return { ok: true as const, consent }
   } catch (err) {
     return {
@@ -256,8 +296,8 @@ export async function grantCustomerConsent(
 }
 
 export async function revokeCustomerConsent(customerId: string) {
-  const { getValidatedActiveStaffId } = await import('@/lib/staff')
-  const staffId = await getValidatedActiveStaffId()
+  const { getActiveStaffId } = await import('@/lib/active-staff')
+  const staffId = await getActiveStaffId()
   if (!staffId) {
     return { ok: false as const, error: 'No active staff selected.' }
   }
@@ -265,6 +305,7 @@ export async function revokeCustomerConsent(customerId: string) {
     const synqed = await getSynqedClient()
     await synqed.customers.revokeConsent(customerId, staffId)
     revalidatePath(`/customers/${customerId}`)
+    updateTag('customer-consent')
     return { ok: true as const }
   } catch (err) {
     return {

@@ -1,4 +1,26 @@
 import { testApiHandler } from 'next-test-api-route-handler'
+
+// The summarize route boots ai-rate-limit, which pulls in @synqed-kk/client
+// (native ESM) + supabase auth. Stub the rate-limit boundary entirely — its
+// behavior is covered separately and isn't relevant to the route's parse path.
+jest.mock('@/lib/ai-rate-limit', () => ({
+  enforceAiRateLimit: jest.fn(async () => null),
+  reportAiUsage: jest.fn(async () => undefined),
+  estimateCostCents: jest.fn(() => 1),
+}))
+
+// Supabase server client is used for the org-settings lookup. Return a chain
+// stub so .from().select().limit().single() resolves without a real DB.
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: jest.fn(async () => ({
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null }),
+    })),
+  })),
+}))
+
 import * as appHandler from '@/app/api/ai/summarize/route'
 
 jest.mock('@/lib/openai', () => ({

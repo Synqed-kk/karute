@@ -36,13 +36,20 @@ interface NewDashboardProps {
 }
 
 function formatTime(iso: string) {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function formatDate(iso: string) {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en', { year: 'numeric', month: '2-digit', day: '2-digit' })
+  return new Date(iso).toLocaleDateString('en', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  })
 }
 
 export function NewDashboard({ staffName, activeStaffId, stats, todayAppointments, recentKarute, locale }: NewDashboardProps) {

@@ -7,7 +7,6 @@ import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { PipelineContainer } from '@/components/review/PipelineContainer'
-import { useTimetableStore } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
   getCustomerConsent,
@@ -41,6 +40,13 @@ export interface RecordPageNextAppointment {
   durationMinutes: number
   title: string | null
   notes: string | null
+  /** Server-derived status at render time. Decouples this client
+   *  component from `Date.now()` (which React Compiler flags as
+   *  impure during render). */
+  statusKey?: 'in-session' | 'booked' | 'done'
+  staffId: string
+  /** Resolved staff display name (server looks it up from the staff list). */
+  staffName: string
 }
 
 export interface RecordPageViewProps {
@@ -52,6 +58,19 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  staffRoster: { id: string; name: string }[]
+  bookingTargets: {
+    id: string
+    customerId: string
+    customerName: string
+    staffId: string
+    staffName: string
+  }[]
+  /**
+   * The PIN-selected active staff, used to pre-select attribution when the
+   * recording has no booking target (booking attribution always wins).
+   */
+  defaultStaffId?: string | null
 }
 
 function deriveInitials(name: string): string {
@@ -61,7 +80,13 @@ function deriveInitials(name: string): string {
 }
 
 function formatHHMM(d: Date): string {
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  // Pin to JST so the time-range pill ("11:30–12:30") matches the booking
+  // dialog input regardless of where the renderer is running.
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 export function RecordPageView({
@@ -72,10 +97,15 @@ export function RecordPageView({
   brief,
   recentRecordings,
   consentDate,
+  staffRoster,
+  bookingTargets,
+  defaultStaffId,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
-  const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
+  const [selectedTargetId, setSelectedTargetId] = useState<string | null>(
+    nextAppointment?.id ?? null,
+  )
 
   const {
     state: recState,
@@ -183,23 +213,28 @@ export function RecordPageView({
 
   // Pipeline phase — delegate to existing review/save flow
   if (phase === 'pipeline' && result) {
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
-    const effectiveCustomerId = recordingAppointmentId ? undefined : nextAppointment?.customerId
+    const selectedTarget =
+      bookingTargets.find((b) => b.id === selectedTargetId) ?? null
     return (
       <PipelineContainer
         audioBlob={result.blob}
         locale={locale}
         customers={customers}
         duration={Math.round(result.durationMs / 1000)}
-        appointmentId={effectiveAppointmentId}
-        appointmentCustomerId={effectiveCustomerId}
+        appointmentId={selectedTarget?.id}
+        appointmentCustomerId={selectedTarget?.customerId}
+        staffId={selectedTarget?.staffId ?? defaultStaffId ?? undefined}
+        staffOptions={staffRoster}
         onCancel={handleNewSession}
         onSaved={handleNewSession}
       />
     )
   }
 
-  // Map nextAppointment to the target card shape
+  // Map nextAppointment to the target card shape. Status key comes
+  // from the server (sessions/page.tsx derives it from now vs the
+  // appointment window — keeps this client component pure for
+  // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null = nextAppointment
     ? {
         id: nextAppointment.id,
@@ -214,14 +249,85 @@ export function RecordPageView({
           )
           return `${formatHHMM(start)}–${formatHHMM(end)}`
         })(),
-        staffName: '—',
+        // Real staffName threaded from sessions/page.tsx via the staff lookup.
+        staffName: nextAppointment.staffName ?? '—',
+        statusKey: nextAppointment.statusKey ?? 'booked',
+        isNew: brief?.isFirstTimeVisit ?? false,
       }
     : null
 
   const isRecording = phase === 'recording'
+  // When there's no booking, the empty-state target card is a small banner —
+  // collapse to a single column so the record button isn't dwarfed by a half-empty grid.
+  const layoutMode: 'single' | 'split' = targetAppointment ? 'split' : 'single'
+
+  const recorderControls = phase === 'recorded' ? (
+    <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
+      <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
+        {`${pad2(Math.floor(recordingDuration / 60))}:${pad2(recordingDuration % 60)}`}
+      </div>
+      <div className="flex h-10 items-end gap-[3px] opacity-50">
+        {frozenBars.map((h, i) => (
+          <span
+            key={i}
+            className="w-[3px] rounded-full bg-muted-foreground/50"
+            style={{ height: `${Math.max(15, Math.min(100, h * 0.6))}%` }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 flex w-full items-center gap-3">
+        <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
+          {t('discard')}
+        </Button>
+        <Button variant="default" size="md" className="flex-1" onClick={handleUseRecording}>
+          {t('useRecording')}
+        </Button>
+      </div>
+    </section>
+  ) : (
+    <RecordButtonCard
+      customerName={nextAppointment?.customerName ?? null}
+      isRecording={isRecording}
+      elapsedSeconds={elapsed}
+      waveform={normalizedBars}
+      onStart={() => {
+        if (recordingBlocked) return
+        handleStartRecording()
+      }}
+      onStop={stopRecording}
+    />
+  )
+
+  const recorderColumn = (
+    <div className="flex flex-col gap-3.5">
+      <SourceModeChips />
+      {recorderControls}
+      <div className="flex justify-center">
+        <ConsentPill consentDate={consentDate} />
+      </div>
+      {phase === 'idle' && nextAppointment && consent && !consent.granted && (
+        <ConsentCheckCard
+          consented={false}
+          customerName={nextAppointment.customerName}
+          labels={{
+            grantedTitle: t('consentGrantedTitle'),
+            grantedDesc: t('consentGrantedDesc'),
+            grantedWhen: t('consentGrantedWhen'),
+            missingTitle: t('consentMissingTitle'),
+            missingDesc: t('consentMissingDesc'),
+            startFlow: t('consentStartFlow'),
+          }}
+          onStartConsent={() => {
+            setConsentError(null)
+            setShowConsentDialog(true)
+          }}
+        />
+      )}
+    </div>
+  )
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
 
       {micError && (
@@ -237,80 +343,35 @@ export function RecordPageView({
         </div>
       )}
 
-      <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        <div className="flex flex-col gap-4">
+      {layoutMode === 'split' ? (
+        <div className="grid items-start gap-5 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+          <div className="flex flex-col gap-4 self-start">
+            <RecordingTargetCard
+              appointment={targetAppointment}
+              nearbyBookings={nearbyBookings}
+              onSwitchBooking={(b) => setSelectedTargetId(b.id)}
+            />
+            <PreSessionBriefCard
+              brief={brief}
+              customerName={nextAppointment?.customerName ?? null}
+            />
+          </div>
+          <div className="self-start">{recorderColumn}</div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-5">
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
+            onSwitchBooking={(b) => setSelectedTargetId(b.id)}
           />
-          <PreSessionBriefCard brief={brief} />
+          <PreSessionBriefCard
+            brief={brief}
+            customerName={nextAppointment?.customerName ?? null}
+          />
+          <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>
-
-        <div className="flex flex-col gap-3.5">
-          <SourceModeChips />
-
-          {/* Phase: recorded → show discard / use buttons.  Else use the redesigned button card. */}
-          {phase === 'recorded' ? (
-            <section className="flex flex-col items-center gap-3 rounded-2xl border border-border bg-card px-6 py-7 shadow-sm">
-              <div className="text-2xl font-semibold tabular-nums tracking-tight text-foreground">
-                {`${pad2(Math.floor(recordingDuration / 60))}:${pad2(recordingDuration % 60)}`}
-              </div>
-              <div className="flex h-10 items-end gap-[3px] opacity-50">
-                {frozenBars.map((h, i) => (
-                  <span
-                    key={i}
-                    className="w-[3px] rounded-full bg-muted-foreground/50"
-                    style={{ height: `${Math.max(15, Math.min(100, h * 0.6))}%` }}
-                  />
-                ))}
-              </div>
-              <div className="mt-2 flex w-full items-center gap-3">
-                <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
-                  {t('discard')}
-                </Button>
-                <Button variant="default" size="md" className="flex-1" onClick={handleUseRecording}>
-                  {t('useRecording')}
-                </Button>
-              </div>
-            </section>
-          ) : (
-            <RecordButtonCard
-              customerName={nextAppointment?.customerName ?? null}
-              isRecording={isRecording}
-              elapsedSeconds={elapsed}
-              waveform={normalizedBars}
-              onStart={() => {
-                if (recordingBlocked) return
-                handleStartRecording()
-              }}
-              onStop={stopRecording}
-            />
-          )}
-
-          <div className="flex justify-center">
-            <ConsentPill consentDate={consentDate} />
-          </div>
-
-          {phase === 'idle' && nextAppointment && consent && !consent.granted && (
-            <ConsentCheckCard
-              consented={false}
-              customerName={nextAppointment.customerName}
-              labels={{
-                grantedTitle: t('consentGrantedTitle'),
-                grantedDesc: t('consentGrantedDesc'),
-                grantedWhen: t('consentGrantedWhen'),
-                missingTitle: t('consentMissingTitle'),
-                missingDesc: t('consentMissingDesc'),
-                startFlow: t('consentStartFlow'),
-              }}
-              onStartConsent={() => {
-                setConsentError(null)
-                setShowConsentDialog(true)
-              }}
-            />
-          )}
-        </div>
-      </div>
+      )}
 
       <LiveTranscriptCard connected={false} lines={[]} />
 

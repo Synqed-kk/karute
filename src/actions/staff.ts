@@ -1,11 +1,23 @@
 'use server'
 
-import { cookies } from 'next/headers'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { createServiceClient } from '@/lib/supabase/service'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
-import { getActiveStaffId } from '@/lib/staff'
+
+// Look up an existing Supabase profile by email. Returns its id (which equals
+// auth.users.id) when found, else null. Lets createStaff seed synqed
+// staff.user_id at insert time when the teammate already has an auth account.
+async function findProfileIdByEmail(email: string): Promise<string | null> {
+  const service = createServiceClient()
+  const { data } = await service
+    .from('profiles')
+    .select('id')
+    .eq('email', email)
+    .maybeSingle()
+  return (data as { id?: string } | null)?.id ?? null
+}
 
 export async function createStaff(data: StaffProfileInput): Promise<void> {
   const parsed = staffProfileSchema.safeParse(data)
@@ -13,13 +25,18 @@ export async function createStaff(data: StaffProfileInput): Promise<void> {
     throw new Error(parsed.error.issues.map((e) => e.message).join(', '))
   }
 
+  const email = parsed.data.email || null
+  const userId = email ? await findProfileIdByEmail(email) : null
+
   const synqed = await getSynqedClient()
   await synqed.staff.create({
     name: parsed.data.name,
-    email: parsed.data.email || null,
+    email,
+    user_id: userId,
   })
 
   revalidatePath('/settings')
+  updateTag('staff-list')
 }
 
 export async function updateStaff(id: string, data: StaffProfileInput): Promise<void> {
@@ -35,19 +52,15 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
   })
 
   revalidatePath('/settings')
+  updateTag('staff-list')
 }
 
 /**
  * Deletes a staff profile. Server enforces guards (last member, attributed
- * records) and returns 400 with a human message when either triggers. If the
- * active-staff cookie pointed at the deleted staff, this function switches
- * to the first remaining staff.
+ * records) and returns 400 with a human message when either triggers.
  */
 export async function deleteStaff(id: string): Promise<void> {
   const synqed = await getSynqedClient()
-
-  const activeStaffId = await getActiveStaffId()
-  const isActiveMember = activeStaffId === id
 
   try {
     await synqed.staff.delete(id)
@@ -58,36 +71,9 @@ export async function deleteStaff(id: string): Promise<void> {
     throw err
   }
 
-  if (isActiveMember) {
-    const remaining = await synqed.staff.list({ page_size: 1 })
-    if (remaining.staff.length > 0) {
-      await setActiveStaff(remaining.staff[0].id)
-    }
-  }
-
   revalidatePath('/settings')
   revalidatePath('/', 'layout')
-}
-
-/**
- * Writes the active_staff_id cookie.
- * Cookie is httpOnly: false so the header switcher UI can read it client-side.
- * 30-day expiry persists selection across browser sessions.
- *
- * Security note: This action only writes a cookie — it does not accept untrusted
- * client data for save operations. All karute save flows read staff_id from the
- * cookie via getActiveStaffId(), never from client form fields.
- */
-export async function setActiveStaff(staffId: string): Promise<void> {
-  const cookieStore = await cookies()
-  cookieStore.set('active_staff_id', staffId, {
-    httpOnly: false,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 60 * 60 * 24 * 30,
-  })
-
-  revalidatePath('/', 'layout')
+  updateTag('staff-list')
 }
 
 export async function uploadStaffAvatar(
@@ -102,6 +88,7 @@ export async function uploadStaffAvatar(
     const { avatar_url } = await synqed.staff.uploadAvatar(staffId, file)
     revalidatePath('/settings')
     revalidatePath('/', 'layout')
+    updateTag('staff-list')
     return { url: avatar_url }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

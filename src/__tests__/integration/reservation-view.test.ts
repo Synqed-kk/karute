@@ -2,13 +2,16 @@
  * Reservation-view adapter: maps AppointmentRow -> ReservationView with derived
  * fields (display status, formatted time, customer initials, staff color key).
  *
- * Display status mapping (phase 1 — 3 states):
- *   COMPLETED, CANCELLED   -> 'completed'  (treated as inactive)
- *   IN_PROGRESS            -> 'in_session' (explicit override)
- *   SCHEDULED + time-based -> 'completed' | 'in_session' | 'booked'
+ * Display status mapping (5 states):
+ *   COMPLETED, CANCELLED        -> 'completed'  (treated as inactive)
+ *   IN_PROGRESS or time-in      -> 'in_session' (explicit override)
+ *   end < now                   -> 'completed'
+ *   source !== MANUAL           -> 'pending'    (synced, not yet confirmed)
+ *   visitCount === 0            -> 'new'        (first-time customer)
+ *   else                        -> 'booked'
  *
- * 'pending' and 'new' are deferred — current synqed-core has no PENDING analog
- * and first-visit lookup is out of scope for this phase.
+ * 'pending' and 'new' are derived from existing signals (source enum +
+ * karute_records count) — no schema changes required.
  */
 
 import {
@@ -31,6 +34,7 @@ function row(over: Partial<AppointmentRow>): AppointmentRow {
     created_at: '2026-05-12T08:00:00.000Z',
     customers: { name: 'Yamada Hanako' },
     synqed_status: 'SCHEDULED',
+    source: 'MANUAL',
     ...over,
   } as AppointmentRow
 }
@@ -70,14 +74,36 @@ describe('computeDisplayStatus', () => {
     const r = row({ synqed_status: 'CANCELLED' })
     expect(computeDisplayStatus(r, NOW_MID)).toBe('completed')
   })
+
+  it('returns "pending" when the future booking came from an external sync', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
+    expect(computeDisplayStatus(r, NOW_MID)).toBe('pending')
+  })
+
+  it('returns "new" when the customer is first-time (no past appointments)', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z' })
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('new')
+  })
+
+  it('prefers "pending" over "new" when both signals fire', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('pending')
+  })
+
+  it('still returns "booked" for a returning customer on a manual future booking', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z' })
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: false })).toBe('booked')
+  })
 })
 
 describe('appointmentsToReservationViews', () => {
   it('maps rows to ReservationView with derived fields', () => {
     const result = appointmentsToReservationViews(
-      [row({})],
+      [row({ karute_record_id: 'k-9' })],
       [{ id: 'staff-1', full_name: 'Tanaka Misaki' } as StaffMember],
       NOW_MID,
+      // isFirstTimeByClient — returning customer = false.
+      new Map([['cust-1', false]]),
     )
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -87,9 +113,22 @@ describe('appointmentsToReservationViews', () => {
       customerName: 'Yamada Hanako',
       service: 'Facial',
       displayStatus: 'in_session',
+      clientId: 'cust-1',
+      karuteRecordId: 'k-9',
+      isFirstTimeVisit: false,
     })
     expect(result[0].startTimeHm).toMatch(/^\d{2}:\d{2}$/)
     expect(result[0].customerInitials.length).toBeGreaterThan(0)
+  })
+
+  it('flags isFirstTimeVisit when the customer is first-time', () => {
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', true]]),
+    )
+    expect(result[0].isFirstTimeVisit).toBe(true)
   })
 
   it('falls back to "—" customer name when customers join is null', () => {
@@ -102,12 +141,15 @@ describe('appointmentsToReservationViews', () => {
     expect(result[0].customerInitials).toBe('—')
   })
 
-  it('uses appointment.title verbatim when present, else "セッション" fallback', () => {
+  it('leaves service empty when title is null (no misleading fallback)', () => {
+    // Previously fell back to 'セッション' which read like a real service
+    // name on the agenda — Liam called this out. Empty string lets the
+    // row hide the service line entirely.
     const result = appointmentsToReservationViews(
       [row({ title: null })],
       [],
       NOW_MID,
     )
-    expect(result[0].service).toBe('セッション')
+    expect(result[0].service).toBe('')
   })
 })

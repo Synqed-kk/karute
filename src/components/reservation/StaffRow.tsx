@@ -24,9 +24,10 @@ interface StaffRowProps {
   startHour: number
   ppm: number
   totalWidth: number
+  onSelect?: (view: ReservationView) => void
 }
 
-export function StaffRow({ staff, reservations, startHour, ppm, totalWidth }: StaffRowProps) {
+export function StaffRow({ staff, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
   const t = useTranslations('reservation')
   const color = getStaffColor(staff.id)
   return (
@@ -65,7 +66,14 @@ export function StaffRow({ staff, reservations, startHour, ppm, totalWidth }: St
           <span className="text-xs text-muted-foreground">{t('grid.blockOwner')}</span>
         ) : (
           reservations.map((r) => (
-            <AppointmentCard key={r.id} view={r} variant="grid" ppm={ppm} startHour={startHour} />
+            <AppointmentCard
+              key={r.id}
+              view={r}
+              variant="grid"
+              ppm={ppm}
+              startHour={startHour}
+              onSelect={onSelect}
+            />
           ))
         )}
       </div>
