@@ -1,0 +1,145 @@
+/**
+ * @jest-environment jsdom
+ *
+ * Render coverage for CustomersStaffFilter (PR 17, replay/17): the empty-state
+ * null render, the self/all scope toggle (self hidden without a staff profile),
+ * the per-staff pills, active state, and the "click active pill snaps back to
+ * all" selection model.
+ */
+import { render, screen, fireEvent } from '@testing-library/react'
+
+jest.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => key,
+}))
+
+import {
+  CustomersStaffFilter,
+  type StaffFilterEntry,
+} from '@/components/customers/redesign/list/CustomersStaffFilter'
+
+const staff: StaffFilterEntry[] = [
+  { id: 's-1', name: 'Jon Chan', initials: 'JC' },
+  { id: 's-2', name: '佐藤', initials: '佐' },
+]
+
+describe('CustomersStaffFilter', () => {
+  it('renders nothing when there are no staff and no self profile', () => {
+    const { container } = render(
+      <CustomersStaffFilter staffList={[]} selfStaffId={null} selected="all" onChange={jest.fn()} />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('renders the self + all toggle and a pill per staff member', () => {
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId="s-1"
+        selected="all"
+        onChange={jest.fn()}
+      />,
+    )
+    expect(screen.getByText('self')).toBeInTheDocument()
+    expect(screen.getByText('all')).toBeInTheDocument()
+    expect(screen.getByText('Jon Chan')).toBeInTheDocument()
+    expect(screen.getByText('佐藤')).toBeInTheDocument()
+  })
+
+  it('hides the self segment when the viewer has no staff profile', () => {
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId={null}
+        selected="all"
+        onChange={jest.fn()}
+      />,
+    )
+    expect(screen.queryByText('self')).not.toBeInTheDocument()
+    expect(screen.getByText('all')).toBeInTheDocument()
+  })
+
+  it('still renders the scope toggle (self only) when there is a self but no staff list', () => {
+    render(
+      <CustomersStaffFilter
+        staffList={[]}
+        selfStaffId="s-1"
+        selected="self"
+        onChange={jest.fn()}
+      />,
+    )
+    expect(screen.getByText('self')).toBeInTheDocument()
+    expect(screen.getByText('all')).toBeInTheDocument()
+    // No staff pills.
+    expect(screen.queryByText('Jon Chan')).not.toBeInTheDocument()
+  })
+
+  it('marks the selected scope segment with aria-pressed', () => {
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId="s-1"
+        selected="self"
+        onChange={jest.fn()}
+      />,
+    )
+    expect(screen.getByText('self').closest('button')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('all').closest('button')).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('emits "self" / "all" when the scope segments are clicked', () => {
+    const onChange = jest.fn()
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId="s-1"
+        selected="all"
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByText('self'))
+    expect(onChange).toHaveBeenLastCalledWith('self')
+    fireEvent.click(screen.getByText('all'))
+    expect(onChange).toHaveBeenLastCalledWith('all')
+  })
+
+  it('emits the staff id when an inactive pill is clicked', () => {
+    const onChange = jest.fn()
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId="s-1"
+        selected="all"
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByText('Jon Chan'))
+    expect(onChange).toHaveBeenCalledWith('s-1')
+  })
+
+  it('snaps back to "all" when the already-active staff pill is clicked', () => {
+    const onChange = jest.fn()
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId="s-1"
+        selected="s-1"
+        onChange={onChange}
+      />,
+    )
+    fireEvent.click(screen.getByText('Jon Chan'))
+    expect(onChange).toHaveBeenCalledWith('all')
+  })
+
+  it('marks the active staff pill with aria-pressed', () => {
+    render(
+      <CustomersStaffFilter
+        staffList={staff}
+        selfStaffId="s-1"
+        selected="s-2"
+        onChange={jest.fn()}
+      />,
+    )
+    expect(screen.getByText('佐藤').closest('button')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByText('Jon Chan').closest('button')).toHaveAttribute('aria-pressed', 'false')
+  })
+})

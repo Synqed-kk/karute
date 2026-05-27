@@ -4,6 +4,10 @@
  * Configured via setupFilesAfterEnv in jest.config.ts.
  */
 
+// DOM matchers (toBeInTheDocument, etc.) for jsdom component render tests.
+// Harmless to register in node-environment suites — only used by .tsx tests.
+import '@testing-library/jest-dom'
+
 const REQUIRED_ENV_VARS = [
   'NEXT_PUBLIC_SUPABASE_URL',
   'SUPABASE_SERVICE_ROLE_KEY',

@@ -839,7 +839,8 @@
       "speakerStaff": "Staff",
       "speakerCustomer": "Customer",
       "speakerUnknown": "Background"
-    }
+    },
+    "selectStaff": "Select a staff member"
   },
   "review": {
     "saveKarute": "Save Karute",
@@ -860,7 +861,9 @@
     "entryTitlePlaceholder": "Entry title...",
     "sourceQuotePlaceholder": "Source quote from transcript...",
     "entriesConfirmed": "{count, plural, one {# entry} other {# entries}} confirmed",
-    "selectCustomerAndSave": "Select customer & save"
+    "selectCustomerAndSave": "Select customer & save",
+    "staff": "Staff",
+    "selectStaff": "Select a staff member"
   },
   "coaching": {
     "common": {
@@ -1329,7 +1332,58 @@
     "tableColors": "Table Colors",
     "bookingSync": "Booking Sync",
     "bookingSyncDescription": "Sync with Quick Reserve etc.",
-    "stores": "Stores",
+    "stores": {
+      "title": "Stores",
+      "unnamedStore": "Unnamed store",
+      "ownerView": "Owner permissions",
+      "ownerDesc": "You can view and manage data (bookings, karute, AI analysis) across all stores.",
+      "storesCount": "{n} {n, plural, one {store} other {stores}} active",
+      "addStore": "Add",
+      "primaryBadge": "Main",
+      "activeBadge": "Active",
+      "staffUnit": "{n} staff",
+      "customersUnit": "{n} customers",
+      "viewing": "Active",
+      "switchTo": "Switch",
+      "edit": "Edit",
+      "emptyState": "No stores yet. Tap Add to register one.",
+      "activeStoreScopeNote": "The Switch button is a UI preview today — filtering each tab's data by the active store lights up when the stores table lands.",
+      "addStoreSubscription": {
+        "freeAtLimitTitle": "Upgrade to add another store",
+        "freeAtLimitBody": "The Free plan is limited to 1 store. Upgrade to Standard or Professional to add more.",
+        "seePlansCta": "See plans",
+        "enterpriseTitle": "Enterprise customer",
+        "enterpriseBody": "Contact your sales rep to add a store — additions are handled per your contract.",
+        "blockedStatusTitle": "Resolve your billing first",
+        "blockedStatusBody": "Your current subscription state blocks adding stores. Update your payment method first.",
+        "fixBillingCta": "Update payment",
+        "trialingTitle": "Add a store (trial)",
+        "trialingBody": "Adding a store is free during the trial. Billing starts when the trial ends on {trialEnd}.",
+        "addSeatCta": "Add",
+        "paidTitle": "Add a store",
+        "paidBody": "The {tier} plan charges {perStore}/month per store. Confirm to add the seat.",
+        "rowCurrent": "Current ({n} stores)",
+        "rowAfter": "After ({n} stores)",
+        "prorationNote": "Billing is prorated and reflected on your next invoice.",
+        "confirmAddCta": "Confirm + continue",
+        "cancel": "Cancel"
+      },
+      "form": {
+        "addTitle": "Add a new store",
+        "addDescription": "Register a new store. Staff and bookings can be configured later.",
+        "editTitle": "Edit store",
+        "editDescription": "Update name, address, and phone. Staff and booking data are unaffected.",
+        "storeName": "Store name",
+        "storeNamePlaceholder": "e.g., La Estro Shibuya",
+        "address": "Address",
+        "addressPlaceholder": "Shibuya, Tokyo...",
+        "phone": "Phone",
+        "cancel": "Cancel",
+        "save": "Add store",
+        "saveEdit": "Save changes",
+        "saved": "Saved"
+      }
+    },
     "coaching": {
       "title": "Coaching settings",
       "intro": "Feature that analyzes session conversations and gives staff growth-oriented feedback (Phase 3 planned). Settings are scaffolded here so they're ready when the feature ships.",
@@ -1477,58 +1531,6 @@
     "planStandard": "Standard",
     "planProfessional": "Professional",
     "planCurrent": "Current plan",
-    "stores": {
-      "title": "Stores",
-      "unnamedStore": "Unnamed store",
-      "ownerView": "Owner permissions",
-      "ownerDesc": "You can view and manage data (bookings, karute, AI analysis) across all stores.",
-      "storesCount": "{n} {n, plural, one {store} other {stores}} active",
-      "addStore": "Add",
-      "primaryBadge": "Main",
-      "activeBadge": "Active",
-      "staffUnit": "{n} staff",
-      "customersUnit": "{n} customers",
-      "viewing": "Active",
-      "switchTo": "Switch",
-      "edit": "Edit",
-      "emptyState": "No stores yet. Tap Add to register one.",
-      "activeStoreScopeNote": "The Switch button is a UI preview today — filtering each tab's data by the active store lights up when the stores table lands.",
-      "addStoreSubscription": {
-        "freeAtLimitTitle": "Upgrade to add another store",
-        "freeAtLimitBody": "The Free plan is limited to 1 store. Upgrade to Standard or Professional to add more.",
-        "seePlansCta": "See plans",
-        "enterpriseTitle": "Enterprise customer",
-        "enterpriseBody": "Contact your sales rep to add a store — additions are handled per your contract.",
-        "blockedStatusTitle": "Resolve your billing first",
-        "blockedStatusBody": "Your current subscription state blocks adding stores. Update your payment method first.",
-        "fixBillingCta": "Update payment",
-        "trialingTitle": "Add a store (trial)",
-        "trialingBody": "Adding a store is free during the trial. Billing starts when the trial ends on {trialEnd}.",
-        "addSeatCta": "Add",
-        "paidTitle": "Add a store",
-        "paidBody": "The {tier} plan charges {perStore}/month per store. Confirm to add the seat.",
-        "rowCurrent": "Current ({n} stores)",
-        "rowAfter": "After ({n} stores)",
-        "prorationNote": "Billing is prorated and reflected on your next invoice.",
-        "confirmAddCta": "Confirm + continue",
-        "cancel": "Cancel"
-      },
-      "form": {
-        "addTitle": "Add a new store",
-        "addDescription": "Register a new store. Staff and bookings can be configured later.",
-        "editTitle": "Edit store",
-        "editDescription": "Update name, address, and phone. Staff and booking data are unaffected.",
-        "storeName": "Store name",
-        "storeNamePlaceholder": "e.g., La Estro Shibuya",
-        "address": "Address",
-        "addressPlaceholder": "Shibuya, Tokyo...",
-        "phone": "Phone",
-        "cancel": "Cancel",
-        "save": "Add store",
-        "saveEdit": "Save changes",
-        "saved": "Saved"
-      }
-    },
     "subscription": {
       "label": "Subscription",
       "billingComingSoon": "Payment method and invoice history will be available when billing launches. Contact {email} for upgrades.",
@@ -1698,7 +1700,8 @@
     "emailChangeNotice": "Changing the email requires re-confirmation.",
     "voiceEnrollCta": "Enroll voice (optional)",
     "voiceRevoke": "Delete voice profile",
-    "coachingDescription": "Master settings, weights, consent"
+    "coachingDescription": "Master settings, weights, consent",
+    "addStore": "Add store"
   },
   "aiActions": {
     "title": "AI Recommended Actions",
@@ -2157,5 +2160,12 @@
     "proceed": "Next",
     "back": "Back",
     "done": "Done"
+  },
+  "switcher": {
+    "switchStaff": "Switch staff",
+    "enterPinFor": "Enter {name}'s PIN",
+    "incorrectPin": "Incorrect PIN",
+    "switchOut": "Switch out",
+    "selectStaff": "Select staff"
   }
 }
