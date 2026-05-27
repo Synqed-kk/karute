@@ -6,7 +6,7 @@ import { getStaffList } from '@/lib/staff'
 import { getActiveStaffId } from '@/lib/active-staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { SessionProvider } from '@/providers/session-provider'
-import { TopBar } from '@/components/layout/top-bar'
+import { MobileHeader } from '@/components/layout/MobileHeader'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -61,7 +61,7 @@ export default async function DashboardLayout({
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
           <main className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-bg)]">
-            <TopBar />
+            <MobileHeader />
             <div className="flex-1 overflow-y-auto">
               <div className="mx-auto max-w-7xl p-4 md:p-6">{children}</div>
             </div>
