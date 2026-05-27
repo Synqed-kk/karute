@@ -2,54 +2,9 @@
 
 import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
-
-/**
- * Validate the attribution target is a member of the signed-in org's roster.
- * Returns an error result to short-circuit the save, or null when valid.
- *
- * getStaffList() degrades to [] when synqed-core is unreachable, so an empty
- * roster is treated as a transient fetch failure — not a (misleading)
- * "not part of your salon" rejection.
- */
-async function validateStaffId(staffId: string): Promise<{ error: string } | null> {
-  const roster = await getStaffList()
-  if (roster.length === 0) {
-    return { error: 'Could not load your staff roster. Please try again.' }
-  }
-  if (!roster.some((s) => s.id === staffId)) {
-    return { error: 'Selected staff is not part of your salon.' }
-  }
-  return null
-}
-
-/**
- * Resolves the staff id for a save call.
- *
- * Two paths, kept compatible during the staff-id-from-client → staff-id-
- * from-auth migration:
- *  - If the caller supplies input.staffId (legacy callers, the picker-based
- *    review flow), validate it against the org roster and use it.
- *  - Otherwise, derive it from the signed-in user via getCurrentUserStaffId().
- *
- * Either path can return `{ error }`. The caller short-circuits the save.
- */
-async function resolveStaffIdForSave(
-  inputStaffId: string | undefined,
-): Promise<{ staffId: string } | { error: string }> {
-  if (inputStaffId) {
-    const staffError = await validateStaffId(inputStaffId)
-    if (staffError) return staffError
-    return { staffId: inputStaffId }
-  }
-  const current = await getCurrentUserStaffId()
-  if (!current) {
-    return { error: 'No staff identity for the signed-in user.' }
-  }
-  return { staffId: current }
-}
 
 /**
  * Save a karute record with all AI-extracted entries in a single atomic
@@ -67,12 +22,20 @@ export async function saveKaruteRecord(
   try {
     const synqed = await getSynqedClient()
 
-    const resolved = await resolveStaffIdForSave(input.staffId)
-    if ('error' in resolved) return resolved
+    // If linked to an appointment, attribute to that appointment's staff;
+    // otherwise attribute to the signed-in user's staff identity.
+    let staffId: string | null = await getCurrentUserStaffId()
+    if (input.appointmentId) {
+      const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
+      if (appt?.staff_id) staffId = appt.staff_id
+    }
+    if (!staffId) {
+      return { error: 'No staff identity for the signed-in user.' }
+    }
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
-      staff_id: resolved.staffId,
+      staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
@@ -106,12 +69,14 @@ export async function saveKaruteRecordInline(
   try {
     const synqed = await getSynqedClient()
 
-    const resolved = await resolveStaffIdForSave(input.staffId)
-    if ('error' in resolved) return resolved
+    const staffId = await getCurrentUserStaffId()
+    if (!staffId) {
+      return { error: 'No staff identity for the signed-in user.' }
+    }
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
-      staff_id: resolved.staffId,
+      staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
@@ -142,4 +107,66 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
+}
+
+/**
+ * Create a karute record from the manual-entry dialog (+ 新規カルテ on
+ * the karute list). Separate from saveKaruteRecord, which is the
+ * recording-flow path that lands with a transcript + AI-extracted
+ * entries already in hand.
+ *
+ * Manual creation is a "draft" record — no transcript, no entries.
+ * Staff fills in the entries themselves on the karute detail page,
+ * OR they later attach a recording (and the AI pass populates the
+ * entries from the transcript).
+ *
+ * ANTHONY contracts:
+ *   • `service` (text) and `duration_minutes` (int) are captured by
+ *     the dialog UI but NOT yet persisted — the karute_records
+ *     schema doesn't have those columns. Add them + a follow-up
+ *     migration backfills existing rows with null. The list-row
+ *     renderer (KaruteListRow) already expects both fields; this
+ *     will close that gap.
+ *   • `session_date` (date) — same situation. The dialog lets staff
+ *     pick a date for backdating; today the create call uses
+ *     `created_at` (now) implicitly. Adding the column lets staff
+ *     log a session from yesterday.
+ *
+ * Until those columns land, the captured values are dropped server-
+ * side. The dialog stays functional — staff get a draft karute
+ * record they can open and start adding entries to.
+ */
+export async function createManualKaruteRecord(input: {
+  customerId: string
+  staffId: string
+  sessionDate: string // YYYY-MM-DD — captured but not persisted yet
+  durationMinutes: number // captured but not persisted yet
+  service: string // captured but not persisted yet
+}): Promise<{ error: string } | void> {
+  let recordId: string
+
+  try {
+    const synqed = await getSynqedClient()
+
+    const record = await synqed.karuteRecords.create({
+      customer_id: input.customerId,
+      staff_id: input.staffId,
+      status: 'DRAFT',
+      // No transcript / no entries on manual create — staff fills
+      // those in on the detail page (or via a later recording).
+      transcript: null,
+      ai_summary: null,
+      entries: [],
+    })
+    recordId = record.id
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unexpected error' }
+  }
+
+  // revalidate + redirect outside try/catch — redirect() throws a
+  // control-flow exception that try/catch would swallow.
+  revalidatePath(`/customers/${input.customerId}`)
+  revalidatePath('/karute')
+  updateTag('dashboard')
+  redirect(`/karute/${recordId}`)
 }

@@ -10,13 +10,13 @@ import type { ExtractionResult, SummaryResult } from '@/types/ai'
 export const mockExtractionResult: ExtractionResult = {
   entries: [
     {
-      category: 'Preference',
+      category: 'preference',
       title: 'Natural brown color',
       source_quote: 'prefers a natural brown color',
       confidence_score: 0.92,
     },
     {
-      category: 'Health',
+      category: 'symptom',
       title: 'Sensitive scalp',
       source_quote: 'has sensitive scalp',
       confidence_score: 0.88,

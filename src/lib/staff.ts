@@ -1,6 +1,5 @@
 import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
-import { SynqedClient } from '@synqed-kk/client'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
@@ -22,38 +21,45 @@ export interface StaffMemberBasic {
   full_name: string | null
 }
 
+// Inside unstable_cache there's no request context (no cookies → no RLS),
+// so we use the service-role client and filter by businessId explicitly.
+// The cache key includes businessId so tenants never see each other's data.
 const staffListByBusiness = unstable_cache(
   async (businessId: string): Promise<StaffMember[]> => {
-    const baseUrl = process.env.SYNQED_CORE_URL
-    const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) {
-      console.error('[getStaffList] Missing SYNQED_CORE_URL/API_KEY')
+    const service = createServiceClient()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data, error } = await (service as any)
+      .from('profiles')
+      .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
+      .eq('customer_id', businessId)
+      .not('full_name', 'is', null)
+      .not('full_name', 'ilike', '_system_%')
+      .order('full_name', { ascending: true })
+
+    if (error) {
+      console.error('[getStaffList] Supabase error:', error.message)
       return []
     }
-    const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    try {
-      const { staff } = await client.staff.list({ page_size: 200 })
-      return staff
-        .filter((s) => s.is_active)
-        .map((s) => ({
-          id: s.id,
-          full_name: s.name,
-          display_role: s.role ? s.role.toLowerCase() : null,
-          position: null,
-          email: s.email,
-          phone: null,
-          avatar_url: s.avatar_url,
-          has_pin: false,
-          created_at: s.created_at,
-        }))
-    } catch (err) {
-      // Degrade gracefully if synqed-core is unreachable (e.g. local dev with
-      // the service down) — never reject from inside unstable_cache.
-      console.error('[getStaffList] synqed-core fetch failed:', err)
-      return []
-    }
+
+    return (data ?? []).map(
+      ({
+        pin_hash,
+        customer_id: _customer_id,
+        ...rest
+      }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
+        ...rest,
+        has_pin: !!pin_hash,
+      }),
+    ) as StaffMember[]
   },
-  ['staff-list-v2'],
+  // Staff onboarding is a once-in-a-while admin event, not a per-session
+  // thing — every karute mutation that changes a staff row (create/update/
+  // delete/avatar upload in src/actions/staff.ts) already calls
+  // updateTag('staff-list'), so the cache invalidates the moment something
+  // actually changes. The TTL is just a backstop in case a non-karute
+  // mutation slips in elsewhere (e.g. directly in Supabase). A day is
+  // generous and matches the rate of real staff churn.
+  ['staff-list-v1'],
   { revalidate: 86400, tags: ['staff-list'] },
 )
 
@@ -65,13 +71,12 @@ const staffListByBusiness = unstable_cache(
  *   - React `cache()` dedupes within a single request — the (app)/ layout
  *     plus the individual page (plus any nested server component) all share
  *     one Promise, no repeated cache lookups.
- *   - `unstable_cache` (on staffListByBusiness) reuses the synqed-core HTTP
- *     call across requests for 24h. Mutation actions in src/actions/staff.ts
- *     call updateTag('staff-list') to invalidate.
+ *   - `unstable_cache` (on staffListByBusiness) reuses the DB read across
+ *     requests for 24h. Mutation actions in src/actions/staff.ts call
+ *     updateTag('staff-list') to invalidate.
  *
  * The two layers compose: per-request dedup avoids redundant lookups inside
- * one render; cross-request cache avoids redundant synqed-core HTTP calls
- * across renders.
+ * one render; cross-request cache avoids redundant DB hits across renders.
  */
 export const getStaffList = cache(async (): Promise<StaffMember[]> => {
   try {
@@ -86,9 +91,15 @@ export const getStaffList = cache(async (): Promise<StaffMember[]> => {
  * Returns a single staff profile by ID, or null if not found.
  */
 export async function getStaffById(id: string): Promise<StaffMemberBasic | null> {
-  const list = await getStaffList()
-  const found = list.find((s) => s.id === id)
-  return found ? { id: found.id, full_name: found.full_name } : null
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, full_name')
+    .eq('id', id)
+    .single()
+
+  if (error) return null
+  return data
 }
 
 /**
@@ -100,9 +111,8 @@ export async function getStaffById(id: string): Promise<StaffMemberBasic | null>
  * session is still alive).
  *
  * Save flows must read staff_id from here — never accept it from client input,
- * never trust a cookie. Intended to replace the cookie-backed active-staff
- * pattern (src/lib/active-staff.ts), which can let stale ids survive auth
- * wipes and cause FK violations.
+ * never trust a cookie. Replaces the old cookie-backed active-staff pattern,
+ * which let stale ids survive auth wipes and caused FK violations.
  */
 export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
   const userId = await resolveUserId().catch(() => null)
