@@ -11,7 +11,7 @@ export function AuditLogSection() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold">{t('auditLog')}</h3>
+        <h3 className="text-lg font-semibold">{t('auditLog.label')}</h3>
         <p className="text-sm text-muted-foreground">
           {t('auditLogDescription')}
         </p>

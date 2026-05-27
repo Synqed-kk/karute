@@ -9,6 +9,7 @@ import {
   type OrgSettings,
   type AIVoiceStyle,
 } from '@/actions/org-settings'
+import { IntakeFormEditor } from './intake/IntakeFormEditor'
 
 const AI_MODELS = [
   { value: 'gpt-4o-mini', label: 'GPT-4o mini (Fast)' },
@@ -55,7 +56,7 @@ export function AISection({ orgSettings }: AISectionProps) {
       </div>
 
       <div>
-        <label className="text-sm font-medium mb-1.5 block">{t('aiModel')}</label>
+        <label className="text-sm font-medium mb-1.5 block">{t('aiModel.label')}</label>
         <select
           value={aiModel}
           onChange={(e) => {
@@ -150,7 +151,16 @@ export function AISection({ orgSettings }: AISectionProps) {
 
       <div className="border-t border-border/30 pt-6 grid grid-cols-1 md:grid-cols-2 gap-3">
         <V2Card label={t('aiCustomizeProfile')} description={t('aiCustomizeProfileDescription')} badge={t('comingInV2')} />
-        <V2Card label={t('aiIntakeForms')} description={t('aiIntakeFormsDescription')} badge={t('comingInV2')} />
+      </div>
+
+      {/* Intake form editor — owner-custom first-visit fields. Lifted
+       *  from spike's IntakeFormEditor; the "Synqed-base intake hints"
+       *  half waits on BusinessProfile.intakeHints landing (placeholder
+       *  scaffold pane inside the component documents the wiring). */}
+      <div className="border-t border-border/30 pt-6">
+        <IntakeFormEditor
+          businessType={orgSettings?.business_type || 'esthetic_salon'}
+        />
       </div>
     </div>
   )
