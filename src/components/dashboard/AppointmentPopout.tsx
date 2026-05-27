@@ -79,7 +79,7 @@ export function AppointmentPopout({
     }
 
     const result = await createAppointment({
-      staffId: staffId,
+      staffProfileId: staffId,
       clientId: selectedCustomerId,
       startTime: startDate.toISOString(),
       durationMinutes: duration,

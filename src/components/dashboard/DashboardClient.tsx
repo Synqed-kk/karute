@@ -271,7 +271,13 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       }
       refreshBars()
     },
-    [selectedDate, refreshBars]
+    // `t` included because the callback reads localized toast strings.
+    // Was missing — surfaced as a react-hooks/exhaustive-deps warning
+    // AND a React Compiler "Compilation Skipped: Existing memoization
+    // could not be preserved" error (which Liam saw in the Vercel
+    // toolbar's "10 Issues" badge). Adding `t` lets the compiler
+    // preserve the memoization and fixes both at once.
+    [selectedDate, refreshBars, t]
   )
 
   // Delete appointment from bar popover
@@ -289,7 +295,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       }
       refreshBars()
     },
-    [refreshBars]
+    [refreshBars, t]
   )
 
   const handleDeleteKarute = useCallback(
@@ -302,7 +308,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
       }
       refreshBars()
     },
-    [refreshBars]
+    [refreshBars, t]
   )
 
   // Bar popover — show details + actions based on type
@@ -392,7 +398,7 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
         </div>
       )
     },
-    [router, handleDeleteAppointment, handleDeleteKarute, rawAppointments, recorderState, startRecording, setRecordingAppointmentId]
+    [router, handleDeleteAppointment, handleDeleteKarute, rawAppointments, recorderState, startRecording, setRecordingAppointmentId, t]
   )
 
   const [showAllStaff, setShowAllStaff] = useState(false)

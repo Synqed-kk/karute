@@ -245,7 +245,6 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
     setIsSaving(true)
     const saveResult = await saveKaruteRecordInline({
       customerId: selectedCustomerId,
-      staffId: activeStaffId,
       transcript: pipelineResult.transcript,
       summary: pipelineResult.summary,
       entries: pipelineResult.entries.map((e) => ({
@@ -267,7 +266,7 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
     finalizeBar(barId, saveResult.id)
     setPhase('done')
     setIsSaving(false)
-  }, [pipelineResult, selectedCustomerId, barId, result, finalizeBar, activeStaffId])
+  }, [pipelineResult, selectedCustomerId, barId, result, finalizeBar])
 
   const handleCustomerCreated = useCallback((newCustomer: CustomerOption) => {
     setCustomerList((prev) => [newCustomer, ...prev])
