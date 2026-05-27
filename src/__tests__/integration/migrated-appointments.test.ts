@@ -6,17 +6,17 @@
  *   - deleteAppointment / updateAppointment thin pass-through
  */
 
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(() => ({
-    get: jest.fn(() => undefined),
-    getAll: jest.fn(() => []),
-    set: jest.fn(),
-  })),
+jest.mock('next/cache', () => ({
+  revalidatePath: jest.fn(),
+  updateTag: jest.fn(),
+  // unstable_cache is invoked at module-init by lib/customers/cached.ts; the
+  // bare next/cache mock left it undefined and threw "is not a function".
+  // Real one wraps a function with caching — for tests, just return the
+  // inner function so it's called directly with no caching layer.
+  unstable_cache: jest.fn((fn: (...args: unknown[]) => unknown) => fn),
 }))
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getActiveStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
 }))
 
 // Stub getOrgSettings so validateAppointmentTime treats operating hours as permissive
@@ -49,6 +49,7 @@ jest.mock('@synqed-kk/client', () => {
 
 const customers = {
   get: jest.fn(),
+  list: jest.fn(),
 }
 const appointments = {
   create: jest.fn(),
@@ -61,7 +62,18 @@ const karuteRecords = {
 }
 
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ customers, appointments, karuteRecords })),
+  getSynqedClient: jest.fn(async () => ({
+    customers,
+    appointments,
+    karuteRecords,
+  })),
+}))
+
+// getAppointmentsByDate switched from N+1 customers.get calls to a single
+// cached batch via getCachedCustomerList — mock that or it returns [].
+const cachedCustomerList: Array<{ id: string; name: string }> = []
+jest.mock('@/lib/customers/cached', () => ({
+  getCachedCustomerList: jest.fn(async () => cachedCustomerList),
 }))
 
 import {
@@ -78,11 +90,11 @@ describe('Migrated appointment actions', () => {
   })
 
   describe('createAppointment', () => {
-    it('maps input and computes ends_at', async () => {
+    it('passes synqed staff id straight through to synqed-core', async () => {
       appointments.create.mockResolvedValue({ id: 'appt-1' })
 
       const result = await createAppointment({
-        staffProfileId: 'staff-1',
+        staffId: 'synqed-staff-1',
         clientId: 'cust-1',
         startTime: '2026-05-10T10:00:00.000Z',
         durationMinutes: 60,
@@ -93,7 +105,7 @@ describe('Migrated appointment actions', () => {
       expect(result).toEqual({ id: 'appt-1' })
       expect(appointments.create).toHaveBeenCalledWith({
         customer_id: 'cust-1',
-        staff_id: 'staff-1',
+        staff_id: 'synqed-staff-1',
         starts_at: '2026-05-10T10:00:00.000Z',
         ends_at: '2026-05-10T11:00:00.000Z',
         duration_minutes: 60,
@@ -106,7 +118,7 @@ describe('Migrated appointment actions', () => {
       appointments.create.mockRejectedValue(new SynqedError(409, 'overlap'))
 
       const result = await createAppointment({
-        staffProfileId: 'staff-1',
+        staffId: 'staff-1',
         clientId: 'cust-1',
         startTime: '2026-05-10T10:00:00.000Z',
         durationMinutes: 60,
@@ -131,6 +143,8 @@ describe('Migrated appointment actions', () => {
             title: null,
             notes: null,
             created_at: '2026-05-10T00:00:00.000Z',
+            status: 'SCHEDULED',
+            source: 'MANUAL',
           },
           {
             id: 'appt-2',
@@ -141,11 +155,15 @@ describe('Migrated appointment actions', () => {
             title: null,
             notes: null,
             created_at: '2026-05-10T00:00:00.000Z',
+            status: 'SCHEDULED',
+            source: 'QUICKRESERVE',
           },
         ],
       })
-      customers.get.mockImplementation((id: string) =>
-        Promise.resolve({ id, name: id === 'cust-1' ? '山田' : '佐藤' }),
+      cachedCustomerList.length = 0
+      cachedCustomerList.push(
+        { id: 'cust-1', name: '山田' },
+        { id: 'cust-2', name: '佐藤' },
       )
       karuteRecords.list.mockResolvedValue({
         karute_records: [{ id: 'k-1', appointment_id: 'appt-1' }, { id: 'k-2', appointment_id: null }],
@@ -160,11 +178,13 @@ describe('Migrated appointment actions', () => {
         client_id: 'cust-1',
         karute_record_id: 'k-1',
         customers: { name: '山田' },
+        source: 'MANUAL',
       })
       expect(rows[1]).toMatchObject({
         id: 'appt-2',
         karute_record_id: null,
         customers: { name: '佐藤' },
+        source: 'QUICKRESERVE',
       })
     })
 

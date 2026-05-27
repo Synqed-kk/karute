@@ -38,7 +38,9 @@ export interface KaruteListRecord {
   staff_profile_id: string | null
   customers: { id: string; name: string } | null
   profiles: { id: string; full_name: string | null } | null
-  entries: Array<{ id: string }> | null
+  // PostgREST aggregate: entries(count) returns [{ count: N }] per row, avoiding
+  // a full child-row fetch just to render a count.
+  entries: Array<{ count: number }> | null
 }
 
 function deriveInitials(name: string): string {
@@ -57,7 +59,17 @@ function pad2(n: number): string {
 }
 
 function isoDay(d: Date): string {
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+  // Bucket karute records by JST calendar day (the app is Japan-only).
+  // Runtime-local methods would drift on Vercel's UTC server.
+  return d.toLocaleDateString('en-CA', { timeZone: 'Asia/Tokyo' })
+}
+
+function hhmmJst(d: Date): string {
+  return d.toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function deriveStatus(
@@ -78,14 +90,14 @@ export function karuteRecordsToRichRows(
     return {
       id: r.id,
       date: isoDay(dt),
-      time: `${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`,
+      time: hhmmJst(dt),
       customerName,
       customerInitials: deriveInitials(customerName),
       karuteNumber: deriveKaruteNumber(r.id),
       service: null,
       serviceDetail: null,
       duration: null,
-      entryCount: Array.isArray(r.entries) ? r.entries.length : 0,
+      entryCount: Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0,
       staffId: r.staff_profile_id,
       staffName: r.profiles?.full_name ?? null,
       status: deriveStatus(r.summary, r.transcript),

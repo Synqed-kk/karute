@@ -1,45 +1,102 @@
-import { listCustomers } from '@/lib/customers/queries'
-import { customersToRowData } from '@/lib/adapters/customers-list'
-import { CustomersListView } from '@/components/customers/CustomersListView'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
+import type { CustomerListRow } from '@/components/customers/redesign/types'
+import {
+  defaultAiPredict,
+  deriveKaruteNumber,
+  deriveStatus,
+  enrichCustomers,
+  formatJoinDate,
+  formatLastVisit,
+} from '@/lib/customers/list-enrich'
+import { getBusinessId } from '@/lib/staff'
+import { startTiming } from '@/lib/perf/timing'
 
-const PAGE_SIZE = 12
+function deriveInitials(name: string): string {
+  const parts = name.trim().split(/\s+/)
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
 
 export default async function CustomersPage({
   searchParams,
 }: {
-  searchParams: Promise<{
-    query?: string
-    page?: string
-    sort?: string
-    order?: string
-  }>
+  searchParams: Promise<{ query?: string }>
 }) {
-  const params = await searchParams
-  const query = params.query ?? ''
-  const page = Number(params.page ?? '1')
-  const sort = (params.sort ?? 'updated_at') as
-    | 'name'
-    | 'updated_at'
-    | 'created_at'
-  const order = (params.order ?? 'desc') as 'asc' | 'desc'
+  const { query: rawQuery } = await searchParams
+  const query = rawQuery ?? ''
 
-  const { customers, totalCount } = await listCustomers({
-    query,
-    page,
-    pageSize: PAGE_SIZE,
-    sortBy: sort,
-    sortOrder: order,
+  const t = startTiming(`customers q="${query}"`)
+  const synqed = await getSynqedClient()
+
+  // Fetch the full tenant customer list (capped at 500 — same as the cached
+  // list elsewhere). For search/sort/pagination we'd switch to the original
+  // server-side params, but the redesigned list filters in-memory.
+  const [list, staffList, activeStaffId, businessId] = await Promise.all([
+    t.phase('customers.list', () =>
+      synqed.customers.list({
+        search: query.trim() || undefined,
+        page: 1,
+        page_size: 500,
+        sort_by: 'updated_at',
+        sort_order: 'desc',
+      }),
+    ),
+    t.phase('staffList', () => getStaffList()),
+    t.phase('activeStaffId', () => getActiveStaffId()),
+    t.phase('businessId', () => getBusinessId()),
+  ])
+
+  const staffNameById = new Map(
+    staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
+  )
+
+  const customerIds = list.customers.map((c) => c.id)
+  const enrichment = await t.phase('enrichCustomers', () =>
+    enrichCustomers(businessId, customerIds),
+  )
+  t.end()
+
+  const rows: CustomerListRow[] = list.customers.map((c) => {
+    const enriched = enrichment.get(c.id)
+    const lastVisitIso = enriched?.lastVisitIso ?? null
+    const status = deriveStatus(c.created_at, lastVisitIso)
+    const last = formatLastVisit(lastVisitIso)
+    const totalKarute = enriched?.totalKarute ?? 0
+    return {
+      id: c.id,
+      name: c.name,
+      initials: deriveInitials(c.name),
+      karuteNumber: deriveKaruteNumber(c.id),
+      // Stubs — these fields don't exist on the customer record yet.
+      age: null,
+      gender: null,
+      joinDate: formatJoinDate(c.created_at),
+      joinDateIso: c.created_at ?? null,
+      visitsDone: Math.min(totalKarute, 5),
+      visitsTotal: 5,
+      lastVisitDate: last.date,
+      lastVisitAgo: last.ago,
+      aiPredict: defaultAiPredict(status),
+      status,
+      preferredStaffId: c.assigned_staff_id ?? null,
+      preferredStaffName: c.assigned_staff_id
+        ? (staffNameById.get(c.assigned_staff_id) ?? null)
+        : null,
+      totalKarute,
+      phone: c.phone,
+      email: c.email,
+    }
   })
-
-  const rows = customersToRowData(customers)
 
   return (
     <CustomersListView
       rows={rows}
-      totalCount={totalCount}
-      page={page}
-      pageSize={PAGE_SIZE}
+      totalRegistered={list.total}
       query={query}
+      selfStaffId={activeStaffId}
     />
   )
 }

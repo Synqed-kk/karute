@@ -1,32 +1,34 @@
 import type { Appointment } from '@synqed-kk/client'
 import type { MonthGridCell, WeekDayCardData, MonthDensityBucket } from '@synqed-kk/ui'
+import { partsInJst, ymdInJst } from '@/lib/date/jst'
 
 // ---------------------------------------------------------------------------
 // Adapter: synqed-core Appointment[] -> WeekDayCardData[] / MonthGridCell[]
 // Pure functions; caller owns date math and business hours lookup.
+//
+// All bucketing + display is JST-anchored. Runtime-local methods (getDate(),
+// getHours()) drift on the Vercel UTC server — a 23:30 JST booking on
+// 2026-05-19 has UTC date 2026-05-19 14:30, but is bucketed as the next day
+// in JST. Going through JST helpers keeps server and client in sync.
 // ---------------------------------------------------------------------------
 
 const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const VISIBLE_BOOKING_LIMIT = 4
 
 function isoDay(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return ymdInJst(d)
 }
 
 function sameYMD(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  )
+  return ymdInJst(a) === ymdInJst(b)
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function durationMinutes(a: Appointment): number {
@@ -69,10 +71,11 @@ export function appointmentsToWeekData(
       shortName: a.title ?? '—',
     }))
 
+    const cp = partsInJst(cursor)
     days.push({
-      dateNumber: cursor.getDate(),
-      monthNumber: cursor.getMonth() + 1,
-      weekdayLabel: WEEKDAY_LABELS[cursor.getDay()],
+      dateNumber: cp.day,
+      monthNumber: cp.month,
+      weekdayLabel: WEEKDAY_LABELS[cp.weekday],
       isToday: sameYMD(cursor, today),
       count: dayAppts.length,
       bookedMinutes,
@@ -111,13 +114,15 @@ export function appointmentsToMonthCells(
 
   // Grid starts on Monday (matches MonthGrid default weekday labels: Mon..Sun).
   // JS Day: 0=Sun..6=Sat; convert to Mon-first index (Mon=0..Sun=6).
-  const monthStartDay = monthStart.getDay()
-  const monStartIdx = (monthStartDay + 6) % 7
+  // Pull weekday in JST so the leading-padding count is correct when the
+  // server is UTC and monthStart is a JST midnight UTC instant.
+  const monthStartParts = partsInJst(monthStart)
+  const monStartIdx = (monthStartParts.weekday + 6) % 7
   const gridStart = new Date(monthStart)
   gridStart.setDate(gridStart.getDate() - monStartIdx)
 
-  const monthEndDay = monthEnd.getDay()
-  const monEndIdx = (monthEndDay + 6) % 7
+  const monthEndParts = partsInJst(monthEnd)
+  const monEndIdx = (monthEndParts.weekday + 6) % 7
   const trailing = 6 - monEndIdx
   const gridEnd = new Date(monthEnd)
   gridEnd.setDate(gridEnd.getDate() + trailing)
@@ -127,9 +132,9 @@ export function appointmentsToMonthCells(
   while (cursor <= gridEnd) {
     const key = isoDay(cursor)
     const count = buckets.get(key) ?? 0
+    const cp = partsInJst(cursor)
     const inMonth =
-      cursor.getMonth() === monthStart.getMonth() &&
-      cursor.getFullYear() === monthStart.getFullYear()
+      cp.month === monthStartParts.month && cp.year === monthStartParts.year
     cells.push({
       id: key,
       date: new Date(cursor),

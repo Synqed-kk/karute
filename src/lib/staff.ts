@@ -1,5 +1,9 @@
+import { cache } from 'react'
+import { unstable_cache } from 'next/cache'
+import { SynqedClient } from '@synqed-kk/client'
 import { createClient } from '@/lib/supabase/server'
-import { cookies } from 'next/headers'
+import { createServiceClient } from '@/lib/supabase/service'
+import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
 
 export interface StaffMember {
   id: string
@@ -18,72 +22,73 @@ export interface StaffMemberBasic {
   full_name: string | null
 }
 
+const staffListByBusiness = unstable_cache(
+  async (businessId: string): Promise<StaffMember[]> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) {
+      console.error('[getStaffList] Missing SYNQED_CORE_URL/API_KEY')
+      return []
+    }
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    try {
+      const { staff } = await client.staff.list({ page_size: 200 })
+      return staff
+        .filter((s) => s.is_active)
+        .map((s) => ({
+          id: s.id,
+          full_name: s.name,
+          display_role: s.role ? s.role.toLowerCase() : null,
+          position: null,
+          email: s.email,
+          phone: null,
+          avatar_url: s.avatar_url,
+          has_pin: false,
+          created_at: s.created_at,
+        }))
+    } catch (err) {
+      // Degrade gracefully if synqed-core is unreachable (e.g. local dev with
+      // the service down) — never reject from inside unstable_cache.
+      console.error('[getStaffList] synqed-core fetch failed:', err)
+      return []
+    }
+  },
+  ['staff-list-v2'],
+  { revalidate: 86400, tags: ['staff-list'] },
+)
+
 /**
  * Returns all staff profiles ordered alphabetically by full_name.
  * Returns an empty array on error (safe to render empty list).
+ *
+ * Two layers of caching:
+ *   - React `cache()` dedupes within a single request — the (app)/ layout
+ *     plus the individual page (plus any nested server component) all share
+ *     one Promise, no repeated cache lookups.
+ *   - `unstable_cache` (on staffListByBusiness) reuses the synqed-core HTTP
+ *     call across requests for 24h. Mutation actions in src/actions/staff.ts
+ *     call updateTag('staff-list') to invalidate.
+ *
+ * The two layers compose: per-request dedup avoids redundant lookups inside
+ * one render; cross-request cache avoids redundant synqed-core HTTP calls
+ * across renders.
  */
-export async function getStaffList(): Promise<StaffMember[]> {
-  const supabase = await createClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data, error } = await (supabase as any)
-    .from('profiles')
-    .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash')
-    .not('full_name', 'is', null)
-    .not('full_name', 'ilike', '_system_%')
-    .order('full_name', { ascending: true })
-
-  if (error) {
-    console.error('[getStaffList] Supabase error:', error.message)
+export const getStaffList = cache(async (): Promise<StaffMember[]> => {
+  try {
+    const businessId = await getBusinessId()
+    return await staffListByBusiness(businessId)
+  } catch {
     return []
   }
-
-  // Strip pin_hash — never send hashes to the client. Replace with boolean flag.
-  return (data ?? []).map(({ pin_hash, ...rest }: { pin_hash?: string | null; [key: string]: unknown }) => ({
-    ...rest,
-    has_pin: !!pin_hash,
-  })) as StaffMember[]
-}
+})
 
 /**
  * Returns a single staff profile by ID, or null if not found.
  */
 export async function getStaffById(id: string): Promise<StaffMemberBasic | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .eq('id', id)
-    .single()
-
-  if (error) return null
-  return data
-}
-
-/**
- * Reads the active_staff_id cookie server-side.
- * Returns the cookie value or null if not set.
- *
- * Usage in save actions: always read staff_id from here — never accept it from client.
- * For mutations that record staff_id on a row, prefer `getValidatedActiveStaffId()`
- * so a stale cookie (e.g. for a deleted staff) doesn't poison the data.
- */
-export async function getActiveStaffId(): Promise<string | null> {
-  const cookieStore = await cookies()
-  return cookieStore.get('active_staff_id')?.value ?? null
-}
-
-/**
- * Like `getActiveStaffId()` but verifies the id against the current staff list.
- * Returns null if the cookie value doesn't match any active staff member —
- * caller should treat that as "no staff selected" and refuse to save.
- *
- * Avoids saving rows pinned to a deleted-staff id (audit-trail integrity).
- */
-export async function getValidatedActiveStaffId(): Promise<string | null> {
-  const id = await getActiveStaffId()
-  if (!id) return null
   const list = await getStaffList()
-  return list.some((s) => s.id === id) ? id : null
+  const found = list.find((s) => s.id === id)
+  return found ? { id: found.id, full_name: found.full_name } : null
 }
 
 /**
@@ -92,17 +97,44 @@ export async function getValidatedActiveStaffId(): Promise<string | null> {
  * `profiles.customer_id` column — the legacy schema still names
  * the business column `customer_id` until the legacy-strip lands.
  */
-export async function getBusinessId(): Promise<string> {
+async function resolveUserId(): Promise<string> {
   const supabase = await createClient()
+  const jwtSecret = process.env.SUPABASE_JWT_SECRET
+
+  // Fast path: verify the JWT locally if the secret is configured. Skips a
+  // ~150ms round-trip to Supabase Auth on every page. Falls back to getUser()
+  // when the secret is missing or the token doesn't validate (e.g. just
+  // rotated keys) so we never lock users out on a misconfiguration.
+  if (jwtSecret) {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (session?.access_token) {
+      try {
+        const claims = verifySupabaseJwt(session.access_token, jwtSecret)
+        return claims.sub
+      } catch (err) {
+        if (!(err instanceof LocalJwtError)) throw err
+        // fall through to remote verification
+      }
+    }
+  }
+
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
+  return user.id
+}
 
-  const { data } = await supabase
+// Memoized for the lifetime of a single request via React cache(). Called from
+// many places per page (every Supabase scope check, every synqed client init)
+// so deduping the auth + profile lookup is worth the wrapper.
+export const getBusinessId = cache(async (): Promise<string> => {
+  const userId = await resolveUserId()
+  const service = createServiceClient()
+  const { data } = await service
     .from('profiles')
     .select('customer_id')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single()
 
   if (!data?.customer_id) throw new Error('Business profile not found')
   return data.customer_id
-}
+})

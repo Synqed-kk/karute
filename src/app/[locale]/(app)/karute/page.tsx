@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getStaffList } from '@/lib/staff'
+import { getCachedCustomerList } from '@/lib/customers/cached'
 import { KaruteListView } from '@/components/karute/KaruteListView'
 import {
   karuteRecordsToRichRows,
@@ -8,38 +10,40 @@ import {
 /**
  * Karute records list page at /[locale]/karute.
  *
- * Fetches all karute_records for the current user's business, ordered by
- * session_date descending. Renders the redesigned list view (header, search,
- * status filters, date groups, desktop/mobile rows).
+ * Reads through synqed-core (the source of truth) — the same path the detail
+ * page and the save flow use. Customer + staff names aren't joined by the list
+ * endpoint, so we resolve them from the cached roster + customer list and remap
+ * to the list adapter's historical field names.
  */
 export default async function KaruteListPage() {
-  const supabase = await createClient()
+  const [{ karute_records }, staffList, customers] = await Promise.all([
+    getSynqedClient().then((c) => c.karuteRecords.list({ page_size: 100 })),
+    getStaffList(),
+    getCachedCustomerList(),
+  ])
 
-  const { data: records, error } = await supabase
-    .from('karute_records')
-    .select(
-      `
-      id,
-      session_date,
-      created_at,
-      summary,
-      transcript,
-      staff_profile_id,
-      customers:client_id ( id, name ),
-      profiles:staff_profile_id ( id, full_name ),
-      entries ( id )
-    `,
-    )
-    .order('session_date', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
+  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? '—']))
+  const customerNameById = new Map(customers.map((c) => [c.id, c.name]))
 
-  if (error) {
-    throw new Error(error.message)
-  }
+  const records: KaruteListRecord[] = karute_records.map((r) => ({
+    id: r.id,
+    // synqed-core has no dedicated session_date column; created_at drives both
+    // the date bucket and the time, matching the detail page.
+    session_date: r.created_at,
+    created_at: r.created_at,
+    summary: r.ai_summary,
+    transcript: r.transcript,
+    staff_profile_id: r.staff_id,
+    customers: r.customer_id
+      ? { id: r.customer_id, name: customerNameById.get(r.customer_id) ?? 'Unknown' }
+      : null,
+    profiles: r.staff_id
+      ? { id: r.staff_id, full_name: staffNameById.get(r.staff_id) ?? '—' }
+      : null,
+    entries: [{ count: r.entry_count ?? 0 }],
+  }))
 
-  const rows = karuteRecordsToRichRows(
-    (records ?? []) as unknown as KaruteListRecord[],
-  )
+  const rows = karuteRecordsToRichRows(records)
 
   return <KaruteListView rows={rows} />
 }

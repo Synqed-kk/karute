@@ -22,9 +22,10 @@ interface ReservationGridProps {
   staff: ReservationStaff[]
   reservations: ReservationView[]
   businessHours: BusinessHours
+  onSelect?: (view: ReservationView) => void
 }
 
-export function ReservationGrid({ staff, reservations, businessHours }: ReservationGridProps) {
+export function ReservationGrid({ staff, reservations, businessHours, onSelect }: ReservationGridProps) {
   const t = useTranslations('reservation')
   const ppm = HOUR_WIDTH / 60
   const totalWidth = (businessHours.end - businessHours.start) * HOUR_WIDTH
@@ -73,6 +74,7 @@ export function ReservationGrid({ staff, reservations, businessHours }: Reservat
                 startHour={businessHours.start}
                 ppm={ppm}
                 totalWidth={totalWidth}
+                onSelect={onSelect}
               />
             )
           })}

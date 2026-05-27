@@ -8,6 +8,29 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* sage = warm dark gray scale — primary brand color across the
+ * design spike. Declared in a NON-inline @theme block so Tailwind
+ * v4 emits the values into :root AND generates the bg-sage-*,
+ * text-sage-*, ring-sage-*, etc. utility classes. (`@theme inline`
+ * below expects values to come from CSS variables defined elsewhere,
+ * so literal hex values inside it silently fail to produce
+ * utilities — which is what broke `bg-sage-800` in PR #55. The
+ * button rendered with a transparent background + white text on the
+ * white card, making it invisible.) */
+@theme {
+  --color-sage-50: #fafafa;
+  --color-sage-100: #f4f4f5;
+  --color-sage-200: #e4e4e7;
+  --color-sage-300: #d4d4d8;
+  --color-sage-400: #a1a1aa;
+  --color-sage-500: #71717a;
+  --color-sage-600: #27272a;
+  --color-sage-700: #18181b;
+  --color-sage-800: #1f2937;
+  --color-sage-900: #111827;
+  --color-sage-950: #030712;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -62,7 +85,11 @@
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
+  /* Match the design-spike's gray-500 (#6b7280) instead of the
+   * pure-grayscale oklch(0.556 0 0). The hex has a slight blue cast
+   * that reads less washed-out in JP/Latin mixed copy and matches
+   * the spike's "secondary text" color exactly. */
+  --muted-foreground: #6b7280;
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
@@ -141,6 +168,16 @@
   body {
     background-color: var(--color-bg);
     color: var(--color-text);
+    /* Match the design spike's type rendering:
+     *   - `palt` (proportional alternate widths) tightens kana/kanji
+     *     spacing so JP text doesn't read as visually "loose"
+     *   - antialiased + optimizeLegibility for crisp glyphs across
+     *     macOS Safari/Chrome (otherwise inherits browser defaults
+     *     which differ per platform) */
+    font-feature-settings: "palt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   html {
     @apply font-sans;
@@ -243,6 +280,35 @@
   }
   .reservation-grid-scroll::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Make @synqed-kk/ui's ReservationPageHeader "Today" button render
+   * blue + with a clickable affordance, matching the design spike.
+   *
+   * The package ships the Today button as the only child using
+   * `text-[var(--color-accent)]` — but karute's accent token is
+   * near-white (oklch(0.97 0 0)), so it renders as nearly-invisible
+   * grey text. The button reads as plain content, not clickable.
+   *
+   * Fix: scope the accent CSS variable to blue ONLY inside the
+   * `.reservation-today-blue` wrapper we apply around the header.
+   * Tailwind's `text-[var(--color-accent)]` then picks up blue from
+   * the wrapper, and `hover:bg-[var(--color-accent)]/10` (also in
+   * the package) gives the matching blue hover ring.
+   *
+   * Scoped to the wrapper so no other component in the system that
+   * uses --color-accent gets recolored. The new-booking icon button
+   * inside the header uses `bg-[var(--color-accent)]` too, but it
+   * sits next to the date selector chip and reads fine in blue as
+   * a "primary action" affordance — same look as the spike.
+   */
+  .reservation-today-blue {
+    --color-accent: oklch(0.546 0.215 262.881);    /* ~ Tailwind blue-600 */
+    --color-accent-hover: oklch(0.488 0.243 264.376); /* ~ blue-700 */
+  }
+  .dark .reservation-today-blue {
+    --color-accent: oklch(0.776 0.156 256.6);      /* ~ blue-300 */
+    --color-accent-hover: oklch(0.700 0.180 258.0); /* ~ blue-400 */
   }
 }
 

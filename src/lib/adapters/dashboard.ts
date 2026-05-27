@@ -26,14 +26,24 @@ export interface DashboardKaruteInput {
 }
 
 function formatTime(iso: string): string {
-  const d = new Date(iso)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 function formatShortDate(iso: string): string {
-  const d = new Date(iso)
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  // "MM/DD" in JST. Manually composed because Intl's en-US "short" gives
+  // M/D without zero-padding and ja-JP gives "MM月DD日" — neither matches
+  // the existing format on the dashboard.
+  const fmt = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date(iso))
+  const m = fmt.find((p) => p.type === 'month')?.value ?? '01'
+  const day = fmt.find((p) => p.type === 'day')?.value ?? '01'
   return `${m}/${day}`
 }
 

@@ -42,7 +42,16 @@ export function SignupForm({ locale }: { locale: string }) {
       return
     }
     if (!data.user) {
-      setError('Signup did not return a user. Try again.')
+      setError(t('signupNoUser'))
+      setLoading(false)
+      return
+    }
+    // Supabase returns an obfuscated user object (identities: []) when the
+    // email is already registered — meant to block account enumeration.
+    // Without this guard, bootstrap would fail later with a confusing
+    // "User not found in auth" because the id may not resolve.
+    if (data.user.identities && data.user.identities.length === 0) {
+      setError(t('emailAlreadyRegistered'))
       setLoading(false)
       return
     }

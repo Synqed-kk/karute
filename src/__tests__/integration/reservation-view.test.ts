@@ -2,13 +2,16 @@
  * Reservation-view adapter: maps AppointmentRow -> ReservationView with derived
  * fields (display status, formatted time, customer initials, staff color key).
  *
- * Display status mapping (phase 1 — 3 states):
- *   COMPLETED, CANCELLED   -> 'completed'  (treated as inactive)
- *   IN_PROGRESS            -> 'in_session' (explicit override)
- *   SCHEDULED + time-based -> 'completed' | 'in_session' | 'booked'
+ * Display status mapping (5 states):
+ *   COMPLETED, CANCELLED        -> 'completed'  (treated as inactive)
+ *   IN_PROGRESS or time-in      -> 'in_session' (explicit override)
+ *   end < now                   -> 'completed'
+ *   source !== MANUAL           -> 'pending'    (synced, not yet confirmed)
+ *   visitCount === 0            -> 'new'        (first-time customer)
+ *   else                        -> 'booked'
  *
- * 'pending' and 'new' are deferred — current synqed-core has no PENDING analog
- * and first-visit lookup is out of scope for this phase.
+ * 'pending' and 'new' are derived from existing signals (source enum +
+ * karute_records count) — no schema changes required.
  */
 
 import {
@@ -31,6 +34,7 @@ function row(over: Partial<AppointmentRow>): AppointmentRow {
     created_at: '2026-05-12T08:00:00.000Z',
     customers: { name: 'Yamada Hanako' },
     synqed_status: 'SCHEDULED',
+    source: 'MANUAL',
     ...over,
   } as AppointmentRow
 }
@@ -70,14 +74,35 @@ describe('computeDisplayStatus', () => {
     const r = row({ synqed_status: 'CANCELLED' })
     expect(computeDisplayStatus(r, NOW_MID)).toBe('completed')
   })
+
+  it('returns "pending" when the future booking came from an external sync', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
+    expect(computeDisplayStatus(r, NOW_MID)).toBe('pending')
+  })
+
+  it('returns "new" when the customer has no past visits', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z' })
+    expect(computeDisplayStatus(r, NOW_MID, { visitCount: 0 })).toBe('new')
+  })
+
+  it('prefers "pending" over "new" when both signals fire', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
+    expect(computeDisplayStatus(r, NOW_MID, { visitCount: 0 })).toBe('pending')
+  })
+
+  it('still returns "booked" for a returning customer on a manual future booking', () => {
+    const r = row({ start_time: '2026-05-12T14:00:00.000Z' })
+    expect(computeDisplayStatus(r, NOW_MID, { visitCount: 3 })).toBe('booked')
+  })
 })
 
 describe('appointmentsToReservationViews', () => {
   it('maps rows to ReservationView with derived fields', () => {
     const result = appointmentsToReservationViews(
-      [row({})],
+      [row({ karute_record_id: 'k-9' })],
       [{ id: 'staff-1', full_name: 'Tanaka Misaki' } as StaffMember],
       NOW_MID,
+      new Map([['cust-1', 3]]),
     )
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -87,9 +112,22 @@ describe('appointmentsToReservationViews', () => {
       customerName: 'Yamada Hanako',
       service: 'Facial',
       displayStatus: 'in_session',
+      clientId: 'cust-1',
+      karuteRecordId: 'k-9',
+      isFirstTimeVisit: false,
     })
     expect(result[0].startTimeHm).toMatch(/^\d{2}:\d{2}$/)
     expect(result[0].customerInitials.length).toBeGreaterThan(0)
+  })
+
+  it('flags isFirstTimeVisit when visit count is 0', () => {
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', 0]]),
+    )
+    expect(result[0].isFirstTimeVisit).toBe(true)
   })
 
   it('falls back to "—" customer name when customers join is null', () => {

@@ -1,220 +1,166 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { useRouter } from '@/i18n/navigation'
-import { Plus, LogOut, ChevronDown, Settings } from 'lucide-react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { setActiveStaff, createStaff } from '@/actions/staff'
-import { verifyStaffPin } from '@/actions/staff-pin'
-import { createClient } from '@/lib/supabase/client'
+import { useRouter } from 'next/navigation'
+import { useSession, type StaffItem } from '@/providers/session-provider'
+import { setActiveStaff, clearActiveStaff } from '@/actions/active-staff'
+import { hasStaffPin } from '@/actions/staff-pin'
 import { PinPad } from './PinPad'
+import { PinSetup } from './PinSetup'
 
-type StaffItem = {
-  id: string
-  name: string
-  displayRole?: string
-  avatarUrl?: string
-  hasPin?: boolean
+type Phase = 'grid' | 'pin' | 'setpin'
+
+function getInitials(name: string): string {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word[0])
+    .join('')
+    .slice(0, 2)
+    .toUpperCase()
 }
 
-type StaffSwitcherProps = {
-  staffList: StaffItem[]
-  activeStaff: StaffItem | null
-  /** The auth user's profile ID — first staff created via signup trigger (OWNER) */
-  authProfileId?: string | null
-}
-
-function getInitials(name: string) {
-  return name.slice(0, 2).toUpperCase()
-}
-
-export function StaffSwitcher({ staffList, activeStaff, authProfileId }: StaffSwitcherProps) {
-  const t = useTranslations('staff')
-  const tc = useTranslations('common')
-  const tSettings = useTranslations('settings')
+export function StaffSwitcher({ onClose }: { onClose: () => void }) {
+  const t = useTranslations('switcher')
+  const { staffList, activeStaffId } = useSession()
   const router = useRouter()
-  const [adding, setAdding] = useState(false)
-  const [newName, setNewName] = useState('')
-  const [saving, setSaving] = useState(false)
 
-  // PIN state
-  const [pinTarget, setPinTarget] = useState<StaffItem | null>(null)
-  const [pinError, setPinError] = useState<string | null>(null)
-  const [pinLoading, setPinLoading] = useState(false)
+  const [phase, setPhase] = useState<Phase>('grid')
+  const [selected, setSelected] = useState<StaffItem | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
 
-  // Ensure the cookie is always in sync with the server-resolved active staff.
-  useEffect(() => {
-    if (!activeStaff) return
-    const match = document.cookie.match(/active_staff_id=([^;]+)/)
-    const cookieValue = match ? match[1] : null
-    if (cookieValue !== activeStaff.id) {
-      setActiveStaff(activeStaff.id)
-    }
-  }, [activeStaff])
-
-  async function handleSwitchStaff(staff: StaffItem) {
-    if (staff.id === activeStaff?.id) return
-
-    if (staff.hasPin) {
-      // Show PIN pad
-      setPinTarget(staff)
-      setPinError(null)
-      return
-    }
-
-    // No PIN — switch directly
-    await setActiveStaff(staff.id)
+  async function handleTileClick(staff: StaffItem) {
+    setSelected(staff)
+    setError(null)
+    setLoading(true)
+    const has = await hasStaffPin(staff.id)
+    setLoading(false)
+    setPhase(has ? 'pin' : 'setpin')
   }
 
-  async function handlePinSubmit(pin: string) {
-    if (!pinTarget) return
-    setPinLoading(true)
-    setPinError(null)
-
-    const result = await verifyStaffPin(pinTarget.id, pin)
-
-    if (result.error) {
-      setPinError(result.error)
-      setPinLoading(false)
-      return
-    }
-
-    if (!result.valid) {
-      setPinError(t('wrongPin'))
-      setPinLoading(false)
-      return
-    }
-
-    // PIN correct — switch
-    await setActiveStaff(pinTarget.id)
-    setPinTarget(null)
-    setPinLoading(false)
-  }
-
-  async function handleAddStaff() {
-    if (!newName.trim()) return
-    setSaving(true)
-    try {
-      await createStaff({ name: newName.trim(), position: '', email: '', phone: '' })
-      setNewName('')
-      setAdding(false)
-    } catch {
-      // handled
-    } finally {
-      setSaving(false)
+  async function handlePin(pin: string) {
+    if (!selected) return
+    setLoading(true)
+    const r = await setActiveStaff(selected.id, pin)
+    setLoading(false)
+    if (r.ok) {
+      onClose()
+      router.refresh()
+    } else {
+      setError(t('incorrectPin'))
     }
   }
 
-  async function handleLogout() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
-    router.push('/login' as Parameters<typeof router.push>[0])
+  async function handleSwitchOut() {
+    await clearActiveStaff()
+    onClose()
     router.refresh()
   }
 
-  if (staffList.length === 0) {
+  if (phase === 'pin' && selected) {
     return (
-      <button type="button" disabled className="text-sm font-medium text-muted-foreground px-2 py-1">
-        {t('noStaff')}
-      </button>
+      <PinPad
+        title={t('enterPinFor', { name: selected.name })}
+        onSubmit={handlePin}
+        onCancel={() => { setPhase('grid'); setError(null) }}
+        error={error}
+        loading={loading}
+      />
     )
   }
 
-  const activeInitials = activeStaff ? getInitials(activeStaff.name) : '??'
+  if (phase === 'setpin' && selected) {
+    return (
+      <PinSetup
+        staffId={selected.id}
+        staffName={selected.name}
+        hasPin={false}
+        onClose={() => { setPhase('pin'); setError(null) }}
+      />
+    )
+  }
 
   return (
-    <>
-      <DropdownMenu onOpenChange={(open) => { if (!open) { setAdding(false); setNewName('') } }}>
-        <DropdownMenuTrigger className="inline-flex items-center gap-2 rounded-full px-1.5 py-1 hover:bg-black/5 dark:hover:bg-white/10 transition-colors min-h-[44px]">
-          {/* Active staff avatar */}
-          {activeStaff?.avatarUrl ? (
-            <img src={activeStaff.avatarUrl} alt="" className="h-8 w-8 rounded-full object-cover" />
-          ) : (
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-              {activeInitials}
-            </div>
-          )}
-          <span className="text-sm font-medium">{activeStaff?.name ?? t('selectStaff')}</span>
-          <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-        </DropdownMenuTrigger>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 backdrop-blur-sm p-6">
+      <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        {/* Close button */}
+        <button
+          type="button"
+          onClick={onClose}
+          className="absolute right-4 top-4 rounded-lg p-1.5 text-muted-foreground hover:text-foreground transition-colors"
+          aria-label={t('switchStaff')}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18" />
+            <line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
 
-        <DropdownMenuContent align="end" className="w-64 p-0">
-          {/* Header */}
-          <div className="px-4 py-2.5 border-b border-border/30">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{t('switchStaff')}</p>
-          </div>
+        {/* Title */}
+        <h2 className="mb-6 text-center text-lg font-semibold text-foreground">
+          {t('switchStaff')}
+        </h2>
 
-          {/* Staff list */}
-          <div className="py-1">
-            {staffList.map((staff) => {
-              const isActive = activeStaff?.id === staff.id
-              const initials = getInitials(staff.name)
-              const role = (staff.displayRole === 'owner' ? t('owner') : t('stylist'))
-
-              return (
-                <DropdownMenuItem
-                  key={staff.id}
-                  onClick={() => handleSwitchStaff(staff)}
-                  className="flex items-center gap-3 px-4 py-2.5 cursor-pointer"
+        {/* Staff grid */}
+        <div className="grid grid-cols-3 sm:grid-cols-4 gap-4">
+          {staffList.map((staff) => {
+            const isActive = staff.id === activeStaffId
+            return (
+              <button
+                key={staff.id}
+                type="button"
+                onClick={() => handleTileClick(staff)}
+                disabled={loading}
+                className="flex flex-col items-center gap-2 rounded-xl p-3 transition-colors hover:bg-muted disabled:opacity-50"
+              >
+                {/* Avatar */}
+                <div
+                  className={`relative flex h-14 w-14 items-center justify-center rounded-full text-sm font-semibold transition-all ${
+                    isActive
+                      ? 'ring-2 ring-primary ring-offset-2 ring-offset-card'
+                      : ''
+                  } ${
+                    staff.avatarUrl
+                      ? ''
+                      : 'bg-muted text-muted-foreground'
+                  }`}
                 >
-                  {/* Avatar */}
                   {staff.avatarUrl ? (
-                    <img src={staff.avatarUrl} alt="" className="h-9 w-9 shrink-0 rounded-full object-cover" />
+                    <img
+                      src={staff.avatarUrl}
+                      alt={staff.name}
+                      className="h-14 w-14 rounded-full object-cover"
+                    />
                   ) : (
-                    <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-                      {initials}
-                    </div>
+                    getInitials(staff.name)
                   )}
-                  {/* Name + role */}
-                  <div className="flex-1 min-w-0">
-                    <p className={`text-sm truncate ${isActive ? 'font-semibold' : 'font-medium'}`}>{staff.name}</p>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{role}</p>
-                  </div>
-                  {/* Lock icon if PIN protected */}
-                  {staff.hasPin && !isActive && (
-                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-muted-foreground/60"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                  )}
-                  {/* Active indicator — green dot */}
                   {isActive && (
-                    <div className="h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-500" />
+                    <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-card bg-primary" />
                   )}
-                </DropdownMenuItem>
-              )
-            })}
-          </div>
+                </div>
 
-          <DropdownMenuSeparator className="my-0" />
+                {/* Name */}
+                <span className="max-w-full truncate text-center text-xs font-medium text-foreground">
+                  {staff.name}
+                </span>
+              </button>
+            )
+          })}
+        </div>
 
-          <DropdownMenuSeparator className="my-0" />
-
-          {/* Logout */}
-          <DropdownMenuItem
-            onClick={handleLogout}
-            className="flex items-center gap-3 px-4 py-2.5 cursor-pointer text-red-400 hover:text-red-300"
+        {/* Footer */}
+        <div className="mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={handleSwitchOut}
+            className="rounded-xl px-4 py-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            <LogOut className="h-4 w-4" />
-            <span className="text-sm">{t('logOut')}</span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      {/* PIN pad modal */}
-      {pinTarget && (
-        <PinPad
-          title={t('enterPinFor', { name: pinTarget.name })}
-          onSubmit={handlePinSubmit}
-          onCancel={() => { setPinTarget(null); setPinError(null) }}
-          error={pinError}
-          loading={pinLoading}
-        />
-      )}
-    </>
+            {t('switchOut')}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }

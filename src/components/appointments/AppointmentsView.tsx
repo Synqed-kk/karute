@@ -1,6 +1,6 @@
 'use client'
 
-import { useTransition } from 'react'
+import { useRef, useState, useTransition } from 'react'
 import {
   DayWeekMonthToggle,
   MonthGrid,
@@ -10,11 +10,20 @@ import {
   type MonthGridCell,
   type WeekDayCardData,
 } from '@synqed-kk/ui'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
+import { Loader2 } from 'lucide-react'
 import { useRouter, usePathname } from '@/i18n/navigation'
+import {
+  formatCompactDateJst,
+  formatLongDateJst,
+  jstStartOfToday,
+  ymdInJst,
+} from '@/lib/date/jst'
 import { ReservationGrid } from '@/components/reservation/ReservationGrid'
 import { MobileReservationAgenda } from '@/components/reservation/MobileReservationAgenda'
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
+import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
+import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
@@ -46,43 +55,44 @@ interface AppointmentsViewProps {
   businessHours: BusinessHours
 }
 
-function formatLongDate(d: Date): string {
-  return d.toLocaleDateString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
+// formatLongDate / formatCompactDate / formatYmd all delegate to the JST
+// helpers — karute is Japan-targeted, so display always reflects Tokyo
+// wall-clock regardless of where the renderer is (Vercel UTC server vs.
+// traveler-with-VPN browser).
 
-function formatCompactDate(d: Date): string {
-  const m = d.getMonth() + 1
-  const day = d.getDate()
-  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()]
-  return `${m}/${day} (${wd})`
-}
-
-function formatYmd(d: Date): string {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+// Cursor delta for prev/next, tuned to the visible chrome. The week/month
+// views advance the full unit; the day view advances one day.
+function shiftDate(date: Date, view: DayWeekMonthView, dir: 1 | -1): Date {
+  const next = new Date(date)
+  if (view === 'day') next.setDate(next.getDate() + dir)
+  else if (view === 'week') next.setDate(next.getDate() + dir * 7)
+  else next.setMonth(next.getMonth() + dir)
+  return next
 }
 
 export function AppointmentsView(props: AppointmentsViewProps) {
   const router = useRouter()
   const pathname = usePathname()
-  const [, startTransition] = useTransition()
+  const [isPending, startTransition] = useTransition()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [selected, setSelected] = useState<ReservationView | null>(null)
+  const datePickerRef = useRef<HTMLInputElement>(null)
 
   const view = props.initialView
   const selectedDate = new Date(props.selectedDateIso)
-  const today = new Date()
+  // `today` is reserved for the Today button (jump-to-now) — the displayed
+  // header always reflects whichever date is currently selected.
+  // jstStartOfToday() returns the UTC instant of JST 00:00 today, so
+  // arithmetic on it (via shiftDate) stays consistent in JST.
+  const today = jstStartOfToday()
+  const locale = useLocale()
   const tReservation = useTranslations('reservation')
+  const tCommon = useTranslations('common')
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
     const search = new URLSearchParams()
     search.set('view', nextView)
-    search.set('date', formatYmd(nextDate))
+    search.set('date', ymdInJst(nextDate))
     startTransition(() => {
       router.push(
         `${pathname}?${search.toString()}` as Parameters<typeof router.push>[0],
@@ -90,16 +100,58 @@ export function AppointmentsView(props: AppointmentsViewProps) {
     })
   }
 
-  const headerDate =
-    view === 'day'
-      ? today
-      : selectedDate
+  function handlePrev() {
+    navigateTo(view, shiftDate(selectedDate, view, -1))
+  }
+  function handleNext() {
+    navigateTo(view, shiftDate(selectedDate, view, 1))
+  }
+  function handleToday() {
+    navigateTo(view, today)
+  }
+  function handlePickDate() {
+    const input = datePickerRef.current
+    if (!input) return
+    if (typeof input.showPicker === 'function') {
+      input.showPicker()
+    } else {
+      input.focus()
+      input.click()
+    }
+  }
+  function handlePickerChange(value: string) {
+    if (!value) return
+    const [y, m, d] = value.split('-').map(Number)
+    if (!y || !m || !d) return
+    // Interpret the picker's YYYY-MM-DD as JST midnight, so the cursor
+    // lands on the same calendar day in Tokyo regardless of runtime tz.
+    const ymd = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+    navigateTo(view, new Date(`${ymd}T00:00:00+09:00`))
+  }
+
+  const headerDate = selectedDate
 
   return (
-    <div className="space-y-3 p-4 md:p-6">
+    <div className="relative space-y-3 p-4 md:p-6">
+      {/* Hidden native date picker; opened by the header's date button. */}
+      <input
+        ref={datePickerRef}
+        type="date"
+        defaultValue={ymdInJst(selectedDate)}
+        onChange={(e) => handlePickerChange(e.target.value)}
+        className="sr-only"
+        aria-hidden="true"
+        tabIndex={-1}
+      />
+
       <ReservationPageHeader
-        dateDisplay={formatLongDate(headerDate)}
-        dateDisplayCompact={formatCompactDate(headerDate)}
+        dateDisplay={formatLongDateJst(headerDate, locale)}
+        dateDisplayCompact={formatCompactDateJst(headerDate, locale)}
+        onPrev={handlePrev}
+        onNext={handleNext}
+        onToday={handleToday}
+        onPickDate={handlePickDate}
+        onNewBooking={() => setDialogOpen(true)}
       />
 
       <div className="flex flex-wrap items-center gap-3">
@@ -126,41 +178,75 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             {tReservation('legend.block')}
           </span>
         </div>
+        {isPending && (
+          <span
+            className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+            role="status"
+            aria-live="polite"
+          >
+            <Loader2 className="size-3 animate-spin" aria-hidden="true" />
+            {tCommon('loading')}
+          </span>
+        )}
       </div>
 
-      {view === 'day' ? (
-        <>
-          <div className="hidden md:block">
-            <ReservationGrid
-              staff={props.reservationStaff}
-              reservations={props.reservationViews}
-              businessHours={props.businessHours}
+      <div
+        className={`transition-opacity duration-150 ${isPending ? 'pointer-events-none opacity-50' : ''}`}
+        aria-busy={isPending}
+      >
+        {view === 'day' ? (
+          <>
+            <div className="hidden md:block">
+              <ReservationGrid
+                staff={props.reservationStaff}
+                reservations={props.reservationViews}
+                businessHours={props.businessHours}
+                onSelect={setSelected}
+              />
+            </div>
+            <div className="md:hidden">
+              <MobileReservationAgenda
+                reservations={props.reservationViews}
+                onSelect={setSelected}
+              />
+            </div>
+            <ReservationTotals reservations={props.reservationViews} />
+          </>
+        ) : view === 'week' && props.weekData && props.weekStartIso ? (
+          <WeekGridSection
+            data={props.weekData}
+            weekStartIso={props.weekStartIso}
+            onPickDay={(date) => navigateTo('day', date)}
+          />
+        ) : view === 'month' && props.monthData ? (
+          <div className="md:h-[calc(100vh-260px)]">
+            <MonthGrid
+              cells={props.monthData}
+              onPickDay={(date) => navigateTo('day', date)}
+              className="h-full"
             />
           </div>
-          <div className="md:hidden">
-            <MobileReservationAgenda reservations={props.reservationViews} />
+        ) : (
+          <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
+            No data.
           </div>
-          <ReservationTotals reservations={props.reservationViews} />
-        </>
-      ) : view === 'week' && props.weekData && props.weekStartIso ? (
-        <WeekGridSection
-          data={props.weekData}
-          weekStartIso={props.weekStartIso}
-          onPickDay={(date) => navigateTo('day', date)}
-        />
-      ) : view === 'month' && props.monthData ? (
-        <div className="md:h-[calc(100vh-260px)]">
-          <MonthGrid
-            cells={props.monthData}
-            onPickDay={(date) => navigateTo('day', date)}
-            className="h-full"
-          />
-        </div>
-      ) : (
-        <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-          No data.
-        </div>
-      )}
+        )}
+      </div>
+
+      <NewBookingDialog
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        customers={props.customers}
+        staff={props.staff.map((s) => ({ id: s.id, name: s.name }))}
+        initialDate={ymdInJst(selectedDate)}
+        initialStaffId={props.activeStaffId}
+        onCreated={() => startTransition(() => router.refresh())}
+      />
+
+      <BookingActionSheetWrapper
+        selected={selected}
+        onClose={() => setSelected(null)}
+      />
     </div>
   )
 }

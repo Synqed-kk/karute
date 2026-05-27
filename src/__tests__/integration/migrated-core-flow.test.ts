@@ -10,23 +10,13 @@
 import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
 
 // --- Next.js context mocks (must be top-level so jest.mock is hoisted) ---
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(() => ({
-    get: jest.fn((name: string) => {
-      if (name === 'active_staff_id') return { value: TEST_STAFF_PROFILE_ID }
-      return undefined
-    }),
-    getAll: jest.fn(() => []),
-    set: jest.fn(),
-  })),
-}))
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 
-// --- getBusinessId mock (avoids hitting supabase auth for the tenant lookup) ---
+// --- staff lib mock — provides roster getStaffList() with TEST_STAFF_PROFILE_ID.
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
-  getActiveStaffId: jest.fn(async () => TEST_STAFF_PROFILE_ID),
+  getStaffList: jest.fn(async () => [{ id: TEST_STAFF_PROFILE_ID, full_name: 'Test Staff', has_pin: false, created_at: '' }]),
 }))
 
 // --- @synqed-kk/client mock ---
@@ -93,6 +83,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
 
     await saveKaruteRecord({
       customerId: 'cust-1',
+      staffId: TEST_STAFF_PROFILE_ID,
       transcript: 'session transcript',
       summary: 'session summary',
       entries: [
@@ -189,28 +180,20 @@ describe('Migrated core flow — customers + karute + entries', () => {
     expect(customers.delete).toHaveBeenCalledWith('cust-1')
   })
 
-  it('saveKaruteRecord uses appointment.staff_id when appointmentId is provided', async () => {
-    // Inject appointments.get on the mock client for this test only
-    const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz' }) }
-    const { getSynqedClient } = await import('@/lib/synqed/client')
-    ;(getSynqedClient as jest.Mock).mockResolvedValueOnce({
-      customers,
-      appointments: apptClient,
-      karuteRecords,
-    })
+  it('saveKaruteRecord forwards staffId and appointmentId to the create call', async () => {
     karuteRecords.create.mockResolvedValue({ id: 'karute-2' })
 
     await saveKaruteRecord({
       customerId: 'cust-1',
+      staffId: TEST_STAFF_PROFILE_ID,
       transcript: 't',
       summary: 's',
       entries: [],
       appointmentId: 'appt-1',
     })
 
-    expect(apptClient.get).toHaveBeenCalledWith('appt-1')
     const arg = karuteRecords.create.mock.calls[karuteRecords.create.mock.calls.length - 1][0]
-    expect(arg.staff_id).toBe('appt-staff-xyz')
+    expect(arg.staff_id).toBe(TEST_STAFF_PROFILE_ID)
     expect(arg.appointment_id).toBe('appt-1')
   })
 })

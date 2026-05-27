@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
-import { getStaffList, getActiveStaffId } from '@/lib/staff'
+import { getStaffList } from '@/lib/staff'
+import { getActiveStaffId } from '@/lib/active-staff'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsByDate, getAppointmentsInRange } from '@/actions/appointments'
@@ -9,17 +10,22 @@ import {
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
 
 function parseDateParam(value: string | undefined): Date {
-  if (!value) return new Date()
-  // Match YYYY-MM-DD
+  // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
+  // UTC so `new Date(y, m, d)` would otherwise create a UTC-local instant
+  // and the day-view would render the wrong day for half the JST clock.
+  if (!value) return jstStartOfToday()
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value)
-  if (!m) return new Date()
-  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
-  return isNaN(d.getTime()) ? new Date() : d
+  if (!m) return jstStartOfToday()
+  const d = new Date(`${m[1]}-${m[2]}-${m[3]}T00:00:00+09:00`)
+  return isNaN(d.getTime()) ? jstStartOfToday() : d
 }
 
 function parseViewParam(value: string | undefined): DayWeekMonthView {
@@ -45,8 +51,10 @@ export default async function AppointmentsPage({
 
   const selectedDate = parseDateParam(sp.date)
   const view = parseViewParam(sp.view)
-  const todayStr = new Date().toISOString().split('T')[0]
-  const tzOffset = 0 // server is UTC; client will re-fetch with correct offset if needed
+  // YYYY-MM-DD of the date being viewed, in JST (Vercel server is UTC, so
+  // getFullYear/getMonth on a raw Date would emit the UTC calendar day —
+  // wrong for half the JST clock).
+  const selectedDateStr = ymdInJst(selectedDate)
 
   const [
     {
@@ -56,14 +64,14 @@ export default async function AppointmentsPage({
     activeStaffId,
     orgSettings,
     customers,
-    todayAppointments,
+    dayAppointments,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getActiveStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(todayStr, tzOffset),
+    getAppointmentsByDate(selectedDateStr),
   ])
 
   const authProfileId = user?.id ?? null
@@ -75,7 +83,7 @@ export default async function AppointmentsPage({
     avatarUrl: s.avatar_url ?? undefined,
   }))
 
-  const today = new Date()
+  const now = new Date()
 
   const reservationStaff: ReservationStaff[] = staffList.map((s) => ({
     id: s.id,
@@ -86,13 +94,33 @@ export default async function AppointmentsPage({
     initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
   }))
 
+  // Visit count per client is needed to derive the "新規 (new)" status for
+  // first-time customers. Only the clients on the viewed day matter — keeps
+  // the enrichCustomers fan-out tiny vs. running it for the whole tenant.
+  const clientIdsForDay = Array.from(
+    new Set(dayAppointments.map((a) => a.client_id)),
+  )
+  const businessId = await getBusinessId().catch(() => null)
+  const enrichment =
+    businessId && clientIdsForDay.length
+      ? await enrichCustomers(businessId, clientIdsForDay)
+      : new Map()
+  const visitCountByClient = new Map<string, number>()
+  for (const [id, e] of enrichment.entries()) {
+    visitCountByClient.set(id, e.totalKarute)
+  }
+
+  // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
+  // know whether an appointment is past/in-progress/future relative to right
+  // now, not to the date being viewed.
   const reservationViews = appointmentsToReservationViews(
-    todayAppointments,
+    dayAppointments,
     staffList,
-    today,
+    now,
+    visitCountByClient,
   )
 
-  const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, today)
+  const dayOpHours = getOperatingHoursForDate(orgSettings?.operating_hours, selectedDate)
   const businessHours = {
     start: Math.floor(dayOpHours.openMinute / 60),
     end: Math.ceil(dayOpHours.closeMinute / 60),
@@ -126,7 +154,7 @@ export default async function AppointmentsPage({
       return Math.round(sum / 7)
     })()
 
-    weekData = appointmentsToWeekData(appts, weekStart, weekEnd, totalMinutes, today)
+    weekData = appointmentsToWeekData(appts, weekStart, weekEnd, totalMinutes, now)
     weekStartIso = weekStart.toISOString()
   } else if (view === 'month') {
     const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
@@ -137,7 +165,7 @@ export default async function AppointmentsPage({
     rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
     rangeTo.setHours(23, 59, 59, 999)
     const appts = await getAppointmentsInRange(rangeFrom.toISOString(), rangeTo.toISOString())
-    monthData = appointmentsToMonthCells(appts, monthStart, monthEnd, today)
+    monthData = appointmentsToMonthCells(appts, monthStart, monthEnd, now)
     monthStartIso = monthStart.toISOString()
   }
 
@@ -149,7 +177,7 @@ export default async function AppointmentsPage({
       customers={customers}
       locale={locale}
       orgSettings={orgSettings}
-      initialAppointments={todayAppointments}
+      initialAppointments={dayAppointments}
       initialView={view}
       selectedDateIso={selectedDate.toISOString()}
       weekData={weekData}

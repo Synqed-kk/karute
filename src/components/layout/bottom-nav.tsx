@@ -6,6 +6,8 @@ import { usePathname, Link } from '@/i18n/navigation'
 import {
   Calendar,
   ClipboardList,
+  Download,
+  GraduationCap,
   Home,
   Mic,
   Sparkles,
@@ -26,8 +28,10 @@ const PRIMARY: Route[] = [
 
 const MENU: Route[] = [
   { href: '/dashboard', label: 'dashboard', icon: Home },
+  { href: '/coaching', label: 'coaching', icon: GraduationCap },
   { href: '/ask-ai', label: 'askAi', icon: Sparkles },
   { href: '/data-import', label: 'dataImport', icon: Upload },
+  { href: '/data-export', label: 'dataExport', icon: Download },
   { href: '/settings', label: 'settings', icon: Settings },
 ]
 
@@ -36,8 +40,10 @@ const FALLBACK_LABELS: Record<string, string> = {
   karute: 'Karute',
   customers: 'Customers',
   dashboard: 'Dashboard',
+  coaching: 'Coaching',
   askAi: 'Ask AI',
   dataImport: 'Import',
+  dataExport: 'Export',
   settings: 'Settings',
   recording: 'Recording',
   menu: 'Menu',
@@ -127,9 +133,11 @@ export function BottomNav() {
         </div>
       </div>
 
-      {/* Bottom tab bar */}
+      {/* Bottom tab bar — sits in the layout flex column so iOS Safari /
+          in-app browser chrome can't occlude it. Parent layout uses h-dvh
+          so the column fits the visible viewport. */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-50 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+        className="z-50 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
         <div className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2">

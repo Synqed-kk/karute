@@ -84,7 +84,16 @@ function formatDate(iso: string): string {
 }
 
 function weekdayOf(iso: string): string {
-  return WEEKDAYS[new Date(iso).getDay()]
+  // .getDay() is runtime-local; on Vercel UTC, a late-evening JST session
+  // (e.g. 23:30 JST = 14:30 UTC same day) would still report the right day,
+  // but a 00:30-01:30 JST session (= previous-day 15:30-16:30 UTC) would
+  // misreport. Use JST explicitly.
+  const wd = new Date(iso).toLocaleDateString('en-US', {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short',
+  })
+  const idx = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(wd)
+  return WEEKDAYS[idx >= 0 ? idx : 0]
 }
 
 const ENTRY_CATEGORY_TO_SLOT: Record<string, keyof SessionHistoryEntries> = {

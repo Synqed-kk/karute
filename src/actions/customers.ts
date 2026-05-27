@@ -1,7 +1,7 @@
 'use server'
 
 import { z } from 'zod'
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 // ---------------------------------------------------------------------------
@@ -58,6 +58,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     })
 
     revalidatePath('/customers')
+    updateTag('customers')
 
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
@@ -86,6 +87,7 @@ export async function createQuickCustomer(
     const customer = await synqed.customers.create({ name: trimmedName })
 
     revalidatePath('/customers')
+    updateTag('customers')
 
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
@@ -125,6 +127,7 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
 
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
+    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
@@ -158,6 +161,7 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
     await synqed.customers.delete(id)
 
     revalidatePath('/customers')
+    updateTag('customers')
     return { success: true, id }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
@@ -230,12 +234,12 @@ export async function grantCustomerConsent(
   customerId: string,
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
 ) {
-  const { getValidatedActiveStaffId } = await import('@/lib/staff')
-  const staffId = await getValidatedActiveStaffId()
+  const { getActiveStaffId } = await import('@/lib/active-staff')
+  const staffId = await getActiveStaffId()
   if (!staffId) {
     return {
       ok: false as const,
-      error: 'No active staff selected. Switch to your stylist account first.',
+      error: 'No active staff selected.',
     }
   }
   try {
@@ -246,6 +250,7 @@ export async function grantCustomerConsent(
       method: input.method ?? 'VERBAL',
     })
     revalidatePath(`/customers/${customerId}`)
+    updateTag('customer-consent')
     return { ok: true as const, consent }
   } catch (err) {
     return {
@@ -256,8 +261,8 @@ export async function grantCustomerConsent(
 }
 
 export async function revokeCustomerConsent(customerId: string) {
-  const { getValidatedActiveStaffId } = await import('@/lib/staff')
-  const staffId = await getValidatedActiveStaffId()
+  const { getActiveStaffId } = await import('@/lib/active-staff')
+  const staffId = await getActiveStaffId()
   if (!staffId) {
     return { ok: false as const, error: 'No active staff selected.' }
   }
@@ -265,6 +270,7 @@ export async function revokeCustomerConsent(customerId: string) {
     const synqed = await getSynqedClient()
     await synqed.customers.revokeConsent(customerId, staffId)
     revalidatePath(`/customers/${customerId}`)
+    updateTag('customer-consent')
     return { ok: true as const }
   } catch (err) {
     return {

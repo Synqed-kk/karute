@@ -64,15 +64,15 @@ export function RecordingTargetCard({
 
   if (!appointment) {
     return (
-      <section className="flex flex-col items-start gap-2 rounded-2xl border border-dashed border-border bg-card p-5 shadow-sm md:p-6">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-6 w-6 items-center justify-center text-sky-400">
-            <Clock size={16} />
+      <section className="flex items-center gap-3 rounded-2xl border border-dashed border-border bg-card px-4 py-3 shadow-sm">
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-sky-500/10 text-sky-400">
+          <Clock size={15} />
+        </span>
+        <div className="flex min-w-0 flex-col">
+          <span className="text-[13px] font-semibold text-foreground">{t('title')}</span>
+          <span className="text-[12px] leading-snug text-muted-foreground">
+            {t('noBooking')}
           </span>
-          <span className="text-sm font-semibold text-foreground">{t('title')}</span>
-        </div>
-        <div className="text-[13px] leading-snug text-muted-foreground">
-          {t('noBooking')}
         </div>
       </section>
     )
