@@ -18,13 +18,14 @@ export function StaffSection({
 }: StaffSectionProps) {
   const t = useTranslations('settings')
 
+  // No own `<h3>スタッフ管理</h3>` title — the SettingsShell's DrillInView
+  // (mobile) and SectionPanel (desktop) already render the section
+  // heading with icon. Adding another here is what caused the triple
+  // "スタッフ管理" / "スタッフ管理" / "スタッフメンバー" stack Liam called out.
+  // StaffList owns its own "スタッフメンバー" header row (with the +追加
+  // button on the right, matching the spike's pattern).
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="text-lg font-semibold">{t('staffManagement')}</h3>
-        <p className="text-sm text-muted-foreground">{t('manageStaff')}</p>
-      </div>
-
       <StaffList
         staffList={staffList}
         activeStaffId={activeStaffId}
