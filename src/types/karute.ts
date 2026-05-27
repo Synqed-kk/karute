@@ -36,22 +36,14 @@ export type KaruteRecord = {
 }
 
 /**
- * Input shape for saveKaruteRecord.
+ * Input shape for saveKaruteRecord Server Action.
+ * Entries come from AI extraction (Phase 2) with category and content.
  *
- * staffId is now OPTIONAL. When omitted, the server resolves it from the
- * signed-in user via getCurrentUserStaffId() — never trusting a client-
- * provided id is the safer default. When provided (legacy callers,
- * recordings tied to a specific booking via the picker), the server still
- * validates it belongs to the signed-in org's roster before saving.
- *
- * Both paths coexist so this refactor can land before its caller migrations.
- * Callers will progressively drop the staffId prop as their feature tiers
- * land; a follow-up cleanup PR will remove the field entirely once unused.
+ * Note: staffId is intentionally absent — the save action resolves staff_id
+ * from the signed-in user via getCurrentUserStaffId(), never from client input.
  */
 export type SaveKaruteInput = {
   customerId: string
-  /** @deprecated Resolved server-side from the signed-in user when omitted. */
-  staffId?: string
   transcript: string
   summary: string
   entries: Array<{
