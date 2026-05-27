@@ -3,6 +3,17 @@
 import { ArrowRight, Clock, MessageCircle } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 
+// Full 5-state union preserved from the spike. dashboard/page.tsx
+// only assigns 'booked' or 'completed' today (the other three need
+// producers — see ANTHONY notes below) but the union + STATUS_STYLES
+// stay as the spec so the schema/producer work is obvious. Each
+// missing producer:
+//   - 'in-session': active-now tracking from reservation agenda
+//     display_status logic (already exists in reservation-view.ts)
+//   - 'pending':    booking-confirmation state when bookings come
+//     from a public channel (LINE / web form) and need owner approval
+//   - 'new':        first-visit detection — customer.visitCount === 0
+//     at booking time
 export type AppointmentStatusKey =
   | 'booked'
   | 'in-session'
@@ -21,6 +32,8 @@ export interface DashboardAppointment {
   staffColor: string | null // hex
   statusKey: AppointmentStatusKey
   statusLabel: string
+  /** First-visit badge — ANTHONY: producer set when customer
+   *  visitCount === 0 at booking time. */
   isNew?: boolean
   reservationMemo?: string | null
 }
