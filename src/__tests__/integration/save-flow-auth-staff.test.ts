@@ -1,8 +1,9 @@
 /**
- * Coverage for the auth-derived staff path added in PR #89/#105 (replay/15):
- * saveKaruteRecord may omit staffId, in which case the server resolves it from
- * the signed-in user via getCurrentUserStaffId() rather than trusting client
- * input. Provided ids still validate against the roster (legacy path).
+ * Coverage for saveKaruteRecord's staff attribution (PR #84/#89, finalised by
+ * #92). The server NEVER trusts a client-supplied staff id: it derives staff
+ * from the signed-in user via getCurrentUserStaffId(), and when the record is
+ * linked to an appointment it attributes to that appointment's staff instead.
+ * No staff identity → the save is rejected before reaching synqed-core.
  */
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
@@ -15,22 +16,15 @@ jest.mock('next/cache', () => ({
 }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 
-process.env.SYNQED_CORE_URL = 'http://test.invalid'
-process.env.SYNQED_CORE_API_KEY = 'test-key'
-
-const rosterIds: string[] = []
 let currentStaffId: string | null = null
 jest.mock('@/lib/staff', () => ({
-  getStaffList: jest.fn(async () =>
-    rosterIds.map((id) => ({ id, full_name: id, has_pin: false, created_at: '' })),
-  ),
-  getBusinessId: jest.fn(async () => 'biz-1'),
   getCurrentUserStaffId: jest.fn(async () => currentStaffId),
 }))
 
 const karuteRecords = { create: jest.fn() }
+const appointments = { get: jest.fn() }
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ karuteRecords })),
+  getSynqedClient: jest.fn(async () => ({ karuteRecords, appointments })),
 }))
 
 import { saveKaruteRecord } from '@/actions/karute'
@@ -39,12 +33,11 @@ const baseInput = { customerId: 'cust-1', transcript: 't', summary: 's', entries
 
 beforeEach(() => {
   jest.clearAllMocks()
-  rosterIds.length = 0
   currentStaffId = null
 })
 
-describe('saveKaruteRecord — auth-derived staff resolution', () => {
-  it('derives staff_id from the signed-in user when staffId is omitted', async () => {
+describe('saveKaruteRecord — staff attribution', () => {
+  it('derives staff_id from the signed-in user', async () => {
     currentStaffId = 'me-staff'
     karuteRecords.create.mockResolvedValue({ id: 'kr-1' })
     await saveKaruteRecord({ ...baseInput })
@@ -53,20 +46,30 @@ describe('saveKaruteRecord — auth-derived staff resolution', () => {
     )
   })
 
-  it('errors (and never calls synqed) when no staffId and no staff identity', async () => {
+  it('errors (and never calls synqed) when the user has no staff identity', async () => {
     currentStaffId = null
     const result = await saveKaruteRecord({ ...baseInput })
     expect(result).toEqual({ error: expect.stringMatching(/no staff identity/i) })
     expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 
-  it('still honours an explicit roster staffId (legacy path) over auth', async () => {
-    rosterIds.push('legacy-staff')
+  it("attributes to the linked appointment's staff when present (override)", async () => {
     currentStaffId = 'me-staff'
+    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'appt-staff' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
-    await saveKaruteRecord({ ...baseInput, staffId: 'legacy-staff' })
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-1' })
     expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'legacy-staff' }),
+      expect.objectContaining({ staff_id: 'appt-staff', appointment_id: 'ap-1' }),
+    )
+  })
+
+  it('falls back to the signed-in staff when the appointment lookup fails', async () => {
+    currentStaffId = 'me-staff'
+    appointments.get.mockRejectedValue(new Error('not found'))
+    karuteRecords.create.mockResolvedValue({ id: 'kr-3' })
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'missing' })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: 'me-staff' }),
     )
   })
 })

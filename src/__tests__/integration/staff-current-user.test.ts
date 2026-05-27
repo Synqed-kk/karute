@@ -1,11 +1,13 @@
 /**
- * Coverage for getCurrentUserStaffId (PR #84, replay/09). Verifies the
+ * Coverage for getCurrentUserStaffId (PR #84, evolved by #92). Verifies the
  * membership rule: the authenticated user's id is returned only when it
- * appears in this tenant's active staff roster; otherwise null.
+ * appears in this tenant's staff roster; otherwise null.
  *
- * Mocks the lowest-level deps (supabase server/service clients + the
- * synqed-core SDK) and re-imports the module per case so React cache() /
- * unstable_cache memoization doesn't bleed between scenarios.
+ * Post-#92 the roster is sourced from the Supabase `profiles` table (service
+ * client) rather than synqed-core, so the service client is mocked to answer
+ * both the business-id lookup (.single()) and the staff-list query (awaited).
+ * Modules are re-imported per case so React cache()/unstable_cache memoization
+ * doesn't bleed between scenarios.
  */
 const BIZ = '00000000-0000-0000-0000-0000000000aa'
 
@@ -21,27 +23,26 @@ function mockDeps(opts: { userId: string | null; staff: Array<{ id: string }> })
     }),
   }))
   jest.doMock('@/lib/supabase/service', () => ({
-    createServiceClient: () => ({
-      from: () => ({
-        select: () => ({
-          eq: () => ({ single: async () => ({ data: { customer_id: BIZ } }) }),
-        }),
-      }),
-    }),
+    createServiceClient: () => {
+      const staffRows = opts.staff.map((s) => ({
+        id: s.id,
+        full_name: 'Staff',
+        pin_hash: null,
+        customer_id: BIZ,
+      }))
+      const builder: Record<string, unknown> = {}
+      for (const m of ['select', 'eq', 'not', 'order']) builder[m] = () => builder
+      // getBusinessId resolves via .single(); staffListByBusiness awaits the builder.
+      ;(builder as { single: unknown }).single = async () => ({ data: { customer_id: BIZ } })
+      ;(builder as { then: unknown }).then = (resolve: (v: unknown) => void) =>
+        resolve({ data: staffRows })
+      return { from: () => builder }
+    },
   }))
   jest.doMock('next/cache', () => ({
     unstable_cache: (fn: unknown) => fn,
     revalidateTag: jest.fn(),
     revalidatePath: jest.fn(),
-  }))
-  jest.doMock('@synqed-kk/client', () => ({
-    SynqedClient: class {
-      staff = {
-        list: async () => ({
-          staff: opts.staff.map((s) => ({ id: s.id, name: 'Staff', is_active: true })),
-        }),
-      }
-    },
   }))
 }
 
@@ -54,18 +55,6 @@ async function loadHelper() {
 }
 
 describe('getCurrentUserStaffId', () => {
-  const ORIGINAL_SYNQED_URL = process.env.SYNQED_CORE_URL
-  const ORIGINAL_SYNQED_KEY = process.env.SYNQED_CORE_API_KEY
-
-  beforeAll(() => {
-    // getStaffList returns [] early without these — set so the synqed mock runs.
-    process.env.SYNQED_CORE_URL = 'https://core.test'
-    process.env.SYNQED_CORE_API_KEY = 'test-key'
-  })
-  afterAll(() => {
-    process.env.SYNQED_CORE_URL = ORIGINAL_SYNQED_URL
-    process.env.SYNQED_CORE_API_KEY = ORIGINAL_SYNQED_KEY
-  })
   beforeEach(() => {
     jest.resetModules()
   })
@@ -94,3 +83,5 @@ describe('getCurrentUserStaffId', () => {
     await expect(getCurrentUserStaffId()).resolves.toBeNull()
   })
 })
+
+export {}
