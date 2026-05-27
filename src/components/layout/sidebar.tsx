@@ -18,8 +18,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
-import { clearActiveStaff } from '@/actions/active-staff'
 import { useSession } from '@/providers/session-provider'
+import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
 
 function MicIcon() {
   return <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" x2="12" y1="19" y2="22" /></svg>
@@ -71,15 +71,35 @@ type NavRoute = {
   Icon: () => React.ReactElement
 }
 
+// /coaching + /data-import gated behind feature flags.
+//
+// /coaching: every page in src/app/[locale]/(app)/coaching/ passes
+// `null` to its view component (growth, insights, patterns,
+// modules, transparency). Each renders a ScaffoldHint placeholder.
+// The privacy Layer 1/2/3 badges are decorative — no data to
+// scope. Nav entry hides until the producers ship.
+//
+// /data-import: ImportDropzone.tsx fires `console.info('[dev]
+// Import file selected', …)` on file pick. No upload, no
+// session, no progress. Owner picks a CSV and watches nothing
+// happen. Nav entry hides until uploadImportCsv ships.
+//
+// /data-export stays — CSV / JSON exports for customers run for
+// real via the /api/export route (other combinations toast
+// "coming soon" honestly via `isWired()` in DataExportView).
 const NAV_ROUTES: NavRoute[] = [
   { id: 'recording', href: '/sessions', labelKey: 'recording', Icon: MicIcon },
   { id: 'dashboard', href: '/dashboard', labelKey: 'dashboard', Icon: HomeIcon },
   { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon },
   { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon },
-  { id: 'coaching', href: '/coaching', labelKey: 'coaching', Icon: GraduationCapIcon },
+  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
+    ? [{ id: 'coaching' as const, href: '/coaching', labelKey: 'coaching' as const, Icon: GraduationCapIcon }]
+    : []),
   { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon },
-  { id: 'dataImport', href: '/data-import', labelKey: 'dataImport', Icon: ImportIcon },
+  ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
+    ? [{ id: 'dataImport' as const, href: '/data-import', labelKey: 'dataImport' as const, Icon: ImportIcon }]
+    : []),
   { id: 'dataExport', href: '/data-export', labelKey: 'dataExport', Icon: ExportIcon },
   { id: 'settings', href: '/settings', labelKey: 'settings', Icon: SettingsIcon },
 ]
@@ -100,6 +120,7 @@ const LABEL_FALLBACKS: Record<SidebarLabelKey, string> = {
 export function Sidebar() {
   const pathname = usePathname()
   const t = useTranslations('sidebar')
+  const sidebarStyle = useSidebarStyle()
   const activeId = NAV_ROUTES.find((r) => pathname.startsWith(r.href))?.id
 
   function getLabel(key: SidebarLabelKey): string {
@@ -110,9 +131,17 @@ export function Sidebar() {
     }
   }
 
+  // Sidebar style picker (Settings → Theme) writes 'light' | 'dark' to
+  // localStorage; this hook is the consumer. Earlier the picker wrote
+  // the value but no surface read it — staff would tap Dark, see
+  // "適用済み" badge, and notice no visible change. Now: 'dark' applies
+  // the same dark-mode `.dark` token cascade the global theme uses,
+  // scoped to this <aside>.
   return (
     <aside
-      className="hidden h-full w-[244px] shrink-0 flex-col border-r border-border/30 bg-[var(--color-bg-card)] py-5 md:flex"
+      className={`hidden h-full w-[244px] shrink-0 flex-col border-r border-border/30 py-5 md:flex ${
+        sidebarStyle === 'dark' ? 'dark bg-neutral-900' : 'bg-[var(--color-bg-card)]'
+      }`}
       aria-label="Main navigation"
     >
       <div className="px-5 pb-4 border-b border-border/20">
@@ -171,18 +200,18 @@ function SidebarProfileChip() {
   const router = useRouter()
   const [open, setOpen] = useState(false)
 
-  const { orgName } = session
+  const { activeStaff, orgName } = session
 
   async function handleLogout() {
-    await clearActiveStaff()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login' as Parameters<typeof router.push>[0])
     router.refresh()
   }
 
-  const orgDisplayName = orgName ?? 'Salon'
-  const orgInitials = getInitials(orgDisplayName)
+  const activeInitials = activeStaff ? getInitials(activeStaff.name) : '??'
+  const activeRole =
+    activeStaff?.displayRole === 'owner' ? 'Owner' : 'Stylist'
   const triggerActiveClass = open
     ? 'border-blue-500/60 bg-blue-500/5'
     : 'border-transparent hover:bg-muted/40'
@@ -194,16 +223,16 @@ function SidebarProfileChip() {
           className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left transition-colors ${triggerActiveClass}`}
         >
             <Avatar
-              name={orgDisplayName}
-              initials={orgInitials}
-              avatarUrl={undefined}
+              name={activeStaff?.name ?? '??'}
+              initials={activeInitials}
+              avatarUrl={activeStaff?.avatarUrl}
               tone="active"
             />
             <div className="flex-1 min-w-0">
               <p className="text-[13.5px] font-semibold truncate">
-                {orgDisplayName}
+                {activeStaff?.name ?? t('selectStaff')}
               </p>
-              <p className="text-[11px] text-muted-foreground">Owner</p>
+              <p className="text-[11px] text-muted-foreground">{activeRole}</p>
             </div>
             {open ? (
               <ChevronUp className="size-3.5 text-muted-foreground" />
