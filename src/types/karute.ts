@@ -36,13 +36,22 @@ export type KaruteRecord = {
 }
 
 /**
- * Input shape for saveKaruteRecord. staffId is the synqed-core staff id the
- * karute is attributed to (from the live booking or a picker). The server
+ * Input shape for saveKaruteRecord.
+ *
+ * staffId is now OPTIONAL. When omitted, the server resolves it from the
+ * signed-in user via getCurrentUserStaffId() — never trusting a client-
+ * provided id is the safer default. When provided (legacy callers,
+ * recordings tied to a specific booking via the picker), the server still
  * validates it belongs to the signed-in org's roster before saving.
+ *
+ * Both paths coexist so this refactor can land before its caller migrations.
+ * Callers will progressively drop the staffId prop as their feature tiers
+ * land; a follow-up cleanup PR will remove the field entirely once unused.
  */
 export type SaveKaruteInput = {
   customerId: string
-  staffId: string
+  /** @deprecated Resolved server-side from the signed-in user when omitted. */
+  staffId?: string
   transcript: string
   summary: string
   entries: Array<{
