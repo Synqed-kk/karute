@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server'
 import { Link } from '@/i18n/navigation'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
 import { LocaleToggle } from '@/components/layout/locale-toggle'
@@ -7,7 +8,8 @@ export default async function LandingPage({
 }: {
   params: Promise<{ locale: string }>
 }) {
-  const { locale } = await params
+  await params
+  const t = await getTranslations('landing')
 
   return (
     <div className="min-h-screen bg-background">
@@ -23,7 +25,7 @@ export default async function LandingPage({
             href={'/login' as Parameters<typeof Link>[0]['href']}
             className="rounded-full bg-foreground px-5 py-2 text-sm font-semibold text-background hover:opacity-90 transition-opacity"
           >
-            Log in
+            {t('header.login')}
           </Link>
         </div>
       </header>
@@ -31,26 +33,26 @@ export default async function LandingPage({
       {/* Hero */}
       <section className="max-w-5xl mx-auto px-6 pt-16 pb-20 text-center">
         <div className="inline-block rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary mb-6">
-          AI-Powered Session Recording
+          {t('hero.badge')}
         </div>
         <h1 className="text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] mb-6">
-          Never write a karute<br />by hand again
+          {t('hero.title')}
         </h1>
         <p className="text-lg md:text-xl text-muted-foreground max-w-2xl mx-auto mb-10 leading-relaxed">
-          Record your client sessions. Karute uses AI to transcribe, extract key details, and generate a complete karute — automatically.
+          {t('hero.subtitle')}
         </p>
         <div className="flex items-center justify-center gap-4 flex-wrap">
           <Link
             href={'/signup' as Parameters<typeof Link>[0]['href']}
             className="rounded-full bg-foreground px-8 py-3.5 text-base font-semibold text-background hover:opacity-90 transition-opacity"
           >
-            Get started free
+            {t('hero.ctaPrimary')}
           </Link>
           <a
             href="#how-it-works"
             className="rounded-full border border-border px-8 py-3.5 text-base font-medium text-foreground hover:bg-muted transition-colors"
           >
-            See how it works
+            {t('hero.ctaSecondary')}
           </a>
         </div>
       </section>
@@ -60,42 +62,42 @@ export default async function LandingPage({
         <div className="max-w-5xl mx-auto px-6 flex items-center justify-center gap-8 md:gap-16 text-sm text-muted-foreground flex-wrap">
           <div className="text-center">
             <div className="text-2xl font-bold text-foreground">500+</div>
-            <div>Sessions recorded</div>
+            <div>{t('stats.sessionsRecorded')}</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-foreground">98%</div>
-            <div>Time saved</div>
+            <div>{t('stats.timeSaved')}</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-foreground">50+</div>
-            <div>Salons & clinics</div>
+            <div>{t('stats.salonsClinics')}</div>
           </div>
         </div>
       </section>
 
       {/* How it works */}
       <section id="how-it-works" className="max-w-5xl mx-auto px-6 py-20">
-        <h2 className="text-3xl font-bold text-center mb-4">How it works</h2>
+        <h2 className="text-3xl font-bold text-center mb-4">{t('howItWorks.heading')}</h2>
         <p className="text-center text-muted-foreground mb-14 max-w-lg mx-auto">
-          Three simple steps to go from session to karute
+          {t('howItWorks.subtitle')}
         </p>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
           <StepCard
-            step="1"
-            title="Record"
-            description="Hit record during your session. Karute captures the conversation in the background while you focus on your client."
+            stepLabel={t('howItWorks.stepPrefix', { step: '1' })}
+            title={t('howItWorks.step1Title')}
+            description={t('howItWorks.step1Description')}
             icon={<MicSvg />}
           />
           <StepCard
-            step="2"
-            title="AI Processes"
-            description="Karute transcribes the audio, extracts preferences, treatments, and concerns, then generates a structured summary."
+            stepLabel={t('howItWorks.stepPrefix', { step: '2' })}
+            title={t('howItWorks.step2Title')}
+            description={t('howItWorks.step2Description')}
             icon={<SparklesSvg />}
           />
           <StepCard
-            step="3"
-            title="Review & Save"
-            description="Review the AI-generated karute, make any edits, and save. It's linked to the customer and appointment automatically."
+            stepLabel={t('howItWorks.stepPrefix', { step: '3' })}
+            title={t('howItWorks.step3Title')}
+            description={t('howItWorks.step3Description')}
             icon={<CheckSvg />}
           />
         </div>
@@ -104,31 +106,31 @@ export default async function LandingPage({
       {/* Features grid */}
       <section className="bg-muted/30 border-y border-border/30 py-20">
         <div className="max-w-5xl mx-auto px-6">
-          <h2 className="text-3xl font-bold text-center mb-14">Everything you need</h2>
+          <h2 className="text-3xl font-bold text-center mb-14">{t('features.heading')}</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             <FeatureCard
-              title="Voice Recording"
-              description="Record sessions with one tap. Works on any device with a microphone."
+              title={t('features.voiceRecording.title')}
+              description={t('features.voiceRecording.description')}
             />
             <FeatureCard
-              title="AI Transcription"
-              description="Accurate speech-to-text in Japanese and English, powered by Whisper."
+              title={t('features.aiTranscription.title')}
+              description={t('features.aiTranscription.description')}
             />
             <FeatureCard
-              title="Smart Extraction"
-              description="AI identifies preferences, treatments, health concerns, and more from the conversation."
+              title={t('features.smartExtraction.title')}
+              description={t('features.smartExtraction.description')}
             />
             <FeatureCard
-              title="Appointment Sync"
-              description="Link recordings to appointments. See your schedule and karute history in one place."
+              title={t('features.appointmentSync.title')}
+              description={t('features.appointmentSync.description')}
             />
             <FeatureCard
-              title="Multi-Staff"
-              description="Each staff member has their own profile, schedule, and karute records with PIN protection."
+              title={t('features.multiStaff.title')}
+              description={t('features.multiStaff.description')}
             />
             <FeatureCard
-              title="Export & Share"
-              description="Export karute as PDF or text. Share with your team or print for the client."
+              title={t('features.exportShare.title')}
+              description={t('features.exportShare.description')}
             />
           </div>
         </div>
@@ -137,16 +139,16 @@ export default async function LandingPage({
       {/* CTA */}
       <section className="max-w-3xl mx-auto px-6 py-20 text-center">
         <h2 className="text-3xl md:text-4xl font-bold mb-4">
-          Ready to automate your karute?
+          {t('cta.heading')}
         </h2>
         <p className="text-muted-foreground text-lg mb-8 max-w-lg mx-auto">
-          Join salons and clinics already saving hours every week with AI-powered session notes.
+          {t('cta.subtitle')}
         </p>
         <Link
           href={'/signup' as Parameters<typeof Link>[0]['href']}
           className="inline-block rounded-full bg-foreground px-10 py-4 text-base font-semibold text-background hover:opacity-90 transition-opacity"
         >
-          Get started free
+          {t('cta.button')}
         </Link>
       </section>
 
@@ -156,21 +158,21 @@ export default async function LandingPage({
           <div className="flex items-center gap-2">
             <img src="/karute_logo.png" alt="Karute" className="h-6 object-contain dark:invert" />
           </div>
-          <p>&copy; {new Date().getFullYear()} Karute. All rights reserved.</p>
+          <p>{t('footer.copyright', { year: new Date().getFullYear() })}</p>
         </div>
       </footer>
     </div>
   )
 }
 
-function StepCard({ step, title, description, icon }: { step: string; title: string; description: string; icon: React.ReactNode }) {
+function StepCard({ stepLabel, title, description, icon }: { stepLabel: string; title: string; description: string; icon: React.ReactNode }) {
   return (
     <div className="text-center space-y-4">
       <div className="inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-foreground/5 text-foreground">
         {icon}
       </div>
       <div>
-        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Step {step}</span>
+        <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{stepLabel}</span>
         <h3 className="text-lg font-semibold mt-1">{title}</h3>
       </div>
       <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
