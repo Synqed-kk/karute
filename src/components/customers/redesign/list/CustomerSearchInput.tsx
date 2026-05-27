@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
+import { useTranslations } from 'next-intl'
 import { useDebouncedCallback } from 'use-debounce'
 import { Search } from 'lucide-react'
 
@@ -10,6 +11,7 @@ interface CustomerSearchInputProps {
 }
 
 export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) {
+  const t = useTranslations('customers.search')
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -34,7 +36,7 @@ export function CustomerSearchInput({ initialQuery }: CustomerSearchInputProps) 
           setValue(e.target.value)
           apply(e.target.value)
         }}
-        placeholder="Search by name, reading, phone, or email…"
+        placeholder={t('placeholder')}
         className="h-9 w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/70 focus:outline-none"
       />
     </label>
