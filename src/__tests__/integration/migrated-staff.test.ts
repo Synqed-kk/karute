@@ -8,8 +8,10 @@
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 
+const getCurrentUserStaffId = jest.fn(async () => 'staff-1')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
 }))
 
 jest.mock('@synqed-kk/client', () => {
@@ -52,6 +54,7 @@ import { SynqedError } from '@synqed-kk/client'
 describe('Migrated staff actions', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    getCurrentUserStaffId.mockResolvedValue('staff-1')
   })
 
   it('createStaff passes name + email + user_id through', async () => {
@@ -60,8 +63,9 @@ describe('Migrated staff actions', () => {
     await createStaff({ name: 'Ada', email: 'ada@example.com', position: '', phone: '' })
 
     // user_id is best-effort: createStaff looks up an existing auth profile by
-    // email so synqed.staff is seeded with the link when one exists. When no
-    // matching profile exists the field is left null.
+    // email so synqed.staff is seeded with the link from day one. When no
+    // matching profile exists the field is null and the resolver self-heals
+    // later in src/lib/synqed/staff-map.ts.
     expect(staff.create).toHaveBeenCalledWith({
       name: 'Ada',
       email: 'ada@example.com',

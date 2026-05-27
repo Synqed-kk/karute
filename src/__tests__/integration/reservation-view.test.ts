@@ -80,19 +80,19 @@ describe('computeDisplayStatus', () => {
     expect(computeDisplayStatus(r, NOW_MID)).toBe('pending')
   })
 
-  it('returns "new" when the customer has no past visits', () => {
+  it('returns "new" when the customer is first-time (no past appointments)', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z' })
-    expect(computeDisplayStatus(r, NOW_MID, { visitCount: 0 })).toBe('new')
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('new')
   })
 
   it('prefers "pending" over "new" when both signals fire', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
-    expect(computeDisplayStatus(r, NOW_MID, { visitCount: 0 })).toBe('pending')
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('pending')
   })
 
   it('still returns "booked" for a returning customer on a manual future booking', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z' })
-    expect(computeDisplayStatus(r, NOW_MID, { visitCount: 3 })).toBe('booked')
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: false })).toBe('booked')
   })
 })
 
@@ -102,7 +102,8 @@ describe('appointmentsToReservationViews', () => {
       [row({ karute_record_id: 'k-9' })],
       [{ id: 'staff-1', full_name: 'Tanaka Misaki' } as StaffMember],
       NOW_MID,
-      new Map([['cust-1', 3]]),
+      // isFirstTimeByClient — returning customer = false.
+      new Map([['cust-1', false]]),
     )
     expect(result).toHaveLength(1)
     expect(result[0]).toMatchObject({
@@ -120,12 +121,12 @@ describe('appointmentsToReservationViews', () => {
     expect(result[0].customerInitials.length).toBeGreaterThan(0)
   })
 
-  it('flags isFirstTimeVisit when visit count is 0', () => {
+  it('flags isFirstTimeVisit when the customer is first-time', () => {
     const result = appointmentsToReservationViews(
       [row({ start_time: '2026-05-12T14:00:00.000Z' })],
       [],
       NOW_MID,
-      new Map([['cust-1', 0]]),
+      new Map([['cust-1', true]]),
     )
     expect(result[0].isFirstTimeVisit).toBe(true)
   })
@@ -140,12 +141,15 @@ describe('appointmentsToReservationViews', () => {
     expect(result[0].customerInitials).toBe('—')
   })
 
-  it('uses appointment.title verbatim when present, else "セッション" fallback', () => {
+  it('leaves service empty when title is null (no misleading fallback)', () => {
+    // Previously fell back to 'セッション' which read like a real service
+    // name on the agenda — Liam called this out. Empty string lets the
+    // row hide the service line entirely.
     const result = appointmentsToReservationViews(
       [row({ title: null })],
       [],
       NOW_MID,
     )
-    expect(result[0].service).toBe('セッション')
+    expect(result[0].service).toBe('')
   })
 })

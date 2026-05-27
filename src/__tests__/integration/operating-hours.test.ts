@@ -46,7 +46,7 @@ describe('appointment operating hours validation', () => {
 
   function input(startTime: string, durationMinutes: number, tzOffsetMinutes: number): AppointmentInput {
     return {
-      staffId: 'staff-id',
+      staffProfileId: 'staff-id',
       clientId: 'client-id',
       startTime,
       durationMinutes,

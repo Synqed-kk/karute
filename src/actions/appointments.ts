@@ -8,19 +8,18 @@ import {
   type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
-  resolveStaffProfileId,
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
 
-export { resolveStaffProfileId, validateAppointmentTime, type AppointmentInput }
+export { validateAppointmentTime, type AppointmentInput }
 
 export interface AppointmentRow {
   id: string
-  // Holds the synqed staff id; name kept to avoid churn in calendar adapters.
   staff_profile_id: string
   client_id: string
   start_time: string
@@ -47,16 +46,12 @@ export async function createAppointment(input: AppointmentInput) {
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
-  const staffProfileId = resolveStaffProfileId(input)
-  if (!staffProfileId) {
-    return { error: 'staffProfileId is required.' }
-  }
-
   try {
     const synqed = await getSynqedClient()
+    const synqedStaffId = await resolveSynqedStaffId(input.staffProfileId)
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
-      staff_id: staffProfileId,
+      staff_id: synqedStaffId,
       starts_at: startTime.toISOString(),
       ends_at: endTime.toISOString(),
       duration_minutes: input.durationMinutes,
@@ -95,23 +90,32 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
     // TTL per tenant), so on warm requests there's no extra HTTP roundtrip.
     // Previously this fanned out N parallel customers.get(id) calls per page
     // load — visibly slow once the day had a handful of unique customers.
-    const [cachedCustomers, karuteList] = await Promise.all([
+    const [cachedCustomers, karuteList, staffList] = await Promise.all([
       getCachedCustomerList(),
       synqed.karuteRecords.list({
         from: dayStartUTC.toISOString(),
         to: dayEndUTC.toISOString(),
         page_size: 200,
       }),
+      synqed.staff.list({ page_size: 200 }),
     ])
     const nameById = new Map(cachedCustomers.map((c) => [c.id, c.name]))
     const karuteByAppointment = new Map<string, string>()
     for (const k of karuteList.karute_records) {
       if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
     }
+    // synqed staff id → supabase profile id (which equals synqed staff.user_id).
+    // Appointments arrive keyed by synqed staff id; the rest of the app keys
+    // staff off the supabase profile id, so we translate at the boundary.
+    const profileByStaffId = new Map(
+      staffList.staff
+        .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+        .map((s) => [s.id, s.user_id]),
+    )
 
     return list.appointments.map((a) => ({
       id: a.id,
-      staff_profile_id: a.staff_id,
+      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
       client_id: a.customer_id,
       start_time: a.starts_at,
       duration_minutes: a.duration_minutes ?? 0,
@@ -159,7 +163,7 @@ export async function deleteAppointment(appointmentId: string) {
 
 export async function updateAppointment(
   appointmentId: string,
-  updates: { staffId?: string; startTime?: string; durationMinutes?: number },
+  updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
 ) {
   try {
     const synqed = await getSynqedClient()
@@ -170,8 +174,8 @@ export async function updateAppointment(
       duration_minutes?: number
     } = {}
 
-    if (updates.staffId) {
-      patch.staff_id = updates.staffId
+    if (updates.staffProfileId) {
+      patch.staff_id = await resolveSynqedStaffId(updates.staffProfileId)
     }
     if (updates.startTime) patch.starts_at = updates.startTime
     if (updates.durationMinutes) patch.duration_minutes = updates.durationMinutes

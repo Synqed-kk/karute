@@ -106,7 +106,7 @@ export function NewBookingDialog({
 
     setSaving(true)
     const result = await createAppointment({
-      staffId: staffId,
+      staffProfileId: staffId,
       clientId,
       startTime: startJst.toISOString(),
       durationMinutes,

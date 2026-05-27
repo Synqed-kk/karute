@@ -20,6 +20,7 @@ jest.mock('next/cache', () => ({
 }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
+  getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
 }))
 
 // Restrictive operating hours for the operating-hours rejection test below.
@@ -60,6 +61,13 @@ jest.mock('@synqed-kk/client', () => {
   return { SynqedError }
 })
 
+// staff-map translates karute profile id → synqed staff id. The translation
+// is exercised in its own suite; here we just want the booking action under
+// test to see a resolved id without hitting a real synqed client.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  resolveSynqedStaffId: jest.fn(async (profileId: string) => profileId),
+}))
+
 const appointments = { create: jest.fn(), list: jest.fn() }
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ appointments })),
@@ -81,7 +89,7 @@ describe('Booking creation flow', () => {
     // the action.
     const startIso = new Date('2026-05-20T13:30:00').toISOString()
     const result = await createAppointment({
-      staffId: 'staff-1',
+      staffProfileId: 'staff-1',
       clientId: 'cust-9',
       startTime: startIso,
       durationMinutes: 45,
@@ -110,7 +118,7 @@ describe('Booking creation flow', () => {
     // mirrors what the form would produce when a user picks 06:00 on the
     // calendar input.
     const result = await createAppointment({
-      staffId: 'staff-1',
+      staffProfileId: 'staff-1',
       clientId: 'cust-9',
       startTime: new Date('2026-05-20T06:00:00').toISOString(),
       durationMinutes: 60,
@@ -128,7 +136,7 @@ describe('Booking creation flow', () => {
     appointments.create.mockResolvedValue({ id: 'should-not-fire' })
 
     const result = await createAppointment({
-      staffId: 'staff-1',
+      staffProfileId: 'staff-1',
       clientId: 'cust-9',
       startTime: new Date('2026-05-20T11:00:00').toISOString(),
       durationMinutes: 0,
@@ -142,7 +150,7 @@ describe('Booking creation flow', () => {
     appointments.create.mockResolvedValue({ id: 'appt-2' })
 
     await createAppointment({
-      staffId: 'staff-1',
+      staffProfileId: 'staff-1',
       clientId: 'cust-9',
       startTime: new Date('2026-05-20T11:00:00').toISOString(),
       durationMinutes: 60,

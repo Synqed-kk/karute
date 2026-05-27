@@ -3,14 +3,29 @@ import { z } from 'zod'
 /**
  * Fixed predefined set of entry categories for AI extraction.
  * Used by GPT structured output to constrain category values.
+ *
+ * MUST match the DB enum on `karute_entries.category`. The save action
+ * pipes these values through `.toUpperCase()` directly into the Prisma
+ * enum (`SYMPTOM | TREATMENT | BODY_AREA | PREFERENCE | LIFESTYLE |
+ * NEXT_VISIT | PRODUCT | OTHER`), so any mismatch surfaces as a
+ * `P2003` "Invalid enum value" error at save time. Keep this list in
+ * lockstep with `src/lib/karute/categories.ts` — that file owns the
+ * display labels (Symptom / Treatment / Body Area / 症状 / etc.).
+ *
+ * Previously the list used legacy TitleCase labels (Preference,
+ * Treatment, Lifestyle, Health, Allergy, Style) that did NOT map to
+ * the DB enum — 'Health' uppercased to 'HEALTH' which is rejected by
+ * Prisma. Liam hit this bug on Vercel; see git log for the fix commit.
  */
 export const ENTRY_CATEGORIES = [
-  'Preference',
-  'Treatment',
-  'Lifestyle',
-  'Health',
-  'Allergy',
-  'Style',
+  'symptom',
+  'treatment',
+  'body_area',
+  'preference',
+  'lifestyle',
+  'next_visit',
+  'product',
+  'other',
 ] as const
 
 export type EntryCategory = (typeof ENTRY_CATEGORIES)[number]

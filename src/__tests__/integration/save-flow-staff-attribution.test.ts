@@ -1,85 +1,205 @@
 /**
- * saveKaruteRecord attributes to the supplied staffId and validates it against
- * the org roster (getStaffList). A staffId outside the roster is rejected and
- * never reaches synqed-core.
+ * End-to-end save-flow attribution test.
+ *
+ * The existing migrated-* tests mock @/lib/staff wholesale, which means they
+ * can't catch a regression where the action stops calling the resolver. This
+ * suite leaves @/lib/staff real and drives the entire chain through mocked
+ * Supabase clients + a mocked synqed-core client.
+ *
+ * What it proves end-to-end:
+ *   - saveKaruteRecord pulls the staff id from getCurrentUserStaffId (auth.uid)
+ *     and forwards it as staff_id to synqed.karuteRecords.create
+ *   - When the signed-in user has no staff row, save returns an error and
+ *     never hits synqed-core — the FK-on-stale-cookie failure mode is dead
+ *   - The save path never touches next/headers (no cookie read)
  */
+
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
-  return { ...actual, cache: (fn: (...a: unknown[]) => unknown) => fn }
+  return {
+    ...actual,
+    cache: (fn: (...a: unknown[]) => unknown) => fn,
+  }
 })
+
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
 }))
-jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
 
+jest.mock('next/navigation', () => ({
+  redirect: jest.fn(),
+}))
+
+const cookieGetSpy = jest.fn()
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({
+    get: cookieGetSpy,
+    getAll: jest.fn(() => []),
+    set: jest.fn(),
+  })),
+}))
+
+delete process.env.SUPABASE_JWT_SECRET
 process.env.SYNQED_CORE_URL = 'http://test.invalid'
 process.env.SYNQED_CORE_API_KEY = 'test-key'
 
-const rosterIds: string[] = []
-jest.mock('@/lib/staff', () => ({
-  getStaffList: jest.fn(async () => rosterIds.map((id) => ({ id, full_name: id, has_pin: false, created_at: '' }))),
-  getBusinessId: jest.fn(async () => 'biz-1'),
+type Scenario = {
+  authUser: { id: string } | null
+  businessProfile: { customer_id: string } | null
+  staffProfiles: Array<{
+    id: string
+    full_name: string | null
+    customer_id: string
+    pin_hash: string | null
+  }>
+}
+
+const scenario: Scenario = {
+  authUser: null,
+  businessProfile: null,
+  staffProfiles: [],
+}
+
+const serviceFromMock = jest.fn()
+
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: jest.fn(async () => ({
+    auth: {
+      getUser: jest.fn(async () => ({
+        data: { user: scenario.authUser },
+        error: null,
+      })),
+      getSession: jest.fn(async () => ({ data: { session: null } })),
+    },
+  })),
+}))
+
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: jest.fn(() => ({ from: serviceFromMock })),
 }))
 
 const karuteRecords = { create: jest.fn() }
-jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ karuteRecords })),
+const appointments = { get: jest.fn() }
+
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn().mockImplementation(() => ({
+    karuteRecords,
+    appointments,
+  })),
 }))
 
-import { saveKaruteRecord, saveKaruteRecordInline } from '@/actions/karute'
-
-const baseInput = {
-  customerId: 'cust-1', transcript: 't', summary: 's', entries: [] as [],
-}
+import { saveKaruteRecord } from '@/actions/karute'
 
 beforeEach(() => {
   jest.clearAllMocks()
-  rosterIds.length = 0
+  scenario.authUser = null
+  scenario.businessProfile = null
+  scenario.staffProfiles = []
+
+  serviceFromMock.mockImplementation(() => ({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    not: jest.fn().mockReturnThis(),
+    order: jest.fn().mockResolvedValue({
+      data: scenario.staffProfiles,
+      error: null,
+    }),
+    single: jest.fn().mockResolvedValue({
+      data: scenario.businessProfile,
+      error: null,
+    }),
+  }))
 })
 
-describe('saveKaruteRecord — roster-validated attribution', () => {
-  it('forwards a roster staffId as staff_id', async () => {
-    rosterIds.push('staff-a')
+describe('saveKaruteRecord — staff attribution', () => {
+  it("uses the signed-in user's id as staff_id when a matching staff row exists", async () => {
+    scenario.authUser = { id: 'user-a' }
+    scenario.businessProfile = { customer_id: 'biz-1' }
+    scenario.staffProfiles = [
+      { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
+    ]
     karuteRecords.create.mockResolvedValue({ id: 'kr-1' })
-    await saveKaruteRecord({ ...baseInput, staffId: 'staff-a' })
+
+    await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [],
+    })
+
     expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ customer_id: 'cust-1', staff_id: 'staff-a' }),
+      expect.objectContaining({
+        customer_id: 'cust-1',
+        staff_id: 'user-a',
+      }),
     )
   })
 
-  it('rejects a staffId not in the roster and never calls synqed', async () => {
-    rosterIds.push('staff-a')
-    const result = await saveKaruteRecord({ ...baseInput, staffId: 'intruder' })
-    expect(result).toEqual({ error: expect.stringMatching(/not part of your salon/i) })
+  it('returns an error and never calls synqed when the user has no staff row', async () => {
+    // Post-wipe scenario: auth row still alive, staff profile gone.
+    // The old cookie pattern would have plumbed a stale id straight into the
+    // FK; now we surface a clean error instead.
+    scenario.authUser = { id: 'user-orphan' }
+    scenario.businessProfile = { customer_id: 'biz-1' }
+    scenario.staffProfiles = [
+      { id: 'user-b', full_name: 'Grace', customer_id: 'biz-1', pin_hash: null },
+    ]
+
+    const result = await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [],
+    })
+
+    expect(result).toEqual({ error: expect.stringMatching(/staff identity/i) })
     expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 
-  it('surfaces a transient error (not a rejection) when the roster is empty', async () => {
-    // getStaffList degrades to [] when synqed-core is unreachable — the save
-    // must not blame the user with "not part of your salon".
-    const result = await saveKaruteRecord({ ...baseInput, staffId: 'staff-a' })
-    expect(result).toEqual({ error: expect.stringMatching(/could not load/i) })
-    expect(karuteRecords.create).not.toHaveBeenCalled()
-  })
-})
+  it("uses the appointment's staff_id when an appointmentId is provided (override path)", async () => {
+    scenario.authUser = { id: 'user-a' }
+    scenario.businessProfile = { customer_id: 'biz-1' }
+    scenario.staffProfiles = [
+      { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
+    ]
+    // The appointment is owned by a different staff member — the karute
+    // record should follow the appointment's attribution, not the signer's.
+    appointments.get.mockResolvedValue({ staff_id: 'other-staff' })
+    karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
 
-describe('saveKaruteRecordInline — roster-validated attribution', () => {
-  it('returns the record id for a roster staffId', async () => {
-    rosterIds.push('staff-a')
-    karuteRecords.create.mockResolvedValue({ id: 'kr-9' })
-    const result = await saveKaruteRecordInline({ ...baseInput, staffId: 'staff-a' })
-    expect(result).toEqual({ id: 'kr-9' })
+    await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      appointmentId: 'appt-1',
+    })
+
     expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'staff-a' }),
+      expect.objectContaining({
+        staff_id: 'other-staff',
+        appointment_id: 'appt-1',
+      }),
     )
   })
 
-  it('rejects a staffId not in the roster and never calls synqed', async () => {
-    rosterIds.push('staff-a')
-    const result = await saveKaruteRecordInline({ ...baseInput, staffId: 'intruder' })
-    expect(result).toEqual({ error: expect.stringMatching(/not part of your salon/i) })
-    expect(karuteRecords.create).not.toHaveBeenCalled()
+  it('never reads a cookie during the save path', async () => {
+    scenario.authUser = { id: 'user-a' }
+    scenario.businessProfile = { customer_id: 'biz-1' }
+    scenario.staffProfiles = [
+      { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
+    ]
+    karuteRecords.create.mockResolvedValue({ id: 'kr-3' })
+
+    await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [],
+    })
+
+    expect(cookieGetSpy).not.toHaveBeenCalled()
   })
 })

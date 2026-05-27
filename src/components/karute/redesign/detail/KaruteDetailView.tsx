@@ -22,6 +22,7 @@ import {
   AISuggestedMessageCard,
   type SuggestedMessage,
 } from './AISuggestedMessageCard'
+import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
 
 export interface KaruteDetailViewProps {
   karuteId: string
@@ -83,6 +84,7 @@ export function KaruteDetailView({
         <div className="flex flex-col gap-4">
           <AISuggestedMessageCard
             customerName={header.customerName}
+            customerId={customerId}
             draft={suggestedMessage}
           />
           <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
@@ -91,6 +93,12 @@ export function KaruteDetailView({
             consentOnFile={consentOnFile}
             durationLabel={transcriptDurationLabel}
           />
+          {/* Layer 1 staff-private coaching panel — renders null
+           *  for owners (role gate inside the component). Currently
+           *  always shows the empty-state 対応予定 scaffold; lights
+           *  up when Anthony passes archived per-karute suggestions
+           *  via `suggestions` prop. */}
+          <KaruteCoachingPanel suggestions={null} />
         </div>
       </div>
     </div>

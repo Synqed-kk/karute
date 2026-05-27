@@ -20,21 +20,19 @@ type DirectDraft = {
 
 type SaveKaruteFlowProps = {
   customers: CustomerOption[]
-  staffOptions: { id: string; name: string }[]
   appointmentCustomerId?: string
   directDraft?: DirectDraft
 }
 
 type FlowState = 'combobox' | 'quick-create'
 
-export function SaveKaruteFlow({ customers, staffOptions, appointmentCustomerId, directDraft }: SaveKaruteFlowProps) {
+export function SaveKaruteFlow({ customers, appointmentCustomerId, directDraft }: SaveKaruteFlowProps) {
   const t = useTranslations('karute')
   const [sessionDraft, setSessionDraft] = useState<KaruteDraft | null>(null)
   const [hasMounted, setHasMounted] = useState(false)
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(
     appointmentCustomerId ?? null
   )
-  const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null)
   const [flowState, setFlowState] = useState<FlowState>('combobox')
   const [customerList, setCustomerList] = useState<CustomerOption[]>(customers)
   const [isSaving, setIsSaving] = useState(false)
@@ -62,17 +60,12 @@ export function SaveKaruteFlow({ customers, staffOptions, appointmentCustomerId,
       toast.error(t('selectCustomerFirst'))
       return
     }
-    if (!selectedStaffId) {
-      toast.error(t('selectStaff'))
-      return
-    }
 
     setIsSaving(true)
 
     try {
       const result = await saveKaruteRecord({
         customerId: selectedCustomerId,
-        staffId: selectedStaffId,
         transcript: draft.transcript,
         summary: draft.summary,
         entries: draft.entries.map((e) => ({
@@ -142,29 +135,10 @@ export function SaveKaruteFlow({ customers, staffOptions, appointmentCustomerId,
         )}
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <label className="text-sm font-medium text-foreground">
-          {t('staff')}
-        </label>
-        <select
-          value={selectedStaffId ?? ''}
-          onChange={(e) => setSelectedStaffId(e.target.value || null)}
-          disabled={isSaving}
-          className="rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground disabled:opacity-50"
-        >
-          <option value="">{t('selectStaff')}</option>
-          {staffOptions.map((o) => (
-            <option key={o.id} value={o.id}>
-              {o.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
       {flowState === 'combobox' && (
         <Button
           onClick={handleSave}
-          disabled={isSaving || !selectedCustomerId || !selectedStaffId}
+          disabled={isSaving || !selectedCustomerId}
           size="default"
           className="self-start"
         >
