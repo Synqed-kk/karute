@@ -11,11 +11,12 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
+  resolveStaffProfileId,
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
 
-export { validateAppointmentTime, type AppointmentInput }
+export { resolveStaffProfileId, validateAppointmentTime, type AppointmentInput }
 
 export interface AppointmentRow {
   id: string
@@ -46,11 +47,16 @@ export async function createAppointment(input: AppointmentInput) {
   const startTime = new Date(input.startTime)
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
+  const staffProfileId = resolveStaffProfileId(input)
+  if (!staffProfileId) {
+    return { error: 'staffProfileId is required.' }
+  }
+
   try {
     const synqed = await getSynqedClient()
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
-      staff_id: input.staffId,
+      staff_id: staffProfileId,
       starts_at: startTime.toISOString(),
       ends_at: endTime.toISOString(),
       duration_minutes: input.durationMinutes,

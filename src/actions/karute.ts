@@ -2,7 +2,7 @@
 
 import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
-import { getStaffList } from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
 
@@ -26,6 +26,32 @@ async function validateStaffId(staffId: string): Promise<{ error: string } | nul
 }
 
 /**
+ * Resolves the staff id for a save call.
+ *
+ * Two paths, kept compatible during the staff-id-from-client → staff-id-
+ * from-auth migration:
+ *  - If the caller supplies input.staffId (legacy callers, the picker-based
+ *    review flow), validate it against the org roster and use it.
+ *  - Otherwise, derive it from the signed-in user via getCurrentUserStaffId().
+ *
+ * Either path can return `{ error }`. The caller short-circuits the save.
+ */
+async function resolveStaffIdForSave(
+  inputStaffId: string | undefined,
+): Promise<{ staffId: string } | { error: string }> {
+  if (inputStaffId) {
+    const staffError = await validateStaffId(inputStaffId)
+    if (staffError) return staffError
+    return { staffId: inputStaffId }
+  }
+  const current = await getCurrentUserStaffId()
+  if (!current) {
+    return { error: 'No staff identity for the signed-in user.' }
+  }
+  return { staffId: current }
+}
+
+/**
  * Save a karute record with all AI-extracted entries in a single atomic
  * API call.
  *
@@ -41,14 +67,12 @@ export async function saveKaruteRecord(
   try {
     const synqed = await getSynqedClient()
 
-    // staffId comes from the UI (live booking or picker). Validate it belongs
-    // to this org's roster — never trust a raw client id against the FK.
-    const staffError = await validateStaffId(input.staffId)
-    if (staffError) return staffError
+    const resolved = await resolveStaffIdForSave(input.staffId)
+    if ('error' in resolved) return resolved
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
-      staff_id: input.staffId,
+      staff_id: resolved.staffId,
       appointment_id: input.appointmentId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
@@ -82,14 +106,12 @@ export async function saveKaruteRecordInline(
   try {
     const synqed = await getSynqedClient()
 
-    // staffId comes from the UI (live booking or picker). Validate it belongs
-    // to this org's roster — never trust a raw client id against the FK.
-    const staffError = await validateStaffId(input.staffId)
-    if (staffError) return staffError
+    const resolved = await resolveStaffIdForSave(input.staffId)
+    if ('error' in resolved) return resolved
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
-      staff_id: input.staffId,
+      staff_id: resolved.staffId,
       appointment_id: input.appointmentId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,

@@ -5,13 +5,28 @@ import {
 } from '@/lib/operating-hours'
 
 export interface AppointmentInput {
-  staffId: string
+  /** New canonical name — matches the appointments table column.
+   *  Either this or the legacy `staffId` alias may be supplied;
+   *  consumers should resolve via `resolveStaffProfileId(input)`. */
+  staffProfileId?: string
+  /** @deprecated Use staffProfileId. Kept for legacy callers during
+   *  the rename; consumers fall back to this if staffProfileId is
+   *  not provided. A follow-up cleanup PR will drop the alias. */
+  staffId?: string
   clientId: string
   startTime: string
   durationMinutes: number
   tzOffsetMinutes?: number
   title?: string
   notes?: string
+}
+
+/** Returns the staff id from an AppointmentInput, preferring the new
+ *  `staffProfileId` field over the legacy `staffId` alias. Returns
+ *  null when neither is set — callers should treat that as a
+ *  validation error. */
+export function resolveStaffProfileId(input: AppointmentInput): string | null {
+  return input.staffProfileId ?? input.staffId ?? null
 }
 
 export async function validateAppointmentTime(input: AppointmentInput, operatingHours: unknown): Promise<string | null> {
