@@ -92,6 +92,26 @@ export async function getStaffById(id: string): Promise<StaffMemberBasic | null>
 }
 
 /**
+ * Resolves the staff identity for the currently authenticated user.
+ *
+ * Looks up the staff row in this tenant whose `id` matches `auth.uid()` — every
+ * user gets exactly one staff identity per business, seeded at signup. Returns
+ * null if the user has no staff row (e.g. they were removed but their auth
+ * session is still alive).
+ *
+ * Save flows must read staff_id from here — never accept it from client input,
+ * never trust a cookie. Intended to replace the cookie-backed active-staff
+ * pattern (src/lib/active-staff.ts), which can let stale ids survive auth
+ * wipes and cause FK violations.
+ */
+export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
+  const userId = await resolveUserId().catch(() => null)
+  if (!userId) return null
+  const list = await getStaffList()
+  return list.some((s) => s.id === userId) ? userId : null
+})
+
+/**
  * Returns the current authenticated user's business id.
  * Used to scope inserts so RLS allows them. Reads the legacy
  * `profiles.customer_id` column — the legacy schema still names
