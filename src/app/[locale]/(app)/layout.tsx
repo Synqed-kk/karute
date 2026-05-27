@@ -1,12 +1,18 @@
 import { BottomNav } from '@/components/layout/bottom-nav'
+import { MobileHeader } from '@/components/layout/MobileHeader'
 import { Sidebar } from '@/components/layout/sidebar'
-import { AIChatFAB } from '@/components/ai/AIChatFAB'
-import { MiniRecorder } from '@/components/recording/MiniRecorder'
-import { getStaffList } from '@/lib/staff'
-import { getActiveStaffId } from '@/lib/active-staff'
+// AIChatFAB removed — the floating action button overlapped the
+// bottom-nav's メニュー tab on mobile, making it un-tappable. AI chat
+// is reachable via the /ask-ai route from the menu drawer. If we
+// want a quick-access affordance back later, it should be inside the
+// bottom-nav strip (e.g. as a center-action mic-style button), not
+// floating over it.
+// import { AIChatFAB } from '@/components/ai/AIChatFAB'
+import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
+import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
+import { getNextCustomer } from '@/lib/appointments/next-customer'
 import { SessionProvider } from '@/providers/session-provider'
-import { TopBar } from '@/components/layout/top-bar'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -21,11 +27,16 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
-    getActiveStaffId(),
+    getCurrentUserStaffId(),
     getOrgSettings(),
+    // Bottom-nav next-customer label. Fanned out in parallel with
+    // the other layout queries so it doesn't add a serial step.
+    // Failure is non-fatal — bottom nav falls back to its scaffold
+    // copy ("予約を選択") if this query errors.
+    getNextCustomer().catch(() => null),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
@@ -39,7 +50,10 @@ export default async function DashboardLayout({
     hasPin: !!(s as { has_pin?: boolean }).has_pin,
   }))
 
-  const activeStaff = staffItems.find((s) => s.id === activeStaffId) ?? null
+  let activeStaff = staffItems.find((s) => s.id === activeStaffId) ?? null
+  if (!activeStaff && staffItems.length > 0) {
+    activeStaff = staffItems.find((s) => s.id === user.id) ?? staffItems[0]
+  }
 
   const sessionData = {
     userId: user.id,
@@ -60,17 +74,38 @@ export default async function DashboardLayout({
       <div className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]">
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar />
-          <main className="relative flex flex-1 flex-col overflow-hidden bg-[var(--color-bg)]">
-            <TopBar />
-            <div className="flex-1 overflow-y-auto">
-              <div className="mx-auto max-w-7xl p-4 md:p-6">{children}</div>
+          <main className="relative flex-1 overflow-y-auto bg-[var(--color-bg)]">
+            {/* Mobile-only sticky top bar — back arrow + page
+             *  title + notification bell. Replaces the per-page
+             *  centered title bars that used to live in each
+             *  view, giving every mobile screen a consistent
+             *  app-chrome surface. md:hidden so the sidebar owns
+             *  the chrome on desktop. */}
+            <MobileHeader />
+            {/* No horizontal padding here — matches the spike's
+             *  (app) layout which provides ZERO padding. Each page
+             *  component owns its own `px-4 md:px-6` (or whatever
+             *  pattern matches the spike for that page). This is the
+             *  system-wide padding rule:
+             *
+             *    Layout = vertical-only padding.
+             *    Pages  = own horizontal padding per spike.
+             *    Cards  = own `p-4` internal content padding.
+             *
+             *  Cards' BORDERS then sit at the page-wrapper edge (or at
+             *  viewport edge on pages like karute-customer-detail
+             *  which intentionally have no wrapper padding so cards
+             *  bleed full-width on mobile). Card CONTENT sits at
+             *  page-padding + card-padding (16+16=32px). Matches the
+             *  spike's per-page screenshots exactly. */}
+            <div className="mx-auto max-w-7xl py-4 md:py-6">
+              {children}
             </div>
           </main>
         </div>
-        <MiniRecorder />
-        <AIChatFAB locale={locale} />
+        <DiscreetRecordingIndicator />
         <div className="md:hidden">
-          <BottomNav />
+          <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>
       </div>
     </SessionProvider>

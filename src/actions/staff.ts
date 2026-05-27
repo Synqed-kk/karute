@@ -8,7 +8,9 @@ import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/st
 
 // Look up an existing Supabase profile by email. Returns its id (which equals
 // auth.users.id) when found, else null. Lets createStaff seed synqed
-// staff.user_id at insert time when the teammate already has an auth account.
+// staff.user_id at insert time when the teammate already has an auth account
+// — otherwise the link is filled in later by the resolver's self-heal path
+// in src/lib/synqed/staff-map.ts.
 async function findProfileIdByEmail(email: string): Promise<string | null> {
   const service = createServiceClient()
   const { data } = await service
