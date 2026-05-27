@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
+import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { getRecentKaruteForAI } from '@/lib/karute/recent'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
@@ -14,17 +14,23 @@ export async function POST(request: Request) {
   if (limited) return limited
   try {
     const { message, locale, history } = await request.json()
+    const supabase = await createClient()
 
-    // Recent karute + customer data for context, both from synqed-core.
+    // Fetch recent karute + customer data for context
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: records } = await (supabase as any)
+      .from('karute_records')
+      .select('summary, created_at, customers:client_id ( name ), entries ( category, content )')
+      .order('created_at', { ascending: false })
+      .limit(5)
+
     const synqed = await getSynqedClient()
-    const [records, customerResult] = await Promise.all([
-      getRecentKaruteForAI(5),
-      synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc' }),
-    ])
+    const customerResult = await synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc' })
 
-    const karuteContext = records.map((r) => {
-      const entries = r.entries.map((e) => `[${e.category}] ${e.content}`).join(', ')
-      return `${r.customerName} (${r.created_at}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
+    const karuteContext = (records ?? []).map((r: { summary: string; created_at: string; customers: { name: string } | null; entries: { category: string; content: string }[] }) => {
+      const name = (r.customers as { name: string } | null)?.name ?? 'Unknown'
+      const entries = (r.entries || []).map((e: { category: string; content: string }) => `[${e.category}] ${e.content}`).join(', ')
+      return `${name} (${r.created_at}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
     }).join('\n')
 
     const customerNames = customerResult.customers.map((c) => c.name).join(', ')
