@@ -111,9 +111,9 @@ export async function getDashboardData(): Promise<DashboardData> {
   const startOfMonth = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   )
-  const yesterday = new Date(now)
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1)
-  const todayDay = yesterday.toISOString().split('T')[0]
+  // `todayDay` IS today (YYYY-MM-DD). The previous version derived it from
+  // `now - 1 day`, so the "today's appointments" window targeted yesterday.
+  const todayDay = now.toISOString().split('T')[0]
   return dashboardByDay(
     businessId,
     todayDay,

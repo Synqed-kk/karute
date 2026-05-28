@@ -118,7 +118,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
       confidence: 0.8,
       is_manual: false,
     })
-    expect(redirect).toHaveBeenCalledWith('/karute/karute-1')
+    expect(redirect).toHaveBeenCalledWith('/en/karute/karute-1')
   })
 
   it('addManualEntry calls addEntry with is_manual=true and confidence=null', async () => {

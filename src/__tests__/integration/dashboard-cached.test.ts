@@ -9,10 +9,6 @@
  * The service client is mocked as a chainable query builder; each table's
  * builder resolves to the response staged for it. unstable_cache is mocked to
  * a passthrough so the inner fn runs directly. getBusinessId is stubbed.
- *
- * NOTE (flagged, not pinned): getDashboardData computes `todayDay` from
- * `yesterday` (now - 1 day), so the "today's appointments" window is actually
- * yesterday's calendar day. Asserted below as observed behaviour.
  */
 const BIZ = 'biz-1'
 

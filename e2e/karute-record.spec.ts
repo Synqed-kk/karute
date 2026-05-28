@@ -19,8 +19,7 @@ test('create a karute record via the manual dialog', async ({ page }) => {
   // Create. The dialog closes and we're back on the karute surface.
   await page.getByRole('button', { name: 'Create karute' }).click()
   await expect(page.getByText('Create new karute')).toBeHidden({ timeout: 15_000 })
-  // Create succeeds → navigates to the new karute's detail page. NOTE: the
-  // post-create redirect drops the /en locale prefix (lands on /karute/<id>,
-  // not /en/karute/<id>) — a minor app quirk worth a follow-up.
-  await expect(page).toHaveURL(/\/karute\/[0-9a-f-]+$/, { timeout: 15_000 })
+  // Create succeeds → navigates to the new karute's detail page under the
+  // current locale (/en/karute/<id>).
+  await expect(page).toHaveURL(/\/en\/karute\/[0-9a-f-]+$/, { timeout: 15_000 })
 })

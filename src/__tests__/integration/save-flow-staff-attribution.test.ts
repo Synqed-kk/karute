@@ -31,6 +31,8 @@ jest.mock('next/cache', () => ({
 jest.mock('next/navigation', () => ({
   redirect: jest.fn(),
 }))
+// karute.ts now imports getLocale to prefix the post-create redirect.
+jest.mock('next-intl/server', () => ({ getLocale: async () => 'en' }))
 
 const cookieGetSpy = jest.fn()
 jest.mock('next/headers', () => ({

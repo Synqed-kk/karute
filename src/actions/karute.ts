@@ -2,6 +2,7 @@
 
 import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
@@ -56,7 +57,10 @@ export async function saveKaruteRecord(
   revalidatePath(`/customers/${input.customerId}`)
   revalidatePath('/dashboard')
   updateTag('dashboard')
-  redirect(`/karute/${recordId}`)
+  // Include the locale prefix so the redirect lands on /<locale>/karute/<id>
+  // (not the bare /karute/<id> which bypasses next-intl's locale routing).
+  const locale = await getLocale()
+  redirect(`/${locale}/karute/${recordId}`)
 }
 
 /**
@@ -168,5 +172,8 @@ export async function createManualKaruteRecord(input: {
   revalidatePath(`/customers/${input.customerId}`)
   revalidatePath('/karute')
   updateTag('dashboard')
-  redirect(`/karute/${recordId}`)
+  // Include the locale prefix so the redirect lands on /<locale>/karute/<id>
+  // (not the bare /karute/<id> which bypasses next-intl's locale routing).
+  const locale = await getLocale()
+  redirect(`/${locale}/karute/${recordId}`)
 }

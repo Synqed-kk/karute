@@ -160,25 +160,23 @@ describe('useIntakeFormCustomizations — mutations', () => {
     expect(remaining[0].labelEn).toBe('B')
   })
 
-  // FLAGGED (not pinned): addCustomField derives ids from
-  // `field_${Date.now()}`. Two fields added within the same millisecond get
-  // the SAME id, so a later removeCustomField(id) removes BOTH. This test
-  // documents the current (buggy) behavior without asserting it is correct.
-  it('[FLAGGED] addCustomField can produce duplicate ids within one ms (Date.now collision)', () => {
+  // Regression guard: two back-to-back addCustomField() calls within the same
+  // millisecond MUST produce distinct ids, so a later removeCustomField(id)
+  // removes exactly one. The previous `field_${Date.now()}` scheme collided
+  // and would delete BOTH fields.
+  it('addCustomField produces unique ids even within the same millisecond', () => {
     const bt = uniqueType()
     const { result } = renderHook(() => useIntakeFormCustomizations(bt))
     act(() => result.current.addCustomField('beauty', { labelJa: 'A', labelEn: 'A' }))
     act(() => result.current.addCustomField('beauty', { labelJa: 'B', labelEn: 'B' }))
     const fields = result.current.customizations.customFields.beauty
     expect(fields).toHaveLength(2)
-    const ids = fields.map((f) => f.id)
-    // Ideally these would always be unique. In practice they frequently
-    // collide because Date.now() has ms resolution. If this ever starts
-    // failing (ids became unique), the underlying id scheme was fixed —
-    // update/remove this flag.
-    const collided = ids[0] === ids[1]
-    // We assert the *shape* (two fields exist), and merely observe collision.
-    expect(typeof collided).toBe('boolean')
+    expect(fields[0].id).not.toBe(fields[1].id)
+    // Removing one id leaves exactly one behind (no collision-delete).
+    act(() => result.current.removeCustomField('beauty', fields[0].id))
+    const remaining = result.current.customizations.customFields.beauty
+    expect(remaining).toHaveLength(1)
+    expect(remaining[0].labelEn).toBe('B')
   })
 
   it('removeCustomField with an unknown id is a no-op', () => {
