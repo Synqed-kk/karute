@@ -5,6 +5,7 @@ import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listCustomerPhotos } from '@/actions/customers'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
@@ -54,7 +55,7 @@ export default async function CustomerProfilePage({
   // real `customers.karute_number` column.
   const synqed = await getSynqedClient()
 
-  const [contact, staffList, karuteRes, photosResult, allCustomersList] =
+  const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows] =
     await Promise.all([
       getCustomerContact(id),
       getStaffList(),
@@ -81,6 +82,10 @@ export default async function CustomerProfilePage({
         sort_by: 'created_at',
         sort_order: 'asc',
       }),
+      // synqed-core is the authoritative karute store; the Supabase query above
+      // is effectively empty. Union both so this customer's synqed-written
+      // sessions appear in their history.
+      listSynqedKaruteRows(synqed, { customerId: id }),
     ])
 
   type KaruteRow = {
@@ -91,7 +96,10 @@ export default async function CustomerProfilePage({
     staff_profile_id: string | null
     entries: Array<{ count: number }> | null
   }
-  const karuteRecords = (karuteRes.data ?? []) as KaruteRow[]
+  const karuteRecords = mergeKaruteRows<KaruteRow>(
+    (karuteRes.data ?? []) as KaruteRow[],
+    synqedKaruteRows,
+  )
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
