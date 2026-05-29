@@ -4,6 +4,7 @@ import {
   getStaffList,
 } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -41,7 +42,7 @@ export default async function KaruteRecordsListPage() {
   const sb = supabase as any
   const synqed = await getSynqedClient()
 
-  const [recordsRes, staffList, allCustomersList, currentStaffId] =
+  const [recordsRes, staffList, allCustomersList, currentStaffId, synqedKaruteRows] =
     await Promise.all([
       sb
         .from('karute_records')
@@ -60,6 +61,9 @@ export default async function KaruteRecordsListPage() {
         sort_order: 'asc',
       }),
       getCurrentUserStaffId(),
+      // synqed-core is the authoritative karute store; the Supabase query above
+      // is effectively empty. Union both so synqed-written karute appear here.
+      listSynqedKaruteRows(synqed),
     ])
 
   type RecordRow = {
@@ -73,7 +77,10 @@ export default async function KaruteRecordsListPage() {
     entries: Array<{ count: number }> | null
   }
 
-  const records = ((recordsRes.data ?? []) as RecordRow[]).map((r) => r)
+  const records = mergeKaruteRows<RecordRow>(
+    (recordsRes.data ?? []) as RecordRow[],
+    synqedKaruteRows,
+  )
 
   // Build lookup maps
   const staffNameById = new Map(
