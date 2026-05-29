@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 
@@ -47,11 +48,50 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
     throw new Error(parsed.error.issues.map((e) => e.message).join(', '))
   }
 
-  const synqed = await getSynqedClient()
-  await synqed.staff.update(id, {
-    name: parsed.data.name,
-    email: parsed.data.email || null,
-  })
+  const service = createServiceClient()
+  const businessId = await getBusinessId()
+
+  // The roster surfaces profile-backed staff (the owner + signed-up teammates)
+  // from Supabase `profiles`, keyed by profiles.id — NOT the synqed staff id.
+  // So an edit on one of those must update the profile row, which is where the
+  // list reads the name from. Only owner-created teammates who haven't signed
+  // up yet live solely in synqed-core (keyed by synqed staff.id); those still
+  // route through the synqed client. Passing a profiles.id to
+  // synqed.staff.update was the "SynqedError: Staff not found" 500 on save.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: profile } = await (service as any)
+    .from('profiles')
+    .select('id')
+    .eq('id', id)
+    .eq('customer_id', businessId)
+    .maybeSingle()
+
+  if (profile) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (service as any)
+      .from('profiles')
+      .update({
+        full_name: parsed.data.name,
+        position: parsed.data.position || null,
+      })
+      .eq('id', id)
+      .eq('customer_id', businessId)
+    if (error) {
+      throw new Error(`Could not update staff: ${error.message}`)
+    }
+    // email intentionally NOT updated here — a profile's email is its auth
+    // login, so changing it needs the re-confirmation flow the dialog hints at
+    // ("Changing the email requires re-confirmation"), which isn't wired yet.
+    // Name + position are the safe, in-scope edits.
+  } else {
+    // synqed-only staff (owner-created, not yet signed up) — `id` is already a
+    // synqed staff id, so the synqed client is the correct write target.
+    const synqed = await getSynqedClient()
+    await synqed.staff.update(id, {
+      name: parsed.data.name,
+      email: parsed.data.email || null,
+    })
+  }
 
   revalidatePath('/settings')
   updateTag('staff-list')
