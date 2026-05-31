@@ -181,7 +181,7 @@ export function CustomersListView({
               <CustomerRowDesktop
                 key={c.id}
                 c={c}
-                staffColor={getStaffColor(c.preferredStaffId)}
+                staffColor={getStaffColor(c.preferredStaffId ?? c.bookingStaffId)}
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
               />
@@ -197,7 +197,7 @@ export function CustomersListView({
               <CustomerCardMobile
                 key={c.id}
                 c={c}
-                staffColor={getStaffColor(c.preferredStaffId)}
+                staffColor={getStaffColor(c.preferredStaffId ?? c.bookingStaffId)}
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
               />
