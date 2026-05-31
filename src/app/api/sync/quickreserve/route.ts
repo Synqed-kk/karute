@@ -1,12 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { SynqedClient } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
 
 export const maxDuration = 300
 
 /**
- * Sync bookings from Quick Reserve into our appointments table.
- * Called by Vercel cron (daily) or manually.
+ * Sync bookings from Quick Reserve into synqed-core (the source of truth the
+ * app reads from). Called by Vercel cron (daily) or manually.
+ *
+ * `sync_config` (provider credentials + last-run status) still lives in
+ * Supabase — it's config, not customer/booking data. Everything the app
+ * actually renders — customers, staff matching, appointments — goes through
+ * synqed-core. Writing to the legacy Supabase tables here would land bookings
+ * in tables nobody reads post-migration (they'd never show in the UI).
  */
 export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization')
@@ -29,6 +36,7 @@ export async function POST() {
 }
 
 async function runSync() {
+  // sync_config (credentials + run status) stays in Supabase — it's config.
   const supabase = createServiceClient()
 
   try {
@@ -42,6 +50,24 @@ async function runSync() {
     if (!config) {
       return NextResponse.json({ message: 'QR sync not configured or disabled' })
     }
+
+    // synqed-core is the source of truth and is business-scoped, so the sync
+    // needs to know which business it's writing into.
+    if (!config.business_id) {
+      return NextResponse.json(
+        { error: 'QR sync requires business_id on sync_config (synqed-core is business-scoped)' },
+        { status: 400 },
+      )
+    }
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) {
+      return NextResponse.json(
+        { error: 'Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY' },
+        { status: 500 },
+      )
+    }
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId: config.business_id })
 
     // Login
     const session = await qrLogin(config.username, config.password_encrypted)
@@ -65,23 +91,36 @@ async function runSync() {
 
     console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
 
-    // Get staff for name matching (scoped to business if set)
-    const staffQuery = supabase
-      .from('profiles')
-      .select('id, full_name')
-      .not('full_name', 'is', null)
-
-    if (config.business_id) {
-      staffQuery.eq('customer_id', config.business_id)
+    // synqed staff name → synqed staff id (synqed appointments FK on staff.id).
+    const { staff } = await synqed.staff.list({ page_size: 200 })
+    const staffByName = new Map<string, string>()
+    for (const s of staff) {
+      if (s.name) staffByName.set(s.name, s.id)
     }
 
-    const { data: ourStaff } = await staffQuery
-
-    // Build QR staff name → our profile ID map
-    const staffNameMap = new Map<string, string>()
-    for (const s of (ourStaff ?? [])) {
-      if (s.full_name) staffNameMap.set(s.full_name, s.id)
+    // synqed customer name → id, for find-or-create. (synqed list caps at 200;
+    // a tenant with >200 customers could create a duplicate for a name beyond
+    // that window — acceptable for now, would need a name filter on the API.)
+    const { customers: existingCustomers } = await synqed.customers.list({ page_size: 200 })
+    const customerByName = new Map<string, string>()
+    for (const c of existingCustomers) {
+      if (c.name) customerByName.set(c.name, c.id)
     }
+
+    // Existing appointments for the JST day, keyed by staff + start instant so
+    // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
+    // so ISO formatting differences between QR and synqed don't break matching.
+    const dayStartIso = new Date(`${dateStr}T00:00:00+09:00`).toISOString()
+    const dayEndIso = new Date(`${dateStr}T23:59:59+09:00`).toISOString()
+    const { appointments: dayAppts } = await synqed.appointments.list({
+      from: dayStartIso,
+      to: dayEndIso,
+      page_size: 200,
+    })
+    const apptKey = (staffId: string, startsAt: string) =>
+      `${staffId}|${new Date(startsAt).getTime()}`
+    const existingByKey = new Map<string, string>()
+    for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
 
     let created = 0
     let updated = 0
@@ -93,90 +132,61 @@ async function runSync() {
       const mapped = mapReservation(qrRes)
 
       // Match staff by name (fuzzy)
-      let staffProfileId: string | null = null
-      for (const [name, id] of staffNameMap) {
+      let staffId: string | null = null
+      for (const [name, id] of staffByName) {
         if (name.includes(mapped.staffName) || mapped.staffName.includes(name)) {
-          staffProfileId = id
+          staffId = id
           break
         }
       }
 
-      if (!staffProfileId) {
+      if (!staffId) {
         console.log(`[QR Sync] No staff match for: ${mapped.staffName}`)
         skipped++
         continue
       }
 
       // Find or create customer by name
-      const customerQuery = supabase
-        .from('customers')
-        .select('id')
-        .eq('name', mapped.customerName)
-        .limit(1)
-
-      if (config.business_id) {
-        customerQuery.eq('tenant_id', config.business_id)
+      let customerId = customerByName.get(mapped.customerName)
+      if (!customerId) {
+        const cust = await synqed.customers.create({
+          name: mapped.customerName,
+          furigana: mapped.customerKana || null,
+          phone: mapped.customerPhone || null,
+          notes: mapped.customerNotes || null,
+        })
+        customerId = cust.id
+        customerByName.set(mapped.customerName, customerId)
       }
 
-      let { data: customer } = await customerQuery.single()
+      const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
+      const key = apptKey(staffId, mapped.startTime)
+      const existingId = existingByKey.get(key)
 
-      if (!customer) {
-        const { data: newCust, error: insertErr } = await supabase
-          .from('customers')
-          .insert({
-            id: crypto.randomUUID(),
-            tenant_id: config.business_id,
-            name: mapped.customerName,
-            furigana: mapped.customerKana || null,
-            phone: mapped.customerPhone || null,
-            notes: mapped.customerNotes || null,
-            updated_at: new Date().toISOString(),
-          })
-          .select('id')
-          .single()
-        if (insertErr) console.log('[QR Sync] Customer insert error:', insertErr.message)
-        customer = newCust
-      }
-
-      if (!customer) { skipped++; continue }
-
-      // Check if appointment already exists (same staff + start time)
-      const { data: existing } = await supabase
-        .from('appointments')
-        .select('id')
-        .eq('staff_profile_id', staffProfileId)
-        .eq('start_time', mapped.startTime)
-        .limit(1)
-
-      if (existing && existing.length > 0) {
-        await supabase
-          .from('appointments')
-          .update({
-            title: mapped.treatmentName,
-            notes: `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`,
-            duration_minutes: mapped.durationMinutes,
-          })
-          .eq('id', existing[0].id)
+      if (existingId) {
+        await synqed.appointments.update(existingId, {
+          title: mapped.treatmentName,
+          notes,
+          duration_minutes: mapped.durationMinutes,
+        })
         updated++
         continue
       }
 
-      // Create new appointment
-      await supabase
-        .from('appointments')
-        .insert({
-          staff_profile_id: staffProfileId,
-          client_id: customer.id,
-          start_time: mapped.startTime,
-          duration_minutes: mapped.durationMinutes,
-          title: mapped.treatmentName,
-          notes: `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`,
-        })
-
+      const appt = await synqed.appointments.create({
+        customer_id: customerId,
+        staff_id: staffId,
+        starts_at: mapped.startTime,
+        ends_at: mapped.endTime,
+        duration_minutes: mapped.durationMinutes,
+        title: mapped.treatmentName,
+        notes,
+      })
+      existingByKey.set(key, appt.id)
       created++
     }
 
-    // Update sync status
+    // Update sync status (Supabase config row)
     await supabase
       .from('sync_config')
       .update({
