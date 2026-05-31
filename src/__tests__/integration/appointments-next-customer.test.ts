@@ -3,8 +3,9 @@
  * recording-target selection: in-session bookings win over upcoming ones,
  * karute-attached bookings are skipped, and absence yields null.
  *
- * Mocks the staff-identity helper and the supabase appointments query so the
- * pure selection logic is exercised against controlled rows.
+ * Mocks the staff-identity helper and getAppointmentsByDate (the synqed-core
+ * appointments source) so the pure selection logic is exercised against
+ * controlled rows.
  */
 const MIN = 60_000
 
@@ -15,16 +16,8 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => mockStaffId),
 }))
 
-jest.mock('@/lib/supabase/server', () => ({
-  createClient: jest.fn(async () => {
-    const builder: Record<string, unknown> = {}
-    for (const m of ['select', 'eq', 'gte', 'lte', 'order', 'limit']) {
-      builder[m] = () => builder
-    }
-    ;(builder as { then: unknown }).then = (resolve: (v: unknown) => void) =>
-      resolve({ data: mockRows })
-    return { from: () => builder }
-  }),
+jest.mock('@/actions/appointments', () => ({
+  getAppointmentsByDate: jest.fn(async () => mockRows),
 }))
 
 import { getNextCustomer } from '@/lib/appointments/next-customer'
