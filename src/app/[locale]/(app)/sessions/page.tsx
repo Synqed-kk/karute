@@ -3,6 +3,7 @@ import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomerConsent } from '@/actions/customers'
+import { getAppointmentsByDate, type AppointmentRow } from '@/actions/appointments'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -49,37 +50,29 @@ export default async function SessionsPage({
   const tStatus = await getTranslations('reservation.status')
 
   const now = new Date()
-  const windowStart = new Date(now.getTime() - 12 * 60 * 60 * 1000)
-  const windowEnd = new Date(now.getTime() + 24 * 60 * 60 * 1000)
 
-  // Fan out the independent reads in parallel:
-  //   1. Customer list (HTTP → synqed-core)
-  //   2. ALL today's bookings (DB) — NOT filtered by staff. The picker
-  //      (SelectBookingSheet-style dropdown in RecordingTargetCard) shows
-  //      the whole day so staff can manually switch to a booking
-  //      assigned to someone else (covering a colleague, walk-in
-  //      reassignment, recording on behalf of). The DEFAULT target
-  //      still prefers the active staff's bookings — see the priority
-  //      selection below. Previously this was `.eq('staff_profile_id',
-  //      activeStaffId)` and Liam hit it: a 佐竹なな booking wasn't
-  //      showing up under 録音対象 because she was assigned to a
-  //      different staff. Matches the spike's record page which uses
-  //      the org-wide `todaysBookings` from useDashboardData().
-  //   3. Recent karute records (DB)
+  // Bookings for the record target + picker come from synqed-core (the source
+  // of truth), via getAppointmentsByDate — the SAME read the 予約 page uses.
+  // This page previously read the legacy Supabase `appointments` table, which
+  // is empty post-migration, so the recording target (録音対象) was always
+  // empty. We fetch today + tomorrow (JST) to cover an in-session booking plus
+  // the next upcoming one; the picker shows the whole set (active staff first),
+  // so staff can record a colleague's booking too.
+  const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
+  const todayStr = jstNow.toISOString().split('T')[0]
+  const tomorrowStr = new Date(jstNow.getTime() + 86_400_000)
+    .toISOString()
+    .split('T')[0]
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
-  // Columns reused by both the window query and the by-id target fetch below.
-  const APPT_COLS =
-    'id, start_time, duration_minutes, client_id, staff_profile_id, title, notes, karute_record_id, customers:client_id ( name )'
-  const [customers, appointmentsRes, recentRows] = await Promise.all([
+  const [customers, todayAppts, tomorrowAppts, recentRows] = await Promise.all([
     getCachedCustomerList(),
-    sb
-      .from('appointments')
-      .select(APPT_COLS)
-      .gte('start_time', windowStart.toISOString())
-      .lte('start_time', windowEnd.toISOString())
-      .order('start_time', { ascending: true })
-      .limit(20),
+    getAppointmentsByDate(todayStr),
+    getAppointmentsByDate(tomorrowStr),
+    // Recent recordings card still reads Supabase karute_records — empty
+    // post-migration until this page's karute reads are migrated too, so the
+    // card simply renders nothing for now (tracked as follow-up).
     sb
       .from('karute_records')
       .select(
@@ -107,20 +100,10 @@ export default async function SessionsPage({
   // Nearby bookings (today, around the target time) — fed into the target card switcher
   let nearbyBookings: RecordTargetBooking[] = []
 
-  const appointments = (appointmentsRes as { data: unknown }).data
-
-  type ApptRow = {
-    id: string
-    start_time: string
-    duration_minutes: number
-    client_id: string
-    staff_profile_id: string | null
-    title: string | null
-    notes: string | null
-    customers: { name: string } | null
-    karute_record_id?: string | null
-  }
-  const list = (appointments ?? []) as ApptRow[]
+  // Today + tomorrow's bookings from synqed-core, ordered by start time.
+  const list: AppointmentRow[] = [...todayAppts, ...tomorrowAppts].sort((a, b) =>
+    a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0,
+  )
 
   // Default-target priority — prefer the ACTIVE STAFF's bookings first
   // (in-session > upcoming > any unlinked), but if they have nothing
@@ -128,17 +111,17 @@ export default async function SessionsPage({
   // spike's posture: staff can record bookings even when not the
   // assigned stylist (covering a colleague, walk-in handoff, etc.).
   const nowMs = now.getTime()
-  const isInSession = (a: ApptRow) => {
+  const isInSession = (a: AppointmentRow) => {
     if (a.karute_record_id) return false
     const startMs = new Date(a.start_time).getTime()
     const endMs = startMs + a.duration_minutes * 60_000
     return startMs <= nowMs && nowMs < endMs
   }
-  const isUpcoming = (a: ApptRow) =>
+  const isUpcoming = (a: AppointmentRow) =>
     !a.karute_record_id && new Date(a.start_time).getTime() > nowMs
-  const isUnlinked = (a: ApptRow) => !a.karute_record_id
+  const isUnlinked = (a: AppointmentRow) => !a.karute_record_id
 
-  function findFirst(rows: ApptRow[]): ApptRow | undefined {
+  function findFirst(rows: AppointmentRow[]): AppointmentRow | undefined {
     return (
       rows.find(isInSession) ??
       rows.find(isUpcoming) ??
@@ -150,22 +133,13 @@ export default async function SessionsPage({
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
 
-  // If the user tapped a specific booking on 予約 (→ 新規カルテ / 録音), that
-  // booking IS the target. It's usually already in the window `list`; if not
-  // (e.g. a booking further out in the 14-day reservation list), fetch it by
-  // id so the target still resolves.
-  let requestedRow: ApptRow | undefined
-  if (requestedAppointmentId) {
-    requestedRow = list.find((a) => a.id === requestedAppointmentId)
-    if (!requestedRow) {
-      const { data: one } = await sb
-        .from('appointments')
-        .select(APPT_COLS)
-        .eq('id', requestedAppointmentId)
-        .maybeSingle()
-      if (one) requestedRow = one as ApptRow
-    }
-  }
+  // If the user tapped a booking on 予約 (→ 新規カルテ / 録音), that booking IS
+  // the target. It's normally in today/tomorrow's set; a booking further out
+  // falls back to the default target (recording happens at visit time, so
+  // that's an acceptable edge until the picker can switch days).
+  const requestedRow: AppointmentRow | undefined = requestedAppointmentId
+    ? list.find((a) => a.id === requestedAppointmentId)
+    : undefined
 
   // Fall back to any salon booking when the active staff has nothing queued —
   // the path that surfaces 佐竹なな-style bookings assigned to a colleague.
