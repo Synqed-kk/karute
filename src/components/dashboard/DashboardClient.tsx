@@ -338,7 +338,12 @@ export function DashboardClient({ staff, activeStaffId, authProfileId, customers
                     return
                   }
                   const apptId = bar.id.replace('appt_', '')
-                  setRecordingAppointmentId(apptId)
+                  // Carry the appointment's customer so the save flow can
+                  // pre-fill + attribute the karute without a manual re-pick.
+                  const apptCustomerId =
+                    rawAppointments.find((a) => a.id === apptId)?.client_id ??
+                    null
+                  setRecordingAppointmentId(apptId, apptCustomerId)
                   startRecording()
                 }}
                 className="w-full rounded-lg bg-[#eab308] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#ca8a04]"

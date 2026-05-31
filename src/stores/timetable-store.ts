@@ -20,6 +20,10 @@ interface TimetableState {
   lastRecordingBarId: string | null
   /** The appointment ID currently being recorded (set when recording starts from appointment click) */
   recordingAppointmentId: string | null
+  /** The customer (client) ID of the appointment being recorded. Carried
+   *  alongside the appointment id so the save flow can pre-fill + attribute
+   *  the karute without the staff re-picking the customer. */
+  recordingCustomerId: string | null
   startRecordingBar: (staffId: string) => void
   stopRecordingBar: () => string | null
   tickRecordingBar: () => void
@@ -30,7 +34,10 @@ interface TimetableState {
   finalizeBar: (tempId: string, realId: string) => void
   /** Remove a bar by ID (e.g. on discard) */
   removeBar: (barId: string) => void
-  setRecordingAppointmentId: (id: string | null) => void
+  setRecordingAppointmentId: (
+    id: string | null,
+    customerId?: string | null,
+  ) => void
 }
 
 function nowMinute() {
@@ -50,6 +57,7 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
   recordingStartMinute: null,
   lastRecordingBarId: null,
   recordingAppointmentId: null,
+  recordingCustomerId: null,
 
   startRecordingBar: (staffId: string) => {
     const start = nowMinute()
@@ -145,5 +153,10 @@ export const useTimetableStore = create<TimetableState>((set, get) => ({
 
   setBars: (bars) => set({ bars }),
 
-  setRecordingAppointmentId: (id) => set({ recordingAppointmentId: id }),
+  setRecordingAppointmentId: (id, customerId = null) =>
+    set({
+      recordingAppointmentId: id,
+      // Clear the paired customer when the appointment is cleared.
+      recordingCustomerId: id ? customerId : null,
+    }),
 }))

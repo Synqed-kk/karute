@@ -92,6 +92,7 @@ export function RecordPageView({
   const t = useTranslations('recording')
   const tc = useTranslations('common')
   const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
+  const recordingCustomerId = useTimetableStore((s) => s.recordingCustomerId)
 
   const {
     state: recState,
@@ -200,7 +201,12 @@ export function RecordPageView({
   // Pipeline phase — delegate to existing review/save flow
   if (phase === 'pipeline' && result) {
     const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
-    const effectiveCustomerId = recordingAppointmentId ? undefined : nextAppointment?.customerId
+    // When recording was started from the dashboard (recordingAppointmentId
+    // set), use the customer carried alongside it so ReviewScreen pre-fills +
+    // attributes correctly instead of forcing a manual re-pick.
+    const effectiveCustomerId = recordingAppointmentId
+      ? (recordingCustomerId ?? undefined)
+      : nextAppointment?.customerId
     return (
       <PipelineContainer
         audioBlob={result.blob}
