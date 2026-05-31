@@ -7,7 +7,7 @@
 //   - visitsDone / visitsTotal — needs a "course" concept the data model doesn't have
 //   - status enum — we derive a best-guess from cadence (see derive)
 
-import { createServiceClient } from '@/lib/supabase/service'
+import { SynqedClient } from '@synqed-kk/client'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
 export interface CustomerEnrichment {
@@ -29,39 +29,43 @@ export async function enrichCustomers(
   const map = new Map<string, CustomerEnrichment>()
   if (customerIds.length === 0) return map
 
-  const service = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = service as any
+  // Both karute and appointments come from synqed-core (the source of truth),
+  // bucketed by the person (synqed `customer_id`). The legacy Supabase
+  // karute_records table is empty post-migration, which is why the list
+  // previously showed 0 karute for everyone.
+  //
+  // NOTE: synqed caps list page_size at 200. For a single tenant's recent
+  // activity that's enough to surface last-visit + the new-customer signal;
+  // a very large tenant would need a multi-customer filter or pagination on
+  // the synqed list endpoints.
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) return map
+  const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
 
-  // Tenant scope: karute_records.customer_id = businessId. Use client_id to bucket by salon-client.
-  // Two queries fan out in parallel; both filtered by tenant + the customer set.
+  const idSet = new Set(customerIds)
   const [karuteRes, apptRes] = await Promise.all([
-    sb
-      .from('karute_records')
-      .select('client_id, session_date, created_at')
-      .eq('customer_id', businessId)
-      .in('client_id', customerIds),
-    sb
-      .from('appointments')
-      .select('client_id, start_time')
-      .in('client_id', customerIds),
+    synqed.karuteRecords.list({ page_size: 200 }),
+    synqed.appointments.list({ page_size: 200 }),
   ])
 
   type KaruteRow = { client_id: string; session_date: string | null; created_at: string }
   type ApptRow = { client_id: string; start_time: string }
 
   const karuteByClient = new Map<string, KaruteRow[]>()
-  for (const r of (karuteRes.data ?? []) as KaruteRow[]) {
-    const arr = karuteByClient.get(r.client_id) ?? []
-    arr.push(r)
-    karuteByClient.set(r.client_id, arr)
+  for (const r of karuteRes.karute_records) {
+    if (!r.customer_id || !idSet.has(r.customer_id)) continue
+    const arr = karuteByClient.get(r.customer_id) ?? []
+    arr.push({ client_id: r.customer_id, session_date: r.created_at, created_at: r.created_at })
+    karuteByClient.set(r.customer_id, arr)
   }
 
   const apptByClient = new Map<string, ApptRow[]>()
-  for (const a of (apptRes.data ?? []) as ApptRow[]) {
-    const arr = apptByClient.get(a.client_id) ?? []
-    arr.push(a)
-    apptByClient.set(a.client_id, arr)
+  for (const a of apptRes.appointments) {
+    if (!a.customer_id || !idSet.has(a.customer_id)) continue
+    const arr = apptByClient.get(a.customer_id) ?? []
+    arr.push({ client_id: a.customer_id, start_time: a.starts_at })
+    apptByClient.set(a.customer_id, arr)
   }
 
   const nowIso = new Date().toISOString()

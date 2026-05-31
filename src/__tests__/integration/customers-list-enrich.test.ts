@@ -2,38 +2,28 @@
  * Unit coverage for the customer list-enrichment helpers added in
  * "PR 17 — customers list + pagination + staff filter" (replay/17).
  *
- * `enrichCustomers` does a service-role batched read (Supabase mocked here);
- * the rest are pure functions. All live in the jest suite alongside the
- * other integration tests.
+ * `enrichCustomers` reads karute + appointments from synqed-core (mocked
+ * here via the SynqedClient constructor); the rest are pure functions.
+ * synqed karute records carry only `created_at` (no separate session_date),
+ * so last-visit is the latest created_at; appointments carry `starts_at`.
  */
 
-// Mock the service client BEFORE importing the module under test. The scenario
-// object is read lazily inside the mock so individual tests can stage rows.
+process.env.SYNQED_CORE_URL = 'http://synqed.test'
+process.env.SYNQED_CORE_API_KEY = 'test-key'
+
+// Staged synqed rows, read lazily inside the mocked client so individual
+// tests can set them. Shapes mirror @synqed-kk/client (customer_id, etc.).
 const scenario: {
-  karute: Array<{ client_id: string; session_date: string | null; created_at: string }>
-  appts: Array<{ client_id: string; start_time: string }>
+  karute: Array<{ customer_id: string; created_at: string }>
+  appts: Array<{ customer_id: string; starts_at: string }>
 } = { karute: [], appts: [] }
 
-jest.mock('@/lib/supabase/service', () => {
-  // A query builder where .select/.eq are chainable and .in resolves to the
-  // staged rows. Two tables are queried (karute_records, appointments); we
-  // route by the table name passed to .from().
-  const makeBuilder = (table: string) => {
-    const builder: Record<string, unknown> = {}
-    builder.select = jest.fn(() => builder)
-    builder.eq = jest.fn(() => builder)
-    builder.in = jest.fn(async () => ({
-      data: table === 'karute_records' ? scenario.karute : scenario.appts,
-      error: null,
-    }))
-    return builder
-  }
-  return {
-    createServiceClient: jest.fn(() => ({
-      from: jest.fn((table: string) => makeBuilder(table)),
-    })),
-  }
-})
+const karuteRecords = { list: jest.fn(async () => ({ karute_records: scenario.karute })) }
+const appointments = { list: jest.fn(async () => ({ appointments: scenario.appts })) }
+
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn(() => ({ karuteRecords, appointments })),
+}))
 
 import {
   enrichCustomers,
@@ -58,27 +48,29 @@ describe('enrichCustomers', () => {
     expect(map.size).toBe(0)
   })
 
-  it('counts karute per client and uses the latest session_date as last visit', async () => {
+  it('counts karute per customer and uses the latest created_at as last visit', async () => {
     scenario.karute = [
-      { client_id: 'a', session_date: '2026-01-01T00:00:00Z', created_at: '2026-01-02T00:00:00Z' },
-      { client_id: 'a', session_date: '2026-03-01T00:00:00Z', created_at: '2026-03-02T00:00:00Z' },
-      { client_id: 'b', session_date: '2026-02-01T00:00:00Z', created_at: '2026-02-02T00:00:00Z' },
+      { customer_id: 'a', created_at: '2026-01-02T00:00:00Z' },
+      { customer_id: 'a', created_at: '2026-03-02T00:00:00Z' },
+      { customer_id: 'b', created_at: '2026-02-02T00:00:00Z' },
     ]
     const map = await enrichCustomers('biz-1', ['a', 'b'])
     expect(map.get('a')).toMatchObject({
       totalKarute: 2,
       visitsDone: 2,
-      lastVisitIso: '2026-03-01T00:00:00Z',
+      lastVisitIso: '2026-03-02T00:00:00Z',
     })
-    expect(map.get('b')).toMatchObject({ totalKarute: 1, lastVisitIso: '2026-02-01T00:00:00Z' })
+    expect(map.get('b')).toMatchObject({ totalKarute: 1, lastVisitIso: '2026-02-02T00:00:00Z' })
   })
 
-  it('falls back to created_at when session_date is null', async () => {
+  it('only buckets karute whose customer_id is in the requested set', async () => {
     scenario.karute = [
-      { client_id: 'a', session_date: null, created_at: '2026-04-01T00:00:00Z' },
+      { customer_id: 'a', created_at: '2026-04-01T00:00:00Z' },
+      { customer_id: 'z', created_at: '2026-05-01T00:00:00Z' }, // not requested
     ]
     const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.lastVisitIso).toBe('2026-04-01T00:00:00Z')
+    expect(map.get('a')?.totalKarute).toBe(1)
+    expect(map.has('z')).toBe(false)
   })
 
   it('produces a zeroed entry for every requested id even with no records', async () => {
@@ -92,12 +84,12 @@ describe('enrichCustomers', () => {
     })
   })
 
-  it('falls back to appointment start_time for last visit when there is no karute', async () => {
+  it('falls back to appointment starts_at for last visit when there is no karute', async () => {
     const past = new Date(Date.now() - 5 * DAY).toISOString()
     const older = new Date(Date.now() - 50 * DAY).toISOString()
     scenario.appts = [
-      { client_id: 'a', start_time: older },
-      { client_id: 'a', start_time: past },
+      { customer_id: 'a', starts_at: older },
+      { customer_id: 'a', starts_at: past },
     ]
     const map = await enrichCustomers('biz-1', ['a'])
     // Latest of the two appointment times.
@@ -106,10 +98,8 @@ describe('enrichCustomers', () => {
 
   it('prefers karute over appointments for last-visit even when an appointment is newer', async () => {
     const newerAppt = new Date(Date.now() + 10 * DAY).toISOString()
-    scenario.karute = [
-      { client_id: 'a', session_date: '2026-01-01T00:00:00Z', created_at: '2026-01-01T00:00:00Z' },
-    ]
-    scenario.appts = [{ client_id: 'a', start_time: newerAppt }]
+    scenario.karute = [{ customer_id: 'a', created_at: '2026-01-01T00:00:00Z' }]
+    scenario.appts = [{ customer_id: 'a', starts_at: newerAppt }]
     const map = await enrichCustomers('biz-1', ['a'])
     expect(map.get('a')?.lastVisitIso).toBe('2026-01-01T00:00:00Z')
   })
@@ -119,9 +109,9 @@ describe('enrichCustomers', () => {
     const past2 = new Date(Date.now() - 1 * DAY).toISOString()
     const future = new Date(Date.now() + 2 * DAY).toISOString()
     scenario.appts = [
-      { client_id: 'a', start_time: past1 },
-      { client_id: 'a', start_time: past2 },
-      { client_id: 'a', start_time: future },
+      { customer_id: 'a', starts_at: past1 },
+      { customer_id: 'a', starts_at: past2 },
+      { customer_id: 'a', starts_at: future },
     ]
     const map = await enrichCustomers('biz-1', ['a'])
     expect(map.get('a')?.pastAppointmentCount).toBe(2)
@@ -129,7 +119,7 @@ describe('enrichCustomers', () => {
 
   it('reports zero past appointments for a genuinely first-time customer (future booking only)', async () => {
     const future = new Date(Date.now() + 3 * DAY).toISOString()
-    scenario.appts = [{ client_id: 'a', start_time: future }]
+    scenario.appts = [{ customer_id: 'a', starts_at: future }]
     const map = await enrichCustomers('biz-1', ['a'])
     expect(map.get('a')?.pastAppointmentCount).toBe(0)
     expect(map.get('a')?.totalKarute).toBe(0)
