@@ -32,10 +32,15 @@ function hhmm(d: Date): string {
 
 export default async function SessionsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>
+  searchParams: Promise<{ appointmentId?: string }>
 }) {
   const { locale } = await params
+  // Set when the user tapped a specific booking on 予約 (→ 新規カルテ / 録音):
+  // that booking becomes the recording target instead of the next-booking guess.
+  const { appointmentId: requestedAppointmentId } = await searchParams
   const supabase = await createClient()
 
   const activeStaffId = await getCurrentUserStaffId()
@@ -63,13 +68,14 @@ export default async function SessionsPage({
   //   3. Recent karute records (DB)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
+  // Columns reused by both the window query and the by-id target fetch below.
+  const APPT_COLS =
+    'id, start_time, duration_minutes, client_id, staff_profile_id, title, notes, karute_record_id, customers:client_id ( name )'
   const [customers, appointmentsRes, recentRows] = await Promise.all([
     getCachedCustomerList(),
     sb
       .from('appointments')
-      .select(
-        'id, start_time, duration_minutes, client_id, staff_profile_id, title, notes, karute_record_id, customers:client_id ( name )',
-      )
+      .select(APPT_COLS)
       .gte('start_time', windowStart.toISOString())
       .lte('start_time', windowEnd.toISOString())
       .order('start_time', { ascending: true })
@@ -143,10 +149,27 @@ export default async function SessionsPage({
   const myRows = activeStaffId
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
-  // Fall back to any salon booking when the active staff has nothing
-  // queued. This is the path that surfaces 佐竹なな-style bookings when
-  // she's assigned to a colleague rather than the signed-in user.
-  const unlinked = findFirst(myRows) ?? findFirst(list)
+
+  // If the user tapped a specific booking on 予約 (→ 新規カルテ / 録音), that
+  // booking IS the target. It's usually already in the window `list`; if not
+  // (e.g. a booking further out in the 14-day reservation list), fetch it by
+  // id so the target still resolves.
+  let requestedRow: ApptRow | undefined
+  if (requestedAppointmentId) {
+    requestedRow = list.find((a) => a.id === requestedAppointmentId)
+    if (!requestedRow) {
+      const { data: one } = await sb
+        .from('appointments')
+        .select(APPT_COLS)
+        .eq('id', requestedAppointmentId)
+        .maybeSingle()
+      if (one) requestedRow = one as ApptRow
+    }
+  }
+
+  // Fall back to any salon booking when the active staff has nothing queued —
+  // the path that surfaces 佐竹なな-style bookings assigned to a colleague.
+  const unlinked = requestedRow ?? findFirst(myRows) ?? findFirst(list)
 
   if (unlinked) {
     // Derive status server-side (in-session / booked / done) so the
