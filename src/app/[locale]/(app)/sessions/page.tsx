@@ -55,21 +55,18 @@ export default async function SessionsPage({
   // of truth), via getAppointmentsByDate — the SAME read the 予約 page uses.
   // This page previously read the legacy Supabase `appointments` table, which
   // is empty post-migration, so the recording target (録音対象) was always
-  // empty. We fetch today + tomorrow (JST) to cover an in-session booking plus
-  // the next upcoming one; the picker shows the whole set (active staff first),
-  // so staff can record a colleague's booking too.
+  // empty. Recording targets are TODAY's bookings ONLY — a session is recorded
+  // at visit time, so tomorrow's bookings don't belong in the 別の予約 picker
+  // (Liam: it was showing the next day). The picker shows today's whole set
+  // (active staff first) so staff can still record a colleague's booking.
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
-  const tomorrowStr = new Date(jstNow.getTime() + 86_400_000)
-    .toISOString()
-    .split('T')[0]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
-  const [customers, todayAppts, tomorrowAppts, recentRows] = await Promise.all([
+  const [customers, todayAppts, recentRows] = await Promise.all([
     getCachedCustomerList(),
     getAppointmentsByDate(todayStr),
-    getAppointmentsByDate(tomorrowStr),
     // Recent recordings card still reads Supabase karute_records — empty
     // post-migration until this page's karute reads are migrated too, so the
     // card simply renders nothing for now (tracked as follow-up).
@@ -100,8 +97,8 @@ export default async function SessionsPage({
   // Nearby bookings (today, around the target time) — fed into the target card switcher
   let nearbyBookings: RecordTargetBooking[] = []
 
-  // Today + tomorrow's bookings from synqed-core, ordered by start time.
-  const list: AppointmentRow[] = [...todayAppts, ...tomorrowAppts].sort((a, b) =>
+  // Today's bookings from synqed-core, ordered by start time.
+  const list: AppointmentRow[] = [...todayAppts].sort((a, b) =>
     a.start_time < b.start_time ? -1 : a.start_time > b.start_time ? 1 : 0,
   )
 
