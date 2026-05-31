@@ -63,10 +63,13 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
   const service = createServiceClient()
   const { data: profile } = await service
     .from('profiles')
-    .select('email')
+    .select('full_name, email')
     .eq('id', staffProfileId)
     .maybeSingle()
-  const profileEmail = (profile as { email?: string | null } | null)?.email?.toLowerCase()
+  const typedProfile = profile as
+    | { full_name?: string | null; email?: string | null }
+    | null
+  const profileEmail = typedProfile?.email?.toLowerCase()
   if (profileEmail) {
     const byEmail = staff.find(
       (s) => s.email && s.email.toLowerCase() === profileEmail,
@@ -89,9 +92,28 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
     }
   }
 
-  throw new Error(
-    `Could not link Supabase profile ${staffProfileId} to a synqed-core staff record. ` +
-      `The profile may exist in Supabase but have no matching staff entry in synqed-core ` +
-      `(checked user_id and email).`,
-  )
+  // No synqed staff record yet. Staff seeded directly into Supabase profiles
+  // (bypassing createStaff, which normally writes both stores) land here, as do
+  // owner-imported teammates. Rather than hard-fail the booking, create the
+  // synqed record on demand — linked by user_id so future lookups hit the
+  // O(map) user_id path. Only refuse if the profile itself doesn't exist.
+  if (!typedProfile) {
+    throw new Error(
+      `Could not link Supabase profile ${staffProfileId} to a synqed-core ` +
+        `staff record: no such profile.`,
+    )
+  }
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  }
+  const client = new SynqedClient({ baseUrl, apiKey, businessId })
+  const createdStaff = await client.staff.create({
+    name: typedProfile.full_name || typedProfile.email || 'Staff',
+    email: typedProfile.email ?? null,
+    user_id: staffProfileId,
+  })
+  updateTag('staff-list')
+  return createdStaff.id
 }
