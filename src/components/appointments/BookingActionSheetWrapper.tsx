@@ -52,18 +52,19 @@ export function BookingActionSheetWrapper({
     onClose()
   }, [selected, router, onClose])
 
-  // New karute + Start recording both route to /sessions, which picks the next
-  // unlinked appointment for the active staff. Per-appointment selection isn't
-  // wired upstream yet — when it lands we'll thread the appointment id through.
-  const onNewKarute = useCallback(() => {
-    router.push('/sessions' as Parameters<typeof router.push>[0])
+  // New karute + Start recording both route to /sessions. Thread the tapped
+  // booking's appointment id through as a query param so the record page loads
+  // THAT booking as its target (customer + pre-session brief + consent) instead
+  // of falling back to the active staff's next-booking guess.
+  const goToRecord = useCallback(() => {
+    const id = selected?.id
+    router.push(
+      (id
+        ? { pathname: '/sessions', query: { appointmentId: id } }
+        : '/sessions') as Parameters<typeof router.push>[0],
+    )
     onClose()
-  }, [router, onClose])
-
-  const onStartRecording = useCallback(() => {
-    router.push('/sessions' as Parameters<typeof router.push>[0])
-    onClose()
-  }, [router, onClose])
+  }, [selected, router, onClose])
 
   if (!selected) {
     // Render the sheet closed so transitions don't snap.
@@ -94,8 +95,8 @@ export function BookingActionSheetWrapper({
       isFirstTimeVisit={selected.isFirstTimeVisit}
       isMobile={forceMobile ?? isMobile}
       onViewKarute={onViewKarute}
-      onNewKarute={onNewKarute}
-      onStartRecording={onStartRecording}
+      onNewKarute={goToRecord}
+      onStartRecording={goToRecord}
       copy={{ honorific: t('card.customerSuffix') }}
     />
   )
