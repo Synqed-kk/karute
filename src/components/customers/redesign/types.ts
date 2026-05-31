@@ -57,6 +57,10 @@ export interface CustomerProfileData {
    *  records carry a `service` column; identity card falls back to
    *  "—" when omitted. */
   usualService?: string | null
+  /** Raw QuickReserve reservation/intake memo (synqed customer.notes) — the
+   *  staff-typed "▶症状:… ▶ゴール:…" booking note. Surfaced read-only by
+   *  BookingMemoCard until AI extraction distributes it into the memory boxes. */
+  bookingMemo?: string | null
 }
 
 // Display strings live in `messages/{en,ja}.json` under
