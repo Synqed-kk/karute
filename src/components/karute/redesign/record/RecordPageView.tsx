@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
+import { useRouter } from '@/i18n/navigation'
 
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
@@ -93,6 +94,21 @@ export function RecordPageView({
   const tc = useTranslations('common')
   const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
   const recordingCustomerId = useTimetableStore((s) => s.recordingCustomerId)
+  const router = useRouter()
+
+  // 別の予約を選択 → re-resolve the recording target server-side for the picked
+  // booking (same ?appointmentId path the 予約 sheet uses), so the target card +
+  // pre-session brief + consent all update for the newly selected customer.
+  const handleSwitchBooking = useCallback(
+    (b: RecordTargetBooking) => {
+      router.replace(
+        { pathname: '/sessions', query: { appointmentId: b.id } } as Parameters<
+          typeof router.replace
+        >[0],
+      )
+    },
+    [router],
+  )
 
   const {
     state: recState,
@@ -342,6 +358,7 @@ export function RecordPageView({
             <RecordingTargetCard
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
+              onSwitchBooking={handleSwitchBooking}
             />
             <PreSessionBriefCard
               brief={brief}
@@ -355,6 +372,7 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
+            onSwitchBooking={handleSwitchBooking}
           />
           <PreSessionBriefCard
             brief={brief}
