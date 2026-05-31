@@ -40,6 +40,9 @@ export interface CustomerProfileData {
   gender: string | null
   joinDate: string
   totalKarute: number
+  /** Lifetime visit count from external sync (QuickReserve); 0 for in-app-only
+   *  customers. Identity card shows max(visitCount, totalKarute). */
+  visitCount?: number
   phone: string | null
   email: string | null
   preferredStaffName: string | null

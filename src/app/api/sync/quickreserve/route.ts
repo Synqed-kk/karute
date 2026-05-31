@@ -123,6 +123,10 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     let updated = 0
     let skipped = 0
     let total = 0
+    // Existing customers whose visit_count/is_existing_customer we've already
+    // refreshed this run — keep returning customers' counts current without
+    // re-updating them once per reservation.
+    const refreshedCustomerIds = new Set<string>()
 
     for (const dateStr of dates) {
       let reservations
@@ -170,7 +174,8 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           continue
         }
 
-        // Find or create customer by name
+        // Find or create customer by name, carrying QR's returning-customer
+        // signal + lifetime visit count.
         let customerId = customerByName.get(mapped.customerName)
         if (!customerId) {
           const cust = await synqed.customers.create({
@@ -179,9 +184,19 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
             phone: mapped.customerPhone || null,
             email: mapped.customerEmail || null,
             notes: mapped.customerNotes || null,
+            is_existing_customer: mapped.isExistingCustomer,
+            visit_count: mapped.customerVisits ?? 0,
           })
           customerId = cust.id
           customerByName.set(mapped.customerName, customerId)
+        } else if (!refreshedCustomerIds.has(customerId)) {
+          // Returning customer already in synqed — refresh the visit count +
+          // status (QR's visits_number_cache grows over time). Once per run.
+          refreshedCustomerIds.add(customerId)
+          await synqed.customers.update(customerId, {
+            is_existing_customer: mapped.isExistingCustomer,
+            visit_count: mapped.customerVisits ?? 0,
+          })
         }
 
         const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`

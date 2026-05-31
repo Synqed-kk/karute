@@ -126,6 +126,8 @@ export async function listCustomers({
 
 export interface CustomerWithStaff extends Customer {
   assigned_staff_id: string | null
+  is_existing_customer: boolean
+  visit_count: number
 }
 
 export async function getCustomer(id: string): Promise<CustomerWithStaff> {
@@ -143,6 +145,8 @@ export async function getCustomer(id: string): Promise<CustomerWithStaff> {
     created_at: c.created_at,
     updated_at: c.updated_at,
     assigned_staff_id: c.assigned_staff_id ?? null,
+    is_existing_customer: c.is_existing_customer,
+    visit_count: c.visit_count,
   }
 }
 
