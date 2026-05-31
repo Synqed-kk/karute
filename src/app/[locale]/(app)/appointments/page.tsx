@@ -14,7 +14,7 @@ import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
-import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
+import { jstStartOfToday, ymdInJst, partsInJst } from '@/lib/date/jst'
 
 function parseDateParam(value: string | undefined): Date {
   // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
@@ -31,9 +31,22 @@ function parseViewParam(value: string | undefined): DayWeekMonthView {
   return value === 'week' || value === 'month' ? value : 'day'
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** A Date at JST midnight for the given JST calendar y/m/d (month is 1-12). */
+function jstMidnight(year: number, month: number, day: number): Date {
+  return new Date(`${year}-${pad2(month)}-${pad2(day)}T00:00:00+09:00`)
+}
+
+// JST-anchored week start. The runtime is UTC on Vercel, so getFullYear()/
+// getMonth()/getDate()/getDay() report the UTC calendar day — which rolls a
+// JST-midnight `d` back to the previous day (and the previous MONTH on the 1st).
+// That made the month/week grid render one month off from the selected date.
+// Derive from JST parts so the grid matches what the user picked.
 function startOfWeekSun(d: Date): Date {
-  const out = new Date(d.getFullYear(), d.getMonth(), d.getDate())
-  out.setDate(out.getDate() - out.getDay())
+  const p = partsInJst(d)
+  const out = jstMidnight(p.year, p.month, p.day)
+  out.setDate(out.getDate() - p.weekday) // p.weekday: 0=Sun..6=Sat (JST)
   return out
 }
 
@@ -64,8 +77,13 @@ function computeMonthRange(selectedDate: Date): {
   rangeFrom: Date
   rangeTo: Date
 } {
-  const monthStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1)
-  const monthEnd = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 0)
+  // JST month boundaries (see startOfWeekSun note — raw getMonth() is UTC on
+  // Vercel and rolls the 1st back into the previous month, so the whole month
+  // grid rendered one month off from the selected date).
+  const p = partsInJst(selectedDate)
+  const monthStart = jstMidnight(p.year, p.month, 1)
+  const daysInMonth = new Date(p.year, p.month, 0).getDate()
+  const monthEnd = jstMidnight(p.year, p.month, daysInMonth)
   const rangeFrom = new Date(monthStart)
   rangeFrom.setDate(rangeFrom.getDate() - 7) // include leading days
   const rangeTo = new Date(monthEnd)
