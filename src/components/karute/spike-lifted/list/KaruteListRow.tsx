@@ -74,11 +74,16 @@ export function KaruteListRow({ item }: Props) {
           <span className="shrink-0 font-mono text-[10px] text-muted-foreground">
             {item.customerKaruteNumber}
           </span>
-          {/* Mobile chips: AI + conversion status on the right */}
-          <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
-            <ConversionChip status={item.conversionStatus} />
-            <AiChip status={item.aiStatus} />
-          </span>
+          {/* Mobile chips: AI + conversion status on the right.
+           *  Suppressed for placeholders — a customer with no karute yet has
+           *  nothing drafted (下書き) and no conversion to resolve (仮カルテ);
+           *  those chips would misread as "session in progress". */}
+          {!item.isPlaceholder && (
+            <span className="ml-auto flex shrink-0 items-center gap-1 md:hidden">
+              <ConversionChip status={item.conversionStatus} />
+              <AiChip status={item.aiStatus} />
+            </span>
+          )}
         </div>
 
         {/* Line 2 — summary (truncate) */}
@@ -133,10 +138,13 @@ export function KaruteListRow({ item }: Props) {
         </span>
       </div>
 
-      <div className="hidden shrink-0 items-center gap-1 md:flex">
-        <ConversionChip status={item.conversionStatus} />
-        <AiChip status={item.aiStatus} />
-      </div>
+      {/* Status chips (desktop) — suppressed for placeholders; see mobile note. */}
+      {!item.isPlaceholder && (
+        <div className="hidden shrink-0 items-center gap-1 md:flex">
+          <ConversionChip status={item.conversionStatus} />
+          <AiChip status={item.aiStatus} />
+        </div>
+      )}
     </Link>
   )
 }
