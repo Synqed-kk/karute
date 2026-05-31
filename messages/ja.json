@@ -857,6 +857,7 @@
     "transcribing": "文字起こし中...",
     "extracting": "エントリー抽出中...",
     "summarizing": "サマリー生成中...",
+    "reviewReady": "確認する",
     "aiSummaryPlaceholder": "AIが生成したセッションサマリー...",
     "entryTitlePlaceholder": "エントリータイトル...",
     "sourceQuotePlaceholder": "トランスクリプトからの引用...",
