@@ -42,21 +42,14 @@ export default async function KaruteRecordsListPage() {
   const sb = supabase as any
   const synqed = await getSynqedClient()
 
-  // Booking-staff window. QuickReserve scrapes the 担当 onto each appointment
-  // and the sync writes today..+14d into synqed-core, so a placeholder
-  // customer's stylist lives on their upcoming booking — NOT on
-  // customer.assigned_staff_id (a separate "preferred staff" field the sync
-  // never sets, which is why placeholder stripes were blank). Read the same
-  // window so we can stamp the booking's staff onto those rows.
+  // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
+  // each appointment, but customer.assigned_staff_id (a separate "preferred
+  // staff" field) is never set by the sync — so placeholder stripes were
+  // blank. Derive 担当 from the customer's booking instead. Read the recent
+  // appointment list UNWINDOWED (same as enrichCustomers): a date window keyed
+  // on "today" drops a booking that has already passed (a 5/31 visit viewed on
+  // 6/01), which is exactly why the first attempt still showed blank.
   const nowMs = new Date().getTime()
-  const jstToday = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Tokyo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date())
-  const windowStart = new Date(`${jstToday}T00:00:00+09:00`)
-  const windowEnd = new Date(windowStart.getTime() + 15 * 24 * 60 * 60 * 1000)
 
   const [
     recordsRes,
@@ -87,15 +80,13 @@ export default async function KaruteRecordsListPage() {
       // synqed-core is the authoritative karute store; the Supabase query above
       // is effectively empty. Union both so synqed-written karute appear here.
       listSynqedKaruteRows(synqed),
-      // Appointments in the booking window + the synqed staff roster — used to
-      // resolve each placeholder customer's 担当 from their booking and to
-      // translate the synqed staff id into the profile id the color/name maps
-      // key on (same boundary translation getAppointmentsByDate does).
-      synqed.appointments.list({
-        from: windowStart.toISOString(),
-        to: windowEnd.toISOString(),
-        page_size: 500,
-      }),
+      // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
+      // staff roster — resolve each placeholder customer's 担当 from their
+      // booking, translating the synqed staff id into the profile id the
+      // color/name maps key on (same boundary translation getAppointmentsByDate
+      // does). No from/to filter on purpose: a window keyed on today drops a
+      // customer's already-past booking and the stripe goes blank again.
+      synqed.appointments.list({ page_size: 200 }),
       synqed.staff.list({ page_size: 200 }),
     ])
 
