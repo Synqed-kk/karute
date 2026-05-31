@@ -103,8 +103,29 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     // Fetched once and shared across the whole window.
     const { staff } = await synqed.staff.list({ page_size: 200 })
     const staffByName = new Map<string, string>()
+    // synqed staff name → linked Supabase profile id (user_id). 指名 is stored
+    // on Customer.assigned_staff_id, which the app reads as a profile id, so a
+    // staff with no linked profile resolves to null and is skipped (no FK risk).
+    const staffProfileIdByName = new Map<string, string | null>()
     for (const s of staff) {
-      if (s.name) staffByName.set(s.name, s.id)
+      if (s.name) {
+        staffByName.set(s.name, s.id)
+        staffProfileIdByName.set(s.name, (s as { user_id?: string | null }).user_id ?? null)
+      }
+    }
+
+    // QR staff id → name, accumulated from the schedule itself (every
+    // reservation embeds its assigned Staff), so 指名 needs no separate roster
+    // call. Resolves nominated_staff_id → name → synqed staff → profile id.
+    const qrStaffNameById = new Map<number, string>()
+    const resolveNominatedProfileId = (qrStaffId: number | null): string | null => {
+      if (qrStaffId == null) return null
+      const qrName = qrStaffNameById.get(qrStaffId)
+      if (!qrName) return null
+      for (const [name, profileId] of staffProfileIdByName) {
+        if (name.includes(qrName) || qrName.includes(name)) return profileId
+      }
+      return null
     }
 
     // synqed customer name → id, for find-or-create. (synqed list caps at 200;
@@ -140,6 +161,10 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       }
       total += reservations.length
       console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
+
+      // Accumulate QR staff (id → name) from this day's schedule so 指名
+      // (nominated_staff_id) can resolve to a name without a roster call.
+      for (const r of reservations) qrStaffNameById.set(r.Staff.id, r.Staff.name)
 
       // Existing appointments for this JST day, keyed by staff + start instant so
       // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
@@ -186,6 +211,9 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
             notes: mapped.customerNotes || null,
             is_existing_customer: mapped.isExistingCustomer,
             visit_count: mapped.customerVisits ?? 0,
+            // 指名: resolve the QR nominated staff → synqed staff → profile id.
+            // Skipped (null) when there's no nomination or no linked profile.
+            assigned_staff_id: resolveNominatedProfileId(mapped.nominatedStaffQrId),
           })
           customerId = cust.id
           customerByName.set(mapped.customerName, customerId)

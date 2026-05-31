@@ -158,6 +158,7 @@ export function mapReservation(r: QRReservation) {
     isNewCustomer: r.is_new_customer_flag || !r.Customer.is_existing_customer,
     staffName: r.Staff.name,
     staffQrId: r.Staff.id,
+    nominatedStaffQrId: r.nominated_staff_id,
     treatmentName: r.TreatmentCourse.name,
     startTime: new Date(r.start_at).toISOString(),
     endTime: new Date(r.end_at).toISOString(),
