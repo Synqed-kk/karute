@@ -106,7 +106,7 @@ export default async function CustomerProfilePage({
 
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
-  const status = deriveStatus(customer.created_at, lastVisitIso)
+  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer)
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
@@ -156,6 +156,10 @@ export default async function CustomerProfilePage({
     gender: null,
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
+    // Lifetime visit count from external sync (QuickReserve visits_number_cache);
+    // 0 for in-app-only customers. The identity card shows the larger of this
+    // and the karute count so returning customers don't read as "0 visits".
+    visitCount: customer.visit_count,
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
     bookingMemo: customer.notes ?? null,

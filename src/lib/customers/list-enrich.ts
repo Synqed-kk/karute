@@ -114,13 +114,22 @@ export async function enrichCustomers(
 export function deriveStatus(
   joinDateIso: string | null,
   lastVisitIso: string | null,
+  // A customer flagged returning by an external source (QuickReserve's
+  // is_existing_customer) is never 新規 — they've been here before even if we
+  // have no karute/appointment row to date it. Defaults false (backward-compat).
+  isExistingCustomer = false,
 ): CustomerStatusKey {
   const now = Date.now()
-  if (joinDateIso) {
-    const ageMs = now - new Date(joinDateIso).getTime()
-    if (ageMs < 30 * 24 * 60 * 60 * 1000) return 'new'
+  if (!isExistingCustomer) {
+    if (joinDateIso) {
+      const ageMs = now - new Date(joinDateIso).getTime()
+      if (ageMs < 30 * 24 * 60 * 60 * 1000) return 'new'
+    }
+    if (!lastVisitIso) return 'new'
   }
-  if (!lastVisitIso) return 'new'
+  // Returning customer with no dated visit yet → treat as on-track rather than
+  // new or dormant.
+  if (!lastVisitIso) return 'on-track'
   const daysSince = Math.floor((now - new Date(lastVisitIso).getTime()) / 86_400_000)
   if (daysSince > 90) return 'dormant'
   if (daysSince > 60) return 'needs-followup'
