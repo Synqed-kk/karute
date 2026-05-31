@@ -84,26 +84,23 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     // Login
     const session = await qrLogin(config.username, config.password_encrypted)
 
-    // Today in JST
-    const now = new Date()
-    const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000)
-    const dateStr = jst.toISOString().split('T')[0]
+    // Sync window: today + the next SYNC_DAYS_AHEAD days, all in JST. QR's
+    // endpoint and the synqed dedup are both per-day, so we iterate calendar
+    // days rather than one wide range — this also keeps each day's existing-
+    // appointments lookup under synqed's 200-row page cap.
+    const SYNC_DAYS_AHEAD = 14
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000)
+    const baseDate = nowJst.toISOString().split('T')[0] // today (JST) as YYYY-MM-DD
+    const baseUtcMidnight = new Date(`${baseDate}T00:00:00Z`).getTime()
+    const dates = Array.from({ length: SYNC_DAYS_AHEAD + 1 }, (_, i) =>
+      new Date(baseUtcMidnight + i * 86400000).toISOString().split('T')[0],
+    )
 
-    // Fetch reservations
     const storeSlug = config.base_url || 'la-estro'
     const storeId = config.store_id || 222
 
-    let reservations
-    try {
-      reservations = await qrGetReservations(session, storeSlug, storeId, dateStr)
-    } catch (err) {
-      console.error('[QR Sync] Reservation fetch error:', err)
-      throw err
-    }
-
-    console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
-
     // synqed staff name → synqed staff id (synqed appointments FK on staff.id).
+    // Fetched once and shared across the whole window.
     const { staff } = await synqed.staff.list({ page_size: 200 })
     const staffByName = new Map<string, string>()
     for (const s of staff) {
@@ -119,83 +116,99 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       if (c.name) customerByName.set(c.name, c.id)
     }
 
-    // Existing appointments for the JST day, keyed by staff + start instant so
-    // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
-    // so ISO formatting differences between QR and synqed don't break matching.
-    const dayStartIso = new Date(`${dateStr}T00:00:00+09:00`).toISOString()
-    const dayEndIso = new Date(`${dateStr}T23:59:59+09:00`).toISOString()
-    const { appointments: dayAppts } = await synqed.appointments.list({
-      from: dayStartIso,
-      to: dayEndIso,
-      page_size: 200,
-    })
     const apptKey = (staffId: string, startsAt: string) =>
       `${staffId}|${new Date(startsAt).getTime()}`
-    const existingByKey = new Map<string, string>()
-    for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
 
     let created = 0
     let updated = 0
     let skipped = 0
+    let total = 0
 
-    for (const qrRes of reservations) {
-      if (qrRes.deleted) { skipped++; continue }
-
-      const mapped = mapReservation(qrRes)
-
-      // Match staff by name (fuzzy)
-      let staffId: string | null = null
-      for (const [name, id] of staffByName) {
-        if (name.includes(mapped.staffName) || mapped.staffName.includes(name)) {
-          staffId = id
-          break
-        }
-      }
-
-      if (!staffId) {
-        console.log(`[QR Sync] No staff match for: ${mapped.staffName}`)
-        skipped++
+    for (const dateStr of dates) {
+      let reservations
+      try {
+        reservations = await qrGetReservations(session, storeSlug, storeId, dateStr)
+      } catch (err) {
+        // One bad day shouldn't sink the rest of the window; dedup makes a
+        // later re-sync of this day safe.
+        console.error(`[QR Sync] Reservation fetch error for ${dateStr}:`, err)
         continue
       }
+      total += reservations.length
+      console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
 
-      // Find or create customer by name
-      let customerId = customerByName.get(mapped.customerName)
-      if (!customerId) {
-        const cust = await synqed.customers.create({
-          name: mapped.customerName,
-          furigana: mapped.customerKana || null,
-          phone: mapped.customerPhone || null,
-          notes: mapped.customerNotes || null,
-        })
-        customerId = cust.id
-        customerByName.set(mapped.customerName, customerId)
-      }
+      // Existing appointments for this JST day, keyed by staff + start instant so
+      // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
+      // so ISO formatting differences between QR and synqed don't break matching.
+      const dayStartIso = new Date(`${dateStr}T00:00:00+09:00`).toISOString()
+      const dayEndIso = new Date(`${dateStr}T23:59:59+09:00`).toISOString()
+      const { appointments: dayAppts } = await synqed.appointments.list({
+        from: dayStartIso,
+        to: dayEndIso,
+        page_size: 200,
+      })
+      const existingByKey = new Map<string, string>()
+      for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
 
-      const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
-      const key = apptKey(staffId, mapped.startTime)
-      const existingId = existingByKey.get(key)
+      for (const qrRes of reservations) {
+        if (qrRes.deleted) { skipped++; continue }
 
-      if (existingId) {
-        await synqed.appointments.update(existingId, {
+        const mapped = mapReservation(qrRes)
+
+        // Match staff by name (fuzzy)
+        let staffId: string | null = null
+        for (const [name, id] of staffByName) {
+          if (name.includes(mapped.staffName) || mapped.staffName.includes(name)) {
+            staffId = id
+            break
+          }
+        }
+
+        if (!staffId) {
+          console.log(`[QR Sync] No staff match for: ${mapped.staffName}`)
+          skipped++
+          continue
+        }
+
+        // Find or create customer by name
+        let customerId = customerByName.get(mapped.customerName)
+        if (!customerId) {
+          const cust = await synqed.customers.create({
+            name: mapped.customerName,
+            furigana: mapped.customerKana || null,
+            phone: mapped.customerPhone || null,
+            notes: mapped.customerNotes || null,
+          })
+          customerId = cust.id
+          customerByName.set(mapped.customerName, customerId)
+        }
+
+        const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
+        const key = apptKey(staffId, mapped.startTime)
+        const existingId = existingByKey.get(key)
+
+        if (existingId) {
+          await synqed.appointments.update(existingId, {
+            title: mapped.treatmentName,
+            notes,
+            duration_minutes: mapped.durationMinutes,
+          })
+          updated++
+          continue
+        }
+
+        const appt = await synqed.appointments.create({
+          customer_id: customerId,
+          staff_id: staffId,
+          starts_at: mapped.startTime,
+          ends_at: mapped.endTime,
+          duration_minutes: mapped.durationMinutes,
           title: mapped.treatmentName,
           notes,
-          duration_minutes: mapped.durationMinutes,
         })
-        updated++
-        continue
+        existingByKey.set(key, appt.id)
+        created++
       }
-
-      const appt = await synqed.appointments.create({
-        customer_id: customerId,
-        staff_id: staffId,
-        starts_at: mapped.startTime,
-        ends_at: mapped.endTime,
-        duration_minutes: mapped.durationMinutes,
-        title: mapped.treatmentName,
-        notes,
-      })
-      existingByKey.set(key, appt.id)
-      created++
     }
 
     // Update sync status (Supabase config row)
@@ -210,8 +223,9 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
 
     return NextResponse.json({
       success: true,
-      date: dateStr,
-      total: reservations.length,
+      from: dates[0],
+      to: dates[dates.length - 1],
+      total,
       created,
       updated,
       skipped,
