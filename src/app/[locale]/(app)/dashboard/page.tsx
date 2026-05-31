@@ -1,5 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
-import { getTranslations } from 'next-intl/server'
+import { getLocale, getTranslations } from 'next-intl/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
@@ -23,16 +23,16 @@ function hhmm(d: Date): string {
 // rather than showing inconsistent IDs. ANTHONY: thread the real
 // value via the customer list query + `assignSequentialKaruteNumbers`
 // when the dashboard surfaces need this back.
-function formatLongDate(d: Date): string {
-  return d.toLocaleDateString('en-US', {
+function formatLongDate(d: Date, locale: string): string {
+  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     weekday: 'long',
     month: 'long',
     day: 'numeric',
     year: 'numeric',
   })
 }
-function formatShortDate(d: Date): string {
-  return d.toLocaleDateString('en-US', {
+function formatShortDate(d: Date, locale: string): string {
+  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
@@ -52,6 +52,7 @@ export default async function DashboardPage() {
     dashboard,
     orgSettings,
     tStatus,
+    locale,
   ] = await Promise.all([
     t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
@@ -59,6 +60,7 @@ export default async function DashboardPage() {
     t.phase('dashboardData', () => getDashboardData()),
     t.phase('orgSettings', () => getOrgSettings()),
     getTranslations('reservation.status'),
+    getLocale(),
   ])
   t.end()
 
@@ -111,7 +113,7 @@ export default async function DashboardPage() {
         // karuteNumber dropped — see top-of-file comment. Card renders
         // the row without the chip when null.
         karuteNumber: null,
-        sessionDate: formatShortDate(dt),
+        sessionDate: formatShortDate(dt, locale),
         summary: r.summary ?? '—',
         entryCount,
         staffName: r.staff_profile_id
@@ -147,7 +149,7 @@ export default async function DashboardPage() {
     <DashboardPageView
       staffName={activeStaff?.full_name ?? user?.email ?? 'User'}
       isOwner={isOwner}
-      dateFormatted={formatLongDate(now)}
+      dateFormatted={formatLongDate(now, locale)}
       onboardingComplete={onboardingComplete}
       businessProfile={businessProfile}
       stats={stats}

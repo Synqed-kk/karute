@@ -5,6 +5,14 @@
  * the trend pill (sign + icon), and the null-value / unit handling.
  */
 import { render, screen } from '@testing-library/react'
+
+// Mirror the project-standard next-intl mock used by other client-component
+// tests (bottom-nav, mobile-header) — returns the key as the label so the
+// trend / value assertions below stay independent of translation copy.
+jest.mock('next-intl', () => ({
+  useTranslations: () => (key: string) => key,
+}))
+
 import { StatStrip, type StatStripData } from '@/components/dashboard/redesign/StatStrip'
 
 function data(over: Partial<StatStripData> = {}): StatStripData {

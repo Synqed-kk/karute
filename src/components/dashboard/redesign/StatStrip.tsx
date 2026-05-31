@@ -1,4 +1,7 @@
+'use client'
+
 import { TrendingDown, TrendingUp } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 
 // `trend` / `trendLabel` props preserved on the prop schema and the
 // StatTile component, even though no producer in dashboard/page.tsx
@@ -22,18 +25,19 @@ export interface StatStripData {
 }
 
 export function StatStrip({ stats }: { stats: StatStripData }) {
+  const t = useTranslations('dashboard.stats')
   return (
     <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
       <StatTile
-        label="Recordings this week"
+        label={t('weeklyRecordings')}
         value={stats.weeklyRecordings.value}
         trend={stats.weeklyRecordings.trend}
         trendLabel={stats.weeklyRecordings.trendLabel}
       />
-      <StatTile label="Today's customers" value={stats.todaysCustomers.value} />
-      <StatTile label="Monthly karute" value={stats.monthlyKarute.value} />
+      <StatTile label={t('todaysCustomers')} value={stats.todaysCustomers.value} />
+      <StatTile label={t('monthlyKarute')} value={stats.monthlyKarute.value} />
       <StatTile
-        label="Rebooking rate"
+        label={t('rebookingRate')}
         value={stats.rebookingRate.value}
         unit={stats.rebookingRate.value != null ? '%' : undefined}
         trend={stats.rebookingRate.trend}
