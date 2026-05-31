@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SynqedClient } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
+import { getBusinessId } from '@/lib/staff'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
 
 export const maxDuration = 300
@@ -58,9 +59,13 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       })
     }
 
-    // synqed-core is the source of truth and is business-scoped, so the sync
-    // needs to know which business it's writing into.
-    if (!config.business_id) {
+    // synqed-core is business-scoped, so the sync needs the target business id.
+    // Cron (no user session) must read it from the config row; a manual sync is
+    // initiated by the signed-in owner, so fall back to their business when the
+    // config row carries none. getBusinessId() returns the same id the app reads
+    // with, so synced bookings land in the tenant the UI actually shows.
+    const businessId = config.business_id || (requireEnabled ? null : await getBusinessId())
+    if (!businessId) {
       return NextResponse.json(
         { error: 'QR sync requires business_id on sync_config (synqed-core is business-scoped)' },
         { status: 400 },
@@ -74,7 +79,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         { status: 500 },
       )
     }
-    const synqed = new SynqedClient({ baseUrl, apiKey, businessId: config.business_id })
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
 
     // Login
     const session = await qrLogin(config.username, config.password_encrypted)
