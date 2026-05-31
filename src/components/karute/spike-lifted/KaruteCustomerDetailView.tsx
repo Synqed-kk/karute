@@ -37,6 +37,7 @@ import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import { CustomerIdentityCard } from '@/components/customers/redesign/profile/CustomerIdentityCard'
 import { CustomerMemoryCard } from './memory/CustomerMemoryCard'
+import { BookingMemoCard } from '@/components/customers/redesign/profile/BookingMemoCard'
 import {
   SessionsTabContent,
   type CustomerSessionEntry,
@@ -79,6 +80,13 @@ export function KaruteCustomerDetailView({
 
       {/* 2. Identity — flat section, matches spike CustomerHeaderCard */}
       <CustomerIdentityCard c={customer} />
+
+      {/* 2b. Booking/intake memo from QuickReserve (customer.notes) — the
+       *  richest first-touch info, surfaced read-only until AI extraction
+       *  fills the structured memory boxes below. Renders nothing when empty. */}
+      <div className="md:px-6 md:pt-5">
+        <BookingMemoCard memo={customer.bookingMemo} />
+      </div>
 
       {/* 3. Customer memory — lifted spike CustomerMemoryCard (visual
        *  port with inline sample data; mutations stubbed). */}
