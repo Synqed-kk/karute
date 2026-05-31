@@ -1,6 +1,5 @@
 import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
-import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
 
 export interface CustomerContact {
@@ -8,30 +7,34 @@ export interface CustomerContact {
   email: string | null
 }
 
-// customerId is the cache key (UUIDs are global). Mutation actions in
-// src/actions/customers.ts call updateTag('customers'), which invalidates
-// every customer-detail entry regardless of tenant.
+// Keyed on (business, customer); synqed-core is the source of truth for
+// contact details. Mutation actions in src/actions/customers.ts call
+// updateTag('customers'), which invalidates every customer-detail entry.
 const customerContactById = unstable_cache(
-  async (customerId: string): Promise<CustomerContact> => {
-    const service = createServiceClient()
-    const { data } = await service
-      .from('customers')
-      .select('phone, email')
-      .eq('id', customerId)
-      .maybeSingle()
-    return {
-      phone: data?.phone ?? null,
-      email: data?.email ?? null,
+  async (businessId: string, customerId: string): Promise<CustomerContact> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return { phone: null, email: null }
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    try {
+      const customer = await client.customers.get(customerId)
+      return {
+        phone: customer.phone ?? null,
+        email: customer.email ?? null,
+      }
+    } catch {
+      return { phone: null, email: null }
     }
   },
-  ['customer-contact-v1'],
+  ['customer-contact-v2'],
   { revalidate: 300, tags: ['customers'] },
 )
 
 export async function getCustomerContact(
   customerId: string,
 ): Promise<CustomerContact> {
-  return customerContactById(customerId)
+  const businessId = await getBusinessId()
+  return customerContactById(businessId, customerId)
 }
 
 interface ConsentRecord {

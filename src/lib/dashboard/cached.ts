@@ -1,5 +1,5 @@
 import { unstable_cache } from 'next/cache'
-import { createServiceClient } from '@/lib/supabase/service'
+import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
 
 export interface DashboardTodayAppointment {
@@ -40,65 +40,97 @@ const dashboardByDay = unstable_cache(
     weekStartIso: string,
     monthStartIso: string,
   ): Promise<DashboardData> => {
-    const service = createServiceClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const sb = service as any
-
-    // Profiles → staff_profile_ids in this tenant, since we use the service
-    // client and have to filter by tenant ourselves.
-    const { data: tenantStaff } = await sb
-      .from('profiles')
-      .select('id')
-      .eq('customer_id', businessId)
-    const staffIds = (tenantStaff ?? []).map((s: { id: string }) => s.id)
+    // All reads go through synqed-core (the source of truth). The client is
+    // already business-scoped, so there's no tenant staff-id filter to build.
+    // Built inline with the cached businessId since unstable_cache runs
+    // outside request/auth scope.
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    const synqed =
+      baseUrl && apiKey ? new SynqedClient({ baseUrl, apiKey, businessId }) : null
 
     const todayStart = `${todayDay}T00:00:00Z`
     const todayEnd = `${todayDay}T23:59:59Z`
 
-    const [
-      weeklyKaruteCountRes,
-      monthlyKaruteCountRes,
-      appointmentsRes,
-      recentKaruteRes,
-    ] = await Promise.all([
-      sb
-        .from('karute_records')
-        .select('id', { count: 'exact', head: true })
-        .eq('customer_id', businessId)
-        .gte('created_at', weekStartIso),
-      sb
-        .from('karute_records')
-        .select('id', { count: 'exact', head: true })
-        .eq('customer_id', businessId)
-        .gte('created_at', monthStartIso),
-      sb
-        .from('appointments')
-        .select(
-          'id, start_time, duration_minutes, staff_profile_id, title, notes, karute_record_id, customers:client_id ( name )',
-        )
-        .in('staff_profile_id', staffIds.length ? staffIds : ['__none__'])
-        .gte('start_time', todayStart)
-        .lte('start_time', todayEnd)
-        .order('start_time', { ascending: true }),
-      sb
-        .from('karute_records')
-        .select(
-          'id, summary, created_at, session_date, staff_profile_id, customers:client_id ( name ), entries ( count )',
-        )
-        .eq('customer_id', businessId)
-        .order('session_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(5),
-    ])
+    const [weekly, monthly, appointmentsRes, todayKaruteRes, recentRes, customerList] =
+      await Promise.all([
+        // from/to filter created_at upstream, so .total gives the counts.
+        synqed?.karuteRecords
+          .list({ from: weekStartIso, page_size: 1 })
+          .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
+        synqed?.karuteRecords
+          .list({ from: monthStartIso, page_size: 1 })
+          .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
+        synqed?.appointments
+          .list({ from: todayStart, to: todayEnd, page_size: 200 })
+          .catch(() => ({ appointments: [] })) ??
+          Promise.resolve({ appointments: [] }),
+        // Today's karute, to link each appointment to its recording (status).
+        synqed?.karuteRecords
+          .list({ from: todayStart, to: todayEnd, page_size: 200 })
+          .catch(() => ({ karute_records: [] })) ??
+          Promise.resolve({ karute_records: [] }),
+        synqed?.karuteRecords
+          .list({ page_size: 5 })
+          .catch(() => ({ karute_records: [] })) ??
+          Promise.resolve({ karute_records: [] }),
+        synqed?.customers
+          .list({ page_size: 500 })
+          .catch(() => ({ customers: [] })) ??
+          Promise.resolve({ customers: [] }),
+      ])
+
+    const customerNameById = new Map(
+      ('customers' in customerList ? customerList.customers : []).map((c) => [
+        c.id,
+        c.name,
+      ]),
+    )
+
+    const karuteByAppointment = new Map<string, string>()
+    for (const k of 'karute_records' in todayKaruteRes
+      ? todayKaruteRes.karute_records
+      : []) {
+      if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
+    }
+
+    const todayAppointments: DashboardTodayAppointment[] = (
+      'appointments' in appointmentsRes ? appointmentsRes.appointments : []
+    ).map((a) => ({
+      id: a.id,
+      start_time: a.starts_at,
+      duration_minutes: a.duration_minutes ?? 0,
+      staff_profile_id: a.staff_id,
+      title: a.title,
+      notes: a.notes,
+      karute_record_id: karuteByAppointment.get(a.id) ?? null,
+      customers: customerNameById.has(a.customer_id)
+        ? { name: customerNameById.get(a.customer_id)! }
+        : null,
+    }))
+
+    const recentKarute: DashboardRecentKarute[] = (
+      'karute_records' in recentRes ? recentRes.karute_records : []
+    ).map((r) => ({
+      id: r.id,
+      summary: r.ai_summary,
+      created_at: r.created_at,
+      session_date: r.created_at,
+      staff_profile_id: r.staff_id,
+      customers: r.customer_id
+        ? { name: customerNameById.get(r.customer_id) ?? 'Unknown' }
+        : null,
+      entries: [{ count: r.entry_count ?? 0 }],
+    }))
 
     return {
-      weeklyKaruteCount: weeklyKaruteCountRes.count ?? 0,
-      monthlyKaruteCount: monthlyKaruteCountRes.count ?? 0,
-      todayAppointments: (appointmentsRes.data ?? []) as DashboardTodayAppointment[],
-      recentKarute: (recentKaruteRes.data ?? []) as DashboardRecentKarute[],
+      weeklyKaruteCount: 'total' in weekly ? weekly.total : 0,
+      monthlyKaruteCount: 'total' in monthly ? monthly.total : 0,
+      todayAppointments,
+      recentKarute,
     }
   },
-  ['dashboard-v2'],
+  ['dashboard-v3'],
   { revalidate: 60, tags: ['dashboard'] },
 )
 
