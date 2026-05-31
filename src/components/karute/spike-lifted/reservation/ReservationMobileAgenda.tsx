@@ -25,7 +25,7 @@
 // this UI pass.
 
 import { useTranslations } from 'next-intl'
-import { Mic, Radio } from 'lucide-react'
+import { Radio } from 'lucide-react'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
 import { getStaffColor } from '@/lib/staff/colors'
@@ -73,7 +73,6 @@ const STATUS_VISUALS: Record<DisplayStatus, StatusVisuals> = {
 
 export function ReservationMobileAgenda({ reservations, onSelect }: Props) {
   const t = useTranslations('reservation')
-  const tCard = useTranslations('reservation.card')
   const sorted = [...reservations].sort((a, b) =>
     a.startTimeHm.localeCompare(b.startTimeHm),
   )
@@ -185,15 +184,6 @@ function AgendaRow({
         {tStatus(r.displayStatus)}
       </span>
 
-      {/* Mic indicator (subtle) — surfaces that a recording can be started
-       *  for this row. Hidden on completed since recordings aren't started
-       *  after the fact. */}
-      {!isCompleted && !isLive && (
-        <Mic
-          className="size-3 shrink-0 self-center text-muted-foreground/40"
-          aria-hidden
-        />
-      )}
     </>
   )
 
