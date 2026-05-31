@@ -93,6 +93,7 @@ export default async function CustomersPage({
       visitsTotal: 5,
       lastVisitDate: last.date,
       lastVisitAgo: last.ago,
+      lastVisitService: enriched?.lastVisitService ?? null,
       aiPredict: defaultAiPredict(status),
       status,
       preferredStaffId: c.assigned_staff_id ?? null,

@@ -20,6 +20,11 @@ export interface CustomerEnrichment {
    *  even if karute records are also 0. Previously the agenda used
    *  `totalKarute === 0` and rendered every untouched customer as 新規. */
   pastAppointmentCount: number
+  /** Title (treatment/course) of the customer's most recent PAST appointment
+   *  — i.e. what they last came in for. Sourced from `appointment.title`
+   *  (the QR sync writes the QuickReserve course name there). Null when the
+   *  customer has no past appointment or it carried no title. */
+  lastVisitService: string | null
 }
 
 export async function enrichCustomers(
@@ -50,7 +55,7 @@ export async function enrichCustomers(
   ])
 
   type KaruteRow = { client_id: string; session_date: string | null; created_at: string }
-  type ApptRow = { client_id: string; start_time: string }
+  type ApptRow = { client_id: string; start_time: string; title: string | null }
 
   const karuteByClient = new Map<string, KaruteRow[]>()
   for (const r of karuteRes.karute_records) {
@@ -64,7 +69,7 @@ export async function enrichCustomers(
   for (const a of apptRes.appointments) {
     if (!a.customer_id || !idSet.has(a.customer_id)) continue
     const arr = apptByClient.get(a.customer_id) ?? []
-    arr.push({ client_id: a.customer_id, start_time: a.starts_at })
+    arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null })
     apptByClient.set(a.customer_id, arr)
   }
 
@@ -77,22 +82,29 @@ export async function enrichCustomers(
       const dt = k.session_date ?? k.created_at
       if (!lastVisitIso || dt > lastVisitIso) lastVisitIso = dt
     }
-    // Fall back to appointment last-time if no karute yet.
-    if (!lastVisitIso) {
-      for (const a of appts) {
-        if (!lastVisitIso || a.start_time > lastVisitIso) lastVisitIso = a.start_time
-      }
-    }
-    // Count appointments that started before now ("they've been here before").
+    // Walk PAST appointments (started before now): count them ("they've been
+    // here before") and track the most recent one — its title is the last
+    // treatment they had. Future bookings are excluded so the QR sync's
+    // lookahead window can't mislabel an upcoming booking as 前回.
+    let lastApptIso: string | null = null
+    let lastVisitService: string | null = null
     let pastAppointmentCount = 0
     for (const a of appts) {
-      if (a.start_time < nowIso) pastAppointmentCount += 1
+      if (a.start_time >= nowIso) continue
+      pastAppointmentCount += 1
+      if (!lastApptIso || a.start_time > lastApptIso) {
+        lastApptIso = a.start_time
+        lastVisitService = a.title
+      }
     }
+    // Fall back to the last past appointment when there's no karute yet.
+    if (!lastVisitIso) lastVisitIso = lastApptIso
     map.set(id, {
       totalKarute: karute.length,
       lastVisitIso,
       visitsDone: karute.length,
       pastAppointmentCount,
+      lastVisitService,
     })
   }
 

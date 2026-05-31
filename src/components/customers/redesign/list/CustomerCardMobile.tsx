@@ -122,10 +122,13 @@ export function CustomerCardMobile({
           <span>{t('joined', { date: c.joinDate })}</span>
         </div>
 
-        {/* Line 3: last visit summary */}
+        {/* Line 3: last visit summary — date ·（ago）· [last treatment] · visit count */}
         <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
           <span>{t('row.lastVisitPrefix')} {c.lastVisitDate}</span>
           <span className="text-muted-foreground/60"> （{c.lastVisitAgo}） · </span>
+          {c.lastVisitService && (
+            <span className="text-foreground/80">{c.lastVisitService} · </span>
+          )}
           <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
         </div>
 
