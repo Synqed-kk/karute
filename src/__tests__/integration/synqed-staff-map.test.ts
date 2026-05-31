@@ -1,9 +1,11 @@
 /**
  * Coverage for resolveSynqedStaffId (PR 18, replay/18). Verifies the
- * two-tier profiles.id → synqed staff.id translation:
+ * profiles.id → synqed staff.id translation:
  *  - primary match on synqed staff.user_id,
  *  - email fallback (with self-heal patch to user_id),
- *  - and the hard throw when no link exists.
+ *  - create-on-miss: a real Supabase profile with no synqed staff record yet
+ *    (e.g. seeded staff that bypassed createStaff) gets one created on demand,
+ *  - and the hard throw only when the profile itself doesn't exist.
  *
  * Deps are mocked per-case and the module is re-imported inside
  * jest.isolateModulesAsync so unstable_cache memoization can't bleed
@@ -19,12 +21,16 @@ interface SynqedStaff {
 
 let mockStaff: SynqedStaff[] = []
 let mockProfileEmail: string | null | undefined = undefined
+let mockProfileName: string | null | undefined = undefined
 let staffUpdate: jest.Mock
 let staffListMock: jest.Mock
+let staffCreate: jest.Mock
 
 function mockDeps(opts: {
   staff: SynqedStaff[]
+  /** undefined → the profiles row doesn't exist; null/string → it does. */
   profileEmail?: string | null
+  profileName?: string | null
   /** Omit/clear env so the self-heal + list path can be exercised without it. */
   withEnv?: boolean
   /** Force the self-heal update() to throw. */
@@ -32,6 +38,7 @@ function mockDeps(opts: {
 }) {
   mockStaff = opts.staff
   mockProfileEmail = opts.profileEmail
+  mockProfileName = opts.profileName
   const withEnv = opts.withEnv ?? true
   if (withEnv) {
     process.env.SYNQED_CORE_URL = 'https://core.test'
@@ -46,10 +53,11 @@ function mockDeps(opts: {
     return {}
   })
   staffListMock = jest.fn(async () => ({ staff: mockStaff }))
+  staffCreate = jest.fn(async () => ({ id: 'staff-created' }))
 
   jest.doMock('@synqed-kk/client', () => ({
     SynqedClient: jest.fn().mockImplementation(() => ({
-      staff: { list: staffListMock, update: staffUpdate },
+      staff: { list: staffListMock, update: staffUpdate, create: staffCreate },
     })),
   }))
 
@@ -62,10 +70,12 @@ function mockDeps(opts: {
       const builder: Record<string, unknown> = {}
       for (const m of ['select', 'eq']) builder[m] = () => builder
       ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
+        // profileEmail === undefined models "no such profile" (null row);
+        // otherwise the row exists with the staged name + email.
         data:
           mockProfileEmail === undefined
             ? null
-            : { email: mockProfileEmail },
+            : { full_name: mockProfileName ?? null, email: mockProfileEmail },
       })
       return { from: () => builder }
     },
@@ -91,6 +101,7 @@ beforeEach(() => {
   jest.resetModules()
   mockStaff = []
   mockProfileEmail = undefined
+  mockProfileName = undefined
 })
 
 afterEach(() => {
@@ -130,6 +141,7 @@ describe('resolveSynqedStaffId — email fallback + self-heal', () => {
     })
     const resolve = await loadFn()
     await expect(resolve('profile-99')).resolves.toBe('staff-T')
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 
   it('self-heals by patching the synqed record user_id on an email match', async () => {
@@ -164,36 +176,64 @@ describe('resolveSynqedStaffId — email fallback + self-heal', () => {
   })
 })
 
-describe('resolveSynqedStaffId — no link', () => {
-  it('throws when no user_id and no email match exist', async () => {
+describe('resolveSynqedStaffId — create-on-miss', () => {
+  it('creates a synqed staff record from the profile when no link exists', async () => {
     mockDeps({
       staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
-      profileEmail: 'nobody@x.com',
+      profileName: '牧之瀬 拓海',
+      profileEmail: 'takumi@salon.com',
     })
     const resolve = await loadFn()
-    await expect(resolve('profile-missing')).rejects.toThrow(
-      /Could not link Supabase profile profile-missing/,
-    )
+    await expect(resolve('profile-seeded')).resolves.toBe('staff-created')
+    expect(staffCreate).toHaveBeenCalledWith({
+      name: '牧之瀬 拓海',
+      email: 'takumi@salon.com',
+      user_id: 'profile-seeded',
+    })
   })
 
-  it('throws when the profile has no email to fall back on', async () => {
+  it('falls back to the email as the name when the profile has no full_name', async () => {
     mockDeps({
-      staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
+      staff: [],
+      profileName: null,
+      profileEmail: 'noname@salon.com',
+    })
+    const resolve = await loadFn()
+    await expect(resolve('profile-x')).resolves.toBe('staff-created')
+    expect(staffCreate).toHaveBeenCalledWith({
+      name: 'noname@salon.com',
+      email: 'noname@salon.com',
+      user_id: 'profile-x',
+    })
+  })
+
+  it('creates even when the profile has no email (no fallback match possible)', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-N', user_id: null, email: null }],
+      profileName: 'Solo Stylist',
       profileEmail: null,
     })
     const resolve = await loadFn()
-    await expect(resolve('profile-missing')).rejects.toThrow(
-      /checked user_id and email/,
-    )
+    await expect(resolve('profile-99')).resolves.toBe('staff-created')
+    expect(staffCreate).toHaveBeenCalledWith({
+      name: 'Solo Stylist',
+      email: null,
+      user_id: 'profile-99',
+    })
   })
+})
 
-  it('does not match a synqed staff record whose email is null', async () => {
+describe('resolveSynqedStaffId — no profile', () => {
+  it('throws only when the Supabase profile itself does not exist', async () => {
     mockDeps({
-      staff: [{ id: 'staff-N', user_id: null, email: null }],
-      profileEmail: 'teammate@salon.com',
+      staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
+      // profileEmail omitted → the profiles row is null
     })
     const resolve = await loadFn()
-    await expect(resolve('profile-99')).rejects.toThrow()
+    await expect(resolve('profile-missing')).rejects.toThrow(
+      /Could not link Supabase profile profile-missing.*no such profile/,
+    )
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 })
 
