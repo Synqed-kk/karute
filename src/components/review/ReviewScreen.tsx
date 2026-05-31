@@ -28,6 +28,8 @@ interface ReviewScreenProps {
   appointmentId?: string
   appointmentCustomerId?: string
   onSaved: () => void
+  /** Bail out without saving — clears the background pipeline + take. */
+  onDiscard?: () => void
 }
 
 export function ReviewScreen({
@@ -39,6 +41,7 @@ export function ReviewScreen({
   appointmentId,
   appointmentCustomerId,
   onSaved,
+  onDiscard,
 }: ReviewScreenProps) {
   const t = useTranslations('review')
   const tc = useTranslations('common')
@@ -123,6 +126,10 @@ export function ReviewScreen({
       // On success, saveKaruteRecord redirects
     } catch (err) {
       if (err instanceof Error && err.message.includes('NEXT_REDIRECT')) {
+        // Success: saveKaruteRecord redirects by throwing NEXT_REDIRECT. Clear
+        // the background pipeline first so the top-corner chip doesn't linger
+        // after we navigate to the saved karute, then re-throw to let Next route.
+        onSaved()
         throw err
       }
       toast.error(err instanceof Error ? err.message : 'Failed to save')
@@ -251,14 +258,26 @@ export function ReviewScreen({
             </div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={handleSubmit(handleSave)}
-          disabled={saving || (!appointmentCustomerId && !selectedCustomerId)}
-          className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
-        >
-          {saving ? tc('saving') : tc('save')}
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {onDiscard && (
+            <button
+              type="button"
+              onClick={onDiscard}
+              disabled={saving}
+              className="px-4 py-2.5 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              {t('discard')}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleSubmit(handleSave)}
+            disabled={saving || (!appointmentCustomerId && !selectedCustomerId)}
+            className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+          >
+            {saving ? tc('saving') : tc('save')}
+          </button>
+        </div>
       </div>
     </div>
   )

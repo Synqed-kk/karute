@@ -6,7 +6,9 @@ import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
-import { PipelineContainer } from '@/components/review/PipelineContainer'
+import { ReviewScreen } from '@/components/review/ReviewScreen'
+import { globalPipeline } from '@/lib/global-pipeline'
+import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import {
@@ -105,7 +107,12 @@ export function RecordPageView({
     discardRecording,
   } = useGlobalRecorder()
 
-  type Phase = 'idle' | 'recording' | 'recorded' | 'pipeline'
+  // Background AI pipeline (transcribe → extract → summarize). Module-level
+  // singleton — survives navigation; the top-corner chip (ProcessingIndicator)
+  // shows progress instead of a full-screen blocker.
+  const pipeline = useGlobalPipeline()
+
+  type Phase = 'idle' | 'recording' | 'recorded'
   const [phase, setPhase] = useState<Phase>(() => {
     if (recState === 'recording' || recState === 'paused') return 'recording'
     if (recState === 'recorded') return 'recorded'
@@ -191,33 +198,82 @@ export function RecordPageView({
     setPhase('idle')
   }
   function handleUseRecording() {
-    setPhase('pipeline')
+    if (!result) return
+    // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
+    // modal on this page). The top-corner chip shows progress; staff can leave
+    // and keep working. When it's done the chip brings them back to review+save.
+    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
+    const effectiveCustomerId = recordingAppointmentId
+      ? (recordingCustomerId ?? undefined)
+      : nextAppointment?.customerId
+    globalPipeline.start(result.blob, {
+      locale,
+      customers,
+      duration: Math.round(result.durationMs / 1000),
+      appointmentId: effectiveAppointmentId,
+      appointmentCustomerId: effectiveCustomerId,
+    })
+    // The pipeline now owns the audio; clear the recorder + return to idle so
+    // the page isn't stuck on the "review your take" screen.
+    discardRecording()
+    setPhase('idle')
   }
   function handleNewSession() {
     discardRecording()
     setPhase('idle')
   }
 
-  // Pipeline phase — delegate to existing review/save flow
-  if (phase === 'pipeline' && result) {
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
-    // When recording was started from the dashboard (recordingAppointmentId
-    // set), use the customer carried alongside it so ReviewScreen pre-fills +
-    // attributes correctly instead of forcing a manual re-pick.
-    const effectiveCustomerId = recordingAppointmentId
-      ? (recordingCustomerId ?? undefined)
-      : nextAppointment?.customerId
+  // Background pipeline finished → render the SAME ReviewScreen the old
+  // blocking flow used, fed from the singleton's result + the context captured
+  // at start. The top-corner chip routes here when it's ready.
+  if (pipeline.state === 'review' && pipeline.result && pipeline.context) {
     return (
-      <PipelineContainer
-        audioBlob={result.blob}
-        locale={locale}
-        customers={customers}
-        duration={Math.round(result.durationMs / 1000)}
-        appointmentId={effectiveAppointmentId}
-        appointmentCustomerId={effectiveCustomerId}
-        onCancel={handleNewSession}
-        onSaved={handleNewSession}
+      <ReviewScreen
+        transcript={pipeline.result.transcript}
+        entries={pipeline.result.entries}
+        summary={pipeline.result.summary}
+        customers={pipeline.context.customers}
+        duration={pipeline.context.duration}
+        appointmentId={pipeline.context.appointmentId}
+        appointmentCustomerId={pipeline.context.appointmentCustomerId}
+        onSaved={() => {
+          globalPipeline.reset()
+          handleNewSession()
+        }}
+        onDiscard={() => {
+          globalPipeline.reset()
+          handleNewSession()
+        }}
       />
+    )
+  }
+
+  // Background pipeline errored → non-blocking inline card (retry/discard).
+  if (pipeline.state === 'error') {
+    return (
+      <div className="mx-auto w-full max-w-md px-4 py-10">
+        <div className="rounded-2xl border border-red-500/30 bg-card p-6 text-center shadow-sm">
+          <p className="text-sm font-medium text-foreground">
+            {pipeline.error ?? ''}
+          </p>
+          <div className="mt-5 flex justify-center gap-3">
+            <button
+              type="button"
+              onClick={() => globalPipeline.reset()}
+              className="rounded-lg border border-border px-5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              {tc('cancel')}
+            </button>
+            <button
+              type="button"
+              onClick={() => globalPipeline.retry()}
+              className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            >
+              {tc('retry')}
+            </button>
+          </div>
+        </div>
+      </div>
     )
   }
 

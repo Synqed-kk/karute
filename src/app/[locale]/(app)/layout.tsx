@@ -9,6 +9,7 @@ import { Sidebar } from '@/components/layout/sidebar'
 // floating over it.
 // import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
+import { ProcessingIndicator } from '@/components/recording/ProcessingIndicator'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getNextCustomer } from '@/lib/appointments/next-customer'
@@ -104,6 +105,7 @@ export default async function DashboardLayout({
           </main>
         </div>
         <DiscreetRecordingIndicator />
+        <ProcessingIndicator />
         <div className="md:hidden">
           <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>

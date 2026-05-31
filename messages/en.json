@@ -857,6 +857,8 @@
     "transcribing": "Transcribing...",
     "extracting": "Extracting entries...",
     "summarizing": "Generating summary...",
+    "reviewReady": "Review",
+    "discard": "Discard",
     "aiSummaryPlaceholder": "AI-generated session summary...",
     "entryTitlePlaceholder": "Entry title...",
     "sourceQuotePlaceholder": "Source quote from transcript...",
