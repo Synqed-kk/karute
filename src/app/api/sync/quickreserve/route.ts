@@ -20,7 +20,8 @@ export async function GET(request: NextRequest) {
   if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const syncResult = await runSync()
+  // Cron only runs when auto-sync is enabled.
+  const syncResult = await runSync({ requireEnabled: true })
 
   // Also run cleanup on cron
   try {
@@ -31,24 +32,30 @@ export async function GET(request: NextRequest) {
   return syncResult
 }
 
+// Manual "Sync now" from Settings runs regardless of the auto-sync toggle —
+// `enabled` only gates the cron, not an explicit user-initiated sync.
 export async function POST() {
-  return runSync()
+  return runSync({ requireEnabled: false })
 }
 
-async function runSync() {
+async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
   // sync_config (credentials + run status) stays in Supabase — it's config.
   const supabase = createServiceClient()
 
   try {
-    const { data: config } = await supabase
+    let query = supabase
       .from('sync_config')
       .select('*')
       .eq('provider', 'quickreserve')
-      .eq('enabled', true)
-      .single()
+    if (requireEnabled) query = query.eq('enabled', true)
+    const { data: config } = await query.single()
 
     if (!config) {
-      return NextResponse.json({ message: 'QR sync not configured or disabled' })
+      return NextResponse.json({
+        message: requireEnabled
+          ? 'QR sync not configured or disabled'
+          : 'QR sync not configured — save your Quick Reserve login first',
+      })
     }
 
     // synqed-core is the source of truth and is business-scoped, so the sync
