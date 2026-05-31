@@ -281,7 +281,11 @@ export function CustomerForm({
           {t('form.cancel')}
         </Button>
         <Button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? t('form.saving') : t('form.create')}
+          {isSubmitting
+            ? t('form.saving')
+            : customerId
+              ? t('form.save')
+              : t('form.create')}
         </Button>
       </div>
     </form>
