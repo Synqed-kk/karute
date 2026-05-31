@@ -52,6 +52,12 @@ class GlobalPipeline {
 
   private blob: Blob | null = null
   private listeners = new Set<Listener>()
+  /**
+   * Identifies the live run. A new start()/retry() supersedes an in-flight run,
+   * and reset() invalidates it — a stale run() resolving late checks this and
+   * bails instead of clobbering newer state (e.g. record-while-processing).
+   */
+  private runId = 0
 
   subscribe(fn: Listener) {
     this.listeners.add(fn)
@@ -79,15 +85,19 @@ class GlobalPipeline {
 
   private async run() {
     if (!this.blob || !this.context) return
+    const runId = ++this.runId
     try {
       const result = await runAIPipeline(this.blob, this.context.locale, (step) => {
+        if (runId !== this.runId) return
         this.step = step
         this.notify()
       })
+      if (runId !== this.runId) return
       this.result = result
       this.state = 'review'
       this.notify()
     } catch (err) {
+      if (runId !== this.runId) return
       this.error =
         err instanceof Error
           ? err.message
@@ -109,6 +119,8 @@ class GlobalPipeline {
 
   /** Clear everything — called after the karute is saved or discarded. */
   reset() {
+    // Invalidate any in-flight run so a late resolve can't revive the chip.
+    this.runId++
     this.state = 'idle'
     this.step = 'transcribing'
     this.result = null

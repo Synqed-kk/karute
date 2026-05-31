@@ -12,8 +12,9 @@ import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
  * Mounted at the (app) layout root next to DiscreetRecordingIndicator, so it
  * floats over every route — the app stays fully usable while a 60–90 min
  * recording transcribes in the background (no more full-screen ProcessingModal
- * freezing the whole UI). Recording + processing are sequential, so this never
- * overlaps the recording indicator.
+ * freezing the whole UI). Staff can start a NEW recording while a previous take
+ * processes, so this chip and DiscreetRecordingIndicator can be visible at once
+ * — it's offset to the left of the recording dot to sit beside it, not under it.
  *
  *   processing → spinner + current stage (文字起こし中 → 抽出 → 要約)
  *   review     → green "確認する" pill → taps through to /sessions to review+save
@@ -26,8 +27,10 @@ export function ProcessingIndicator() {
 
   if (state === 'idle') return null
 
-  // Sits where the bell is (top-right), inset for the notch/safe-area.
-  const wrap = 'fixed right-3 top-[calc(env(safe-area-inset-top)+10px)] z-40'
+  // Top-right, inset for the notch/safe-area, but offset left of the recording
+  // dot (right-3, size-7, z-[100]) so the two never stack in the same spot.
+  const wrap =
+    'fixed right-12 top-[max(0.75rem,env(safe-area-inset-top))] z-[90]'
 
   if (state === 'processing') {
     const stepLabel =

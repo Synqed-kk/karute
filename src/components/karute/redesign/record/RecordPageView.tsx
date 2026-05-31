@@ -240,6 +240,10 @@ export function RecordPageView({
           globalPipeline.reset()
           handleNewSession()
         }}
+        onDiscard={() => {
+          globalPipeline.reset()
+          handleNewSession()
+        }}
       />
     )
   }
