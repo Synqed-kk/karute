@@ -23,19 +23,43 @@ jest.mock('@/hooks/use-global-recorder', () => ({
 
 import { BottomNav } from '@/components/layout/bottom-nav'
 
-function next(over: Partial<NextCustomerInfo> = {}): NextCustomerInfo {
+const MIN = 60_000
+// Fixed "now" so the live countdown (Date.now-based) is deterministic.
+const FIXED = new Date('2026-05-31T06:00:00.000Z').getTime()
+
+// upcoming booking that starts `mins` from FIXED (60-min duration).
+function upcoming(mins: number, over: Partial<NextCustomerInfo> = {}): NextCustomerInfo {
   return {
     customerId: 'c1',
     customerName: '田中',
-    startTime: new Date().toISOString(),
+    startTime: new Date(FIXED + mins * MIN).toISOString(),
+    endTime: new Date(FIXED + (mins + 60) * MIN).toISOString(),
     reason: 'upcoming',
-    minutesFromNow: 30,
+    minutesFromNow: mins,
+    ...over,
+  }
+}
+
+// in-session booking with `remaining` minutes left (started 60-remaining ago).
+function inSession(remaining: number, over: Partial<NextCustomerInfo> = {}): NextCustomerInfo {
+  const elapsed = 60 - remaining
+  return {
+    customerId: 'c1',
+    customerName: '田中',
+    startTime: new Date(FIXED - elapsed * MIN).toISOString(),
+    endTime: new Date(FIXED + remaining * MIN).toISOString(),
+    reason: 'in-session',
+    minutesFromNow: -elapsed,
     ...over,
   }
 }
 
 beforeEach(() => {
   mockPathname = '/dashboard'
+  jest.spyOn(Date, 'now').mockReturnValue(FIXED)
+})
+afterEach(() => {
+  jest.restoreAllMocks()
 })
 
 describe('BottomNav center button', () => {
@@ -45,27 +69,47 @@ describe('BottomNav center button', () => {
   })
 
   it('shows the customer name with the JA honorific 様', () => {
-    render(<BottomNav nextCustomer={next({ customerName: '田中' })} locale="ja" />)
+    render(<BottomNav nextCustomer={upcoming(30, { customerName: '田中' })} locale="ja" />)
     expect(screen.getByText('田中様')).toBeInTheDocument()
   })
 
   it('omits the honorific in English', () => {
-    render(<BottomNav nextCustomer={next({ customerName: 'Tanaka' })} locale="en" />)
+    render(<BottomNav nextCustomer={upcoming(30, { customerName: 'Tanaka' })} locale="en" />)
     expect(screen.getByText('Tanaka')).toBeInTheDocument()
   })
 
-  it('renders the upcoming minutes hint (JA)', () => {
-    render(<BottomNav nextCustomer={next({ reason: 'upcoming', minutesFromNow: 30 })} locale="ja" />)
+  it('renders a live upcoming countdown (JA)', () => {
+    render(<BottomNav nextCustomer={upcoming(30)} locale="ja" />)
     expect(screen.getByText('あと30分')).toBeInTheDocument()
   })
 
-  it('renders the upcoming minutes hint (EN)', () => {
-    render(<BottomNav nextCustomer={next({ reason: 'upcoming', minutesFromNow: 15 })} locale="en" />)
+  it('renders a live upcoming countdown (EN)', () => {
+    render(<BottomNav nextCustomer={upcoming(15)} locale="en" />)
     expect(screen.getByText('in 15 min')).toBeInTheDocument()
   })
 
-  it('shows no minutes hint for an in-session customer', () => {
-    render(<BottomNav nextCustomer={next({ reason: 'in-session', minutesFromNow: -5 })} locale="ja" />)
-    expect(screen.queryByText(/あと.*分/)).not.toBeInTheDocument()
+  it('shows remaining time for an in-session customer (JA) — not an "あと" arrival hint', () => {
+    render(<BottomNav nextCustomer={inSession(5)} locale="ja" />)
+    expect(screen.getByText('残り5分')).toBeInTheDocument()
+    // The confusing "arriving in 5 min" framing must NOT be used mid-session.
+    expect(screen.queryByText('あと5分')).not.toBeInTheDocument()
+  })
+
+  it('shows remaining time for an in-session customer (EN)', () => {
+    render(<BottomNav nextCustomer={inSession(20)} locale="en" />)
+    expect(screen.getByText('20 min left')).toBeInTheDocument()
+  })
+
+  it('shows a "wrapping up" hint in the last minute of a session', () => {
+    render(<BottomNav nextCustomer={inSession(1)} locale="ja" />)
+    expect(screen.getByText('まもなく終了')).toBeInTheDocument()
+  })
+
+  it('shows no time hint once the booking has ended', () => {
+    // started 90m ago, 60m booking → ended 30m ago.
+    const ended = inSession(-30)
+    render(<BottomNav nextCustomer={ended} locale="ja" />)
+    expect(screen.getByText('田中様')).toBeInTheDocument()
+    expect(screen.queryByText(/分|終了|left|min/)).not.toBeInTheDocument()
   })
 })

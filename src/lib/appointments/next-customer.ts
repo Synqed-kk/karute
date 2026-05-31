@@ -35,10 +35,18 @@ export interface NextCustomerInfo {
   customerName: string
   /** ISO timestamp of the booking start. */
   startTime: string
-  /** Drives the bottom-nav hint copy + (later) icon swap. */
+  /** ISO timestamp of the booking end (start + duration). The bottom-nav
+   *  runs a LIVE countdown off these absolute timestamps + a ticking
+   *  clock, so the hint stays accurate instead of freezing at whatever
+   *  minute the server baked at page render. */
+  endTime: string
+  /** Drives the bottom-nav hint copy + (later) icon swap. Advisory for
+   *  the first paint — the client re-derives the phase live from
+   *  start/end vs the current time. */
   reason: 'in-session' | 'upcoming'
-  /** Signed minutes from now to booking start.
-   *  Positive = upcoming, negative = already started. */
+  /** Signed minutes from now to booking start, at render time.
+   *  Positive = upcoming, negative = already started. Used to seed the
+   *  bottom-nav hint before its live clock takes over. */
   minutesFromNow: number
 }
 
@@ -71,15 +79,17 @@ export async function getNextCustomer(): Promise<NextCustomerInfo | null> {
   const toInfo = (
     a: AppointmentRow,
     reason: NextCustomerInfo['reason'],
-  ): NextCustomerInfo => ({
-    customerId: a.client_id,
-    customerName: a.customers?.name ?? 'Unknown',
-    startTime: a.start_time,
-    reason,
-    minutesFromNow: Math.round(
-      (new Date(a.start_time).getTime() - nowMs) / 60_000,
-    ),
-  })
+  ): NextCustomerInfo => {
+    const startMs = new Date(a.start_time).getTime()
+    return {
+      customerId: a.client_id,
+      customerName: a.customers?.name ?? 'Unknown',
+      startTime: a.start_time,
+      endTime: new Date(startMs + a.duration_minutes * 60_000).toISOString(),
+      reason,
+      minutesFromNow: Math.round((startMs - nowMs) / 60_000),
+    }
+  }
 
   // 1. In-session — started, not ended, no karute attached.
   const inSession = mine.find((a) => {
