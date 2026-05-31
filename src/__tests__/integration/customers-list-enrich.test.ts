@@ -15,7 +15,7 @@ process.env.SYNQED_CORE_API_KEY = 'test-key'
 // tests can set them. Shapes mirror @synqed-kk/client (customer_id, etc.).
 const scenario: {
   karute: Array<{ customer_id: string; created_at: string }>
-  appts: Array<{ customer_id: string; starts_at: string }>
+  appts: Array<{ customer_id: string; starts_at: string; title?: string | null }>
 } = { karute: [], appts: [] }
 
 const karuteRecords = { list: jest.fn(async () => ({ karute_records: scenario.karute })) }
@@ -81,6 +81,7 @@ describe('enrichCustomers', () => {
       lastVisitIso: null,
       visitsDone: 0,
       pastAppointmentCount: 0,
+      lastVisitService: null,
     })
   })
 
@@ -123,6 +124,28 @@ describe('enrichCustomers', () => {
     const map = await enrichCustomers('biz-1', ['a'])
     expect(map.get('a')?.pastAppointmentCount).toBe(0)
     expect(map.get('a')?.totalKarute).toBe(0)
+  })
+
+  it('captures the latest PAST appointment title as the last-visit service, ignoring future', async () => {
+    const past1 = new Date(Date.now() - 10 * DAY).toISOString()
+    const past2 = new Date(Date.now() - 2 * DAY).toISOString()
+    const future = new Date(Date.now() + 5 * DAY).toISOString()
+    scenario.appts = [
+      { customer_id: 'a', starts_at: past1, title: 'カット' },
+      { customer_id: 'a', starts_at: past2, title: 'カット+カラー' },
+      { customer_id: 'a', starts_at: future, title: '未来の予約' },
+    ]
+    const map = await enrichCustomers('biz-1', ['a'])
+    expect(map.get('a')?.lastVisitService).toBe('カット+カラー')
+    // The future booking is never treated as the last visit (前回).
+    expect(map.get('a')?.lastVisitIso).toBe(past2)
+  })
+
+  it('last-visit service is null when the only appointment is in the future', async () => {
+    const future = new Date(Date.now() + 3 * DAY).toISOString()
+    scenario.appts = [{ customer_id: 'a', starts_at: future, title: 'カット' }]
+    const map = await enrichCustomers('biz-1', ['a'])
+    expect(map.get('a')?.lastVisitService).toBeNull()
   })
 })
 

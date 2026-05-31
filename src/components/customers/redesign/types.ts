@@ -18,6 +18,10 @@ export interface CustomerListRow {
   visitsTotal: number
   lastVisitDate: string // pretty
   lastVisitAgo: string // "28 days ago"
+  /** Treatment/course from the last past visit (QR course name, from
+   *  appointment.title). Optional — only the list page adapter populates it;
+   *  other CustomerListRow producers omit it and the card falls back to nothing. */
+  lastVisitService?: string | null
   aiPredict: { label: string; when: string }
   status: CustomerStatusKey
   preferredStaffId: string | null
