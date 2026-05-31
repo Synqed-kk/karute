@@ -75,18 +75,15 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
   const pathname = usePathname()
   const [menuOpen, setMenuOpen] = useState(false)
 
-  // Build the label + hint for the center mic button.
-  //   • Customer name + honorific (「様」 in JA, empty in EN).
-  //   • Hint = "あと{n}分" / "in {n} min" for upcoming, none for
-  //     in-session (the button itself is the in-session indicator
-  //     once a future PR adds the role-swap).
+  // Center mic button label = customer name + honorific (「様」 in JA,
+  // empty in EN), or the scaffold placeholder when there's nothing to
+  // record. The time hint underneath is a LIVE countdown computed inside
+  // CenterRecordButton (see useLiveHint) — not a server-baked string —
+  // so it actually ticks down.
   const honorific = locale === 'ja' ? '様' : ''
   const centerLabel = nextCustomer
     ? `${nextCustomer.customerName}${honorific}`
     : label('pickBooking')
-  const centerHint = nextCustomer && nextCustomer.reason === 'upcoming'
-    ? buildMinutesHint(nextCustomer.minutesFromNow, locale)
-    : null
 
   function label(key: string): string {
     try {
@@ -219,7 +216,8 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
                   : `Open pre-session screen for ${centerLabel}`
                 : label('recording')
             }
-            centerHint={centerHint}
+            nextCustomer={nextCustomer}
+            locale={locale}
           />
 
           {renderNavItem(PRIMARY[2])}
@@ -243,14 +241,71 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
   )
 }
 
-// "あと28分" / "in 28 min" — only rendered for upcoming bookings.
-// Negative minutes (already started) shouldn't reach this helper —
-// in-session is handled by the parent's reason branch — but we
-// guard anyway and fall back to null so nothing weird renders.
-function buildMinutesHint(minutesFromNow: number, locale: string): string | null {
-  if (minutesFromNow <= 0) return null
-  const n = Math.round(minutesFromNow)
-  return locale === 'ja' ? `あと${n}分` : `in ${n} min`
+// ─────────────────────────────────────────────────────────────
+// Live countdown for the center mic sub-label
+// ─────────────────────────────────────────────────────────────
+// Computed CLIENT-SIDE off the booking's absolute start/end timestamps
+// and a ticking clock, so it updates in real time rather than freezing
+// at whatever minute the server baked at page render. Phases (re-derived
+// live, independent of the server's advisory `reason`):
+//   • before start → 「あと{n}分」 / "in {n} min"  (until the booking starts)
+//   • during       → 「残り{n}分」 / "{n} min left" (until the booking ends)
+//   • ≤1 min left  → 「まもなく終了」 / "wrapping up"
+//   • after end    → null (the booking's done; the server picks a new
+//                    target on the next navigation/refresh)
+// Kept inline (not message keys) like the original hint: both locales
+// are handled here, so there's no English-on-JA leak — these are numeric
+// format fragments, not translatable prose.
+function useLiveHint(next: NextCustomerInfo | null, locale: string): string | null {
+  // Seed from props only (no Date.now) so the server HTML and the first
+  // client render match; the interval refines it immediately after mount.
+  const [hint, setHint] = useState<string | null>(() => seedHint(next, locale))
+  useEffect(() => {
+    if (!next) {
+      setHint(null)
+      return
+    }
+    const tick = () => setHint(liveHint(next, Date.now(), locale))
+    tick()
+    // Minute-granularity countdown — 15s keeps the displayed minute fresh
+    // without spinning a per-second timer the label doesn't need.
+    const id = setInterval(tick, 15_000)
+    return () => clearInterval(id)
+  }, [next, locale])
+  return hint
+}
+
+function seedHint(next: NextCustomerInfo | null, locale: string): string | null {
+  if (!next) return null
+  const ja = locale === 'ja'
+  if (next.reason === 'in-session') return ja ? '施術中' : 'In session'
+  if (next.minutesFromNow > 0) {
+    return ja ? `あと${next.minutesFromNow}分` : `in ${next.minutesFromNow} min`
+  }
+  return null
+}
+
+function liveHint(
+  next: NextCustomerInfo,
+  nowMs: number,
+  locale: string,
+): string | null {
+  const ja = locale === 'ja'
+  const startMs = new Date(next.startTime).getTime()
+  const endMs = new Date(next.endTime).getTime()
+  // Before start → counts down to the booking start.
+  if (nowMs < startMs) {
+    const n = Math.max(1, Math.ceil((startMs - nowMs) / 60_000))
+    return ja ? `あと${n}分` : `in ${n} min`
+  }
+  // During the booking → counts down the time remaining.
+  if (nowMs < endMs) {
+    const n = Math.ceil((endMs - nowMs) / 60_000)
+    if (n <= 1) return ja ? 'まもなく終了' : 'wrapping up'
+    return ja ? `残り${n}分` : `${n} min left`
+  }
+  // Past the end → no hint; the booking is over.
+  return null
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -266,17 +321,22 @@ function CenterRecordButton({
   nextCustomerName,
   isOnSessionsPage,
   ariaLabelIdle,
-  centerHint,
+  nextCustomer,
+  locale,
 }: {
   menuOpen: boolean
   setMenuOpen: (v: boolean) => void
   nextCustomerName: string
   isOnSessionsPage: boolean
   ariaLabelIdle: string
-  centerHint: string | null
+  nextCustomer: NextCustomerInfo | null
+  locale: string
 }) {
   const router = useRouter()
   const { state, startedAt, stopRecording } = useGlobalRecorder()
+  // Live, ticking countdown for the idle sub-label (「あと5分」→「残り5分」→
+  // 「まもなく終了」). Only surfaces in the idle branch below.
+  const centerHint = useLiveHint(nextCustomer, locale)
   const isActive = state === 'recording' || state === 'paused'
   const [elapsed, setElapsed] = useState(() =>
     startedAt ? Math.floor((Date.now() - startedAt) / 1000) : 0,

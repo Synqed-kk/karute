@@ -64,6 +64,16 @@ describe('getNextCustomer', () => {
     expect(r?.minutesFromNow).toBeLessThan(0)
   })
 
+  it('returns an endTime of start + duration (feeds the live countdown)', async () => {
+    const now = Date.now()
+    const start = new Date(now - 30 * MIN).toISOString()
+    mockRows = [appt({ start_time: start, duration_minutes: 60 })]
+    const r = await getNextCustomer()
+    // 60-min booking that started 30 min ago → ends ~30 min from now.
+    const expectedEnd = new Date(new Date(start).getTime() + 60 * MIN).toISOString()
+    expect(r?.endTime).toBe(expectedEnd)
+  })
+
   it('returns the nearest upcoming booking when none in session', async () => {
     const now = Date.now()
     mockRows = [
