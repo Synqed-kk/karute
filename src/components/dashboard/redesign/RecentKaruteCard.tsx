@@ -1,6 +1,7 @@
 'use client'
 
 import { ArrowRight, Clipboard } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 
 export interface DashboardRecentKarute {
@@ -19,25 +20,26 @@ export function RecentKaruteCard({
 }: {
   items: DashboardRecentKarute[]
 }) {
+  const t = useTranslations('dashboard')
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Clipboard size={14} className="text-muted-foreground" />
-          <h3 className="text-sm font-semibold text-foreground">Recent karute</h3>
+          <h3 className="text-sm font-semibold text-foreground">{t('recentKarute')}</h3>
         </div>
         <Link
           href={'/karute' as Parameters<typeof Link>[0]['href']}
           className="inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300"
         >
-          <span>Show all</span>
+          <span>{t('viewAll')}</span>
           <ArrowRight size={12} />
         </Link>
       </div>
 
       {items.length === 0 ? (
         <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-          No karute records yet.
+          {t('noKaruteYet')}
         </p>
       ) : (
         <div className="flex flex-col">
@@ -66,7 +68,7 @@ export function RecentKaruteCard({
                 {r.summary}
               </p>
               <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                <span className="tabular-nums">{r.entryCount} entries</span>
+                <span className="tabular-nums">{t('entriesCount', { n: r.entryCount })}</span>
                 <span aria-hidden>·</span>
                 <span className="flex items-center gap-1.5">
                   {r.staffColor && (

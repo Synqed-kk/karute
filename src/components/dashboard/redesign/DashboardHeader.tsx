@@ -1,6 +1,7 @@
 'use client'
 
 import { Crown, Sparkles } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { useRouter } from 'next/navigation'
 
 interface DashboardHeaderProps {
@@ -10,11 +11,11 @@ interface DashboardHeaderProps {
   onboardingComplete: boolean
 }
 
-function greetingForHour(h: number): string {
-  if (h < 5) return 'Good night'
-  if (h < 11) return 'Good morning'
-  if (h < 18) return 'Good afternoon'
-  return 'Good evening'
+function greetingKey(h: number): 'night' | 'morning' | 'afternoon' | 'evening' {
+  if (h < 5) return 'night'
+  if (h < 11) return 'morning'
+  if (h < 18) return 'afternoon'
+  return 'evening'
 }
 
 export function DashboardHeader({
@@ -24,7 +25,9 @@ export function DashboardHeader({
   onboardingComplete,
 }: DashboardHeaderProps) {
   const router = useRouter()
-  const greeting = greetingForHour(new Date().getHours())
+  const t = useTranslations('dashboard')
+  const tGreeting = useTranslations('dashboard.greeting')
+  const greeting = tGreeting(greetingKey(new Date().getHours()))
 
   return (
     <header className="flex flex-wrap items-start justify-between gap-3">
@@ -41,7 +44,7 @@ export function DashboardHeader({
         {isOwner && (
           <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 text-xs font-medium text-sky-200">
             <Crown size={13} className="text-sky-300" />
-            Owner view
+            {t('ownerView')}
           </span>
         )}
         <button
@@ -54,7 +57,7 @@ export function DashboardHeader({
           }`}
         >
           <Sparkles size={13} />
-          <span>Setup store</span>
+          <span>{t('setupStoreButton')}</span>
           {!onboardingComplete && (
             <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-emerald-300 ring-2 ring-background" />
           )}
