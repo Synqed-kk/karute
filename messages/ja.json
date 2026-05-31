@@ -1252,10 +1252,14 @@
       "dismiss": "閉じる"
     },
     "aiHero": {
+      "title": "AIが提案する次のアクション",
       "waitingCount": "{n} 件待ち",
       "emptyTitle": "AIからの提案はまだありません",
       "emptyBody": "セッションを数回録音すると、フォローアップやメッセージ案、レビュー待ちのカルテが表示されます。"
     },
+    "minutesShort": "{n}分",
+    "newBadge": "新規",
+    "entriesCount": "{n}件",
     "stats": {
       "weeklyRecordings": "今週の録音",
       "todaysCustomers": "本日のお客様",

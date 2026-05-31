@@ -1,4 +1,5 @@
 import { Sparkles, Target } from 'lucide-react'
+import { getTranslations } from 'next-intl/server'
 import type { BusinessProfile } from '@/lib/welcome/business-types'
 
 // Stubbed for v1. Backend pieces this needs:
@@ -17,7 +18,8 @@ interface AIActionsHeroProps {
   waitingCount?: number | null
 }
 
-export function AIActionsHero({ businessProfile, waitingCount = null }: AIActionsHeroProps) {
+export async function AIActionsHero({ businessProfile, waitingCount = null }: AIActionsHeroProps) {
+  const t = await getTranslations('dashboard.aiHero')
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -27,7 +29,7 @@ export function AIActionsHero({ businessProfile, waitingCount = null }: AIAction
           </div>
           <div>
             <h2 className="text-base font-semibold text-foreground">
-              AI suggested actions
+              {t('title')}
             </h2>
             {/* `waitingCount` is the AI suggestion queue depth.
              *  ANTHONY: when the suggestion queue table ships, pass
@@ -37,7 +39,7 @@ export function AIActionsHero({ businessProfile, waitingCount = null }: AIAction
              *  message. */}
             {waitingCount != null && (
               <div className="text-xs text-muted-foreground">
-                {waitingCount} waiting
+                {t('waitingCount', { n: waitingCount })}
               </div>
             )}
           </div>
@@ -55,10 +57,10 @@ export function AIActionsHero({ businessProfile, waitingCount = null }: AIAction
           <Sparkles size={14} />
         </div>
         <p className="text-sm font-medium text-foreground">
-          No AI suggestions yet
+          {t('emptyTitle')}
         </p>
         <p className="mt-1 text-xs text-muted-foreground">
-          Once you&apos;ve recorded a few sessions, AI will surface follow-up reminders, draft messages, and karute that need review.
+          {t('emptyBody')}
         </p>
       </div>
     </section>

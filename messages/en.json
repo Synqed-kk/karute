@@ -1252,10 +1252,14 @@
       "dismiss": "Dismiss"
     },
     "aiHero": {
+      "title": "AI suggested actions",
       "waitingCount": "{n} waiting",
       "emptyTitle": "No AI suggestions yet",
       "emptyBody": "Once you've recorded a few sessions, AI will surface follow-up reminders, draft messages, and karute that need review."
     },
+    "minutesShort": "{n}m",
+    "newBadge": "New",
+    "entriesCount": "{n} entries",
     "stats": {
       "weeklyRecordings": "Recordings this week",
       "todaysCustomers": "Today's customers",
