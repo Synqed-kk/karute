@@ -42,8 +42,31 @@ export default async function KaruteRecordsListPage() {
   const sb = supabase as any
   const synqed = await getSynqedClient()
 
-  const [recordsRes, staffList, allCustomersList, currentStaffId, synqedKaruteRows] =
-    await Promise.all([
+  // Booking-staff window. QuickReserve scrapes the 担当 onto each appointment
+  // and the sync writes today..+14d into synqed-core, so a placeholder
+  // customer's stylist lives on their upcoming booking — NOT on
+  // customer.assigned_staff_id (a separate "preferred staff" field the sync
+  // never sets, which is why placeholder stripes were blank). Read the same
+  // window so we can stamp the booking's staff onto those rows.
+  const nowMs = new Date().getTime()
+  const jstToday = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+  const windowStart = new Date(`${jstToday}T00:00:00+09:00`)
+  const windowEnd = new Date(windowStart.getTime() + 15 * 24 * 60 * 60 * 1000)
+
+  const [
+    recordsRes,
+    staffList,
+    allCustomersList,
+    currentStaffId,
+    synqedKaruteRows,
+    apptList,
+    synqedStaff,
+  ] = await Promise.all([
       sb
         .from('karute_records')
         .select(
@@ -64,6 +87,16 @@ export default async function KaruteRecordsListPage() {
       // synqed-core is the authoritative karute store; the Supabase query above
       // is effectively empty. Union both so synqed-written karute appear here.
       listSynqedKaruteRows(synqed),
+      // Appointments in the booking window + the synqed staff roster — used to
+      // resolve each placeholder customer's 担当 from their booking and to
+      // translate the synqed staff id into the profile id the color/name maps
+      // key on (same boundary translation getAppointmentsByDate does).
+      synqed.appointments.list({
+        from: windowStart.toISOString(),
+        to: windowEnd.toISOString(),
+        page_size: 500,
+      }),
+      synqed.staff.list({ page_size: 200 }),
     ])
 
   type RecordRow = {
@@ -94,6 +127,47 @@ export default async function KaruteRecordsListPage() {
   )
 
   const recordedCustomerIds = new Set(records.map((r) => r.client_id))
+
+  // ── Booking → staff for placeholder rows ─────────────────────────────
+  // synqed staff id → profile id. Appointments arrive keyed by the synqed
+  // staff id; staffNameById + getStaffColor key off the profile id (=
+  // synqed staff.user_id). Profile-less synqed staff fall back to their
+  // synqed id — exactly how getStaffList ids them too, so name/color still
+  // resolve. Mirrors the boundary translation in getAppointmentsByDate.
+  const profileByStaffId = new Map(
+    synqedStaff.staff
+      .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+      .map((s) => [s.id, s.user_id]),
+  )
+
+  // customer id → their booking's staff profile id. Pick the nearest
+  // upcoming booking (the 担当 the customer is about to see); fall back to
+  // the latest in-window booking so a customer whose only slot is earlier
+  // today still resolves to a stylist.
+  const bookingStaffByCustomer = new Map<string, string>()
+  {
+    const apptsByCustomer = new Map<string, typeof apptList.appointments>()
+    for (const a of apptList.appointments) {
+      const arr = apptsByCustomer.get(a.customer_id)
+      if (arr) arr.push(a)
+      else apptsByCustomer.set(a.customer_id, [a])
+    }
+    for (const [cid, appts] of apptsByCustomer) {
+      const sorted = [...appts].sort(
+        (x, y) =>
+          new Date(x.starts_at).getTime() - new Date(y.starts_at).getTime(),
+      )
+      const chosen =
+        sorted.find((a) => new Date(a.starts_at).getTime() >= nowMs) ??
+        sorted[sorted.length - 1]
+      if (chosen) {
+        bookingStaffByCustomer.set(
+          cid,
+          profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id,
+        )
+      }
+    }
+  }
 
   // Project records into KaruteListItem shape
   const items: KaruteListItem[] = records.map((r) => {
@@ -159,6 +233,13 @@ export default async function KaruteRecordsListPage() {
       const isoDate = (c.created_at ?? new Date().toISOString()).slice(0, 10)
       const dt = new Date(`${isoDate}T00:00:00+09:00`)
       const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
+      // 担当 comes from the customer's booking (QuickReserve scrapes it onto
+      // the appointment). assigned_staff_id is a separate preferred-staff
+      // field the sync never sets — so it was always null here, leaving the
+      // stripe blank and no 担当 on the card. Fall back to it only when the
+      // customer has no booking in the window.
+      const bookingStaffId =
+        bookingStaffByCustomer.get(c.id) ?? c.assigned_staff_id ?? null
       return {
         id: `placeholder-${c.id}`,
         customerId: c.id,
@@ -173,9 +254,9 @@ export default async function KaruteRecordsListPage() {
         // string here is the user-facing label shown in lieu of a service.
         service: 'まだセッションなし',
         duration: 0,
-        staffId: c.assigned_staff_id ?? null,
-        staffName: c.assigned_staff_id
-          ? (staffNameById.get(c.assigned_staff_id) ?? '—')
+        staffId: bookingStaffId,
+        staffName: bookingStaffId
+          ? (staffNameById.get(bookingStaffId) ?? '—')
           : '—',
         summary: '初回セッションを記録すると、ここに表示されます',
         aiStatus: 'draft',
