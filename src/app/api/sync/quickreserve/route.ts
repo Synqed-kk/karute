@@ -177,6 +177,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
             name: mapped.customerName,
             furigana: mapped.customerKana || null,
             phone: mapped.customerPhone || null,
+            email: mapped.customerEmail || null,
             notes: mapped.customerNotes || null,
           })
           customerId = cust.id

@@ -151,6 +151,7 @@ export function mapReservation(r: QRReservation) {
     customerName: r.Customer.name,
     customerKana: r.Customer.name_kana,
     customerPhone: r.Customer.phone1,
+    customerEmail: r.Customer.mail1,
     customerNotes: r.Customer.remarks1,
     customerVisits: r.Customer.visits_number_cache,
     isNewCustomer: r.is_new_customer_flag || !r.Customer.is_existing_customer,
