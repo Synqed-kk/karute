@@ -26,6 +26,11 @@ export interface CustomerListRow {
   status: CustomerStatusKey
   preferredStaffId: string | null
   preferredStaffName: string | null
+  /** Staff on the customer's booking (from the QR scrape), used as a fallback
+   *  担当 when there's no 指名 (preferredStaff). Display-only — the 指名あり
+   *  filter still counts preferredStaffId, never this. */
+  bookingStaffId?: string | null
+  bookingStaffName?: string | null
   totalKarute: number
   phone: string | null
   email: string | null
@@ -43,6 +48,8 @@ export interface CustomerProfileData {
   phone: string | null
   email: string | null
   preferredStaffName: string | null
+  /** 担当 fallback from the customer's booking when there's no 指名. */
+  bookingStaffName?: string | null
   nextVisitPredicted: string
   status: CustomerStatusKey
   memoryCount: number

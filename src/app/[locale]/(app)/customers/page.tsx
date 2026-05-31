@@ -100,6 +100,10 @@ export default async function CustomersPage({
       preferredStaffName: c.assigned_staff_id
         ? (staffNameById.get(c.assigned_staff_id) ?? null)
         : null,
+      bookingStaffId: enriched?.bookingStaffId ?? null,
+      bookingStaffName: enriched?.bookingStaffId
+        ? (staffNameById.get(enriched.bookingStaffId) ?? null)
+        : null,
       totalKarute,
       phone: c.phone,
       email: c.email,

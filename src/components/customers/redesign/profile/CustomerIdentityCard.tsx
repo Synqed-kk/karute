@@ -108,7 +108,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             <span>
               担当{' '}
               <span className="text-foreground">
-                {c.preferredStaffName ?? '—'}
+                {c.preferredStaffName ?? c.bookingStaffName ?? '—'}
               </span>
             </span>
             <span aria-hidden>·</span>
