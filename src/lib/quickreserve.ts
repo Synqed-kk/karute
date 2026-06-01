@@ -165,3 +165,52 @@ export function mapReservation(r: QRReservation) {
     durationMinutes: Math.round((r.end_at - r.start_at) / 60000),
   }
 }
+
+const QR_GENDER: Record<number, 'male' | 'female' | null> = { 0: null, 1: 'male', 2: 'female' }
+
+/** Map one raw QR reservation object to our customer_visits shape. */
+export function mapVisit(r: {
+  id: number; start_at: number; deleted: boolean; request?: string
+  Bill: { BillItems?: { price_consumed?: number }[] } | null
+  Staff?: { name?: string } | null
+  TreatmentCourse?: { name?: string } | null
+}) {
+  const items = r.Bill?.BillItems ?? []
+  return {
+    qr_reservation_id: r.id,
+    used_at: new Date(r.start_at).toISOString(),
+    status: r.deleted ? 'cancelled' : r.Bill ? 'settled' : 'booked',
+    course_name: r.TreatmentCourse?.name ?? null,
+    sales_amount: items.reduce((s, i) => s + (i.price_consumed ?? 0), 0),
+    staff_name: r.Staff?.name ?? null,
+    treatment_comment: r.request || null,
+  }
+}
+
+/** Map the nested QR Customer object to our extended customer fields. */
+export function mapDeepCustomer(c: {
+  gender?: number; born_at?: number | null; profession?: string; membership_id?: string
+  post_code?: string; prefecture?: string; address1?: string; phone2?: string
+  direct_mail?: boolean; comment?: string; remarks2?: string; postpaid_remaining_cache?: number
+  has_ticket_pack?: boolean; last_visit_at_cache?: number | null; visits_number_cache?: number
+  is_existing_customer?: boolean
+}) {
+  return {
+    gender: c.gender != null ? QR_GENDER[c.gender] ?? null : null,
+    date_of_birth: c.born_at ? new Date(c.born_at).toISOString().slice(0, 10) : null,
+    occupation: c.profession || null,
+    member_number: c.membership_id || null,
+    postal_code: c.post_code || null,
+    prefecture: c.prefecture || null,
+    address: c.address1 || null,
+    phone2: c.phone2 || null,
+    dm_opt_in: !!c.direct_mail,
+    comment: c.comment || null,
+    remarks2: c.remarks2 || null,
+    installment_outstanding: c.postpaid_remaining_cache ?? 0,
+    has_ticket_pack: !!c.has_ticket_pack,
+    last_visit_at: c.last_visit_at_cache ? new Date(c.last_visit_at_cache).toISOString() : null,
+    visit_count: c.visits_number_cache ?? 0,
+    is_existing_customer: !!c.is_existing_customer,
+  }
+}
