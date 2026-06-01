@@ -63,7 +63,16 @@ export function CustomerEditDialog({ customer }: Props) {
             name: customer.name,
             phone: customer.phone ?? '',
             email: customer.email ?? '',
+            assignedStaffId: customer.preferredStaffId ?? '',
           }}
+          currentStaff={
+            customer.preferredStaffId
+              ? {
+                  id: customer.preferredStaffId,
+                  name: customer.preferredStaffName ?? '—',
+                }
+              : null
+          }
           onSuccess={handleSuccess}
           onCancel={() => setOpen(false)}
         />

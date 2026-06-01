@@ -169,6 +169,7 @@ export default async function CustomerProfilePage({
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
     bookingMemo: customer.notes ?? null,
+    preferredStaffId,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)
       : null,

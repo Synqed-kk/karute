@@ -50,6 +50,9 @@ export interface CustomerProfileData {
   visitCount?: number
   phone: string | null
   email: string | null
+  /** Assigned/preferred stylist profile id — the edit dialog seeds the 指名
+   *  スタッフ dropdown with this so it shows + can change the current pick. */
+  preferredStaffId?: string | null
   preferredStaffName: string | null
   /** 担当 fallback from the customer's booking when there's no 指名. */
   bookingStaffName?: string | null
