@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 
+import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { ReviewScreen } from '@/components/review/ReviewScreen'
@@ -111,6 +112,26 @@ export function RecordPageView({
   // singleton — survives navigation; the top-corner chip (ProcessingIndicator)
   // shows progress instead of a full-screen blocker.
   const pipeline = useGlobalPipeline()
+
+  // 別の予約を選択: tapping a booking in the picker re-targets the record page
+  // at THAT appointment. We push the id through `?appointmentId` so the server
+  // component (sessions/page.tsx) re-resolves the target — same mechanism the
+  // 予約 agenda uses (BookingActionSheetWrapper.goToRecord). `replace` keeps the
+  // back button pointed at where the user came from instead of stacking every
+  // switch. Without this handler the sheet opened but selecting a row was a
+  // no-op (onSwitchBooking?.() swallowed silently) — "the button is broken".
+  const router = useRouter()
+  const handleSwitchBooking = useCallback(
+    (booking: RecordTargetBooking) => {
+      router.replace(
+        {
+          pathname: '/sessions',
+          query: { appointmentId: booking.id },
+        } as Parameters<typeof router.replace>[0],
+      )
+    },
+    [router],
+  )
 
   type Phase = 'idle' | 'recording' | 'recorded'
   const [phase, setPhase] = useState<Phase>(() => {
@@ -398,6 +419,7 @@ export function RecordPageView({
             <RecordingTargetCard
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
+              onSwitchBooking={handleSwitchBooking}
             />
             <PreSessionBriefCard
               brief={brief}
@@ -411,6 +433,7 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
+            onSwitchBooking={handleSwitchBooking}
           />
           <PreSessionBriefCard
             brief={brief}
