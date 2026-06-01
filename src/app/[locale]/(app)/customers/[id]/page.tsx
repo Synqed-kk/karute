@@ -11,6 +11,7 @@ import { CustomerProfileView } from '@/components/customers/redesign/profile/Cus
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
   deriveStatus,
+  enrichCustomers,
   formatJoinDate,
 } from '@/lib/customers/list-enrich'
 import {
@@ -55,7 +56,7 @@ export default async function CustomerProfilePage({
   // real `customers.karute_number` column.
   const synqed = await getSynqedClient()
 
-  const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows] =
+  const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
     await Promise.all([
       getCustomerContact(id),
       getStaffList(),
@@ -86,6 +87,10 @@ export default async function CustomerProfilePage({
       // is effectively empty. Union both so this customer's synqed-written
       // sessions appear in their history.
       listSynqedKaruteRows(synqed, { customerId: id }),
+      // 担当 fallback: the booking's staff when this customer has no 指名
+      // (assigned_staff_id) — QR-synced customers never do. Same source as the
+      // list page so the profile's 担当 matches the card.
+      enrichCustomers(businessId, [id]),
     ])
 
   type KaruteRow = {
@@ -143,6 +148,7 @@ export default async function CustomerProfilePage({
   })
 
   const preferredStaffId: string | null = customer.assigned_staff_id ?? null
+  const bookingStaffId: string | null = enrichment.get(id)?.bookingStaffId ?? null
 
   const profile: CustomerProfileData = {
     id: customer.id,
@@ -165,6 +171,9 @@ export default async function CustomerProfilePage({
     bookingMemo: customer.notes ?? null,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)
+      : null,
+    bookingStaffName: bookingStaffId
+      ? (staffNameById.get(bookingStaffId) ?? null)
       : null,
     nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,

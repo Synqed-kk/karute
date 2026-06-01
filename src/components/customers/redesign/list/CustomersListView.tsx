@@ -112,7 +112,15 @@ export function CustomersListView({
     if (staffFilter === 'all') return afterStatus
     const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
     if (!targetId) return afterStatus
-    return afterStatus.filter((r) => r.preferredStaffId === targetId)
+    // Match the DISPLAYED 担当: a customer's 指名 (preferredStaffId) if set,
+    // else the staff on their booking (bookingStaffId). Without the fallback
+    // the pills filtered on 指名 only — so QR-synced customers (no 指名, but a
+    // real booking staff) dropped out of every specific-staff filter even
+    // though their card shows that staff as 担当. The 指名あり *chip* still
+    // counts preferredStaffId only — booked ≠ nominated.
+    return afterStatus.filter(
+      (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
+    )
   }, [rows, statusFilter, selfStaffId, staffFilter])
 
   // Slice the filtered list into the current page's window. `page` is
@@ -181,7 +189,7 @@ export function CustomersListView({
               <CustomerRowDesktop
                 key={c.id}
                 c={c}
-                staffColor={getStaffColor(c.preferredStaffId)}
+                staffColor={getStaffColor(c.preferredStaffId ?? c.bookingStaffId)}
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
               />
@@ -197,7 +205,7 @@ export function CustomersListView({
               <CustomerCardMobile
                 key={c.id}
                 c={c}
-                staffColor={getStaffColor(c.preferredStaffId)}
+                staffColor={getStaffColor(c.preferredStaffId ?? c.bookingStaffId)}
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
               />

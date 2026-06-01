@@ -128,7 +128,7 @@ export function CustomerRowDesktop({
             />
           )}
           <span className="truncate">
-            {t('row.staff', { name: c.preferredStaffName ?? '—' })}
+            {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
           </span>
         </span>
         {c.phone && (

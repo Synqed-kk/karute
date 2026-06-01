@@ -25,6 +25,11 @@ export interface CustomerEnrichment {
    *  (the QR sync writes the QuickReserve course name there). Null when the
    *  customer has no past appointment or it carried no title. */
   lastVisitService: string | null
+  /** Profile id of the staff on the customer's most relevant booking (nearest
+   *  upcoming, else most recent past). Shown as 担当 when the customer has no
+   *  指名 (assigned_staff_id) — which QR-synced customers never do. Null when
+   *  the customer has no booking in the fetched list. */
+  bookingStaffId: string | null
 }
 
 export async function enrichCustomers(
@@ -49,13 +54,24 @@ export async function enrichCustomers(
   const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
 
   const idSet = new Set(customerIds)
-  const [karuteRes, apptRes] = await Promise.all([
+  const [karuteRes, apptRes, staffRes] = await Promise.all([
     synqed.karuteRecords.list({ page_size: 200 }),
     synqed.appointments.list({ page_size: 200 }),
+    synqed.staff.list({ page_size: 200 }),
   ])
 
+  // synqed staff id → profile id (= staff.user_id). Appointments are keyed by
+  // the synqed staff id, but the rest of the app keys staff off the profile id,
+  // so translate at the boundary (mirrors getAppointmentsByDate). Profile-less
+  // synqed staff fall back to their synqed id — same as getStaffList ids them.
+  const profileByStaffId = new Map(
+    staffRes.staff
+      .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+      .map((s) => [s.id, s.user_id]),
+  )
+
   type KaruteRow = { client_id: string; session_date: string | null; created_at: string }
-  type ApptRow = { client_id: string; start_time: string; title: string | null }
+  type ApptRow = { client_id: string; start_time: string; title: string | null; staff_id: string | null }
 
   const karuteByClient = new Map<string, KaruteRow[]>()
   for (const r of karuteRes.karute_records) {
@@ -69,7 +85,7 @@ export async function enrichCustomers(
   for (const a of apptRes.appointments) {
     if (!a.customer_id || !idSet.has(a.customer_id)) continue
     const arr = apptByClient.get(a.customer_id) ?? []
-    arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null })
+    arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null, staff_id: a.staff_id ?? null })
     apptByClient.set(a.customer_id, arr)
   }
 
@@ -99,12 +115,27 @@ export async function enrichCustomers(
     }
     // Fall back to the last past appointment when there's no karute yet.
     if (!lastVisitIso) lastVisitIso = lastApptIso
+    // 担当 = staff on the customer's most relevant booking: nearest upcoming,
+    // else most recent past. The QR sync never sets assigned_staff_id, so the
+    // booking is the only source of who's handling this customer. Translate the
+    // synqed staff id → profile id (the id the app's color/name maps key on).
+    let bookingStaffId: string | null = null
+    {
+      const sorted = [...appts].sort((x, y) =>
+        x.start_time < y.start_time ? -1 : 1,
+      )
+      const chosen =
+        sorted.find((a) => a.start_time >= nowIso) ?? sorted[sorted.length - 1]
+      if (chosen?.staff_id)
+        bookingStaffId = profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id
+    }
     map.set(id, {
       totalKarute: karute.length,
       lastVisitIso,
       visitsDone: karute.length,
       pastAppointmentCount,
       lastVisitService,
+      bookingStaffId,
     })
   }
 

@@ -135,7 +135,7 @@ export function CustomerCardMobile({
         {/* Line 4: staff + recommended next visit (recommend half is stubbed) */}
         <div className="text-[11px] text-muted-foreground tabular-nums">
           <span>
-            {t('row.staff', { name: c.preferredStaffName ?? '—' })}
+            {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
           </span>
           <span className="text-muted-foreground/40">
             {' · '}
