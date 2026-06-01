@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useMemo, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -7,7 +8,7 @@ import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { createCustomer, updateCustomer } from '@/actions/customers'
+import { createCustomer, updateCustomer, listAssignableStaff } from '@/actions/customers'
 import { formatJpPhone, formatJpPhoneProgressive } from '@/lib/format/phone'
 
 // ---------------------------------------------------------------------------
@@ -29,6 +30,8 @@ function createCustomerFormSchema(messages: { nameRequired: string; invalidEmail
     furigana: z.string().max(100).optional().or(z.literal('')),
     phone: z.string().max(20).optional().or(z.literal('')),
     email: z.string().email(messages.invalidEmail).optional().or(z.literal('')),
+    // 指名スタッフ — assigned/preferred stylist (profile id). '' = 指名なし.
+    assignedStaffId: z.string().optional().or(z.literal('')),
   })
 }
 
@@ -48,6 +51,13 @@ interface CustomerFormProps {
    * familyName / givenName.
    */
   defaultValues?: Partial<CustomerFormValues> & { name?: string }
+  /**
+   * The customer's currently-assigned stylist, if any. Seeded into the
+   * 指名スタッフ dropdown so it shows the right name immediately (before the
+   * async roster load) AND so a stylist who's since left the roster still
+   * appears as the current selection instead of silently blanking.
+   */
+  currentStaff?: { id: string; name: string } | null
   onSuccess?: () => void
   onCancel?: () => void
 }
@@ -59,10 +69,37 @@ interface CustomerFormProps {
 export function CustomerForm({
   customerId,
   defaultValues,
+  currentStaff,
   onSuccess,
   onCancel,
 }: CustomerFormProps) {
   const t = useTranslations('customers')
+
+  // 指名スタッフ options — fetched once on mount via the server action. The
+  // currently-assigned stylist (currentStaff) is merged in up front so the
+  // select renders the right selection before the roster resolves and never
+  // drops a since-departed stylist from view.
+  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>([])
+  useEffect(() => {
+    let active = true
+    listAssignableStaff()
+      .then((list) => {
+        if (active) setStaffOptions(list)
+      })
+      .catch(() => {
+        /* non-fatal: dropdown just shows currentStaff + 指名なし */
+      })
+    return () => {
+      active = false
+    }
+  }, [])
+  const staffChoices = useMemo(() => {
+    const list = [...staffOptions]
+    if (currentStaff && !list.some((s) => s.id === currentStaff.id)) {
+      list.unshift(currentStaff)
+    }
+    return list
+  }, [staffOptions, currentStaff])
 
   const schema = createCustomerFormSchema({
     nameRequired: t('form.nameRequired'),
@@ -107,6 +144,7 @@ export function CustomerForm({
       furigana: '',
       phone: '',
       email: '',
+      assignedStaffId: '',
       ...seededDefaults,
     },
   })
@@ -119,6 +157,9 @@ export function CustomerForm({
       furigana: values.furigana,
       phone: values.phone,
       email: values.email,
+      // camelCase form field → snake_case the server action / synqed-core
+      // expect. '' (指名なし) is forwarded as-is; the action maps it to null.
+      assigned_staff_id: values.assignedStaffId ?? '',
     }
 
     const result = customerId
@@ -257,23 +298,24 @@ export function CustomerForm({
         />
       </Field>
 
-      {/* 指名スタッフ — visible-but-disabled stub.
-       *
-       * ANTHONY: the `customers.assigned_staff_id` column already
-       * exists (you read it back via list-enrich), but
-       * createCustomer's zod schema in src/actions/customers.ts
-       * doesn't accept it on write. Add an optional UUID field there,
-       * then drop `disabled` here and wire a real `<Select>` populated
-       * from `getStaffList()`. Default option is "指名なし" (No
-       * preference) → maps to null. */}
-      <StubField label={t('form.preferredStaff')}>
+      {/* 指名スタッフ — assigned/preferred stylist. LIVE: reads the customer's
+       *  current assignment and lets staff reassign (a stylist leaving, or a
+       *  customer switching to someone else, is the core use case). '' = 指名
+       *  なし → null. The QR sync only seeds this on first import and never
+       *  overwrites it after, so a manual pick here sticks. */}
+      <Field label={t('form.preferredStaff')}>
         <select
-          disabled
-          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+          className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          {...register('assignedStaffId')}
         >
-          <option>{t('form.noPreference')}</option>
+          <option value="">{t('form.noPreference')}</option>
+          {staffChoices.map((s) => (
+            <option key={s.id} value={s.id}>
+              {s.name}
+            </option>
+          ))}
         </select>
-      </StubField>
+      </Field>
 
       {/* Actions */}
       <div className="flex justify-end gap-2 pt-2">

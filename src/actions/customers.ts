@@ -44,6 +44,12 @@ const CustomerFormSchema = z.object({
   furigana: z.string().max(100).optional().or(z.literal('')),
   phone: z.string().max(20).optional().or(z.literal('')),
   email: z.string().email('Invalid email address').optional().or(z.literal('')),
+  // 指名スタッフ — the customer's standing assigned/preferred stylist
+  // (a synqed profile id). '' = 指名なし → stored as null. Kept lenient
+  // (no .uuid()) so a profile-less staff's fallback id still validates; the
+  // DB FK is the real guard. Optional so the quick-create path + older
+  // callers that omit it still parse.
+  assigned_staff_id: z.string().max(100).optional().or(z.literal('')),
 })
 
 type CustomerFormInput = z.infer<typeof CustomerFormSchema>
@@ -69,7 +75,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     }
   }
 
-  const { name, furigana, phone, email } = parsed.data
+  const { name, furigana, phone, email, assigned_staff_id } = parsed.data
 
   try {
     const synqed = await getSynqedClient()
@@ -86,6 +92,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       furigana: furigana || null,
       phone: phone || null,
       email: email || null,
+      assigned_staff_id: assigned_staff_id || null,
     })
 
     revalidatePath('/customers')
@@ -130,6 +137,24 @@ export async function createQuickCustomer(
 }
 
 // ---------------------------------------------------------------------------
+// listAssignableStaff — staff options for the 指名スタッフ picker in
+// CustomerForm. Returns the tenant roster as {id, name}. Dynamic import keeps
+// the staff/auth module off the rest of this server-action bundle (mirrors the
+// pattern used by grantCustomerConsent below).
+// ---------------------------------------------------------------------------
+
+export async function listAssignableStaff(): Promise<{ id: string; name: string }[]> {
+  try {
+    const { getStaffList } = await import('@/lib/staff')
+    const staff = await getStaffList()
+    return staff.map((s) => ({ id: s.id, name: s.full_name ?? 'Unknown' }))
+  } catch (err) {
+    console.error('[listAssignableStaff] failed:', err)
+    return []
+  }
+}
+
+// ---------------------------------------------------------------------------
 // updateCustomer
 // ---------------------------------------------------------------------------
 
@@ -152,6 +177,12 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
         phone: phone || null,
         email: email || null,
         ...(('notes' in input && input.notes !== undefined) ? { notes: input.notes as string } : {}),
+        // 指名スタッフ: only touch it when the form actually sent the field, so
+        // partial updates (e.g. booking-memo saves) can't accidentally clear a
+        // customer's assigned stylist. '' → null (指名なし).
+        ...(('assigned_staff_id' in input)
+          ? { assigned_staff_id: (input.assigned_staff_id as string) || null }
+          : {}),
       })
     } else {
       // Partial update
