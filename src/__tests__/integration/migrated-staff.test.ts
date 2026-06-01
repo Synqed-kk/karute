@@ -42,6 +42,23 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ staff })),
 }))
 
+// Configurable Supabase service-client mock. updateStaff now branches on
+// whether the id is a profile-backed staff (→ Supabase profiles update) or a
+// synqed-only staff (→ synqed client). Tests set these to drive each branch.
+let profileLookupResult: { data: unknown; error: unknown } = { data: null, error: null }
+let profileUpdateResult: { error: unknown } = { error: null }
+const supabaseChain: Record<string, unknown> = {
+  select: jest.fn(() => supabaseChain),
+  update: jest.fn(() => supabaseChain),
+  eq: jest.fn(() => supabaseChain),
+  maybeSingle: jest.fn(async () => profileLookupResult),
+  // Thenable so `await ...update().eq().eq()` resolves to profileUpdateResult.
+  then: (resolve: (v: unknown) => void) => resolve(profileUpdateResult),
+}
+jest.mock('@/lib/supabase/service', () => ({
+  createServiceClient: jest.fn(() => ({ from: jest.fn(() => supabaseChain) })),
+}))
+
 import { createStaff, updateStaff, deleteStaff, uploadStaffAvatar } from '@/actions/staff'
 import {
   setStaffPin,
@@ -55,6 +72,8 @@ describe('Migrated staff actions', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     getCurrentUserStaffId.mockResolvedValue('staff-1')
+    profileLookupResult = { data: null, error: null }
+    profileUpdateResult = { error: null }
   })
 
   it('createStaff passes name + email + user_id through', async () => {
@@ -73,15 +92,31 @@ describe('Migrated staff actions', () => {
     })
   })
 
-  it('updateStaff passes name + email', async () => {
-    staff.update.mockResolvedValue({ id: 'staff-1' })
+  it('updateStaff on a profile-backed staff updates the profile row, not synqed', async () => {
+    // The roster shows profile-backed staff (owner + signed-up teammates)
+    // keyed by profiles.id. Editing must hit Supabase profiles — passing the
+    // profiles.id to synqed.staff.update is what caused the 500.
+    profileLookupResult = { data: { id: 'profile-1' }, error: null }
 
-    await updateStaff('staff-1', { name: 'Ada Lovelace', email: 'ada@ex.com', position: '', phone: '' })
+    await updateStaff('profile-1', { name: 'Liam', email: 'liam@karute.test', position: '', phone: '' })
 
-    expect(staff.update).toHaveBeenCalledWith('staff-1', {
+    expect(supabaseChain.update).toHaveBeenCalledWith({ full_name: 'Liam', position: null })
+    expect(staff.update).not.toHaveBeenCalled()
+  })
+
+  it('updateStaff on a synqed-only staff (no profile) routes to the synqed client', async () => {
+    // Owner-created teammates who haven't signed up have no profile row yet;
+    // their id is a synqed staff id, so the synqed client is correct.
+    profileLookupResult = { data: null, error: null }
+    staff.update.mockResolvedValue({ id: 'synqed-staff-9' })
+
+    await updateStaff('synqed-staff-9', { name: 'Ada Lovelace', email: 'ada@ex.com', position: '', phone: '' })
+
+    expect(staff.update).toHaveBeenCalledWith('synqed-staff-9', {
       name: 'Ada Lovelace',
       email: 'ada@ex.com',
     })
+    expect(supabaseChain.update).not.toHaveBeenCalled()
   })
 
   it('deleteStaff surfaces server 400 messages as user errors', async () => {

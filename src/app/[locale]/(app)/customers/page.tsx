@@ -76,7 +76,7 @@ export default async function CustomersPage({
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
     const lastVisitIso = enriched?.lastVisitIso ?? null
-    const status = deriveStatus(c.created_at, lastVisitIso)
+    const status = deriveStatus(c.created_at, lastVisitIso, c.is_existing_customer)
     const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
     const totalKarute = enriched?.totalKarute ?? 0
     return {
@@ -93,11 +93,16 @@ export default async function CustomersPage({
       visitsTotal: 5,
       lastVisitDate: last.date,
       lastVisitAgo: last.ago,
+      lastVisitService: enriched?.lastVisitService ?? null,
       aiPredict: defaultAiPredict(status),
       status,
       preferredStaffId: c.assigned_staff_id ?? null,
       preferredStaffName: c.assigned_staff_id
         ? (staffNameById.get(c.assigned_staff_id) ?? null)
+        : null,
+      bookingStaffId: enriched?.bookingStaffId ?? null,
+      bookingStaffName: enriched?.bookingStaffId
+        ? (staffNameById.get(enriched.bookingStaffId) ?? null)
         : null,
       totalKarute,
       phone: c.phone,

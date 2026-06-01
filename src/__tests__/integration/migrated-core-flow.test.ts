@@ -12,6 +12,12 @@ import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
 // --- Next.js context mocks (must be top-level so jest.mock is hoisted) ---
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
+// next-intl/server ships ESM that jest can't parse when customers.ts imports
+// getTranslations for real. The translator just echoes keys here.
+jest.mock('next-intl/server', () => ({
+  getTranslations: async () => (key: string) => key,
+  getLocale: async () => 'en',
+}))
 
 // --- staff lib mock — derives active staff from the signed-in user via
 //     getCurrentUserStaffId (cookie-free). Tests pin it to TEST_STAFF_PROFILE_ID.
@@ -112,7 +118,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
       confidence: 0.8,
       is_manual: false,
     })
-    expect(redirect).toHaveBeenCalledWith('/karute/karute-1')
+    expect(redirect).toHaveBeenCalledWith('/en/karute/karute-1')
   })
 
   it('addManualEntry calls addEntry with is_manual=true and confidence=null', async () => {

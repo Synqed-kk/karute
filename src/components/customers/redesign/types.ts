@@ -18,10 +18,19 @@ export interface CustomerListRow {
   visitsTotal: number
   lastVisitDate: string // pretty
   lastVisitAgo: string // "28 days ago"
+  /** Treatment/course from the last past visit (QR course name, from
+   *  appointment.title). Optional — only the list page adapter populates it;
+   *  other CustomerListRow producers omit it and the card falls back to nothing. */
+  lastVisitService?: string | null
   aiPredict: { label: string; when: string }
   status: CustomerStatusKey
   preferredStaffId: string | null
   preferredStaffName: string | null
+  /** Staff on the customer's booking (from the QR scrape), used as a fallback
+   *  担当 when there's no 指名 (preferredStaff). Display-only — the 指名あり
+   *  filter still counts preferredStaffId, never this. */
+  bookingStaffId?: string | null
+  bookingStaffName?: string | null
   totalKarute: number
   phone: string | null
   email: string | null
@@ -36,9 +45,14 @@ export interface CustomerProfileData {
   gender: string | null
   joinDate: string
   totalKarute: number
+  /** Lifetime visit count from external sync (QuickReserve); 0 for in-app-only
+   *  customers. Identity card shows max(visitCount, totalKarute). */
+  visitCount?: number
   phone: string | null
   email: string | null
   preferredStaffName: string | null
+  /** 担当 fallback from the customer's booking when there's no 指名. */
+  bookingStaffName?: string | null
   nextVisitPredicted: string
   status: CustomerStatusKey
   memoryCount: number
@@ -53,6 +67,10 @@ export interface CustomerProfileData {
    *  records carry a `service` column; identity card falls back to
    *  "—" when omitted. */
   usualService?: string | null
+  /** Raw QuickReserve reservation/intake memo (synqed customer.notes) — the
+   *  staff-typed "▶症状:… ▶ゴール:…" booking note. Surfaced read-only by
+   *  BookingMemoCard until AI extraction distributes it into the memory boxes. */
+  bookingMemo?: string | null
 }
 
 // Display strings live in `messages/{en,ja}.json` under

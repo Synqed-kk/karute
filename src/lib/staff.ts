@@ -41,7 +41,7 @@ const staffListByBusiness = unstable_cache(
       return []
     }
 
-    return (data ?? []).map(
+    const profileStaff = (data ?? []).map(
       ({
         pin_hash,
         customer_id: _customer_id,
@@ -51,6 +51,18 @@ const staffListByBusiness = unstable_cache(
         has_pin: !!pin_hash,
       }),
     ) as StaffMember[]
+
+    // Owner-created teammates land in synqed-core with user_id=null and have
+    // NO Supabase profile row until they sign up (a profile is auto-created on
+    // signup via the on_auth_user_created trigger; the link is then resolved
+    // in src/lib/synqed/staff-map.ts). Reading profiles alone made those
+    // freshly-added staff invisible in the roster — the "add staff → it
+    // vanishes" bug. Append any synqed-core staff not already represented by a
+    // profile row, matched on the same user_id / email link the staff-map
+    // resolver uses. synqed-core stays the authoritative write target; profiles
+    // remain the canonical id + enrichment source for signed-up staff.
+    const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff)
+    return [...profileStaff, ...synqedOnly]
   },
   // Staff onboarding is a once-in-a-while admin event, not a per-session
   // thing — every karute mutation that changes a staff row (create/update/
@@ -59,9 +71,69 @@ const staffListByBusiness = unstable_cache(
   // actually changes. The TTL is just a backstop in case a non-karute
   // mutation slips in elsewhere (e.g. directly in Supabase). A day is
   // generous and matches the rate of real staff churn.
-  ['staff-list-v1'],
+  // v2: union now includes profile-less synqed-core staff (see above).
+  ['staff-list-v2'],
   { revalidate: 86400, tags: ['staff-list'] },
 )
+
+/**
+ * Returns synqed-core staff that have NO matching Supabase profile row yet —
+ * i.e. owner-created teammates who haven't signed up. Matched out by the same
+ * two-tier link the staff-map resolver uses: synqed `user_id` → profile id
+ * (canonical), then email (case-insensitive) fallback.
+ *
+ * Degrades to [] when synqed-core env is absent or the fetch fails, so the
+ * roster falls back to profiles-only rather than erroring. Mapped to the same
+ * StaffMember shape as the profile rows; `id` is the synqed staff id (these
+ * staff have no profile id until signup) and `has_pin` is false (PIN lives in
+ * the Supabase profile, which doesn't exist for them yet).
+ */
+async function synqedStaffWithoutProfile(
+  businessId: string,
+  profileStaff: StaffMember[],
+): Promise<StaffMember[]> {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) return []
+
+  const profileIds = new Set(profileStaff.map((s) => s.id))
+  const profileEmails = new Set(
+    profileStaff
+      .map((s) => s.email?.toLowerCase())
+      .filter((e): e is string => !!e),
+  )
+
+  try {
+    // Lazy import so this module's graph doesn't eagerly pull in the
+    // synqed-core ESM client — keeps it out of any caller (and test) that
+    // never reaches the enrichment path (e.g. when synqed env is unset).
+    const { SynqedClient } = await import('@synqed-kk/client')
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    const { staff } = await client.staff.list({ page_size: 200 })
+    return staff
+      .filter((s) => s.is_active)
+      .filter((s) => {
+        const linkedUserId = (s as { user_id?: string | null }).user_id ?? null
+        if (linkedUserId && profileIds.has(linkedUserId)) return false
+        if (s.email && profileEmails.has(s.email.toLowerCase())) return false
+        return true
+      })
+      .map((s) => ({
+        id: s.id,
+        full_name: s.name,
+        display_role: s.role ? s.role.toLowerCase() : null,
+        position: null,
+        email: s.email,
+        phone: null,
+        avatar_url: s.avatar_url,
+        has_pin: false,
+        created_at: s.created_at,
+      })) as StaffMember[]
+  } catch (err) {
+    console.error('[getStaffList] synqed-core roster fetch failed:', err)
+    return []
+  }
+}
 
 /**
  * Returns all staff profiles ordered alphabetically by full_name.

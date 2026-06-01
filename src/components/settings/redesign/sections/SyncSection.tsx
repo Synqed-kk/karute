@@ -49,7 +49,9 @@ export function SyncSection() {
       setLastResult(
         data.error
           ? `Error: ${data.error}`
-          : `Synced: ${data.created} created, ${data.updated} updated, ${data.skipped} skipped`,
+          : data.message
+            ? data.message
+            : `Synced: ${data.created} created, ${data.updated} updated, ${data.skipped} skipped`,
       )
     } catch (err) {
       setLastResult(

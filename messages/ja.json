@@ -778,7 +778,7 @@
       },
       "minutesSuffix": "分",
       "empty": "カルテはまだありません",
-      "newCustomersHeader": "新規のお客様 · まだセッションなし",
+      "newCustomersHeader": "カルテ未作成のお客様 · まだセッションなし",
       "noSessionYet": "まだセッションなし",
       "newKaruteDialog": {
         "title": "新規カルテの作成",
@@ -839,7 +839,8 @@
       "speakerStaff": "スタッフ",
       "speakerCustomer": "お客様",
       "speakerUnknown": "不明（背景）"
-    }
+    },
+    "selectStaff": "スタッフを選択してください"
   },
   "review": {
     "saveKarute": "カルテを保存",
@@ -856,11 +857,15 @@
     "transcribing": "文字起こし中...",
     "extracting": "エントリー抽出中...",
     "summarizing": "サマリー生成中...",
+    "reviewReady": "確認する",
+    "discard": "破棄",
     "aiSummaryPlaceholder": "AIが生成したセッションサマリー...",
     "entryTitlePlaceholder": "エントリータイトル...",
     "sourceQuotePlaceholder": "トランスクリプトからの引用...",
     "entriesConfirmed": "{count, plural, other {#件のエントリー}}確認済み",
-    "selectCustomerAndSave": "顧客を選択して保存"
+    "selectCustomerAndSave": "顧客を選択して保存",
+    "staff": "スタッフ",
+    "selectStaff": "スタッフを選択してください"
   },
   "coaching": {
     "common": {
@@ -1249,10 +1254,14 @@
       "dismiss": "閉じる"
     },
     "aiHero": {
+      "title": "AIが提案する次のアクション",
       "waitingCount": "{n} 件待ち",
       "emptyTitle": "AIからの提案はまだありません",
       "emptyBody": "セッションを数回録音すると、フォローアップやメッセージ案、レビュー待ちのカルテが表示されます。"
     },
+    "minutesShort": "{n}分",
+    "newBadge": "新規",
+    "entriesCount": "{n}件",
     "stats": {
       "weeklyRecordings": "今週の録音",
       "todaysCustomers": "本日のお客様",
@@ -1329,7 +1338,58 @@
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
-    "stores": "店舗",
+    "stores": {
+      "title": "店舗一覧",
+      "unnamedStore": "未設定の店舗",
+      "ownerView": "オーナー権限",
+      "ownerDesc": "すべての店舗のデータ（予約・カルテ・AI分析）を閲覧・管理できます。",
+      "storesCount": "{n}店舗を運営中",
+      "addStore": "追加",
+      "primaryBadge": "本店",
+      "activeBadge": "営業中",
+      "staffUnit": "スタッフ{n}名",
+      "customersUnit": "顧客{n}名",
+      "viewing": "閲覧中",
+      "switchTo": "切り替え",
+      "edit": "編集",
+      "emptyState": "店舗が登録されていません。「追加」から登録してください。",
+      "activeStoreScopeNote": "「切り替え」は現在UI表示のみのプレビューです。各タブのデータが選択店舗に絞り込まれる挙動は、店舗テーブルの実装後に有効化されます。",
+      "addStoreSubscription": {
+        "freeAtLimitTitle": "店舗追加にはアップグレードが必要です",
+        "freeAtLimitBody": "Freeプランは1店舗までです。スタンダードまたはプロフェッショナルにアップグレードすると、店舗を追加できます。",
+        "seePlansCta": "プランを見る",
+        "enterpriseTitle": "Enterpriseプランのお客様",
+        "enterpriseBody": "店舗の追加は営業担当までご相談ください。契約内容に応じた追加処理を行います。",
+        "blockedStatusTitle": "お支払い状況をご確認ください",
+        "blockedStatusBody": "現在のサブスクリプション状態では店舗を追加できません。先にお支払いを更新してください。",
+        "fixBillingCta": "お支払いを更新",
+        "trialingTitle": "店舗を追加（トライアル中）",
+        "trialingBody": "トライアル中は無料で店舗を追加できます。トライアル終了日（{trialEnd}）に課金が開始されます。",
+        "addSeatCta": "追加する",
+        "paidTitle": "店舗を追加",
+        "paidBody": "{tier}プランでは1店舗あたり{perStore}/月が課金されます。確認のうえ追加してください。",
+        "rowCurrent": "現在の{n}店舗",
+        "rowAfter": "追加後の{n}店舗",
+        "prorationNote": "請求は日割り計算され、次回請求に反映されます。",
+        "confirmAddCta": "追加して続行",
+        "cancel": "キャンセル"
+      },
+      "form": {
+        "addTitle": "新規店舗を追加",
+        "addDescription": "新しい店舗を登録します。スタッフや予約はあとから設定できます。",
+        "editTitle": "店舗情報を編集",
+        "editDescription": "店舗名・住所・電話番号を変更します。スタッフ・予約データには影響しません。",
+        "storeName": "店舗名",
+        "storeNamePlaceholder": "例：La Estro 渋谷店",
+        "address": "住所",
+        "addressPlaceholder": "東京都渋谷区...",
+        "phone": "電話番号",
+        "cancel": "キャンセル",
+        "save": "店舗を追加",
+        "saveEdit": "変更を保存",
+        "saved": "保存しました"
+      }
+    },
     "coaching": {
       "title": "コーチング設定",
       "intro": "セッションの会話を分析し、スタッフの成長に役立つフィードバックを提供する機能（フェーズ3予定）。設定はあらかじめスキャフォルドされており、機能が有効化された際に即座に利用できます。",
@@ -1477,58 +1537,6 @@
     "planStandard": "スタンダード",
     "planProfessional": "プロフェッショナル",
     "planCurrent": "現在のプラン",
-    "stores": {
-      "title": "店舗一覧",
-      "unnamedStore": "未設定の店舗",
-      "ownerView": "オーナー権限",
-      "ownerDesc": "すべての店舗のデータ（予約・カルテ・AI分析）を閲覧・管理できます。",
-      "storesCount": "{n}店舗を運営中",
-      "addStore": "追加",
-      "primaryBadge": "本店",
-      "activeBadge": "営業中",
-      "staffUnit": "スタッフ{n}名",
-      "customersUnit": "顧客{n}名",
-      "viewing": "閲覧中",
-      "switchTo": "切り替え",
-      "edit": "編集",
-      "emptyState": "店舗が登録されていません。「追加」から登録してください。",
-      "activeStoreScopeNote": "「切り替え」は現在UI表示のみのプレビューです。各タブのデータが選択店舗に絞り込まれる挙動は、店舗テーブルの実装後に有効化されます。",
-      "addStoreSubscription": {
-        "freeAtLimitTitle": "店舗追加にはアップグレードが必要です",
-        "freeAtLimitBody": "Freeプランは1店舗までです。スタンダードまたはプロフェッショナルにアップグレードすると、店舗を追加できます。",
-        "seePlansCta": "プランを見る",
-        "enterpriseTitle": "Enterpriseプランのお客様",
-        "enterpriseBody": "店舗の追加は営業担当までご相談ください。契約内容に応じた追加処理を行います。",
-        "blockedStatusTitle": "お支払い状況をご確認ください",
-        "blockedStatusBody": "現在のサブスクリプション状態では店舗を追加できません。先にお支払いを更新してください。",
-        "fixBillingCta": "お支払いを更新",
-        "trialingTitle": "店舗を追加（トライアル中）",
-        "trialingBody": "トライアル中は無料で店舗を追加できます。トライアル終了日（{trialEnd}）に課金が開始されます。",
-        "addSeatCta": "追加する",
-        "paidTitle": "店舗を追加",
-        "paidBody": "{tier}プランでは1店舗あたり{perStore}/月が課金されます。確認のうえ追加してください。",
-        "rowCurrent": "現在の{n}店舗",
-        "rowAfter": "追加後の{n}店舗",
-        "prorationNote": "請求は日割り計算され、次回請求に反映されます。",
-        "confirmAddCta": "追加して続行",
-        "cancel": "キャンセル"
-      },
-      "form": {
-        "addTitle": "新規店舗を追加",
-        "addDescription": "新しい店舗を登録します。スタッフや予約はあとから設定できます。",
-        "editTitle": "店舗情報を編集",
-        "editDescription": "店舗名・住所・電話番号を変更します。スタッフ・予約データには影響しません。",
-        "storeName": "店舗名",
-        "storeNamePlaceholder": "例：La Estro 渋谷店",
-        "address": "住所",
-        "addressPlaceholder": "東京都渋谷区...",
-        "phone": "電話番号",
-        "cancel": "キャンセル",
-        "save": "店舗を追加",
-        "saveEdit": "変更を保存",
-        "saved": "保存しました"
-      }
-    },
     "subscription": {
       "label": "契約",
       "billingComingSoon": "請求機能の提供開始後、お支払い方法と請求履歴をご利用いただけます。アップグレードは {email} までお問い合わせください。",
@@ -1697,7 +1705,9 @@
     "emailChangeNotice": "変更するとメール確認が必要になります。",
     "voiceEnrollCta": "声を登録（任意）",
     "voiceRevoke": "声紋を削除",
-    "coachingDescription": "マスター設定・重み・同意"
+    "coachingDescription": "マスター設定・重み・同意",
+    "addStore": "店舗を追加",
+    "singleStoreNote": "マルチ店舗は近日公開。現在はシングル店舗プランです。"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -2156,5 +2166,12 @@
     "proceed": "次へ",
     "back": "戻る",
     "done": "完了"
+  },
+  "switcher": {
+    "switchStaff": "スタッフを切り替え",
+    "enterPinFor": "{name}のPINを入力",
+    "incorrectPin": "PINが正しくありません",
+    "switchOut": "切り替えを解除",
+    "selectStaff": "スタッフを選択"
   }
 }

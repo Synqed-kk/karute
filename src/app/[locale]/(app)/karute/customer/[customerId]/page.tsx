@@ -134,6 +134,7 @@ export default async function KaruteCustomerDetailPage({
     totalKarute: karuteRecords.length,
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
+    bookingMemo: customer.notes ?? null,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)
       : null,

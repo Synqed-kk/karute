@@ -82,6 +82,23 @@ async function main() {
   const staffId = ownerStaff.id
   console.log(`Synqed staff: ${staffId}`)
 
+  // 1b. Reset existing data so re-runs are deterministic (the E2E global-setup
+  // runs this every suite). Without this, appointments 409 on slot-overlap and
+  // customers accumulate duplicates — both break repeatable assertions. Delete
+  // appointments first (customers can't be removed while referenced).
+  console.log('Resetting existing appointments + customers…')
+  const existingAppts = await synqed.appointments.list({ page_size: 200 })
+  for (const a of existingAppts.appointments) {
+    await synqed.appointments.delete(a.id)
+  }
+  const existingCusts = await synqed.customers.list({ page_size: 200 })
+  for (const c of existingCusts.customers) {
+    await synqed.customers.delete(c.id).catch((e) => {
+      // A customer referenced by a karute record can't be deleted; leave it.
+      console.warn(`  skip delete customer ${c.id}: ${(e as Error).message}`)
+    })
+  }
+
   // 2. Create customers
   console.log(`Creating ${CUSTOMERS.length} customers…`)
   const created: { id: string; name: string }[] = []

@@ -1,6 +1,7 @@
 'use client'
 
 import { ArrowRight, Clock, MessageCircle } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 
 // Full 5-state union preserved from the spike. dashboard/page.tsx
@@ -51,6 +52,7 @@ export function TodaysAppointmentsCard({
 }: {
   appointments: DashboardAppointment[]
 }) {
+  const t = useTranslations('dashboard')
   const completed = appointments.filter((a) => a.statusKey === 'completed').length
 
   return (
@@ -59,7 +61,7 @@ export function TodaysAppointmentsCard({
         <div className="flex items-center gap-2">
           <Clock size={14} className="text-muted-foreground" />
           <h3 className="text-sm font-semibold text-foreground">
-            Today&apos;s appointments
+            {t('todaysAppointments')}
           </h3>
           <span className="text-xs tabular-nums text-muted-foreground">
             {completed} / {appointments.length}
@@ -69,14 +71,14 @@ export function TodaysAppointmentsCard({
           href={'/appointments' as Parameters<typeof Link>[0]['href']}
           className="inline-flex items-center gap-1 text-xs font-medium text-sky-400 hover:text-sky-300"
         >
-          <span>Show all</span>
+          <span>{t('viewAll')}</span>
           <ArrowRight size={12} />
         </Link>
       </div>
 
       {appointments.length === 0 ? (
         <p className="px-3 py-8 text-center text-xs text-muted-foreground">
-          No appointments today.
+          {t('noAppointmentsToday')}
         </p>
       ) : (
         <div className="flex flex-col">
@@ -90,6 +92,7 @@ export function TodaysAppointmentsCard({
 }
 
 function AppointmentRow({ a }: { a: DashboardAppointment }) {
+  const t = useTranslations('dashboard')
   const done = a.statusKey === 'completed'
   const status = STATUS_STYLES[a.statusKey]
   return (
@@ -103,7 +106,7 @@ function AppointmentRow({ a }: { a: DashboardAppointment }) {
           {a.time}
         </div>
         <div className="text-[11px] tabular-nums text-muted-foreground">
-          {a.duration}m
+          {t('minutesShort', { n: a.duration })}
         </div>
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1">
@@ -118,7 +121,7 @@ function AppointmentRow({ a }: { a: DashboardAppointment }) {
           )}
           {a.isNew && (
             <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-300">
-              New
+              {t('newBadge')}
             </span>
           )}
           <span

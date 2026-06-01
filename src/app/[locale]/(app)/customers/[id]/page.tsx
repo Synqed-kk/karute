@@ -5,11 +5,13 @@ import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listCustomerPhotos } from '@/actions/customers'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
   deriveStatus,
+  enrichCustomers,
   formatJoinDate,
 } from '@/lib/customers/list-enrich'
 import {
@@ -54,7 +56,7 @@ export default async function CustomerProfilePage({
   // real `customers.karute_number` column.
   const synqed = await getSynqedClient()
 
-  const [contact, staffList, karuteRes, photosResult, allCustomersList] =
+  const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
     await Promise.all([
       getCustomerContact(id),
       getStaffList(),
@@ -81,6 +83,14 @@ export default async function CustomerProfilePage({
         sort_by: 'created_at',
         sort_order: 'asc',
       }),
+      // synqed-core is the authoritative karute store; the Supabase query above
+      // is effectively empty. Union both so this customer's synqed-written
+      // sessions appear in their history.
+      listSynqedKaruteRows(synqed, { customerId: id }),
+      // 担当 fallback: the booking's staff when this customer has no 指名
+      // (assigned_staff_id) — QR-synced customers never do. Same source as the
+      // list page so the profile's 担当 matches the card.
+      enrichCustomers(businessId, [id]),
     ])
 
   type KaruteRow = {
@@ -91,14 +101,17 @@ export default async function CustomerProfilePage({
     staff_profile_id: string | null
     entries: Array<{ count: number }> | null
   }
-  const karuteRecords = (karuteRes.data ?? []) as KaruteRow[]
+  const karuteRecords = mergeKaruteRows<KaruteRow>(
+    (karuteRes.data ?? []) as KaruteRow[],
+    synqedKaruteRows,
+  )
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
 
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
-  const status = deriveStatus(customer.created_at, lastVisitIso)
+  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer)
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
@@ -135,6 +148,7 @@ export default async function CustomerProfilePage({
   })
 
   const preferredStaffId: string | null = customer.assigned_staff_id ?? null
+  const bookingStaffId: string | null = enrichment.get(id)?.bookingStaffId ?? null
 
   const profile: CustomerProfileData = {
     id: customer.id,
@@ -148,10 +162,18 @@ export default async function CustomerProfilePage({
     gender: null,
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
+    // Lifetime visit count from external sync (QuickReserve visits_number_cache);
+    // 0 for in-app-only customers. The identity card shows the larger of this
+    // and the karute count so returning customers don't read as "0 visits".
+    visitCount: customer.visit_count,
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
+    bookingMemo: customer.notes ?? null,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)
+      : null,
+    bookingStaffName: bookingStaffId
+      ? (staffNameById.get(bookingStaffId) ?? null)
       : null,
     nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,

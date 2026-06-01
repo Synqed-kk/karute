@@ -185,8 +185,10 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
       }
     }
 
-    // Delete all appointments for this customer (server lacks cascade)
-    const apptList = await synqed.appointments.list({ customer_id: id, page_size: 500 })
+    // Delete all appointments for this customer (server lacks cascade).
+    // page_size is capped at 200 server-side; a single customer never has
+    // anywhere near that many appointments, so one page covers it.
+    const apptList = await synqed.appointments.list({ customer_id: id, page_size: 200 })
     for (const appt of apptList.appointments) {
       await synqed.appointments.delete(appt.id)
     }

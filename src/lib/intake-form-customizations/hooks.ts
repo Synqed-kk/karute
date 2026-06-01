@@ -136,7 +136,14 @@ export function useIntakeFormCustomizations(businessType: string): {
     ) => {
       const current = read(businessType)
       const newField: IntakeCustomField = {
-        id: `field_${Date.now()}`,
+        // Use a UUID, not `Date.now()` — ms-resolution collides for two adds
+        // within the same millisecond, which caused removeCustomField(id) to
+        // delete BOTH fields. crypto.randomUUID is in modern browsers; the
+        // ts+random fallback covers jsdom (which lacks randomUUID).
+        id: `field_${
+          globalThis.crypto?.randomUUID?.() ??
+          `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+        }`,
         labelJa: input.labelJa.trim(),
         labelEn: input.labelEn.trim(),
         addedAt: new Date().toISOString(),

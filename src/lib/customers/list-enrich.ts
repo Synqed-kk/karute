@@ -7,7 +7,7 @@
 //   - visitsDone / visitsTotal — needs a "course" concept the data model doesn't have
 //   - status enum — we derive a best-guess from cadence (see derive)
 
-import { createServiceClient } from '@/lib/supabase/service'
+import { SynqedClient } from '@synqed-kk/client'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
 export interface CustomerEnrichment {
@@ -20,6 +20,16 @@ export interface CustomerEnrichment {
    *  even if karute records are also 0. Previously the agenda used
    *  `totalKarute === 0` and rendered every untouched customer as 新規. */
   pastAppointmentCount: number
+  /** Title (treatment/course) of the customer's most recent PAST appointment
+   *  — i.e. what they last came in for. Sourced from `appointment.title`
+   *  (the QR sync writes the QuickReserve course name there). Null when the
+   *  customer has no past appointment or it carried no title. */
+  lastVisitService: string | null
+  /** Profile id of the staff on the customer's most relevant booking (nearest
+   *  upcoming, else most recent past). Shown as 担当 when the customer has no
+   *  指名 (assigned_staff_id) — which QR-synced customers never do. Null when
+   *  the customer has no booking in the fetched list. */
+  bookingStaffId: string | null
 }
 
 export async function enrichCustomers(
@@ -29,39 +39,54 @@ export async function enrichCustomers(
   const map = new Map<string, CustomerEnrichment>()
   if (customerIds.length === 0) return map
 
-  const service = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = service as any
+  // Both karute and appointments come from synqed-core (the source of truth),
+  // bucketed by the person (synqed `customer_id`). The legacy Supabase
+  // karute_records table is empty post-migration, which is why the list
+  // previously showed 0 karute for everyone.
+  //
+  // NOTE: synqed caps list page_size at 200. For a single tenant's recent
+  // activity that's enough to surface last-visit + the new-customer signal;
+  // a very large tenant would need a multi-customer filter or pagination on
+  // the synqed list endpoints.
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) return map
+  const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
 
-  // Tenant scope: karute_records.customer_id = businessId. Use client_id to bucket by salon-client.
-  // Two queries fan out in parallel; both filtered by tenant + the customer set.
-  const [karuteRes, apptRes] = await Promise.all([
-    sb
-      .from('karute_records')
-      .select('client_id, session_date, created_at')
-      .eq('customer_id', businessId)
-      .in('client_id', customerIds),
-    sb
-      .from('appointments')
-      .select('client_id, start_time')
-      .in('client_id', customerIds),
+  const idSet = new Set(customerIds)
+  const [karuteRes, apptRes, staffRes] = await Promise.all([
+    synqed.karuteRecords.list({ page_size: 200 }),
+    synqed.appointments.list({ page_size: 200 }),
+    synqed.staff.list({ page_size: 200 }),
   ])
 
+  // synqed staff id → profile id (= staff.user_id). Appointments are keyed by
+  // the synqed staff id, but the rest of the app keys staff off the profile id,
+  // so translate at the boundary (mirrors getAppointmentsByDate). Profile-less
+  // synqed staff fall back to their synqed id — same as getStaffList ids them.
+  const profileByStaffId = new Map(
+    staffRes.staff
+      .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+      .map((s) => [s.id, s.user_id]),
+  )
+
   type KaruteRow = { client_id: string; session_date: string | null; created_at: string }
-  type ApptRow = { client_id: string; start_time: string }
+  type ApptRow = { client_id: string; start_time: string; title: string | null; staff_id: string | null }
 
   const karuteByClient = new Map<string, KaruteRow[]>()
-  for (const r of (karuteRes.data ?? []) as KaruteRow[]) {
-    const arr = karuteByClient.get(r.client_id) ?? []
-    arr.push(r)
-    karuteByClient.set(r.client_id, arr)
+  for (const r of karuteRes.karute_records) {
+    if (!r.customer_id || !idSet.has(r.customer_id)) continue
+    const arr = karuteByClient.get(r.customer_id) ?? []
+    arr.push({ client_id: r.customer_id, session_date: r.created_at, created_at: r.created_at })
+    karuteByClient.set(r.customer_id, arr)
   }
 
   const apptByClient = new Map<string, ApptRow[]>()
-  for (const a of (apptRes.data ?? []) as ApptRow[]) {
-    const arr = apptByClient.get(a.client_id) ?? []
-    arr.push(a)
-    apptByClient.set(a.client_id, arr)
+  for (const a of apptRes.appointments) {
+    if (!a.customer_id || !idSet.has(a.customer_id)) continue
+    const arr = apptByClient.get(a.customer_id) ?? []
+    arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null, staff_id: a.staff_id ?? null })
+    apptByClient.set(a.customer_id, arr)
   }
 
   const nowIso = new Date().toISOString()
@@ -73,22 +98,44 @@ export async function enrichCustomers(
       const dt = k.session_date ?? k.created_at
       if (!lastVisitIso || dt > lastVisitIso) lastVisitIso = dt
     }
-    // Fall back to appointment last-time if no karute yet.
-    if (!lastVisitIso) {
-      for (const a of appts) {
-        if (!lastVisitIso || a.start_time > lastVisitIso) lastVisitIso = a.start_time
-      }
-    }
-    // Count appointments that started before now ("they've been here before").
+    // Walk PAST appointments (started before now): count them ("they've been
+    // here before") and track the most recent one — its title is the last
+    // treatment they had. Future bookings are excluded so the QR sync's
+    // lookahead window can't mislabel an upcoming booking as 前回.
+    let lastApptIso: string | null = null
+    let lastVisitService: string | null = null
     let pastAppointmentCount = 0
     for (const a of appts) {
-      if (a.start_time < nowIso) pastAppointmentCount += 1
+      if (a.start_time >= nowIso) continue
+      pastAppointmentCount += 1
+      if (!lastApptIso || a.start_time > lastApptIso) {
+        lastApptIso = a.start_time
+        lastVisitService = a.title
+      }
+    }
+    // Fall back to the last past appointment when there's no karute yet.
+    if (!lastVisitIso) lastVisitIso = lastApptIso
+    // 担当 = staff on the customer's most relevant booking: nearest upcoming,
+    // else most recent past. The QR sync never sets assigned_staff_id, so the
+    // booking is the only source of who's handling this customer. Translate the
+    // synqed staff id → profile id (the id the app's color/name maps key on).
+    let bookingStaffId: string | null = null
+    {
+      const sorted = [...appts].sort((x, y) =>
+        x.start_time < y.start_time ? -1 : 1,
+      )
+      const chosen =
+        sorted.find((a) => a.start_time >= nowIso) ?? sorted[sorted.length - 1]
+      if (chosen?.staff_id)
+        bookingStaffId = profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id
     }
     map.set(id, {
       totalKarute: karute.length,
       lastVisitIso,
       visitsDone: karute.length,
       pastAppointmentCount,
+      lastVisitService,
+      bookingStaffId,
     })
   }
 
@@ -98,13 +145,22 @@ export async function enrichCustomers(
 export function deriveStatus(
   joinDateIso: string | null,
   lastVisitIso: string | null,
+  // A customer flagged returning by an external source (QuickReserve's
+  // is_existing_customer) is never 新規 — they've been here before even if we
+  // have no karute/appointment row to date it. Defaults false (backward-compat).
+  isExistingCustomer = false,
 ): CustomerStatusKey {
   const now = Date.now()
-  if (joinDateIso) {
-    const ageMs = now - new Date(joinDateIso).getTime()
-    if (ageMs < 30 * 24 * 60 * 60 * 1000) return 'new'
+  if (!isExistingCustomer) {
+    if (joinDateIso) {
+      const ageMs = now - new Date(joinDateIso).getTime()
+      if (ageMs < 30 * 24 * 60 * 60 * 1000) return 'new'
+    }
+    if (!lastVisitIso) return 'new'
   }
-  if (!lastVisitIso) return 'new'
+  // Returning customer with no dated visit yet → treat as on-track rather than
+  // new or dormant.
+  if (!lastVisitIso) return 'on-track'
   const daysSince = Math.floor((now - new Date(lastVisitIso).getTime()) / 86_400_000)
   if (daysSince > 90) return 'dormant'
   if (daysSince > 60) return 'needs-followup'

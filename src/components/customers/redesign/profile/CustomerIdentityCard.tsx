@@ -75,7 +75,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               <span>{c.gender ?? '—'}</span>
             </span>
             <Meta icon={<Clipboard size={12} />}>
-              <span className="tabular-nums">{c.totalKarute}</span>
+              <span className="tabular-nums">{Math.max(c.visitCount ?? 0, c.totalKarute)}</span>
               <span>{' 回'}</span>
             </Meta>
             <Meta icon={<Heart size={12} />}>
@@ -108,7 +108,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             <span>
               担当{' '}
               <span className="text-foreground">
-                {c.preferredStaffName ?? '—'}
+                {c.preferredStaffName ?? c.bookingStaffName ?? '—'}
               </span>
             </span>
             <span aria-hidden>·</span>

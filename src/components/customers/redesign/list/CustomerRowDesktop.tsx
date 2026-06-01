@@ -83,11 +83,16 @@ export function CustomerRowDesktop({
       </div>
 
       {/* Last visit */}
-      <div className="flex flex-col tabular-nums">
+      <div className="flex min-w-0 flex-col tabular-nums">
         <span className="text-xs text-foreground">{c.lastVisitDate}</span>
         <span className="text-[10px] text-muted-foreground">
           {c.lastVisitAgo}
         </span>
+        {c.lastVisitService && (
+          <span className="truncate text-[10px] text-muted-foreground/80">
+            {c.lastVisitService}
+          </span>
+        )}
       </div>
 
       {/* Recommend — stubbed; rebooking-window model wraps here later */}
@@ -123,7 +128,7 @@ export function CustomerRowDesktop({
             />
           )}
           <span className="truncate">
-            {t('row.staff', { name: c.preferredStaffName ?? '—' })}
+            {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
           </span>
         </span>
         {c.phone && (

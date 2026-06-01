@@ -10,8 +10,10 @@ const config: Config = {
   // Use node environment for server-side integration tests (NOT jsdom)
   testEnvironment: 'node',
 
-  // Only match integration test files
-  testMatch: ['**/__tests__/integration/**/*.test.ts'],
+  // Match integration test files. `.tsx` is included so component render
+  // tests (React Testing Library, jsdom via per-file @jest-environment) are
+  // collected alongside the node-environment server-side tests.
+  testMatch: ['**/__tests__/integration/**/*.test.ts', '**/__tests__/integration/**/*.test.tsx'],
 
   // Run global setup after Jest test framework is initialized (has access to beforeAll/afterAll)
   setupFilesAfterEnv: ['<rootDir>/src/__tests__/integration/setup/jest.setup.ts'],
@@ -24,9 +26,14 @@ const config: Config = {
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
 
-  // Allow jest to transform the @synqed-kk/client ESM package (everything
-  // else under node_modules stays untransformed per next/jest defaults)
-  transformIgnorePatterns: ['/node_modules/(?!@synqed-kk/)'],
+  // Allow jest to transform ESM-only deps (everything else under node_modules
+  // stays untransformed per next/jest defaults):
+  //  - @synqed-kk/client — transpiled ESM output
+  //  - zod (v4) — ships ESM that jest can't parse raw
+  //  - next-intl / use-intl — ESM-only ("Unexpected token 'export'") once
+  //    imported transitively for real (e.g. getTranslations via
+  //    src/actions/customers.ts in migrated-core-flow.test.ts)
+  transformIgnorePatterns: ['/node_modules/(?!(@synqed-kk|zod|next-intl|use-intl)/)'],
 }
 
 // createJestConfig is exported this way to ensure that next/jest can load the Next.js config which is async

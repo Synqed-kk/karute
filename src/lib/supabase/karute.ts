@@ -94,10 +94,75 @@ export async function getKaruteRecord(
     .single()
 
   if (error) {
-    // PGRST116 = "The result contains 0 rows" — return null for notFound() handling
-    if (error.code === 'PGRST116') return null
+    // PGRST116 = "The result contains 0 rows". The record may have been written
+    // to synqed-core (manual create via createManualKaruteRecord, or a recording
+    // save via saveKaruteRecord) and not yet mirrored into Supabase. Fall back to
+    // synqed-core so a freshly-created karute resolves instead of 404ing. Mirrors
+    // the staff-roster read fix (#107) — synqed-core is the authoritative write
+    // target; Supabase is the (still-being-migrated) read store.
+    if (error.code === 'PGRST116') return getKaruteRecordFromSynqed(id)
     throw new Error(error.message)
   }
 
   return data
+}
+
+/**
+ * Synqed-core fallback for getKaruteRecord. Fetches the karute from synqed-core
+ * (the write target) and adapts it to the Supabase KaruteWithRelations shape the
+ * detail page consumes. Returns null only when the record genuinely doesn't
+ * exist in either store (→ real 404). Best-effort customer-name resolution via
+ * the cached synqed customer list; staff name falls back to '—'.
+ *
+ * Lazy imports keep this module's graph free of the synqed-core ESM client for
+ * callers/tests that never hit the fallback.
+ */
+async function getKaruteRecordFromSynqed(
+  id: string,
+): Promise<KaruteWithRelations | null> {
+  try {
+    const { getSynqedClient } = await import('@/lib/synqed/client')
+    const synqed = await getSynqedClient()
+    const rec = await synqed.karuteRecords.get(id).catch(() => null)
+    if (!rec) return null
+
+    const { getCachedCustomerList } = await import('@/lib/customers/cached')
+    const customers = await getCachedCustomerList().catch(() => [])
+    const customerName = rec.customer_id
+      ? customers.find((c) => c.id === rec.customer_id)?.name ?? null
+      : null
+
+    const adapted = {
+      id: rec.id,
+      created_at: rec.created_at,
+      // synqed-core has no session_date; the header falls back to created_at.
+      session_date: null,
+      summary: rec.ai_summary,
+      transcript: rec.transcript,
+      // Supabase column semantics: customer_id = tenant, client_id = the client.
+      customer_id: rec.business_id,
+      client_id: rec.customer_id,
+      staff_profile_id: rec.staff_id,
+      // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
+      profiles: null,
+      customers: rec.customer_id
+        ? { id: rec.customer_id, name: customerName ?? '—' }
+        : null,
+      entries: (rec.entries ?? []).map((e) => ({
+        id: e.id,
+        // synqed entry categories are UPPERCASE; the UI adapters key on lowercase.
+        category: e.category.toLowerCase(),
+        content: e.content,
+        source_quote: e.original_quote,
+        confidence_score: e.confidence,
+        is_manual: e.is_manual,
+        created_at: e.created_at,
+      })),
+    }
+
+    return adapted as unknown as KaruteWithRelations
+  } catch (err) {
+    console.error('[getKaruteRecord] synqed-core fallback failed:', err)
+    return null
+  }
 }
