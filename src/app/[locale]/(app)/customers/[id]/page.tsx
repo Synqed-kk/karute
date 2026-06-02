@@ -161,6 +161,8 @@ export default async function CustomerProfilePage({
       ) ?? '#00000',
     age: computeAge(customer.date_of_birth),
     gender: jpGender(customer.gender),
+    dateOfBirth: customer.date_of_birth,
+    genderCode: customer.gender,
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
     // Lifetime visit count from external sync (QuickReserve visits_number_cache);

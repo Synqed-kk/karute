@@ -79,6 +79,11 @@ export interface CustomerProfileData {
   memberNumber?: string | null
   /** Birthday falls in the current month (derived from DOB) — drives the 🎂 chip. */
   isBirthdayMonth?: boolean
+  /** Raw deep-crawl values used to SEED the edit form (so a normal save doesn't
+   *  wipe a crawled DOB/gender). dateOfBirth is 'YYYY-MM-DD'; genderCode is
+   *  'male' | 'female' | null. The display `age`/`gender` above derive from these. */
+  dateOfBirth?: string | null
+  genderCode?: string | null
   /** Raw QuickReserve reservation/intake memo (synqed customer.notes) — the
    *  staff-typed "▶症状:… ▶ゴール:…" booking note. Surfaced read-only by
    *  BookingMemoCard until AI extraction distributes it into the memory boxes. */
