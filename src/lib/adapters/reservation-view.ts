@@ -115,7 +115,14 @@ export function appointmentsToReservationViews(
   }
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
-    const isFirstTimeCustomer = isFirstTimeByClient.get(r.client_id) ?? false
+    // A 回数券 (multi-session ticket) booking means an established returning
+    // customer — never 新規 — even when the QuickReserve existing-customer flag
+    // or karute history hasn't synced. The course title carries it reliably
+    // ("10回券", "6回券", "6回券終了"). Without this, every ticket regular on the
+    // agenda wrongly read 新規 because their past visits aren't in synqed yet.
+    const holdsTicketPack = /回数?券/.test(r.title ?? '')
+    const isFirstTimeCustomer =
+      (isFirstTimeByClient.get(r.client_id) ?? false) && !holdsTicketPack
     return {
       id: r.id,
       staffId: r.staff_profile_id,

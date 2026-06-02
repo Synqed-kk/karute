@@ -213,9 +213,7 @@ export default async function AppointmentsPage({
   // existing customer is NEVER 新規 — even with no karute/past appointment yet
   // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
   const isExistingById = new Map(
-    (await getCachedCustomerList().catch(() => [])).map(
-      (c) => [c.id, c.isExistingCustomer] as const,
-    ),
+    customers.map((c) => [c.id, c.isExistingCustomer] as const),
   )
   // "First-time customer" = NOT a known QR customer, AND no past appointment,
   // AND no recorded karute. (Karute/appointment counts alone mislabeled QR

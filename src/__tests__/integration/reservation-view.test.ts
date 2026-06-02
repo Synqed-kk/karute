@@ -130,6 +130,32 @@ describe('appointmentsToReservationViews', () => {
     expect(result[0].isFirstTimeVisit).toBe(true)
   })
 
+  it('never flags 新規 for a 回数券 booking, even when the client map says first-time', () => {
+    // An established ticket holder whose past visits / QR existing-customer flag
+    // haven't synced still shows as first-time in the client map. The course
+    // title ("10回券") is the reliable returning-customer signal — overrides it.
+    // Guards Liam's agenda where every 回数券 regular wrongly read 新規.
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z', title: '10回券' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', true]]),
+    )
+    expect(result[0].displayStatus).toBe('booked')
+    expect(result[0].isFirstTimeVisit).toBe(false)
+  })
+
+  it('still flags 新規 for a genuine new-course booking (no ticket in the title)', () => {
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z', title: '新規コース ¥1,980' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', true]]),
+    )
+    expect(result[0].displayStatus).toBe('new')
+    expect(result[0].isFirstTimeVisit).toBe(true)
+  })
+
   it('falls back to "—" customer name when customers join is null', () => {
     const result = appointmentsToReservationViews(
       [row({ customers: null })],
