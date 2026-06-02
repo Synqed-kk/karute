@@ -214,3 +214,27 @@ export function mapDeepCustomer(c: {
     is_existing_customer: !!c.is_existing_customer,
   }
 }
+
+export async function qrGetCustomerReservationsByCustomerId(
+  session: QRSession, storeSlug: string, storeId: number, customerId: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const res = await fetch(`${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations-by-customer-id`,
+    { method: 'POST', headers: qrHeaders(session), body: JSON.stringify({ customer_id: customerId }) })
+  if (!res.ok) throw new Error(`QR reservations-by-customer ${customerId}: ${res.status}`)
+  const data = await res.json()
+  return Array.isArray(data) ? data : []
+}
+
+export async function qrGetCustomersServerSide(
+  session: QRSession, storeSlug: string, storeId: number, page: number, pageSize = 100,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+): Promise<any[]> {
+  const res = await fetch(`${QR_API_BASE}/${storeSlug}/${storeId}/get-customers-server-side`,
+    { method: 'POST', headers: qrHeaders(session), body: JSON.stringify({ page, page_size: pageSize }) })
+  if (!res.ok) throw new Error(`QR customers-server-side p${page}: ${res.status}`)
+  const data = await res.json()
+  // Defensive: the exact envelope is unconfirmed — handle array | {data} | {customers} | {rows}.
+  if (Array.isArray(data)) return data
+  return data.customers ?? data.data ?? data.rows ?? []
+}
