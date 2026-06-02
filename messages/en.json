@@ -143,6 +143,19 @@
       "tantou": "Staff: {name}",
       "renewalFlag": "Renewal"
     },
+    "actionSheet": {
+      "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
+      "subtitleReturn": "Booked customer. Choose an action.",
+      "viewKarute": "View karute",
+      "viewKaruteHint": "Review prior sessions and last-visit recommendations",
+      "newKarute": "Create new karute",
+      "newKaruteHintFirst": "Manually create a karute for this customer",
+      "newKaruteHintReturn": "Add a new karute for today's session",
+      "startRecording": "Start recording",
+      "startRecordingHint": "AI will draft the karute from the session audio",
+      "startRecordingHintFirst": "Creates a provisional karute. You'll resolve conversion status after the session.",
+      "firstTimeNote": "First-time customers start as a provisional karute. If they convert it becomes active; if not, it's kept for AI coaching learning (and hidden from the customer list)."
+    },
     "mobile": {
       "empty": "No appointments",
       "dayHeader": "{date} ({weekday})"

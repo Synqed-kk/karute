@@ -143,6 +143,19 @@
       "tantou": "担当 {name}",
       "renewalFlag": "更新案内"
     },
+    "actionSheet": {
+      "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
+      "subtitleReturn": "ご予約済みのお客様です。操作を選択してください。",
+      "viewKarute": "カルテを見る",
+      "viewKaruteHint": "過去のセッションと前回までの申し送りを確認します",
+      "newKarute": "新規カルテを作成",
+      "newKaruteHintFirst": "このお客様のカルテを手動で作成します",
+      "newKaruteHintReturn": "本日のセッションのカルテを作成します",
+      "startRecording": "録音を開始",
+      "startRecordingHint": "セッションの音声からAIがカルテを作成します",
+      "startRecordingHintFirst": "仮カルテを作成します。セッション後に本登録の有無を確定できます。",
+      "firstTimeNote": "初めてのお客様は仮カルテとして登録されます。本登録されれば有効になり、されない場合もAIコーチングの学習用に保持されます（顧客一覧には表示されません）。"
+    },
     "mobile": {
       "empty": "本日の予約はありません",
       "dayHeader": "{date}（{weekday}）"
