@@ -209,16 +209,24 @@ export default async function AppointmentsPage({
     businessId && clientIdsForDay.length
       ? await enrichCustomers(businessId, clientIdsForDay)
       : new Map()
-  // "First-time customer" = no past appointments AND no recorded karute.
-  // Previously this was derived from `totalKarute === 0` alone, which meant
-  // any existing customer without a recorded karute rendered as 新規 on the
-  // reservation agenda even if they'd been coming in for months. Liam hit
-  // this on Vercel — every booking showed as 新規.
+  // QR "returning customer" flag per client (cached 500-customer list). A known
+  // existing customer is NEVER 新規 — even with no karute/past appointment yet
+  // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
+  const isExistingById = new Map(
+    (await getCachedCustomerList().catch(() => [])).map(
+      (c) => [c.id, c.isExistingCustomer] as const,
+    ),
+  )
+  // "First-time customer" = NOT a known QR customer, AND no past appointment,
+  // AND no recorded karute. (Karute/appointment counts alone mislabeled QR
+  // regulars — Liam hit this: 10回券 / 6回券 holders all rendered 新規.)
   const isFirstTimeByClient = new Map<string, boolean>()
   for (const [id, e] of enrichment.entries()) {
     isFirstTimeByClient.set(
       id,
-      e.totalKarute === 0 && e.pastAppointmentCount === 0,
+      !(isExistingById.get(id) ?? false) &&
+        e.totalKarute === 0 &&
+        e.pastAppointmentCount === 0,
     )
   }
 

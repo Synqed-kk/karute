@@ -64,11 +64,6 @@ const STATUS_VISUALS: Record<DisplayStatus, StatusVisuals> = {
     pillText: 'text-green-800 dark:text-green-300',
     pillRing: 'ring-green-200/70 dark:ring-green-500/30',
   },
-  pending: {
-    stripe: 'bg-amber-500',
-    pillText: 'text-amber-800 dark:text-amber-300',
-    pillRing: 'ring-amber-200/70 dark:ring-amber-500/30',
-  },
 }
 
 export function ReservationMobileAgenda({ reservations, onSelect }: Props) {
@@ -176,6 +171,15 @@ function AgendaRow({
           </div>
         )}
       </div>
+
+      {/* 更新案内 — action flag (amber): the customer's pack is finished, so
+       *  prompt a renewal/re-sell before they leave. Distinct from the neutral
+       *  status pill; can show alongside it (e.g. 予約済 + 更新案内). */}
+      {r.needsRenewal && (
+        <span className="mr-1 inline-flex h-5 shrink-0 items-center self-center rounded-full bg-amber-50 px-2 text-[10px] font-medium text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30">
+          {t('renewalFlag')}
+        </span>
+      )}
 
       {/* Status pill — ring chip on the card bg, color-coded per state. */}
       <span

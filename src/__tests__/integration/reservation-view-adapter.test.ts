@@ -107,13 +107,13 @@ describe('computeDisplayStatus — time-completed', () => {
 })
 
 describe('computeDisplayStatus — future SCHEDULED finer labels', () => {
-  it('maps a non-MANUAL future booking to "pending"', () => {
-    expect(computeDisplayStatus(row({ source: 'QUICKRESERVE' }), NOW)).toBe('pending')
+  it('maps a synced (non-MANUAL) future booking to "booked" (no 未確定)', () => {
+    expect(computeDisplayStatus(row({ source: 'QUICKRESERVE' }), NOW)).toBe('booked')
   })
 
-  it('pending wins over new (a first-time QuickReserve booking is pending)', () => {
+  it('first-time customer wins on a synced booking → "new"', () => {
     const r = row({ source: 'SALON_BOARD' })
-    expect(computeDisplayStatus(r, NOW, { isFirstTimeCustomer: true })).toBe('pending')
+    expect(computeDisplayStatus(r, NOW, { isFirstTimeCustomer: true })).toBe('new')
   })
 
   it('maps a MANUAL first-time-customer future booking to "new"', () => {

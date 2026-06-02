@@ -75,9 +75,9 @@ describe('computeDisplayStatus', () => {
     expect(computeDisplayStatus(r, NOW_MID)).toBe('completed')
   })
 
-  it('returns "pending" when the future booking came from an external sync', () => {
+  it('returns "booked" for a synced future booking (no more 未確定/pending)', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
-    expect(computeDisplayStatus(r, NOW_MID)).toBe('pending')
+    expect(computeDisplayStatus(r, NOW_MID)).toBe('booked')
   })
 
   it('returns "new" when the customer is first-time (no past appointments)', () => {
@@ -85,9 +85,9 @@ describe('computeDisplayStatus', () => {
     expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('new')
   })
 
-  it('prefers "pending" over "new" when both signals fire', () => {
+  it('returns "new" for a first-time customer even on a synced booking', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
-    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('pending')
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('new')
   })
 
   it('still returns "booked" for a returning customer on a manual future booking', () => {

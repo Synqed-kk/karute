@@ -140,7 +140,8 @@
       "duration": "{n} min",
       "appointments": "{n} appts",
       "customerSuffix": "",
-      "tantou": "Staff: {name}"
+      "tantou": "Staff: {name}",
+      "renewalFlag": "Renewal"
     },
     "mobile": {
       "empty": "No appointments",
