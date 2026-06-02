@@ -3,7 +3,11 @@ import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getCustomerConsent } from '@/actions/customers'
-import { getAppointmentsByDate, type AppointmentRow } from '@/actions/appointments'
+import {
+  getAppointmentsByDate,
+  getAppointmentById,
+  type AppointmentRow,
+} from '@/actions/appointments'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -130,12 +134,16 @@ export default async function SessionsPage({
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
 
-  // If the user tapped a booking on 予約 (→ 新規カルテ / 録音), that booking IS
-  // the target. It's normally in today/tomorrow's set; a booking further out
-  // falls back to the default target (recording happens at visit time, so
-  // that's an acceptable edge until the picker can switch days).
+  // If the user tapped a booking on 予約 (→ 新規カルテ / 録音), THAT booking is the
+  // recording target. Resolve it by id: today's set first (the common case — no
+  // extra fetch), else fetch it directly so a booking tapped from ANOTHER day
+  // still loads the right customer. Previously a non-today id fell through to the
+  // default-target guess below and silently recorded a DIFFERENT customer's
+  // session — a treatment-record integrity bug (tapped リエム, got 飯島).
   const requestedRow: AppointmentRow | undefined = requestedAppointmentId
-    ? list.find((a) => a.id === requestedAppointmentId)
+    ? (list.find((a) => a.id === requestedAppointmentId) ??
+        (await getAppointmentById(requestedAppointmentId)) ??
+        undefined)
     : undefined
 
   // Fall back to any salon booking when the active staff has nothing queued —
