@@ -82,6 +82,7 @@ describe('Migrated core flow — customers + karute + entries', () => {
       furigana: 'テストタロウ',
       phone: null,
       email: null,
+      assigned_staff_id: null,
     })
   })
 

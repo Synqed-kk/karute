@@ -20,9 +20,14 @@ const scenario: {
 
 const karuteRecords = { list: jest.fn(async () => ({ karute_records: scenario.karute })) }
 const appointments = { list: jest.fn(async () => ({ appointments: scenario.appts })) }
+// list-enrich resolves the booking's 担当 via staff.list (added in 90f60ad);
+// these tests don't assert staff names, so an empty roster is sufficient.
+const staff = {
+  list: jest.fn(async () => ({ staff: [] as Array<{ id: string; user_id: string | null }> })),
+}
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn(() => ({ karuteRecords, appointments })),
+  SynqedClient: jest.fn(() => ({ karuteRecords, appointments, staff })),
 }))
 
 import {
@@ -82,6 +87,7 @@ describe('enrichCustomers', () => {
       visitsDone: 0,
       pastAppointmentCount: 0,
       lastVisitService: null,
+      bookingStaffId: null,
     })
   })
 
