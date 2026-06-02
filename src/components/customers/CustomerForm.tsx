@@ -36,6 +36,9 @@ function createCustomerFormSchema(messages: { nameRequired: string; invalidEmail
     dateOfBirth: z.string().optional().or(z.literal('')),
     // 性別 — '' (未設定) | 'male' | 'female'.
     gender: z.string().optional().or(z.literal('')),
+    // 職業 + 会員番号 — CRM fields seeded by the crawl, also staff-editable.
+    occupation: z.string().max(100).optional().or(z.literal('')),
+    memberNumber: z.string().max(100).optional().or(z.literal('')),
   })
 }
 
@@ -151,6 +154,8 @@ export function CustomerForm({
       assignedStaffId: '',
       dateOfBirth: '',
       gender: '',
+      occupation: '',
+      memberNumber: '',
       ...seededDefaults,
     },
   })
@@ -171,6 +176,8 @@ export function CustomerForm({
       // wipes a crawled DOB/gender.
       date_of_birth: values.dateOfBirth ?? '',
       gender: values.gender ?? '',
+      occupation: values.occupation ?? '',
+      member_number: values.memberNumber ?? '',
     }
 
     const result = customerId
@@ -236,6 +243,17 @@ export function CustomerForm({
             <option value="female">{t('form.female')}</option>
             <option value="male">{t('form.male')}</option>
           </select>
+        </Field>
+      </div>
+
+      {/* 職業 / 会員番号 — CRM fields. Seeded by the deep crawl; staff-editable
+       *  here so they can be filled for any customer (not only crawled ones). */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={t('form.occupation')}>
+          <Input type="text" {...register('occupation')} />
+        </Field>
+        <Field label={t('form.memberNumber')}>
+          <Input type="text" inputMode="numeric" {...register('memberNumber')} />
         </Field>
       </div>
 

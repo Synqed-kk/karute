@@ -56,6 +56,9 @@ const CustomerFormSchema = z.object({
   // stored. '' → null.
   date_of_birth: z.string().max(10).optional().or(z.literal('')),
   gender: z.string().max(10).optional().or(z.literal('')),
+  // 職業 + 会員番号 — CRM fields seeded by the deep crawl, also staff-editable. '' → null.
+  occupation: z.string().max(100).optional().or(z.literal('')),
+  member_number: z.string().max(100).optional().or(z.literal('')),
 })
 
 type CustomerFormInput = z.infer<typeof CustomerFormSchema>
@@ -81,7 +84,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     }
   }
 
-  const { name, furigana, phone, email, assigned_staff_id, date_of_birth, gender } = parsed.data
+  const { name, furigana, phone, email, assigned_staff_id, date_of_birth, gender, occupation, member_number } = parsed.data
 
   try {
     const synqed = await getSynqedClient()
@@ -101,6 +104,8 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       assigned_staff_id: assigned_staff_id || null,
       date_of_birth: date_of_birth || null,
       gender: gender || null,
+      occupation: occupation || null,
+      member_number: member_number || null,
     })
 
     revalidatePath('/customers')
@@ -197,6 +202,12 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
           ? { date_of_birth: (input.date_of_birth as string) || null }
           : {}),
         ...(('gender' in input) ? { gender: (input.gender as string) || null } : {}),
+        ...(('occupation' in input)
+          ? { occupation: (input.occupation as string) || null }
+          : {}),
+        ...(('member_number' in input)
+          ? { member_number: (input.member_number as string) || null }
+          : {}),
       })
     } else {
       // Partial update
