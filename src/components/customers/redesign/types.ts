@@ -70,6 +70,15 @@ export interface CustomerProfileData {
    *  records carry a `service` column; identity card falls back to
    *  "—" when omitted. */
   usualService?: string | null
+  /** Occupation/profession (deep crawl) — small-talk + body-context hook. */
+  occupation?: string | null
+  /** Holds a prepaid ticket/course pack (deep crawl). Drives the 回数券あり pill —
+   *  behavior-changing: rebook rather than hard-sell. Boolean only (no count). */
+  hasTicketPack?: boolean
+  /** QuickReserve membership number (deep crawl) — disambiguates 同姓同名. */
+  memberNumber?: string | null
+  /** Birthday falls in the current month (derived from DOB) — drives the 🎂 chip. */
+  isBirthdayMonth?: boolean
   /** Raw QuickReserve reservation/intake memo (synqed customer.notes) — the
    *  staff-typed "▶症状:… ▶ゴール:…" booking note. Surfaced read-only by
    *  BookingMemoCard until AI extraction distributes it into the memory boxes. */

@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation'
 
 import { getCustomer } from '@/lib/customers/queries'
-import { computeAge, jpGender } from '@/lib/customers/demographics'
+import { computeAge, jpGender, isBirthdayMonth } from '@/lib/customers/demographics'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -170,6 +170,13 @@ export default async function CustomerProfilePage({
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
     bookingMemo: customer.notes ?? null,
+    occupation: customer.occupation,
+    memberNumber: customer.member_number,
+    hasTicketPack: customer.has_ticket_pack,
+    isBirthdayMonth: isBirthdayMonth(customer.date_of_birth),
+    lastVisitDate: customer.last_visit_at
+      ? formatJoinDate(customer.last_visit_at, locale)
+      : null,
     preferredStaffId,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)

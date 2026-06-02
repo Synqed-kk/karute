@@ -9,12 +9,15 @@
 // staff scans before a session.
 
 import {
+  Briefcase,
+  Cake,
   Calendar,
   Clipboard,
   Heart,
   Mail,
   Phone,
   Sparkles,
+  Ticket,
   User,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
@@ -54,11 +57,28 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
               {c.karuteNumber}
             </span>
+            {c.memberNumber && (
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/70">
+                会員 #{c.memberNumber}
+              </span>
+            )}
             <span
               className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
             >
               {t(`status.${c.status}`)}
             </span>
+            {c.hasTicketPack && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
+                <Ticket size={11} />
+                回数券あり
+              </span>
+            )}
+            {c.isBirthdayMonth && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[11px] font-medium text-pink-700 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-300">
+                <Cake size={11} />
+                誕生月
+              </span>
+            )}
           </div>
 
           {/* Meta — age/gender + visit count + last visit + usual
@@ -74,6 +94,11 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
                 {c.age != null && c.gender && <span> · </span>}
                 {c.gender && <span>{c.gender}</span>}
               </span>
+            )}
+            {c.occupation && (
+              <Meta icon={<Briefcase size={12} />}>
+                <span>{c.occupation}</span>
+              </Meta>
             )}
             <Meta icon={<Clipboard size={12} />}>
               <span className="tabular-nums">{Math.max(c.visitCount ?? 0, c.totalKarute)}</span>
