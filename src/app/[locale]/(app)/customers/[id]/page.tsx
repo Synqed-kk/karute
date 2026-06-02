@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 
 import { getCustomer } from '@/lib/customers/queries'
+import { computeAge, jpGender } from '@/lib/customers/demographics'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -158,8 +159,8 @@ export default async function CustomerProfilePage({
       assignSequentialKaruteNumbers(allCustomersList.customers).get(
         customer.id,
       ) ?? '#00000',
-    age: null,
-    gender: null,
+    age: computeAge(customer.date_of_birth),
+    gender: jpGender(customer.gender),
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
     // Lifetime visit count from external sync (QuickReserve visits_number_cache);
