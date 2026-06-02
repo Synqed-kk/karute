@@ -2,16 +2,15 @@
  * Reservation-view adapter: maps AppointmentRow -> ReservationView with derived
  * fields (display status, formatted time, customer initials, staff color key).
  *
- * Display status mapping (5 states):
- *   COMPLETED, CANCELLED        -> 'completed'  (treated as inactive)
- *   IN_PROGRESS or time-in      -> 'in_session' (explicit override)
- *   end < now                   -> 'completed'
- *   source !== MANUAL           -> 'pending'    (synced, not yet confirmed)
- *   visitCount === 0            -> 'new'        (first-time customer)
- *   else                        -> 'booked'
+ * Display status mapping (4 states):
+ *   COMPLETED, CANCELLED         -> 'completed'  (treated as inactive)
+ *   IN_PROGRESS or time-in       -> 'in_session' (explicit override)
+ *   end < now                    -> 'completed'
+ *   isFirstTimeCustomer === true -> 'new'        (genuine first visit only)
+ *   else                         -> 'booked'
  *
- * 'pending' and 'new' are derived from existing signals (source enum +
- * karute_records count) — no schema changes required.
+ * 'new' is derived (not a stored column). The old 'pending' state — which just
+ * meant "synced from QuickReserve" — was removed; a synced booking is 予約済.
  */
 
 import {

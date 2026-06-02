@@ -240,6 +240,6 @@ describe('DisplayStatus type surface', () => {
     seen.add(computeDisplayStatus(row({ source: 'QUICKRESERVE' }), NOW))
     seen.add(computeDisplayStatus(row(), NOW, { isFirstTimeCustomer: true }))
     seen.add(computeDisplayStatus(row(), NOW))
-    expect(seen).toEqual(new Set(['completed', 'in_session', 'pending', 'new', 'booked']))
+    expect(seen).toEqual(new Set(['completed', 'in_session', 'new', 'booked']))
   })
 })
