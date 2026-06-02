@@ -50,6 +50,12 @@ const CustomerFormSchema = z.object({
   // DB FK is the real guard. Optional so the quick-create path + older
   // callers that omit it still parse.
   assigned_staff_id: z.string().max(100).optional().or(z.literal('')),
+  // 生年月日 ('YYYY-MM-DD') + 性別 ('male' | 'female' | ''). Editable by staff and
+  // seeded by the deep crawl — synqed-core accepts both on create/update (the
+  // crawl writes them the same way). Age is DERIVED from DOB at render, never
+  // stored. '' → null.
+  date_of_birth: z.string().max(10).optional().or(z.literal('')),
+  gender: z.string().max(10).optional().or(z.literal('')),
 })
 
 type CustomerFormInput = z.infer<typeof CustomerFormSchema>
@@ -75,7 +81,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     }
   }
 
-  const { name, furigana, phone, email, assigned_staff_id } = parsed.data
+  const { name, furigana, phone, email, assigned_staff_id, date_of_birth, gender } = parsed.data
 
   try {
     const synqed = await getSynqedClient()
@@ -93,6 +99,8 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       phone: phone || null,
       email: email || null,
       assigned_staff_id: assigned_staff_id || null,
+      date_of_birth: date_of_birth || null,
+      gender: gender || null,
     })
 
     revalidatePath('/customers')
@@ -183,6 +191,12 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
         ...(('assigned_staff_id' in input)
           ? { assigned_staff_id: (input.assigned_staff_id as string) || null }
           : {}),
+        // 生年月日 / 性別 — presence-guarded so partial updates don't wipe them.
+        // The edit form seeds current values, so a normal save preserves them.
+        ...(('date_of_birth' in input)
+          ? { date_of_birth: (input.date_of_birth as string) || null }
+          : {}),
+        ...(('gender' in input) ? { gender: (input.gender as string) || null } : {}),
       })
     } else {
       // Partial update
