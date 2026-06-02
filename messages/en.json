@@ -464,6 +464,8 @@
       "female": "Female",
       "male": "Male",
       "other": "Other",
+      "occupation": "Occupation",
+      "memberNumber": "Member number",
       "preferredStaff": "Preferred staff",
       "noPreference": "No preference",
       "comingSoon": "Coming soon",

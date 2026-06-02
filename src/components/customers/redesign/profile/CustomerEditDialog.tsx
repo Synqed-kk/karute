@@ -66,6 +66,8 @@ export function CustomerEditDialog({ customer }: Props) {
             assignedStaffId: customer.preferredStaffId ?? '',
             dateOfBirth: customer.dateOfBirth ?? '',
             gender: customer.genderCode ?? '',
+            occupation: customer.occupation ?? '',
+            memberNumber: customer.memberNumber ?? '',
           }}
           currentStaff={
             customer.preferredStaffId
