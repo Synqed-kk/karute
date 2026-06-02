@@ -65,15 +65,16 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
            *  service + joined date. The at-a-glance facts staff scans
            *  before a session, matching the spike's customer header. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span
-              className="inline-flex items-center gap-1 opacity-40"
-              title="Coming soon — age + gender capture not in intake form yet"
-            >
-              <User size={12} className="text-muted-foreground/70" />
-              <span className="tabular-nums">{c.age ?? '—'}</span>
-              <span> · </span>
-              <span>{c.gender ?? '—'}</span>
-            </span>
+            {(c.age != null || c.gender) && (
+              <span className="inline-flex items-center gap-1">
+                <User size={12} className="text-muted-foreground/70" />
+                {c.age != null && (
+                  <span className="tabular-nums">{c.age}歳</span>
+                )}
+                {c.age != null && c.gender && <span> · </span>}
+                {c.gender && <span>{c.gender}</span>}
+              </span>
+            )}
             <Meta icon={<Clipboard size={12} />}>
               <span className="tabular-nums">{Math.max(c.visitCount ?? 0, c.totalKarute)}</span>
               <span>{' 回'}</span>

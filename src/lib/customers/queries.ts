@@ -128,6 +128,11 @@ export interface CustomerWithStaff extends Customer {
   assigned_staff_id: string | null
   is_existing_customer: boolean
   visit_count: number
+  /** Deep-crawl demographics (QuickReserve → synqed-core). DOB is 'YYYY-MM-DD';
+   *  age is derived at render (demographics.ts), never stored. gender is
+   *  'male' | 'female' | null. */
+  date_of_birth: string | null
+  gender: string | null
 }
 
 export async function getCustomer(id: string): Promise<CustomerWithStaff> {
@@ -147,6 +152,8 @@ export async function getCustomer(id: string): Promise<CustomerWithStaff> {
     assigned_staff_id: c.assigned_staff_id ?? null,
     is_existing_customer: c.is_existing_customer,
     visit_count: c.visit_count,
+    date_of_birth: c.date_of_birth ?? null,
+    gender: c.gender ?? null,
   }
 }
 
