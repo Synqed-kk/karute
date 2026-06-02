@@ -11,12 +11,13 @@ import {
   karuteToHeader,
   karuteEntriesToSessionEntries,
   karuteSummaryToBullets,
-  deriveKaruteNumber,
 } from '@/lib/adapters/karute-detail'
 import {
   getCustomerContact,
   getCachedCustomerConsent,
 } from '@/lib/customers/customer-detail-cached'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -27,7 +28,13 @@ export default async function KaruteDetailPage({
 }: KaruteDetailPageProps) {
   const { id } = await params
 
-  const karute = await getKaruteRecord(id)
+  // Fetch the karute and the tenant customer list in parallel — the list feeds
+  // the sequential karute number (below) and doesn't depend on the karute.
+  const synqed = await getSynqedClient()
+  const [karute, allCustomers] = await Promise.all([
+    getKaruteRecord(id),
+    synqed.customers.list({ page_size: 500 }),
+  ])
   if (!karute) notFound()
 
   const customerId =
@@ -37,7 +44,14 @@ export default async function KaruteDetailPage({
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript =
     (karute as unknown as { transcript?: string | null }).transcript ?? null
-  const karuteNumber = deriveKaruteNumber(id)
+  // Sequential per-tenant number from the shared customer list — matches the
+  // karute list and customer profile (#00007). Replaces deriveKaruteNumber(id),
+  // which hex-sliced the karute UUID into an alphanumeric #427C2 that disagreed
+  // with every other surface. Numbers-only, consistent.
+  const karuteNumber = customerId
+    ? (assignSequentialKaruteNumbers(allCustomers.customers).get(customerId) ??
+      '#00000')
+    : '#00000'
 
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a
