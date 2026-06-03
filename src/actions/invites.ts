@@ -7,7 +7,9 @@ import { SynqedClient } from '@synqed-kk/client'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
-import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { requireCapability } from '@/lib/auth/require-permission'
+import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
   inviteSchema,
   type InviteInput,
@@ -37,13 +39,10 @@ export interface InviteRow {
   expires_at: string
 }
 
-/** Resolve the caller's business, but only if they are the OWNER. Mirrors the
- *  owner check in settings/page.tsx (display_role === 'owner'). */
-async function requireOwnerBusiness(): Promise<string> {
-  const [list, uid] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
-  const isOwner =
-    !!uid && list.some((s) => s.id === uid && (s.display_role ?? '').toLowerCase() === 'owner')
-  if (!isOwner) throw new Error('Only the salon owner can manage staff invites.')
+/** Gate invite management on the `staff.invite` capability (owner + manager by
+ *  default) and return the caller's business to scope the writes. */
+async function requireInviteBusiness(): Promise<string> {
+  await requireCapability('staff.invite')
   return getBusinessId()
 }
 
@@ -59,7 +58,7 @@ export async function createInvite(
 
   let businessId: string
   try {
-    businessId = await requireOwnerBusiness()
+    businessId = await requireInviteBusiness()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
@@ -102,7 +101,7 @@ export async function createInvite(
 export async function listInvites(): Promise<InviteRow[]> {
   let businessId: string
   try {
-    businessId = await requireOwnerBusiness()
+    businessId = await requireInviteBusiness()
   } catch {
     return []
   }
@@ -121,7 +120,7 @@ export async function listInvites(): Promise<InviteRow[]> {
 export async function revokeInvite(id: string): Promise<{ ok: true } | { error: string }> {
   let businessId: string
   try {
-    businessId = await requireOwnerBusiness()
+    businessId = await requireInviteBusiness()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
@@ -233,7 +232,12 @@ export async function acceptInvite(
   //    throwaway business; overwrite it). customer_id is from the invite.
   const { error: attachErr } = await service
     .from('profiles')
-    .update({ customer_id: invite.business_id, full_name: name, display_role: role.toLowerCase() })
+    .update({
+      customer_id: invite.business_id,
+      full_name: name,
+      display_role: role.toLowerCase(),
+      permission_role: synqedRoleToPreset(role), // seed the RBAC preset; owner can customize later
+    })
     .eq('id', userId)
   if (attachErr) {
     // Roll back the just-created auth user so the invite stays usable — otherwise
