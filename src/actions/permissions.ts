@@ -78,7 +78,12 @@ export async function getStaffPermissions(
     role = synqedRoleToPreset(displayRole)
   }
 
-  const isOwner = (displayRole ?? '').toLowerCase() === 'owner'
+  // Owner detection mirrors the write path: display_role OR permission_role.
+  // After the RBAC migration the account owner carries permission_role='owner'
+  // even when display_role is null — `role` already holds permission_role
+  // (line above), so checking it avoids a false editable-picker render. (#162)
+  const isOwner =
+    (displayRole ?? '').toLowerCase() === 'owner' || role === 'owner'
   return {
     permissionRole: isOwner ? 'owner' : role,
     capabilities: [...effectiveCapabilities(role, override)],
