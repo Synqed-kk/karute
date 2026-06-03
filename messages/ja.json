@@ -1349,6 +1349,7 @@
       "ownerDesc": "すべての店舗のデータ（予約・カルテ・AI分析）を閲覧・管理できます。",
       "storesCount": "{n}店舗を運営中",
       "addStore": "追加",
+      "limitReached": "店舗数が現在のプランの上限に達しています",
       "primaryBadge": "本店",
       "activeBadge": "営業中",
       "staffUnit": "スタッフ{n}名",

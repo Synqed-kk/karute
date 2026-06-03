@@ -25,10 +25,11 @@
 //
 // DATA
 //
-// Today: synthesizes a primary store from orgSettings.salon_name.
-// Additional stores are null until the `stores` table exists.
-// Free-tier limits + canAddStore live in src/lib/subscription
-// — the add button auto-disables when the tier blocks it.
+// Seeded primary renders instantly; refresh() replaces it with the real rows.
+// Plan limits are real (P3): getEntitlement() (server) derives the store cap
+// from the tier via TIER_FEATURES — the add button disables when the business
+// is at its limit, and createStore enforces it server-side. Dev/owner accounts
+// are never capped (is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
@@ -38,6 +39,8 @@ import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-rea
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
 import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId } from '@/actions/stores'
+import { getEntitlement } from '@/actions/entitlements'
+import type { Entitlement } from '@/lib/entitlements'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
@@ -84,12 +87,18 @@ export function StoresSection({
   const [stores, setStores] = useState<Store[]>(seededStores)
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
+  const [entitlement, setEntitlement] = useState<Entitlement | null>(null)
   const [activeStoreId, setActiveStoreId] = useState<string>(
     seededStores[0]?.id ?? 'primary',
   )
 
   const refresh = useCallback(async () => {
-    const [rows, persisted] = await Promise.all([listStores(), getActiveStoreId()])
+    const [rows, persisted, ent] = await Promise.all([
+      listStores(),
+      getActiveStoreId(),
+      getEntitlement(),
+    ])
+    setEntitlement(ent)
     if (rows.length === 0) return
     const mapped: Store[] = rows.map((r) => ({
       id: r.id,
@@ -127,7 +136,7 @@ export function StoresSection({
     if (formMode?.kind === 'add') {
       const res = await createStore(payload)
       if ('error' in res) {
-        toast.error(res.error)
+        toast.error(res.error === 'STORE_LIMIT_REACHED' ? t('limitReached') : res.error)
         return
       }
     } else if (formMode?.kind === 'edit') {
@@ -139,6 +148,10 @@ export function StoresSection({
     }
     await refresh()
   }
+
+  // Real plan gate. Default to allowed before the entitlement loads (and for
+  // dev/owner-unlimited accounts) so we never falsely block the add button.
+  const canAdd = entitlement?.canAddStore ?? true
 
   return (
     <div className="space-y-4">
@@ -191,6 +204,11 @@ export function StoresSection({
           <p className="mt-0.5 text-[12px] text-muted-foreground">
             {t('storesCount', { n: stores.length })}
           </p>
+          {isOwner && !canAdd && (
+            <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              {t('limitReached')}
+            </p>
+          )}
         </div>
         {/* "+ 店舗を追加" hidden until multi-store ships. Today the
          *  flow saves to local React useState only — owner adds Store
@@ -201,6 +219,8 @@ export function StoresSection({
         {isOwner && process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true' && (
           <Button
             onClick={() => setSubscriptionStepOpen(true)}
+            disabled={!canAdd}
+            title={!canAdd ? t('limitReached') : undefined}
             className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"
           >
             <Plus className="size-3.5" />

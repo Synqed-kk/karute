@@ -6,6 +6,7 @@ import { cookies } from 'next/headers'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
+import { loadEntitlement } from '@/lib/entitlements'
 
 // Active-store view filter — which location the viewer is looking at. A cookie,
 // not a security boundary (RLS/business scope is the boundary); the owner switch
@@ -180,6 +181,13 @@ export async function createStore(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
+
+  // Plan gate (P3): block the (N+1)th store once the tier's store limit is hit.
+  // The real, un-bypassable check (the client button is just UX). Dev/owner
+  // accounts (Liam) are never capped — is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS.
+  const entitlement = await loadEntitlement(businessId)
+  if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
   const { data, error } = await service
