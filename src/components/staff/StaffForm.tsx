@@ -38,7 +38,7 @@
 // Phone defaults to empty string in the payload to satisfy the
 // existing zod schema's `.optional().or(z.literal(''))` shape.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useForm, type UseFormRegister } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -54,7 +54,11 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
+import { listStores, getStaffStore, setStaffStore, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
+
+// Store/location assignment shows only when multi-store is enabled + editing.
+const STORES_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
 
 const POSITION_OPTIONS = [
   'Stylist',
@@ -87,6 +91,7 @@ interface StaffFormProps {
 export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
+  const tStore = useTranslations('settings.stores')
 
   const {
     register,
@@ -104,6 +109,24 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
     },
   })
 
+  // Store/location assignment (multi-store). Loads the business's stores + the
+  // staff's current store on open; saved alongside identity on 保存.
+  const [stores, setStores] = useState<StoreRow[]>([])
+  const [storeId, setStoreId] = useState<string>('')
+  const staffId = staff?.id
+  useEffect(() => {
+    if (!(STORES_ENABLED && mode === 'edit' && staffId)) return
+    let cancelled = false
+    void Promise.all([listStores(), getStaffStore(staffId)]).then(([rows, current]) => {
+      if (cancelled) return
+      setStores(rows)
+      setStoreId(current ?? '')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [mode, staffId])
+
   async function onSubmit(data: StaffProfileInput) {
     try {
       if (mode === 'create') {
@@ -111,6 +134,13 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
         toast.success(ts('staffAdded'))
       } else if (mode === 'edit' && staff) {
         await updateStaff(staff.id, data)
+        if (STORES_ENABLED) {
+          const res = await setStaffStore(staff.id, storeId || null)
+          if ('error' in res) {
+            toast.error(res.error)
+            return
+          }
+        }
         toast.success(ts('staffUpdated'))
       }
       onClose()
@@ -186,6 +216,28 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
               </p>
             )}
           </div>
+
+          {/* 店舗（所属） — which location this staff works at. Multi-store only. */}
+          {STORES_ENABLED && mode === 'edit' && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="staff-store" className="text-sm font-medium">
+                {tStore('assignLabel')}
+              </label>
+              <select
+                id="staff-store"
+                value={storeId}
+                onChange={(e) => setStoreId(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">{tStore('unassigned')}</option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* 役職 */}
           <div className="flex flex-col gap-1.5">
