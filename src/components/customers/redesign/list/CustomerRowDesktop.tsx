@@ -4,13 +4,15 @@ import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
+import { cn } from '@/lib/utils'
+import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
 import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerRowDesktopProps {
   c: CustomerListRow
-  staffColor: string | null
+  staffColorKey: StaffColor['key'] | null
   /** See CustomerCardMobile — same flag, same purpose. */
   karuteContext?: boolean
   /** See CustomerCardMobile — same flag, same purpose. */
@@ -30,13 +32,14 @@ interface CustomerRowDesktopProps {
  */
 export function CustomerRowDesktop({
   c,
-  staffColor,
+  staffColorKey,
   karuteContext = false,
   hrefBase = '/customers',
 }: CustomerRowDesktopProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
+  const staff = getStaffColorByKey(staffColorKey)
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
@@ -48,8 +51,10 @@ export function CustomerRowDesktop({
        *  pass through, giving the cut-into-sections look. */}
       <span
         aria-hidden
-        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
-        style={{ background: staffColor ?? 'var(--border)' }}
+        className={cn(
+          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
+          staffColorKey ? staff.stripe : 'bg-border',
+        )}
       />
 
       {/* Customer */}
@@ -120,10 +125,9 @@ export function CustomerRowDesktop({
       {/* Staff + phone */}
       <div className="flex min-w-0 flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 truncate">
-          {staffColor && (
+          {staffColorKey && (
             <span
-              className="h-1.5 w-1.5 shrink-0 rounded-full"
-              style={{ background: staffColor }}
+              className={cn('h-1.5 w-1.5 shrink-0 rounded-full', staff.stripe)}
               aria-hidden
             />
           )}

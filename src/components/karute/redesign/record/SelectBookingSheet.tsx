@@ -43,7 +43,7 @@ import {
 
 import type { RecordTargetBooking } from './RecordingTargetCard'
 import { BADGE_COLORS } from '@/lib/badge-styles'
-import { getStaffColor } from '@/lib/staff/colors'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 
 interface SelectBookingSheetProps {
   open: boolean
@@ -115,7 +115,7 @@ export function SelectBookingSheet({
           >
             {bookings.map((b) => {
               const isCurrent = b.id === currentBookingId
-              const staffColor = getStaffColor(b.staffId) ?? 'var(--muted)'
+              const staffColor = getStaffColorByKey(b.staffColorKey)
               return (
                 <li key={b.id}>
                   <button
@@ -151,10 +151,14 @@ export function SelectBookingSheet({
                       </span>
                     </div>
                     {/* Avatar — colored by the booking's staff (same as the
-                     *  予約 agenda), muted fallback when no staff. */}
+                     *  予約 agenda), neutral fallback when no staff. Subtle
+                     *  tint + dark text from the shared staff palette. */}
                     <span
-                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white ring-1 ring-black/5"
-                      style={{ background: staffColor }}
+                      className={cn(
+                        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                        staffColor.bg,
+                        staffColor.text,
+                      )}
                     >
                       {b.initials}
                     </span>

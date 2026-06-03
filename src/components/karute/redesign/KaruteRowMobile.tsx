@@ -3,7 +3,8 @@
 import { useTranslations } from 'next-intl'
 
 import { Link } from '@/i18n/navigation'
-import { getStaffColor } from '@/lib/staff-colors'
+import { cn } from '@/lib/utils'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 import type { KaruteRichRow } from '@/lib/adapters/karute-list'
 
 import { KaruteStatusBadge } from './KaruteStatusBadge'
@@ -14,7 +15,7 @@ interface KaruteRowMobileProps {
 
 export function KaruteRowMobile({ row }: KaruteRowMobileProps) {
   const t = useTranslations('karuteList.row')
-  const color = row.staffId ? getStaffColor(row.staffId) : null
+  const color = getStaffColorByKey(row.staffColorKey)
 
   return (
     <Link
@@ -23,19 +24,12 @@ export function KaruteRowMobile({ row }: KaruteRowMobileProps) {
     >
       <div className="flex items-center gap-2.5">
         <span
-          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold"
-          style={
-            color
-              ? {
-                  background: color.bg,
-                  color: color.text,
-                  border: `1px solid ${color.border}`,
-                }
-              : {
-                  background: 'var(--muted)',
-                  color: 'var(--muted-foreground)',
-                }
-          }
+          className={cn(
+            'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-bold ring-1',
+            color.bg,
+            color.text,
+            color.ring,
+          )}
         >
           {row.customerInitials}
         </span>
@@ -52,13 +46,10 @@ export function KaruteRowMobile({ row }: KaruteRowMobileProps) {
           {row.duration != null ? ` · ${t('duration', { n: row.duration })}` : ''}
         </span>
         <span className="inline-flex shrink-0 items-center gap-1.5">
-          {color && (
-            <span
-              className="inline-block h-1.5 w-1.5 rounded-full"
-              style={{ background: color.accent }}
-              aria-hidden
-            />
-          )}
+          <span
+            className={cn('inline-block h-1.5 w-1.5 rounded-full', color.stripe)}
+            aria-hidden
+          />
           <span>{row.staffName ?? '—'}</span>
         </span>
       </div>

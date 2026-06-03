@@ -24,6 +24,11 @@ export interface KaruteRichRow {
   duration: number | null
   entryCount: number
   staffId: string | null
+  /** Distinct staff color, resolved from the full roster on the page (via
+   *  assignStaffColors). The redesigned row's avatar + dot read this through
+   *  getStaffColorByKey — never a per-id hash — so a stylist's color matches
+   *  every other surface. Null → neutral fallback. */
+  staffColorKey: import('@/lib/staff-colors').StaffColor['key'] | null
   staffName: string | null
   status: KaruteDisplayStatus
   summary: string
@@ -99,6 +104,10 @@ export function karuteRecordsToRichRows(
       duration: null,
       entryCount: Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0,
       staffId: r.staff_profile_id,
+      // Neutral here — this adapter has no roster in scope. The distinct
+      // color is assigned by the page parent via assignStaffColors(roster)
+      // and set onto the row before render, same pattern as karute/page.tsx.
+      staffColorKey: null,
       staffName: r.profiles?.full_name ?? null,
       status: deriveStatus(r.summary, r.transcript),
       summary: r.summary ?? '—',
