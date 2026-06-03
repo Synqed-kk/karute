@@ -238,7 +238,7 @@ export default async function SessionsPage({
 
   type RecentRow = {
     id: string
-    client_id: string
+    client_id: string | null
     session_date: string | null
     created_at: string
     summary: string | null
@@ -257,7 +257,7 @@ export default async function SessionsPage({
       id: r.id,
       customerName,
       initials: deriveFamilyInitials(customerName),
-      karuteNumber: karuteNumberByClientId.get(r.client_id) ?? null,
+      karuteNumber: karuteNumberByClientId.get(r.client_id ?? '') ?? null,
       // Service '—' instead of literal 'Session' until karute_records
       // has a real `service` column. Same '施術' bug fixed on the
       // main karute list.
