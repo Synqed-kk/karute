@@ -30,12 +30,14 @@
 // Free-tier limits + canAddStore live in src/lib/subscription
 // — the add button auto-disables when the tier blocks it.
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
+import { listStores, createStore, updateStore } from '@/actions/stores'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
@@ -77,6 +79,8 @@ export function StoresSection({
     ]
   }, [orgSettings, t])
 
+  // Seeded primary renders instantly; refresh() replaces it with the real rows
+  // from the `stores` table (lazily creating the 本店 on first load).
   const [stores, setStores] = useState<Store[]>(seededStores)
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
@@ -84,40 +88,43 @@ export function StoresSection({
     seededStores[0]?.id ?? 'primary',
   )
 
-  const handleFormSave = (values: StoreFormValues) => {
+  const refresh = useCallback(async () => {
+    const rows = await listStores()
+    if (rows.length === 0) return
+    const mapped: Store[] = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      address: r.address ?? '',
+      phone: r.phone ?? '',
+      staffCount: r.staffCount,
+      customerCount: r.customerCount,
+      active: r.active,
+      isPrimary: r.isPrimary,
+    }))
+    setStores(mapped)
+    setActiveStoreId((cur) => (mapped.some((s) => s.id === cur) ? cur : mapped[0].id))
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  const handleFormSave = async (values: StoreFormValues) => {
+    const payload = { name: values.name, address: values.address, phone: values.phone }
     if (formMode?.kind === 'add') {
-      // ANTHONY: insert into `stores` scoped to the org. The
-      // seat has already been added by AddStoreSubscriptionDialog
-      // — don't double-count quantity here.
-      const newStore: Store = {
-        id: `store_${Date.now()}`,
-        name: values.name.trim(),
-        address: values.address,
-        phone: values.phone,
-        staffCount: 0,
-        customerCount: 0,
-        active: true,
-        isPrimary: false,
+      const res = await createStore(payload)
+      if ('error' in res) {
+        toast.error(res.error)
+        return
       }
-      setStores((prev) => [...prev, newStore])
-      return
+    } else if (formMode?.kind === 'edit') {
+      const res = await updateStore(formMode.store.id, payload)
+      if ('error' in res) {
+        toast.error(res.error)
+        return
+      }
     }
-    if (formMode?.kind === 'edit') {
-      // ANTHONY: update where id = target.id, same business_id.
-      const targetId = formMode.store.id
-      setStores((prev) =>
-        prev.map((s) =>
-          s.id === targetId
-            ? {
-                ...s,
-                name: values.name || s.name,
-                address: values.address,
-                phone: values.phone,
-              }
-            : s,
-        ),
-      )
-    }
+    await refresh()
   }
 
   return (
