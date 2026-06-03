@@ -42,7 +42,7 @@ import {
 } from '@/components/ui/sheet'
 
 import type { RecordTargetBooking } from './RecordingTargetCard'
-import { BADGE_COLORS } from '@/lib/badge-styles'
+import { badge } from '@/lib/badge-styles'
 
 interface SelectBookingSheetProps {
   open: boolean
@@ -58,10 +58,10 @@ interface SelectBookingSheetProps {
 // the agenda + customer + dashboard badges. 予約済 booked = green, 新規 new = blue
 // (the app-wide swap); 施術中 in-session = orange; 完了 done = slate.
 const STATUS_TONE: Record<RecordTargetBooking['statusKey'], string> = {
-  done: `${BADGE_COLORS.slate.bg} ${BADGE_COLORS.slate.text} ${BADGE_COLORS.slate.border}`,
-  'in-session': `${BADGE_COLORS.orange.bg} ${BADGE_COLORS.orange.text} ${BADGE_COLORS.orange.border}`,
-  booked: `${BADGE_COLORS.green.bg} ${BADGE_COLORS.green.text} ${BADGE_COLORS.green.border}`,
-  new: `${BADGE_COLORS.blue.bg} ${BADGE_COLORS.blue.text} ${BADGE_COLORS.blue.border}`,
+  done: badge('slate'),
+  'in-session': badge('orange'),
+  booked: badge('green'),
+  new: badge('blue'),
 }
 
 export function SelectBookingSheet({
