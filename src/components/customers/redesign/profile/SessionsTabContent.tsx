@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle, ChevronDown, Clipboard } from 'lucide-react'
+import { BADGE_COLORS } from '@/lib/badge-styles'
 
 export interface CustomerSessionEntry {
   id: string
@@ -101,7 +102,9 @@ function SessionRow({ s }: { s: CustomerSessionEntry }) {
             {s.aiSummarized && (
               <>
                 <span aria-hidden>·</span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-300">
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${BADGE_COLORS.green.bg} ${BADGE_COLORS.green.text} ${BADGE_COLORS.green.border}`}
+                >
                   <CheckCircle size={10} />
                   {t('aiSummarized')}
                 </span>
@@ -110,7 +113,9 @@ function SessionRow({ s }: { s: CustomerSessionEntry }) {
             {typeof s.memoryAdded === 'number' && s.memoryAdded > 0 && (
               <>
                 <span aria-hidden>·</span>
-                <span className="inline-flex items-center gap-1 rounded-full border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-600 dark:text-violet-300">
+                <span
+                  className={`inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] ${BADGE_COLORS.violet.bg} ${BADGE_COLORS.violet.text} ${BADGE_COLORS.violet.border}`}
+                >
                   {t('memoryAdded', { n: s.memoryAdded })}
                 </span>
               </>
