@@ -1,10 +1,16 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { cookies } from 'next/headers'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
+
+// Active-store view filter — which location the viewer is looking at. A cookie,
+// not a security boundary (RLS/business scope is the boundary); the owner switch
+// is a view preference. Reading it back filters store-scoped surfaces.
+const ACTIVE_STORE_COOKIE = 'karute_active_store'
 
 // ───────────────────────────────────────────────────────────────────────────
 // Stores (locations) CRUD. Service-role-only table (src/.../20260604000000) —
@@ -87,6 +93,23 @@ export async function listStores(): Promise<StoreRow[]> {
     data = reread.data
   }
 
+  // Real staff counts per store: one read of the business's profiles, tallied by
+  // store_id in JS. Wrapped so a pre-migration DB (no store_id column) degrades
+  // to 0 rather than throwing. Customer counts still need synqed-core store_id.
+  const staffByStore = new Map<string, number>()
+  try {
+    const { data: profs } = await service
+      .from('profiles')
+      .select('store_id')
+      .eq('customer_id', businessId)
+      .not('store_id', 'is', null)
+    for (const p of profs ?? []) {
+      if (p.store_id) staffByStore.set(p.store_id, (staffByStore.get(p.store_id) ?? 0) + 1)
+    }
+  } catch {
+    /* store_id column not present yet → counts stay 0 */
+  }
+
   return (data ?? []).map(
     (s: {
       id: string
@@ -102,10 +125,46 @@ export async function listStores(): Promise<StoreRow[]> {
       phone: s.phone,
       isPrimary: s.is_primary,
       active: s.active,
-      staffCount: 0, // P2: count(profiles where store_id)
+      staffCount: staffByStore.get(s.id) ?? 0,
       customerCount: 0, // synqed-core store_id (Anthony)
     }),
   )
+}
+
+/** The viewer's active store (a cookie). Null when unset → "all / primary". */
+export async function getActiveStoreId(): Promise<string | null> {
+  const jar = await cookies()
+  return jar.get(ACTIVE_STORE_COOKIE)?.value ?? null
+}
+
+/** Switch the active store. Validates the store is in the caller's business
+ *  (so the cookie can never point at another tenant's store), then persists it. */
+export async function setActiveStore(storeId: string): Promise<{ ok: true } | { error: string }> {
+  let businessId: string
+  try {
+    businessId = await getBusinessId()
+  } catch {
+    return { error: 'Not authenticated' }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
+  const { data } = await service
+    .from('stores')
+    .select('id')
+    .eq('id', storeId)
+    .eq('business_id', businessId)
+    .maybeSingle()
+  if (!data) return { error: 'Store not found.' }
+
+  const jar = await cookies()
+  jar.set(ACTIVE_STORE_COOKIE, storeId, {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: 60 * 60 * 24 * 365,
+  })
+  revalidatePath('/', 'layout')
+  return { ok: true }
 }
 
 export async function createStore(

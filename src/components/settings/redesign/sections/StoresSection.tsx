@@ -37,7 +37,7 @@ import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-rea
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
-import { listStores, createStore, updateStore } from '@/actions/stores'
+import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId } from '@/actions/stores'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
@@ -89,7 +89,7 @@ export function StoresSection({
   )
 
   const refresh = useCallback(async () => {
-    const rows = await listStores()
+    const [rows, persisted] = await Promise.all([listStores(), getActiveStoreId()])
     if (rows.length === 0) return
     const mapped: Store[] = rows.map((r) => ({
       id: r.id,
@@ -102,12 +102,25 @@ export function StoresSection({
       isPrimary: r.isPrimary,
     }))
     setStores(mapped)
-    setActiveStoreId((cur) => (mapped.some((s) => s.id === cur) ? cur : mapped[0].id))
+    setActiveStoreId((cur) => {
+      if (persisted && mapped.some((s) => s.id === persisted)) return persisted
+      return mapped.some((s) => s.id === cur) ? cur : mapped[0].id
+    })
   }, [])
 
   useEffect(() => {
     void refresh()
   }, [refresh])
+
+  // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
+  const handleSwitch = async (storeId: string) => {
+    setActiveStoreId(storeId)
+    const res = await setActiveStore(storeId)
+    if ('error' in res) {
+      toast.error(res.error)
+      void refresh()
+    }
+  }
 
   const handleFormSave = async (values: StoreFormValues) => {
     const payload = { name: values.name, address: values.address, phone: values.phone }
@@ -259,7 +272,7 @@ export function StoresSection({
                   <div className="mt-3 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setActiveStoreId(store.id)}
+                      onClick={() => handleSwitch(store.id)}
                       className={`inline-flex h-10 flex-1 items-center justify-center gap-1 rounded-lg px-3 text-[13px] font-medium transition-colors md:h-8 md:flex-initial md:rounded-md md:text-xs ${
                         isActive
                           ? 'bg-blue-600 text-white'
