@@ -18,6 +18,9 @@ import {
 } from '@/lib/customers/customer-detail-cached'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
+import { getCustomer } from '@/lib/customers/queries'
+import { computeAge, jpGender } from '@/lib/customers/demographics'
+import { formatJoinDate } from '@/lib/customers/list-enrich'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -26,7 +29,7 @@ interface KaruteDetailPageProps {
 export default async function KaruteDetailPage({
   params,
 }: KaruteDetailPageProps) {
-  const { id } = await params
+  const { id, locale } = await params
 
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
@@ -59,14 +62,34 @@ export default async function KaruteDetailPage({
   let phone: string | null = null
   let email: string | null = null
   let consentOnFile = false
+  // Deep-crawl identity for the header (年齢/性別/回数/前回) — the same fields the
+  // customer hub surfaces, so the karute-detail header matches it instead of
+  // showing only name/#/date/contact.
+  let headerExtras: {
+    age: number | null
+    gender: string | null
+    visitNumber: number | null
+    lastVisitDate: string | null
+  } = { age: null, gender: null, visitNumber: null, lastVisitDate: null }
   if (customerId) {
-    const [contact, consentResult] = await Promise.all([
+    const [contact, consentResult, customer] = await Promise.all([
       getCustomerContact(customerId),
       getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
+      getCustomer(customerId).catch(() => null),
     ])
     phone = contact.phone
     email = contact.email
     consentOnFile = Boolean(consentResult.consent)
+    if (customer) {
+      headerExtras = {
+        age: computeAge(customer.date_of_birth),
+        gender: jpGender(customer.gender),
+        visitNumber: customer.visit_count,
+        lastVisitDate: customer.last_visit_at
+          ? formatJoinDate(customer.last_visit_at, locale)
+          : null,
+      }
+    }
   }
 
   return (
@@ -82,6 +105,10 @@ export default async function KaruteDetailPage({
         staffName: header.staffName === '—' ? null : header.staffName,
         phone,
         email,
+        age: headerExtras.age,
+        gender: headerExtras.gender,
+        visitNumber: headerExtras.visitNumber,
+        lastVisitDate: headerExtras.lastVisitDate,
       }}
       sessionDateLong={header.sessionDateLong}
       entries={sessionEntries}
