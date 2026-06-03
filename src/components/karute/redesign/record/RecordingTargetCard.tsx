@@ -19,6 +19,11 @@ export interface RecordTargetBooking {
   staff: string
   /** Assigned staff id — drives the avatar color (same palette as the 予約 agenda). */
   staffId: string | null
+  /** Distinct staff color, resolved from the full roster on the page
+   *  (sessions/page.tsx via assignStaffColors). The picker avatar reads
+   *  this through getStaffColorByKey — never a per-id hash — so a stylist's
+   *  color matches every other surface. Null → neutral fallback. */
+  staffColorKey: import('@/lib/staff-colors').StaffColor['key'] | null
   statusKey: 'done' | 'in-session' | 'booked' | 'new'
   statusLabel: string
 }

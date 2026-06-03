@@ -19,7 +19,8 @@ import { useTransition } from 'react'
 import { User, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { getStaffColor } from '@/lib/staff/colors'
+import { assignStaffColors, getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
+import { cn } from '@/lib/utils'
 
 export interface ReservationStaffEntry {
   id: string
@@ -51,6 +52,9 @@ export function ReservationStaffFilter({
   const pathname = usePathname()
   const search = useSearchParams()
   const [isPending, startTransition] = useTransition()
+  // Distinct color per staff over the FULL roster of chips (sorted-index
+  // assignment, no collisions) — same mapping the agenda/grid use.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
 
   function setStaff(next: string) {
     const params = new URLSearchParams(search?.toString() ?? '')
@@ -100,6 +104,7 @@ export function ReservationStaffFilter({
             <StaffPill
               key={s.id}
               staff={s}
+              color={getStaffColorByKey(staffColors.get(s.id)?.key)}
               active={selected === s.id}
               onClick={() => setStaff(selected === s.id ? 'all' : s.id)}
             />
@@ -140,14 +145,15 @@ function SegmentButton({
 
 function StaffPill({
   staff,
+  color,
   active,
   onClick,
 }: {
   staff: ReservationStaffEntry
+  color: StaffColor
   active: boolean
   onClick: () => void
 }) {
-  const color = getStaffColor(staff.id) ?? 'var(--muted)'
   return (
     <button
       type="button"
@@ -160,8 +166,11 @@ function StaffPill({
       }`}
     >
       <span
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ring-1 ring-black/5"
-        style={{ background: color }}
+        className={cn(
+          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-black/5',
+          color.bg,
+          color.text,
+        )}
         aria-hidden
       >
         {staff.initials}

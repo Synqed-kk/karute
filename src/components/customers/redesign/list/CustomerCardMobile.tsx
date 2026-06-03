@@ -4,13 +4,15 @@ import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
+import { cn } from '@/lib/utils'
+import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
 import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerCardMobileProps {
   c: CustomerListRow
-  staffColor: string | null
+  staffColorKey: StaffColor['key'] | null
   /**
    * When `true`, renders a row of AI status chips at the bottom of
    * the card (体調予測 / 推奨 / 要約 / 録音, all 対応予定 for now).
@@ -46,13 +48,14 @@ interface CustomerCardMobileProps {
  */
 export function CustomerCardMobile({
   c,
-  staffColor,
+  staffColorKey,
   karuteContext = false,
   hrefBase = '/customers',
 }: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
+  const staff = getStaffColorByKey(staffColorKey)
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
@@ -69,8 +72,10 @@ export function CustomerCardMobile({
        *  giving the cut-into-sections look from the spike. */}
       <span
         aria-hidden
-        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
-        style={{ background: staffColor ?? 'var(--border)' }}
+        className={cn(
+          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
+          staffColorKey ? staff.stripe : 'bg-border',
+        )}
       />
 
       {/* Avatar — smaller in karute context (size-8 / 32px) to match
