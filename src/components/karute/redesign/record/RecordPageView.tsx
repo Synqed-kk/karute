@@ -40,6 +40,8 @@ export interface RecordPageNextAppointment {
   id: string
   customerName: string
   customerId: string
+  /** Sequential karute number ("#00007") — matches the 顧客/予約 surfaces. */
+  karuteNumber: string | null
   startTime: string
   durationMinutes: number
   title: string | null
@@ -307,7 +309,7 @@ export function RecordPageView({
         id: nextAppointment.id,
         customerName: nextAppointment.customerName,
         initials: deriveInitials(nextAppointment.customerName),
-        karuteNumber: null,
+        karuteNumber: nextAppointment.karuteNumber ?? null,
         service: nextAppointment.title ?? '—',
         timeRange: (() => {
           const start = new Date(nextAppointment.startTime)
