@@ -40,6 +40,7 @@ import {
 } from '@/components/ui/sheet'
 
 import type { RecordTargetBooking } from './RecordingTargetCard'
+import { BADGE_COLORS } from '@/lib/badge-styles'
 
 interface SelectBookingSheetProps {
   open: boolean
@@ -51,13 +52,14 @@ interface SelectBookingSheetProps {
   onSelect: (booking: RecordTargetBooking) => void
 }
 
+// Booking-status pills derive from the shared BADGE_COLORS source — identical to
+// the agenda + customer + dashboard badges. 予約済 booked = green, 新規 new = blue
+// (the app-wide swap); 施術中 in-session = orange; 完了 done = slate.
 const STATUS_TONE: Record<RecordTargetBooking['statusKey'], string> = {
-  done: 'bg-foreground/8 text-muted-foreground ring-1 ring-foreground/10',
-  'in-session':
-    'bg-orange-500/15 text-orange-600 ring-1 ring-orange-400/40 dark:text-orange-300 dark:ring-orange-500/30',
-  booked:
-    'bg-sky-500/15 text-sky-700 ring-1 ring-sky-400/30 dark:text-sky-300 dark:ring-sky-500/30',
-  new: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-400/40 dark:text-emerald-300 dark:ring-emerald-500/30',
+  done: `${BADGE_COLORS.slate.bg} ${BADGE_COLORS.slate.text} ${BADGE_COLORS.slate.border}`,
+  'in-session': `${BADGE_COLORS.orange.bg} ${BADGE_COLORS.orange.text} ${BADGE_COLORS.orange.border}`,
+  booked: `${BADGE_COLORS.green.bg} ${BADGE_COLORS.green.text} ${BADGE_COLORS.green.border}`,
+  new: `${BADGE_COLORS.blue.bg} ${BADGE_COLORS.blue.text} ${BADGE_COLORS.blue.border}`,
 }
 
 export function SelectBookingSheet({
@@ -170,7 +172,7 @@ export function SelectBookingSheet({
                     {/* Status pill */}
                     <span
                       className={cn(
-                        'inline-flex h-5 shrink-0 items-center rounded-full px-1.5 text-[10px] font-medium',
+                        'inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-[10px] font-medium',
                         STATUS_TONE[b.statusKey],
                       )}
                     >
