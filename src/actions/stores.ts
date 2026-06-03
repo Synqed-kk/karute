@@ -6,6 +6,7 @@ import { cookies } from 'next/headers'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
+import { loadEntitlement } from '@/lib/entitlements'
 
 // Active-store view filter — which location the viewer is looking at. A cookie,
 // not a security boundary (RLS/business scope is the boundary); the owner switch
@@ -180,6 +181,20 @@ export async function createStore(
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
+
+  // Plan gate (P3): server-side store cap — the authoritative app-level check
+  // (the client button is just UX). Dev/owner accounts (Liam) are never capped —
+  // is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS.
+  //
+  // Soft gate for the payment-later phase: the count read + INSERT below aren't a
+  // single transaction, so a rare concurrent double-create by the same owner could
+  // slip one store past a finite cap. Accepted for now (store creation is rare +
+  // owner-only). Billing-grade atomicity arrives with Stripe seat creation (seats
+  // are transactional); a sooner hard floor = a Postgres RPC wrapping count+insert
+  // in pg_advisory_xact_lock(hashtext(business_id)).
+  const entitlement = await loadEntitlement(businessId)
+  if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
   const { data, error } = await service
