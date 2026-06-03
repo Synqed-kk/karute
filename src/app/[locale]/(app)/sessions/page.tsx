@@ -214,6 +214,7 @@ export default async function SessionsPage({
       end: hhmm(end),
       customer: customerName,
       initials: deriveFamilyInitials(customerName),
+      staffId: a.staff_profile_id,
       karute: karuteNumberByClientId.get(a.client_id) ?? null,
       // a.title is the customer's free-text booking note — '—' when
       // null instead of an English literal 'Session' that other rows
