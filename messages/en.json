@@ -2207,5 +2207,28 @@
     "copied": "Copied",
     "pendingInvites": "Pending invites",
     "revoke": "Revoke"
+  },
+  "permissions": {
+    "roleLabel": "Role & permissions",
+    "roleHint": "Separate from job title — this sets what this person can do.",
+    "ownerFullAccess": "Account owner — full access to everything.",
+    "permissionsLabel": "Individual permissions",
+    "role_manager": "Manager",
+    "role_senior": "Senior",
+    "role_practitioner": "Staff",
+    "role_frontdesk": "Front desk",
+    "role_custom": "Custom",
+    "cap_billing_manage": "Billing & subscription",
+    "cap_business_manage": "Delete / transfer the salon",
+    "cap_staff_invite": "Invite staff",
+    "cap_staff_manage": "Manage & remove staff",
+    "cap_settings_manage": "Salon settings",
+    "cap_audit_view": "Audit log",
+    "cap_data_export": "Export / import data",
+    "cap_records_delete": "Delete records",
+    "cap_records_write": "Record sessions & edit karute",
+    "cap_analytics_viewAll": "Whole-salon analytics",
+    "cap_customers_view": "View customers",
+    "cap_bookings_manage": "Manage bookings"
   }
 }

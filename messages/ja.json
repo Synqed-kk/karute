@@ -2207,5 +2207,28 @@
     "copied": "コピーしました",
     "pendingInvites": "保留中の招待",
     "revoke": "取り消す"
+  },
+  "permissions": {
+    "roleLabel": "権限",
+    "roleHint": "役職とは別に、このスタッフができる操作を設定します。",
+    "ownerFullAccess": "アカウントオーナー — すべての権限があります。",
+    "permissionsLabel": "個別の権限",
+    "role_manager": "マネージャー",
+    "role_senior": "シニアスタッフ",
+    "role_practitioner": "スタッフ",
+    "role_frontdesk": "受付",
+    "role_custom": "カスタム",
+    "cap_billing_manage": "支払い・サブスク",
+    "cap_business_manage": "店舗の削除・譲渡",
+    "cap_staff_invite": "スタッフを招待",
+    "cap_staff_manage": "スタッフの管理・削除",
+    "cap_settings_manage": "店舗設定",
+    "cap_audit_view": "監査ログ",
+    "cap_data_export": "データの書き出し・取り込み",
+    "cap_records_delete": "記録の削除",
+    "cap_records_write": "録音・カルテ編集",
+    "cap_analytics_viewAll": "全店舗の分析",
+    "cap_customers_view": "顧客の閲覧",
+    "cap_bookings_manage": "予約の管理"
   }
 }
