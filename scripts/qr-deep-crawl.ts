@@ -27,8 +27,19 @@ async function main() {
   const { data: config } = await sb.from('sync_config').select('*').eq('provider', 'quickreserve').single()
   if (!config) throw new Error('No sync_config row for quickreserve')
 
-  const businessId = config.business_id
-  if (!businessId) throw new Error('sync_config.business_id is required to run the crawl as a script')
+  // Prefer sync_config.business_id; else resolve it the way getBusinessId() does —
+  // profiles.customer_id (single-business system, so any profile's is the business id).
+  let businessId: string | undefined = config.business_id
+  if (!businessId) {
+    const { data: prof } = await sb
+      .from('profiles')
+      .select('customer_id')
+      .not('customer_id', 'is', null)
+      .limit(1)
+      .single()
+    businessId = prof?.customer_id ?? undefined
+  }
+  if (!businessId) throw new Error('Could not resolve businessId (no sync_config.business_id and no profiles.customer_id)')
 
   const synqed = new SynqedClient({
     baseUrl: process.env.SYNQED_CORE_URL!,
