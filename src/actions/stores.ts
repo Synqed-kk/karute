@@ -1,6 +1,6 @@
 'use server'
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 
 import { createServiceClient } from '@/lib/supabase/service'
@@ -225,6 +225,66 @@ export async function updateStore(
     .eq('id', id)
     .eq('business_id', businessId)
   if (error) return { error: `Could not update store: ${error.message}` }
+  revalidatePath('/settings')
+  return { ok: true }
+}
+
+/** Which store a staff member is attached to (null = not pinned). Graceful
+ *  pre-migration (no store_id column → null). */
+export async function getStaffStore(staffId: string): Promise<string | null> {
+  let businessId: string
+  try {
+    businessId = await getBusinessId()
+  } catch {
+    return null
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
+  try {
+    const { data } = await service
+      .from('profiles')
+      .select('store_id')
+      .eq('id', staffId)
+      .eq('customer_id', businessId)
+      .maybeSingle()
+    return (data?.store_id as string | null) ?? null
+  } catch {
+    return null
+  }
+}
+
+/** Assign a staff member to a store (or null to unpin). Owner-only; validates
+ *  the store is in the caller's business and the staff is too. */
+export async function setStaffStore(
+  staffId: string,
+  storeId: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  let businessId: string
+  try {
+    businessId = await requireOwnerBusiness()
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
+
+  if (storeId) {
+    const { data: store } = await service
+      .from('stores')
+      .select('id')
+      .eq('id', storeId)
+      .eq('business_id', businessId)
+      .maybeSingle()
+    if (!store) return { error: 'Store not found.' }
+  }
+
+  const { error } = await service
+    .from('profiles')
+    .update({ store_id: storeId })
+    .eq('id', staffId)
+    .eq('customer_id', businessId)
+  if (error) return { error: `Could not assign store: ${error.message}` }
+  updateTag('staff-list')
   revalidatePath('/settings')
   return { ok: true }
 }

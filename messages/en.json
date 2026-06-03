@@ -1392,7 +1392,9 @@
         "save": "Add store",
         "saveEdit": "Save changes",
         "saved": "Saved"
-      }
+      },
+      "assignLabel": "Store / location",
+      "unassigned": "Unassigned"
     },
     "coaching": {
       "title": "Coaching settings",
