@@ -5,6 +5,7 @@ import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
+import { requireCapability } from '@/lib/auth/require-permission'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 
 // Look up an existing Supabase profile by email. Returns its id (which equals
@@ -23,6 +24,7 @@ async function findProfileIdByEmail(email: string): Promise<string | null> {
 }
 
 export async function createStaff(data: StaffProfileInput): Promise<void> {
+  await requireCapability('staff.invite')
   const parsed = staffProfileSchema.safeParse(data)
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map((e) => e.message).join(', '))
@@ -102,6 +104,7 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
  * records) and returns 400 with a human message when either triggers.
  */
 export async function deleteStaff(id: string): Promise<void> {
+  await requireCapability('staff.manage') // owner + manager only (per the matrix)
   const synqed = await getSynqedClient()
 
   try {
