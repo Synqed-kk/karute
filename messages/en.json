@@ -457,6 +457,16 @@
       "openFullKarute": "Open full karute record →",
       "noKaruteLinked": "No karute record linked to this session yet"
     },
+    "photos": {
+      "title": "Photos",
+      "count": "{n} total",
+      "emptyTitle": "No photos yet",
+      "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+      "before": "Before",
+      "after": "After",
+      "reference": "Reference",
+      "progress": "Progress"
+    },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
     },

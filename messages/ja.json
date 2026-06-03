@@ -457,6 +457,16 @@
       "openFullKarute": "カルテ詳細を開く →",
       "noKaruteLinked": "このセッションにカルテはまだ紐付いていません"
     },
+    "photos": {
+      "title": "写真",
+      "count": "{n}枚",
+      "emptyTitle": "写真はまだありません",
+      "emptyBody": "ビフォー／アフター／参考写真をアップロードして、セッションごとの変化を記録できます。",
+      "before": "ビフォー",
+      "after": "アフター",
+      "reference": "参考",
+      "progress": "経過"
+    },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
     },
