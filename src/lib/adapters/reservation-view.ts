@@ -41,6 +41,10 @@ export interface ReservationView {
   durationMin: number
   customerName: string
   customerInitials: string
+  /** Sequential salon karute number ("#00139") — the SAME value the 顧客 list +
+   *  customer profile show, so the agenda row matches every other surface.
+   *  Empty string when the caller doesn't supply the number map. */
+  karuteNumber: string
   service: string
   displayStatus: DisplayStatus
   staffColorKey: StaffColorKey
@@ -108,6 +112,7 @@ export function appointmentsToReservationViews(
   staffList: StaffMember[],
   now: Date,
   isFirstTimeByClient: Map<string, boolean> = new Map(),
+  karuteNumberByClientId: ReadonlyMap<string, string> = new Map(),
 ): ReservationView[] {
   const staffNameById = new Map<string, string>()
   for (const s of staffList) {
@@ -131,6 +136,7 @@ export function appointmentsToReservationViews(
       durationMin: r.duration_minutes,
       customerName,
       customerInitials: initialsOf(customerName),
+      karuteNumber: karuteNumberByClientId.get(r.client_id) ?? '',
       // Empty string when no title set — the agenda row hides the service
       // line rather than printing a generic 'セッション' fallback that read
       // as misleading copy on Liam's preview (every row said "セッション").
