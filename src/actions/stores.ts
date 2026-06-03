@@ -182,9 +182,16 @@ export async function createStore(
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
-  // Plan gate (P3): block the (N+1)th store once the tier's store limit is hit.
-  // The real, un-bypassable check (the client button is just UX). Dev/owner
-  // accounts (Liam) are never capped — is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS.
+  // Plan gate (P3): server-side store cap — the authoritative app-level check
+  // (the client button is just UX). Dev/owner accounts (Liam) are never capped —
+  // is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS.
+  //
+  // Soft gate for the payment-later phase: the count read + INSERT below aren't a
+  // single transaction, so a rare concurrent double-create by the same owner could
+  // slip one store past a finite cap. Accepted for now (store creation is rare +
+  // owner-only). Billing-grade atomicity arrives with Stripe seat creation (seats
+  // are transactional); a sooner hard floor = a Postgres RPC wrapping count+insert
+  // in pg_advisory_xact_lock(hashtext(business_id)).
   const entitlement = await loadEntitlement(businessId)
   if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
 
