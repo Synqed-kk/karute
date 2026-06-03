@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
@@ -52,6 +53,10 @@ export default async function SessionsPage({
   const activeStaffId = await getCurrentUserStaffId()
   const staffList = await getStaffList()
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  // DISTINCT staff colors over the FULL roster — same map on every surface,
+  // no per-id hash collisions. Feeds the recording-picker avatar via
+  // staffColorKey on each booking below.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
   const tStatus = await getTranslations('reservation.status')
 
   const now = new Date()
@@ -215,6 +220,11 @@ export default async function SessionsPage({
       customer: customerName,
       initials: deriveFamilyInitials(customerName),
       staffId: a.staff_profile_id,
+      // Distinct color key from the roster map — picker avatar resolves it
+      // via getStaffColorByKey, matching the 予約 agenda / customer list.
+      staffColorKey: a.staff_profile_id
+        ? (staffColors.get(a.staff_profile_id)?.key ?? null)
+        : null,
       karute: karuteNumberByClientId.get(a.client_id) ?? null,
       // a.title is the customer's free-text booking note — '—' when
       // null instead of an English literal 'Session' that other rows

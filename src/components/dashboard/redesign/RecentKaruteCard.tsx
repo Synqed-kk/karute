@@ -3,6 +3,8 @@
 import { ArrowRight, Clipboard } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
+import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
+import { cn } from '@/lib/utils'
 
 export interface DashboardRecentKarute {
   id: string
@@ -12,7 +14,7 @@ export interface DashboardRecentKarute {
   summary: string
   entryCount: number
   staffName: string
-  staffColor: string | null
+  staffColorKey: StaffColor['key'] | null
 }
 
 export function RecentKaruteCard({
@@ -71,10 +73,12 @@ export function RecentKaruteCard({
                 <span className="tabular-nums">{t('entriesCount', { n: r.entryCount })}</span>
                 <span aria-hidden>·</span>
                 <span className="flex items-center gap-1.5">
-                  {r.staffColor && (
+                  {r.staffColorKey && (
                     <span
-                      className="h-2 w-2 rounded-full"
-                      style={{ background: r.staffColor }}
+                      className={cn(
+                        'h-2 w-2 rounded-full',
+                        getStaffColorByKey(r.staffColorKey).stripe,
+                      )}
                     />
                   )}
                   <span>{r.staffName}</span>

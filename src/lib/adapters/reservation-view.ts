@@ -1,6 +1,6 @@
 import type { AppointmentRow } from '@/actions/appointments'
 import type { StaffMember } from '@/lib/staff'
-import { getStaffColor, type StaffColorKey } from '@/lib/staff-colors'
+import { assignStaffColors, type StaffColorKey } from '@/lib/staff-colors'
 
 // ---------------------------------------------------------------------------
 // Adapter: AppointmentRow -> ReservationView for the reservation UI.
@@ -47,7 +47,7 @@ export interface ReservationView {
   karuteNumber: string | null
   service: string
   displayStatus: DisplayStatus
-  staffColorKey: StaffColorKey
+  staffColorKey: StaffColorKey | 'neutral'
   /** ID of the customer, used to route follow-up actions (memory, new karute). */
   clientId: string
   /** Set when a karute_record already exists for this appointment. */
@@ -118,6 +118,10 @@ export function appointmentsToReservationViews(
   for (const s of staffList) {
     if (s.full_name) staffNameById.set(s.id, s.full_name)
   }
+  // Distinct color per staff over the FULL roster (sorted-index assignment, no
+  // collisions). Computed once here so every reservation surface that reads
+  // `staffColorKey` off the view agrees on the mapping.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
     // A 回数券 (multi-session ticket) booking means an established returning
@@ -143,7 +147,7 @@ export function appointmentsToReservationViews(
       // The left time column already shows duration prominently.
       service: r.title ?? '',
       displayStatus: computeDisplayStatus(r, now, { isFirstTimeCustomer }),
-      staffColorKey: getStaffColor(r.staff_profile_id).key,
+      staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
       isFirstTimeVisit: isFirstTimeCustomer,

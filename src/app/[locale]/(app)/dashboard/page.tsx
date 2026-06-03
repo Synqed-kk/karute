@@ -6,7 +6,7 @@ import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPage
 import { getDashboardData } from '@/lib/dashboard/cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
-import { getStaffColor } from '@/lib/staff/colors'
+import { assignStaffColors } from '@/lib/staff-colors'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { startTiming } from '@/lib/perf/timing'
 import type { DashboardAppointment, AppointmentStatusKey } from '@/components/dashboard/redesign/TodaysAppointmentsCard'
@@ -74,6 +74,9 @@ export default async function DashboardPage() {
 
   const activeStaff = staffList.find((s) => s.id === activeStaffId)
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  // DISTINCT staff-color map from the FULL roster — identical mapping on every
+  // surface (顧客 / 予約 / 録音 / dashboard), no two staff share a color.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
 
   const now = new Date()
   const appointments: DashboardAppointment[] = dashboard.todayAppointments.map(
@@ -100,7 +103,7 @@ export default async function DashboardPage() {
         // of an English literal 'Session' masquerading as real data.
         service: a.title ?? '—',
         staffName: staffNameById.get(a.staff_profile_id) ?? 'Unknown',
-        staffColor: getStaffColor(a.staff_profile_id),
+        staffColorKey: staffColors.get(a.staff_profile_id)?.key ?? null,
         statusKey,
         statusLabel,
         reservationMemo: a.notes,
@@ -124,7 +127,9 @@ export default async function DashboardPage() {
         staffName: r.staff_profile_id
           ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
           : 'Unknown',
-        staffColor: getStaffColor(r.staff_profile_id),
+        staffColorKey: r.staff_profile_id
+          ? (staffColors.get(r.staff_profile_id)?.key ?? null)
+          : null,
       }
     },
   )

@@ -28,8 +28,9 @@ import { useTranslations } from 'next-intl'
 import { Radio } from 'lucide-react'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
-import { getStaffColor } from '@/lib/staff/colors'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 import { BADGE_COLORS } from '@/lib/badge-styles'
+import { cn } from '@/lib/utils'
 
 interface Props {
   reservations: ReservationView[]
@@ -115,7 +116,7 @@ function AgendaRow({
   const isCompleted = r.displayStatus === 'completed'
   const honorific = t('customerSuffix')
   const interactive = !!onSelect
-  const staffColor = getStaffColor(r.staffId) ?? 'var(--muted)'
+  const staff = getStaffColorByKey(r.staffColorKey)
 
   const content = (
     <>
@@ -139,8 +140,11 @@ function AgendaRow({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span
-            className="flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold text-white ring-1 ring-black/5"
-            style={{ background: staffColor }}
+            className={cn(
+              'flex size-5 shrink-0 items-center justify-center rounded-full text-[9px] font-semibold ring-1 ring-black/5',
+              staff.bg,
+              staff.text,
+            )}
             aria-hidden
           >
             {r.customerInitials}
@@ -179,8 +183,7 @@ function AgendaRow({
         {r.staffName && (
           <div className="mt-0.5 flex items-center gap-1 truncate text-[12px] text-muted-foreground">
             <span
-              className="inline-block size-1.5 shrink-0 rounded-full"
-              style={{ background: staffColor }}
+              className={cn('inline-block size-1.5 shrink-0 rounded-full', staff.stripe)}
               aria-hidden
             />
             <span className="truncate">

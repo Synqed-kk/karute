@@ -49,6 +49,11 @@ export interface KaruteListItem {
   /** Minutes. Falls back to 0 if unknown. */
   duration: number
   staffId: string | null
+  /** Distinct staff color, resolved from the full roster on the page
+   *  (karute/page.tsx via assignStaffColors). The row's avatar + stripe read
+   *  this through getStaffColorByKey — never a per-id hash — so a stylist's
+   *  color matches every other surface. Null → neutral fallback. */
+  staffColorKey: import('@/lib/staff-colors').StaffColor['key'] | null
   staffName: string
   summary: string
   aiStatus: KaruteAiStatus
