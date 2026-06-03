@@ -4,6 +4,8 @@ import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData } from '@/lib/dashboard/cached'
+import { getCachedCustomerList } from '@/lib/customers/cached'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getStaffColor } from '@/lib/staff/colors'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { startTiming } from '@/lib/perf/timing'
@@ -53,6 +55,7 @@ export default async function DashboardPage() {
     orgSettings,
     tStatus,
     locale,
+    customerList,
   ] = await Promise.all([
     t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
@@ -61,8 +64,13 @@ export default async function DashboardPage() {
     t.phase('orgSettings', () => getOrgSettings()),
     getTranslations('reservation.status'),
     getLocale(),
+    t.phase('customerList', () => getCachedCustomerList()),
   ])
   t.end()
+
+  // Same canonical karute-number map every other surface (顧客 / 予約 / 録音) uses,
+  // so the dashboard's #00007 matches them.
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customerList)
 
   const activeStaff = staffList.find((s) => s.id === activeStaffId)
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
@@ -87,8 +95,7 @@ export default async function DashboardPage() {
         time: hhmm(start),
         duration: a.duration_minutes,
         customerName: a.customers?.name ?? 'Unknown',
-        // karuteNumber dropped — see top-of-file comment.
-        karuteNumber: null,
+        karuteNumber: karuteNumberByClientId.get(a.client_id) ?? null,
         // a.title is the customer's booking note — '—' when null instead
         // of an English literal 'Session' masquerading as real data.
         service: a.title ?? '—',
@@ -110,9 +117,7 @@ export default async function DashboardPage() {
       return {
         id: r.id,
         customerName: r.customers?.name ?? 'Unknown',
-        // karuteNumber dropped — see top-of-file comment. Card renders
-        // the row without the chip when null.
-        karuteNumber: null,
+        karuteNumber: karuteNumberByClientId.get(r.client_id ?? '') ?? null,
         sessionDate: formatShortDate(dt, locale),
         summary: r.summary ?? '—',
         entryCount,

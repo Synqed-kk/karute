@@ -130,12 +130,12 @@ export function RecordingTargetCard({
           </div>
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-base font-semibold text-foreground">
+              <span className="min-w-0 truncate text-base font-semibold text-foreground">
                 {appointment.customerName}
               </span>
-              <span className="text-[13px] text-muted-foreground">{t('honorific')}</span>
+              <span className="shrink-0 text-[13px] text-muted-foreground">{t('honorific')}</span>
               {appointment.karuteNumber && (
-                <span className="text-[13px] tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-[13px] tabular-nums text-muted-foreground">
                   {appointment.karuteNumber}
                 </span>
               )}

@@ -4,6 +4,7 @@ import { getBusinessId } from '@/lib/staff'
 
 export interface DashboardTodayAppointment {
   id: string
+  client_id: string
   start_time: string
   duration_minutes: number
   staff_profile_id: string
@@ -15,6 +16,7 @@ export interface DashboardTodayAppointment {
 
 export interface DashboardRecentKarute {
   id: string
+  client_id: string | null
   summary: string | null
   created_at: string
   session_date: string | null
@@ -98,6 +100,7 @@ const dashboardByDay = unstable_cache(
       'appointments' in appointmentsRes ? appointmentsRes.appointments : []
     ).map((a) => ({
       id: a.id,
+      client_id: a.customer_id,
       start_time: a.starts_at,
       duration_minutes: a.duration_minutes ?? 0,
       staff_profile_id: a.staff_id,
@@ -113,6 +116,7 @@ const dashboardByDay = unstable_cache(
       'karute_records' in recentRes ? recentRes.karute_records : []
     ).map((r) => ({
       id: r.id,
+      client_id: r.customer_id ?? null,
       summary: r.ai_summary,
       created_at: r.created_at,
       session_date: r.created_at,

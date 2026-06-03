@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
 import {
   getAppointmentsByDate,
@@ -77,7 +78,7 @@ export default async function SessionsPage({
     sb
       .from('karute_records')
       .select(
-        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
+        `id, client_id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
       )
       .order('session_date', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
@@ -85,11 +86,17 @@ export default async function SessionsPage({
       .then((res: { data: unknown }) => res),
   ])
 
+  // Sequential karute number per customer — same deterministic helper + same
+  // cached list (now carrying created_at) the 顧客 page + 予約 agenda use, so
+  // #00007 matches every other surface.
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customers)
+
   // Next unlinked appointment for this staff (used as recording target)
   let nextAppointment: {
     id: string
     customerName: string
     customerId: string
+    karuteNumber: string | null
     startTime: string
     durationMinutes: number
     title: string | null
@@ -166,6 +173,7 @@ export default async function SessionsPage({
       id: unlinked.id,
       customerName: unlinked.customers?.name ?? 'Unknown',
       customerId: unlinked.client_id,
+      karuteNumber: karuteNumberByClientId.get(unlinked.client_id) ?? null,
       startTime: unlinked.start_time,
       durationMinutes: unlinked.duration_minutes,
       title: unlinked.title ?? null,
@@ -206,7 +214,7 @@ export default async function SessionsPage({
       end: hhmm(end),
       customer: customerName,
       initials: deriveFamilyInitials(customerName),
-      karute: null,
+      karute: karuteNumberByClientId.get(a.client_id) ?? null,
       // a.title is the customer's free-text booking note — '—' when
       // null instead of an English literal 'Session' that other rows
       // would carry as if it were real data.
@@ -230,6 +238,7 @@ export default async function SessionsPage({
 
   type RecentRow = {
     id: string
+    client_id: string
     session_date: string | null
     created_at: string
     summary: string | null
@@ -248,11 +257,7 @@ export default async function SessionsPage({
       id: r.id,
       customerName,
       initials: deriveFamilyInitials(customerName),
-      // karuteNumber dropped — see top-of-file comment. The card's
-      // existing `karuteNumber && ...` conditional hides the chip
-      // when null so the row reads cleanly instead of showing
-      // `#A1B2C` hash noise.
-      karuteNumber: null,
+      karuteNumber: karuteNumberByClientId.get(r.client_id) ?? null,
       // Service '—' instead of literal 'Session' until karute_records
       // has a real `service` column. Same '施術' bug fixed on the
       // main karute list.
