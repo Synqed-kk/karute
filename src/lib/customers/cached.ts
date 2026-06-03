@@ -9,6 +9,11 @@ export interface CachedCustomerOption {
    *  a known existing customer is NEVER 新規, even if we have no karute/past
    *  appointment for them yet (QR-migrated regulars). */
   isExistingCustomer: boolean
+  /** Creation timestamp — the sort key assignSequentialKaruteNumbers uses to
+   *  assign #00139 etc. MUST be carried so the agenda's karute numbers match
+   *  the 顧客 page + karute detail (which sort the same raw list by created_at).
+   *  Dropping it silently re-sorted the agenda by id → mismatched numbers. */
+  created_at: string | null
 }
 
 // businessId is the cache key — Next includes function args in the key automatically,
@@ -33,6 +38,7 @@ const customerListByBusiness = unstable_cache(
       id: c.id,
       name: c.name,
       isExistingCustomer: c.is_existing_customer,
+      created_at: c.created_at,
     }))
   },
   ['cached-customer-list-v2'],
