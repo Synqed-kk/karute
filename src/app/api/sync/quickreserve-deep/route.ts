@@ -28,6 +28,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // ?limit=N caps how many customers are processed — use it for a scoped first
+  // run before crawling the full roster. 0 / absent = all.
+  const limit = Number(request.nextUrl.searchParams.get('limit')) || 0
+
   const supabase = createServiceClient()
 
   try {
@@ -80,27 +84,26 @@ export async function POST(request: NextRequest) {
     let created = 0
     let visitsUpserted = 0
     let errors = 0
+    let total = 0
 
-    for (let page = 1; ; page++) {
-      if (page > 100) {
-        console.log('[QR Deep] Page cap (100) hit — stopping')
-        break
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let qrCustomers: any[]
+    // QR pages are 0-indexed; response is { count, rows }.
+    for (let page = 0; page < 100; page++) {
+      let rows: Awaited<ReturnType<typeof qrGetCustomersServerSide>>['rows']
       try {
-        qrCustomers = await qrGetCustomersServerSide(session, storeSlug, storeId, page, pageSize)
+        const result = await qrGetCustomersServerSide(session, storeSlug, storeId, page, pageSize)
+        total = result.count
+        rows = result.rows
       } catch (err) {
         console.error(`[QR Deep] customers page ${page} fetch error:`, err)
         errors++
         break
       }
 
-      console.log('[QR Deep]', { page, count: qrCustomers.length })
-      if (qrCustomers.length === 0) break
+      console.log('[QR Deep]', { page, rows: rows.length, total })
+      if (rows.length === 0) break
 
-      for (const qrCustomer of qrCustomers) {
+      for (const qrCustomer of rows) {
+        if (limit && processed >= limit) break
         const qrCustomerId = qrCustomer.id
         const name: string = qrCustomer.name
         try {
@@ -123,9 +126,9 @@ export async function POST(request: NextRequest) {
             created++
           }
 
-          const deep = reservations[0]?.Customer ? mapDeepCustomer(reservations[0].Customer) : {}
+          // The list row IS the full Customer object — map the profile straight from it.
           await synqed.customers.update(customerId, {
-            ...deep,
+            ...mapDeepCustomer(qrCustomer),
             total_sales: totalSales,
             first_visit_at: firstVisitAt,
           })
@@ -143,7 +146,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      if (qrCustomers.length < pageSize) break
+      if (limit && processed >= limit) { console.log(`[QR Deep] limit ${limit} reached`); break }
+      if ((page + 1) * pageSize >= total) break
     }
 
     const tally = { processed, created, visitsUpserted, errors }

@@ -1401,6 +1401,7 @@
       "ownerDesc": "You can view and manage data (bookings, karute, AI analysis) across all stores.",
       "storesCount": "{n} {n, plural, one {store} other {stores}} active",
       "addStore": "Add",
+      "limitReached": "You've reached your plan's store limit",
       "primaryBadge": "Main",
       "activeBadge": "Active",
       "staffUnit": "{n} staff",
@@ -1444,7 +1445,9 @@
         "save": "Add store",
         "saveEdit": "Save changes",
         "saved": "Saved"
-      }
+      },
+      "assignLabel": "Store / location",
+      "unassigned": "Unassigned"
     },
     "coaching": {
       "title": "Coaching settings",

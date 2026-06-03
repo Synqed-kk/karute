@@ -229,12 +229,22 @@ export async function qrGetCustomerReservationsByCustomerId(
 export async function qrGetCustomersServerSide(
   session: QRSession, storeSlug: string, storeId: number, page: number, pageSize = 100,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-): Promise<any[]> {
-  const res = await fetch(`${QR_API_BASE}/${storeSlug}/${storeId}/get-customers-server-side`,
-    { method: 'POST', headers: qrHeaders(session), body: JSON.stringify({ page, page_size: pageSize }) })
+): Promise<{ count: number; rows: any[] }> {
+  // QR's verified contract: filters + 0-indexed pagination.{page,pageSize} + sorts;
+  // response is { count, rows: Customer[] } where each row is the full Customer object.
+  const res = await fetch(`${QR_API_BASE}/${storeSlug}/${storeId}/get-customers-server-side`, {
+    method: 'POST',
+    headers: qrHeaders(session),
+    body: JSON.stringify({
+      filters: [
+        { field: 'store_id', operator: 'in', value: [storeId] },
+        { field: 'deleted', operator: 'eq', value: false },
+      ],
+      pagination: { page, pageSize },
+      sorts: [],
+    }),
+  })
   if (!res.ok) throw new Error(`QR customers-server-side p${page}: ${res.status}`)
   const data = await res.json()
-  // Defensive: the exact envelope is unconfirmed — handle array | {data} | {customers} | {rows}.
-  if (Array.isArray(data)) return data
-  return data.customers ?? data.data ?? data.rows ?? []
+  return { count: data.count ?? 0, rows: Array.isArray(data.rows) ? data.rows : [] }
 }
