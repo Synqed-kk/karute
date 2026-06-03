@@ -155,7 +155,7 @@ export function SelectBookingSheet({
                     {/* Customer + karute # + service */}
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-baseline gap-1">
-                        <span className="truncate text-[13px] font-medium text-foreground">
+                        <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
                           {b.customer}
                         </span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">

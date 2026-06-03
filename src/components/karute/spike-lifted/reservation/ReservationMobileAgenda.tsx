@@ -145,11 +145,19 @@ function AgendaRow({
           >
             {r.customerInitials}
           </span>
-          <span className="truncate text-[15px] font-medium text-foreground">
+          <span className="min-w-0 truncate text-[15px] font-medium text-foreground">
             {r.customerName}
           </span>
           {honorific && (
-            <span className="text-[12px] text-muted-foreground">{honorific}</span>
+            <span className="shrink-0 text-[12px] text-muted-foreground">{honorific}</span>
+          )}
+          {/* Karute number beside the name — the SAME #00139 the 顧客 list +
+           *  customer profile show (computed in the page adapter, deterministic).
+           *  shrink-0 so it never wraps; the name truncates instead. */}
+          {r.karuteNumber && (
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+              {r.karuteNumber}
+            </span>
           )}
           {isLive && (
             <Radio
@@ -182,23 +190,25 @@ function AgendaRow({
         )}
       </div>
 
-      {/* 更新案内 — action flag (amber): the customer's pack is finished, so
-       *  prompt a renewal/re-sell before they leave. Distinct from the neutral
-       *  status pill; can show alongside it (e.g. 予約済 + 更新案内). */}
-      {r.needsRenewal && (
+      {/* Status + 更新案内 — pinned to the TOP-RIGHT corner (self-start) and
+       *  stacked VERTICALLY (flex-col) so two badges never sit side-by-side
+       *  eating horizontal space. The status pill holds the corner on every
+       *  card; the amber 更新案内 action flag hangs directly beneath it when
+       *  the customer's pack is finished. */}
+      <div className="flex shrink-0 flex-col items-end gap-1 self-start">
         <span
-          className={`mr-1 inline-flex h-5 shrink-0 items-center self-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
+          className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${visuals.bg} ${visuals.text} ${visuals.border}`}
         >
-          {t('renewalFlag')}
+          {tStatus(r.displayStatus)}
         </span>
-      )}
-
-      {/* Status pill — filled tinted bg + border (canonical badge style). */}
-      <span
-        className={`inline-flex h-5 shrink-0 items-center self-center rounded-full border px-2 text-[10px] font-medium ${visuals.bg} ${visuals.text} ${visuals.border}`}
-      >
-        {tStatus(r.displayStatus)}
-      </span>
+        {r.needsRenewal && (
+          <span
+            className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
+          >
+            {t('renewalFlag')}
+          </span>
+        )}
+      </div>
 
     </>
   )

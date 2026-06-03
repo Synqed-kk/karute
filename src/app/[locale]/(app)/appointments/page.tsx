@@ -10,6 +10,7 @@ import {
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
@@ -228,6 +229,11 @@ export default async function AppointmentsPage({
     )
   }
 
+  // Sequential salon karute number per customer — same helper + same cached
+  // customer list the 顧客 page + karute detail use, so the agenda row's
+  // #00139 matches every other surface exactly (it sorts deterministically).
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customers)
+
   // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
   // know whether an appointment is past/in-progress/future relative to right
   // now, not to the date being viewed.
@@ -236,6 +242,7 @@ export default async function AppointmentsPage({
     staffList,
     now,
     isFirstTimeByClient,
+    karuteNumberByClientId,
   )
 
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
