@@ -67,11 +67,13 @@ export async function createInvite(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
-  // Don't invite someone already in this business.
+  // Don't invite someone already in this business. Case-insensitive: the invite
+  // email is normalized lowercase, but profile emails may carry the original
+  // signup casing, so `.eq` would miss them. (Greptile flag, #158.)
   const { data: existingMember } = await service
     .from('profiles')
     .select('id')
-    .eq('email', email)
+    .ilike('email', email)
     .eq('customer_id', businessId)
     .maybeSingle()
   if (existingMember) return { error: 'That email is already a member of this salon.' }
@@ -237,7 +239,17 @@ export async function acceptInvite(
       permission_role: synqedRoleToPreset(role), // seed the RBAC preset; owner can customize later
     })
     .eq('id', userId)
-  if (attachErr) return { error: `Could not join the salon: ${attachErr.message}` }
+  if (attachErr) {
+    // Roll back the just-created auth user so the invite stays usable — otherwise
+    // the invitee's email is taken with no business attached and no self-service
+    // retry, and the owner still sees the invite as pending. (Greptile P1, #158.)
+    try {
+      await service.auth.admin.deleteUser(userId)
+    } catch {
+      /* best-effort — surface the original attach error regardless */
+    }
+    return { error: `Could not join the salon: ${attachErr.message}` }
+  }
 
   // 4. Create / link the synqed-core staff record under the business.
   try {

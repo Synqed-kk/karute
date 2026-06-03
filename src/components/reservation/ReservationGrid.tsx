@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 
 import {
@@ -14,6 +15,7 @@ import {
   type ReservationStaff,
 } from '@/components/reservation/StaffRow'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import { assignStaffColors } from '@/lib/staff-colors'
 
 const HOUR_WIDTH = 140
 const AXIS_HEIGHT = 32
@@ -30,6 +32,13 @@ export function ReservationGrid({ staff, reservations, businessHours, onSelect }
   const ppm = HOUR_WIDTH / 60
   const totalWidth = (businessHours.end - businessHours.start) * HOUR_WIDTH
   const laneStackHeight = staff.length * STAFF_ROW_HEIGHT
+  // Distinct color per staff over the FULL roster shown in the grid — same
+  // sorted-index assignment the adapter uses, so the column avatar and the
+  // appointment-card avatars line up on the same hue.
+  const staffColors = useMemo(
+    () => assignStaffColors(staff.map((s) => s.id)),
+    [staff],
+  )
 
   return (
     <div className="reservation-grid-scroll overflow-x-auto rounded-xl border border-border">
@@ -70,6 +79,7 @@ export function ReservationGrid({ staff, reservations, businessHours, onSelect }
               <StaffRow
                 key={s.id}
                 staff={s}
+                staffColorKey={staffColors.get(s.id)?.key ?? 'neutral'}
                 reservations={rs}
                 startHour={businessHours.start}
                 ppm={ppm}

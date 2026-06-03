@@ -191,10 +191,11 @@
 @layer base {
   :root {
     /* Light mode — opacities bumped so colors don't wash out on cream/white. */
-    --reservation-booked-bg: rgba(59, 130, 246, 0.18);
-    --reservation-booked-border: rgba(37, 99, 235, 0.65);
-    --reservation-booked-accent: #3b82f6;
-    --reservation-booked-chip-bg: #2563eb;
+    /* 予約済 = green (swap 2026-06-03 — 新規 owns blue system-wide now). */
+    --reservation-booked-bg: rgba(34, 197, 94, 0.18);
+    --reservation-booked-border: rgba(22, 163, 74, 0.55);
+    --reservation-booked-accent: #22c55e;
+    --reservation-booked-chip-bg: #16a34a;
     --reservation-booked-chip-text: #ffffff;
 
     --reservation-in-session-bg: rgba(249, 115, 22, 0.28);
@@ -215,10 +216,11 @@
     --reservation-pending-chip-bg: #ca8a04;
     --reservation-pending-chip-text: #ffffff;
 
-    --reservation-new-bg: rgba(34, 197, 94, 0.18);
-    --reservation-new-border: rgba(22, 163, 74, 0.55);
-    --reservation-new-accent: #22c55e;
-    --reservation-new-chip-bg: #16a34a;
+    /* 新規 = blue (matches the customer-record + karute 新規 badge). */
+    --reservation-new-bg: rgba(59, 130, 246, 0.18);
+    --reservation-new-border: rgba(37, 99, 235, 0.65);
+    --reservation-new-accent: #3b82f6;
+    --reservation-new-chip-bg: #2563eb;
     --reservation-new-chip-text: #ffffff;
   }
 
@@ -227,10 +229,11 @@
   :root[data-theme="obsidian"],
   :root[data-theme="karute"].dark {
     /* Boosted opacity on dark canvas — 10% tints disappear against the body bg. */
-    --reservation-booked-bg: rgba(59, 130, 246, 0.20);
-    --reservation-booked-border: rgba(96, 165, 250, 0.70);
-    --reservation-booked-chip-bg: #3b82f6;
-    --reservation-booked-chip-text: #082f49;
+    /* 予約済 = green (dark) — swapped with 新規. */
+    --reservation-booked-bg: rgba(34, 197, 94, 0.20);
+    --reservation-booked-border: rgba(74, 222, 128, 0.70);
+    --reservation-booked-chip-bg: #22c55e;
+    --reservation-booked-chip-text: #052e16;
 
     --reservation-in-session-bg: rgba(249, 115, 22, 0.30);
     --reservation-in-session-border: rgba(251, 146, 60, 0.90);
@@ -248,10 +251,11 @@
     --reservation-pending-chip-bg: #eab308;
     --reservation-pending-chip-text: #422006;
 
-    --reservation-new-bg: rgba(34, 197, 94, 0.18);
-    --reservation-new-border: rgba(74, 222, 128, 0.55);
-    --reservation-new-chip-bg: #22c55e;
-    --reservation-new-chip-text: #052e16;
+    /* 新規 = blue (dark) — swapped with 予約済. */
+    --reservation-new-bg: rgba(59, 130, 246, 0.18);
+    --reservation-new-border: rgba(96, 165, 250, 0.55);
+    --reservation-new-chip-bg: #3b82f6;
+    --reservation-new-chip-text: #082f49;
   }
 
   /* Hatched pattern for staff rows that don't take bookings. */

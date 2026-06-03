@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { BookingActionSheet } from '@synqed-kk/ui'
+import { BookingActionSheet, type BookingActionSheetCopy } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 
@@ -42,6 +42,7 @@ export function BookingActionSheetWrapper({
   const isMobile = useIsMobile()
   const router = useRouter()
   const t = useTranslations('reservation')
+  const ta = useTranslations('reservation.actionSheet')
 
   const open = selected !== null
   const hasKarute = selected?.karuteRecordId != null
@@ -66,6 +67,25 @@ export function BookingActionSheetWrapper({
     onClose()
   }, [selected, router, onClose])
 
+  // Full action-sheet copy in the active locale. The sheet's own defaults are
+  // English, so on /ja every label below honorific fell back to English. The
+  // typed object means a mistyped key fails the build instead of silently
+  // showing the English default.
+  const copy: Partial<BookingActionSheetCopy> = {
+    honorific: t('card.customerSuffix'),
+    subtitleFirst: ta('subtitleFirst'),
+    subtitleReturn: ta('subtitleReturn'),
+    viewKarute: ta('viewKarute'),
+    viewKaruteHint: ta('viewKaruteHint'),
+    newKarute: ta('newKarute'),
+    newKaruteHintFirst: ta('newKaruteHintFirst'),
+    newKaruteHintReturn: ta('newKaruteHintReturn'),
+    startRecording: ta('startRecording'),
+    startRecordingHint: ta('startRecordingHint'),
+    startRecordingHintFirst: ta('startRecordingHintFirst'),
+    firstTimeNote: ta('firstTimeNote'),
+  }
+
   if (!selected) {
     // Render the sheet closed so transitions don't snap.
     return (
@@ -78,7 +98,7 @@ export function BookingActionSheetWrapper({
         hasExistingKarute={false}
         isFirstTimeVisit={false}
         isMobile={forceMobile ?? isMobile}
-        copy={{ honorific: t('card.customerSuffix') }}
+        copy={copy}
       />
     )
   }
@@ -97,7 +117,7 @@ export function BookingActionSheetWrapper({
       onViewKarute={onViewKarute}
       onNewKarute={goToRecord}
       onStartRecording={goToRecord}
-      copy={{ honorific: t('card.customerSuffix') }}
+      copy={copy}
     />
   )
 }

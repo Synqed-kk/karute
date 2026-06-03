@@ -140,8 +140,3 @@ export function karuteEntriesToSessionEntries(
     body: e.content,
   }))
 }
-
-export function deriveKaruteNumber(id: string): string {
-  const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
-  return `#${hex}`
-}

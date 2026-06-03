@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl'
 
 import { Link } from '@/i18n/navigation'
 import { cn } from '@/lib/utils'
-import { getStaffColor } from '@/lib/staff-colors'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 import type { KaruteRichRow } from '@/lib/adapters/karute-list'
 
 import { KaruteStatusBadge } from './KaruteStatusBadge'
@@ -21,7 +21,7 @@ export function KaruteRowDesktop({ row }: KaruteRowDesktopProps) {
   const dayLabel = `${mm}/${dd}`
   const dt = new Date(row.date)
   const weekdayEn = WEEKDAYS_EN[dt.getDay()]
-  const color = row.staffId ? getStaffColor(row.staffId) : null
+  const color = getStaffColorByKey(row.staffColorKey)
 
   return (
     <Link
@@ -39,19 +39,12 @@ export function KaruteRowDesktop({ row }: KaruteRowDesktopProps) {
         <div className="text-[11px] text-muted-foreground">{weekdayEn}</div>
       </div>
       <span
-        className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold"
-        style={
-          color
-            ? {
-                background: color.bg,
-                color: color.text,
-                border: `1px solid ${color.border}`,
-              }
-            : {
-                background: 'var(--muted)',
-                color: 'var(--muted-foreground)',
-              }
-        }
+        className={cn(
+          'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1',
+          color.bg,
+          color.text,
+          color.ring,
+        )}
       >
         {row.customerInitials}
       </span>
@@ -94,13 +87,10 @@ export function KaruteRowDesktop({ row }: KaruteRowDesktopProps) {
             {t('entries', { n: row.entryCount })}
           </span>
           <span className="ml-auto inline-flex items-center gap-1.5">
-            {color && (
-              <span
-                className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ background: color.accent }}
-                aria-hidden
-              />
-            )}
+            <span
+              className={cn('inline-block h-1.5 w-1.5 rounded-full', color.stripe)}
+              aria-hidden
+            />
             <span className="text-muted-foreground">{row.staffName ?? '—'}</span>
           </span>
         </div>

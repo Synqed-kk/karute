@@ -4,16 +4,17 @@
  * appointmentsToReservationViews (AppointmentRow[] → ReservationView[]),
  * including null/missing-field handling for customer name, title, and staff.
  *
- * Pure logic — no mocks. getStaffColor is a real deterministic helper, so
- * staffColorKey is asserted to equal getStaffColor(id).key rather than pinned
- * to a literal.
+ * Pure logic — no mocks. Staff colors are now assigned DISTINCTLY over the
+ * roster (assignStaffColors, sorted-index), so staffColorKey is asserted
+ * against that same map rather than a per-id hash. An off-roster staff id
+ * falls back to 'neutral'.
  */
 import {
   computeDisplayStatus,
   appointmentsToReservationViews,
   type DisplayStatus,
 } from '@/lib/adapters/reservation-view'
-import { getStaffColor } from '@/lib/staff-colors'
+import { assignStaffColors } from '@/lib/staff-colors'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { StaffMember } from '@/lib/staff'
 
@@ -107,13 +108,13 @@ describe('computeDisplayStatus — time-completed', () => {
 })
 
 describe('computeDisplayStatus — future SCHEDULED finer labels', () => {
-  it('maps a non-MANUAL future booking to "pending"', () => {
-    expect(computeDisplayStatus(row({ source: 'QUICKRESERVE' }), NOW)).toBe('pending')
+  it('maps a synced (non-MANUAL) future booking to "booked" (no 未確定)', () => {
+    expect(computeDisplayStatus(row({ source: 'QUICKRESERVE' }), NOW)).toBe('booked')
   })
 
-  it('pending wins over new (a first-time QuickReserve booking is pending)', () => {
+  it('first-time customer wins on a synced booking → "new"', () => {
     const r = row({ source: 'SALON_BOARD' })
-    expect(computeDisplayStatus(r, NOW, { isFirstTimeCustomer: true })).toBe('pending')
+    expect(computeDisplayStatus(r, NOW, { isFirstTimeCustomer: true })).toBe('new')
   })
 
   it('maps a MANUAL first-time-customer future booking to "new"', () => {
@@ -145,7 +146,8 @@ describe('appointmentsToReservationViews', () => {
       karuteRecordId: null,
       isFirstTimeVisit: false,
     })
-    expect(view.staffColorKey).toBe(getStaffColor('staff-1').key)
+    // Single-staff roster → that staff takes the first palette color (index 0).
+    expect(view.staffColorKey).toBe(assignStaffColors(['staff-1']).get('staff-1')!.key)
     // startTimeHm rendered in JST (now+60m from 14:00 JST = 15:00).
     expect(view.startTimeHm).toBe('15:00')
     expect(view.customerInitials).toBe('H')
@@ -175,8 +177,8 @@ describe('appointmentsToReservationViews', () => {
     const r = row({ staff_profile_id: 'ghost' })
     const [view] = appointmentsToReservationViews([r], [staff()], NOW)
     expect(view.staffName).toBe('')
-    // staffColorKey is still derived deterministically from the id.
-    expect(view.staffColorKey).toBe(getStaffColor('ghost').key)
+    // 'ghost' isn't in the roster passed to the adapter → neutral fallback.
+    expect(view.staffColorKey).toBe('neutral')
   })
 
   it('skips staff entries with a null full_name when building the name map', () => {
@@ -240,6 +242,6 @@ describe('DisplayStatus type surface', () => {
     seen.add(computeDisplayStatus(row({ source: 'QUICKRESERVE' }), NOW))
     seen.add(computeDisplayStatus(row(), NOW, { isFirstTimeCustomer: true }))
     seen.add(computeDisplayStatus(row(), NOW))
-    expect(seen).toEqual(new Set(['completed', 'in_session', 'pending', 'new', 'booked']))
+    expect(seen).toEqual(new Set(['completed', 'in_session', 'new', 'booked']))
   })
 })

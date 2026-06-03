@@ -25,17 +25,22 @@
 //
 // DATA
 //
-// Today: synthesizes a primary store from orgSettings.salon_name.
-// Additional stores are null until the `stores` table exists.
-// Free-tier limits + canAddStore live in src/lib/subscription
-// — the add button auto-disables when the tier blocks it.
+// Seeded primary renders instantly; refresh() replaces it with the real rows.
+// Plan limits are real (P3): getEntitlement() (server) derives the store cap
+// from the tier via TIER_FEATURES — the add button disables when the business
+// is at its limit, and createStore enforces it server-side. Dev/owner accounts
+// are never capped (is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS).
 
-import { useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
+import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId } from '@/actions/stores'
+import { getEntitlement } from '@/actions/entitlements'
+import type { Entitlement } from '@/lib/entitlements'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
@@ -77,48 +82,76 @@ export function StoresSection({
     ]
   }, [orgSettings, t])
 
+  // Seeded primary renders instantly; refresh() replaces it with the real rows
+  // from the `stores` table (lazily creating the 本店 on first load).
   const [stores, setStores] = useState<Store[]>(seededStores)
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
+  const [entitlement, setEntitlement] = useState<Entitlement | null>(null)
   const [activeStoreId, setActiveStoreId] = useState<string>(
     seededStores[0]?.id ?? 'primary',
   )
 
-  const handleFormSave = (values: StoreFormValues) => {
-    if (formMode?.kind === 'add') {
-      // ANTHONY: insert into `stores` scoped to the org. The
-      // seat has already been added by AddStoreSubscriptionDialog
-      // — don't double-count quantity here.
-      const newStore: Store = {
-        id: `store_${Date.now()}`,
-        name: values.name.trim(),
-        address: values.address,
-        phone: values.phone,
-        staffCount: 0,
-        customerCount: 0,
-        active: true,
-        isPrimary: false,
-      }
-      setStores((prev) => [...prev, newStore])
-      return
-    }
-    if (formMode?.kind === 'edit') {
-      // ANTHONY: update where id = target.id, same business_id.
-      const targetId = formMode.store.id
-      setStores((prev) =>
-        prev.map((s) =>
-          s.id === targetId
-            ? {
-                ...s,
-                name: values.name || s.name,
-                address: values.address,
-                phone: values.phone,
-              }
-            : s,
-        ),
-      )
+  const refresh = useCallback(async () => {
+    const [rows, persisted, ent] = await Promise.all([
+      listStores(),
+      getActiveStoreId(),
+      getEntitlement(),
+    ])
+    setEntitlement(ent)
+    if (rows.length === 0) return
+    const mapped: Store[] = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      address: r.address ?? '',
+      phone: r.phone ?? '',
+      staffCount: r.staffCount,
+      customerCount: r.customerCount,
+      active: r.active,
+      isPrimary: r.isPrimary,
+    }))
+    setStores(mapped)
+    setActiveStoreId((cur) => {
+      if (persisted && mapped.some((s) => s.id === persisted)) return persisted
+      return mapped.some((s) => s.id === cur) ? cur : mapped[0].id
+    })
+  }, [])
+
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
+
+  // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
+  const handleSwitch = async (storeId: string) => {
+    setActiveStoreId(storeId)
+    const res = await setActiveStore(storeId)
+    if ('error' in res) {
+      toast.error(res.error)
+      void refresh()
     }
   }
+
+  const handleFormSave = async (values: StoreFormValues) => {
+    const payload = { name: values.name, address: values.address, phone: values.phone }
+    if (formMode?.kind === 'add') {
+      const res = await createStore(payload)
+      if ('error' in res) {
+        toast.error(res.error === 'STORE_LIMIT_REACHED' ? t('limitReached') : res.error)
+        return
+      }
+    } else if (formMode?.kind === 'edit') {
+      const res = await updateStore(formMode.store.id, payload)
+      if ('error' in res) {
+        toast.error(res.error)
+        return
+      }
+    }
+    await refresh()
+  }
+
+  // Real plan gate. Default to allowed before the entitlement loads (and for
+  // dev/owner-unlimited accounts) so we never falsely block the add button.
+  const canAdd = entitlement?.canAddStore ?? true
 
   return (
     <div className="space-y-4">
@@ -171,6 +204,11 @@ export function StoresSection({
           <p className="mt-0.5 text-[12px] text-muted-foreground">
             {t('storesCount', { n: stores.length })}
           </p>
+          {isOwner && !canAdd && (
+            <p className="mt-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-400">
+              {t('limitReached')}
+            </p>
+          )}
         </div>
         {/* "+ 店舗を追加" hidden until multi-store ships. Today the
          *  flow saves to local React useState only — owner adds Store
@@ -181,6 +219,8 @@ export function StoresSection({
         {isOwner && process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true' && (
           <Button
             onClick={() => setSubscriptionStepOpen(true)}
+            disabled={!canAdd}
+            title={!canAdd ? t('limitReached') : undefined}
             className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"
           >
             <Plus className="size-3.5" />
@@ -252,7 +292,7 @@ export function StoresSection({
                   <div className="mt-3 flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={() => setActiveStoreId(store.id)}
+                      onClick={() => handleSwitch(store.id)}
                       className={`inline-flex h-10 flex-1 items-center justify-center gap-1 rounded-lg px-3 text-[13px] font-medium transition-colors md:h-8 md:flex-initial md:rounded-md md:text-xs ${
                         isActive
                           ? 'bg-blue-600 text-white'

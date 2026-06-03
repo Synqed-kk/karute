@@ -331,14 +331,14 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         <span className="text-muted-foreground">
           {tReservation('legend.label')}
         </span>
-        {(['booked', 'in_session', 'completed', 'new', 'pending'] as const).map(
+        {(['booked', 'in_session', 'completed', 'new'] as const).map(
           (tone) => (
             <span key={tone} className="inline-flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
                 style={{
                   background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
-                  border: `1px ${tone === 'pending' || tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
+                  border: `1px ${tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
                 }}
               />
               {tReservation(`status.${tone}`)}

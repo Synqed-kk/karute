@@ -140,7 +140,21 @@
       "duration": "{n} min",
       "appointments": "{n} appts",
       "customerSuffix": "",
-      "tantou": "Staff: {name}"
+      "tantou": "Staff: {name}",
+      "renewalFlag": "Renewal"
+    },
+    "actionSheet": {
+      "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
+      "subtitleReturn": "Booked customer. Choose an action.",
+      "viewKarute": "View karute",
+      "viewKaruteHint": "Review prior sessions and last-visit recommendations",
+      "newKarute": "Create new karute",
+      "newKaruteHintFirst": "Manually create a karute for this customer",
+      "newKaruteHintReturn": "Add a new karute for today's session",
+      "startRecording": "Start recording",
+      "startRecordingHint": "AI will draft the karute from the session audio",
+      "startRecordingHintFirst": "Creates a provisional karute. You'll resolve conversion status after the session.",
+      "firstTimeNote": "First-time customers start as a provisional karute. If they convert it becomes active; if not, it's kept for AI coaching learning (and hidden from the customer list)."
     },
     "mobile": {
       "empty": "No appointments",
@@ -430,6 +444,44 @@
     },
     "visitHistoryChain": {
       "aria": "Attended {attended} of last {window} visits. {total} total."
+    },
+    "sessionHistory": {
+      "title": "Session history",
+      "count": "{n} sessions",
+      "empty": "No sessions recorded yet",
+      "latest": "latest",
+      "minutes": "{n} min",
+      "entries": "{n} entries",
+      "aiSummarized": "AI summarized",
+      "memoryAdded": "+{n} memory",
+      "openFullKarute": "Open full karute record →",
+      "noKaruteLinked": "No karute record linked to this session yet"
+    },
+    "photos": {
+      "title": "Photos",
+      "count": "{n} total",
+      "emptyTitle": "No photos yet",
+      "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+      "before": "Before",
+      "after": "After",
+      "reference": "Reference",
+      "progress": "Progress"
+    },
+    "comingSoon": "Coming soon",
+    "privacy": {
+      "title": "Privacy & data",
+      "subtitle": "APPI (Japan's Personal Information Protection Act) compliance actions for {name}'s data. Owner or assigned-staff privileges required.",
+      "accessHistoryTitle": "Access history",
+      "accessHistoryBody": "See which staff accessed or modified {name}'s data in the audit log.",
+      "accessHistoryCta": "View history",
+      "exportTitle": "Export data",
+      "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, 24h TTL).",
+      "exportCta": "Export",
+      "deleteTitle": "Delete customer data",
+      "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
+      "deleteCta": "Delete data",
+      "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
+      "wiringPending": "Wiring pending — APPI compliance backend in flight"
     },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
@@ -1349,6 +1401,7 @@
       "ownerDesc": "You can view and manage data (bookings, karute, AI analysis) across all stores.",
       "storesCount": "{n} {n, plural, one {store} other {stores}} active",
       "addStore": "Add",
+      "limitReached": "You've reached your plan's store limit",
       "primaryBadge": "Main",
       "activeBadge": "Active",
       "staffUnit": "{n} staff",
@@ -1392,7 +1445,9 @@
         "save": "Add store",
         "saveEdit": "Save changes",
         "saved": "Saved"
-      }
+      },
+      "assignLabel": "Store / location",
+      "unassigned": "Unassigned"
     },
     "coaching": {
       "title": "Coaching settings",

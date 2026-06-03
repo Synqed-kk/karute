@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl'
 import { Mic } from 'lucide-react'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
-import { getStaffColor } from '@/lib/staff-colors'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 import { cn } from '@/lib/utils'
 
 interface StatusTone {
@@ -44,15 +44,6 @@ const STATUS_TONES: Record<DisplayStatus, StatusTone> = {
     chipBg: 'var(--reservation-new-chip-bg)',
     chipText: 'var(--reservation-new-chip-text)',
   },
-  pending: {
-    bg: 'var(--reservation-pending-bg)',
-    border: 'var(--reservation-pending-border)',
-    // Dashed border signals "needs attention" — visually distinct from booked
-    // even before the user reads the chip label.
-    borderStyle: 'dashed',
-    chipBg: 'var(--reservation-pending-chip-bg)',
-    chipText: 'var(--reservation-pending-chip-text)',
-  },
 }
 
 function addMinutes(hm: string, minutes: number): string {
@@ -85,7 +76,7 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
   const tone = STATUS_TONES[view.displayStatus]
   const isCompleted = view.displayStatus === 'completed'
   const isLive = view.displayStatus === 'in_session'
-  const staffColor = getStaffColor(view.staffId)
+  const staffColor = getStaffColorByKey(view.staffColorKey)
   const endTime = addMinutes(view.startTimeHm, view.durationMin)
   const statusLabel = t(`status.${view.displayStatus}`)
   const customerSuffix = t('card.customerSuffix')
@@ -126,8 +117,11 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <span
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold"
-              style={{ background: staffColor.bg, color: staffColor.text }}
+              className={cn(
+                'inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold',
+                staffColor.bg,
+                staffColor.text,
+              )}
             >
               {view.customerInitials}
             </span>

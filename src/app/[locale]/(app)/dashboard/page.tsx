@@ -4,7 +4,9 @@ import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData } from '@/lib/dashboard/cached'
-import { getStaffColor } from '@/lib/staff/colors'
+import { getCachedCustomerList } from '@/lib/customers/cached'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
+import { assignStaffColors } from '@/lib/staff-colors'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { startTiming } from '@/lib/perf/timing'
 import type { DashboardAppointment, AppointmentStatusKey } from '@/components/dashboard/redesign/TodaysAppointmentsCard'
@@ -53,6 +55,7 @@ export default async function DashboardPage() {
     orgSettings,
     tStatus,
     locale,
+    customerList,
   ] = await Promise.all([
     t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
@@ -61,11 +64,19 @@ export default async function DashboardPage() {
     t.phase('orgSettings', () => getOrgSettings()),
     getTranslations('reservation.status'),
     getLocale(),
+    t.phase('customerList', () => getCachedCustomerList()),
   ])
   t.end()
 
+  // Same canonical karute-number map every other surface (顧客 / 予約 / 録音) uses,
+  // so the dashboard's #00007 matches them.
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customerList)
+
   const activeStaff = staffList.find((s) => s.id === activeStaffId)
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  // DISTINCT staff-color map from the FULL roster — identical mapping on every
+  // surface (顧客 / 予約 / 録音 / dashboard), no two staff share a color.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
 
   const now = new Date()
   const appointments: DashboardAppointment[] = dashboard.todayAppointments.map(
@@ -87,13 +98,12 @@ export default async function DashboardPage() {
         time: hhmm(start),
         duration: a.duration_minutes,
         customerName: a.customers?.name ?? 'Unknown',
-        // karuteNumber dropped — see top-of-file comment.
-        karuteNumber: null,
+        karuteNumber: karuteNumberByClientId.get(a.client_id) ?? null,
         // a.title is the customer's booking note — '—' when null instead
         // of an English literal 'Session' masquerading as real data.
         service: a.title ?? '—',
         staffName: staffNameById.get(a.staff_profile_id) ?? 'Unknown',
-        staffColor: getStaffColor(a.staff_profile_id),
+        staffColorKey: staffColors.get(a.staff_profile_id)?.key ?? null,
         statusKey,
         statusLabel,
         reservationMemo: a.notes,
@@ -110,16 +120,16 @@ export default async function DashboardPage() {
       return {
         id: r.id,
         customerName: r.customers?.name ?? 'Unknown',
-        // karuteNumber dropped — see top-of-file comment. Card renders
-        // the row without the chip when null.
-        karuteNumber: null,
+        karuteNumber: karuteNumberByClientId.get(r.client_id ?? '') ?? null,
         sessionDate: formatShortDate(dt, locale),
         summary: r.summary ?? '—',
         entryCount,
         staffName: r.staff_profile_id
           ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
           : 'Unknown',
-        staffColor: getStaffColor(r.staff_profile_id),
+        staffColorKey: r.staff_profile_id
+          ? (staffColors.get(r.staff_profile_id)?.key ?? null)
+          : null,
       }
     },
   )

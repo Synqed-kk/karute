@@ -10,7 +10,7 @@
 // shows a read-only "full access". Server actions enforce the real gates
 // (staff.manage, no-owner-edit, no privilege escalation); this UI is convenience.
 
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { useForm, type UseFormRegister } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
 import { getStaffPermissions, setStaffPermissions } from '@/actions/permissions'
+import { listStores, getStaffStore, setStaffStore, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import {
   CAPABILITIES,
@@ -35,6 +36,9 @@ import {
   type Capability,
   type PermissionRole,
 } from '@/lib/auth/permissions'
+
+// Store/location assignment shows only when multi-store is enabled + editing.
+const STORES_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
 
 const POSITION_OPTIONS = [
   'Stylist', 'Manager', 'Assistant', 'Therapist', 'Esthetician',
@@ -63,6 +67,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
   const tp = useTranslations('permissions')
+  const tStore = useTranslations('settings.stores')
 
   const {
     register,
@@ -86,7 +91,13 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   const [role, setRole] = useState<PermissionRole>('practitioner')
   const [caps, setCaps] = useState<Set<Capability>>(new Set())
 
+  // Store/location assignment (multi-store). Loads the business's stores + the
+  // staff's current store on open; saved alongside identity on 保存.
+  const [stores, setStores] = useState<StoreRow[]>([])
+  const [storeId, setStoreId] = useState<string>('')
+
   const staffId = staff?.id
+
   useEffect(() => {
     if (!(RBAC_ENABLED && mode === 'edit' && staffId)) return
     let cancelled = false
@@ -103,6 +114,19 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
       setRole(res.permissionRole === 'owner' ? 'practitioner' : res.permissionRole)
       setCaps(new Set(res.capabilities))
       setPermsState('ready')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [mode, staffId])
+
+  useEffect(() => {
+    if (!(STORES_ENABLED && mode === 'edit' && staffId)) return
+    let cancelled = false
+    void Promise.all([listStores(), getStaffStore(staffId)]).then(([rows, current]) => {
+      if (cancelled) return
+      setStores(rows)
+      setStoreId(current ?? '')
     })
     return () => {
       cancelled = true
@@ -133,6 +157,13 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
           const res = await setStaffPermissions(staff.id, role, [...caps])
           if ('error' in res) {
             toast.error(res.error) // keep the dialog open so they can adjust
+            return
+          }
+        }
+        if (STORES_ENABLED) {
+          const res = await setStaffStore(staff.id, storeId || null)
+          if ('error' in res) {
+            toast.error(res.error)
             return
           }
         }
@@ -183,6 +214,28 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
               <p className="text-xs text-muted-foreground">{ts('emailChangeNotice')}</p>
             )}
           </div>
+
+          {/* 店舗（所属） — which location this staff works at. Multi-store only. */}
+          {STORES_ENABLED && mode === 'edit' && (
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="staff-store" className="text-sm font-medium">
+                {tStore('assignLabel')}
+              </label>
+              <select
+                id="staff-store"
+                value={storeId}
+                onChange={(e) => setStoreId(e.target.value)}
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                <option value="">{tStore('unassigned')}</option>
+                {stores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {/* 役職 (job-title label) */}
           <div className="flex flex-col gap-1.5">

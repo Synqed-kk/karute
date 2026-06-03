@@ -80,10 +80,15 @@ create policy "profiles_select_same_business"
 -- a fresh business; the Phase 1 invite/join flow attaches staff to an existing
 -- business SERVER-SIDE (service-role), never via client metadata. full_name from
 -- metadata is harmless and kept.
+-- `set search_path = public` is load-bearing, not cosmetic: this SECURITY
+-- DEFINER function writes profiles.customer_id (the tenant-linkage column).
+-- Without a pinned path a role able to create objects in a schema sorting before
+-- public could shadow `profiles` and redirect the INSERT. Pinned + schema-
+-- qualified, matching auth_business_id() above. (Greptile flag, #157.)
 create or replace function handle_new_user()
 returns trigger as $$
 begin
-  insert into profiles (id, customer_id, full_name)
+  insert into public.profiles (id, customer_id, full_name)
   values (
     new.id,
     gen_random_uuid(),
@@ -91,6 +96,6 @@ begin
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 -- Trigger on_auth_user_created (001) is bound to handle_new_user(); CREATE OR
 -- REPLACE swaps the body in place — no trigger change needed.

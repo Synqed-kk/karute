@@ -10,6 +10,7 @@ import {
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
@@ -209,18 +210,29 @@ export default async function AppointmentsPage({
     businessId && clientIdsForDay.length
       ? await enrichCustomers(businessId, clientIdsForDay)
       : new Map()
-  // "First-time customer" = no past appointments AND no recorded karute.
-  // Previously this was derived from `totalKarute === 0` alone, which meant
-  // any existing customer without a recorded karute rendered as 新規 on the
-  // reservation agenda even if they'd been coming in for months. Liam hit
-  // this on Vercel — every booking showed as 新規.
+  // QR "returning customer" flag per client (cached 500-customer list). A known
+  // existing customer is NEVER 新規 — even with no karute/past appointment yet
+  // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
+  const isExistingById = new Map(
+    customers.map((c) => [c.id, c.isExistingCustomer] as const),
+  )
+  // "First-time customer" = NOT a known QR customer, AND no past appointment,
+  // AND no recorded karute. (Karute/appointment counts alone mislabeled QR
+  // regulars — Liam hit this: 10回券 / 6回券 holders all rendered 新規.)
   const isFirstTimeByClient = new Map<string, boolean>()
   for (const [id, e] of enrichment.entries()) {
     isFirstTimeByClient.set(
       id,
-      e.totalKarute === 0 && e.pastAppointmentCount === 0,
+      !(isExistingById.get(id) ?? false) &&
+        e.totalKarute === 0 &&
+        e.pastAppointmentCount === 0,
     )
   }
+
+  // Sequential salon karute number per customer — same helper + same cached
+  // customer list the 顧客 page + karute detail use, so the agenda row's
+  // #00139 matches every other surface exactly (it sorts deterministically).
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customers)
 
   // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
   // know whether an appointment is past/in-progress/future relative to right
@@ -230,6 +242,7 @@ export default async function AppointmentsPage({
     staffList,
     now,
     isFirstTimeByClient,
+    karuteNumberByClientId,
   )
 
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
