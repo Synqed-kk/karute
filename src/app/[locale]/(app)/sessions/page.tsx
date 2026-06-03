@@ -173,12 +173,15 @@ export default async function SessionsPage({
   }
 
   // Picker rows = ALL today's bookings (active-staff first, then the
-  // rest). Limit to keep the dropdown tractable — staff with 20+
-  // bookings/day is rare and they'd scroll.
+  // rest). No cap: staff must be able to reach EVERY booking, including
+  // the last of the day, and the sheet's list scrolls (min-h-0) when
+  // there are many. (Was `.slice(0, 12)`, which silently dropped a
+  // 16-booking day's 19:00–20:00 rows — they never reached the picker,
+  // so they couldn't be selected to record.)
   const orderedForPicker = [
     ...myRows,
     ...list.filter((a) => !myRows.some((m) => m.id === a.id)),
-  ].slice(0, 12)
+  ]
 
   nearbyBookings = orderedForPicker.map((a) => {
     const start = new Date(a.start_time)
