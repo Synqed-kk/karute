@@ -1392,7 +1392,9 @@
         "save": "店舗を追加",
         "saveEdit": "変更を保存",
         "saved": "保存しました"
-      }
+      },
+      "assignLabel": "店舗（所属）",
+      "unassigned": "未割り当て"
     },
     "coaching": {
       "title": "コーチング設定",
