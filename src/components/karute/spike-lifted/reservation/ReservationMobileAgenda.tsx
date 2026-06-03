@@ -145,11 +145,19 @@ function AgendaRow({
           >
             {r.customerInitials}
           </span>
-          <span className="truncate text-[15px] font-medium text-foreground">
+          <span className="min-w-0 truncate text-[15px] font-medium text-foreground">
             {r.customerName}
           </span>
           {honorific && (
-            <span className="text-[12px] text-muted-foreground">{honorific}</span>
+            <span className="shrink-0 text-[12px] text-muted-foreground">{honorific}</span>
+          )}
+          {/* Karute number beside the name — the SAME #00139 the 顧客 list +
+           *  customer profile show (computed in the page adapter, deterministic).
+           *  shrink-0 so it never wraps; the name truncates instead. */}
+          {r.karuteNumber && (
+            <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+              {r.karuteNumber}
+            </span>
           )}
           {isLive && (
             <Radio
