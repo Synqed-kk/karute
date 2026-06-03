@@ -32,29 +32,32 @@ export async function getMyCapabilities(): Promise<Set<Capability>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
-  // display_role always exists → the pre-migration fallback preset.
-  const { data: base } = await service
-    .from('profiles')
-    .select('display_role')
-    .eq('id', uid)
-    .maybeSingle()
-  let role: PermissionRole = synqedRoleToPreset(base?.display_role)
+  // Single round-trip in the steady state. Post-migration the combined select
+  // succeeds and is the only query. Pre-migration the permission_role/permissions
+  // columns don't exist, so the combined select errors → fall back to a
+  // display_role-only read (preset derived from the synqed role, owner keeps full
+  // power). (Greptile #159: collapses the previous always-two-query path.)
+  let role: PermissionRole = 'practitioner'
   let override: string[] | null = null
 
-  // Rich RBAC columns (added by the staff-permissions migration). Wrapped so a
-  // pre-migration DB (columns absent) silently falls back to the preset above.
-  try {
-    const { data: rich, error } = await service
+  const { data, error } = await service
+    .from('profiles')
+    .select('display_role, permission_role, permissions')
+    .eq('id', uid)
+    .maybeSingle()
+
+  if (!error && data) {
+    role = data.permission_role
+      ? (data.permission_role as PermissionRole)
+      : synqedRoleToPreset(data.display_role)
+    override = (data.permissions as string[] | null) ?? null
+  } else {
+    const { data: base } = await service
       .from('profiles')
-      .select('permission_role, permissions')
+      .select('display_role')
       .eq('id', uid)
       .maybeSingle()
-    if (!error && rich) {
-      if (rich.permission_role) role = rich.permission_role as PermissionRole
-      override = (rich.permissions as string[] | null) ?? null
-    }
-  } catch {
-    /* columns not present yet — preset from display_role stands */
+    role = synqedRoleToPreset(base?.display_role)
   }
 
   return effectiveCapabilities(role, override)

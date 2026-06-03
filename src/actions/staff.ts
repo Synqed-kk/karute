@@ -45,6 +45,7 @@ export async function createStaff(data: StaffProfileInput): Promise<void> {
 }
 
 export async function updateStaff(id: string, data: StaffProfileInput): Promise<void> {
+  await requireCapability('staff.manage') // editing a staff record = managing staff (Greptile #159)
   const parsed = staffProfileSchema.safeParse(data)
   if (!parsed.success) {
     throw new Error(parsed.error.issues.map((e) => e.message).join(', '))
@@ -125,6 +126,11 @@ export async function uploadStaffAvatar(
   staffId: string,
   formData: FormData,
 ): Promise<{ url: string } | { error: string }> {
+  try {
+    await requireCapability('staff.manage') // changing a staff avatar = managing staff (Greptile #159)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
   const file = formData.get('file') as File | null
   if (!file) return { error: 'No file provided' }
 
