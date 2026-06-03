@@ -467,6 +467,22 @@
       "reference": "参考",
       "progress": "経過"
     },
+    "comingSoon": "対応予定",
+    "privacy": {
+      "title": "プライバシー・データ",
+      "subtitle": "{name}様のデータに関するAPPI（個人情報保護法）対応です。オーナーまたは担当スタッフの権限が必要です。",
+      "accessHistoryTitle": "アクセス履歴",
+      "accessHistoryBody": "{name}様のデータに誰がアクセス・編集したかを監査ログで確認できます。",
+      "accessHistoryCta": "履歴を表示",
+      "exportTitle": "データのエクスポート",
+      "exportBody": "プロフィール・カルテ・メモリー・写真・録音の文字起こしを暗号化PDFとして書き出します（署名付きURL・24時間有効）。",
+      "exportCta": "エクスポート",
+      "deleteTitle": "顧客データの削除",
+      "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
+      "deleteCta": "データを削除",
+      "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
+    },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
     },

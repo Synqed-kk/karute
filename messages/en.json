@@ -467,6 +467,22 @@
       "reference": "Reference",
       "progress": "Progress"
     },
+    "comingSoon": "Coming soon",
+    "privacy": {
+      "title": "Privacy & data",
+      "subtitle": "APPI (Japan's Personal Information Protection Act) compliance actions for {name}'s data. Owner or assigned-staff privileges required.",
+      "accessHistoryTitle": "Access history",
+      "accessHistoryBody": "See which staff accessed or modified {name}'s data in the audit log.",
+      "accessHistoryCta": "View history",
+      "exportTitle": "Export data",
+      "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, 24h TTL).",
+      "exportCta": "Export",
+      "deleteTitle": "Delete customer data",
+      "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
+      "deleteCta": "Delete data",
+      "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
+      "wiringPending": "Wiring pending — APPI compliance backend in flight"
+    },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
     },
