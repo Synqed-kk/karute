@@ -140,7 +140,21 @@
       "duration": "{n}分",
       "appointments": "{n}件の予約",
       "customerSuffix": "様",
-      "tantou": "担当 {name}"
+      "tantou": "担当 {name}",
+      "renewalFlag": "更新案内"
+    },
+    "actionSheet": {
+      "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
+      "subtitleReturn": "ご予約済みのお客様です。操作を選択してください。",
+      "viewKarute": "カルテを見る",
+      "viewKaruteHint": "過去のセッションと前回までの申し送りを確認します",
+      "newKarute": "新規カルテを作成",
+      "newKaruteHintFirst": "このお客様のカルテを手動で作成します",
+      "newKaruteHintReturn": "本日のセッションのカルテを作成します",
+      "startRecording": "録音を開始",
+      "startRecordingHint": "セッションの音声からAIがカルテを作成します",
+      "startRecordingHintFirst": "仮カルテを作成します。セッション後に本登録の有無を確定できます。",
+      "firstTimeNote": "初めてのお客様は仮カルテとして登録されます。本登録されれば有効になり、されない場合もAIコーチングの学習用に保持されます（顧客一覧には表示されません）。"
     },
     "mobile": {
       "empty": "本日の予約はありません",
@@ -430,6 +444,44 @@
     },
     "visitHistoryChain": {
       "aria": "直近{window}回中{attended}回来店。通算{total}回。"
+    },
+    "sessionHistory": {
+      "title": "セッション履歴",
+      "count": "{n}件",
+      "empty": "まだセッションがありません",
+      "latest": "最新",
+      "minutes": "{n}分",
+      "entries": "{n}件の記録",
+      "aiSummarized": "AI要約済",
+      "memoryAdded": "メモリー+{n}",
+      "openFullKarute": "カルテ詳細を開く →",
+      "noKaruteLinked": "このセッションにカルテはまだ紐付いていません"
+    },
+    "photos": {
+      "title": "写真",
+      "count": "{n}枚",
+      "emptyTitle": "写真はまだありません",
+      "emptyBody": "ビフォー／アフター／参考写真をアップロードして、セッションごとの変化を記録できます。",
+      "before": "ビフォー",
+      "after": "アフター",
+      "reference": "参考",
+      "progress": "経過"
+    },
+    "comingSoon": "対応予定",
+    "privacy": {
+      "title": "プライバシー・データ",
+      "subtitle": "{name}様のデータに関するAPPI（個人情報保護法）対応です。オーナーまたは担当スタッフの権限が必要です。",
+      "accessHistoryTitle": "アクセス履歴",
+      "accessHistoryBody": "{name}様のデータに誰がアクセス・編集したかを監査ログで確認できます。",
+      "accessHistoryCta": "履歴を表示",
+      "exportTitle": "データのエクスポート",
+      "exportBody": "プロフィール・カルテ・メモリー・写真・録音の文字起こしを暗号化PDFとして書き出します（署名付きURL・24時間有効）。",
+      "exportCta": "エクスポート",
+      "deleteTitle": "顧客データの削除",
+      "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
+      "deleteCta": "データを削除",
+      "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."

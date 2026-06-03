@@ -6,6 +6,7 @@ import { ChevronUp, Clock } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { SelectBookingSheet } from './SelectBookingSheet'
+import { badge } from '@/lib/badge-styles'
 
 export interface RecordTargetBooking {
   id: string
@@ -201,14 +202,14 @@ function StatusPill({
 }) {
   if (statusKey === 'in-session') {
     return (
-      <span className="inline-flex h-[22px] items-center rounded-full border border-orange-400/40 bg-orange-500/15 px-2.5 text-[11px] font-medium text-orange-400">
+      <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('orange')}`}>
         {t('inSession')}
       </span>
     )
   }
   if (isNew || statusKey === 'new') {
     return (
-      <span className="inline-flex h-[22px] items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 text-[11px] font-medium text-emerald-400">
+      <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('blue')}`}>
         {t('firstVisit')}
       </span>
     )
@@ -217,7 +218,7 @@ function StatusPill({
     return null
   }
   return (
-    <span className="inline-flex h-[22px] items-center rounded-full border border-sky-400/40 bg-sky-500/15 px-2.5 text-[11px] font-medium text-sky-400">
+    <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('green')}`}>
       {t('booked')}
     </span>
   )

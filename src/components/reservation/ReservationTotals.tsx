@@ -13,7 +13,6 @@ const TONES: Array<{ key: DisplayStatus; cssKey: string }> = [
   { key: 'in_session', cssKey: 'in-session' },
   { key: 'booked', cssKey: 'booked' },
   { key: 'new', cssKey: 'new' },
-  { key: 'pending', cssKey: 'pending' },
 ]
 
 export function ReservationTotals({ reservations }: ReservationTotalsProps) {
@@ -23,7 +22,7 @@ export function ReservationTotals({ reservations }: ReservationTotalsProps) {
       acc[r.displayStatus] = (acc[r.displayStatus] ?? 0) + 1
       return acc
     },
-    { booked: 0, in_session: 0, completed: 0, new: 0, pending: 0 },
+    { booked: 0, in_session: 0, completed: 0, new: 0 },
   )
 
   return (

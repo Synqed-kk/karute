@@ -5,6 +5,10 @@ import { getBusinessId } from '@/lib/staff'
 export interface CachedCustomerOption {
   id: string
   name: string
+  /** QuickReserve "returning customer" flag. Drives the agenda's 新規 badge:
+   *  a known existing customer is NEVER 新規, even if we have no karute/past
+   *  appointment for them yet (QR-migrated regulars). */
+  isExistingCustomer: boolean
 }
 
 // businessId is the cache key — Next includes function args in the key automatically,
@@ -25,9 +29,13 @@ const customerListByBusiness = unstable_cache(
       sort_by: 'name',
       sort_order: 'asc',
     })
-    return result.customers.map((c) => ({ id: c.id, name: c.name }))
+    return result.customers.map((c) => ({
+      id: c.id,
+      name: c.name,
+      isExistingCustomer: c.is_existing_customer,
+    }))
   },
-  ['cached-customer-list-v1'],
+  ['cached-customer-list-v2'],
   { revalidate: 60, tags: ['customers'] },
 )
 
