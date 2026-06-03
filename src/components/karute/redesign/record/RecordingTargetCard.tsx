@@ -17,6 +17,8 @@ export interface RecordTargetBooking {
   karute: string | null
   service: string
   staff: string
+  /** Assigned staff id — drives the avatar color (same palette as the 予約 agenda). */
+  staffId: string | null
   statusKey: 'done' | 'in-session' | 'booked' | 'new'
   statusLabel: string
 }

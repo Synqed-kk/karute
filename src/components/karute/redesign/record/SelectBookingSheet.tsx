@@ -43,6 +43,7 @@ import {
 
 import type { RecordTargetBooking } from './RecordingTargetCard'
 import { BADGE_COLORS } from '@/lib/badge-styles'
+import { getStaffColor } from '@/lib/staff/colors'
 
 interface SelectBookingSheetProps {
   open: boolean
@@ -114,6 +115,7 @@ export function SelectBookingSheet({
           >
             {bookings.map((b) => {
               const isCurrent = b.id === currentBookingId
+              const staffColor = getStaffColor(b.staffId) ?? 'var(--muted)'
               return (
                 <li key={b.id}>
                   <button
@@ -122,7 +124,7 @@ export function SelectBookingSheet({
                     aria-selected={isCurrent}
                     onClick={() => onSelect(b)}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left ring-1 transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left ring-1 transition-colors',
                       isCurrent
                         ? 'bg-sky-50 ring-sky-300 dark:bg-sky-500/10 dark:ring-sky-500/30'
                         : 'bg-card ring-border hover:bg-muted/60',
@@ -142,19 +144,23 @@ export function SelectBookingSheet({
                       {isCurrent && <Check className="size-3" aria-hidden />}
                     </span>
                     {/* Time + duration */}
-                    <div className="w-[72px] shrink-0 text-[12px] font-semibold tabular-nums text-foreground/90">
+                    <div className="w-[50px] shrink-0 text-[12px] font-semibold tabular-nums text-foreground/90">
                       {b.start}
                       <span className="mt-0.5 block text-[10px] font-normal tabular-nums text-muted-foreground">
                         {durationLabel(b.start, b.end, t)}
                       </span>
                     </div>
-                    {/* Avatar */}
-                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground ring-1 ring-border">
+                    {/* Avatar — colored by the booking's staff (same as the
+                     *  予約 agenda), muted fallback when no staff. */}
+                    <span
+                      className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white ring-1 ring-black/5"
+                      style={{ background: staffColor }}
+                    >
                       {b.initials}
                     </span>
                     {/* Customer + karute # + service */}
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-1">
+                      <div className="flex items-baseline gap-1">
                         <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
                           {b.customer}
                         </span>
