@@ -9,9 +9,11 @@
 //
 // Opens from RecordingTargetCard's 「別の予約を選択」 button.
 // Lists today's bookings; tapping a row swaps the recording
-// target. Full-height bottom sheet (max-h-[85vh]) so staff can
-// scroll through the whole day instead of being trapped in a
-// small popover.
+// target. Bottom sheet capped at max-h-[85vh]; the list below is a
+// `min-h-0 flex-1 overflow-y-auto` child so it scrolls *within* the
+// cap. min-h-0 is load-bearing — without it the flex child grows
+// past the cap and the late bookings spill off-screen, unreachable
+// (that was the reported bug: 20:00 rows couldn't be reached).
 //
 // EMPTY STATE — when nearbyBookings is empty, surface the same
 // 対応予定 scaffolding copy the popover used (matches the karute
@@ -73,7 +75,7 @@ export function SelectBookingSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="flex max-h-[85vh] flex-col gap-0 p-0"
+        className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0"
       >
         <SheetHeader className="gap-1 border-b border-border/60 px-5 pb-3 pt-5">
           <SheetTitle className="flex items-center gap-2 text-[15px]">
@@ -88,7 +90,7 @@ export function SelectBookingSheet({
         {bookings.length === 0 ? (
           // Empty state — 対応予定 scaffolding so staff + Anthony
           // see the contract for the populated path above.
-          <div className="flex-1 overflow-y-auto px-5 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
             <div className="flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-4 dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
               <div className="min-w-0 flex-1">
                 <div className="mb-1.5 flex items-center gap-1.5">
@@ -106,7 +108,7 @@ export function SelectBookingSheet({
           <ul
             role="listbox"
             aria-label={t('sheetTitle')}
-            className="flex-1 space-y-1.5 overflow-y-auto px-4 py-3"
+            className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 py-3"
           >
             {bookings.map((b) => {
               const isCurrent = b.id === currentBookingId
