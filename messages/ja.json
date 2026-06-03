@@ -445,6 +445,18 @@
     "visitHistoryChain": {
       "aria": "直近{window}回中{attended}回来店。通算{total}回。"
     },
+    "sessionHistory": {
+      "title": "セッション履歴",
+      "count": "{n}件",
+      "empty": "まだセッションがありません",
+      "latest": "最新",
+      "minutes": "{n}分",
+      "entries": "{n}件の記録",
+      "aiSummarized": "AI要約済",
+      "memoryAdded": "メモリー+{n}",
+      "openFullKarute": "カルテ詳細を開く →",
+      "noKaruteLinked": "このセッションにカルテはまだ紐付いていません"
+    },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
     },

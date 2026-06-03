@@ -445,6 +445,18 @@
     "visitHistoryChain": {
       "aria": "Attended {attended} of last {window} visits. {total} total."
     },
+    "sessionHistory": {
+      "title": "Session history",
+      "count": "{n} sessions",
+      "empty": "No sessions recorded yet",
+      "latest": "latest",
+      "minutes": "{n} min",
+      "entries": "{n} entries",
+      "aiSummarized": "AI summarized",
+      "memoryAdded": "+{n} memory",
+      "openFullKarute": "Open full karute record →",
+      "noKaruteLinked": "No karute record linked to this session yet"
+    },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
     },
