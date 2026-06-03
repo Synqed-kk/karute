@@ -115,7 +115,7 @@ export function SelectBookingSheet({
           >
             {bookings.map((b) => {
               const isCurrent = b.id === currentBookingId
-              const staffColor = getStaffColor(b.staffId) ?? 'var(--muted)'
+              const staffColor = getStaffColor(b.staffId) ?? '#71717a'
               return (
                 <li key={b.id}>
                   <button
