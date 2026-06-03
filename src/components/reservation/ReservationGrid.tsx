@@ -1,5 +1,6 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 
 import {
@@ -34,7 +35,10 @@ export function ReservationGrid({ staff, reservations, businessHours, onSelect }
   // Distinct color per staff over the FULL roster shown in the grid — same
   // sorted-index assignment the adapter uses, so the column avatar and the
   // appointment-card avatars line up on the same hue.
-  const staffColors = assignStaffColors(staff.map((s) => s.id))
+  const staffColors = useMemo(
+    () => assignStaffColors(staff.map((s) => s.id)),
+    [staff],
+  )
 
   return (
     <div className="reservation-grid-scroll overflow-x-auto rounded-xl border border-border">

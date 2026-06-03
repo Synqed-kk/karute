@@ -15,7 +15,7 @@
 // an already-active pill snaps back to 'all'. The Self segment hides when
 // the viewer has no staff identity (e.g. owner with no `staff_profile`).
 
-import { useTransition } from 'react'
+import { useMemo, useTransition } from 'react'
 import { User, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
@@ -54,7 +54,10 @@ export function ReservationStaffFilter({
   const [isPending, startTransition] = useTransition()
   // Distinct color per staff over the FULL roster of chips (sorted-index
   // assignment, no collisions) — same mapping the agenda/grid use.
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
+  const staffColors = useMemo(
+    () => assignStaffColors(staffList.map((s) => s.id)),
+    [staffList],
+  )
 
   function setStaff(next: string) {
     const params = new URLSearchParams(search?.toString() ?? '')
