@@ -22,7 +22,11 @@ export async function POST(request: Request) {
     const systemPrompt = getExtractionSystemPrompt(locale ?? 'en')
 
     const completion = await openai.chat.completions.parse({
-      model: 'gpt-4o-mini',
+      // gpt-4o (not -mini): the extraction must FOLLOW detailed instructions
+      // (carry concrete dates into titles, consolidate next_visit) — exactly
+      // where mini is weakest. Env-overridable to match the other AI routes.
+      // gpt-4o supports json_schema structured outputs (zodResponseFormat).
+      model: process.env.AI_MODEL || 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {

@@ -100,6 +100,15 @@ export function karuteSummaryToBullets(
   karute: KaruteWithRelations,
 ): string[] {
   if (!karute.summary) return []
+  // New format (prompts.ts): newline-separated bullets, each line optionally
+  // prefixed with ・/•/-. Prefer this — it's robust to dates like "16:00" and
+  // to a Japanese 。inside a single bullet (which the old period-split mangled).
+  const lines = karute.summary
+    .split(/\r?\n+/)
+    .map((s) => s.replace(/^[\s・*•\-–—]+/, '').trim())
+    .filter(Boolean)
+  if (lines.length > 1) return lines
+  // Legacy/prose fallback — records summarized before the bullet format.
   return karute.summary
     .split(/[.。]\s*/)
     .map((s) => s.trim())
