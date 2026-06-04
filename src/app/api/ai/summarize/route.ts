@@ -34,8 +34,10 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.parse({
       // gpt-4o (not -mini): the summary is reasoning-heavy (condense narrative,
       // keep concrete dates) — the spike AI_PROMPTS.md §3 calls for a strong
-      // reasoning model here. Env-overridable; gpt-4o supports structured outputs.
-      model: process.env.AI_MODEL || 'gpt-4o',
+      // reasoning model here. DEDICATED env var (not the shared AI_MODEL) so a
+      // system-wide cost setting can't silently revert it. gpt-4o supports
+      // structured outputs.
+      model: process.env.AI_SUMMARIZE_MODEL || 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {

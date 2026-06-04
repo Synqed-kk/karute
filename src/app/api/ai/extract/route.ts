@@ -24,9 +24,11 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.parse({
       // gpt-4o (not -mini): the extraction must FOLLOW detailed instructions
       // (carry concrete dates into titles, consolidate next_visit) — exactly
-      // where mini is weakest. Env-overridable to match the other AI routes.
-      // gpt-4o supports json_schema structured outputs (zodResponseFormat).
-      model: process.env.AI_MODEL || 'gpt-4o',
+      // where mini is weakest. DEDICATED env var (not the shared AI_MODEL) so a
+      // system-wide AI_MODEL=gpt-4o-mini cost setting can't silently revert this
+      // to the very model that caused the bug. gpt-4o supports json_schema
+      // structured outputs (zodResponseFormat).
+      model: process.env.AI_EXTRACT_MODEL || 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
