@@ -55,10 +55,13 @@ export function useMediaRecorder() {
     setStream(micStream)
 
     const mimeType = getSupportedMimeType()
-    const recorder = new MediaRecorder(
-      micStream,
-      mimeType ? { mimeType } : undefined
-    )
+    // Voice-optimized bitrate — see global-recorder.ts. ~4x smaller than the
+    // browser default (~128 kbps) so long (60-90 min) sessions don't exceed the
+    // Supabase Storage upload limit. Negligible STT-accuracy impact at 32 kbps.
+    const recorder = new MediaRecorder(micStream, {
+      ...(mimeType ? { mimeType } : {}),
+      audioBitsPerSecond: 32_000,
+    })
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunksRef.current.push(e.data)

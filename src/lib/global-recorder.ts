@@ -64,7 +64,16 @@ class GlobalRecorder {
 
     this.stream = micStream
     const mimeType = getSupportedMimeType()
-    const recorder = new MediaRecorder(micStream, mimeType ? { mimeType } : undefined)
+    // Voice-optimized bitrate. The browser default (~128 kbps) makes a 60-90 min
+    // session ~80-90 MB, which blows past Supabase Storage's per-bucket limit
+    // (50 MB on Free) — the upload fails with "object exceeded the maximum allowed
+    // size". 32 kbps opus is ~4x smaller (~22 MB for 90 min) with negligible STT
+    // impact: Opus stays clean for speech well above its ~10 kbps floor, and
+    // Deepgram accuracy tracks sample rate, not bitrate.
+    const recorder = new MediaRecorder(micStream, {
+      ...(mimeType ? { mimeType } : {}),
+      audioBitsPerSecond: 32_000,
+    })
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) this.chunks.push(e.data)
