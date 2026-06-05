@@ -13,7 +13,7 @@ const CATEGORY_TO_TONE: Record<string, SessionEntryTone> = {
   lifestyle: 'condition',
   treatment: 'treatment',
   product: 'product',
-  preference: 'product',
+  preference: 'concern',
   next_visit: 'next',
   next: 'next',
 }
@@ -131,7 +131,7 @@ const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
   lifestyle: 'condition',
   treatment: 'treatment',
   product: 'product',
-  preference: 'product',
+  preference: 'concern',
   next_visit: 'next',
   next: 'next',
 }

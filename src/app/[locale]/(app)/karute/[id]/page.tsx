@@ -13,6 +13,7 @@ import {
   karuteSummaryToBullets,
   deriveKaruteNumber,
 } from '@/lib/adapters/karute-detail'
+import { getKaruteNumber } from '@/lib/customers/karute-number'
 import {
   getCustomerContact,
   getCachedCustomerConsent,
@@ -37,7 +38,9 @@ export default async function KaruteDetailPage({
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript =
     (karute as unknown as { transcript?: string | null }).transcript ?? null
-  const karuteNumber = deriveKaruteNumber(id)
+  // Sequential per-customer number ("#00001") matching the karute LIST page;
+  // falls back to the legacy hex derivation only if the customer isn't resolved.
+  const karuteNumber = (await getKaruteNumber(customerId)) ?? deriveKaruteNumber(id)
 
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a

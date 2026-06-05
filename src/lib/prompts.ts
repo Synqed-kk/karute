@@ -110,8 +110,9 @@ export function getExtractionSystemPrompt(
 
 重要なルール：
 - title には必ず「具体的な内容と根拠」を入れること。単なるトピック名は禁止。日付・時刻が話された場合は必ず title に含める（最重要）。
-- 同じ事柄に関する情報は1件のエントリーに統合すること。特に「次回の予約」に関する情報（日付・時刻・目的）は、原則として next_visit エントリー1件にまとめる。1つの予定を複数の曖昧なエントリーに分割しないこと。明確に別々の予定・別々の事柄である場合のみ分ける。
-- 抽出件数は内容に応じて（目安5〜12件）。件数を増やすことより、1件ごとの「深さ」を優先する。
+- 【統合を徹底】同じカテゴリー・同じ主題の情報は必ず1件の「濃い」エントリーに統合する。複数の不調（例：首・肩・腰、痛み・可動域・しびれ）は別々にせず、1件の症状エントリーにまとめて具体的に書く。次回予約（日付・時刻・目的）も1件にまとめる。曖昧で似た項目を複数作らない（例：「首の痛み」「体の不調」「動きの制限」を別々に作らず、1件に統合）。
+- 【件数】全体で5〜7件程度を目安の上限とし、原則として各カテゴリー1件にする。件数を増やすことより、1件ごとの「深さ」を最優先する。「相談の重要性」のような中身のない・メタな項目は作らない。
+- 【正しい分類】お客様の好み・要望は preference に分類する（product ではない。product は実際の製品・物販・試供品のみ）。生活習慣・仕事の影響などは lifestyle に分類する。
 - ${clinicalGuardrailJa(persona.clinicalPosture)}
 - category の値は必ず英語の小文字スネークケース（例: body_area, next_visit）。日本語訳や TitleCase は使用しない。
 - 文字起こしには話し言葉の数字（例：「二十九日」「四時半」）がそのまま含まれることがあります。title 内の日付・時刻・数値は必ず算用数字に正規化すること（例：「29日」「16:30」）。ただし source_quote は元のまま変更しない。
@@ -143,8 +144,9 @@ Pay special attention in this field to: ${persona.typicalConcernsEn.join(' / ')}
 
 Critical rules:
 - The title MUST carry the concrete content and rationale. If a date or time was spoken, it MUST appear in the title (most important).
-- Consolidate facts about the same thing into ONE entry. In particular, combine all next-appointment logistics (date, time, purpose) into a SINGLE next_visit entry — do not split one appointment into several vague entries. Only separate genuinely distinct facts or distinct appointments.
-- Extract as many entries as the content warrants (typically 5–12). Prioritise DEPTH per entry over entry count.
+- CONSOLIDATE HARD: merge all info of the same category / same subject into ONE rich entry. Multiple complaints (e.g. neck, shoulder, lower back; pain, range, numbness) go into a SINGLE symptom entry written specifically — never as separate vague rows. Combine all next-appointment logistics into ONE next_visit entry. Do not create several similar vague entries (e.g. "Neck pain", "Body issue", "Limited movement" must collapse into one).
+- COUNT: aim for ~5–7 entries max, roughly ONE per category. Prioritise DEPTH per entry over count. Never create empty/meta rows like "Importance of consultation".
+- CORRECT CATEGORY: a client's preferences/wishes are 'preference' (NOT 'product' — 'product' is only actual products/retail/samples). Lifestyle/work factors are 'lifestyle'.
 - ${clinicalGuardrailEn(persona.clinicalPosture)}
 - category must be the exact lowercase snake_case value (e.g. body_area, next_visit). Do NOT use TitleCase or translated labels.
 - source_quote must stay in the original spoken language — do not translate.
