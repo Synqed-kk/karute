@@ -22,6 +22,10 @@ export function useGlobalRecorder() {
     error: globalRecorder.error,
     stream: globalRecorder.stream,
     startedAt: globalRecorder.startedAt,
+    /** Recording has run past the soft warning threshold (~2h). */
+    overrun: globalRecorder.overrun,
+    /** The hard cap auto-stopped + saved the recording (~2.5h). */
+    autoStopped: globalRecorder.autoStopped,
     startRecording: () => globalRecorder.start(),
     stopRecording: () => globalRecorder.stop(),
     pauseRecording: () => globalRecorder.pause(),

@@ -1,4 +1,7 @@
+'use client'
+
 import { AlertCircle, Clock, Upload } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { ComingSoonChip } from '../ComingSoonChip'
 
 interface PrivacyTabContentProps {
@@ -6,21 +9,23 @@ interface PrivacyTabContentProps {
 }
 
 export function PrivacyTabContent({ customerName }: PrivacyTabContentProps) {
+  const t = useTranslations('customers.privacy')
+  const pendingTitle = t('wiringPending')
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <header className="mb-4 flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-300">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-sky-500/15 text-sky-600 dark:text-sky-300">
           <AlertCircle size={16} />
         </div>
         <div className="flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-foreground">Privacy &amp; data</h3>
+            <h3 className="text-sm font-semibold text-foreground">
+              {t('title')}
+            </h3>
             <ComingSoonChip />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            APPI (Japan&apos;s Personal Information Protection Act) compliance
-            actions for {customerName}&apos;s data. Owner or assigned-staff
-            privileges required.
+            {t('subtitle', { name: customerName })}
           </p>
         </div>
       </header>
@@ -29,35 +34,35 @@ export function PrivacyTabContent({ customerName }: PrivacyTabContentProps) {
         <PrivacyAction
           tone="blue"
           icon={<Clock size={16} />}
-          title="Access history"
-          body={`See which staff accessed or modified ${customerName}'s data in the audit log.`}
-          cta="View history"
+          title={t('accessHistoryTitle')}
+          body={t('accessHistoryBody', { name: customerName })}
+          cta={t('accessHistoryCta')}
           ctaTone="blue"
+          pendingTitle={pendingTitle}
         />
         <PrivacyAction
           tone="neutral"
           icon={<Upload size={16} />}
-          title="Export data"
-          body="Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, 24h TTL)."
-          cta="Export"
+          title={t('exportTitle')}
+          body={t('exportBody')}
+          cta={t('exportCta')}
           ctaTone="ghost"
+          pendingTitle={pendingTitle}
         />
         <PrivacyAction
           tone="danger"
           icon={<AlertCircle size={16} />}
-          title="Delete customer data"
-          body="Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days."
-          cta="Delete data"
+          title={t('deleteTitle')}
+          body={t('deleteBody')}
+          cta={t('deleteCta')}
           ctaTone="danger"
+          pendingTitle={pendingTitle}
         />
       </ul>
 
       <footer className="mt-4 flex items-start gap-1.5 rounded-lg border border-border bg-background/40 px-3 py-2.5 text-[11px] text-muted-foreground">
         <AlertCircle size={12} className="mt-0.5 shrink-0" />
-        <span>
-          These actions are logged to the audit trail. Deletion is irreversible
-          after 30 days. Owner confirmation recommended before execution.
-        </span>
+        <span>{t('footer')}</span>
       </footer>
     </section>
   )
@@ -70,6 +75,7 @@ function PrivacyAction({
   body,
   cta,
   ctaTone,
+  pendingTitle,
 }: {
   tone: 'blue' | 'neutral' | 'danger'
   icon: React.ReactNode
@@ -77,6 +83,7 @@ function PrivacyAction({
   body: string
   cta: string
   ctaTone: 'blue' | 'ghost' | 'danger'
+  pendingTitle: string
 }) {
   const toneClasses =
     tone === 'blue'
@@ -86,9 +93,9 @@ function PrivacyAction({
         : 'border-border bg-background/40'
   const iconBg =
     tone === 'blue'
-      ? 'bg-sky-500/15 text-sky-300'
+      ? 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
       : tone === 'danger'
-        ? 'bg-red-500/15 text-red-300'
+        ? 'bg-red-500/15 text-red-700 dark:text-red-300'
         : 'bg-muted text-muted-foreground'
   const btnClasses =
     ctaTone === 'blue'
@@ -111,7 +118,7 @@ function PrivacyAction({
         type="button"
         disabled
         className={`inline-flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-semibold opacity-60 ${btnClasses}`}
-        title="Wiring pending — APPI compliance backend in flight"
+        title={pendingTitle}
       >
         {cta}
       </button>

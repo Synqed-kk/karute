@@ -14,6 +14,12 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: () => getCurrentUserStaffId(),
 }))
 
+// Permission enforcement is unit-tested in permissions.test.ts; here we mock it
+// to a no-op so these tests exercise the staff-action logic itself.
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+}))
+
 jest.mock('@synqed-kk/client', () => {
   class SynqedError extends Error {
     status: number

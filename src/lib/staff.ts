@@ -160,18 +160,32 @@ export const getStaffList = cache(async (): Promise<StaffMember[]> => {
 })
 
 /**
- * Returns a single staff profile by ID, or null if not found.
+ * Returns a single staff profile by ID within the caller's business, or null.
+ *
+ * Service-role + explicit `customer_id` scope (matching staffListByBusiness):
+ *   - never crosses tenants — a profile id from another business returns null
+ *     (the old version had NO tenant filter and, under the pre-hardening
+ *     `using(true)` RLS, could read any profile in the database);
+ *   - works in any context, including the cache path where there's no request
+ *     cookie for the RLS-bound cookie client.
+ * Pairs with the profiles RLS tightening in migration 20260603000000.
  */
 export async function getStaffById(id: string): Promise<StaffMemberBasic | null> {
-  const supabase = await createClient()
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('id, full_name')
-    .eq('id', id)
-    .single()
+  try {
+    const businessId = await getBusinessId()
+    const service = createServiceClient()
+    const { data, error } = await service
+      .from('profiles')
+      .select('id, full_name')
+      .eq('id', id)
+      .eq('customer_id', businessId)
+      .maybeSingle()
 
-  if (error) return null
-  return data
+    if (error) return null
+    return data
+  } catch {
+    return null
+  }
 }
 
 /**

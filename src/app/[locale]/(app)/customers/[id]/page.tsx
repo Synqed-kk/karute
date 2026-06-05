@@ -26,14 +26,18 @@ interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
 function prettyDate(iso: string, locale: string): string {
   return new Date(iso).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     year: 'numeric',
     month: locale === 'ja' ? 'long' : 'short',
     day: 'numeric',
   })
+}
+
+function weekdayLabel(dt: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    weekday: 'short',
+  }).format(dt)
 }
 
 export default async function CustomerProfilePage({
@@ -135,7 +139,7 @@ export default async function CustomerProfilePage({
       id: r.id,
       karuteId: r.id,
       date: prettyDate(r.session_date ?? r.created_at, locale),
-      weekday: WEEKDAYS[dt.getDay()],
+      weekday: weekdayLabel(dt, locale),
       // Service '—' + duration 0 instead of literal 'Session' /
       // 60 — same '施術' bug fixed on the main karute list. The
       // session-row renderer should gate the duration display on

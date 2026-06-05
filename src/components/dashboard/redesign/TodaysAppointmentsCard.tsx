@@ -3,6 +3,9 @@
 import { ArrowRight, Clock, MessageCircle } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
+import { BADGE_COLORS, type BadgeStyle } from '@/lib/badge-styles'
+import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
+import { cn } from '@/lib/utils'
 
 // Full 5-state union preserved from the spike. dashboard/page.tsx
 // only assigns 'booked' or 'completed' today (the other three need
@@ -30,7 +33,7 @@ export interface DashboardAppointment {
   karuteNumber: string | null
   service: string
   staffName: string
-  staffColor: string | null // hex
+  staffColorKey: StaffColor['key'] | null
   statusKey: AppointmentStatusKey
   statusLabel: string
   /** First-visit badge — ANTHONY: producer set when customer
@@ -39,12 +42,15 @@ export interface DashboardAppointment {
   reservationMemo?: string | null
 }
 
-const STATUS_STYLES: Record<AppointmentStatusKey, { bg: string; text: string; border: string }> = {
-  booked: { bg: 'bg-sky-500/15', text: 'text-sky-300', border: 'border-sky-500/30' },
-  'in-session': { bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' },
-  completed: { bg: 'bg-muted', text: 'text-muted-foreground', border: 'border-border' },
-  pending: { bg: 'bg-orange-500/15', text: 'text-orange-300', border: 'border-orange-500/30' },
-  new: { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30' },
+// Mapped to the shared BADGE_COLORS so dashboard badges match the rest of the
+// system (light bg + dark text, not see-through). 予約済 = green, 新規 = blue
+// (the app-wide swap, 2026-06-03).
+const STATUS_STYLES: Record<AppointmentStatusKey, BadgeStyle> = {
+  booked: BADGE_COLORS.green,
+  'in-session': BADGE_COLORS.orange,
+  completed: BADGE_COLORS.slate,
+  pending: BADGE_COLORS.amber,
+  new: BADGE_COLORS.blue,
 }
 
 export function TodaysAppointmentsCard({
@@ -116,11 +122,13 @@ function AppointmentRow({ a }: { a: DashboardAppointment }) {
           </span>
           {a.karuteNumber && (
             <span className="rounded border border-border bg-muted px-1 py-0.5 text-[10px] font-mono text-muted-foreground">
-              #{a.karuteNumber}
+              {a.karuteNumber}
             </span>
           )}
           {a.isNew && (
-            <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-emerald-300">
+            <span
+              className={`rounded border px-1.5 py-0.5 text-[10px] font-semibold uppercase ${BADGE_COLORS.blue.bg} ${BADGE_COLORS.blue.text} ${BADGE_COLORS.blue.border}`}
+            >
               {t('newBadge')}
             </span>
           )}
@@ -132,10 +140,12 @@ function AppointmentRow({ a }: { a: DashboardAppointment }) {
         </div>
         <div className="text-xs text-muted-foreground">{a.service}</div>
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-          {a.staffColor && (
+          {a.staffColorKey && (
             <span
-              className="h-2 w-2 rounded-full"
-              style={{ background: a.staffColor }}
+              className={cn(
+                'h-2 w-2 rounded-full',
+                getStaffColorByKey(a.staffColorKey).stripe,
+              )}
             />
           )}
           <span>{a.staffName}</span>

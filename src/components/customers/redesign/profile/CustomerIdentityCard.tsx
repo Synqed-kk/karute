@@ -59,7 +59,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             </span>
             {c.memberNumber && (
               <span className="shrink-0 font-mono text-[11px] text-muted-foreground/70">
-                会員 #{c.memberNumber}
+                {tProfile('memberNumber', { number: c.memberNumber })}
               </span>
             )}
             <span
@@ -70,13 +70,13 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             {c.hasTicketPack && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
                 <Ticket size={11} />
-                回数券あり
+                {tProfile('ticketPack')}
               </span>
             )}
             {c.isBirthdayMonth && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[11px] font-medium text-pink-700 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-300">
                 <Cake size={11} />
-                誕生月
+                {tProfile('birthdayMonth')}
               </span>
             )}
           </div>
@@ -89,7 +89,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               <span className="inline-flex items-center gap-1">
                 <User size={12} className="text-muted-foreground/70" />
                 {c.age != null && (
-                  <span className="tabular-nums">{c.age}歳</span>
+                  <span className="tabular-nums">{tProfile('ageValue', { age: c.age })}</span>
                 )}
                 {c.age != null && c.gender && <span> · </span>}
                 {c.gender && <span>{c.gender}</span>}
@@ -102,7 +102,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             )}
             <Meta icon={<Clipboard size={12} />}>
               <span className="tabular-nums">{Math.max(c.visitCount ?? 0, c.totalKarute)}</span>
-              <span>{' 回'}</span>
+              <span>{tProfile('visitCountSuffix')}</span>
             </Meta>
             <Meta icon={<Heart size={12} />}>
               <span className="text-muted-foreground/70">
@@ -132,18 +132,15 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
           {/* Staff + next-visit prediction */}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
             <span>
-              担当{' '}
+              {tProfile('staffPrefix')}{' '}
               <span className="text-foreground">
                 {c.preferredStaffName ?? c.bookingStaffName ?? '—'}
               </span>
             </span>
             <span aria-hidden>·</span>
-            <span
-              className="inline-flex items-center gap-1.5 opacity-50"
-              title="Coming soon — rebooking prediction not wired"
-            >
+            <span className="inline-flex items-center gap-1.5 opacity-50">
               <span>
-                推奨来店{' '}
+                {t('row.recommendPrefix')}{' '}
                 <span className="text-foreground">{c.nextVisitPredicted}</span>
               </span>
               <ComingSoonChip />

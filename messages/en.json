@@ -140,7 +140,21 @@
       "duration": "{n} min",
       "appointments": "{n} appts",
       "customerSuffix": "",
-      "tantou": "Staff: {name}"
+      "tantou": "Staff: {name}",
+      "renewalFlag": "Renewal"
+    },
+    "actionSheet": {
+      "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
+      "subtitleReturn": "Booked customer. Choose an action.",
+      "viewKarute": "View karute",
+      "viewKaruteHint": "Review prior sessions and last-visit recommendations",
+      "newKarute": "Create new karute",
+      "newKaruteHintFirst": "Manually create a karute for this customer",
+      "newKaruteHintReturn": "Add a new karute for today's session",
+      "startRecording": "Start recording",
+      "startRecordingHint": "AI will draft the karute from the session audio",
+      "startRecordingHintFirst": "Creates a provisional karute. You'll resolve conversion status after the session.",
+      "firstTimeNote": "First-time customers start as a provisional karute. If they convert it becomes active; if not, it's kept for AI coaching learning (and hidden from the customer list)."
     },
     "mobile": {
       "empty": "No appointments",
@@ -425,7 +439,9 @@
       "disconnected": "Disconnected",
       "speakerCustomer": "Customer",
       "speakerStaff": "{name} (Staff)"
-    }
+    },
+    "overrunWarning": "Still recording — tap stop when the session's done.",
+    "autoStopped": "Recording ran long, so it was auto-saved."
   },
   "customers": {
     "title": "Customers",
@@ -440,6 +456,44 @@
     },
     "visitHistoryChain": {
       "aria": "Attended {attended} of last {window} visits. {total} total."
+    },
+    "sessionHistory": {
+      "title": "Session history",
+      "count": "{n} sessions",
+      "empty": "No sessions recorded yet",
+      "latest": "latest",
+      "minutes": "{n} min",
+      "entries": "{n} entries",
+      "aiSummarized": "AI summarized",
+      "memoryAdded": "+{n} memory",
+      "openFullKarute": "Open full karute record →",
+      "noKaruteLinked": "No karute record linked to this session yet"
+    },
+    "photos": {
+      "title": "Photos",
+      "count": "{n} total",
+      "emptyTitle": "No photos yet",
+      "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+      "before": "Before",
+      "after": "After",
+      "reference": "Reference",
+      "progress": "Progress"
+    },
+    "comingSoon": "Coming soon",
+    "privacy": {
+      "title": "Privacy & data",
+      "subtitle": "APPI (Japan's Personal Information Protection Act) compliance actions for {name}'s data. Owner or assigned-staff privileges required.",
+      "accessHistoryTitle": "Access history",
+      "accessHistoryBody": "See which staff accessed or modified {name}'s data in the audit log.",
+      "accessHistoryCta": "View history",
+      "exportTitle": "Export data",
+      "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, 24h TTL).",
+      "exportCta": "Export",
+      "deleteTitle": "Delete customer data",
+      "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
+      "deleteCta": "Delete data",
+      "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
+      "wiringPending": "Wiring pending — APPI compliance backend in flight"
     },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
@@ -539,6 +593,12 @@
       "lastVisitPrefix": "Last visit",
       "usualServicePrefix": "Usual",
       "visitsSuffix": "{n} visits",
+      "memberNumber": "Member #{number}",
+      "ticketPack": "Ticket pack",
+      "birthdayMonth": "Birthday month",
+      "ageValue": "{age} y/o",
+      "visitCountSuffix": " visits",
+      "staffPrefix": "Staff",
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
@@ -593,6 +653,8 @@
       },
       "heading": "Customers",
       "showing": "{n} showing",
+      "newCustomer": "New customer",
+      "searchPlaceholder": "Search customers…",
       "status": {
         "on-track": "On track",
         "new": "New",
@@ -2190,5 +2252,58 @@
     "incorrectPin": "Incorrect PIN",
     "switchOut": "Switch out",
     "selectStaff": "Select staff"
+  },
+  "invite": {
+    "joinTitle": "Join {salon}",
+    "joinSubtitle": "Set your name and a password to access your salon's Karute.",
+    "joinNameLabel": "Your name",
+    "joinEmailLabel": "Email",
+    "joinPasswordLabel": "Password",
+    "joinSubmit": "Join salon",
+    "joinSubmitting": "Joining…",
+    "joinInvalidTitle": "Invitation unavailable",
+    "disabled": "Staff invitations aren't enabled yet.",
+    "reason_missing": "This invitation link is missing its token.",
+    "reason_not_found": "We couldn't find this invitation.",
+    "reason_used": "This invitation has already been used.",
+    "reason_revoked": "This invitation was revoked.",
+    "reason_expired": "This invitation has expired. Ask the owner to resend it.",
+    "inviteStaff": "Invite staff",
+    "inviteDescription": "Send a teammate a link to join this salon. They'll get their own login and appear on your staff list.",
+    "inviteEmailLabel": "Staff email",
+    "inviteRoleLabel": "Role",
+    "role_ADMIN": "Admin",
+    "role_STYLIST": "Stylist",
+    "role_ASSISTANT": "Assistant",
+    "inviteCreate": "Create invite link",
+    "inviteCreating": "Creating…",
+    "inviteLinkReady": "Invite link ready — share it with your staff:",
+    "copy": "Copy",
+    "copied": "Copied",
+    "pendingInvites": "Pending invites",
+    "revoke": "Revoke"
+  },
+  "permissions": {
+    "roleLabel": "Role & permissions",
+    "roleHint": "Separate from job title — this sets what this person can do.",
+    "ownerFullAccess": "Account owner — full access to everything.",
+    "permissionsLabel": "Individual permissions",
+    "role_manager": "Manager",
+    "role_senior": "Senior",
+    "role_practitioner": "Staff",
+    "role_frontdesk": "Front desk",
+    "role_custom": "Custom",
+    "cap_billing_manage": "Billing & subscription",
+    "cap_business_manage": "Delete / transfer the salon",
+    "cap_staff_invite": "Invite staff",
+    "cap_staff_manage": "Manage & remove staff",
+    "cap_settings_manage": "Salon settings",
+    "cap_audit_view": "Audit log",
+    "cap_data_export": "Export / import data",
+    "cap_records_delete": "Delete records",
+    "cap_records_write": "Record sessions & edit karute",
+    "cap_analytics_viewAll": "Whole-salon analytics",
+    "cap_customers_view": "View customers",
+    "cap_bookings_manage": "Manage bookings"
   }
 }

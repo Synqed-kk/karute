@@ -18,7 +18,8 @@
 
 import { Link } from '@/i18n/navigation'
 import { useTranslations } from 'next-intl'
-import { getStaffColor } from '@/lib/staff/colors'
+import { cn } from '@/lib/utils'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 import type {
   KaruteListItem,
   KaruteAiStatus,
@@ -31,7 +32,7 @@ interface Props {
 
 export function KaruteListRow({ item }: Props) {
   const t = useTranslations('karute.recordList')
-  const staffColor = getStaffColor(item.staffId)
+  const staffColor = getStaffColorByKey(item.staffColorKey)
 
   return (
     <Link
@@ -41,8 +42,10 @@ export function KaruteListRow({ item }: Props) {
       {/* Staff color stripe (left edge) — same idiom as customer cards */}
       <span
         aria-hidden
-        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
-        style={{ background: staffColor ?? 'var(--border)' }}
+        className={cn(
+          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
+          staffColor.stripe,
+        )}
       />
 
       {/* Per-row date — desktop only. Mobile groups by date in the
@@ -56,8 +59,15 @@ export function KaruteListRow({ item }: Props) {
         </div>
       </div>
 
-      {/* Avatar */}
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold text-foreground ring-1 ring-border/60">
+      {/* Avatar — subtle staff-color tint + dark legible initials. */}
+      <span
+        className={cn(
+          'flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold ring-1',
+          staffColor.bg,
+          staffColor.text,
+          staffColor.ring,
+        )}
+      >
         {item.customerInitials}
       </span>
 
@@ -108,8 +118,7 @@ export function KaruteListRow({ item }: Props) {
           <span className="inline-flex shrink-0 items-center gap-1 truncate">
             <span
               aria-hidden
-              className="size-1.5 shrink-0 rounded-full"
-              style={{ background: staffColor ?? 'var(--border)' }}
+              className={cn('size-1.5 shrink-0 rounded-full', staffColor.stripe)}
             />
             <span className="truncate">{item.staffName}</span>
           </span>
@@ -131,8 +140,7 @@ export function KaruteListRow({ item }: Props) {
         <span className="inline-flex items-center gap-1.5">
           <span
             aria-hidden
-            className="size-1.5 shrink-0 rounded-full"
-            style={{ background: staffColor ?? 'var(--border)' }}
+            className={cn('size-1.5 shrink-0 rounded-full', staffColor.stripe)}
           />
           <span className="truncate">{item.staffName}</span>
         </span>

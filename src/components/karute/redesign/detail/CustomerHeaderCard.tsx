@@ -1,6 +1,6 @@
 'use client'
 
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { Edit3, Mail, Phone, ChevronRight } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 
@@ -52,13 +52,23 @@ export function CustomerHeaderCard({
   onEdit,
 }: CustomerHeaderProps) {
   const t = useTranslations('karuteDetail')
+  const ja = useLocale() === 'ja'
   const metaParts: React.ReactNode[] = []
-  if (age != null) metaParts.push(<span key="age">{age}</span>)
+  if (age != null)
+    metaParts.push(<span key="age">{ja ? `${age}歳` : age}</span>)
   if (gender) metaParts.push(<span key="gender">{gender}</span>)
   if (visitNumber != null && visitNumber > 0)
-    metaParts.push(<span key="vn">{ordinal(visitNumber)} visit</span>)
+    metaParts.push(
+      <span key="vn">
+        {ja ? ordinal(visitNumber, 'ja') : `${ordinal(visitNumber)} visit`}
+      </span>,
+    )
   if (lastVisitDate)
-    metaParts.push(<span key="lvd">{lastVisitDate}</span>)
+    metaParts.push(
+      <span key="lvd">
+        {ja ? `前回 ${lastVisitDate}` : `Last ${lastVisitDate}`}
+      </span>,
+    )
   if (lastVisitAgo)
     metaParts.push(<span key="lva">{lastVisitAgo}</span>)
 

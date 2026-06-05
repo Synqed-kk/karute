@@ -4,6 +4,7 @@ import {
   getStaffList,
 } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import {
   assignSequentialKaruteNumbers,
@@ -110,6 +111,10 @@ export default async function KaruteRecordsListPage() {
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
+  // DISTINCT staff colors over the FULL roster — identical map on every
+  // surface, no per-id hash collisions. Resolved into staffColorKey on each
+  // row below so KaruteListRow can render via getStaffColorByKey.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
   const customerById = new Map(
     allCustomersList.customers.map((c) => [c.id, c]),
   )
@@ -121,7 +126,7 @@ export default async function KaruteRecordsListPage() {
 
   // ── Booking → staff for placeholder rows ─────────────────────────────
   // synqed staff id → profile id. Appointments arrive keyed by the synqed
-  // staff id; staffNameById + getStaffColor key off the profile id (=
+  // staff id; staffNameById + staffColors key off the profile id (=
   // synqed staff.user_id). Profile-less synqed staff fall back to their
   // synqed id — exactly how getStaffList ids them too, so name/color still
   // resolve. Mirrors the boundary translation in getAppointmentsByDate.
@@ -201,6 +206,9 @@ export default async function KaruteRecordsListPage() {
       service: '—',
       duration: 0,
       staffId: r.staff_profile_id,
+      staffColorKey: r.staff_profile_id
+        ? (staffColors.get(r.staff_profile_id)?.key ?? null)
+        : null,
       staffName: r.staff_profile_id
         ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
         : '—',
@@ -211,11 +219,11 @@ export default async function KaruteRecordsListPage() {
     }
   })
 
-  // Phase B: synthesize placeholder rows for customers with NO records
-  // yet. Each links to /customers/[id] — the single, canonical customer page
-  // (顧客 tab) — so staff drop into the customer profile (memory / sessions /
-  // photos) and can start the first session. (The old /karute/customer/[id]
-  // duplicate is retired → redirects here; see that route.)
+  // Phase B: synthesize placeholder rows for customers with NO records yet.
+  // Each links to the customer hub (/customers/[id]) — the single canonical
+  // customer page — so a カルテ-list tap and a 顧客-list tap land on the SAME
+  // place. (Previously /karute/customer/[id], a near-duplicate of the hub that
+  // the spike never had — removed for a predictable 2-page nav.)
   // Sorted newest-customer-first so the most recent signups bubble up.
   const placeholders: KaruteListItem[] = allCustomersList.customers
     .filter((c) => !recordedCustomerIds.has(c.id))
@@ -248,6 +256,9 @@ export default async function KaruteRecordsListPage() {
         service: 'まだセッションなし',
         duration: 0,
         staffId: bookingStaffId,
+        staffColorKey: bookingStaffId
+          ? (staffColors.get(bookingStaffId)?.key ?? null)
+          : null,
         staffName: bookingStaffId
           ? (staffNameById.get(bookingStaffId) ?? '—')
           : '—',

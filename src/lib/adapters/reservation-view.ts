@@ -1,33 +1,27 @@
 import type { AppointmentRow } from '@/actions/appointments'
 import type { StaffMember } from '@/lib/staff'
-import { getStaffColor, type StaffColorKey } from '@/lib/staff-colors'
+import { assignStaffColors, type StaffColorKey } from '@/lib/staff-colors'
 
 // ---------------------------------------------------------------------------
 // Adapter: AppointmentRow -> ReservationView for the reservation UI.
 //
-// Display-status mapping (5 states):
+// Display-status mapping (4 states):
 //   COMPLETED, CANCELLED          -> 'completed'  (inactive — greyed out)
 //   IN_PROGRESS or now ∈ [s, e]   -> 'in_session' (explicit signal beats time)
 //   end < now                     -> 'completed'
-//   source !== MANUAL             -> 'pending'    (externally synced, not yet
-//                                                  confirmed by staff)
-//   isFirstTimeCustomer === true  -> 'new'        (first-ever appointment for
-//                                                  this customer at this salon)
+//   isFirstTimeCustomer === true  -> 'new'        (genuine first visit ONLY)
 //   else                          -> 'booked'
 //
-// "Pending" and "new" are derived signals — no extra columns required:
-// • pending: every Appointment carries a `source` enum from synqed-core, so
-//   QUICKRESERVE/SALON_BOARD/etc. surface as pending until staff acts on them.
-// • new: derived from past-appointment count (NOT karute count). A customer
-//   who's been in 5 times without us recording karute is still NOT new —
-//   they exist in the customer list. Previously this used karute count which
-//   meant every existing customer showed as 新規 until we recorded their first
-//   karute. Liam hit this — the live Vercel preview rendered all bookings as
-//   新規 even for customers already in his list.
+// 'new' (新規) is STRICT — a true first-timer, NOT "no karute yet." The page
+// derives isFirstTimeCustomer as: not a known QR customer AND no past appointment
+// AND no karute. A 回数券 holder / returning QR customer is never 新規. (We removed
+// the old 'pending' state: it just meant "synced from QuickReserve," meaningless
+// to staff — a synced booking is simply a confirmed 予約済.)
 //
-// Precedence: terminal > in-session > time-completed > pending > new > booked.
-// A first-time customer whose booking also came from QuickReserve renders as
-// "pending" because confirming the appointment is the more urgent action.
+// `needsRenewal` is a separate action FLAG (not a status): true when the course
+// title marks a finished pack (e.g. "6回券終了") → prompt a renewal/re-sell.
+//
+// Precedence: terminal > in-session > time-completed > new > booked.
 // ---------------------------------------------------------------------------
 
 export type DisplayStatus =
@@ -35,7 +29,6 @@ export type DisplayStatus =
   | 'in_session'
   | 'completed'
   | 'new'
-  | 'pending'
 
 export interface ReservationView {
   id: string
@@ -48,9 +41,13 @@ export interface ReservationView {
   durationMin: number
   customerName: string
   customerInitials: string
+  /** Sequential salon karute number ("#00139") — the SAME value the 顧客 list +
+   *  customer profile show, so the agenda row matches every other surface.
+   *  null when the caller doesn't supply the number map. */
+  karuteNumber: string | null
   service: string
   displayStatus: DisplayStatus
-  staffColorKey: StaffColorKey
+  staffColorKey: StaffColorKey | 'neutral'
   /** ID of the customer, used to route follow-up actions (memory, new karute). */
   clientId: string
   /** Set when a karute_record already exists for this appointment. */
@@ -59,6 +56,9 @@ export interface ReservationView {
    *  action sheet AND the 'new' displayStatus. True only when this is the
    *  customer's first-ever appointment at this salon. */
   isFirstTimeVisit: boolean
+  /** Action flag (not a status): the booking's course marks a finished ticket
+   *  pack (e.g. "6回券終了") → prompt a renewal/re-sell. Drives the 更新案内 chip. */
+  needsRenewal: boolean
 }
 
 function hm(iso: string): string {
@@ -100,8 +100,9 @@ export function computeDisplayStatus(
   const end = start + row.duration_minutes * 60_000
   if (now.getTime() > end) return 'completed'
   if (now.getTime() >= start) return 'in_session'
-  // Future SCHEDULED bookings get a finer-grained label.
-  if (row.source !== 'MANUAL') return 'pending'
+  // Future bookings: 新規 only for genuine first-timers; everyone else is 予約済.
+  // (We no longer mark synced-from-QR bookings 'pending' — that distinction is
+  // meaningless to staff; a synced booking is just a confirmed 予約済.)
   if (opts.isFirstTimeCustomer === true) return 'new'
   return 'booked'
 }
@@ -111,14 +112,26 @@ export function appointmentsToReservationViews(
   staffList: StaffMember[],
   now: Date,
   isFirstTimeByClient: Map<string, boolean> = new Map(),
+  karuteNumberByClientId: ReadonlyMap<string, string> = new Map(),
 ): ReservationView[] {
   const staffNameById = new Map<string, string>()
   for (const s of staffList) {
     if (s.full_name) staffNameById.set(s.id, s.full_name)
   }
+  // Distinct color per staff over the FULL roster (sorted-index assignment, no
+  // collisions). Computed once here so every reservation surface that reads
+  // `staffColorKey` off the view agrees on the mapping.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
-    const isFirstTimeCustomer = isFirstTimeByClient.get(r.client_id) ?? false
+    // A 回数券 (multi-session ticket) booking means an established returning
+    // customer — never 新規 — even when the QuickReserve existing-customer flag
+    // or karute history hasn't synced. The course title carries it reliably
+    // ("10回券", "6回券", "6回券終了"). Without this, every ticket regular on the
+    // agenda wrongly read 新規 because their past visits aren't in synqed yet.
+    const holdsTicketPack = /回数?券/.test(r.title ?? '')
+    const isFirstTimeCustomer =
+      (isFirstTimeByClient.get(r.client_id) ?? false) && !holdsTicketPack
     return {
       id: r.id,
       staffId: r.staff_profile_id,
@@ -127,16 +140,19 @@ export function appointmentsToReservationViews(
       durationMin: r.duration_minutes,
       customerName,
       customerInitials: initialsOf(customerName),
+      karuteNumber: karuteNumberByClientId.get(r.client_id) ?? null,
       // Empty string when no title set — the agenda row hides the service
       // line rather than printing a generic 'セッション' fallback that read
       // as misleading copy on Liam's preview (every row said "セッション").
       // The left time column already shows duration prominently.
       service: r.title ?? '',
       displayStatus: computeDisplayStatus(r, now, { isFirstTimeCustomer }),
-      staffColorKey: getStaffColor(r.staff_profile_id).key,
+      staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
       isFirstTimeVisit: isFirstTimeCustomer,
+      // Finished-pack signal from the QR course title (e.g. "6回券終了") → 更新案内.
+      needsRenewal: (r.title ?? '').includes('終了'),
     }
   })
 }

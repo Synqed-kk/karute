@@ -23,6 +23,10 @@ import {
   type SuggestedMessage,
 } from './AISuggestedMessageCard'
 import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
+import {
+  AIBodyPredictionPreview,
+  AIOutreachPreview,
+} from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 
 export interface KaruteDetailViewProps {
   karuteId: string
@@ -78,7 +82,15 @@ export function KaruteDetailView({
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
-          <AIBodyPredictionCard prediction={bodyPrediction} />
+          {/* Show the 対応予定 scaffold when there's no prediction yet, so the
+           *  section stays visible as a reminder instead of vanishing (the card
+           *  itself returns null when empty). Lights up when Anthony's pipeline
+           *  passes a real prediction. */}
+          {bodyPrediction ? (
+            <AIBodyPredictionCard prediction={bodyPrediction} />
+          ) : (
+            <AIBodyPredictionPreview />
+          )}
           <CurrentSessionCard
             sessionDate={sessionDateLong}
             bullets={summaryBullets}
@@ -94,11 +106,16 @@ export function KaruteDetailView({
           />
         </div>
         <div className="flex flex-col gap-4">
-          <AISuggestedMessageCard
-            customerName={header.customerName}
-            customerId={customerId}
-            draft={suggestedMessage}
-          />
+          {/* Same pattern — 対応予定 scaffold when there's no draft yet. */}
+          {suggestedMessage ? (
+            <AISuggestedMessageCard
+              customerName={header.customerName}
+              customerId={customerId}
+              draft={suggestedMessage}
+            />
+          ) : (
+            <AIOutreachPreview />
+          )}
           <RecordingTranscriptCard
             transcript={transcript}
             consentOnFile={consentOnFile}

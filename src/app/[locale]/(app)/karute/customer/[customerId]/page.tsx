@@ -1,21 +1,23 @@
 import { redirect } from 'next/navigation'
 
 /**
- * /karute/customer/[customerId] — RETIRED & consolidated.
+ * /karute/customer/[customerId] — REMOVED, now a permanent redirect.
  *
- * This route used to render KaruteCustomerDetailView: a second, near-duplicate
- * customer page that (a) duplicated the canonical customer profile at
- * /customers/[id] (SAME data pipeline, different layout) and (b) wrongly placed
- * single-SESSION content (entry timeline, AI summary, transcript) on a CUSTOMER
- * page. Single-session content belongs on /karute/[id]; everything about the
- * person belongs on /customers/[id].
+ * This was a near-duplicate of the customer hub (/customers/[id]) that the
+ * design spike never had. Two customer-detail pages made navigation
+ * unpredictable — a カルテ-list tap and a 顧客-list tap landed on different
+ * pages, one missing info. The カルテ list now routes straight to the hub
+ * (see karute/page.tsx placeholder rows); this route redirects so any stale
+ * or bookmarked links resolve to the canonical page.
  *
- * To keep exactly ONE customer page with no dead ends, this route now redirects
- * to the canonical /customers/[id]. (The カルテ-list placeholder rows already
- * link straight there.) Kept as a redirect rather than deleted so any existing
- * bookmark / deep link lands on the right page instead of a 404.
+ * Canonical IA (matches the spike): two destinations only —
+ *   - /customers/[id]  → the customer hub (identity + メモリー/履歴/写真 tabs)
+ *   - /karute/[id]     → the rich single-session karute record
+ *
+ * (The old KaruteCustomerDetailView component is now unused — left in place
+ * for a follow-up dead-code sweep rather than deleted inline here.)
  */
-export default async function RetiredKaruteCustomerRedirect({
+export default async function KaruteCustomerRedirect({
   params,
 }: {
   params: Promise<{ customerId: string; locale: string }>
