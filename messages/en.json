@@ -576,6 +576,7 @@
         "sessions": "Sessions",
         "photos": "Photos",
         "privacy": "Privacy",
+        "bookings": "Bookings",
         "aria": "Profile tabs"
       },
       "lastVisitPrefix": "Last visit",
@@ -584,6 +585,47 @@
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
+    },
+    "bookings": {
+      "summaryTitle": "Visit summary",
+      "historyTitle": "Visit history",
+      "source": "QuickReserve",
+      "count": "{n}",
+      "visitsValue": "{n}",
+      "cadenceValue": "~every {n}d",
+      "firstVisit": "First",
+      "lastVisit": "Last",
+      "cancelledCount": "{n} cancelled",
+      "stat": {
+        "visits": "Visits",
+        "total": "Total spend",
+        "avg": "Avg / visit",
+        "cadence": "Cadence"
+      },
+      "status": {
+        "settled": "Visited",
+        "booked": "Booked",
+        "cancelled": "Cancelled"
+      },
+      "state": {
+        "retry": "Retry",
+        "empty": {
+          "title": "No visit history yet",
+          "hint": "Once reservations are recorded in QuickReserve, visit + payment history shows here."
+        },
+        "not-configured": {
+          "title": "QuickReserve not connected",
+          "hint": "Save your QuickReserve login in Settings to show visit + payment history."
+        },
+        "not-found": {
+          "title": "No visit history found",
+          "hint": "Couldn't match this customer in QuickReserve — the name may differ."
+        },
+        "error": {
+          "title": "Couldn't load visit history",
+          "hint": "Fetching from QuickReserve failed. Please try again in a moment."
+        }
+      }
     },
     "toast": {
       "created": "Customer created",

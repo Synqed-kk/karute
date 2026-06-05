@@ -5,10 +5,15 @@
 // blue underline + blue icon. Inactive: muted text, no underline.
 // Count badge sits inline next to the label (same as spike).
 
-import { Brain, ClipboardList, Images, ShieldCheck } from 'lucide-react'
+import { Brain, CalendarClock, ClipboardList, Images, ShieldCheck } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
-export type CustomerProfileTab = 'memory' | 'sessions' | 'photos' | 'privacy'
+export type CustomerProfileTab =
+  | 'memory'
+  | 'sessions'
+  | 'bookings'
+  | 'photos'
+  | 'privacy'
 
 interface CustomerTabBarProps {
   active: CustomerProfileTab
@@ -23,6 +28,7 @@ const TABS: Array<{
 }> = [
   { id: 'memory', labelKey: 'memory', icon: Brain },
   { id: 'sessions', labelKey: 'sessions', icon: ClipboardList },
+  { id: 'bookings', labelKey: 'bookings', icon: CalendarClock },
   { id: 'photos', labelKey: 'photos', icon: Images },
   { id: 'privacy', labelKey: 'privacy', icon: ShieldCheck },
 ]
