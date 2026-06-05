@@ -98,6 +98,7 @@ export function BookingHistoryTabContent({
         reason={history.reason}
         empty={history.available && history.visits.length === 0}
         onRetry={retry}
+        debug={history.debug}
       />
     )
   }
@@ -286,10 +287,12 @@ function EmptyState({
   reason,
   empty,
   onRetry,
+  debug,
 }: {
   reason: CustomerVisitHistory['reason']
   empty: boolean
   onRetry: () => void
+  debug?: string
 }) {
   const t = useTranslations('customers.bookings')
   const key = empty ? 'empty' : reason
@@ -309,6 +312,11 @@ function EmptyState({
           <RefreshCw size={13} />
           {t('state.retry')}
         </button>
+      )}
+      {debug && (
+        <p className="mx-auto mt-4 max-w-md break-all rounded-md bg-muted/60 px-2 py-1 text-left font-mono text-[10px] leading-relaxed text-muted-foreground/70">
+          {debug}
+        </p>
       )}
     </section>
   )

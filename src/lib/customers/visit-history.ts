@@ -55,6 +55,9 @@ export interface CustomerVisitHistory {
   reason: VisitHistoryReason
   visits: CustomerVisit[]
   summary: VisitHistorySummary
+  /** TEMP: surfaces the underlying error in the UI while the QR
+   *  reservations-by-customer payload shape is being validated. */
+  debug?: string
 }
 
 const EMPTY_SUMMARY: VisitHistorySummary = {
@@ -236,6 +239,9 @@ export async function getCustomerVisitHistory(
     return await cachedHistory(name, memberNumber)
   } catch (err) {
     console.error('[visit-history] fetch failed:', err)
-    return emptyHistory('error')
+    return {
+      ...emptyHistory('error'),
+      debug: String(err instanceof Error ? err.message : err).slice(0, 280),
+    }
   }
 }
