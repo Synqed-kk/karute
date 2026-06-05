@@ -1,5 +1,6 @@
 'use client'
 
+import type { ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { Target } from 'lucide-react'
 
@@ -24,6 +25,8 @@ interface CurrentSessionCardProps {
   /** Categorized entries — always visible, tags are the skim layer. */
   entries: SessionEntry[]
   tunedFor?: string | null
+  /** Optional action rendered in the card header (e.g. AIで再生成 button). */
+  headerAction?: ReactNode
 }
 
 const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
@@ -39,6 +42,7 @@ export function CurrentSessionCard({
   bullets,
   entries,
   tunedFor,
+  headerAction,
 }: CurrentSessionCardProps) {
   const t = useTranslations('karuteDetail')
   if (bullets.length === 0 && entries.length === 0) return null
@@ -49,7 +53,10 @@ export function CurrentSessionCard({
         <h3 className="text-base font-semibold text-foreground">
           {t('currentSession.title')}
         </h3>
-        <span className="text-xs tabular-nums text-muted-foreground">{sessionDate}</span>
+        <div className="flex items-center gap-3">
+          {headerAction}
+          <span className="text-xs tabular-nums text-muted-foreground">{sessionDate}</span>
+        </div>
       </header>
 
       {/* 要点 — key points: the 2-second skim */}
