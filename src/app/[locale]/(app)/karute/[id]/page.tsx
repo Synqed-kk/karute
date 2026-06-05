@@ -11,7 +11,6 @@ import {
   karuteToHeader,
   karuteEntriesToSessionEntries,
   karuteSummaryToBullets,
-  deriveKaruteNumber,
 } from '@/lib/adapters/karute-detail'
 import { getKaruteNumber } from '@/lib/customers/karute-number'
 import {
@@ -38,9 +37,14 @@ export default async function KaruteDetailPage({
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript =
     (karute as unknown as { transcript?: string | null }).transcript ?? null
-  // Sequential per-customer number ("#00001") matching the karute LIST page;
-  // falls back to the legacy hex derivation only if the customer isn't resolved.
-  const karuteNumber = (await getKaruteNumber(customerId)) ?? deriveKaruteNumber(id)
+  // Sequential per-customer number ("#00001"), matching the karute list +
+  // customer pages (same assignSequentialKaruteNumbers source). Falls back to the
+  // DIGIT placeholder "#00000" — NEVER the hex deriveKaruteNumber, which produced
+  // letters ("#49C6E"). Resolves to the real number when the karute's client_id is
+  // a synqed customer id (post-migration / fresh records); legacy records whose
+  // client_id predates the synqed id show "#00000" until Anthony's karute_number
+  // DB sequence column lands (the permanent, cross-store-safe fix).
+  const karuteNumber = (await getKaruteNumber(customerId)) ?? '#00000'
 
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a
