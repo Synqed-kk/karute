@@ -57,8 +57,9 @@ describe('POST /api/ai/summarize', () => {
         expect(response.status).toBe(200)
         const body = await response.json()
         expect(body).toHaveProperty('summary')
-        expect(typeof body.summary).toBe('string')
-        expect(body.summary).toBe(mockSummaryResult.summary)
+        // summary is now a bullet ARRAY (SummaryResultSchema), not a string.
+        expect(Array.isArray(body.summary)).toBe(true)
+        expect(body.summary).toEqual(mockSummaryResult.summary)
       },
     })
   })

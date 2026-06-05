@@ -29,8 +29,10 @@ export const mockExtractionResult: ExtractionResult = {
  * Configure chat.completions.parse to return this for summary tests.
  */
 export const mockSummaryResult: SummaryResult = {
-  summary:
-    'Client visited for a color treatment. She prefers natural brown tones and reported having a sensitive scalp.',
+  summary: [
+    'Color treatment; prefers natural brown tones.',
+    'Reported a sensitive scalp — used low-irritation formula.',
+  ],
 }
 
 /**

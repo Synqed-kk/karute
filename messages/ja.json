@@ -287,6 +287,7 @@
     "currentSession": {
       "title": "本日のセッション",
       "tunedFor": "業種設定:",
+      "recordToggle": "セッションの記録（{count}件）",
       "categories": {
         "treatment": "施術",
         "concern": "気になる点",

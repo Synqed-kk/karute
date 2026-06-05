@@ -140,7 +140,12 @@ export async function runAIPipeline(
   const summarizeData = await summarizeRes.json()
 
   const entries: Entry[] = extractData.entries
-  const summary: string = summarizeData.summary
+  // The summary API now returns a bullet ARRAY (SummaryResultSchema). Join with
+  // "\n" for the string `karute.summary` field; the karute-detail adapter splits
+  // it back into bullets. Stay defensive about a legacy string response.
+  const summary: string = Array.isArray(summarizeData.summary)
+    ? summarizeData.summary.join('\n')
+    : (summarizeData.summary ?? '')
 
   // Step 3: Complete
   onProgress('complete')

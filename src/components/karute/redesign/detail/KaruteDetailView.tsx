@@ -4,7 +4,6 @@ import type { ReactNode } from 'react'
 import type { CustomerHeaderProps } from './CustomerHeaderCard'
 import { CustomerHeaderCard } from './CustomerHeaderCard'
 import { DetailBreadcrumb } from './DetailBreadcrumb'
-import { AISummaryCard } from './AISummaryCard'
 import {
   CurrentSessionCard,
   type SessionEntry,
@@ -78,6 +77,7 @@ export function KaruteDetailView({
           <AIBodyPredictionCard prediction={bodyPrediction} />
           <CurrentSessionCard
             sessionDate={sessionDateLong}
+            bullets={summaryBullets}
             entries={entries}
           />
         </div>
@@ -87,7 +87,6 @@ export function KaruteDetailView({
             customerId={customerId}
             draft={suggestedMessage}
           />
-          <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
           <RecordingTranscriptCard
             transcript={transcript}
             consentOnFile={consentOnFile}

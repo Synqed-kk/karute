@@ -55,9 +55,16 @@ export type ExtractionResult = z.infer<typeof ExtractionResultSchema>
 
 /**
  * Zod schema for the session summary returned by GPT.
+ *
+ * `summary` is an ARRAY of bullet strings (not one string) — this forces the
+ * model to physically separate the 3–4 key points, so it can't collapse them
+ * into one run-on paragraph (the bug behind the "本日のセッション" wall of text).
+ * The spike (AI_PROMPTS.md §3) returns the same `summary: string[]` shape.
+ * The pipeline joins these with "\n" for the string `karute.summary` field;
+ * the karute-detail adapter splits them back into bullets.
  */
 export const SummaryResultSchema = z.object({
-  summary: z.string(),
+  summary: z.array(z.string()).min(1).max(6),
 })
 
 export type SummaryResult = z.infer<typeof SummaryResultSchema>
