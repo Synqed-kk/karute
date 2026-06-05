@@ -1,8 +1,8 @@
-# Recording resilience — never lose a captured session
+# Recording & processing resilience — never lose a session, at any scale
 
 | | |
 | --- | --- |
-| **Status** | Plan — T0 shipped (PRs #170, #171); T1–T4 to build |
+| **Status** | Plan — capture T0 shipped (#170, #171); capture T1–T4 + the server-side processing pipeline to build |
 | **Audience** | Anthony + whoever owns the recording pipeline |
 | **Owners** | Liam (product) · Anthony (engineering) |
 | **Updated** | 2026-06-05 |
@@ -112,7 +112,72 @@ the AI stays in our cloud**). So the capture → upload → transcribe path shou
 the audio source as pluggable — **phone mic today, Bluetooth/wearable mic later** —
 without a rewrite. The device feeds the same pipeline; nothing about T1–T3 changes.
 
+## Processing durability + scale (the other half)
+
+Capture is only half of "never lose a session." The **processing** (transcribe →
+extract → summarize → save) has its own durability + concurrency gaps — and they
+bite the moment more than one bed is recording.
+
+### Two concurrency problems
+- **A — one device, back-to-back.** Staff finishes customer A, the transcription is
+  still running, customer B walks in. They must start recording B **immediately**,
+  without losing A.
+- **B — many devices, one account.** 3 beds in Daikanyama + 5 in Ginza all record +
+  transcribe on the same 14:00 slot — scaling to hundreds/thousands.
+
+### Current state (prototype — supports neither at scale)
+- `globalPipeline` is a **single-slot, in-memory singleton**. Starting B's pipeline
+  while A runs **supersedes A and discards it** (the `runId` bails the old run) — so
+  back-to-back recording **silently loses the first karute**. It also **dies on a
+  page reload** mid-transcription.
+- The client singletons are **per-browser-tab**, so 8 phones don't collide on the
+  client — but they all hit the same backend, where three ceilings live:
+  - **Per-account rate caps** — `synqed.aiRateLimit.consume` enforces an hourly
+    request cap + daily $-cap **shared across every staff member in the account**.
+    Must be sized per-plan for real concurrency, or simultaneous staff get `429`.
+  - **Upstream API concurrency** — Deepgram's per-key concurrent limit + OpenAI org
+    RPM/TPM. Fine at 8; needs higher tiers at thousands.
+  - **Serverless timeouts** — transcribe is capped at 300s; a 90-min Deepgram job
+    fits, but it's a ceiling.
+  - **Cost accounting** — the $-cap under-counted gpt-4o until **#174**; Deepgram's
+    per-minute spend (the dominant cost) still isn't in the cap (synqed-core TODO).
+
+### The fix — move processing into a server-side job queue
+The client should stop processing on-device:
+
+```
+Device:  record → upload audio to storage → POST a "process recording" job → DONE
+         → free to record the next customer immediately.
+
+Backend: a durable queue holds jobs. Workers pull them → Deepgram → OpenAI → write
+         karute → notify. Workers scale horizontally — N workers = N concurrent jobs.
+         Every recording is its own job; A, B, C never touch each other.
+
+Device:  polls / subscribes → "3 karutes ready to review."
+```
+
+Why this is bulletproof:
+- **A (back-to-back):** trivial — each recording is an independent job; the device
+  never waits.
+- **B (many devices):** trivial — 8 or 8,000 recordings are just that many jobs;
+  scale = worker count + API tiers + DB pooling.
+- **No loss, survives reload:** audio is durable in storage and the job is durable
+  in the queue **before** any processing runs — a crash/reload loses nothing.
+- This is the "durable v2" the pipeline code already flags. Primarily **synqed-core
+  / backend** work; the client simplifies to upload-and-enqueue + a review inbox.
+
+### What must scale (synqed-core / infra)
+- **Job queue + workers** (Postgres-queue / SQS / Inngest / Trigger.dev — pick one).
+- **Per-account rate caps sized per plan** — don't throttle a legitimately busy store.
+- **API tiers** — Deepgram + OpenAI concurrency/throughput for the target scale.
+- **DB** — connection pooling + write throughput for concurrent karute saves.
+- **Cost accounting** — fold Deepgram per-minute spend into the cap (#174 fixed the
+  token side).
+
 ## Open decisions for Anthony
+- **Processing pipeline:** client-side concurrent vs the server-side job queue
+  above. Recommend the queue — it's the only one that scales to many beds + survives
+  reload. Which queue tech?
 - **T0 thresholds** (2h warn / 2.5h stop) are constants — make them booking-aware
   (warn at booked-duration + buffer)?
 - **T1 local persistence:** IndexedDB vs OPFS; segment length (~10 min?).
@@ -124,4 +189,6 @@ without a rewrite. The device feeds the same pipeline; nothing about T1–T3 cha
 - `SPEAKER_RECOGNITION_AND_RECORDING_LAW.md` (spike) — diarization + voice
   enrollment design + APPI/consent posture.
 - `CAPACITOR_MIGRATION_PLAN.md` (spike) — native background recording (T4).
-- PRs **#170** (bitrate) and **#171** (auto-stop) — T0, shipped.
+- PRs **#170** (bitrate) and **#171** (auto-stop) — capture T0, shipped.
+- PR **#174** — model-aware spend-cap cost estimate (the cost-accounting gap above).
+- `src/lib/global-pipeline.ts` — the single-slot client pipeline to replace.
