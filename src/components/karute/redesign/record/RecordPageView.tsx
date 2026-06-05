@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
+import { toast } from 'sonner'
 
 import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -40,6 +41,8 @@ export interface RecordPageNextAppointment {
   id: string
   customerName: string
   customerId: string
+  /** Sequential karute number ("#00007") — matches the 顧客/予約 surfaces. */
+  karuteNumber: string | null
   startTime: string
   durationMinutes: number
   title: string | null
@@ -103,6 +106,8 @@ export function RecordPageView({
     error: micError,
     stream,
     startedAt,
+    overrun,
+    autoStopped,
     startRecording,
     stopRecording,
     discardRecording,
@@ -112,6 +117,15 @@ export function RecordPageView({
   // singleton — survives navigation; the top-corner chip (ProcessingIndicator)
   // shows progress instead of a full-screen blocker.
   const pipeline = useGlobalPipeline()
+
+  // Runaway-recording safety nets (see global-recorder): nudge the staff when a
+  // recording runs unusually long, and tell them when the hard cap auto-saved it.
+  useEffect(() => {
+    if (overrun) toast.warning(t('overrunWarning'))
+  }, [overrun, t])
+  useEffect(() => {
+    if (autoStopped) toast.info(t('autoStopped'))
+  }, [autoStopped, t])
 
   // 別の予約を選択: tapping a booking in the picker re-targets the record page
   // at THAT appointment. We push the id through `?appointmentId` so the server
@@ -307,7 +321,7 @@ export function RecordPageView({
         id: nextAppointment.id,
         customerName: nextAppointment.customerName,
         initials: deriveInitials(nextAppointment.customerName),
-        karuteNumber: null,
+        karuteNumber: nextAppointment.karuteNumber ?? null,
         service: nextAppointment.title ?? '—',
         timeRange: (() => {
           const start = new Date(nextAppointment.startTime)

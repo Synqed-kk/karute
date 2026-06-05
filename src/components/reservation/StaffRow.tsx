@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl'
 
 import { AppointmentCard } from '@/components/reservation/AppointmentCard'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
-import { getStaffColor } from '@/lib/staff-colors'
+import { getStaffColorByKey, type StaffColorKey } from '@/lib/staff-colors'
 import { cn } from '@/lib/utils'
 
 export const STAFF_ROW_HEIGHT = 88
@@ -20,6 +20,9 @@ export interface ReservationStaff {
 
 interface StaffRowProps {
   staff: ReservationStaff
+  /** Distinct staff color, assigned by the parent grid over the full roster
+   *  (assignStaffColors). Resolved here via getStaffColorByKey. */
+  staffColorKey: StaffColorKey | 'neutral'
   reservations: ReservationView[]
   startHour: number
   ppm: number
@@ -27,9 +30,9 @@ interface StaffRowProps {
   onSelect?: (view: ReservationView) => void
 }
 
-export function StaffRow({ staff, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
+export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, totalWidth, onSelect }: StaffRowProps) {
   const t = useTranslations('reservation')
-  const color = getStaffColor(staff.id)
+  const color = getStaffColorByKey(staffColorKey)
   return (
     <div className="flex border-b border-border last:border-b-0">
       <div
@@ -37,12 +40,12 @@ export function StaffRow({ staff, reservations, startHour, ppm, totalWidth, onSe
         style={{ width: STAFF_COL_WIDTH, height: STAFF_ROW_HEIGHT }}
       >
         <div
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
-          style={
+          className={cn(
+            'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold',
             staff.takesBookings
-              ? { background: color.bg, color: color.text }
-              : { background: 'var(--muted)', color: 'var(--muted-foreground)' }
-          }
+              ? cn(color.bg, color.text)
+              : 'bg-muted text-muted-foreground',
+          )}
         >
           {staff.initials}
         </div>

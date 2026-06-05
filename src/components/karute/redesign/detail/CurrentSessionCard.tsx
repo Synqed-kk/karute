@@ -125,7 +125,9 @@ export function CurrentSessionCard({
         <footer className="mt-5 border-t border-border pt-4">
           <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-500/20 bg-sky-500/8 px-3 py-1 text-xs text-sky-400">
             <Target size={12} />
-            <span className="text-muted-foreground">{t('currentSession.tunedFor')}</span>
+            <span className="text-muted-foreground">
+              {t('currentSession.tunedFor')}
+            </span>
             <span>{tunedFor}</span>
           </span>
         </footer>

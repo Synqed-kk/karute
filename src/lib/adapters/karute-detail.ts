@@ -167,9 +167,3 @@ export function karuteEntriesToSessionEntries(
     }))
     .sort((a, b) => (ORDER[a.category] ?? 9) - (ORDER[b.category] ?? 9))
 }
-
-
-export function deriveKaruteNumber(id: string): string {
-  const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
-  return `#${hex}`
-}

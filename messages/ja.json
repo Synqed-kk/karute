@@ -140,7 +140,21 @@
       "duration": "{n}分",
       "appointments": "{n}件の予約",
       "customerSuffix": "様",
-      "tantou": "担当 {name}"
+      "tantou": "担当 {name}",
+      "renewalFlag": "更新案内"
+    },
+    "actionSheet": {
+      "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
+      "subtitleReturn": "ご予約済みのお客様です。操作を選択してください。",
+      "viewKarute": "カルテを見る",
+      "viewKaruteHint": "過去のセッションと前回までの申し送りを確認します",
+      "newKarute": "新規カルテを作成",
+      "newKaruteHintFirst": "このお客様のカルテを手動で作成します",
+      "newKaruteHintReturn": "本日のセッションのカルテを作成します",
+      "startRecording": "録音を開始",
+      "startRecordingHint": "セッションの音声からAIがカルテを作成します",
+      "startRecordingHintFirst": "仮カルテを作成します。セッション後に本登録の有無を確定できます。",
+      "firstTimeNote": "初めてのお客様は仮カルテとして登録されます。本登録されれば有効になり、されない場合もAIコーチングの学習用に保持されます（顧客一覧には表示されません）。"
     },
     "mobile": {
       "empty": "本日の予約はありません",
@@ -424,7 +438,9 @@
       "disconnected": "切断",
       "speakerCustomer": "お客様",
       "speakerStaff": "{name}(スタッフ)"
-    }
+    },
+    "overrunWarning": "まだ録音中です。セッションが終わったら停止してください。",
+    "autoStopped": "録音が長時間に達したため、自動的に保存しました。"
   },
   "customers": {
     "title": "顧客",
@@ -439,6 +455,44 @@
     },
     "visitHistoryChain": {
       "aria": "直近{window}回中{attended}回来店。通算{total}回。"
+    },
+    "sessionHistory": {
+      "title": "セッション履歴",
+      "count": "{n}件",
+      "empty": "まだセッションがありません",
+      "latest": "最新",
+      "minutes": "{n}分",
+      "entries": "{n}件の記録",
+      "aiSummarized": "AI要約済",
+      "memoryAdded": "メモリー+{n}",
+      "openFullKarute": "カルテ詳細を開く →",
+      "noKaruteLinked": "このセッションにカルテはまだ紐付いていません"
+    },
+    "photos": {
+      "title": "写真",
+      "count": "{n}枚",
+      "emptyTitle": "写真はまだありません",
+      "emptyBody": "ビフォー／アフター／参考写真をアップロードして、セッションごとの変化を記録できます。",
+      "before": "ビフォー",
+      "after": "アフター",
+      "reference": "参考",
+      "progress": "経過"
+    },
+    "comingSoon": "対応予定",
+    "privacy": {
+      "title": "プライバシー・データ",
+      "subtitle": "{name}様のデータに関するAPPI（個人情報保護法）対応です。オーナーまたは担当スタッフの権限が必要です。",
+      "accessHistoryTitle": "アクセス履歴",
+      "accessHistoryBody": "{name}様のデータに誰がアクセス・編集したかを監査ログで確認できます。",
+      "accessHistoryCta": "履歴を表示",
+      "exportTitle": "データのエクスポート",
+      "exportBody": "プロフィール・カルテ・メモリー・写真・録音の文字起こしを暗号化PDFとして書き出します（署名付きURL・24時間有効）。",
+      "exportCta": "エクスポート",
+      "deleteTitle": "顧客データの削除",
+      "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
+      "deleteCta": "データを削除",
+      "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
@@ -538,6 +592,12 @@
       "lastVisitPrefix": "前回",
       "usualServicePrefix": "よく選ぶコース",
       "visitsSuffix": "{n}回目",
+      "memberNumber": "会員 #{number}",
+      "ticketPack": "回数券あり",
+      "birthdayMonth": "誕生月",
+      "ageValue": "{age}歳",
+      "visitCountSuffix": " 回",
+      "staffPrefix": "担当",
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
@@ -592,6 +652,8 @@
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
+      "newCustomer": "新規顧客",
+      "searchPlaceholder": "お客様を検索…",
       "status": {
         "on-track": "継続中",
         "new": "新規",
@@ -2189,5 +2251,58 @@
     "incorrectPin": "PINが正しくありません",
     "switchOut": "切り替えを解除",
     "selectStaff": "スタッフを選択"
+  },
+  "invite": {
+    "joinTitle": "{salon} に参加",
+    "joinSubtitle": "お名前とパスワードを設定して、サロンのカルテにアクセスしましょう。",
+    "joinNameLabel": "お名前",
+    "joinEmailLabel": "メールアドレス",
+    "joinPasswordLabel": "パスワード",
+    "joinSubmit": "サロンに参加",
+    "joinSubmitting": "参加しています…",
+    "joinInvalidTitle": "招待を利用できません",
+    "disabled": "スタッフ招待はまだ有効になっていません。",
+    "reason_missing": "招待リンクのトークンがありません。",
+    "reason_not_found": "この招待が見つかりませんでした。",
+    "reason_used": "この招待はすでに使用されています。",
+    "reason_revoked": "この招待は取り消されました。",
+    "reason_expired": "この招待は有効期限が切れています。オーナーに再送を依頼してください。",
+    "inviteStaff": "スタッフを招待",
+    "inviteDescription": "スタッフにこのサロンへの参加リンクを送ります。各自のログインが作成され、スタッフ一覧に表示されます。",
+    "inviteEmailLabel": "スタッフのメールアドレス",
+    "inviteRoleLabel": "役割",
+    "role_ADMIN": "管理者",
+    "role_STYLIST": "スタイリスト",
+    "role_ASSISTANT": "アシスタント",
+    "inviteCreate": "招待リンクを作成",
+    "inviteCreating": "作成しています…",
+    "inviteLinkReady": "招待リンクができました。スタッフに共有してください：",
+    "copy": "コピー",
+    "copied": "コピーしました",
+    "pendingInvites": "保留中の招待",
+    "revoke": "取り消す"
+  },
+  "permissions": {
+    "roleLabel": "権限",
+    "roleHint": "役職とは別に、このスタッフができる操作を設定します。",
+    "ownerFullAccess": "アカウントオーナー — すべての権限があります。",
+    "permissionsLabel": "個別の権限",
+    "role_manager": "マネージャー",
+    "role_senior": "シニアスタッフ",
+    "role_practitioner": "スタッフ",
+    "role_frontdesk": "受付",
+    "role_custom": "カスタム",
+    "cap_billing_manage": "支払い・サブスク",
+    "cap_business_manage": "店舗の削除・譲渡",
+    "cap_staff_invite": "スタッフを招待",
+    "cap_staff_manage": "スタッフの管理・削除",
+    "cap_settings_manage": "店舗設定",
+    "cap_audit_view": "監査ログ",
+    "cap_data_export": "データの書き出し・取り込み",
+    "cap_records_delete": "記録の削除",
+    "cap_records_write": "録音・カルテ編集",
+    "cap_analytics_viewAll": "全店舗の分析",
+    "cap_customers_view": "顧客の閲覧",
+    "cap_bookings_manage": "予約の管理"
   }
 }

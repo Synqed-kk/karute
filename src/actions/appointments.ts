@@ -132,6 +132,56 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
   }
 }
 
+/**
+ * Fetch a single appointment by id, resolved to the same AppointmentRow shape as
+ * getAppointmentsByDate (customer + staff names resolved). Unlike the by-date
+ * read this resolves a booking on ANY day — the record page uses it so a
+ * specifically-tapped booking becomes the recording target even when it isn't in
+ * today's set, instead of silently falling back to a DIFFERENT customer's
+ * session (a treatment-record integrity bug: staff tapped one customer and got
+ * another's record).
+ *
+ * `karute_record_id` is intentionally null: the sole caller uses that field for
+ * DEFAULT-target selection over today's list, never for an explicitly-requested
+ * row, so a per-id karute lookup here would be wasted work.
+ */
+export async function getAppointmentById(id: string): Promise<AppointmentRow | null> {
+  try {
+    const synqed = await getSynqedClient()
+    const a = await synqed.appointments.get(id)
+    if (!a) return null
+
+    const [cachedCustomers, staffList] = await Promise.all([
+      getCachedCustomerList(),
+      synqed.staff.list({ page_size: 200 }),
+    ])
+    const customerName =
+      cachedCustomers.find((c) => c.id === a.customer_id)?.name ?? null
+    const profileByStaffId = new Map(
+      staffList.staff
+        .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+        .map((s) => [s.id, s.user_id]),
+    )
+
+    return {
+      id: a.id,
+      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
+      client_id: a.customer_id,
+      start_time: a.starts_at,
+      duration_minutes: a.duration_minutes ?? 0,
+      title: a.title,
+      notes: a.notes,
+      karute_record_id: null,
+      created_at: a.created_at,
+      customers: customerName ? { name: customerName } : null,
+      synqed_status: a.status,
+      source: a.source,
+    }
+  } catch {
+    return null
+  }
+}
+
 export async function getAppointmentsInRange(
   fromIso: string,
   toIso: string,

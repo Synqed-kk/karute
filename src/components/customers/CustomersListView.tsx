@@ -3,6 +3,7 @@
 import { useCallback, useState, useTransition } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { useDebouncedCallback } from 'use-debounce'
+import { useTranslations } from 'next-intl'
 import {
   CustomerRow,
   CustomersFilterBar,
@@ -24,8 +25,6 @@ interface CustomersListViewProps {
   query: string
 }
 
-const FILTERS: CustomersFilter[] = [{ key: 'all', label: 'All' }]
-
 export function CustomersListView({
   rows,
   totalCount,
@@ -38,6 +37,7 @@ export function CustomersListView({
   const searchParams = useSearchParams()
   const [pending, startTransition] = useTransition()
   const [searchInput, setSearchInput] = useState(query)
+  const t = useTranslations('customers')
 
   const updateParams = useCallback(
     (mutate: (params: URLSearchParams) => void) => {
@@ -65,21 +65,21 @@ export function CustomersListView({
     })
   }
 
+  const filters: CustomersFilter[] = [{ key: 'all', label: t('list.filters.all') }]
   const counts = { all: totalCount }
-
-  const meta = `Registered ${totalCount} · Showing ${rows.length}`
+  const meta = t('list.statusLine', { total: totalCount, showing: rows.length })
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
       <CustomersPageHeader
-        title="Customers"
+        title={t('list.heading')}
         meta={meta}
-        ctaLabel="New customer"
+        ctaLabel={t('list.newCustomer')}
         ctaSlot={<CustomerSheet />}
       />
 
       <CustomersFilterBar
-        filters={FILTERS}
+        filters={filters}
         activeKey="all"
         onChange={() => {}}
         counts={counts}
@@ -88,16 +88,15 @@ export function CustomersListView({
           setSearchInput(v)
           handleSearch(v)
         }}
-        searchPlaceholder="Search customers…"
+        searchPlaceholder={t('list.searchPlaceholder')}
       />
 
       {pending ? (
         <CustomersListSkeleton rows={Math.min(8, pageSize)} />
       ) : rows.length === 0 ? (
         <ErrorState
-          error={{ message: query ? `No customers match “${query}”` : 'No customers yet' }}
-          title="Empty"
-          helpHint="Add a new customer to get started."
+          error={{ message: query ? t('list.noMatch', { query }) : t('empty.title') }}
+          helpHint={query ? t('list.noMatchHint') : t('empty.description')}
         />
       ) : (
         <div className="overflow-hidden rounded-[var(--radius-md)] bg-[var(--color-bg-card)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">

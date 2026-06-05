@@ -4,13 +4,15 @@ import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
+import { cn } from '@/lib/utils'
+import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
 import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerCardMobileProps {
   c: CustomerListRow
-  staffColor: string | null
+  staffColorKey: StaffColor['key'] | null
   /**
    * When `true`, renders a row of AI status chips at the bottom of
    * the card (体調予測 / 推奨 / 要約 / 録音, all 対応予定 for now).
@@ -46,13 +48,14 @@ interface CustomerCardMobileProps {
  */
 export function CustomerCardMobile({
   c,
-  staffColor,
+  staffColorKey,
   karuteContext = false,
   hrefBase = '/customers',
 }: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
+  const staff = getStaffColorByKey(staffColorKey)
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
@@ -69,8 +72,10 @@ export function CustomerCardMobile({
        *  giving the cut-into-sections look from the spike. */}
       <span
         aria-hidden
-        className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full"
-        style={{ background: staffColor ?? 'var(--border)' }}
+        className={cn(
+          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
+          staffColorKey ? staff.stripe : 'bg-border',
+        )}
       />
 
       {/* Avatar — smaller in karute context (size-8 / 32px) to match
@@ -86,28 +91,32 @@ export function CustomerCardMobile({
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {/* Line 1: name · honorific · karute # · status chip */}
+        {/* Line 1: name · honorific · karute # · status chip.
+         *  The name gets `min-w-0` (so it truncates) and the trailing
+         *  items get `shrink-0`, so a long name can't push the #number +
+         *  status chip onto a second line — that wrap read as the chip
+         *  "drifting to center" + the number "going missing". */}
         <div className="flex flex-wrap items-baseline gap-1.5">
           {/* Name — `text-[15px] md:text-sm font-medium` mirrors the
            *  design spike. Previous `text-sm font-semibold` rendered
            *  smaller + heavier, making the name look "fatter and
            *  smaller" vs the spike's airier, slightly larger feel. */}
-          <span className="truncate text-[15px] font-medium text-foreground md:text-sm">
+          <span className="min-w-0 truncate text-[15px] font-medium text-foreground md:text-sm">
             {c.name}
           </span>
           {honorific && (
-            <span className="text-[11px] text-muted-foreground">
+            <span className="shrink-0 text-[11px] text-muted-foreground">
               {honorific}
             </span>
           )}
           {/* Plain muted text — no boxed badge. Matches the spike's
            *  cleaner "name · #00120" treatment vs the previous code-
            *  block look. */}
-          <span className="font-mono text-[11px] text-muted-foreground">
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
             {c.karuteNumber}
           </span>
           <span
-            className={`ml-auto inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
+            className={`ml-auto shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
           >
             {t(`status.${c.status}`)}
           </span>

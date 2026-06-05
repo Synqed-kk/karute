@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { BookingActionSheet } from '@synqed-kk/ui'
+import { BookingActionSheet, type BookingActionSheetCopy } from '@synqed-kk/ui'
 import { useRouter } from '@/i18n/navigation'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 
@@ -42,13 +42,24 @@ export function BookingActionSheetWrapper({
   const isMobile = useIsMobile()
   const router = useRouter()
   const t = useTranslations('reservation')
+  const ta = useTranslations('reservation.actionSheet')
 
   const open = selected !== null
-  const hasKarute = selected?.karuteRecordId != null
+  // Show "view karute" when THIS booking already has one, OR when it's a returning
+  // customer — they have karute history worth opening even on a fresh booking that
+  // has no karute of its own yet. isFirstTimeVisit is derived from past-appointment
+  // count, so !isFirstTimeVisit means a customer who's been in before.
+  const isReturningCustomer = selected != null && !selected.isFirstTimeVisit
+  const canViewKarute = selected?.karuteRecordId != null || isReturningCustomer
 
   const onViewKarute = useCallback(() => {
-    if (!selected?.karuteRecordId) return
-    router.push(`/karute/${selected.karuteRecordId}` as Parameters<typeof router.push>[0])
+    if (!selected) return
+    // This booking's own karute if it has one; otherwise the customer hub, where
+    // their full karute history lives (/karute/customer/* now redirects here).
+    const target = selected.karuteRecordId
+      ? `/karute/${selected.karuteRecordId}`
+      : `/customers/${selected.clientId}`
+    router.push(target as Parameters<typeof router.push>[0])
     onClose()
   }, [selected, router, onClose])
 
@@ -66,6 +77,25 @@ export function BookingActionSheetWrapper({
     onClose()
   }, [selected, router, onClose])
 
+  // Full action-sheet copy in the active locale. The sheet's own defaults are
+  // English, so on /ja every label below honorific fell back to English. The
+  // typed object means a mistyped key fails the build instead of silently
+  // showing the English default.
+  const copy: Partial<BookingActionSheetCopy> = {
+    honorific: t('card.customerSuffix'),
+    subtitleFirst: ta('subtitleFirst'),
+    subtitleReturn: ta('subtitleReturn'),
+    viewKarute: ta('viewKarute'),
+    viewKaruteHint: ta('viewKaruteHint'),
+    newKarute: ta('newKarute'),
+    newKaruteHintFirst: ta('newKaruteHintFirst'),
+    newKaruteHintReturn: ta('newKaruteHintReturn'),
+    startRecording: ta('startRecording'),
+    startRecordingHint: ta('startRecordingHint'),
+    startRecordingHintFirst: ta('startRecordingHintFirst'),
+    firstTimeNote: ta('firstTimeNote'),
+  }
+
   if (!selected) {
     // Render the sheet closed so transitions don't snap.
     return (
@@ -78,7 +108,7 @@ export function BookingActionSheetWrapper({
         hasExistingKarute={false}
         isFirstTimeVisit={false}
         isMobile={forceMobile ?? isMobile}
-        copy={{ honorific: t('card.customerSuffix') }}
+        copy={copy}
       />
     )
   }
@@ -91,13 +121,13 @@ export function BookingActionSheetWrapper({
       }}
       customerName={selected.customerName}
       karuteNumber={undefined}
-      hasExistingKarute={hasKarute}
+      hasExistingKarute={canViewKarute}
       isFirstTimeVisit={selected.isFirstTimeVisit}
       isMobile={forceMobile ?? isMobile}
       onViewKarute={onViewKarute}
       onNewKarute={goToRecord}
       onStartRecording={goToRecord}
-      copy={{ honorific: t('card.customerSuffix') }}
+      copy={copy}
     />
   )
 }

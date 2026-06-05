@@ -2,16 +2,15 @@
  * Reservation-view adapter: maps AppointmentRow -> ReservationView with derived
  * fields (display status, formatted time, customer initials, staff color key).
  *
- * Display status mapping (5 states):
- *   COMPLETED, CANCELLED        -> 'completed'  (treated as inactive)
- *   IN_PROGRESS or time-in      -> 'in_session' (explicit override)
- *   end < now                   -> 'completed'
- *   source !== MANUAL           -> 'pending'    (synced, not yet confirmed)
- *   visitCount === 0            -> 'new'        (first-time customer)
- *   else                        -> 'booked'
+ * Display status mapping (4 states):
+ *   COMPLETED, CANCELLED         -> 'completed'  (treated as inactive)
+ *   IN_PROGRESS or time-in       -> 'in_session' (explicit override)
+ *   end < now                    -> 'completed'
+ *   isFirstTimeCustomer === true -> 'new'        (genuine first visit only)
+ *   else                         -> 'booked'
  *
- * 'pending' and 'new' are derived from existing signals (source enum +
- * karute_records count) — no schema changes required.
+ * 'new' is derived (not a stored column). The old 'pending' state — which just
+ * meant "synced from QuickReserve" — was removed; a synced booking is 予約済.
  */
 
 import {
@@ -75,9 +74,9 @@ describe('computeDisplayStatus', () => {
     expect(computeDisplayStatus(r, NOW_MID)).toBe('completed')
   })
 
-  it('returns "pending" when the future booking came from an external sync', () => {
+  it('returns "booked" for a synced future booking (no more 未確定/pending)', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
-    expect(computeDisplayStatus(r, NOW_MID)).toBe('pending')
+    expect(computeDisplayStatus(r, NOW_MID)).toBe('booked')
   })
 
   it('returns "new" when the customer is first-time (no past appointments)', () => {
@@ -85,9 +84,9 @@ describe('computeDisplayStatus', () => {
     expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('new')
   })
 
-  it('prefers "pending" over "new" when both signals fire', () => {
+  it('returns "new" for a first-time customer even on a synced booking', () => {
     const r = row({ start_time: '2026-05-12T14:00:00.000Z', source: 'QUICKRESERVE' })
-    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('pending')
+    expect(computeDisplayStatus(r, NOW_MID, { isFirstTimeCustomer: true })).toBe('new')
   })
 
   it('still returns "booked" for a returning customer on a manual future booking', () => {
@@ -128,6 +127,32 @@ describe('appointmentsToReservationViews', () => {
       NOW_MID,
       new Map([['cust-1', true]]),
     )
+    expect(result[0].isFirstTimeVisit).toBe(true)
+  })
+
+  it('never flags 新規 for a 回数券 booking, even when the client map says first-time', () => {
+    // An established ticket holder whose past visits / QR existing-customer flag
+    // haven't synced still shows as first-time in the client map. The course
+    // title ("10回券") is the reliable returning-customer signal — overrides it.
+    // Guards Liam's agenda where every 回数券 regular wrongly read 新規.
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z', title: '10回券' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', true]]),
+    )
+    expect(result[0].displayStatus).toBe('booked')
+    expect(result[0].isFirstTimeVisit).toBe(false)
+  })
+
+  it('still flags 新規 for a genuine new-course booking (no ticket in the title)', () => {
+    const result = appointmentsToReservationViews(
+      [row({ start_time: '2026-05-12T14:00:00.000Z', title: '新規コース ¥1,980' })],
+      [],
+      NOW_MID,
+      new Map([['cust-1', true]]),
+    )
+    expect(result[0].displayStatus).toBe('new')
     expect(result[0].isFirstTimeVisit).toBe(true)
   })
 

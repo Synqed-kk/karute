@@ -1,9 +1,15 @@
 import { createClient } from '@/lib/supabase/server'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
-import { getAppointmentsByDate, type AppointmentRow } from '@/actions/appointments'
+import {
+  getAppointmentsByDate,
+  getAppointmentById,
+  type AppointmentRow,
+} from '@/actions/appointments'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -47,6 +53,10 @@ export default async function SessionsPage({
   const activeStaffId = await getCurrentUserStaffId()
   const staffList = await getStaffList()
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  // DISTINCT staff colors over the FULL roster — same map on every surface,
+  // no per-id hash collisions. Feeds the recording-picker avatar via
+  // staffColorKey on each booking below.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
   const tStatus = await getTranslations('reservation.status')
 
   const now = new Date()
@@ -73,7 +83,7 @@ export default async function SessionsPage({
     sb
       .from('karute_records')
       .select(
-        `id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
+        `id, client_id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
       )
       .order('session_date', { ascending: false, nullsFirst: false })
       .order('created_at', { ascending: false })
@@ -81,11 +91,17 @@ export default async function SessionsPage({
       .then((res: { data: unknown }) => res),
   ])
 
+  // Sequential karute number per customer — same deterministic helper + same
+  // cached list (now carrying created_at) the 顧客 page + 予約 agenda use, so
+  // #00007 matches every other surface.
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customers)
+
   // Next unlinked appointment for this staff (used as recording target)
   let nextAppointment: {
     id: string
     customerName: string
     customerId: string
+    karuteNumber: string | null
     startTime: string
     durationMinutes: number
     title: string | null
@@ -130,12 +146,16 @@ export default async function SessionsPage({
     ? list.filter((a) => a.staff_profile_id === activeStaffId)
     : list
 
-  // If the user tapped a booking on 予約 (→ 新規カルテ / 録音), that booking IS
-  // the target. It's normally in today/tomorrow's set; a booking further out
-  // falls back to the default target (recording happens at visit time, so
-  // that's an acceptable edge until the picker can switch days).
+  // If the user tapped a booking on 予約 (→ 新規カルテ / 録音), THAT booking is the
+  // recording target. Resolve it by id: today's set first (the common case — no
+  // extra fetch), else fetch it directly so a booking tapped from ANOTHER day
+  // still loads the right customer. Previously a non-today id fell through to the
+  // default-target guess below and silently recorded a DIFFERENT customer's
+  // session — a treatment-record integrity bug (tapped リエム, got 飯島).
   const requestedRow: AppointmentRow | undefined = requestedAppointmentId
-    ? list.find((a) => a.id === requestedAppointmentId)
+    ? (list.find((a) => a.id === requestedAppointmentId) ??
+        (await getAppointmentById(requestedAppointmentId)) ??
+        undefined)
     : undefined
 
   // Fall back to any salon booking when the active staff has nothing queued —
@@ -158,6 +178,7 @@ export default async function SessionsPage({
       id: unlinked.id,
       customerName: unlinked.customers?.name ?? 'Unknown',
       customerId: unlinked.client_id,
+      karuteNumber: karuteNumberByClientId.get(unlinked.client_id) ?? null,
       startTime: unlinked.start_time,
       durationMinutes: unlinked.duration_minutes,
       title: unlinked.title ?? null,
@@ -198,7 +219,13 @@ export default async function SessionsPage({
       end: hhmm(end),
       customer: customerName,
       initials: deriveFamilyInitials(customerName),
-      karute: null,
+      staffId: a.staff_profile_id,
+      // Distinct color key from the roster map — picker avatar resolves it
+      // via getStaffColorByKey, matching the 予約 agenda / customer list.
+      staffColorKey: a.staff_profile_id
+        ? (staffColors.get(a.staff_profile_id)?.key ?? null)
+        : null,
+      karute: karuteNumberByClientId.get(a.client_id) ?? null,
       // a.title is the customer's free-text booking note — '—' when
       // null instead of an English literal 'Session' that other rows
       // would carry as if it were real data.
@@ -222,6 +249,7 @@ export default async function SessionsPage({
 
   type RecentRow = {
     id: string
+    client_id: string | null
     session_date: string | null
     created_at: string
     summary: string | null
@@ -240,11 +268,7 @@ export default async function SessionsPage({
       id: r.id,
       customerName,
       initials: deriveFamilyInitials(customerName),
-      // karuteNumber dropped — see top-of-file comment. The card's
-      // existing `karuteNumber && ...` conditional hides the chip
-      // when null so the row reads cleanly instead of showing
-      // `#A1B2C` hash noise.
-      karuteNumber: null,
+      karuteNumber: karuteNumberByClientId.get(r.client_id ?? '') ?? null,
       // Service '—' instead of literal 'Session' until karute_records
       // has a real `service` column. Same '施術' bug fixed on the
       // main karute list.

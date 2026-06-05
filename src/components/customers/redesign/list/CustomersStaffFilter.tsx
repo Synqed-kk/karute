@@ -1,8 +1,14 @@
 'use client'
 
+import { useMemo } from 'react'
 import { Users, User } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { getStaffColor } from '@/lib/staff/colors'
+import { cn } from '@/lib/utils'
+import {
+  assignStaffColors,
+  getStaffColorByKey,
+  type StaffColor,
+} from '@/lib/staff-colors'
 
 /**
  * Staff filter row — mirrors the design-spike's staff-picker. Lets the
@@ -12,11 +18,11 @@ import { getStaffColor } from '@/lib/staff/colors'
  * Two visual tiers:
  *   1. Scope toggle:   [Self] [All staff]   ← always visible
  *   2. Staff pills:    [JC Jon Chan] [佐 佐藤] [中 中村] ...
- *                      colored avatar with initials uses
- *                      `getStaffColor(staffId)` (same deterministic
- *                      palette as the customer-row left-edge stripe,
- *                      so a stylist's color stays consistent
- *                      everywhere they appear).
+ *                      colored avatar with initials uses the subtle
+ *                      `bg` + `text` from `assignStaffColors` (the same
+ *                      DISTINCT, collision-free palette mapping as the
+ *                      customer-row left-edge stripe, so a stylist's
+ *                      color stays consistent everywhere they appear).
  *
  * Selection model: a single string — 'all' | 'self' | <staffId>.
  * Mutually exclusive; clicking an already-active staff pill snaps back
@@ -51,6 +57,14 @@ export function CustomersStaffFilter({
 }: CustomersStaffFilterProps) {
   const t = useTranslations('customers.list.staffFilter')
 
+  // DISTINCT staff-color map over the FULL roster — same helper, same input
+  // (every staff id) as the customer list, so a stylist's color is identical
+  // on the pills and on their customers' rows. No hashing, no collisions.
+  const staffColors = useMemo(
+    () => assignStaffColors(staffList.map((s) => s.id)),
+    [staffList],
+  )
+
   // If there are no staff at all (and no self), the picker has nothing
   // to offer — render nothing rather than a useless empty row.
   if (staffList.length === 0 && !selfStaffId) return null
@@ -73,6 +87,7 @@ export function CustomersStaffFilter({
             <StaffPill
               key={s.id}
               staff={s}
+              color={getStaffColorByKey(staffColors.get(s.id)?.key)}
               active={selected === s.id}
               onClick={() =>
                 onChange(selected === s.id ? 'all' : s.id)
@@ -164,14 +179,15 @@ function SegmentButton({
 
 function StaffPill({
   staff,
+  color,
   active,
   onClick,
 }: {
   staff: StaffFilterEntry
+  color: StaffColor
   active: boolean
   onClick: () => void
 }) {
-  const color = getStaffColor(staff.id)
   return (
     <button
       type="button"
@@ -184,8 +200,11 @@ function StaffPill({
       aria-pressed={active}
     >
       <span
-        className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white ring-1 ring-black/5"
-        style={{ background: color ?? 'var(--muted)' }}
+        className={cn(
+          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-black/5',
+          color.bg,
+          color.text,
+        )}
         aria-hidden
       >
         {staff.initials}
