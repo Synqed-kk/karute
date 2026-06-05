@@ -54,7 +54,7 @@ const dashboardByDay = unstable_cache(
     const todayStart = `${todayDay}T00:00:00Z`
     const todayEnd = `${todayDay}T23:59:59Z`
 
-    const [weekly, monthly, appointmentsRes, todayKaruteRes, recentRes, customerList] =
+    const [weekly, monthly, appointmentsRes, todayKaruteRes, recentRes, customerList, staffRes] =
       await Promise.all([
         // from/to filter created_at upstream, so .total gives the counts.
         synqed?.karuteRecords
@@ -80,6 +80,10 @@ const dashboardByDay = unstable_cache(
           .list({ page_size: 500 })
           .catch(() => ({ customers: [] })) ??
           Promise.resolve({ customers: [] }),
+        synqed?.staff
+          .list({ page_size: 200 })
+          .catch(() => ({ staff: [] })) ??
+          Promise.resolve({ staff: [] }),
       ])
 
     const customerNameById = new Map(
@@ -87,6 +91,18 @@ const dashboardByDay = unstable_cache(
         c.id,
         c.name,
       ]),
+    )
+
+    // synqed staff.id → supabase profile id (= staff.user_id). Appointments and
+    // karute records arrive keyed by the synqed staff id, but the dashboard
+    // resolves staff names off the profile id (getStaffList) — the same boundary
+    // translation getAppointmentsByDate does. Without it, manually-added bookings
+    // (whose staff_id is the synqed id, not a profile id) render "Unknown". QR
+    // rows keep working: a profile id isn't a key here, so `?? raw` leaves it.
+    const profileByStaffId = new Map(
+      ('staff' in staffRes ? staffRes.staff : [])
+        .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+        .map((s) => [s.id, s.user_id]),
     )
 
     const karuteByAppointment = new Map<string, string>()
@@ -103,7 +119,7 @@ const dashboardByDay = unstable_cache(
       client_id: a.customer_id,
       start_time: a.starts_at,
       duration_minutes: a.duration_minutes ?? 0,
-      staff_profile_id: a.staff_id,
+      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
       title: a.title,
       notes: a.notes,
       karute_record_id: karuteByAppointment.get(a.id) ?? null,
@@ -120,7 +136,7 @@ const dashboardByDay = unstable_cache(
       summary: r.ai_summary,
       created_at: r.created_at,
       session_date: r.created_at,
-      staff_profile_id: r.staff_id,
+      staff_profile_id: profileByStaffId.get(r.staff_id) ?? r.staff_id,
       customers: r.customer_id
         ? { name: customerNameById.get(r.customer_id) ?? 'Unknown' }
         : null,
