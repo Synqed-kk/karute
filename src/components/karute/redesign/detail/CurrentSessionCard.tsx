@@ -47,6 +47,16 @@ export function CurrentSessionCard({
   const t = useTranslations('karuteDetail')
   if (bullets.length === 0 && entries.length === 0) return null
 
+  // Group entries by category so each colored tag renders ONCE with its points
+  // stacked under it — instead of the same 施術/気になる点 badge repeating down the
+  // list. Insertion order follows the adapter's clinical sort (concern→…→next).
+  const entryGroups = new Map<SessionCategory, SessionEntry[]>()
+  for (const e of entries) {
+    const arr = entryGroups.get(e.category)
+    if (arr) arr.push(e)
+    else entryGroups.set(e.category, [e])
+  }
+
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -82,23 +92,29 @@ export function CurrentSessionCard({
         </div>
       )}
 
-      {/* Categorized entries — ALWAYS visible; the colored tags are the skim layer */}
+      {/* Categorized entries — ONE badge per category, its points stacked under it */}
       {entries.length > 0 && (
-        <div className="flex flex-col gap-3">
-          {entries.map((e) => {
-            const tone = CATEGORY_TONE[e.category]
+        <div className="flex flex-col gap-3.5">
+          {[...entryGroups.entries()].map(([category, items]) => {
+            const tone = CATEGORY_TONE[category]
             return (
               <div
-                key={e.id}
+                key={category}
                 className="flex items-start gap-2.5 text-sm leading-relaxed"
               >
                 <span
                   className="mt-px inline-flex h-[22px] shrink-0 items-center justify-center rounded-md px-2.5 text-[11px] font-semibold"
                   style={{ background: tone.bg, color: tone.text }}
                 >
-                  {t(`currentSession.categories.${e.category}`)}
+                  {t(`currentSession.categories.${category}`)}
                 </span>
-                <span className="text-foreground/85">{e.body}</span>
+                <div className="flex min-w-0 flex-col gap-1.5">
+                  {items.map((e) => (
+                    <span key={e.id} className="text-foreground/85">
+                      {e.body}
+                    </span>
+                  ))}
+                </div>
               </div>
             )
           })}
