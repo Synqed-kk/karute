@@ -145,12 +145,14 @@ function resolveQrId(
   const candidates = index[normName(name)]
   if (!candidates || candidates.length === 0) return null
   if (candidates.length === 1) return candidates[0].id
-  // 同姓同名 — disambiguate on the QR membership id we already store.
+  // 同姓同名 — resolve ONLY on an exact membership-id match. If we can't
+  // confidently disambiguate, refuse (null → not-found state) rather than
+  // risk surfacing the WRONG customer's payment history on this profile.
   if (memberNumber) {
     const match = candidates.find((c) => c.membershipId === memberNumber)
     if (match) return match.id
   }
-  return candidates[0].id
+  return null
 }
 
 function aggregate(visits: CustomerVisit[]): VisitHistorySummary {
