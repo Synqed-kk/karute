@@ -429,7 +429,9 @@
       "disconnected": "切断",
       "speakerCustomer": "お客様",
       "speakerStaff": "{name}(スタッフ)"
-    }
+    },
+    "overrunWarning": "まだ録音中です。セッションが終わったら停止してください。",
+    "autoStopped": "録音が長時間に達したため、自動的に保存しました。"
   },
   "customers": {
     "title": "顧客",

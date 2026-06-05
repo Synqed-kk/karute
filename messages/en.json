@@ -429,7 +429,9 @@
       "disconnected": "Disconnected",
       "speakerCustomer": "Customer",
       "speakerStaff": "{name} (Staff)"
-    }
+    },
+    "overrunWarning": "Still recording — tap stop when the session's done.",
+    "autoStopped": "Recording ran long, so it was auto-saved."
   },
   "customers": {
     "title": "Customers",
