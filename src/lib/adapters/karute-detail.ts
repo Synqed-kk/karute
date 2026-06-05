@@ -147,13 +147,27 @@ export function karuteEntriesToSessionEntries(
       created_at: string
     }>
   }
-  return (k.entries ?? []).map((e) => ({
-    id: e.id,
-    category: CATEGORY_TO_SESSION_CATEGORY[e.category] ?? 'concern',
-    time: timeOfDay(e.created_at),
-    body: e.content,
-  }))
+  // Clinical-narrative order so staff skim a coherent story — concern → state →
+  // what was done → recommendation → plan — and repeated categories group instead
+  // of scattering (the "気になる点 ×4 in random spots" problem). Stable within a
+  // category (V8 sort is stable), so original order is preserved per group.
+  const ORDER: Record<string, number> = {
+    concern: 0,
+    condition: 1,
+    treatment: 2,
+    product: 3,
+    next: 4,
+  }
+  return (k.entries ?? [])
+    .map((e) => ({
+      id: e.id,
+      category: CATEGORY_TO_SESSION_CATEGORY[e.category] ?? 'concern',
+      time: timeOfDay(e.created_at),
+      body: e.content,
+    }))
+    .sort((a, b) => (ORDER[a.category] ?? 9) - (ORDER[b.category] ?? 9))
 }
+
 
 export function deriveKaruteNumber(id: string): string {
   const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
