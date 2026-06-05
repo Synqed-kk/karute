@@ -12,16 +12,18 @@ type Listener = () => void
 
 // ── Runaway-recording safety nets ────────────────────────────────────────────
 // Interim guard until segmented capture removes the length ceiling entirely.
-// Tied to the storage limit: at 48 kbps a recording is ~0.36 MB/min, so the 2.5h
-// hard stop yields ~54 MB — under the 60 MB bucket cap, so the auto-saved
-// recording can still upload. A forgotten 3-4h recording would otherwise be both
-// too big to save AND a total loss of the session.
+// Tied to the storage limit: at 48 kbps a recording is ~0.36 MB/min, and the
+// effective upload cap is 50 MB (Supabase Free plan's global file size limit —
+// it overrides any larger per-bucket value, so ~139 min is the absolute max).
+// The 2h hard stop yields ~43 MB, a comfortable margin under the cap, so the
+// auto-saved recording can still upload. A forgotten 3-4h recording would
+// otherwise be both too big to save AND a total loss of the session.
 //
 // NOTE: this only covers a recording the OS keeps alive (e.g. phone on the
 // counter, screen on). A pocketed/locked phone is a separate problem — iOS
 // suspends the tab — which only segmented + locally-persisted capture solves.
-const OVERRUN_WARN_MS = 120 * 60_000 // 2h — soft "still recording?" nudge
-const AUTO_STOP_MS = 150 * 60_000 // 2.5h — hard stop-and-save (keeps blob < cap)
+const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
+const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
 const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
 
 function getSupportedMimeType(): string {
