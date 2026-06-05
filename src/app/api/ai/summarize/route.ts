@@ -32,7 +32,12 @@ export async function POST(request: Request) {
     const systemPrompt = getSummarySystemPrompt(locale ?? 'en')
 
     const completion = await openai.chat.completions.parse({
-      model: 'gpt-4o-mini',
+      // gpt-4o (not -mini): the summary is reasoning-heavy (condense narrative,
+      // keep concrete dates) — the spike AI_PROMPTS.md §3 calls for a strong
+      // reasoning model here. DEDICATED env var (not the shared AI_MODEL) so a
+      // system-wide cost setting can't silently revert it. gpt-4o supports
+      // structured outputs.
+      model: process.env.AI_SUMMARIZE_MODEL || 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {

@@ -100,7 +100,21 @@ export function karuteSummaryToBullets(
   karute: KaruteWithRelations,
 ): string[] {
   if (!karute.summary) return []
-  return karute.summary
+  const raw = karute.summary
+  // New format (prompts.ts): bullet lines, each optionally prefixed with ・/•/-.
+  // Detect the new format by a bullet marker OR a newline — NOT by line count.
+  // That way a SINGLE bullet ("・次回来店：6月29日 16:00") isn't mis-routed to the
+  // period-split (which mangles "16:00" / a 。inside the bullet), while a legacy
+  // prose summary (no markers, no newlines) still splits into sentences.
+  const looksBulleted = /\r?\n/.test(raw) || /^\s*[・•▪◦*\-–—]/.test(raw.trimStart())
+  if (looksBulleted) {
+    return raw
+      .split(/\r?\n+/)
+      .map((s) => s.replace(/^[\s・*•▪◦\-–—]+/, '').trim())
+      .filter(Boolean)
+  }
+  // Legacy/prose fallback — records summarized before the bullet format.
+  return raw
     .split(/[.。]\s*/)
     .map((s) => s.trim())
     .filter(Boolean)
