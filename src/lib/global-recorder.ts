@@ -10,6 +10,22 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 
 type Listener = () => void
 
+// ── Runaway-recording safety nets ────────────────────────────────────────────
+// Interim guard until segmented capture removes the length ceiling entirely.
+// Tied to the storage limit: at 48 kbps a recording is ~0.36 MB/min, and the
+// effective upload cap is 50 MB (Supabase Free plan's global file size limit —
+// it overrides any larger per-bucket value, so ~139 min is the absolute max).
+// The 2h hard stop yields ~43 MB, a comfortable margin under the cap, so the
+// auto-saved recording can still upload. A forgotten 3-4h recording would
+// otherwise be both too big to save AND a total loss of the session.
+//
+// NOTE: this only covers a recording the OS keeps alive (e.g. phone on the
+// counter, screen on). A pocketed/locked phone is a separate problem — iOS
+// suspends the tab — which only segmented + locally-persisted capture solves.
+const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
+const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
+const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
+
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
   const formats = [
@@ -28,12 +44,17 @@ class GlobalRecorder {
   error: string | null = null
   stream: MediaStream | null = null
   startedAt: number | null = null
+  /** True once recording passes OVERRUN_WARN_MS — UI shows a "still recording?" nudge. */
+  overrun = false
+  /** True when the hard cap auto-stopped + saved the recording (UI informs staff). */
+  autoStopped = false
 
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
   private startTime = 0
   private pausedDuration = 0
   private pauseStart = 0
+  private runawayTimer: ReturnType<typeof setInterval> | null = null
   private listeners = new Set<Listener>()
   version = 0
 
@@ -47,11 +68,45 @@ class GlobalRecorder {
     this.listeners.forEach(fn => fn())
   }
 
+  /** Actual recorded milliseconds, excluding paused time (incl. an ongoing pause). */
+  private recordedMs(): number {
+    const pausedNow = this.state === 'paused' ? Date.now() - this.pauseStart : 0
+    return Date.now() - this.startTime - this.pausedDuration - pausedNow
+  }
+
+  private armRunawayGuard() {
+    this.clearRunawayGuard()
+    this.runawayTimer = setInterval(() => {
+      const ms = this.recordedMs()
+      if (ms >= AUTO_STOP_MS) {
+        // Hard cap: stop + save so a forgotten recording is never lost to size and
+        // never grows past what the storage bucket accepts. stop() routes through
+        // onstop → the existing pipeline saves it.
+        this.autoStopped = true
+        this.stop()
+        return
+      }
+      if (ms >= OVERRUN_WARN_MS && !this.overrun) {
+        this.overrun = true
+        this.notify()
+      }
+    }, RUNAWAY_TICK_MS)
+  }
+
+  private clearRunawayGuard() {
+    if (this.runawayTimer) {
+      clearInterval(this.runawayTimer)
+      this.runawayTimer = null
+    }
+  }
+
   async start() {
     this.error = null
     this.result = null
     this.chunks = []
     this.pausedDuration = 0
+    this.overrun = false
+    this.autoStopped = false
 
     let micStream: MediaStream
     try {
@@ -82,6 +137,7 @@ class GlobalRecorder {
     }
 
     recorder.onstop = () => {
+      this.clearRunawayGuard()
       const totalElapsed = Date.now() - this.startTime
       const durationMs = totalElapsed - this.pausedDuration
       const blob = new Blob(this.chunks, { type: mimeType || recorder.mimeType })
@@ -98,10 +154,12 @@ class GlobalRecorder {
     this.startedAt = Date.now()
     recorder.start(100)
     this.state = 'recording'
+    this.armRunawayGuard()
     this.notify()
   }
 
   stop() {
+    this.clearRunawayGuard()
     if (this.recorder && this.recorder.state !== 'inactive') {
       if (this.recorder.state === 'paused') this.recorder.resume()
       this.recorder.stop()
@@ -127,6 +185,7 @@ class GlobalRecorder {
   }
 
   discard() {
+    this.clearRunawayGuard()
     if (this.recorder && this.recorder.state !== 'inactive') {
       // Stop without triggering onstop result
       this.recorder.ondataavailable = null
@@ -139,6 +198,8 @@ class GlobalRecorder {
     this.error = null
     this.chunks = []
     this.pausedDuration = 0
+    this.overrun = false
+    this.autoStopped = false
     this.state = 'idle'
     this.startedAt = null
     this.recorder = null
