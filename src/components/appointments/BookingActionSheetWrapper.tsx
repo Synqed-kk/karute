@@ -45,11 +45,21 @@ export function BookingActionSheetWrapper({
   const ta = useTranslations('reservation.actionSheet')
 
   const open = selected !== null
-  const hasKarute = selected?.karuteRecordId != null
+  // Show "view karute" when THIS booking already has one, OR when it's a returning
+  // customer — they have karute history worth opening even on a fresh booking that
+  // has no karute of its own yet. isFirstTimeVisit is derived from past-appointment
+  // count, so !isFirstTimeVisit means a customer who's been in before.
+  const isReturningCustomer = selected != null && !selected.isFirstTimeVisit
+  const canViewKarute = selected?.karuteRecordId != null || isReturningCustomer
 
   const onViewKarute = useCallback(() => {
-    if (!selected?.karuteRecordId) return
-    router.push(`/karute/${selected.karuteRecordId}` as Parameters<typeof router.push>[0])
+    if (!selected) return
+    // This booking's own karute if it has one; otherwise the customer hub, where
+    // their full karute history lives (/karute/customer/* now redirects here).
+    const target = selected.karuteRecordId
+      ? `/karute/${selected.karuteRecordId}`
+      : `/customers/${selected.clientId}`
+    router.push(target as Parameters<typeof router.push>[0])
     onClose()
   }, [selected, router, onClose])
 
@@ -111,7 +121,7 @@ export function BookingActionSheetWrapper({
       }}
       customerName={selected.customerName}
       karuteNumber={undefined}
-      hasExistingKarute={hasKarute}
+      hasExistingKarute={canViewKarute}
       isFirstTimeVisit={selected.isFirstTimeVisit}
       isMobile={forceMobile ?? isMobile}
       onViewKarute={onViewKarute}
