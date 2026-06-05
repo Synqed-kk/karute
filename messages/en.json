@@ -243,7 +243,8 @@
     "header": {
       "staff": "Staff",
       "phone": "Phone",
-      "email": "Email"
+      "email": "Email",
+      "openCustomer": "Open customer page"
     },
     "memory": {
       "title": "Customer Memory",

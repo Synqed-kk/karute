@@ -28,11 +28,11 @@ interface CustomerProfilePageProps {
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-function prettyDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
+function prettyDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     year: 'numeric',
+    month: locale === 'ja' ? 'long' : 'short',
+    day: 'numeric',
   })
 }
 
@@ -112,7 +112,14 @@ export default async function CustomerProfilePage({
 
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
-  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer)
+  // Pass the recorded-session count so a returning client (any sessions) never
+  // reads as 新規, even if they registered < 30 days ago.
+  const status = deriveStatus(
+    customer.created_at,
+    lastVisitIso,
+    customer.is_existing_customer,
+    karuteRecords.length,
+  )
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
@@ -127,7 +134,7 @@ export default async function CustomerProfilePage({
     return {
       id: r.id,
       karuteId: r.id,
-      date: prettyDate(r.session_date ?? r.created_at),
+      date: prettyDate(r.session_date ?? r.created_at, locale),
       weekday: WEEKDAYS[dt.getDay()],
       // Service '—' + duration 0 instead of literal 'Session' /
       // 60 — same '施術' bug fixed on the main karute list. The
@@ -176,8 +183,11 @@ export default async function CustomerProfilePage({
     memberNumber: customer.member_number,
     hasTicketPack: customer.has_ticket_pack,
     isBirthdayMonth: isBirthdayMonth(customer.date_of_birth),
-    lastVisitDate: customer.last_visit_at
-      ? formatJoinDate(customer.last_visit_at, locale)
+    // 前回 (last visit): prefer the synced lifetime last-visit; fall back to the
+    // most-recent karute session date so a customer with sessions never shows
+    // blank "—" just because QR sync hasn't written last_visit_at.
+    lastVisitDate: (customer.last_visit_at ?? lastVisitIso)
+      ? formatJoinDate((customer.last_visit_at ?? lastVisitIso) as string, locale)
       : null,
     preferredStaffId,
     preferredStaffName: preferredStaffId

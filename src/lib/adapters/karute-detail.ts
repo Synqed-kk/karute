@@ -32,18 +32,18 @@ function deriveInitials(name: string): string {
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
 }
 
-function formatLongDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+function formatLongDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
 }
 
-function formatMediumDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
+function formatMediumDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     year: 'numeric',
-    month: 'short',
+    month: locale === 'ja' ? 'long' : 'short',
     day: 'numeric',
   })
 }
@@ -56,7 +56,10 @@ export interface KaruteDetailHeader {
   sessionDateMedium: string
 }
 
-export function karuteToHeader(karute: KaruteWithRelations): KaruteDetailHeader {
+export function karuteToHeader(
+  karute: KaruteWithRelations,
+  locale = 'en',
+): KaruteDetailHeader {
   const k = karute as unknown as {
     customers?: { name: string } | null
     profiles?: { full_name: string } | null
@@ -70,8 +73,8 @@ export function karuteToHeader(karute: KaruteWithRelations): KaruteDetailHeader 
     customerName,
     customerInitials: deriveInitials(customerName),
     staffName,
-    sessionDateLong: formatLongDate(dateSource),
-    sessionDateMedium: formatMediumDate(dateSource),
+    sessionDateLong: formatLongDate(dateSource, locale),
+    sessionDateMedium: formatMediumDate(dateSource, locale),
   }
 }
 

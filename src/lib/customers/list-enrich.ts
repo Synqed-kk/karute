@@ -149,9 +149,15 @@ export function deriveStatus(
   // is_existing_customer) is never 新規 — they've been here before even if we
   // have no karute/appointment row to date it. Defaults false (backward-compat).
   isExistingCustomer = false,
+  // Count of recorded visits/sessions (karute records or past appointments).
+  // The 新規 heuristics below apply ONLY when this is 0 — a customer with ANY
+  // recorded session is never 新規, no matter how recently they registered. Fixes
+  // the bug where a 7-session client read as 新規 because they signed up < 30
+  // days ago. Defaults 0 (backward-compat with existing call sites + tests).
+  pastVisitCount = 0,
 ): CustomerStatusKey {
   const now = Date.now()
-  if (!isExistingCustomer) {
+  if (!isExistingCustomer && pastVisitCount === 0) {
     if (joinDateIso) {
       const ageMs = now - new Date(joinDateIso).getTime()
       if (ageMs < 30 * 24 * 60 * 60 * 1000) return 'new'

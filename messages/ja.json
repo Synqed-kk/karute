@@ -243,7 +243,8 @@
     "header": {
       "staff": "担当",
       "phone": "電話",
-      "email": "メール"
+      "email": "メール",
+      "openCustomer": "顧客ページを開く"
     },
     "memory": {
       "title": "顧客メモリ",

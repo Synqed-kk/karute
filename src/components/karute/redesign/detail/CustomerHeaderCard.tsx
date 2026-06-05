@@ -1,7 +1,8 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { Edit3, Mail, Phone } from 'lucide-react'
+import { Edit3, Mail, Phone, ChevronRight } from 'lucide-react'
+import { Link } from '@/i18n/navigation'
 
 export interface CustomerHeaderProps {
   customerName: string
@@ -18,6 +19,9 @@ export interface CustomerHeaderProps {
   visitNumber?: number | null
   lastVisitDate?: string | null
   lastVisitAgo?: string | null
+  /** When set, the customer name becomes a tappable link to the customer
+   *  profile (the strong affordance to jump from a session to the person). */
+  customerHref?: string
   /** Optional click handler for the Edit button. */
   onEdit?: () => void
 }
@@ -44,6 +48,7 @@ export function CustomerHeaderCard({
   visitNumber,
   lastVisitDate,
   lastVisitAgo,
+  customerHref,
   onEdit,
 }: CustomerHeaderProps) {
   const t = useTranslations('karuteDetail')
@@ -64,9 +69,24 @@ export function CustomerHeaderCard({
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-baseline gap-2.5">
-          <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-            {customerName}
-          </h2>
+          {customerHref ? (
+            <Link
+              href={customerHref as Parameters<typeof Link>[0]['href']}
+              className="group inline-flex items-center gap-1 text-xl font-semibold tracking-tight text-foreground transition-colors hover:text-sky-600 md:text-2xl"
+              aria-label={t('header.openCustomer')}
+              title={t('header.openCustomer')}
+            >
+              <span>{customerName}</span>
+              <ChevronRight
+                size={18}
+                className="shrink-0 text-muted-foreground transition-transform transition-colors group-hover:translate-x-0.5 group-hover:text-sky-600"
+              />
+            </Link>
+          ) : (
+            <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+              {customerName}
+            </h2>
+          )}
           <span className="text-sm font-medium text-muted-foreground tabular-nums">
             {karuteNumber}
           </span>

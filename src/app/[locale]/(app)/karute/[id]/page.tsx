@@ -25,14 +25,14 @@ interface KaruteDetailPageProps {
 export default async function KaruteDetailPage({
   params,
 }: KaruteDetailPageProps) {
-  const { id } = await params
+  const { id, locale } = await params
 
   const karute = await getKaruteRecord(id)
   if (!karute) notFound()
 
   const customerId =
     (karute as unknown as { client_id?: string | null }).client_id ?? null
-  const header = karuteToHeader(karute)
+  const header = karuteToHeader(karute, locale)
   const sessionEntries = karuteEntriesToSessionEntries(karute)
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript =
