@@ -583,6 +583,12 @@
       "lastVisitPrefix": "Last visit",
       "usualServicePrefix": "Usual",
       "visitsSuffix": "{n} visits",
+      "memberNumber": "Member #{number}",
+      "ticketPack": "Ticket pack",
+      "birthdayMonth": "Birthday month",
+      "ageValue": "{age} y/o",
+      "visitCountSuffix": " visits",
+      "staffPrefix": "Staff",
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
@@ -637,6 +643,8 @@
       },
       "heading": "Customers",
       "showing": "{n} showing",
+      "newCustomer": "New customer",
+      "searchPlaceholder": "Search customers…",
       "status": {
         "on-track": "On track",
         "new": "New",

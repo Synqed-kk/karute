@@ -583,6 +583,12 @@
       "lastVisitPrefix": "前回",
       "usualServicePrefix": "よく選ぶコース",
       "visitsSuffix": "{n}回目",
+      "memberNumber": "会員 #{number}",
+      "ticketPack": "回数券あり",
+      "birthdayMonth": "誕生月",
+      "ageValue": "{age}歳",
+      "visitCountSuffix": " 回",
+      "staffPrefix": "担当",
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
@@ -637,6 +643,8 @@
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
+      "newCustomer": "新規顧客",
+      "searchPlaceholder": "お客様を検索…",
       "status": {
         "on-track": "継続中",
         "new": "新規",
