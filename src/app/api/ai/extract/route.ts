@@ -3,6 +3,8 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import { ExtractionResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getExtractionSystemPrompt } from '@/lib/prompts'
+import { getOrgSettings } from '@/actions/org-settings'
+import { getBusinessPersona } from '@/lib/karute/business-persona'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -19,7 +21,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'transcript is required' }, { status: 400 })
     }
 
-    const systemPrompt = getExtractionSystemPrompt(locale ?? 'en')
+    // Business-aware extraction: the account's business_type (synqed-core
+    // org-settings) selects the persona so a 美容整体 session reads like a
+    // chiropractor's clinical note, not a generic salon memo. Cheap — getOrgSettings
+    // is unstable_cache'd by businessId; null/unset → generic persona.
+    const org = await getOrgSettings()
+    const persona = getBusinessPersona(org?.business_type)
+    const systemPrompt = getExtractionSystemPrompt(locale ?? 'en', persona)
 
     const completion = await openai.chat.completions.parse({
       // gpt-4o (not -mini): the extraction must FOLLOW detailed instructions

@@ -3,7 +3,8 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import { SummaryResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
-import { createClient } from '@/lib/supabase/server'
+import { getOrgSettings } from '@/actions/org-settings'
+import { getBusinessPersona } from '@/lib/karute/business-persona'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -20,16 +21,14 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'transcript is required' }, { status: 400 })
     }
 
-    const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
-    const businessType = orgSettings?.business_type || 'salon/clinic'
+    // Business-aware summary: business_type lives in synqed-core org-settings
+    // (a JSON blob), NOT a Supabase `organization_settings` table — the prior
+    // direct query always missed and fell back to a generic label. getOrgSettings
+    // is unstable_cache'd by businessId; null/unset → generic persona.
+    const org = await getOrgSettings()
+    const persona = getBusinessPersona(org?.business_type)
 
-    const systemPrompt = getSummarySystemPrompt(locale ?? 'en')
+    const systemPrompt = getSummarySystemPrompt(locale ?? 'en', persona)
 
     const completion = await openai.chat.completions.parse({
       // gpt-4o (not -mini): the summary is reasoning-heavy (condense narrative,
@@ -42,7 +41,7 @@ export async function POST(request: Request) {
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
           role: 'user',
-          content: `Summarize this ${businessType} session transcript:\n\n${wrapUntrustedContent('transcript', transcript)}`,
+          content: `Summarize this ${persona.businessNounEn} session transcript:\n\n${wrapUntrustedContent('transcript', transcript)}`,
         },
       ],
       response_format: zodResponseFormat(SummaryResultSchema, 'summary_result'),
