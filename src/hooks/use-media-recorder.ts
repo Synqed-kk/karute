@@ -55,12 +55,13 @@ export function useMediaRecorder() {
     setStream(micStream)
 
     const mimeType = getSupportedMimeType()
-    // Pin the bitrate explicitly at 128 kbps — see global-recorder.ts. Keeps
-    // file size predictable (~0.96 MB/min); long-session uploads are handled by
-    // the raised 200 MB bucket cap, not by degrading audio quality.
+    // Voice-optimized bitrate — see global-recorder.ts. ~2.7x smaller than the
+    // browser default (~128 kbps) so long (60-90 min) sessions don't exceed the
+    // Supabase Storage upload limit. 48 kbps keeps a 3x margin over the ~16 kbps
+    // Opus/ASR threshold — negligible accuracy impact even on noisy audio.
     const recorder = new MediaRecorder(micStream, {
       ...(mimeType ? { mimeType } : {}),
-      audioBitsPerSecond: 128_000,
+      audioBitsPerSecond: 48_000,
     })
 
     recorder.ondataavailable = (e) => {
