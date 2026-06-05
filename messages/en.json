@@ -286,6 +286,7 @@
     },
     "currentSession": {
       "title": "Current session",
+      "keyPoints": "Key points",
       "tunedFor": "Tuned for:",
       "recordToggle": "Session log ({count})",
       "categories": {

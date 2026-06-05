@@ -286,6 +286,7 @@
     },
     "currentSession": {
       "title": "本日のセッション",
+      "keyPoints": "要点",
       "tunedFor": "業種設定:",
       "recordToggle": "セッションの記録（{count}件）",
       "categories": {
