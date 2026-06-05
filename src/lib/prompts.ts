@@ -26,6 +26,11 @@
  */
 
 import { getBusinessPersona, type BusinessPersona } from '@/lib/karute/business-persona'
+import { ENTRY_CATEGORIES } from '@/types/ai'
+
+/** The category enum, rendered for the prompt — single source of truth with the
+ *  Zod schema (src/types/ai.ts) so adding a category can't silently drift here. */
+const CATEGORY_LIST = ENTRY_CATEGORIES.join(', ')
 
 /** Per-posture medical-language guardrail (JA). Drives how clinically the AI may write. */
 function clinicalGuardrailJa(posture: BusinessPersona['clinicalPosture']): string {
@@ -85,7 +90,7 @@ export function getExtractionSystemPrompt(
 - 今後の計画 → 頻度・時期・次回の観察ポイント・ケアの方針。日時が出たら必ず含める。
 
 各エントリーには以下を含めてください：
-- category: 必ず以下のいずれかの英小文字値: symptom, treatment, body_area, preference, lifestyle, next_visit, product, other
+- category: 必ず以下のいずれかの英小文字値: ${CATEGORY_LIST}
 - title: 「具体的で中身のある」日本語の要点（1文）。トピック名で終わらせず、具体情報（部位・程度・原因・根拠・日付・時刻・数値・製品名）を必ず含める。
     良い例（具体性と深さの基準。下記は例であり、あなたの業種に合わせて記録する）:
       「首の常時痛＋可動域制限、デスクワークで悪化、本人体感で痛みレベル2/5」
@@ -123,7 +128,7 @@ Depth standard (model each entry on SOAP, within what was actually said):
 - Plan → frequency, timing, what to watch next, care direction. If a date/time was given, include it.
 
 Each entry must include:
-- category: exactly one of these lowercase values: symptom, treatment, body_area, preference, lifestyle, next_visit, product, other
+- category: exactly one of these lowercase values: ${CATEGORY_LIST}
 - title: a SPECIFIC, substantive one-line summary in English. Never end on a bare topic label — include the concrete content (body part, level, cause, rationale, dates, times, numbers, product names).
     Good (this is the depth bar; adapt to your field): "Constant neck pain + reduced range, worse from desk work, ~2/5 by client's own rating", "Released lumbar then cervical tension (adjusting from the pelvic base first)", "Skipped strong lower-cervical adjustment (nerve risk) — used soft technique", "Next visit: June 29, 16:00 (pelvic maintenance)"
     Bad (too vague — not allowed): "Neck pain", "Body issue", "Did treatment", "Suggested a vitamin", "Next visit date"
