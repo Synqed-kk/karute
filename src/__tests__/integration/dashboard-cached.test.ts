@@ -2,10 +2,11 @@
  * Coverage for getDashboardData / dashboardByDay (src/lib/dashboard/cached.ts).
  *
  * All reads now go through synqed-core (the source of truth), so the
- * SynqedClient constructor is mocked. dashboardByDay fans out six calls in
+ * SynqedClient constructor is mocked. dashboardByDay fans out seven calls in
  * declared order: weekly count, monthly count, today's appointments, today's
- * karute (for the appointment→recording link), recent karute, and the tenant
- * customer list (for name resolution). It shapes them into DashboardData with
+ * karute (for the appointment→recording link), recent karute, the tenant
+ * customer list (for name resolution), and the staff list (synqed staff.id →
+ * profile id translation, PR #179). It shapes them into DashboardData with
  * count + empty-array fallbacks. The synqed client is business-scoped, so there
  * is no longer a profiles→staff-id filter step.
  *
@@ -20,9 +21,10 @@ const BIZ = 'biz-1'
 const karuteRecords = { list: jest.fn() }
 const appointments = { list: jest.fn() }
 const customers = { list: jest.fn() }
+const staff = { list: jest.fn() }
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn(() => ({ karuteRecords, appointments, customers })),
+  SynqedClient: jest.fn(() => ({ karuteRecords, appointments, customers, staff })),
 }))
 
 jest.mock('next/cache', () => ({
@@ -57,6 +59,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   appointments.list.mockResolvedValue({ appointments: [] })
   customers.list.mockResolvedValue({ customers: [] })
+  staff.list.mockResolvedValue({ staff: [] })
 })
 
 describe('getDashboardData', () => {
@@ -90,6 +93,9 @@ describe('getDashboardData', () => {
       ],
     })
     customers.list.mockResolvedValue({ customers: [{ id: 'c1', name: 'Hanako' }] })
+    // PR #179: rows arrive keyed by the synqed staff id ('s1'); the dashboard
+    // resolves names off the profile id — expect the translated value below.
+    staff.list.mockResolvedValue({ staff: [{ id: 's1', user_id: 'p1' }] })
 
     const result = await getDashboardData()
 
@@ -100,7 +106,7 @@ describe('getDashboardData', () => {
       id: 'a1',
       start_time: '2026-05-26T01:00:00Z',
       duration_minutes: 60,
-      staff_profile_id: 's1',
+      staff_profile_id: 'p1',
       title: 'Cut',
       // linked from today's karute by appointment_id
       karute_record_id: 'k9',
@@ -110,7 +116,7 @@ describe('getDashboardData', () => {
     expect(result.recentKarute[0]).toMatchObject({
       id: 'k1',
       summary: 'note',
-      staff_profile_id: 's1',
+      staff_profile_id: 'p1',
       customers: { name: 'Hanako' },
       entries: [{ count: 3 }],
     })
