@@ -25,6 +25,10 @@
  *      the karute categories — so an entry carries WHY, not just a topic label.
  */
 
+// `getBusinessPersona()` with no arg returns the GENERIC persona; it's the
+// DEFAULT for the `persona` param of both prompt fns below, so they're safe to
+// call without a resolved persona (standalone / test / future callers). The real
+// API routes always pass an explicit persona resolved from the org's business_type.
 import { getBusinessPersona, type BusinessPersona } from '@/lib/karute/business-persona'
 import { ENTRY_CATEGORIES } from '@/types/ai'
 

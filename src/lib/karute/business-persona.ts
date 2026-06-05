@@ -222,7 +222,11 @@ const PERSONAS: Record<string, BusinessPersona> = {
     businessNounJa: 'カウンセリングルーム', businessNounEn: 'counseling practice',
     primaryFocusJa: '心の状態・ストレス・継続的な支援',
     primaryFocusEn: 'mental state, stress, ongoing support',
-    clinicalPosture: 'clinical',
+    // 'wellness', not 'clinical': a counselor is NOT a licensed psychiatrist
+    // (that vertical is medical_clinic). The wellness guardrail records state +
+    // refers out for serious signs, instead of writing diagnoses — the safer,
+    // less liability-exposed default for sensitive counseling notes (APPI 要配慮).
+    clinicalPosture: 'wellness',
     typicalConcernsJa: ['気分・ストレスの状態', '睡眠・生活リズム', '継続的な変化・目標'],
     typicalConcernsEn: ['mood / stress state', 'sleep / daily rhythm', 'ongoing change / goals'],
   },
