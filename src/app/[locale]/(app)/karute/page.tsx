@@ -212,8 +212,10 @@ export default async function KaruteRecordsListPage() {
   })
 
   // Phase B: synthesize placeholder rows for customers with NO records
-  // yet. Each links to /karute/customer/[id] (the customer's karute
-  // folder view) so staff can drop in and start the first session.
+  // yet. Each links to /customers/[id] — the single, canonical customer page
+  // (顧客 tab) — so staff drop into the customer profile (memory / sessions /
+  // photos) and can start the first session. (The old /karute/customer/[id]
+  // duplicate is retired → redirects here; see that route.)
   // Sorted newest-customer-first so the most recent signups bubble up.
   const placeholders: KaruteListItem[] = allCustomersList.customers
     .filter((c) => !recordedCustomerIds.has(c.id))
@@ -252,7 +254,7 @@ export default async function KaruteRecordsListPage() {
         summary: '初回セッションを記録すると、ここに表示されます',
         aiStatus: 'draft',
         conversionStatus: 'provisional',
-        href: `/karute/customer/${c.id}`,
+        href: `/customers/${c.id}`,
         isPlaceholder: true,
       }
     })
