@@ -111,7 +111,8 @@ export function getExtractionSystemPrompt(
 重要なルール：
 - title には必ず「具体的な内容と根拠」を入れること。単なるトピック名は禁止。日付・時刻が話された場合は必ず title に含める（最重要）。
 - 【統合を徹底】同じカテゴリー・同じ主題の情報は必ず1件の「濃い」エントリーに統合する。複数の不調（例：首・肩・腰、痛み・可動域・しびれ）は別々にせず、1件の症状エントリーにまとめて具体的に書く。次回予約（日付・時刻・目的）も1件にまとめる。曖昧で似た項目を複数作らない（例：「首の痛み」「体の不調」「動きの制限」を別々に作らず、1件に統合）。
-- 【件数】全体で5〜7件程度を目安の上限とし、原則として各カテゴリー1件にする。件数を増やすことより、1件ごとの「深さ」を最優先する。「相談の重要性」のような中身のない・メタな項目は作らない。
+- 【件数】全体で5〜8件程度を目安とし、似た点は1件に統合する。ただし「件数を絞ること」より「重要な情報を取りこぼさないこと」を優先する。「相談の重要性」のような中身のない・メタな項目は作らない。
+- 【取りこぼし防止】統合・要約で件数を絞る際も、セッションに出た次の点は必ず該当エントリーに残す（省略しない）：① 自宅でのセルフケア・姿勢・運動の指導 ② 提案・販売・試供した製品やサプリ ③ お客様自身の希望・好み・要望（本人の言葉） ④ 避けた施術とその理由（禁忌・リスク） ⑤ 具体的な数値（可動域の角度・回数・期間・痛みのレベル等）。これらは1つも落とさないこと。
 - 【正しい分類】お客様の好み・要望は preference に分類する（product ではない。product は実際の製品・物販・試供品のみ）。生活習慣・仕事の影響などは lifestyle に分類する。
 - ${clinicalGuardrailJa(persona.clinicalPosture)}
 - category の値は必ず英語の小文字スネークケース（例: body_area, next_visit）。日本語訳や TitleCase は使用しない。
@@ -145,7 +146,8 @@ Pay special attention in this field to: ${persona.typicalConcernsEn.join(' / ')}
 Critical rules:
 - The title MUST carry the concrete content and rationale. If a date or time was spoken, it MUST appear in the title (most important).
 - CONSOLIDATE HARD: merge all info of the same category / same subject into ONE rich entry. Multiple complaints (e.g. neck, shoulder, lower back; pain, range, numbness) go into a SINGLE symptom entry written specifically — never as separate vague rows. Combine all next-appointment logistics into ONE next_visit entry. Do not create several similar vague entries (e.g. "Neck pain", "Body issue", "Limited movement" must collapse into one).
-- COUNT: aim for ~5–7 entries max, roughly ONE per category. Prioritise DEPTH per entry over count. Never create empty/meta rows like "Importance of consultation".
+- COUNT: aim for ~5–8 entries, merging similar points. But prioritise NOT DROPPING important information over keeping the count low. Never create empty/meta rows like "Importance of consultation".
+- COMPLETENESS: even while keeping the count tight, NEVER drop these if they appear in the session — fold each into the right entry: (1) home care / self-care / posture or exercise instructions; (2) products/supplements proposed, sold, or sampled; (3) the client's OWN requests/preferences (in their words); (4) any treatment deliberately avoided and why (contraindication/risk); (5) concrete measurements (range-of-motion degrees, counts, duration, pain level). Lose none of these.
 - CORRECT CATEGORY: a client's preferences/wishes are 'preference' (NOT 'product' — 'product' is only actual products/retail/samples). Lifestyle/work factors are 'lifestyle'.
 - ${clinicalGuardrailEn(persona.clinicalPosture)}
 - category must be the exact lowercase snake_case value (e.g. body_area, next_visit). Do NOT use TitleCase or translated labels.
