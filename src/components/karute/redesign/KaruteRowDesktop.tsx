@@ -1,6 +1,6 @@
 'use client'
 
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 
 import { Link } from '@/i18n/navigation'
 import { cn } from '@/lib/utils'
@@ -14,13 +14,15 @@ interface KaruteRowDesktopProps {
 }
 
 const WEEKDAYS_EN = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const WEEKDAYS_JA = ['日', '月', '火', '水', '木', '金', '土']
 
 export function KaruteRowDesktop({ row }: KaruteRowDesktopProps) {
   const t = useTranslations('karuteList.row')
+  const locale = useLocale()
   const [, mm, dd] = row.date.split('-')
   const dayLabel = `${mm}/${dd}`
   const dt = new Date(row.date)
-  const weekdayEn = WEEKDAYS_EN[dt.getDay()]
+  const weekday = (locale.startsWith('ja') ? WEEKDAYS_JA : WEEKDAYS_EN)[dt.getDay()]
   const color = getStaffColorByKey(row.staffColorKey)
 
   return (
@@ -36,7 +38,7 @@ export function KaruteRowDesktop({ row }: KaruteRowDesktopProps) {
         <div className="text-[15px] font-semibold tabular-nums tracking-tight text-foreground">
           {dayLabel}
         </div>
-        <div className="text-[11px] text-muted-foreground">{weekdayEn}</div>
+        <div className="text-[11px] text-muted-foreground">{weekday}</div>
       </div>
       <span
         className={cn(
