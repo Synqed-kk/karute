@@ -129,6 +129,23 @@
       "label": "凡例",
       "block": "オーナー業務"
     },
+    "month": {
+      "legendLight": "少なめ",
+      "legendMedium": "普通",
+      "legendBusy": "混雑"
+    },
+    "weekCard": {
+      "today": "今日",
+      "bookings": "件",
+      "utilized": "稼働",
+      "open": "空き",
+      "new": "新規",
+      "reminder": "リマインド",
+      "consent": "同意待ち",
+      "pending": "未確定",
+      "empty": "予約なし",
+      "more": "他"
+    },
     "status": {
       "booked": "予約済",
       "in_session": "施術中",
