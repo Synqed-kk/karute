@@ -19,7 +19,7 @@ export async function getCustomerMemory(
     const { data, error } = await sb
       .from(TABLE)
       .select(
-        'id, category, label, detail, source, confidence, pinned, suggest_talking_point',
+        'id, category, label, detail, source, confidence, pinned, suggest_talking_point, updated_at',
       )
       .eq('customer_id', customerId)
       .is('deleted_at', null)
@@ -35,6 +35,7 @@ export async function getCustomerMemory(
       confidence: r.confidence ?? 0.8,
       pinned: !!r.pinned,
       suggestTalkingPoint: !!r.suggest_talking_point,
+      updatedAt: r.updated_at ?? '',
     }))
   } catch (err) {
     console.error('[getCustomerMemory] failed (table may not exist yet):', err)
