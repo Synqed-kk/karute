@@ -72,11 +72,13 @@ export function RegenerateEntriesButton({
 
       // Soft caveat — the entries WERE replaced, but some old rows lingered.
       // Surface it (non-blocking) so staff know a re-run finishes cleanup.
-      if (result.warning) setWarning(result.warning)
+      if (result.warning) setWarning(t('warning'))
 
-      // Refresh the summary too (best-effort — entries already applied).
+      // Refresh the summary too (best-effort — entries already applied). Surface
+      // a soft warning if it fails so staff don't get a silent partial success.
       if (newSummary?.trim()) {
-        await updateKaruteSummary(karuteRecordId, newSummary)
+        const sumResult = await updateKaruteSummary(karuteRecordId, newSummary)
+        if ('error' in sumResult) setWarning(t('summaryWarning'))
       }
 
       router.refresh()
@@ -121,7 +123,7 @@ export function RegenerateEntriesButton({
     <span className="inline-flex items-center gap-2">
       {error && <span className="text-[11px] text-red-500">{t('error')}</span>}
       {!error && warning && (
-        <span className="text-[11px] text-amber-600">{t('warning')}</span>
+        <span className="text-[11px] text-amber-600">{warning}</span>
       )}
       <button
         type="button"

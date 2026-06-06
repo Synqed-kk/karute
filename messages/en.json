@@ -333,7 +333,8 @@
       "cancel": "Cancel",
       "running": "Regenerating…",
       "error": "Regeneration failed",
-      "warning": "Some old entries lingered — run again to finish cleanup."
+      "warning": "Some old entries lingered — run again to finish cleanup.",
+      "summaryWarning": "Entries updated, but the summary update failed — please try again."
     },
     "aiSummary": {
       "title": "AI summary"
