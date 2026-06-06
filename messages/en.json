@@ -272,6 +272,7 @@
       "edit": "Edit"
     },
     "header": {
+      "openCustomer": "Open customer profile",
       "staff": "Staff",
       "phone": "Phone",
       "email": "Email"
