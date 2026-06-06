@@ -149,3 +149,32 @@ export async function regenerateKaruteEntries(
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
+
+/**
+ * Replace a karute's AI summary (the AI要約 card text) with a freshly-generated
+ * one. Companion to regenerateKaruteEntries so "AIで再生成" refreshes BOTH the
+ * entries (本日のセッション) and the summary (AI要約) — the summary is what the
+ * pre-session brief's trajectory reads, so a backfill must update it too.
+ *
+ * `ai_summary` is the raw string the summarize route returns (・-bulleted), stored
+ * exactly as the recording flow stores it. A single-field update — idempotent, no
+ * rollback needed (unlike the add/delete entry dance).
+ */
+export async function updateKaruteSummary(
+  karuteRecordId: string,
+  summary: string,
+): Promise<{ ok: true } | { error: string }> {
+  if (!karuteRecordId) return { error: 'karuteRecordId is required' }
+  if (!summary || !summary.trim()) {
+    // Never blank an existing summary — keep the old one if there's nothing new.
+    return { error: 'No new summary to write — keeping the existing one.' }
+  }
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.karuteRecords.update(karuteRecordId, { ai_summary: summary })
+    revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    return { ok: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}

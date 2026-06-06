@@ -5,7 +5,10 @@ import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { RefreshCw, Loader2 } from 'lucide-react'
 import type { Entry } from '@/types/ai'
-import { regenerateKaruteEntries } from '@/actions/regenerate-karute'
+import {
+  regenerateKaruteEntries,
+  updateKaruteSummary,
+} from '@/actions/regenerate-karute'
 
 interface RegenerateEntriesButtonProps {
   karuteRecordId: string
@@ -36,18 +39,33 @@ export function RegenerateEntriesButton({
     setError(null)
     setWarning(null)
     try {
-      // Re-extract on the stored transcript via the same authed route the
-      // recording flow uses (server-side it applies the business persona + the
-      // tightened consolidation prompt).
-      const res = await fetch('/api/ai/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, locale }),
-      })
-      if (!res.ok) throw new Error(`extract failed (${res.status})`)
-      const data = (await res.json()) as { entries?: Entry[] }
-      const entries = data.entries ?? []
+      // Re-extract entries AND re-summarize, in parallel, on the stored
+      // transcript — both via the same authed routes the recording flow uses
+      // (server-side they apply the business persona + the tightened prompts).
+      // This is the backfill: refresh 本日のセッション (entries) + AI要約 (summary)
+      // together, so improving the prompts upgrades past sessions' data.
+      const [extractRes, summaryRes] = await Promise.all([
+        fetch('/api/ai/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript, locale }),
+        }),
+        fetch('/api/ai/summarize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript, locale }),
+        }),
+      ])
+
+      if (!extractRes.ok) throw new Error(`extract failed (${extractRes.status})`)
+      const entries =
+        ((await extractRes.json()) as { entries?: Entry[] }).entries ?? []
       if (entries.length === 0) throw new Error('no entries extracted')
+
+      // Summary is best-effort — never fail the whole regenerate on it.
+      const newSummary = summaryRes.ok
+        ? ((await summaryRes.json()) as { summary?: string }).summary
+        : undefined
 
       const result = await regenerateKaruteEntries(karuteRecordId, entries)
       if (result.error) throw new Error(result.error)
@@ -55,6 +73,12 @@ export function RegenerateEntriesButton({
       // Soft caveat — the entries WERE replaced, but some old rows lingered.
       // Surface it (non-blocking) so staff know a re-run finishes cleanup.
       if (result.warning) setWarning(result.warning)
+
+      // Refresh the summary too (best-effort — entries already applied).
+      if (newSummary?.trim()) {
+        await updateKaruteSummary(karuteRecordId, newSummary)
+      }
+
       router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'error')
