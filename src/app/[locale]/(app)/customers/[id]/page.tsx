@@ -11,7 +11,7 @@ import { listCustomerPhotos } from '@/actions/customers'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
-  deriveStatus,
+  resolveCustomerStatus,
   enrichCustomers,
   formatJoinDate,
 } from '@/lib/customers/list-enrich'
@@ -121,8 +121,18 @@ export default async function CustomerProfilePage({
   // QR never synced the count) — ぴあそん has 11 karute but visit_count 0, so
   // passing visit_count alone wrongly flagged her 新規. The list page already
   // uses the karute count; this aligns the profile with it.
-  const priorVisits = Math.max(customer.visit_count ?? 0, karuteRecords.length)
-  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer, priorVisits)
+  // SINGLE SOURCE: identical signals + resolver as the list/recording/agenda, so
+  // this customer's badge is the same on every page (the chopstick — computed
+  // once, shown everywhere).
+  const status = resolveCustomerStatus({
+    joinDateIso: customer.created_at,
+    lastVisitIso,
+    isExistingCustomer: customer.is_existing_customer,
+    visitCount: customer.visit_count,
+    karuteCount: karuteRecords.length,
+    pastAppointmentCount: enrichment.get(id)?.pastAppointmentCount,
+    hasTicketPack: customer.has_ticket_pack,
+  })
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,

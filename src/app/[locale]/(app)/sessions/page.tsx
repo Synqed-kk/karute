@@ -2,6 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { isReturningCustomer } from '@/lib/customers/list-enrich'
 import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
@@ -357,6 +358,20 @@ export default async function SessionsPage({
   // customer with no synqed karute isn't flagged 新規.
   let brief: PreSessionBrief | null = null
   if (nextAppointment?.customerId) {
+    // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
+    // cached list — same fields the 顧客 list + profile use, so the recording
+    // target's 新規 flag matches the customer's badge everywhere.
+    const cc = customers.find((c) => c.id === nextAppointment.customerId)
+    const targetReturning = isReturningCustomer({
+      joinDateIso: null,
+      lastVisitIso: null,
+      isExistingCustomer: cc?.isExistingCustomer,
+      visitCount: cc?.visitCount,
+      hasTicketPack: cc?.hasTicketPack,
+      karuteCount: customerKarute.length,
+    })
+    // AI brief (richer, business-type-aware) with the mechanical fallback — the
+    // fallback now gets the unified returning signal so its 新規 framing agrees.
     brief =
       (await getAiPreSessionBrief({
         customerId: nextAppointment.customerId,
@@ -372,7 +387,7 @@ export default async function SessionsPage({
         nextAppointment.notes,
         now,
         locale,
-        targetVisitCount,
+        targetReturning,
       )
   }
 
@@ -408,19 +423,21 @@ function buildPreSessionBriefFor(
   reservationMemo: string | null,
   now: Date,
   locale: string,
-  // QuickReserve visit_count. A returning customer (e.g. a 50回券 holder) can
-  // have prior visits but 0 synqed karute yet — they must NOT be flagged 新規.
-  priorVisitCount = 0,
+  // A known returning customer (QR visit_count / 回数券 / is_existing) is NOT a
+  // first visit even with no recording yet — the SAME single signal every surface
+  // uses (isReturningCustomer).
+  isReturning: boolean,
 ): PreSessionBrief | null {
-  // `records` is the customer's synqed karute history, newest first.
+  // `records` is the customer's synqed karute history, newest first. FIRST visit
+  // = NO prior record AND not a known returning customer — a QR regular with no
+  // recording yet is returning, not 新規.
   const last = records.length > 0 ? records[0] : null
 
-  // NO PRIOR KARUTE — but only TRULY first-visit if there are also no prior
-  // visits anywhere (visit_count). Returning-but-unrecorded customers fall here
-  // too: not 新規, no recap to show, just the booking memo (+ AI memo analysis).
+  // FIRST-VISIT FRAMING — no prior karute AND not returning. Card renders the
+  // "初めてのお客様" header + optional reservation memo block.
   if (!last) {
     return {
-      isFirstTimeVisit: priorVisitCount <= 0,
+      isFirstTimeVisit: !isReturning,
       lastVisitDate: '',
       lastVisitAgo: '',
       hooks: [],
