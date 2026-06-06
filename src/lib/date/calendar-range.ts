@@ -27,25 +27,21 @@ export function jstEndOfDay(d: Date): Date {
   )
 }
 
-/** JST-anchored start of the week (Sunday) containing `d`. */
-export function startOfWeekSun(d: Date): Date {
-  const p = partsInJst(d)
-  const out = jstMidnight(p.year, p.month, p.day)
-  out.setDate(out.getDate() - p.weekday) // whole-day shift is JST-safe; p.weekday 0=Sun..6=Sat
-  return out
-}
-
 export function computeWeekRange(selectedDate: Date): {
   weekStart: Date
   weekEnd: Date
   rangeFrom: Date
   rangeTo: Date
 } {
-  const weekStart = startOfWeekSun(selectedDate)
+  // Rolling 7-day window STARTING on the selected day (today by default), so
+  // today is always first — a salon's week view is "today + the week ahead",
+  // not a Sun→Sat grid. The < > arrows page by 7 days (see shiftDate).
+  const p = partsInJst(selectedDate)
+  const weekStart = jstMidnight(p.year, p.month, p.day)
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekEnd.getDate() + 6)
   const rangeFrom = new Date(weekStart)
-  // End of the week's LAST JST day — was setHours(23,59,59,999) in UTC, which
+  // End of the LAST JST day — was setHours(23,59,59,999) in UTC, which
   // truncated the last day to its JST morning and emptied it.
   const rangeTo = jstEndOfDay(weekEnd)
   return { weekStart, weekEnd, rangeFrom, rangeTo }

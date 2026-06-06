@@ -18,30 +18,32 @@ import {
 } from '@/lib/date/calendar-range'
 import { partsInJst } from '@/lib/date/jst'
 
-describe('computeWeekRange — the empty-today bug', () => {
+describe('computeWeekRange — rolling 7-day window from today, JST-anchored', () => {
   // Today = Sat 2026-06-06 JST (the reported case).
   const selected = new Date('2026-06-06T00:00:00+09:00')
   const { weekStart, weekEnd, rangeFrom, rangeTo } = computeWeekRange(selected)
 
-  it('spans Sun 5/31 → Sat 6/6 in JST', () => {
+  it('starts ON the selected day (today first) and runs 7 days', () => {
     const s = partsInJst(weekStart)
     const e = partsInJst(weekEnd)
-    expect([s.month, s.day, s.weekday]).toEqual([5, 31, 0]) // Sunday May 31
-    expect([e.month, e.day, e.weekday]).toEqual([6, 6, 6]) // Saturday June 6
+    expect([s.month, s.day, s.weekday]).toEqual([6, 6, 6]) // today: Sat June 6
+    expect([e.month, e.day, e.weekday]).toEqual([6, 12, 5]) // +6 days: Fri June 12
   })
 
-  it('rangeTo covers the FULL last JST day (was truncated to 08:59 JST)', () => {
-    expect(rangeFrom.toISOString()).toBe('2026-05-30T15:00:00.000Z') // 5/31 00:00 JST
-    expect(rangeTo.toISOString()).toBe('2026-06-06T14:59:59.999Z') // 6/6 23:59:59.999 JST
+  it('fetch window spans 6/6 00:00 JST → 6/12 23:59:59 JST', () => {
+    expect(rangeFrom.toISOString()).toBe('2026-06-05T15:00:00.000Z') // 6/6 00:00 JST
+    expect(rangeTo.toISOString()).toBe('2026-06-12T14:59:59.999Z') // 6/12 23:59:59 JST
   })
 
-  it('includes a 10:00-JST booking on the last day — the bug excluded it', () => {
-    const booking = new Date('2026-06-06T10:00:00+09:00') // = 2026-06-06T01:00:00Z
-    expect(booking >= rangeFrom && booking <= rangeTo).toBe(true)
-    // The old UTC setHours boundary ended at 2026-06-05T23:59:59.999Z — BEFORE
-    // this booking — which is exactly why today rendered empty.
-    const oldBuggyEnd = new Date('2026-06-05T23:59:59.999Z')
-    expect(booking.getTime()).toBeGreaterThan(oldBuggyEnd.getTime())
+  it('includes today (now first) AND the last day at 10:00 JST', () => {
+    const todayBooking = new Date('2026-06-06T10:00:00+09:00')
+    const lastDayBooking = new Date('2026-06-12T10:00:00+09:00')
+    expect(todayBooking >= rangeFrom && todayBooking <= rangeTo).toBe(true)
+    expect(lastDayBooking >= rangeFrom && lastDayBooking <= rangeTo).toBe(true)
+    // The old UTC setHours boundary would have ended at 2026-06-11T23:59:59Z —
+    // BEFORE the last day's bookings — the JST anchor is what fixes it.
+    const oldBuggyEnd = new Date('2026-06-11T23:59:59.999Z')
+    expect(lastDayBooking.getTime()).toBeGreaterThan(oldBuggyEnd.getTime())
   })
 })
 
