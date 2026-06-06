@@ -272,6 +272,7 @@
       "edit": "編集"
     },
     "header": {
+      "openCustomer": "顧客カルテを開く",
       "staff": "担当",
       "phone": "電話",
       "email": "メール"
