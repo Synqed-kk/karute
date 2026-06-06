@@ -120,6 +120,9 @@ export async function getAiPreSessionBrief(params: {
     const tok = resolvePersonaTokens(persona, locale)
 
     const cacheInput = {
+      // Bump when the brief prompt changes so stale cached briefs (≤24h) are
+      // invalidated immediately instead of serving the old wording.
+      v: 2,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
