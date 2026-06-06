@@ -116,23 +116,13 @@ export function PreSessionBriefCard({
         <p className="text-[14px] leading-relaxed text-foreground/90">
           {t('firstTimeBody', { name: customerName ?? '' })}
         </p>
+        {/* Booking note verbatim when present. No memo → render nothing —
+         *  the first-visit framing copy already carries the card, and an
+         *  empty "AI will analyze the memo" hint read as broken/dead. */}
         {effectiveBrief.reservationMemo && (
-          <>
-            <MemoBlock memo={effectiveBrief.reservationMemo} label={t('reservationMemo')} className="mt-4" />
-            <AiCapabilityHint
-              label={t('aiHintLabel')}
-              body={t('aiHintMemoAnalysis')}
-              className="mt-2"
-            />
-          </>
-        )}
-        {/* No memo? Surface the same AI capability hint so staff
-         *  knows what'll fill this gap once customers leave booking
-         *  notes (or once we wire that field in the booking form). */}
-        {!effectiveBrief.reservationMemo && (
-          <AiCapabilityHint
-            label={t('aiHintLabel')}
-            body={t('aiHintNoMemo')}
+          <MemoBlock
+            memo={effectiveBrief.reservationMemo}
+            label={t('reservationMemo')}
             className="mt-4"
           />
         )}
@@ -175,21 +165,18 @@ export function PreSessionBriefCard({
        *  customer text for THIS visit, not AI-synthesized history).
        *  Most relevant hook staff should open with. */}
       {effectiveBrief.reservationMemo ? (
-        <>
-          <MemoBlock memo={effectiveBrief.reservationMemo} label={t('reservationMemo')} className="mb-2" />
-          <AiCapabilityHint
-            label={t('aiHintLabel')}
-            body={t('aiHintMemoAnalysis')}
-            className="mb-4"
-          />
-        </>
-      ) : (
+        <MemoBlock
+          memo={effectiveBrief.reservationMemo}
+          label={t('reservationMemo')}
+          className="mb-4"
+        />
+      ) : isScaffoldOnly ? (
         <AiCapabilityHint
           label={t('aiHintLabel')}
           body={t('aiHintNoMemo')}
           className="mb-4"
         />
-      )}
+      ) : null}
 
       {/* Conversation hooks — most actionable, surface near top */}
       {effectiveBrief.hooks.length > 0 ? (
@@ -209,11 +196,11 @@ export function PreSessionBriefCard({
             ))}
           </ul>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
         </BriefSection>
-      )}
+      ) : null}
 
       {/* Last concerns — clinical recap */}
       {effectiveBrief.concerns.length > 0 ? (
@@ -234,7 +221,7 @@ export function PreSessionBriefCard({
             ))}
           </ul>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection
           icon={<Clock className="size-3" />}
           title={t('concerns')}
@@ -242,7 +229,7 @@ export function PreSessionBriefCard({
         >
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
         </BriefSection>
-      )}
+      ) : null}
 
       {/* Last product + reaction */}
       {effectiveBrief.lastProduct ? (
@@ -258,7 +245,7 @@ export function PreSessionBriefCard({
             )}
           </div>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection
           icon={<Gift className="size-3" />}
           title={t('lastProduct')}
@@ -266,7 +253,7 @@ export function PreSessionBriefCard({
         >
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
         </BriefSection>
-      )}
+      ) : null}
 
       {/* AI-suggested focus for this session */}
       {effectiveBrief.recommendedFocus ? (
@@ -279,7 +266,7 @@ export function PreSessionBriefCard({
             {effectiveBrief.recommendedFocus}
           </p>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection
           icon={<Target className="size-3" />}
           title={t('recommendedFocus')}
@@ -287,7 +274,7 @@ export function PreSessionBriefCard({
         >
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
         </BriefSection>
-      )}
+      ) : null}
     </section>
   )
 }
