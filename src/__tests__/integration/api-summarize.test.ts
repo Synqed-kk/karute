@@ -21,6 +21,12 @@ jest.mock('@/lib/supabase/server', () => ({
   })),
 }))
 
+// getOrgSettings pulls @synqed-kk/client (native ESM) — stub it like the other
+// boundaries above so the route loads without the real SDK.
+jest.mock('@/actions/org-settings', () => ({
+  getOrgSettings: jest.fn(async () => null),
+}))
+
 import * as appHandler from '@/app/api/ai/summarize/route'
 
 jest.mock('@/lib/openai', () => ({

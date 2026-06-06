@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { createClient } from '@/lib/supabase/server'
+import { getOrgSettings } from '@/actions/org-settings'
+import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -29,15 +30,8 @@ export async function POST(request: NextRequest) {
       ? 'Respond entirely in Japanese.'
       : 'Respond entirely in English.'
 
-    // Get business type from org settings
-    const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
-    const businessType = orgSettings?.business_type || 'salon/clinic'
+    // Business type from synqed-core (was reading a non-existent Supabase table).
+    const orgSettings = await getOrgSettings().catch(() => null)
 
     const context = [
       summary ? `Session Summary: ${wrapUntrustedContent('summary', summary)}` : '',
@@ -53,7 +47,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant for a ${businessType} business. Based on the karute session data, generate practical advice for the next visit. Keep it to 2-3 sentences, focusing on what the staff should follow up on, check, or suggest to the customer. ${langInstruction}\n\n${defensivePreamble(locale)}`,
+          content: `${personaSystemFragment(orgSettings?.business_type, locale)}\n\nBased on the karute session data, generate practical advice for the next visit. Keep it to 2-3 sentences, focusing on what the staff should follow up on, check, or suggest to the customer. ${langInstruction}\n\n${defensivePreamble(locale)}`,
         },
         { role: 'user', content: context },
       ],

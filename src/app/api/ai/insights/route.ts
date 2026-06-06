@@ -3,6 +3,7 @@ import OpenAI from 'openai'
 import { getRecentKaruteForAI } from '@/lib/karute/ai-context'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
+import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
@@ -72,7 +73,7 @@ export async function POST(request: Request) {
     const completion = await openai.chat.completions.create({
       model: process.env.AI_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction + '\n\n' + defensivePreamble(locale) },
+        { role: 'system', content: personaSystemFragment(orgSettings?.business_type, locale) + '\n\n' + getSystemPrompt(businessType) + '\n\n' + langInstruction + '\n\n' + defensivePreamble(locale) },
         { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${wrapUntrustedContent('karute_records', context)}` },
       ],
       response_format: { type: 'json_object' },
