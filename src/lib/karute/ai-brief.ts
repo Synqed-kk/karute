@@ -35,7 +35,7 @@ const AiBriefSchema = z.object({
   concerns: z
     .array(z.string())
     .describe(
-      "Concern TRAJECTORY across ALL provided sessions (labelled 'Session <date>:', ordered OLDEST→NEWEST, last line = most recent), most relevant first, in the business's vocabulary: what persists / is improving / is newly raised. Note a direction (継続/改善/悪化/新規) ONLY when two dated sessions actually show it — never infer direction from a single session or summary. With only one session, just carry unresolved concerns forward. Judge only within the sessions shown. Empty if none.",
+      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
     ),
   lastProduct: z
     .object({ name: z.string(), reaction: z.string().nullable() })
@@ -149,7 +149,7 @@ export async function getAiPreSessionBrief(params: {
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
       // invalidated immediately instead of serving the old wording.
-      v: 3,
+      v: 4,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -186,7 +186,12 @@ Rules:
     (b) change/contradiction — a symptom newly raised, dropped, or resurfacing vs the karute, or a want-vs-chief-complaint mismatch.
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
-- concerns: the concern TRAJECTORY across ALL sessions shown (labelled "Session <date>:", ordered OLDEST→NEWEST, last line = most recent). Surface what PERSISTS / is IMPROVING / is NEWLY raised, most relevant first. Note a direction (継続/改善/悪化/新規) ONLY when two dated sessions actually show it — with one session or no clear trend, just list current standing concerns without asserting direction. Judge only within the sessions shown; never extrapolate.
+- concerns: the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). Keep it USEFUL, not exhaustive:
+    • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
+    • CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say "姿勢由来の首・肩・腰の張り" not four rows). DROP vague catch-alls (体全体の不調).
+    • LEAD with what CHANGED — 改善 / 悪化 / 新規 are the actionable signal. Tag a direction ONLY when two dated sessions clearly show it.
+    • Do NOT put (継続) on every item. A simply-ongoing concern is listed plainly (no tag) — the (継続) tag is only worth showing to contrast with something that changed; an all-(継続) list is noise.
+  Most relevant first. Judge only within the sessions shown; never extrapolate. Empty if none.
 - hooks: genuine personal rapport material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
 - lastProduct: the most recent product/service offered + the customer's reaction, if present. Null otherwise.
 - recommendedFocus: 1-2 sentences on today's focus, grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.
