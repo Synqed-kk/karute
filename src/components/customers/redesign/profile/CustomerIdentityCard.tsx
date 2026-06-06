@@ -15,12 +15,14 @@ import {
   Clipboard,
   Heart,
   Mail,
+  Mic,
   Phone,
   Sparkles,
   Ticket,
   User,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
@@ -148,11 +150,26 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
           </div>
         </div>
 
-        {/* Edit pencil — opens CustomerEditDialog. Form pre-populates
-         *  with current customer data; save calls updateCustomer +
-         *  revalidates the page so the header re-renders with new
-         *  values. */}
-        <CustomerEditDialog customer={c} />
+        {/* Top-right actions: 録音 (jump to the recording tab with THIS
+         *  customer pre-loaded as the target — books-or-walk-in resolved
+         *  server-side) + the edit pencil. */}
+        <div className="flex shrink-0 items-center gap-1.5">
+          <Link
+            href={
+              {
+                pathname: '/sessions',
+                query: { customerId: c.id },
+              } as Parameters<typeof Link>[0]['href']
+            }
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            <Mic size={13} aria-hidden />
+            {tProfile('record')}
+          </Link>
+          {/* Edit pencil — opens CustomerEditDialog (pre-populated; save
+           *  revalidates the page). */}
+          <CustomerEditDialog customer={c} />
+        </div>
       </div>
     </section>
   )
