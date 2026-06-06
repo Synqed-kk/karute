@@ -9,6 +9,7 @@ import {
   CurrentSessionCard,
   type SessionEntry,
 } from './CurrentSessionCard'
+import { RegenerateEntriesButton } from './RegenerateEntriesButton'
 import { RecordingTranscriptCard } from './RecordingTranscriptCard'
 import {
   CustomerMemoryCard,
@@ -114,6 +115,14 @@ export function KaruteDetailView({
           <CurrentSessionCard
             sessionDate={sessionDateLong}
             entries={entries}
+            headerAction={
+              transcript ? (
+                <RegenerateEntriesButton
+                  karuteRecordId={karuteId}
+                  transcript={transcript}
+                />
+              ) : null
+            }
           />
         </div>
         <div className="flex flex-col gap-4">
