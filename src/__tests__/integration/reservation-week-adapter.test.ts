@@ -67,3 +67,42 @@ describe('appointmentsToWeekData — unconfirmed is never the cancelled count', 
     expect(monday.unconfirmed).toBe(0) // was 2 (mislabeled) before the fix
   })
 })
+
+describe('appointmentsToWeekData — new-customer count (was hardcoded 0)', () => {
+  it('counts bookings whose customer is in the new-customer set', () => {
+    const days = appointmentsToWeekData(
+      [appt({ customer_id: 'new1' }), appt({ id: 'a2', customer_id: 'reg1' })],
+      WEEK_START,
+      WEEK_END,
+      480,
+      TODAY,
+      'ja',
+      new Set(['new1']),
+    )
+    expect(days[0].newCustomerCount).toBe(1)
+  })
+
+  it('defaults to 0 when no new-customer set is passed', () => {
+    const days = appointmentsToWeekData([appt()], WEEK_START, WEEK_END, 480, TODAY, 'ja')
+    expect(days[0].newCustomerCount).toBe(0)
+  })
+})
+
+describe('appointmentsToWeekData — utilization capacity (was single-chair >100%)', () => {
+  it('scales available minutes by the distinct staff working that day', () => {
+    const days = appointmentsToWeekData(
+      [appt({ staff_id: 's1' }), appt({ id: 'a2', staff_id: 's2' })],
+      WEEK_START,
+      WEEK_END,
+      480,
+      TODAY,
+      'ja',
+    )
+    expect(days[0].availableMinutes).toBe(960) // 480 × 2 staff (was 480 → >100%)
+  })
+
+  it('treats an empty day as one staffer of capacity (no divide-by-zero)', () => {
+    const days = appointmentsToWeekData([], WEEK_START, WEEK_END, 480, TODAY, 'ja')
+    expect(days[0].availableMinutes).toBe(480)
+  })
+})

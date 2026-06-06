@@ -44,6 +44,9 @@ export function appointmentsToWeekData(
   businessHoursMinutes: number,
   today: Date,
   locale: string,
+  // Client ids flagged new (QR `is_existing_customer === false`) — drives the
+  // per-day "new customer" chip. Empty set = no new-customer highlighting.
+  newCustomerIds: Set<string> = new Set(),
 ): WeekDayCardData[] {
   // Localized short weekday (日/月… in ja, Sun/Mon… in en). The package's
   // WeekDayCard renders this verbatim, so it has to be localized at the source.
@@ -69,6 +72,12 @@ export function appointmentsToWeekData(
     )
 
     const bookedMinutes = dayAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
+    // Capacity = open hours × the staff who actually worked that day (≥1), so
+    // utilization is salon-wide and can't read >100% the way a single-chair
+    // denominator did (a 6-staff day was showing "117% utilized"). Approximation:
+    // a working staffer is treated as open the full business hours — refine when
+    // per-staff schedules exist.
+    const staffOnDay = new Set(dayAppts.map((a) => a.staff_id)).size
 
     const visible = dayAppts.slice(0, VISIBLE_BOOKING_LIMIT).map((a) => ({
       id: a.id,
@@ -84,8 +93,9 @@ export function appointmentsToWeekData(
       isToday: sameYMD(cursor, today),
       count: dayAppts.length,
       bookedMinutes,
-      availableMinutes: businessHoursMinutes,
-      newCustomerCount: 0,
+      availableMinutes: businessHoursMinutes * Math.max(1, staffOnDay),
+      newCustomerCount: dayAppts.filter((a) => newCustomerIds.has(a.customer_id))
+        .length,
       remindersPending: 0,
       consentPending: 0,
       // synqed appointments have no "unconfirmed/pending" status

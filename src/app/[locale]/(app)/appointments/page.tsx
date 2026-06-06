@@ -285,6 +285,9 @@ export default async function AppointmentsPage({
       return Math.round(sum / 7)
     })()
 
+    const newCustomerIds = new Set(
+      customers.filter((c) => !c.isExistingCustomer).map((c) => c.id),
+    )
     weekData = appointmentsToWeekData(
       weekRangeAppts,
       weekRange.weekStart,
@@ -292,6 +295,7 @@ export default async function AppointmentsPage({
       totalMinutes,
       now,
       locale,
+      newCustomerIds,
     )
     weekStartIso = weekRange.weekStart.toISOString()
   } else if (monthRange && monthRangeAppts) {
