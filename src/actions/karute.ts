@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord } from '@synqed-kk/client'
 
@@ -88,6 +89,15 @@ export async function saveKaruteRecord(
       })),
     })
     recordId = record.id
+
+    // Best-effort: grow the customer's persistent memory from this transcript
+    // (the personal-bits + body-trajectory loop). Awaited so it reliably runs in
+    // serverless; never throws — the recording is the critical artifact.
+    await ingestSessionMemory({
+      customerId: input.customerId,
+      transcript: input.transcript,
+      locale: await getLocale(),
+    })
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
@@ -130,6 +140,13 @@ export async function saveKaruteRecordInline(
         confidence: entry.confidenceScore,
         is_manual: false,
       })),
+    })
+
+    // Best-effort memory ingest — same loop as saveKaruteRecord.
+    await ingestSessionMemory({
+      customerId: input.customerId,
+      transcript: input.transcript,
+      locale: await getLocale(),
     })
 
     revalidatePath(`/customers/${input.customerId}`)

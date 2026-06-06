@@ -10,6 +10,9 @@ import {
   resolvePersonaTokens,
   clinicalGuardrail,
 } from '@/lib/karute/business-ai-tokens'
+import { getCustomerMemory } from '@/lib/karute/customer-memory'
+import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
+import type { MemoryItem } from '@/lib/karute/memory-types'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 
@@ -77,6 +80,17 @@ function buildContext(records: KaruteRecord[]): string {
     .join('\n\n')
 }
 
+// The customer's durable memory, grouped for the prompt — personal items (with a
+// talking-point flag) feed hooks; body/preference/goal/lifestyle inform concerns.
+function formatMemory(items: MemoryItem[]): string {
+  return items
+    .map(
+      (m) =>
+        `[${m.category}${m.suggestTalkingPoint ? '/talking-point' : ''}] ${m.label}${m.detail ? ` — ${m.detail}` : ''}`,
+    )
+    .join('\n')
+}
+
 export interface PreSessionBriefResult extends PreSessionBrief {
   /** AI analysis of the booking memo (兆候/期待/トーン/注意点). */
   memoAnalysis: string[]
@@ -119,13 +133,27 @@ export async function getAiPreSessionBrief(params: {
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const tok = resolvePersonaTokens(persona, locale)
 
+    // The customer's persistent memory (personal bits + body patterns that
+    // accumulate across visits). If empty but the customer has transcripts,
+    // bootstrap it once so an existing customer's brief is personal immediately;
+    // thereafter the on-save loop keeps it fresh.
+    let memory = await getCustomerMemory(customerId)
+    if (memory.length === 0 && records.some((r) => r.transcript)) {
+      memory = await backfillMemoryFromTranscripts({
+        customerId,
+        transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
+        locale,
+      })
+    }
+
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
       // invalidated immediately instead of serving the old wording.
-      v: 2,
+      v: 3,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
+      mem: memory.map((m) => m.id),
       bt: orgSettings?.business_type ?? null,
       locale,
     }
@@ -159,7 +187,7 @@ Rules:
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
 - concerns: the concern TRAJECTORY across ALL sessions shown (labelled "Session <date>:", ordered OLDEST→NEWEST, last line = most recent). Surface what PERSISTS / is IMPROVING / is NEWLY raised, most relevant first. Note a direction (継続/改善/悪化/新規) ONLY when two dated sessions actually show it — with one session or no clear trend, just list current standing concerns without asserting direction. Judge only within the sessions shown; never extrapolate.
-- hooks: genuine personal rapport material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
+- hooks: genuine personal rapport material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
 - lastProduct: the most recent product/service offered + the customer's reaction, if present. Null otherwise.
 - recommendedFocus: 1-2 sentences on today's focus, grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.
 - VOCABULARY: use only this ${tok.businessNoun}'s vocabulary (e.g. ${tok.primaryFocus}); do not borrow another industry's terms (e.g. do not say 施術/"treatment" for a gym). If no domain term fits, use the customer's own words.
@@ -174,8 +202,11 @@ ${defensivePreamble(locale)}`
         memo
           ? `Booking memo (the customer's / front-desk's own words):\n${wrapUntrustedContent('reservation_memo', memo)}`
           : 'Booking memo: (none)',
+        memory.length > 0
+          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed hooks, 'body' items inform concerns; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
+          : 'Durable memory: (none yet)',
         records.length > 0
-          ? `Past karute (most recent first):\n${wrapUntrustedContent('karute_history', buildContext(records))}`
+          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records))}`
           : 'Past karute: (none recorded in the system yet)',
       ]
 
