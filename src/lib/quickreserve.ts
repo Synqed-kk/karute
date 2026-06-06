@@ -219,46 +219,11 @@ export async function qrGetCustomerReservationsByCustomerId(
   session: QRSession, storeSlug: string, storeId: number, customerId: number,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
-  const url = `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations-by-customer-id`
-  const headers = qrHeaders(session)
-  // The by-date sibling endpoint is format-finicky (string date, then unix-ms
-  // fallback). This by-customer endpoint was never validated (the deep crawl
-  // that uses it has never run), so try the plausible payload shapes — a
-  // numeric id, a string id, then the data-grid envelope get-customers-server-
-  // side uses — and use whichever the API accepts.
-  const attempts: Array<[string, unknown]> = [
-    ['num', { customer_id: customerId }],
-    ['str', { customer_id: String(customerId) }],
-    [
-      'grid',
-      {
-        filters: [{ field: 'customer_id', operator: 'eq', value: customerId }],
-        pagination: { page: 0, pageSize: 200 },
-        sorts: [],
-      },
-    ],
-  ]
-  const statuses: string[] = []
-  let firstBody = ''
-  for (let i = 0; i < attempts.length; i++) {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify(attempts[i][1]),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      if (Array.isArray(data)) return data
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rows = (data as any)?.rows
-      return Array.isArray(rows) ? rows : []
-    }
-    statuses.push(`${attempts[i][0]}=${res.status}`)
-    if (i === 0) firstBody = await res.text().catch(() => '')
-  }
-  throw new Error(
-    `QR reservations-by-customer ${customerId}: ${statuses.join(' ')} :: ${firstBody.slice(0, 160)}`,
-  )
+  const res = await fetch(`${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations-by-customer-id`,
+    { method: 'POST', headers: qrHeaders(session), body: JSON.stringify({ customer_id: customerId }) })
+  if (!res.ok) throw new Error(`QR reservations-by-customer ${customerId}: ${res.status}`)
+  const data = await res.json()
+  return Array.isArray(data) ? data : []
 }
 
 export async function qrGetCustomersServerSide(

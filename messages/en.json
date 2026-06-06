@@ -609,6 +609,10 @@
       },
       "state": {
         "retry": "Retry",
+        "pending": {
+          "title": "Coming soon",
+          "hint": "Visit + payment history is being wired up — it'll appear here once the data pipeline lands."
+        },
         "empty": {
           "title": "No visit history yet",
           "hint": "Once reservations are recorded in QuickReserve, visit + payment history shows here."

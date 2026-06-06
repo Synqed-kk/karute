@@ -1,26 +1,18 @@
 import 'server-only'
-import { unstable_cache } from 'next/cache'
-import { createServiceClient } from '@/lib/supabase/service'
-import {
-  qrLogin,
-  qrGetCustomersServerSide,
-  qrGetCustomerReservationsByCustomerId,
-  mapVisit,
-} from '@/lib/quickreserve'
 
-// Live QuickReserve visit + payment history for one customer.
+// Customer reservation + payment history — DATA CONTRACT.
 //
-// The deep crawl (api/sync/quickreserve-deep) writes this to synqed
-// `customer_visits`, but the synqed SDK exposes no READ for it — so the app
-// can't surface it. This module reads the same data straight from QuickReserve
-// (the exact calls the crawl uses), so the customer page shows REAL reservation
-// + spend history without waiting on a synqed read endpoint.
+// STATUS: the UI is built and held in a "pending" state. The live path is
+// blocked: QuickReserve's `get-customer-reservations-by-customer-id` endpoint
+// is version-locked (returns 400 "管理画面の新しいバージョンが利用可能です" — the
+// console must be on the current version), and it's the SAME endpoint the deep
+// crawl uses, so that path is blocked too. The durable fix is owned by the
+// sync pipeline (Anthony): backfill via the WORKING `get-reservations-by-date`
+// endpoint into a persistent, readable store, then expose a read.
+// Full plan + this contract: docs/quickreserve-visit-history-spec.md
 //
-// Two cached layers keep QR load sane:
-//  • a name→QR-id index built once per 6h (one paginated sweep, shared by every
-//    customer), and
-//  • the per-customer history itself, cached 30m.
-// Both invalidate on the 'customer-visits' tag.
+// When the read lands, swap the stub in getCustomerVisitHistory for the real
+// fetch and run the raw rows through summarizeVisits() — the UI needs no change.
 
 export type VisitStatus = 'settled' | 'booked' | 'cancelled'
 
@@ -48,16 +40,17 @@ export interface VisitHistorySummary {
   avgIntervalDays: number | null
 }
 
-export type VisitHistoryReason = 'ok' | 'not-configured' | 'not-found' | 'error'
+export type VisitHistoryReason =
+  | 'ok'
+  /** Pipeline not wired yet — the UI shows the held "coming soon" state. */
+  | 'pending'
+  | 'error'
 
 export interface CustomerVisitHistory {
   available: boolean
   reason: VisitHistoryReason
   visits: CustomerVisit[]
   summary: VisitHistorySummary
-  /** TEMP: surfaces the underlying error in the UI while the QR
-   *  reservations-by-customer payload shape is being validated. */
-  debug?: string
 }
 
 const EMPTY_SUMMARY: VisitHistorySummary = {
@@ -70,95 +63,12 @@ const EMPTY_SUMMARY: VisitHistorySummary = {
   avgIntervalDays: null,
 }
 
-function emptyHistory(reason: VisitHistoryReason): CustomerVisitHistory {
-  return { available: reason === 'ok', reason, visits: [], summary: EMPTY_SUMMARY }
-}
-
-interface QrConfig {
-  username: string
-  password: string
-  storeSlug: string
-  storeId: number
-}
-
-async function loadQrConfig(): Promise<QrConfig | null> {
-  const supabase = createServiceClient()
-  const { data: config } = await supabase
-    .from('sync_config')
-    .select('*')
-    .eq('provider', 'quickreserve')
-    .single()
-  if (!config?.username || !config?.password_encrypted) return null
-  return {
-    username: config.username,
-    password: config.password_encrypted,
-    storeSlug: config.base_url || 'la-estro',
-    storeId: config.store_id || 222,
-  }
-}
-
-/** Collapse whitespace + trim so synqed names (synced FROM QR) match QR rows. */
-function normName(name: string): string {
-  return name.replace(/[\s　]+/g, '').trim()
-}
-
-interface QrIndexEntry {
-  id: number
-  membershipId: string | null
-}
-
-// name → candidate QR customers (≥1 when 同姓同名). Built once per 6h.
-const cachedIndex = unstable_cache(
-  async (): Promise<Record<string, QrIndexEntry[]>> => {
-    const config = await loadQrConfig()
-    if (!config) return {}
-    const session = await qrLogin(config.username, config.password)
-    const index: Record<string, QrIndexEntry[]> = {}
-    let total = Infinity
-    for (let page = 0; page < 100; page++) {
-      const { count, rows } = await qrGetCustomersServerSide(
-        session,
-        config.storeSlug,
-        config.storeId,
-        page,
-      )
-      total = count
-      if (rows.length === 0) break
-      for (const row of rows) {
-        if (!row?.name || row.id == null) continue
-        const key = normName(String(row.name))
-        ;(index[key] ??= []).push({
-          id: Number(row.id),
-          membershipId: row.membership_id ? String(row.membership_id) : null,
-        })
-      }
-      if ((page + 1) * 100 >= total) break
-    }
-    return index
-  },
-  ['qr-customer-index-v1'],
-  { revalidate: 21_600, tags: ['customer-visits'] },
-)
-
-function resolveQrId(
-  index: Record<string, QrIndexEntry[]>,
-  name: string,
-  memberNumber: string | null,
-): number | null {
-  const candidates = index[normName(name)]
-  if (!candidates || candidates.length === 0) return null
-  if (candidates.length === 1) return candidates[0].id
-  // 同姓同名 — resolve ONLY on an exact membership-id match. If we can't
-  // confidently disambiguate, refuse (null → not-found state) rather than
-  // risk surfacing the WRONG customer's payment history on this profile.
-  if (memberNumber) {
-    const match = candidates.find((c) => c.membershipId === memberNumber)
-    if (match) return match.id
-  }
-  return null
-}
-
-function aggregate(visits: CustomerVisit[]): VisitHistorySummary {
+/**
+ * Roll raw visits into the summary band the UI renders. Exported so the wiring
+ * (once the backend read exists) can transform raw rows → CustomerVisitHistory
+ * with zero UI change. Visits are expected most-recent-first for display.
+ */
+export function summarizeVisits(visits: CustomerVisit[]): VisitHistorySummary {
   const settled = visits
     .filter((v) => v.status === 'settled')
     .sort((a, b) => a.date.localeCompare(b.date))
@@ -183,65 +93,17 @@ function aggregate(visits: CustomerVisit[]): VisitHistorySummary {
   }
 }
 
-const cachedHistory = unstable_cache(
-  async (
-    name: string,
-    memberNumber: string | null,
-  ): Promise<CustomerVisitHistory> => {
-    const config = await loadQrConfig()
-    if (!config) return emptyHistory('not-configured')
-
-    const index = await cachedIndex()
-    const qrId = resolveQrId(index, name, memberNumber)
-    if (qrId == null) return emptyHistory('not-found')
-
-    const session = await qrLogin(config.username, config.password)
-    const raw = await qrGetCustomerReservationsByCustomerId(
-      session,
-      config.storeSlug,
-      config.storeId,
-      qrId,
-    )
-
-    const visits: CustomerVisit[] = raw
-      .map((r) => {
-        const v = mapVisit(r)
-        return {
-          qrReservationId: v.qr_reservation_id,
-          date: v.used_at,
-          courseName: v.course_name,
-          staffName: v.staff_name,
-          status: v.status as VisitStatus,
-          salesAmount: v.sales_amount,
-          note: v.treatment_comment,
-        }
-      })
-      // Most recent first for the timeline.
-      .sort((a, b) => b.date.localeCompare(a.date))
-
-    return { available: true, reason: 'ok', visits, summary: aggregate(visits) }
-  },
-  ['customer-visit-history-v1'],
-  { revalidate: 1_800, tags: ['customer-visits'] },
-)
-
 /**
- * Real reservation + payment history for a customer, live from QuickReserve.
- * Resilient: returns an empty/reason-tagged result instead of throwing so the
- * UI can render a clean state. `name` + `memberNumber` come from the synqed
- * customer (memberNumber disambiguates 同姓同名).
+ * Returns a customer's visit + payment history.
+ *
+ * HELD: returns `pending` until the backend read lands (see the spec). To go
+ * live, replace the body with the read + `summarizeVisits(visits)`:
+ *   const visits = await <read>(customerId)   // CustomerVisit[]
+ *   return { available: true, reason: 'ok', visits, summary: summarizeVisits(visits) }
  */
 export async function getCustomerVisitHistory(
-  name: string,
-  memberNumber: string | null,
+  _name: string,
+  _memberNumber: string | null,
 ): Promise<CustomerVisitHistory> {
-  try {
-    return await cachedHistory(name, memberNumber)
-  } catch (err) {
-    console.error('[visit-history] fetch failed:', err)
-    return {
-      ...emptyHistory('error'),
-      debug: String(err instanceof Error ? err.message : err).slice(0, 280),
-    }
-  }
+  return { available: false, reason: 'pending', visits: [], summary: EMPTY_SUMMARY }
 }
