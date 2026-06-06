@@ -129,6 +129,23 @@
       "label": "Legend",
       "block": "Owner duties"
     },
+    "month": {
+      "legendLight": "Light",
+      "legendMedium": "Medium",
+      "legendBusy": "Busy"
+    },
+    "weekCard": {
+      "today": "Today",
+      "bookings": " bookings",
+      "utilized": "utilized",
+      "open": "open",
+      "new": "new",
+      "reminder": "reminder",
+      "consent": "consent",
+      "pending": "pending",
+      "empty": "No bookings",
+      "more": "more"
+    },
     "status": {
       "booked": "Booked",
       "in_session": "In session",

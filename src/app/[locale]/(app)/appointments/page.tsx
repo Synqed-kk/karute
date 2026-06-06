@@ -291,6 +291,7 @@ export default async function AppointmentsPage({
       weekRange.weekEnd,
       totalMinutes,
       now,
+      locale,
     )
     weekStartIso = weekRange.weekStart.toISOString()
   } else if (monthRange && monthRangeAppts) {

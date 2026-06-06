@@ -12,7 +12,6 @@ import { partsInJst, ymdInJst } from '@/lib/date/jst'
 // in JST. Going through JST helpers keeps server and client in sync.
 // ---------------------------------------------------------------------------
 
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const VISIBLE_BOOKING_LIMIT = 4
 
 function isoDay(d: Date): string {
@@ -44,7 +43,14 @@ export function appointmentsToWeekData(
   weekEnd: Date,
   businessHoursMinutes: number,
   today: Date,
+  locale: string,
 ): WeekDayCardData[] {
+  // Localized short weekday (日/月… in ja, Sun/Mon… in en). The package's
+  // WeekDayCard renders this verbatim, so it has to be localized at the source.
+  const weekdayFmt = new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    timeZone: 'Asia/Tokyo',
+  })
   // Bucket appointments by ISO day.
   const buckets = new Map<string, Appointment[]>()
   for (const a of appointments) {
@@ -63,7 +69,6 @@ export function appointmentsToWeekData(
     )
 
     const bookedMinutes = dayAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
-    const unconfirmed = dayAppts.filter((a) => a.status === 'CANCELLED').length
 
     const visible = dayAppts.slice(0, VISIBLE_BOOKING_LIMIT).map((a) => ({
       id: a.id,
@@ -75,7 +80,7 @@ export function appointmentsToWeekData(
     days.push({
       dateNumber: cp.day,
       monthNumber: cp.month,
-      weekdayLabel: WEEKDAY_LABELS[cp.weekday],
+      weekdayLabel: weekdayFmt.format(cursor),
       isToday: sameYMD(cursor, today),
       count: dayAppts.length,
       bookedMinutes,
@@ -83,7 +88,10 @@ export function appointmentsToWeekData(
       newCustomerCount: 0,
       remindersPending: 0,
       consentPending: 0,
-      unconfirmed,
+      // synqed appointments have no "unconfirmed/pending" status
+      // (SCHEDULED|IN_PROGRESS|COMPLETED|CANCELLED) — the old code mislabeled
+      // CANCELLED as unconfirmed. Zero until a real pending state exists.
+      unconfirmed: 0,
       visibleBookings: visible,
       hiddenCount: Math.max(0, dayAppts.length - VISIBLE_BOOKING_LIMIT),
     })
