@@ -6,6 +6,33 @@ import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import type { SaveKaruteInput } from '@/types/karute'
+import type { KaruteRecord } from '@synqed-kk/client'
+
+/**
+ * The recent karute records for ONE customer, newest first — read from
+ * synqed-core (the source of truth). The Supabase `karute_records` mirror is
+ * empty post-migration, so the record page's "recent recordings" + first-visit
+ * brief must read here, scoped to the recording-target customer. Best-effort:
+ * returns [] on any failure.
+ */
+export async function getCustomerKaruteRecords(
+  customerId: string,
+  limit = 5,
+): Promise<KaruteRecord[]> {
+  try {
+    const synqed = await getSynqedClient()
+    const res = await synqed.karuteRecords.list({
+      customer_id: customerId,
+      page_size: limit,
+    })
+    const rows = res.karute_records ?? []
+    // Newest first (defensive — don't assume the list endpoint's order).
+    return [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at))
+  } catch (err) {
+    console.error('[getCustomerKaruteRecords] failed:', err)
+    return []
+  }
+}
 
 /**
  * Save a karute record with all AI-extracted entries in a single atomic

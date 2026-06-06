@@ -1,4 +1,3 @@
-import { createClient } from '@/lib/supabase/server'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
@@ -10,6 +9,8 @@ import {
   getAppointmentById,
   type AppointmentRow,
 } from '@/actions/appointments'
+import { getCustomerKaruteRecords } from '@/actions/karute'
+import type { KaruteRecord } from '@synqed-kk/client'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
@@ -48,7 +49,6 @@ export default async function SessionsPage({
   // Set when the user tapped a specific booking on 予約 (→ 新規カルテ / 録音):
   // that booking becomes the recording target instead of the next-booking guess.
   const { appointmentId: requestedAppointmentId } = await searchParams
-  const supabase = await createClient()
 
   const activeStaffId = await getCurrentUserStaffId()
   const staffList = await getStaffList()
@@ -72,23 +72,9 @@ export default async function SessionsPage({
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const [customers, todayAppts, recentRows] = await Promise.all([
+  const [customers, todayAppts] = await Promise.all([
     getCachedCustomerList(),
     getAppointmentsByDate(todayStr),
-    // Recent recordings card still reads Supabase karute_records — empty
-    // post-migration until this page's karute reads are migrated too, so the
-    // card simply renders nothing for now (tracked as follow-up).
-    sb
-      .from('karute_records')
-      .select(
-        `id, client_id, session_date, created_at, summary, transcript, customers:client_id ( name ), entries ( count )`,
-      )
-      .order('session_date', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .limit(5)
-      .then((res: { data: unknown }) => res),
   ])
 
   // Sequential karute number per customer — same deterministic helper + same
@@ -247,31 +233,27 @@ export default async function SessionsPage({
     }
   })
 
-  type RecentRow = {
-    id: string
-    client_id: string | null
-    session_date: string | null
-    created_at: string
-    summary: string | null
-    transcript: string | null
-    customers: { name: string } | null
-    entries: Array<{ count: number }> | null
-  }
+  // THIS customer's karute history from synqed-core (the Supabase mirror is
+  // empty post-migration). Fetched once + reused below for the first-visit
+  // brief. Scoped to the recording TARGET so the "recent recordings" card shows
+  // the selected customer's own sessions, not a salon-wide list.
+  const customerKarute: KaruteRecord[] = nextAppointment?.customerId
+    ? await getCustomerKaruteRecords(nextAppointment.customerId, 5)
+    : []
 
-  const recentRecordings: RecentRecording[] = (
-    ((recentRows as { data: RecentRow[] | null })?.data ?? []) as RecentRow[]
-  ).map((r) => {
-    const dt = new Date(r.session_date ?? r.created_at)
-    const customerName = r.customers?.name ?? 'Unknown'
-    const entryCount = Array.isArray(r.entries) ? (r.entries[0]?.count ?? 0) : 0
+  const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
+  const targetKaruteNumber = nextAppointment?.customerId
+    ? (karuteNumberByClientId.get(nextAppointment.customerId) ?? null)
+    : null
+
+  const recentRecordings: RecentRecording[] = customerKarute.map((r) => {
+    const dt = new Date(r.created_at)
     return {
       id: r.id,
-      customerName,
-      initials: deriveFamilyInitials(customerName),
-      karuteNumber: karuteNumberByClientId.get(r.client_id ?? '') ?? null,
-      // Service '—' instead of literal 'Session' until karute_records
-      // has a real `service` column. Same '施術' bug fixed on the
-      // main karute list.
+      customerName: targetCustomerName,
+      initials: deriveFamilyInitials(targetCustomerName),
+      karuteNumber: targetKaruteNumber,
+      // Service / duration '—' until synqed exposes those fields on the record.
       service: '—',
       date: dt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
         timeZone: 'Asia/Tokyo',
@@ -280,12 +262,9 @@ export default async function SessionsPage({
         day: 'numeric',
       }),
       startTime: hhmm(dt),
-      // Duration label '—' until karute_records has a `duration_minutes`
-      // column. Earlier "0 min 00 sec" rendered on every row as if it
-      // were real data.
       durationLabel: '—',
-      karuteLinked: !!r.summary,
-      entryCount,
+      karuteLinked: !!r.ai_summary,
+      entryCount: r.entry_count ?? 0,
       karuteId: r.id,
     }
   })
@@ -326,9 +305,8 @@ export default async function SessionsPage({
   // appointment_id).
   let brief: PreSessionBrief | null = null
   if (nextAppointment?.customerId) {
-    brief = await buildPreSessionBriefFor(
-      sb,
-      nextAppointment.customerId,
+    brief = buildPreSessionBriefFor(
+      customerKarute,
       nextAppointment.notes,
       now,
       locale,
@@ -362,34 +340,16 @@ export default async function SessionsPage({
 // The shape returned here is the contract — once the job lands, the
 // card lights up with richer text without touching the page.
 // ─────────────────────────────────────────────────────────────
-// Supabase client is intentionally untyped (the rest of the file uses
-// `sb as any` for the same reason — synqed-core's generated types
-// don't cover karute_records yet). Disable two related lint rules
-// just for this signature.
-type SupabaseLike = {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  from(table: string): any
-}
-
-async function buildPreSessionBriefFor(
-  sb: SupabaseLike,
-  customerId: string,
+function buildPreSessionBriefFor(
+  records: KaruteRecord[],
   reservationMemo: string | null,
   now: Date,
   locale: string,
-): Promise<PreSessionBrief | null> {
-  // Last karute record for this customer (the brief's primary source).
-  const { data: lastRows } = await sb
-    .from('karute_records')
-    .select(
-      'id, session_date, created_at, summary, entries ( id, category, content )',
-    )
-    .eq('client_id', customerId)
-    .order('session_date', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-    .limit(1)
-
-  const last = Array.isArray(lastRows) && lastRows.length > 0 ? lastRows[0] : null
+): PreSessionBrief | null {
+  // `records` is the customer's synqed karute history, newest first. FIRST
+  // visit = NO prior record — NOT an empty-Supabase-table read, which used to
+  // flag every returning customer as 新規 (that mirror is empty post-migration).
+  const last = records.length > 0 ? records[0] : null
 
   // FIRST-VISIT FRAMING — no prior karute. Card renders the
   // "初めてのお客様" header + optional reservation memo block.
@@ -407,8 +367,7 @@ async function buildPreSessionBriefFor(
   }
 
   // RETURNING-VISIT FRAMING — derive from the most recent karute.
-  type EntryRow = { id: string; category: string; content: string }
-  const entries: EntryRow[] = Array.isArray(last.entries) ? last.entries : []
+  const entries = last.entries ?? []
 
   // Talking-point hooks = preference + lifestyle entries (the kinds
   // staff want to open with). Cap at 3 so the card stays scannable.
@@ -434,10 +393,10 @@ async function buildPreSessionBriefFor(
   // Recommended focus = first next-visit entry (what the customer
   // said they wanted next time, or what staff flagged for follow-up).
   const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
-  const recommendedFocus = nextEntry?.content ?? last.summary ?? null
+  const recommendedFocus = nextEntry?.content ?? last.ai_summary ?? null
 
   // Format the last visit date + relative "X日前".
-  const lastDt = new Date(last.session_date ?? last.created_at)
+  const lastDt = new Date(last.created_at)
   const lastVisitDate = lastDt.toLocaleDateString(
     locale === 'ja' ? 'ja-JP' : 'en-US',
     { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric' },
