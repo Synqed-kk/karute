@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -106,6 +106,19 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const locale = useLocale()
   const tReservation = useTranslations('reservation')
   const tCommon = useTranslations('common')
+
+  // Mon-first localized weekday headers for MonthGrid (2024-01-01 is a Monday).
+  // Memoized — the 7 Intl.DateTimeFormat + 7 Date allocations only recompute
+  // when the locale changes, not on every render.
+  const monthWeekdayLabels = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, i) =>
+        new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(
+          new Date(Date.UTC(2024, 0, 1 + i)),
+        ),
+      ) as [string, string, string, string, string, string, string],
+    [locale],
+  )
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
     const search = new URLSearchParams()
@@ -391,13 +404,19 @@ export function AppointmentsView(props: AppointmentsViewProps) {
           <div className="md:h-[calc(100vh-260px)]">
             <MonthGrid
               cells={props.monthData}
+              copy={{
+                weekdayLabels: monthWeekdayLabels,
+                legendLight: tReservation('month.legendLight'),
+                legendMedium: tReservation('month.legendMedium'),
+                legendBusy: tReservation('month.legendBusy'),
+              }}
               onPickDay={(date) => navigateTo('day', date)}
               className="h-full"
             />
           </div>
         ) : (
           <div className="rounded-[var(--radius-md)] bg-[var(--color-bg-card)] p-8 text-center text-sm text-[var(--color-text-muted)] ring-1 ring-black/5 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-            No data.
+            {tReservation('empty.noData')}
           </div>
         )}
       </div>
@@ -434,7 +453,29 @@ function WeekGridSection({
   weekStartIso: string
   onPickDay: (date: Date) => void
 }) {
+  const locale = useLocale()
+  const t = useTranslations('reservation.weekCard')
   const weekStart = new Date(weekStartIso)
+  const copy = {
+    todayBadge: t('today'),
+    bookingsCountSuffix: t('bookings'),
+    utilizedLabel: t('utilized'),
+    openLabel: t('open'),
+    newLabel: t('new'),
+    reminderLabel: t('reminder'),
+    consentLabel: t('consent'),
+    pendingLabel: t('pending'),
+    emptyLabel: t('empty'),
+    moreLabel: t('more'),
+  }
+  const formatOpenDuration = (minutes: number) => {
+    const h = Math.floor(minutes / 60)
+    const m = minutes % 60
+    if (locale.startsWith('ja')) {
+      return h > 0 ? (m > 0 ? `${h}時間${m}分` : `${h}時間`) : `${m}分`
+    }
+    return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`
+  }
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
       {data.map((day, i) => {
@@ -444,6 +485,8 @@ function WeekGridSection({
           <WeekDayCard
             key={i}
             data={day}
+            copy={copy}
+            formatOpenDuration={formatOpenDuration}
             onPick={() => onPickDay(date)}
           />
         )

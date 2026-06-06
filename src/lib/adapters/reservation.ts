@@ -12,7 +12,6 @@ import { partsInJst, ymdInJst } from '@/lib/date/jst'
 // in JST. Going through JST helpers keeps server and client in sync.
 // ---------------------------------------------------------------------------
 
-const WEEKDAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const VISIBLE_BOOKING_LIMIT = 4
 
 function isoDay(d: Date): string {
@@ -44,7 +43,17 @@ export function appointmentsToWeekData(
   weekEnd: Date,
   businessHoursMinutes: number,
   today: Date,
+  locale: string,
+  // Client ids flagged new (QR `is_existing_customer === false`) — drives the
+  // per-day "new customer" chip. Empty set = no new-customer highlighting.
+  newCustomerIds: Set<string> = new Set(),
 ): WeekDayCardData[] {
+  // Localized short weekday (日/月… in ja, Sun/Mon… in en). The package's
+  // WeekDayCard renders this verbatim, so it has to be localized at the source.
+  const weekdayFmt = new Intl.DateTimeFormat(locale, {
+    weekday: 'short',
+    timeZone: 'Asia/Tokyo',
+  })
   // Bucket appointments by ISO day.
   const buckets = new Map<string, Appointment[]>()
   for (const a of appointments) {
@@ -63,7 +72,12 @@ export function appointmentsToWeekData(
     )
 
     const bookedMinutes = dayAppts.reduce((sum, a) => sum + durationMinutes(a), 0)
-    const unconfirmed = dayAppts.filter((a) => a.status === 'CANCELLED').length
+    // Capacity = open hours × the staff who actually worked that day (≥1), so
+    // utilization is salon-wide and can't read >100% the way a single-chair
+    // denominator did (a 6-staff day was showing "117% utilized"). Approximation:
+    // a working staffer is treated as open the full business hours — refine when
+    // per-staff schedules exist.
+    const staffOnDay = new Set(dayAppts.map((a) => a.staff_id)).size
 
     const visible = dayAppts.slice(0, VISIBLE_BOOKING_LIMIT).map((a) => ({
       id: a.id,
@@ -75,15 +89,19 @@ export function appointmentsToWeekData(
     days.push({
       dateNumber: cp.day,
       monthNumber: cp.month,
-      weekdayLabel: WEEKDAY_LABELS[cp.weekday],
+      weekdayLabel: weekdayFmt.format(cursor),
       isToday: sameYMD(cursor, today),
       count: dayAppts.length,
       bookedMinutes,
-      availableMinutes: businessHoursMinutes,
-      newCustomerCount: 0,
+      availableMinutes: businessHoursMinutes * Math.max(1, staffOnDay),
+      newCustomerCount: dayAppts.filter((a) => newCustomerIds.has(a.customer_id))
+        .length,
       remindersPending: 0,
       consentPending: 0,
-      unconfirmed,
+      // synqed appointments have no "unconfirmed/pending" status
+      // (SCHEDULED|IN_PROGRESS|COMPLETED|CANCELLED) — the old code mislabeled
+      // CANCELLED as unconfirmed. Zero until a real pending state exists.
+      unconfirmed: 0,
       visibleBookings: visible,
       hiddenCount: Math.max(0, dayAppts.length - VISIBLE_BOOKING_LIMIT),
     })
