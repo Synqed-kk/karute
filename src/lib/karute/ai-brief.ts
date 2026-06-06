@@ -15,26 +15,33 @@ import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSes
 
 // The AI generates these fields; the dates / memo / first-visit flag are computed
 // mechanically and merged in. zodResponseFormat enforces the shape on the model.
+// IMPORTANT: these .describe() strings ship to the model via zodResponseFormat,
+// so they MUST stay aligned with the system-prompt Rules block below — if they
+// drift, the schema description silently overrides the rules.
 const AiBriefSchema = z.object({
   memoAnalysis: z
     .array(z.string())
     .describe(
-      'Bullets analysing the booking memo — the signals/concerns (兆候), expectations (期待), tone (トーン), and points to watch before treatment (注意点). Empty array if there is no memo.',
+      "The AI's READ of the booking memo — NOT a restatement (staff already see the raw memo directly above this). Surface only what a quick skim misses: (a) cautions for today (注意点), ESPECIALLY by cross-referencing a stated symptom against a requested treatment; (b) changes/contradictions — a symptom they stopped or started mentioning, or a want-vs-need mismatch; (c) expectation + communication tone (期待/トーン) ONLY if it changes how staff should act. Each bullet must add insight, never paraphrase. Max 3. Empty array if there is no memo OR the memo is purely operational (e.g. ticket renewal).",
     ),
   hooks: z
     .array(z.object({ title: z.string(), body: z.string().nullable() }))
-    .describe('Warm conversation openers from personal details the customer mentioned (pets/family/hobbies/events). Empty if none — never invent.'),
+    .describe(
+      'Genuine personal rapport openers ONLY (pets/family/hobbies/travel/life events). Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks — exclude them. A family word alone is not a hook (only when it is about that person’s life/event). Empty if no real small-talk material; never fabricate.',
+    ),
   concerns: z
     .array(z.string())
-    .describe("Carried-over concerns from past sessions, most relevant first, in the business's vocabulary. Empty if none."),
+    .describe(
+      "Concern TRAJECTORY across ALL provided sessions (labelled 'Session <date>:', ordered OLDEST→NEWEST, last line = most recent), most relevant first, in the business's vocabulary: what persists / is improving / is newly raised. Note a direction (継続/改善/悪化/新規) ONLY when two dated sessions actually show it — never infer direction from a single session or summary. With only one session, just carry unresolved concerns forward. Judge only within the sessions shown. Empty if none.",
+    ),
   lastProduct: z
     .object({ name: z.string(), reaction: z.string().nullable() })
     .nullable()
-    .describe('The last product/service offered + the customer reaction, if any. Null if none.'),
+    .describe('The most recent product/service offered + the customer reaction, if any. Null if none.'),
   recommendedFocus: z
     .string()
     .nullable()
-    .describe('1-2 sentences: what to focus on today, grounded in the history + memo. Null if nothing to suggest.'),
+    .describe('1-2 sentences: today’s focus, grounded in the concern trajectory + memo, in the business vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.'),
 })
 
 type AiBrief = z.infer<typeof AiBriefSchema>
@@ -54,14 +61,17 @@ function formatLastVisit(iso: string, locale: string, now: Date): { date: string
 // Build the karute context the model reads — most-recent record's entries (the
 // only one fetched with include_entries) + summaries of the rest.
 function buildContext(records: KaruteRecord[]): string {
-  return records
-    .map((r, i) => {
+  // Oldest → newest so the model reads the timeline chronologically and the
+  // "direction" instruction can't invert. Entries attach to whichever record
+  // carries them (getCustomerKaruteRecords fetches entries for the most recent).
+  return [...records]
+    .reverse()
+    .map((r) => {
       const when = r.created_at?.slice(0, 10) ?? ''
       const summary = r.ai_summary ?? '(no summary)'
-      const entries =
-        i === 0 && r.entries?.length
-          ? '\n' + r.entries.map((e) => `  [${String(e.category)}] ${e.content}`).join('\n')
-          : ''
+      const entries = r.entries?.length
+        ? '\n' + r.entries.map((e) => `  [${String(e.category)}] ${e.content}`).join('\n')
+        : ''
       return `Session ${when}: ${summary}${entries}`
     })
     .join('\n\n')
@@ -138,12 +148,18 @@ export async function getAiPreSessionBrief(params: {
 Before a session you read the customer's booking memo and their past karute (session records), and produce a brief the ${tok.role} can skim in 30 seconds.
 
 Rules:
-- Extract ONLY what is grounded in the provided data. NEVER invent facts.
-- memoAnalysis: read the booking memo and surface the customer's signals/concerns (兆候), expectations (期待), tone (トーン), and any points to watch before treatment (注意点). Concise bullets. Empty array if there is no memo.
-- concerns: carry-over concerns from past sessions, most relevant first. Use this business's vocabulary.
-- hooks: warm openers from personal details (pets/family/hobbies/recent events). Empty if none — do NOT fabricate small talk.
-- lastProduct: the last product/service offered + reaction, if present. Null otherwise.
-- recommendedFocus: 1-2 sentences on what to focus on today, grounded in the history + memo.
+- GROUNDING: every item must be backed by the memo or the karute. NEVER invent. An empty array / null is the CORRECT answer when there is nothing real — a fabricated item is harmful.
+- NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses.
+- memoAnalysis: the ${tok.role}'s READ of the memo — include only the applicable of these, never forced to fill all:
+    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated symptom against a requested treatment and flag a risk/adjustment (e.g. memo has 胃の不調 + 内臓調整希望 → "内臓調整は強度を弱めから様子を見る"). This is the highest-value bullet — produce it whenever two memo facts interact.
+    (b) change/contradiction — a symptom newly raised, dropped, or resurfacing vs the karute, or a want-vs-chief-complaint mismatch.
+    (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
+  Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
+- concerns: the concern TRAJECTORY across ALL sessions shown (labelled "Session <date>:", ordered OLDEST→NEWEST, last line = most recent). Surface what PERSISTS / is IMPROVING / is NEWLY raised, most relevant first. Note a direction (継続/改善/悪化/新規) ONLY when two dated sessions actually show it — with one session or no clear trend, just list current standing concerns without asserting direction. Judge only within the sessions shown; never extrapolate.
+- hooks: genuine personal rapport material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
+- lastProduct: the most recent product/service offered + the customer's reaction, if present. Null otherwise.
+- recommendedFocus: 1-2 sentences on today's focus, grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.
+- VOCABULARY: use only this ${tok.businessNoun}'s vocabulary (e.g. ${tok.primaryFocus}); do not borrow another industry's terms (e.g. do not say 施術/"treatment" for a gym). If no domain term fits, use the customer's own words.
 ${tok.typicalConcerns ? `Common concerns at this kind of business: ${tok.typicalConcerns}.` : ''}
 ${clinicalGuardrail(tok.clinicalPosture, locale)}
 ${langInstruction}
