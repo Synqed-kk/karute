@@ -8,6 +8,7 @@ export type SessionCategory =
   | 'treatment'
   | 'concern'
   | 'condition'
+  | 'lifestyle'
   | 'product'
   | 'next'
 
@@ -30,6 +31,9 @@ const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
   treatment: { bg: 'rgba(34, 197, 94, 0.18)', text: '#16a34a' },
   concern: { bg: 'rgba(245, 158, 11, 0.18)', text: '#b45309' },
   condition: { bg: 'rgba(139, 92, 246, 0.18)', text: '#7c3aed' },
+  // Personal / life context (pets, family, hobbies, routine) — a warm teal, set
+  // apart from the clinical 状態 so rapport material reads as rapport.
+  lifestyle: { bg: 'rgba(20, 184, 166, 0.18)', text: '#0d9488' },
   product: { bg: 'rgba(59, 130, 246, 0.18)', text: '#2563eb' },
   next: { bg: 'rgba(236, 72, 153, 0.18)', text: '#be185d' },
 }
@@ -41,6 +45,7 @@ const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
 const CATEGORY_ORDER: SessionCategory[] = [
   'concern',
   'condition',
+  'lifestyle',
   'treatment',
   'product',
   'next',
