@@ -128,7 +128,9 @@ const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
   symptom: 'concern',
   concern: 'concern',
   body_area: 'condition',
-  lifestyle: 'condition',
+  // Personal / life facts (pets, family, routine) get their OWN group — they are
+  // NOT a body 状態. This is what surfaces "犬を飼い始めた" as rapport, not a condition.
+  lifestyle: 'lifestyle',
   treatment: 'treatment',
   product: 'product',
   preference: 'product',
