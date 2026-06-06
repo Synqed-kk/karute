@@ -239,8 +239,10 @@ export default async function SessionsPage({
   // empty post-migration). Fetched once + reused below for the first-visit
   // brief. Scoped to the recording TARGET so the "recent recordings" card shows
   // the selected customer's own sessions, not a salon-wide list.
+  // Fetch up to 10 so the pre-session brief can read the customer's full arc
+  // (trajectory across sessions); the "recent recordings" card below slices 5.
   const customerKarute: KaruteRecord[] = nextAppointment?.customerId
-    ? await getCustomerKaruteRecords(nextAppointment.customerId, 5)
+    ? await getCustomerKaruteRecords(nextAppointment.customerId, 10)
     : []
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
@@ -255,7 +257,7 @@ export default async function SessionsPage({
     : null
   const targetVisitCount = targetCustomer?.visit_count ?? 0
 
-  const recentRecordings: RecentRecording[] = customerKarute.map((r) => {
+  const recentRecordings: RecentRecording[] = customerKarute.slice(0, 5).map((r) => {
     const dt = new Date(r.created_at)
     return {
       id: r.id,
