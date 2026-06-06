@@ -61,34 +61,45 @@ export async function enrichCustomers(
   // the list badged them 新規 while the profile said 継続中. (Appointments alone
   // already exceed 200, so the cap was provably hit.) Bounded by MAX_PAGES as a
   // runaway guard (25 × 200 = 5,000 rows/tenant).
+  // One paginator for all three lists. Loops until a short page; if it ever hits
+  // MAX_PAGES it WARNS instead of silently truncating (so a future giant tenant
+  // surfaces the limit rather than quietly undercounting again — the very bug
+  // this function is fixing). Staff is paginated too: an unpaginated 200-cap
+  // there would leave profileByStaffId incomplete and mis-map staff names.
   const PAGE_SIZE = 200
-  const MAX_PAGES = 25
-  const fetchAllKarute = async () => {
-    const out: Awaited<
-      ReturnType<typeof synqed.karuteRecords.list>
-    >['karute_records'] = []
+  const MAX_PAGES = 25 // safety guard: 25 × 200 = 5,000 rows/tenant
+  async function fetchAllPages<T>(
+    label: string,
+    pick: (res: unknown) => T[],
+    fetchPage: (page: number) => Promise<unknown>,
+  ): Promise<T[]> {
+    const out: T[] = []
     for (let page = 1; page <= MAX_PAGES; page++) {
-      const res = await synqed.karuteRecords.list({ page, page_size: PAGE_SIZE })
-      out.push(...res.karute_records)
-      if (res.karute_records.length < PAGE_SIZE) break
+      const batch = pick(await fetchPage(page))
+      out.push(...batch)
+      if (batch.length < PAGE_SIZE) return out
     }
+    console.warn(
+      `[enrichCustomers] ${label}: hit MAX_PAGES (${MAX_PAGES}) — results may be truncated for a very large tenant; raise the cap or add a server-side filter.`,
+    )
     return out
   }
-  const fetchAllAppts = async () => {
-    const out: Awaited<
-      ReturnType<typeof synqed.appointments.list>
-    >['appointments'] = []
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const res = await synqed.appointments.list({ page, page_size: PAGE_SIZE })
-      out.push(...res.appointments)
-      if (res.appointments.length < PAGE_SIZE) break
-    }
-    return out
-  }
-  const [karuteRecordsAll, appointmentsAll, staffRes] = await Promise.all([
-    fetchAllKarute(),
-    fetchAllAppts(),
-    synqed.staff.list({ page_size: 200 }),
+  const [karuteRecordsAll, appointmentsAll, staffAll] = await Promise.all([
+    fetchAllPages(
+      'karute',
+      (r) => (r as Awaited<ReturnType<typeof synqed.karuteRecords.list>>).karute_records,
+      (page) => synqed.karuteRecords.list({ page, page_size: PAGE_SIZE }),
+    ),
+    fetchAllPages(
+      'appointments',
+      (r) => (r as Awaited<ReturnType<typeof synqed.appointments.list>>).appointments,
+      (page) => synqed.appointments.list({ page, page_size: PAGE_SIZE }),
+    ),
+    fetchAllPages(
+      'staff',
+      (r) => (r as Awaited<ReturnType<typeof synqed.staff.list>>).staff,
+      (page) => synqed.staff.list({ page, page_size: PAGE_SIZE }),
+    ),
   ])
 
   // synqed staff id → profile id (= staff.user_id). Appointments are keyed by
@@ -96,7 +107,7 @@ export async function enrichCustomers(
   // so translate at the boundary (mirrors getAppointmentsByDate). Profile-less
   // synqed staff fall back to their synqed id — same as getStaffList ids them.
   const profileByStaffId = new Map(
-    staffRes.staff
+    staffAll
       .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
       .map((s) => [s.id, s.user_id]),
   )
