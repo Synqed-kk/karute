@@ -28,11 +28,13 @@ export function RegenerateEntriesButton({
   const [confirming, setConfirming] = useState(false)
   const [running, setRunning] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [warning, setWarning] = useState<string | null>(null)
 
   const run = async () => {
     setConfirming(false)
     setRunning(true)
     setError(null)
+    setWarning(null)
     try {
       // Re-extract on the stored transcript via the same authed route the
       // recording flow uses (server-side it applies the business persona + the
@@ -50,6 +52,9 @@ export function RegenerateEntriesButton({
       const result = await regenerateKaruteEntries(karuteRecordId, entries)
       if (result.error) throw new Error(result.error)
 
+      // Soft caveat — the entries WERE replaced, but some old rows lingered.
+      // Surface it (non-blocking) so staff know a re-run finishes cleanup.
+      if (result.warning) setWarning(result.warning)
       router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'error')
@@ -91,6 +96,9 @@ export function RegenerateEntriesButton({
   return (
     <span className="inline-flex items-center gap-2">
       {error && <span className="text-[11px] text-red-500">{t('error')}</span>}
+      {!error && warning && (
+        <span className="text-[11px] text-amber-600">{t('warning')}</span>
+      )}
       <button
         type="button"
         onClick={() => setConfirming(true)}
