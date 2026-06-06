@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Check, Clock, X } from 'lucide-react'
 import {
@@ -52,6 +52,16 @@ export function PostSessionResolutionDialog({
   const [status, setStatus] = useState<Outcome | null>(null)
   const [reason, setReason] = useState<DeclineReason>('considering')
 
+  // The dialog stays mounted (parent toggles `open`), so a cancelled pick would
+  // otherwise survive into the next open and submit a stale outcome. Reset the
+  // selection each time it opens.
+  useEffect(() => {
+    if (open) {
+      setStatus(null)
+      setReason('considering')
+    }
+  }, [open])
+
   if (!open) return null
 
   const ICON: Record<Outcome, React.ReactNode> = {
@@ -75,6 +85,7 @@ export function PostSessionResolutionDialog({
         type="button"
         aria-label={t('cancel')}
         onClick={onCancel}
+        disabled={saving}
         className="absolute inset-0 bg-black/40"
       />
       <div className="relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl md:p-6">
