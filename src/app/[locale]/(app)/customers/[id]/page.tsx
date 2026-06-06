@@ -116,7 +116,13 @@ export default async function CustomerProfilePage({
 
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
-  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer, customer.visit_count ?? 0)
+  // Returning signal = the MAX of QR visit_count AND the actual karute history.
+  // A customer can have many recorded sessions but visit_count 0 (hand-added, or
+  // QR never synced the count) — ぴあそん has 11 karute but visit_count 0, so
+  // passing visit_count alone wrongly flagged her 新規. The list page already
+  // uses the karute count; this aligns the profile with it.
+  const priorVisits = Math.max(customer.visit_count ?? 0, karuteRecords.length)
+  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer, priorVisits)
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
