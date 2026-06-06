@@ -76,7 +76,7 @@ export default async function CustomersPage({
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
     const lastVisitIso = enriched?.lastVisitIso ?? null
-    const status = deriveStatus(c.created_at, lastVisitIso, c.is_existing_customer)
+    const status = deriveStatus(c.created_at, lastVisitIso, c.is_existing_customer, enriched?.totalKarute ?? 0)
     const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
     const totalKarute = enriched?.totalKarute ?? 0
     return {
