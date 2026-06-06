@@ -323,6 +323,16 @@
     "outcome": {
       "title": "Result — {name}",
       "titleFirst": "First session result — {name}",
+      "cardTitle": "Session outcome",
+      "edit": "Change",
+      "record": "Record outcome",
+      "autoNote": "Auto-decided after 14 days",
+      "chip": {
+        "success": "Converted",
+        "no_deal": "No deal",
+        "pending": "Provisional",
+        "none": "Not set"
+      },
       "subtitle": "Record whether this session converted, together with saving the recording.",
       "subtitleHint": "One tap updates your close rate, the AI's learning, and the customer ledger.",
       "success": {

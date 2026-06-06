@@ -323,6 +323,16 @@
     "outcome": {
       "title": "結果 — {name}様",
       "titleFirst": "初回セッションの結果 — {name}様",
+      "cardTitle": "セッションの結果",
+      "edit": "結果を変更",
+      "record": "結果を記録",
+      "autoNote": "14日経過で自動判定",
+      "chip": {
+        "success": "成約",
+        "no_deal": "不成約",
+        "pending": "仮カルテ",
+        "none": "結果 未記録"
+      },
       "subtitle": "録音の保存と合わせて、成約の可否を記録します。",
       "subtitleHint": "この1タップで、成約率の計算・AIの学習・顧客台帳の整理がすべて反映されます。",
       "success": {

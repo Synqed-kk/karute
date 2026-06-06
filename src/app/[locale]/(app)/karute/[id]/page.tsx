@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 
 import { getKaruteRecord } from '@/lib/supabase/karute'
+import { getKaruteOutcome } from '@/lib/karute/outcome'
 import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
 import {
   PhotoRecordsServer,
@@ -34,9 +35,10 @@ export default async function KaruteDetailPage({
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
   const synqed = await getSynqedClient()
-  const [karute, allCustomers] = await Promise.all([
+  const [karute, allCustomers, outcome] = await Promise.all([
     getKaruteRecord(id),
     synqed.customers.list({ page_size: 500 }),
+    getKaruteOutcome(id),
   ])
   if (!karute) notFound()
 
@@ -96,6 +98,7 @@ export default async function KaruteDetailPage({
     <KaruteDetailView
       karuteId={id}
       customerId={customerId}
+      outcome={outcome}
       header={{
         customerName: header.customerName,
         initials: header.customerInitials,

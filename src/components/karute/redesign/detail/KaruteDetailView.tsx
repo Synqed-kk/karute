@@ -23,6 +23,8 @@ import {
   type SuggestedMessage,
 } from './AISuggestedMessageCard'
 import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
+import { OutcomeCard } from './OutcomeCard'
+import type { KaruteOutcomeRow } from '@/lib/karute/outcome'
 import {
   AIBodyPredictionPreview,
   AIOutreachPreview,
@@ -44,6 +46,7 @@ export interface KaruteDetailViewProps {
   memory: CustomerMemorySnapshot | null
   bodyPrediction: BodyPrediction | null
   suggestedMessage: SuggestedMessage | null
+  outcome: KaruteOutcomeRow | null
 }
 
 export function KaruteDetailView({
@@ -60,6 +63,7 @@ export function KaruteDetailView({
   memory,
   bodyPrediction,
   suggestedMessage,
+  outcome,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -72,6 +76,22 @@ export function KaruteDetailView({
       />
 
       <CustomerHeaderCard {...header} />
+
+      <OutcomeCard
+        karuteRecordId={karuteId}
+        customerId={customerId}
+        customerName={header.customerName}
+        current={
+          outcome
+            ? {
+                outcome: outcome.outcome,
+                reason: outcome.reason,
+                autoDecided: outcome.auto_decided,
+                isFirstVisit: outcome.is_first_visit,
+              }
+            : null
+        }
+      />
 
       <CustomerMemoryCard memory={memory} />
 
