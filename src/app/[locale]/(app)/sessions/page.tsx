@@ -10,6 +10,8 @@ import {
   type AppointmentRow,
 } from '@/actions/appointments'
 import { getCustomerKaruteRecords } from '@/actions/karute'
+import { getCustomer } from '@/lib/customers/queries'
+import { getAiPreSessionBrief } from '@/lib/karute/ai-brief'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
@@ -246,6 +248,13 @@ export default async function SessionsPage({
     ? (karuteNumberByClientId.get(nextAppointment.customerId) ?? null)
     : null
 
+  // The target customer's visit_count (from QuickReserve) — so a returning
+  // customer with a package (e.g. 50回券) but 0 synqed karute is NOT flagged 新規.
+  const targetCustomer = nextAppointment?.customerId
+    ? await getCustomer(nextAppointment.customerId).catch(() => null)
+    : null
+  const targetVisitCount = targetCustomer?.visit_count ?? 0
+
   const recentRecordings: RecentRecording[] = customerKarute.map((r) => {
     const dt = new Date(r.created_at)
     return {
@@ -303,14 +312,31 @@ export default async function SessionsPage({
   // generated from CustomerMemory items, AI-summarized concerns,
   // AI-recommended focus). Cache for 24h keyed by (customer_id,
   // appointment_id).
+  // AI pre-session brief — reads the booking memo + past karute + the business-
+  // type persona and synthesises the staff-skimmable brief (memo analysis 兆候/
+  // 期待/トーン/注意点 + concerns + hooks + focus), business-type-aware. Falls back
+  // to the mechanical derivation if the AI call fails or has nothing to work with
+  // — never blocks the page. Both paths get targetVisitCount so a returning
+  // customer with no synqed karute isn't flagged 新規.
   let brief: PreSessionBrief | null = null
   if (nextAppointment?.customerId) {
-    brief = buildPreSessionBriefFor(
-      customerKarute,
-      nextAppointment.notes,
-      now,
-      locale,
-    )
+    brief =
+      (await getAiPreSessionBrief({
+        customerId: nextAppointment.customerId,
+        customerName: targetCustomerName,
+        visitCount: targetVisitCount,
+        records: customerKarute,
+        reservationMemo: nextAppointment.notes,
+        locale,
+        now,
+      })) ??
+      buildPreSessionBriefFor(
+        customerKarute,
+        nextAppointment.notes,
+        now,
+        locale,
+        targetVisitCount,
+      )
   }
 
   return (
@@ -345,17 +371,19 @@ function buildPreSessionBriefFor(
   reservationMemo: string | null,
   now: Date,
   locale: string,
+  // QuickReserve visit_count. A returning customer (e.g. a 50回券 holder) can
+  // have prior visits but 0 synqed karute yet — they must NOT be flagged 新規.
+  priorVisitCount = 0,
 ): PreSessionBrief | null {
-  // `records` is the customer's synqed karute history, newest first. FIRST
-  // visit = NO prior record — NOT an empty-Supabase-table read, which used to
-  // flag every returning customer as 新規 (that mirror is empty post-migration).
+  // `records` is the customer's synqed karute history, newest first.
   const last = records.length > 0 ? records[0] : null
 
-  // FIRST-VISIT FRAMING — no prior karute. Card renders the
-  // "初めてのお客様" header + optional reservation memo block.
+  // NO PRIOR KARUTE — but only TRULY first-visit if there are also no prior
+  // visits anywhere (visit_count). Returning-but-unrecorded customers fall here
+  // too: not 新規, no recap to show, just the booking memo (+ AI memo analysis).
   if (!last) {
     return {
-      isFirstTimeVisit: true,
+      isFirstTimeVisit: priorVisitCount <= 0,
       lastVisitDate: '',
       lastVisitAgo: '',
       hooks: [],

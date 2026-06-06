@@ -402,6 +402,7 @@
       "lastProduct": "Last product offered",
       "recommendedFocus": "Recommended focus today",
       "reservationMemo": "Booking note",
+      "memoAnalysisLabel": "AI pre-read",
       "firstTimeHeader": "First-time customer",
       "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
       "empty": "Pre-session brief unavailable — AI will generate one after the first karute.",
