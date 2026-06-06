@@ -6,6 +6,7 @@ import {
   type PipelineResult,
 } from '@/lib/ai-pipeline'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
  * Global AI-pipeline singleton — the background counterpart to globalRecorder.
@@ -35,6 +36,9 @@ export interface PipelineContext {
   appointmentId?: string
   /** Customer carried from the booking so review pre-fills attribution. */
   appointmentCustomerId?: string
+  /** Outcome chosen at stop (the coaching label) — carried to the save so the
+   *  staff decides once, up front, and never re-opens a dialog at the end. */
+  outcome?: SessionOutcome
 }
 
 export type PipelineState = 'idle' | 'processing' | 'review' | 'error'

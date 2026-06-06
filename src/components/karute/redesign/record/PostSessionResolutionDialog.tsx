@@ -67,7 +67,7 @@ export function PostSessionResolutionDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
     >
@@ -77,9 +77,7 @@ export function PostSessionResolutionDialog({
         onClick={onCancel}
         className="absolute inset-0 bg-black/40"
       />
-      <div className="relative max-h-[92vh] w-full max-w-md overflow-y-auto rounded-t-2xl border border-border bg-card p-5 shadow-xl sm:rounded-2xl md:p-6">
-        <div className="mx-auto mb-3 h-1 w-10 rounded-full bg-muted sm:hidden" />
-
+      <div className="relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl md:p-6">
         <header className="mb-1 flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-foreground">
             {t(isFirstVisit ? 'titleFirst' : 'title', { name: customerName })}

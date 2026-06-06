@@ -11,7 +11,6 @@ import { EntryCard } from './EntryCard'
 import { ReviewHeader } from './ReviewHeader'
 import { saveKaruteRecord } from '@/actions/karute'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
-import { PostSessionResolutionDialog } from '@/components/karute/redesign/record/PostSessionResolutionDialog'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 const ReviewFormSchema = z.object({
@@ -29,6 +28,9 @@ interface ReviewScreenProps {
   duration?: number
   appointmentId?: string
   appointmentCustomerId?: string
+  /** Outcome chosen at stop (RecordPageView) — applied directly at save, so no
+   *  dialog re-opens here. */
+  outcome?: SessionOutcome
   onSaved: () => void
   /** Bail out without saving — clears the background pipeline + take. */
   onDiscard?: () => void
@@ -42,6 +44,7 @@ export function ReviewScreen({
   duration,
   appointmentId,
   appointmentCustomerId,
+  outcome,
   onSaved,
   onDiscard,
 }: ReviewScreenProps) {
@@ -53,10 +56,6 @@ export function ReviewScreen({
   )
   const [suggestions, setSuggestions] = useState<{ text: string; type: string }[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
-  // Outcome (the coaching label) is captured AFTER the form validates: the save
-  // button opens the dialog, the dialog's choice runs the real save.
-  const [outcomeOpen, setOutcomeOpen] = useState(false)
-  const [pendingData, setPendingData] = useState<ReviewFormValues | null>(null)
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
@@ -102,17 +101,9 @@ export function ReviewScreen({
     })
   }
 
-  // Validate the form, then open the outcome dialog (don't save yet).
-  function openOutcome(data: ReviewFormValues) {
-    if (!appointmentCustomerId && !selectedCustomerId) {
-      toast.error(t('selectCustomer'))
-      return
-    }
-    setPendingData(data)
-    setOutcomeOpen(true)
-  }
-
-  async function handleSave(data: ReviewFormValues, outcome?: SessionOutcome) {
+  // Outcome is captured upstream (at stop, in RecordPageView) and arrives via
+  // the `outcome` prop — applied directly here, no dialog.
+  async function handleSave(data: ReviewFormValues) {
     if (!appointmentCustomerId && !selectedCustomerId) {
       toast.error(t('selectCustomer'))
       return
@@ -289,7 +280,7 @@ export function ReviewScreen({
           )}
           <button
             type="button"
-            onClick={handleSubmit(openOutcome)}
+            onClick={handleSubmit(handleSave)}
             disabled={saving || (!appointmentCustomerId && !selectedCustomerId)}
             className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
@@ -297,20 +288,6 @@ export function ReviewScreen({
           </button>
         </div>
       </div>
-
-      {/* Outcome capture (the coaching label) — opened by the save button,
-          its choice runs the real save with the chosen outcome. */}
-      <PostSessionResolutionDialog
-        open={outcomeOpen}
-        customerName={customerName ?? ''}
-        isFirstVisit={false}
-        saving={saving}
-        onCancel={() => setOutcomeOpen(false)}
-        onResolve={(outcome) => {
-          setOutcomeOpen(false)
-          if (pendingData) void handleSave(pendingData, outcome)
-        }}
-      />
     </div>
   )
 }
