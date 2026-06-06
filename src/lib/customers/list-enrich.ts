@@ -54,9 +54,40 @@ export async function enrichCustomers(
   const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
 
   const idSet = new Set(customerIds)
-  const [karuteRes, apptRes, staffRes] = await Promise.all([
-    synqed.karuteRecords.list({ page_size: 200 }),
-    synqed.appointments.list({ page_size: 200 }),
+  // Paginate karute + appointments FULLY. synqed caps page_size at 200, so a
+  // single call undercounts any customer whose records fall outside the first
+  // page — the ROOT CAUSE of the list-vs-profile badge divergence: the list saw
+  // 0 karute for a customer the profile's per-customer read counts correctly, so
+  // the list badged them 新規 while the profile said 継続中. (Appointments alone
+  // already exceed 200, so the cap was provably hit.) Bounded by MAX_PAGES as a
+  // runaway guard (25 × 200 = 5,000 rows/tenant).
+  const PAGE_SIZE = 200
+  const MAX_PAGES = 25
+  const fetchAllKarute = async () => {
+    const out: Awaited<
+      ReturnType<typeof synqed.karuteRecords.list>
+    >['karute_records'] = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const res = await synqed.karuteRecords.list({ page, page_size: PAGE_SIZE })
+      out.push(...res.karute_records)
+      if (res.karute_records.length < PAGE_SIZE) break
+    }
+    return out
+  }
+  const fetchAllAppts = async () => {
+    const out: Awaited<
+      ReturnType<typeof synqed.appointments.list>
+    >['appointments'] = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      const res = await synqed.appointments.list({ page, page_size: PAGE_SIZE })
+      out.push(...res.appointments)
+      if (res.appointments.length < PAGE_SIZE) break
+    }
+    return out
+  }
+  const [karuteRecordsAll, appointmentsAll, staffRes] = await Promise.all([
+    fetchAllKarute(),
+    fetchAllAppts(),
     synqed.staff.list({ page_size: 200 }),
   ])
 
@@ -74,7 +105,7 @@ export async function enrichCustomers(
   type ApptRow = { client_id: string; start_time: string; title: string | null; staff_id: string | null }
 
   const karuteByClient = new Map<string, KaruteRow[]>()
-  for (const r of karuteRes.karute_records) {
+  for (const r of karuteRecordsAll) {
     if (!r.customer_id || !idSet.has(r.customer_id)) continue
     const arr = karuteByClient.get(r.customer_id) ?? []
     arr.push({ client_id: r.customer_id, session_date: r.created_at, created_at: r.created_at })
@@ -82,7 +113,7 @@ export async function enrichCustomers(
   }
 
   const apptByClient = new Map<string, ApptRow[]>()
-  for (const a of apptRes.appointments) {
+  for (const a of appointmentsAll) {
     if (!a.customer_id || !idSet.has(a.customer_id)) continue
     const arr = apptByClient.get(a.customer_id) ?? []
     arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null, staff_id: a.staff_id ?? null })
