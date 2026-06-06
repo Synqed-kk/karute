@@ -578,6 +578,7 @@
         "sessions": "セッション履歴",
         "photos": "写真",
         "privacy": "プライバシー",
+        "bookings": "予約履歴",
         "aria": "プロフィールタブ"
       },
       "lastVisitPrefix": "前回",
@@ -592,6 +593,51 @@
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
+    },
+    "bookings": {
+      "summaryTitle": "来店サマリー",
+      "historyTitle": "来店履歴",
+      "source": "QuickReserve",
+      "count": "{n}件",
+      "visitsValue": "{n}回",
+      "cadenceValue": "約{n}日ごと",
+      "firstVisit": "初回",
+      "lastVisit": "最終",
+      "cancelledCount": "キャンセル {n}回",
+      "stat": {
+        "visits": "来店回数",
+        "total": "累計",
+        "avg": "平均単価",
+        "cadence": "来店ペース"
+      },
+      "status": {
+        "settled": "来店",
+        "booked": "予約",
+        "cancelled": "キャンセル"
+      },
+      "state": {
+        "retry": "再読み込み",
+        "pending": {
+          "title": "準備中",
+          "hint": "来店・支払い履歴の連携を準備中です。データが揃いしだい、ここに表示されます。"
+        },
+        "empty": {
+          "title": "来店履歴はまだありません",
+          "hint": "QuickReserveで予約が記録されると、来店と支払いの履歴がここに表示されます。"
+        },
+        "not-configured": {
+          "title": "QuickReserve連携が未設定です",
+          "hint": "設定でQuickReserveのログインを保存すると、来店・支払い履歴を表示できます。"
+        },
+        "not-found": {
+          "title": "来店履歴が見つかりませんでした",
+          "hint": "QuickReserveでこのお客様を特定できませんでした。氏名が一致しない可能性があります。"
+        },
+        "error": {
+          "title": "来店履歴を読み込めませんでした",
+          "hint": "QuickReserveからの取得に失敗しました。時間をおいて再度お試しください。"
+        }
+      }
     },
     "toast": {
       "created": "顧客を作成しました",

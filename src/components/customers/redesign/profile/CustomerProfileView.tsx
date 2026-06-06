@@ -34,11 +34,13 @@
 //     other routes; inline edit on profile is a separate task.
 
 import { useState } from 'react'
+import { useTranslations } from 'next-intl'
 import { ChevronLeft } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
 import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
+import { BookingHistoryTabContent } from './BookingHistoryTabContent'
 import { CustomerMemoryCard } from '@/components/karute/spike-lifted/memory/CustomerMemoryCard'
 import { BookingMemoCard } from './BookingMemoCard'
 import {
@@ -70,6 +72,7 @@ export function CustomerProfileView({
   photos,
 }: CustomerProfileViewProps) {
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
+  const t = useTranslations('customers.profile')
 
   return (
     <main className="mx-auto w-full max-w-[1120px] space-y-4 px-4 py-5 md:space-y-5 md:px-8 md:py-8">
@@ -80,7 +83,7 @@ export function CustomerProfileView({
           className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-3.5" aria-hidden />
-          <span>顧客一覧に戻る</span>
+          <span>{t('backToList')}</span>
         </Link>
       </div>
 
@@ -122,6 +125,12 @@ export function CustomerProfileView({
           </div>
         )}
         {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
+        {tab === 'bookings' && (
+          <BookingHistoryTabContent
+            customerName={customer.name}
+            memberNumber={customer.memberNumber ?? null}
+          />
+        )}
         {/* PhotosTabContent renders the real photos prop loaded
          *  server-side via listCustomerPhotos. Read-only thumbnail
          *  grid until uploads ship. ANTHONY: the upload + capture
