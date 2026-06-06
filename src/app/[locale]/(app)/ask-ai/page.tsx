@@ -1,8 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getOrgSettings } from '@/actions/org-settings'
-import { getBusinessId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { createServiceClient } from '@/lib/supabase/service'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import {
@@ -24,43 +22,38 @@ export default async function AskAIPage({
       data: { user },
     },
     orgSettings,
-    businessId,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getOrgSettings(),
-    getBusinessId(),
   ])
 
-  // Scope counts: total karute + total customers + upcoming bookings + total
-  // recordings (= karute_records with a non-null transcript).
-  const service = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = service as any
+  // Scope counts from synqed-core (the Supabase karute_records mirror is empty
+  // post-migration — Karute + Recordings used to show 0).
   const synqed = await getSynqedClient()
   const nowIso = new Date().toISOString()
 
-  const [karuteCountRes, recordingCountRes, customerList, apptList] =
-    await Promise.all([
-      sb
-        .from('karute_records')
-        .select('id', { count: 'exact', head: true })
-        .eq('customer_id', businessId),
-      sb
-        .from('karute_records')
-        .select('id', { count: 'exact', head: true })
-        .eq('customer_id', businessId)
-        .not('transcript', 'is', null),
-      synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
-      synqed.appointments
-        .list({ from: nowIso, page_size: 1 })
-        .catch(() => ({ total: 0 })),
-    ])
+  const [karuteRes, customerList, apptList] = await Promise.all([
+    synqed.karuteRecords
+      .list({ page_size: 200 })
+      .catch(() => ({ total: 0, karute_records: [] as { transcript?: string | null }[] })),
+    synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    synqed.appointments
+      .list({ from: nowIso, page_size: 1 })
+      .catch(() => ({ total: 0 })),
+  ])
 
   const scope: DataScopeItem[] = [
-    { label: 'Karute', count: karuteCountRes.count ?? 0 },
+    { label: 'Karute', count: karuteRes.total ?? 0 },
     { label: 'Customers', count: customerList.total ?? 0 },
     { label: 'Bookings', count: apptList.total ?? 0 },
-    { label: 'Recordings', count: recordingCountRes.count ?? 0 },
+    // Recordings = karute with a transcript, counted from the fetched page
+    // (≤200). An exact synqed transcript-filtered count would be cleaner — Anthony.
+    {
+      label: 'Recordings',
+      count: (karuteRes.karute_records ?? []).filter(
+        (r) => (r as { transcript?: string | null }).transcript != null,
+      ).length,
+    },
   ]
 
   const businessType = orgSettings?.business_type ?? null
