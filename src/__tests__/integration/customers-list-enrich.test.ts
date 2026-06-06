@@ -188,6 +188,15 @@ describe('deriveStatus', () => {
     // Joined 5 days ago but last visit 200 days ago → still "new".
     expect(deriveStatus(iso(5 * DAY), iso(200 * DAY))).toBe('new')
   })
+
+  it('a recently-joined customer WITH prior visits is NOT 新規 (the 11-visit bug)', () => {
+    // Joined 5 days ago (would be "new" by join date) but has 11 prior visits —
+    // a hand-added / QR-backfilled customer. visit_count overrides the join date.
+    expect(deriveStatus(iso(5 * DAY), null, false, 11)).toBe('on-track')
+    expect(deriveStatus(iso(5 * DAY), iso(10 * DAY), false, 11)).toBe('on-track')
+    // Zero prior visits → the recent-join "new" rule still applies (unchanged).
+    expect(deriveStatus(iso(5 * DAY), null, false, 0)).toBe('new')
+  })
 })
 
 describe('formatJoinDate', () => {

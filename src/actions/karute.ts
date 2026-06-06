@@ -25,9 +25,21 @@ export async function getCustomerKaruteRecords(
       customer_id: customerId,
       page_size: limit,
     })
-    const rows = res.karute_records ?? []
-    // Newest first (defensive — don't assume the list endpoint's order).
-    return [...rows].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    const rows = [...(res.karute_records ?? [])].sort((a, b) =>
+      b.created_at.localeCompare(a.created_at),
+    )
+    // The list endpoint omits per-entry detail (only entry_count). The
+    // pre-session brief derives 会話のきっかけ / 前回の主訴 / 前回の商品提案 from the
+    // MOST-RECENT record's entries — so fetch that one in full. Without this the
+    // brief boxes were empty and the card fell back to its placeholder copy.
+    // Best-effort: keep the lighter list row if the detail fetch fails.
+    if (rows.length > 0) {
+      const full = await synqed.karuteRecords
+        .get(rows[0].id, { include_entries: true })
+        .catch(() => null)
+      if (full) rows[0] = full
+    }
+    return rows
   } catch (err) {
     console.error('[getCustomerKaruteRecords] failed:', err)
     return []
