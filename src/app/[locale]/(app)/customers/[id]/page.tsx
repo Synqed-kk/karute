@@ -133,7 +133,7 @@ export default async function CustomerProfilePage({
       .map((r) => r.transcript ?? '')
       .filter((t) => t.trim())
     if (transcripts.length > 0) {
-      const cacheKey = { c: id, t: karuteRecords.map((r) => r.id) }
+      const cacheKey = { c: id, t: synqedKaruteRows.map((r) => r.id) }
       const cached = (await getCachedAI('memory-backfill', cacheKey)) as
         | MemoryItem[]
         | null

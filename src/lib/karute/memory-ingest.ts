@@ -61,8 +61,11 @@ export async function backfillMemoryFromTranscripts(params: {
     const orgSettings = await getOrgSettings().catch(() => null)
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const ops = await extractCustomerMemory({
-      // Cap the one-off bootstrap to the most recent few transcripts.
-      transcripts: usable.slice(0, 5),
+      // Cap the one-off bootstrap to the most recent few transcripts AND cap each
+      // transcript's length — a single 90-min ASR transcript can be tens of
+      // thousands of chars; 5 uncapped could blow the model context / cost. ~16k
+      // chars (~4k tokens) each × 5 keeps the call bounded.
+      transcripts: usable.slice(0, 5).map((t) => t.slice(0, 16000)),
       existing: [],
       persona,
       locale,

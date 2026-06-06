@@ -509,7 +509,8 @@ function MemoryItemRow({
           </p>
         )}
         <p className="mt-0.5 text-[10px] tabular-nums text-muted-foreground/70">
-          {t(`source${sourceKeySuffix(item.source)}`)} · {item.capturedAt}
+          {t(`source${sourceKeySuffix(item.source)}`)}
+          {item.capturedAt ? ` · ${item.capturedAt}` : ''}
         </p>
       </div>
       {/* Action buttons — ALWAYS visible (no hover gate). Previous
