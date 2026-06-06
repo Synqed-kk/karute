@@ -79,24 +79,26 @@ export function CustomerHeaderCard({
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <div className="flex flex-wrap items-baseline gap-2.5">
-          {customerHref ? (
-            <Link
-              href={customerHref as Parameters<typeof Link>[0]['href']}
-              className="group inline-flex items-center gap-1 text-xl font-semibold tracking-tight text-foreground transition-colors hover:text-sky-600 md:text-2xl"
-              aria-label={t('header.openCustomer')}
-              title={t('header.openCustomer')}
-            >
-              <span>{customerName}</span>
-              <ChevronRight
-                size={18}
-                className="shrink-0 text-muted-foreground transition-transform transition-colors group-hover:translate-x-0.5 group-hover:text-sky-600"
-              />
-            </Link>
-          ) : (
-            <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
-              {customerName}
-            </h2>
-          )}
+          {/* Always an <h2> so the heading survives in both branches (a11y);
+              the Link sits INSIDE it when a customer profile exists. */}
+          <h2 className="text-xl font-semibold tracking-tight text-foreground md:text-2xl">
+            {customerHref ? (
+              <Link
+                href={customerHref as Parameters<typeof Link>[0]['href']}
+                className="group inline-flex items-center gap-1 transition-colors hover:text-sky-600"
+                aria-label={`${customerName} — ${t('header.openCustomer')}`}
+                title={t('header.openCustomer')}
+              >
+                <span>{customerName}</span>
+                <ChevronRight
+                  size={18}
+                  className="shrink-0 text-muted-foreground transition-[transform,color] group-hover:translate-x-0.5 group-hover:text-sky-600"
+                />
+              </Link>
+            ) : (
+              customerName
+            )}
+          </h2>
           <span className="text-sm font-medium text-muted-foreground tabular-nums">
             {karuteNumber}
           </span>
