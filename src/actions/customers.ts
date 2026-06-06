@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -313,8 +314,9 @@ export async function deleteCustomerPhoto(
 // Recording consent
 // ---------------------------------------------------------------------------
 
-// Bump when the wording of the consent script changes — invalidates prior consents legally.
-const RECORDING_CONSENT_POLICY_VERSION = 'v1-2026-05'
+// RECORDING_CONSENT_POLICY_VERSION lives in @/lib/consent (client-safe single
+// source of truth) — a 'use server' module can't export a plain const, and the
+// recording gate (client) must compare against the same value.
 
 export async function getCustomerConsent(customerId: string) {
   const synqed = await getSynqedClient()
