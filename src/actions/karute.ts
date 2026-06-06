@@ -108,6 +108,19 @@ export async function saveKaruteRecordInline(
       })),
     })
 
+    // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
+    // Never gate the return on it; setKaruteOutcome swallows its own errors.
+    if (input.outcome) {
+      await setKaruteOutcome({
+        karuteRecordId: record.id,
+        customerId: input.customerId,
+        status: input.outcome.status,
+        reason: input.outcome.reason,
+        isFirstVisit: input.outcome.isFirstVisit,
+        decidedBy: staffId,
+      })
+    }
+
     revalidatePath(`/customers/${input.customerId}`)
     updateTag('dashboard')
     return { id: record.id }

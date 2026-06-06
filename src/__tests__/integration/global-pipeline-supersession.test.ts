@@ -36,6 +36,13 @@ const makeResult = (summary: string): PipelineResult => ({
 })
 
 const ctx = { locale: 'en', customers: [] }
+// Context that qualifies for B2 auto-save: a known customer + an outcome.
+const ctxAuto = {
+  locale: 'en',
+  customers: [],
+  appointmentCustomerId: 'c1',
+  outcome: { status: 'success' as const },
+}
 
 // Drain microtasks so the awaited continuations inside run() execute.
 const flush = () => new Promise((r) => setTimeout(r, 0))
@@ -101,5 +108,73 @@ describe('globalPipeline run supersession', () => {
 
     expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('boom')
+  })
+})
+
+describe('globalPipeline B2 auto-save transition + runId guards', () => {
+  it('enters autosaving when a known customer + outcome are present', async () => {
+    globalPipeline.start(new Blob(['a']), ctxAuto)
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    expect(globalPipeline.state).toBe('autosaving')
+  })
+
+  it('falls to review (not autosaving) without an outcome', async () => {
+    globalPipeline.start(new Blob(['a']), { ...ctxAuto, outcome: undefined })
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    expect(globalPipeline.state).toBe('review')
+  })
+
+  it('falls to review (not autosaving) for a walk-in (no known customer)', async () => {
+    globalPipeline.start(new Blob(['a']), {
+      ...ctxAuto,
+      appointmentCustomerId: undefined,
+    })
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    expect(globalPipeline.state).toBe('review')
+  })
+
+  it('reset(staleRunId) is a no-op; reset(currentRunId) clears', async () => {
+    globalPipeline.start(new Blob(['a']), ctxAuto)
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    const runId = globalPipeline.runId
+
+    globalPipeline.reset(runId - 1) // stale auto-save → must not clear
+    expect(globalPipeline.state).toBe('autosaving')
+    expect(globalPipeline.result?.summary).toBe('A')
+
+    globalPipeline.reset(runId) // the owning run → clears
+    expect(globalPipeline.state).toBe('idle')
+    expect(globalPipeline.result).toBeNull()
+  })
+
+  it('failAutosaveToReview bails on a stale id, transitions on a matching id', async () => {
+    globalPipeline.start(new Blob(['a']), ctxAuto)
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    const runId = globalPipeline.runId
+
+    globalPipeline.failAutosaveToReview(runId - 1) // stale → no-op
+    expect(globalPipeline.state).toBe('autosaving')
+
+    globalPipeline.failAutosaveToReview(runId) // matching → review
+    expect(globalPipeline.state).toBe('review')
+  })
+
+  it('a late auto-save reset cannot clobber a NEWER take', async () => {
+    globalPipeline.start(new Blob(['a']), ctxAuto) // take A
+    mockDeferreds[0].resolve(makeResult('A'))
+    await flush()
+    const runA = globalPipeline.runId
+    expect(globalPipeline.state).toBe('autosaving')
+
+    globalPipeline.start(new Blob(['b']), ctxAuto) // take B supersedes
+    expect(globalPipeline.runId).not.toBe(runA)
+
+    globalPipeline.reset(runA) // A's stale auto-save resolves late
+    expect(globalPipeline.state).toBe('processing') // B untouched
   })
 })
