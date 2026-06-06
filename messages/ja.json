@@ -442,6 +442,7 @@
       "lastProduct": "前回の商品提案",
       "recommendedFocus": "本日のおすすめフォーカス",
       "reservationMemo": "ご予約時のメモ",
+      "memoAnalysisLabel": "AIによる事前読み取り",
       "firstTimeHeader": "初めてのお客様",
       "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
       "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。",
