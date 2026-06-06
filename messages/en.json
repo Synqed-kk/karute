@@ -327,6 +327,13 @@
         "next": "Next"
       }
     },
+    "regenerate": {
+      "label": "Regenerate with AI",
+      "confirm": "Replace & regenerate",
+      "cancel": "Cancel",
+      "running": "Regenerating…",
+      "error": "Regeneration failed"
+    },
     "aiSummary": {
       "title": "AI summary"
     },
