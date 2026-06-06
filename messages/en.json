@@ -655,6 +655,7 @@
       "memberNumber": "Member #{number}",
       "ticketPack": "Ticket pack",
       "birthdayMonth": "Birthday month",
+      "record": "Record",
       "ageValue": "{age} y/o",
       "visitCountSuffix": " visits",
       "staffPrefix": "Staff",

@@ -245,7 +245,10 @@ export function RecordPageView({
     // and keep working. When it's done the chip brings them back to review+save.
     // The outcome (chosen at stop) rides along so the save applies it without
     // re-prompting at the end.
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
+    // `|| undefined`: a walk-in target (customer recorded with no booking)
+    // carries id='' — coerce it so the save writes appointment_id null, not ''.
+    const effectiveAppointmentId =
+      (recordingAppointmentId ?? nextAppointment?.id) || undefined
     const effectiveCustomerId = recordingAppointmentId
       ? (recordingCustomerId ?? undefined)
       : nextAppointment?.customerId

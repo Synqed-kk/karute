@@ -655,6 +655,7 @@
       "memberNumber": "会員 #{number}",
       "ticketPack": "回数券あり",
       "birthdayMonth": "誕生月",
+      "record": "録音",
       "ageValue": "{age}歳",
       "visitCountSuffix": " 回",
       "staffPrefix": "担当",

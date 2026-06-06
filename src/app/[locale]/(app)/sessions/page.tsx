@@ -2,6 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
 import {
@@ -10,7 +11,6 @@ import {
   type AppointmentRow,
 } from '@/actions/appointments'
 import { getCustomerKaruteRecords } from '@/actions/karute'
-import { getCustomer } from '@/lib/customers/queries'
 import { getAiPreSessionBrief } from '@/lib/karute/ai-brief'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
@@ -45,12 +45,15 @@ export default async function SessionsPage({
   searchParams,
 }: {
   params: Promise<{ locale: string }>
-  searchParams: Promise<{ appointmentId?: string }>
+  searchParams: Promise<{ appointmentId?: string; customerId?: string }>
 }) {
   const { locale } = await params
   // Set when the user tapped a specific booking on 予約 (→ 新規カルテ / 録音):
   // that booking becomes the recording target instead of the next-booking guess.
-  const { appointmentId: requestedAppointmentId } = await searchParams
+  // `appointmentId` — a booking tapped on 予約. `customerId` — the 録音 button on
+  // a customer card (record THAT customer, booking or walk-in).
+  const { appointmentId: requestedAppointmentId, customerId: requestedCustomerId } =
+    await searchParams
 
   const activeStaffId = await getCurrentUserStaffId()
   const staffList = await getStaffList()
@@ -148,7 +151,17 @@ export default async function SessionsPage({
 
   // Fall back to any salon booking when the active staff has nothing queued —
   // the path that surfaces 佐竹なな-style bookings assigned to a colleague.
-  const unlinked = requestedRow ?? findFirst(myRows) ?? findFirst(list)
+  // 録音 from the customer card (?customerId): prefer that customer's own
+  // unlinked booking today; else record them as a walk-in (the else-if below).
+  const customerRow = requestedCustomerId
+    ? list.find((a) => a.client_id === requestedCustomerId && !a.karute_record_id)
+    : undefined
+  // When a customer is explicitly chosen, never fall through to an unrelated
+  // default booking — it's that customer's booking or a walk-in, nothing else.
+  const unlinked =
+    requestedRow ??
+    customerRow ??
+    (requestedCustomerId ? undefined : (findFirst(myRows) ?? findFirst(list)))
 
   if (unlinked) {
     // Derive status server-side (in-session / booked / done) so the
@@ -178,6 +191,28 @@ export default async function SessionsPage({
       staffName: unlinked.staff_profile_id
         ? (staffNameById.get(unlinked.staff_profile_id) ?? '—')
         : '—',
+    }
+  } else if (requestedCustomerId) {
+    // Walk-in: a customer was chosen from the 顧客 card but has no booking today.
+    // Record directly against them — no appointment link (appointment_id is null
+    // at save; RecordPageView coerces the empty id to undefined). The brief,
+    // consent, and karute history all key off customerId, so they resolve fine.
+    const walkIn = await getCustomer(requestedCustomerId).catch(() => null)
+    if (walkIn) {
+      nextAppointment = {
+        id: '', // no booking → '' → save writes appointment_id null
+        customerName: walkIn.name,
+        customerId: walkIn.id,
+        karuteNumber: karuteNumberByClientId.get(walkIn.id) ?? null,
+        startTime: now.toISOString(),
+        durationMinutes: 60,
+        title: null,
+        notes: null,
+        statusKey: 'in-session',
+        staffName: activeStaffId
+          ? (staffNameById.get(activeStaffId) ?? '—')
+          : '—',
+      }
     }
   }
 
