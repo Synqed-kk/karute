@@ -15,7 +15,11 @@ import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
-import { jstStartOfToday, ymdInJst, partsInJst } from '@/lib/date/jst'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
+import {
+  computeWeekRange,
+  computeMonthRange,
+} from '@/lib/date/calendar-range'
 
 function parseDateParam(value: string | undefined): Date {
   // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
@@ -32,66 +36,8 @@ function parseViewParam(value: string | undefined): DayWeekMonthView {
   return value === 'week' || value === 'month' ? value : 'day'
 }
 
-const pad2 = (n: number) => String(n).padStart(2, '0')
-
-/** A Date at JST midnight for the given JST calendar y/m/d (month is 1-12). */
-function jstMidnight(year: number, month: number, day: number): Date {
-  return new Date(`${year}-${pad2(month)}-${pad2(day)}T00:00:00+09:00`)
-}
-
-// JST-anchored week start. The runtime is UTC on Vercel, so getFullYear()/
-// getMonth()/getDate()/getDay() report the UTC calendar day — which rolls a
-// JST-midnight `d` back to the previous day (and the previous MONTH on the 1st).
-// That made the month/week grid render one month off from the selected date.
-// Derive from JST parts so the grid matches what the user picked.
-function startOfWeekSun(d: Date): Date {
-  const p = partsInJst(d)
-  const out = jstMidnight(p.year, p.month, p.day)
-  out.setDate(out.getDate() - p.weekday) // p.weekday: 0=Sun..6=Sat (JST)
-  return out
-}
-
-// ─────────────────────────────────────────────────────────────
-// Date-range pre-computers — pulled OUT of the await chain so
-// they can be computed synchronously up-front, allowing the
-// week/month range fetch to fan out alongside Stage 1 of the
-// page-level Promise.all (instead of running serially after).
-// ─────────────────────────────────────────────────────────────
-function computeWeekRange(selectedDate: Date): {
-  weekStart: Date
-  weekEnd: Date
-  rangeFrom: Date
-  rangeTo: Date
-} {
-  const weekStart = startOfWeekSun(selectedDate)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekEnd.getDate() + 6)
-  const rangeFrom = new Date(weekStart)
-  const rangeTo = new Date(weekEnd)
-  rangeTo.setHours(23, 59, 59, 999)
-  return { weekStart, weekEnd, rangeFrom, rangeTo }
-}
-
-function computeMonthRange(selectedDate: Date): {
-  monthStart: Date
-  monthEnd: Date
-  rangeFrom: Date
-  rangeTo: Date
-} {
-  // JST month boundaries (see startOfWeekSun note — raw getMonth() is UTC on
-  // Vercel and rolls the 1st back into the previous month, so the whole month
-  // grid rendered one month off from the selected date).
-  const p = partsInJst(selectedDate)
-  const monthStart = jstMidnight(p.year, p.month, 1)
-  const daysInMonth = new Date(p.year, p.month, 0).getDate()
-  const monthEnd = jstMidnight(p.year, p.month, daysInMonth)
-  const rangeFrom = new Date(monthStart)
-  rangeFrom.setDate(rangeFrom.getDate() - 7) // include leading days
-  const rangeTo = new Date(monthEnd)
-  rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
-  rangeTo.setHours(23, 59, 59, 999)
-  return { monthStart, monthEnd, rangeFrom, rangeTo }
-}
+// Date-range pre-computers (JST-anchored) live in a tested lib so the week/
+// month fetch windows stay correct on the UTC runtime — see calendar-range.ts.
 
 /**
  * Parse the ?staff= URL param into one of:
