@@ -75,7 +75,10 @@ export function KaruteDetailView({
         sessionDateLong={sessionDateLong}
       />
 
-      <CustomerHeaderCard {...header} />
+      <CustomerHeaderCard
+        {...header}
+        customerHref={customerId ? `/customers/${customerId}` : undefined}
+      />
 
       <OutcomeCard
         karuteRecordId={karuteId}
