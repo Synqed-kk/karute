@@ -4,6 +4,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getRecentKaruteForAI } from '@/lib/karute/ai-context'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
+import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -50,7 +51,9 @@ export async function POST(request: Request) {
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: `You are a helpful AI assistant for a ${businessType} business. You have access to the business's karute (client records) and customer data. Help staff with questions about customers, treatments, scheduling advice, and business insights.
+        content: `${personaSystemFragment(orgSettings?.business_type, locale)}
+
+You are a helpful AI assistant for a ${businessType} business. You have access to the business's karute (client records) and customer data. Help staff with questions about customers, treatments, scheduling advice, and business insights.
 
 ${langInstruction}
 

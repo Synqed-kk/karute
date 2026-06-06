@@ -21,6 +21,13 @@ jest.mock('@/lib/supabase/server', () => ({
   })),
 }))
 
+// getOrgSettings pulls @synqed-kk/client (native ESM) for the business-type
+// lookup — stub it like the other boundaries above so the route loads without
+// the real SDK. Null → the route uses the neutral default persona.
+jest.mock('@/actions/org-settings', () => ({
+  getOrgSettings: jest.fn(async () => null),
+}))
+
 import * as appHandler from '@/app/api/ai/extract/route'
 
 jest.mock('@/lib/openai', () => ({

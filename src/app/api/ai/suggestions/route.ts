@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { createClient } from '@/lib/supabase/server'
+import { getOrgSettings } from '@/actions/org-settings'
+import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -37,14 +38,8 @@ export async function POST(request: NextRequest) {
         : '',
     ].filter(Boolean).join('\n\n')
 
-    const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
-    const businessType = orgSettings?.business_type || 'salon/clinic'
+    // Business type from synqed-core (was reading a non-existent Supabase table).
+    const orgSettings = await getOrgSettings().catch(() => null)
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
@@ -53,7 +48,7 @@ export async function POST(request: NextRequest) {
       messages: [
         {
           role: 'system',
-          content: `You are an AI assistant for a ${businessType} karute system. Based on the session transcript and extracted data, generate 3-5 short, actionable suggestions. These could be:
+          content: `${personaSystemFragment(orgSettings?.business_type, locale)}\n\nBased on the session transcript and extracted data, generate 3-5 short, actionable suggestions. These could be:
 - Follow-up actions for the staff
 - Product or treatment recommendations for the customer
 - Things to note for the next visit
