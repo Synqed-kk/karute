@@ -11,6 +11,8 @@ import { EntryCard } from './EntryCard'
 import { ReviewHeader } from './ReviewHeader'
 import { saveKaruteRecord } from '@/actions/karute'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import { PostSessionResolutionDialog } from '@/components/karute/redesign/record/PostSessionResolutionDialog'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 const ReviewFormSchema = z.object({
   summary: z.string().min(1),
@@ -51,6 +53,10 @@ export function ReviewScreen({
   )
   const [suggestions, setSuggestions] = useState<{ text: string; type: string }[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+  // Outcome (the coaching label) is captured AFTER the form validates: the save
+  // button opens the dialog, the dialog's choice runs the real save.
+  const [outcomeOpen, setOutcomeOpen] = useState(false)
+  const [pendingData, setPendingData] = useState<ReviewFormValues | null>(null)
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
@@ -96,7 +102,17 @@ export function ReviewScreen({
     })
   }
 
-  async function handleSave(data: ReviewFormValues) {
+  // Validate the form, then open the outcome dialog (don't save yet).
+  function openOutcome(data: ReviewFormValues) {
+    if (!appointmentCustomerId && !selectedCustomerId) {
+      toast.error(t('selectCustomer'))
+      return
+    }
+    setPendingData(data)
+    setOutcomeOpen(true)
+  }
+
+  async function handleSave(data: ReviewFormValues, outcome?: SessionOutcome) {
     if (!appointmentCustomerId && !selectedCustomerId) {
       toast.error(t('selectCustomer'))
       return
@@ -117,6 +133,7 @@ export function ReviewScreen({
         })),
         duration,
         appointmentId,
+        outcome,
       })
 
       if (result && 'error' in result) {
@@ -137,8 +154,9 @@ export function ReviewScreen({
     }
   }
 
-  const customerName = appointmentCustomerId
-    ? customers.find((c) => c.id === appointmentCustomerId)?.name
+  const resolvedCustomerId = appointmentCustomerId ?? selectedCustomerId
+  const customerName = resolvedCustomerId
+    ? (customers.find((c) => c.id === resolvedCustomerId)?.name ?? null)
     : null
 
   const [checkedSuggestions, setCheckedSuggestions] = useState<Set<number>>(new Set())
@@ -271,7 +289,7 @@ export function ReviewScreen({
           )}
           <button
             type="button"
-            onClick={handleSubmit(handleSave)}
+            onClick={handleSubmit(openOutcome)}
             disabled={saving || (!appointmentCustomerId && !selectedCustomerId)}
             className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
@@ -279,6 +297,20 @@ export function ReviewScreen({
           </button>
         </div>
       </div>
+
+      {/* Outcome capture (the coaching label) — opened by the save button,
+          its choice runs the real save with the chosen outcome. */}
+      <PostSessionResolutionDialog
+        open={outcomeOpen}
+        customerName={customerName ?? ''}
+        isFirstVisit={false}
+        saving={saving}
+        onCancel={() => setOutcomeOpen(false)}
+        onResolve={(outcome) => {
+          setOutcomeOpen(false)
+          if (pendingData) void handleSave(pendingData, outcome)
+        }}
+      />
     </div>
   )
 }

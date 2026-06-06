@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { setKaruteOutcome } from '@/lib/karute/outcome'
 import type { SaveKaruteInput } from '@/types/karute'
 
 /**
@@ -49,6 +50,20 @@ export async function saveKaruteRecord(
       })),
     })
     recordId = record.id
+
+    // Best-effort: persist the session outcome (the coaching training label).
+    // NEVER gate the save/redirect on it — the recording is the critical
+    // artifact, and setKaruteOutcome swallows its own errors.
+    if (input.outcome) {
+      await setKaruteOutcome({
+        karuteRecordId: recordId,
+        customerId: input.customerId,
+        status: input.outcome.status,
+        reason: input.outcome.reason,
+        isFirstVisit: input.outcome.isFirstVisit,
+        decidedBy: staffId,
+      })
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }

@@ -320,6 +320,36 @@
     }
   },
   "recording": {
+    "outcome": {
+      "title": "Result — {name}",
+      "titleFirst": "First session result — {name}",
+      "subtitle": "Record whether this session converted, together with saving the recording.",
+      "subtitleHint": "One tap updates your close rate, the AI's learning, and the customer ledger.",
+      "success": {
+        "title": "Converted",
+        "desc": "Led to a booking or purchase. Saved as a normal karute."
+      },
+      "noDeal": {
+        "title": "No deal this time",
+        "desc": "Kept as AI coaching training data, but hidden from the customer list."
+      },
+      "pending": {
+        "title": "Decide later",
+        "desc": "Held as a provisional karute. Auto-moves to no-deal after 14 days if undecided."
+      },
+      "reasonLabel": "Reason (optional)",
+      "reason": {
+        "budget": "Budget",
+        "considering": "Considering",
+        "mismatch": "Store mismatch",
+        "follow_up": "Will follow up",
+        "other": "Other"
+      },
+      "disclaimer": "Your converted / no-deal records also help the AI learn top-performer conversation patterns. This customer's individual details are never shared with other staff.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
+    },
     "title": "Record",
     "selectStaff": "Select staff",
     "start": "Start recording",
