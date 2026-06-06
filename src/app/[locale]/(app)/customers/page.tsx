@@ -5,7 +5,8 @@ import { CustomersListView } from '@/components/customers/redesign/list/Customer
 import type { CustomerListRow } from '@/components/customers/redesign/types'
 import {
   defaultAiPredict,
-  deriveStatus,
+  resolveCustomerStatus,
+  customerVisitCount,
   enrichCustomers,
   formatJoinDate,
   formatLastVisit,
@@ -76,9 +77,28 @@ export default async function CustomersPage({
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
     const lastVisitIso = enriched?.lastVisitIso ?? null
-    const status = deriveStatus(c.created_at, lastVisitIso, c.is_existing_customer, enriched?.totalKarute ?? 0)
+    // SDK-skew: local Customer type lags the API's QR fields — cast to read them.
+    const qr = c as typeof c & {
+      is_existing_customer?: boolean
+      visit_count?: number
+      has_ticket_pack?: boolean
+    }
+    // SINGLE SOURCE: same signals + same resolver the profile/recording/agenda
+    // use, so the badge + 来店 count match everywhere for this customer.
+    const statusSignals = {
+      joinDateIso: c.created_at,
+      lastVisitIso,
+      isExistingCustomer: qr.is_existing_customer,
+      visitCount: qr.visit_count,
+      karuteCount: enriched?.totalKarute,
+      pastAppointmentCount: enriched?.pastAppointmentCount,
+      hasTicketPack: qr.has_ticket_pack,
+    }
+    const status = resolveCustomerStatus(statusSignals)
     const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
-    const totalKarute = enriched?.totalKarute ?? 0
+    // The displayed 来店 count = the unified visit count (max of QR visits +
+    // recorded karute), not the karute count alone — matches the profile.
+    const totalKarute = customerVisitCount(statusSignals)
     return {
       id: c.id,
       name: c.name,

@@ -14,6 +14,12 @@ export interface CachedCustomerOption {
    *  the 顧客 page + karute detail (which sort the same raw list by created_at).
    *  Dropping it silently re-sorted the agenda by id → mismatched numbers. */
   created_at: string | null
+  /** QR lifetime visit count + 回数券 flag. Part of the single returning-customer
+   *  signal (see resolveCustomerStatus) so EVERY surface that reads the cached
+   *  list — the 予約 agenda, dropdowns — classifies QR regulars the same as the
+   *  顧客 list/profile do, instead of mislabeling 回数券 holders as 新規. */
+  visitCount: number
+  hasTicketPack: boolean
 }
 
 // businessId is the cache key — Next includes function args in the key automatically,
@@ -34,12 +40,23 @@ const customerListByBusiness = unstable_cache(
       sort_by: 'name',
       sort_order: 'asc',
     })
-    return result.customers.map((c) => ({
-      id: c.id,
-      name: c.name,
-      isExistingCustomer: c.is_existing_customer,
-      created_at: c.created_at,
-    }))
+    return result.customers.map((c) => {
+      // SDK-skew: the local @synqed-kk/client Customer type lags the API, which
+      // returns these QR fields. Cast to read them — Vercel's fresh SDK types them.
+      const qr = c as typeof c & {
+        is_existing_customer?: boolean
+        visit_count?: number
+        has_ticket_pack?: boolean
+      }
+      return {
+        id: c.id,
+        name: c.name,
+        isExistingCustomer: qr.is_existing_customer ?? false,
+        created_at: c.created_at,
+        visitCount: qr.visit_count ?? 0,
+        hasTicketPack: qr.has_ticket_pack ?? false,
+      }
+    })
   },
   ['cached-customer-list-v2'],
   { revalidate: 60, tags: ['customers'] },

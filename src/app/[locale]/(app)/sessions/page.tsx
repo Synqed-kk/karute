@@ -2,6 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
+import { isReturningCustomer } from '@/lib/customers/list-enrich'
 import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
@@ -341,11 +342,23 @@ export default async function SessionsPage({
   // appointment_id).
   let brief: PreSessionBrief | null = null
   if (nextAppointment?.customerId) {
+    // Target's returning signal from the cached list (same fields the 顧客 list
+    // uses) → the recording target's 新規 flag matches the customer's badge.
+    const cc = customers.find((c) => c.id === nextAppointment.customerId)
+    const targetReturning = isReturningCustomer({
+      joinDateIso: null,
+      lastVisitIso: null,
+      isExistingCustomer: cc?.isExistingCustomer,
+      visitCount: cc?.visitCount,
+      hasTicketPack: cc?.hasTicketPack,
+      karuteCount: customerKarute.length,
+    })
     brief = buildPreSessionBriefFor(
       customerKarute,
       nextAppointment.notes,
       now,
       locale,
+      targetReturning,
     )
   }
 
@@ -381,17 +394,20 @@ function buildPreSessionBriefFor(
   reservationMemo: string | null,
   now: Date,
   locale: string,
+  // A known returning customer (QR visit_count / 回数券 / is_existing) is NOT a
+  // first visit even with no recording yet — the SAME signal every surface uses.
+  isReturning: boolean,
 ): PreSessionBrief | null {
   // `records` is the customer's synqed karute history, newest first. FIRST
-  // visit = NO prior record — NOT an empty-Supabase-table read, which used to
-  // flag every returning customer as 新規 (that mirror is empty post-migration).
+  // visit = NO prior record AND not a known returning customer — a QR regular
+  // with no recording yet is returning, not 新規.
   const last = records.length > 0 ? records[0] : null
 
-  // FIRST-VISIT FRAMING — no prior karute. Card renders the
+  // FIRST-VISIT FRAMING — no prior karute AND not returning. Card renders the
   // "初めてのお客様" header + optional reservation memo block.
   if (!last) {
     return {
-      isFirstTimeVisit: true,
+      isFirstTimeVisit: !isReturning,
       lastVisitDate: '',
       lastVisitAgo: '',
       hooks: [],
