@@ -111,7 +111,14 @@ export function SelectBookingSheet({
           <ul
             role="listbox"
             aria-label={t('sheetTitle')}
-            className="min-h-0 flex-1 space-y-1.5 overflow-y-auto px-4 py-3"
+            // EXPLICIT max-height scroll container — NOT flex-1. The bottom-sheet
+            // primitive (ui/sheet.tsx) sets data-[side=bottom]:h-auto, which left
+            // the flex height unresolved, so `flex-1 min-h-0 overflow-y-auto`
+            // never produced a scroll (the list just ran off the bottom — Liam
+            // hit this twice). A self-contained `max-h-[70vh] overflow-y-auto`
+            // scrolls on its own, independent of the flex chain. overscroll-contain
+            // stops the scroll from chaining to the page behind the sheet.
+            className="max-h-[70vh] space-y-1.5 overflow-y-auto overscroll-contain px-4 py-3"
           >
             {bookings.map((b) => {
               const isCurrent = b.id === currentBookingId
