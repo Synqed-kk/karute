@@ -28,18 +28,24 @@ export async function getRecentKaruteForAI(
       getCachedCustomerList(),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
-    return (res.karute_records ?? []).map((r) => ({
-      id: r.id,
-      customerName: r.customer_id
-        ? (nameById.get(r.customer_id) ?? 'Unknown')
-        : 'Unknown',
-      createdAt: r.created_at,
-      summary: r.ai_summary ?? null,
-      entries: (r.entries ?? []).map((e) => ({
-        category: String(e.category),
-        content: e.content,
-      })),
-    }))
+    return (res.karute_records ?? [])
+      .map((r) => ({
+        id: r.id,
+        customerName: r.customer_id
+          ? (nameById.get(r.customer_id) ?? 'Unknown')
+          : 'Unknown',
+        createdAt: r.created_at,
+        summary: r.ai_summary ?? null,
+        // The list endpoint doesn't include per-entry detail (only entry_count),
+        // so the AI context is summary-based — sufficient for insights/chat.
+        entries: (r.entries ?? []).map((e) => ({
+          category: String(e.category),
+          content: e.content,
+        })),
+      }))
+      // synqed-core already orders createdAt desc (karute.service.ts), but sort
+      // defensively so "recent" can't silently become "oldest" if that changes.
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
   } catch (err) {
     console.error('[getRecentKaruteForAI] synqed fetch failed:', err)
     return []
