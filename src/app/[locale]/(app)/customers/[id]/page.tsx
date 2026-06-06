@@ -116,7 +116,7 @@ export default async function CustomerProfilePage({
 
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
-  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer)
+  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer, customer.visit_count ?? 0)
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,

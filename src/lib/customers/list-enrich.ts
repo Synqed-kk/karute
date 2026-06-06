@@ -149,9 +149,15 @@ export function deriveStatus(
   // is_existing_customer) is never 新規 — they've been here before even if we
   // have no karute/appointment row to date it. Defaults false (backward-compat).
   isExistingCustomer = false,
+  // Prior visit/karute count. ANY prior visit means NOT 新規, even if the join
+  // date is recent — a hand-added or QR-backfilled customer registers "today"
+  // but already has a visit history (visit_count). is_existing_customer alone
+  // was unreliable (false for hand-added customers despite e.g. 11 visits).
+  priorVisitCount = 0,
 ): CustomerStatusKey {
   const now = Date.now()
-  if (!isExistingCustomer) {
+  const isReturning = isExistingCustomer || priorVisitCount > 0
+  if (!isReturning) {
     if (joinDateIso) {
       const ageMs = now - new Date(joinDateIso).getTime()
       if (ageMs < 30 * 24 * 60 * 60 * 1000) return 'new'
