@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, useTransition } from 'react'
+import { useMemo, useRef, useState, useTransition } from 'react'
 import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
 import { useUnreadCount } from '@/lib/notifications/hooks'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -108,11 +108,17 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const tCommon = useTranslations('common')
 
   // Mon-first localized weekday headers for MonthGrid (2024-01-01 is a Monday).
-  const monthWeekdayLabels = Array.from({ length: 7 }, (_, i) =>
-    new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(
-      new Date(Date.UTC(2024, 0, 1 + i)),
-    ),
-  ) as [string, string, string, string, string, string, string]
+  // Memoized — the 7 Intl.DateTimeFormat + 7 Date allocations only recompute
+  // when the locale changes, not on every render.
+  const monthWeekdayLabels = useMemo(
+    () =>
+      Array.from({ length: 7 }, (_, i) =>
+        new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone: 'UTC' }).format(
+          new Date(Date.UTC(2024, 0, 1 + i)),
+        ),
+      ) as [string, string, string, string, string, string, string],
+    [locale],
+  )
 
   function navigateTo(nextView: DayWeekMonthView, nextDate: Date) {
     const search = new URLSearchParams()
@@ -468,7 +474,7 @@ function WeekGridSection({
     if (locale.startsWith('ja')) {
       return h > 0 ? (m > 0 ? `${h}時間${m}分` : `${h}時間`) : `${m}分`
     }
-    return `${h}h ${m}m`
+    return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`
   }
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-7">
