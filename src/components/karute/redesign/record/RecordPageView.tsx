@@ -237,7 +237,10 @@ export function RecordPageView({
     // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
     // modal on this page). The top-corner chip shows progress; staff can leave
     // and keep working. When it's done the chip brings them back to review+save.
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
+    // `|| undefined`: a walk-in target (customer recorded with no booking)
+    // carries id='' — coerce it so the save writes appointment_id null, not ''.
+    const effectiveAppointmentId =
+      (recordingAppointmentId ?? nextAppointment?.id) || undefined
     const effectiveCustomerId = recordingAppointmentId
       ? (recordingCustomerId ?? undefined)
       : nextAppointment?.customerId
