@@ -217,13 +217,16 @@ export default async function SessionsPage({
     }
   }
 
-  // Picker rows = ALL today's bookings (active-staff first, then the
-  // rest). Limit to keep the dropdown tractable — staff with 20+
-  // bookings/day is rare and they'd scroll.
+  // Picker rows = ALL of today's bookings (active-staff first, then the rest).
+  // NO cap. A hard `.slice(0, 12)` here silently dropped the day's later bookings
+  // — an 18:00 vanished while 10:00–17:30 showed (exactly 12) — which kept being
+  // misdiagnosed + "fixed" as a scroll bug. The sheet's max-h + overflow-y-auto
+  // (SelectBookingSheet) handles long days; the fetch is already bounded
+  // (getAppointmentsByDate page_size 200).
   const orderedForPicker = [
     ...myRows,
     ...list.filter((a) => !myRows.some((m) => m.id === a.id)),
-  ].slice(0, 12)
+  ]
 
   nearbyBookings = orderedForPicker.map((a) => {
     const start = new Date(a.start_time)
