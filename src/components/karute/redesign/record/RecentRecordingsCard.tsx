@@ -63,9 +63,11 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
           {recordings.map((rec) => (
             <li
               key={rec.id}
-              className={`grid items-center gap-3 border-b border-border py-3 last:border-b-0 md:grid-cols-[${
-                FEATURE_RECORDING_PLAYBACK ? '28px_36px' : '36px'
-              }_minmax(0,1fr)_140px_minmax(120px,auto)]`}
+              // Flex row (NOT a dynamic grid). The previous
+              // `md:grid-cols-[${...}]` interpolated a class name, which Tailwind
+              // can't compile → the grid never applied → rows stretched. Flex with
+              // a fixed avatar + flexible middle + fixed meta is robust.
+              className="flex items-center gap-3 border-b border-border py-3 last:border-b-0"
             >
               {/* Play button — gated on NEXT_PUBLIC_FEATURE_RECORDING_PLAYBACK.
                *  Wiring spec: needs a signed Storage URL for the recording
@@ -81,10 +83,10 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
                   <Play size={11} className="ml-0.5" />
                 </button>
               )}
-              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
                 {rec.initials}
               </span>
-              <div className="flex min-w-0 flex-col gap-0.5">
+              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <div className="flex flex-wrap items-baseline gap-1.5">
                   <span className="truncate text-[13px] font-semibold text-foreground">
                     {rec.customerName}
@@ -97,13 +99,13 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
                 </div>
                 <div className="truncate text-[12px] text-muted-foreground">{rec.service}</div>
               </div>
-              <div className="flex flex-col text-right text-[12px] tabular-nums md:text-left">
+              <div className="flex shrink-0 flex-col text-right text-[12px] tabular-nums md:text-left">
                 <div className="text-foreground/80">{rec.date}</div>
                 <div className="text-muted-foreground">
                   {rec.startTime} · {rec.durationLabel}
                 </div>
               </div>
-              <div className="text-right md:text-left">
+              <div className="shrink-0 text-right md:text-left">
                 {rec.karuteLinked && rec.karuteId ? (
                   <Link
                     href={`/karute/${rec.karuteId}` as Parameters<typeof Link>[0]['href']}
