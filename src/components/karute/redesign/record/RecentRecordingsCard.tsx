@@ -1,14 +1,11 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { Clock, FileText, Play } from 'lucide-react'
+import { Clock, FileText } from 'lucide-react'
 
 import { Link } from '@/i18n/navigation'
 
-// Feature flags — flip in .env when backends ship. Preserved code so
-// Anthony can see the per-row affordance spec at code review time.
-const FEATURE_RECORDING_PLAYBACK =
-  process.env.NEXT_PUBLIC_FEATURE_RECORDING_PLAYBACK === 'true'
+// Feature flag — flip in .env when the orphan-recording→karute path ships.
 const FEATURE_RECORDING_CONVERT =
   process.env.NEXT_PUBLIC_FEATURE_RECORDING_CONVERT === 'true'
 
@@ -38,7 +35,7 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2.5">
-          <span className="flex h-6 w-6 items-center justify-center text-sky-400">
+          <span className="flex h-6 w-6 items-center justify-center text-blue-600 dark:text-blue-400">
             <Clock size={14} />
           </span>
           <span className="text-sm font-semibold text-foreground">{t('title')}</span>
@@ -63,82 +60,59 @@ export function RecentRecordingsCard({ recordings }: RecentRecordingsCardProps) 
           {recordings.map((rec) => (
             <li
               key={rec.id}
-              // Flex row (NOT a dynamic grid). The previous
-              // `md:grid-cols-[${...}]` interpolated a class name, which Tailwind
-              // can't compile → the grid never applied → rows stretched. Flex with
-              // a fixed avatar + flexible middle + fixed meta is robust.
-              className="flex items-center gap-3 border-b border-border py-3 last:border-b-0"
+              className="flex items-center gap-3 border-b border-border/60 py-3 last:border-b-0"
             >
-              {/* Play button — gated on NEXT_PUBLIC_FEATURE_RECORDING_PLAYBACK.
-               *  Wiring spec: needs a signed Storage URL for the recording
-               *  audio file + an <audio> element + transport state managed
-               *  at the card level. The button below is the affordance shape;
-               *  the onClick should set the active rec.id + seek(0). */}
-              {FEATURE_RECORDING_PLAYBACK && (
-                <button
-                  type="button"
-                  aria-label="Play"
-                  className="flex h-7 w-7 items-center justify-center rounded-full bg-foreground/10 text-foreground hover:bg-foreground/15"
-                >
-                  <Play size={11} className="ml-0.5" />
-                </button>
-              )}
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-bold text-foreground">
                 {rec.initials}
               </span>
+              {/* Middle — name + karute # on top, date · time below. flex-1 so the
+               *  name gets the room (it was squeezing to one character before). */}
               <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex flex-wrap items-baseline gap-1.5">
+                <div className="flex items-baseline gap-1.5">
                   <span className="truncate text-[13px] font-semibold text-foreground">
                     {rec.customerName}
                   </span>
                   {rec.karuteNumber && (
-                    <span className="text-[11px] tabular-nums text-muted-foreground">
+                    <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
                       {rec.karuteNumber}
                     </span>
                   )}
                 </div>
-                <div className="truncate text-[12px] text-muted-foreground">{rec.service}</div>
-              </div>
-              <div className="flex shrink-0 flex-col text-right text-[12px] tabular-nums md:text-left">
-                <div className="text-foreground/80">{rec.date}</div>
-                <div className="text-muted-foreground">
-                  {rec.startTime} · {rec.durationLabel}
+                <div className="truncate text-[12px] tabular-nums text-muted-foreground">
+                  {rec.date}
+                  {rec.startTime ? ` · ${rec.startTime}` : ''}
+                  {rec.durationLabel && rec.durationLabel !== '—'
+                    ? ` · ${rec.durationLabel}`
+                    : ''}
                 </div>
               </div>
-              <div className="shrink-0 text-right md:text-left">
-                {rec.karuteLinked && rec.karuteId ? (
-                  <Link
-                    href={`/karute/${rec.karuteId}` as Parameters<typeof Link>[0]['href']}
-                    className="inline-flex items-center gap-1 text-[12px] text-sky-400 hover:text-sky-300"
-                  >
-                    <FileText size={12} />
-                    <span>{t('karuteCreated')}</span>
-                    <span className="opacity-50">·</span>
-                    <span className="tabular-nums">{t('entries', { n: rec.entryCount })}</span>
-                  </Link>
-                ) : (
-                  <div className="inline-flex items-center gap-2">
-                    <span className="text-[12px] text-muted-foreground">{t('notCreated')}</span>
-                    {/* "Convert" button — gated on
-                     *  NEXT_PUBLIC_FEATURE_RECORDING_CONVERT. The orphan-
-                     *  recording-to-karute path is a separate server
-                     *  action from saveKarute (which only takes a fresh
-                     *  transcript + entries). ANTHONY: add a
-                     *  promoteRecordingToKarute(recordingId) action that
-                     *  reads the transcript + entries off the recording
-                     *  row and inserts a karute_records row in DRAFT,
-                     *  then the onClick here calls it. */}
-                    {FEATURE_RECORDING_CONVERT && (
-                      <button
-                        type="button"
-                        className="rounded-md bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-400 hover:bg-sky-500/15"
-                      >
-                        {t('convert')}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* Right — just the file icon + entry count (dark blue), like the
+               *  spike; or the convert affordance when it isn't a karute yet. */}
+              {rec.karuteLinked && rec.karuteId ? (
+                <Link
+                  href={`/karute/${rec.karuteId}` as Parameters<typeof Link>[0]['href']}
+                  aria-label={t('karuteCreated')}
+                  className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-blue-600 transition-colors hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300"
+                >
+                  <FileText size={14} />
+                  <span className="tabular-nums">{t('entries', { n: rec.entryCount })}</span>
+                </Link>
+              ) : (
+                <div className="inline-flex shrink-0 items-center gap-2">
+                  <span className="text-[12px] text-muted-foreground">{t('notCreated')}</span>
+                  {/* ANTHONY: add promoteRecordingToKarute(recordingId) — reads the
+                   *  transcript + entries off the recording row + inserts a DRAFT
+                   *  karute_records row; the onClick calls it. Gated until then. */}
+                  {FEATURE_RECORDING_CONVERT && (
+                    <button
+                      type="button"
+                      className="rounded-md bg-blue-500/10 px-2 py-0.5 text-[11px] font-medium text-blue-600 transition-colors hover:bg-blue-500/15 dark:text-blue-400"
+                    >
+                      {t('convert')}
+                    </button>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>
