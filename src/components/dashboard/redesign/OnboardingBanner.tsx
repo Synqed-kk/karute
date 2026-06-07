@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowRight, Sparkles, X } from 'lucide-react'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/i18n/navigation'
 import { useState } from 'react'
 
 export function OnboardingBanner() {
