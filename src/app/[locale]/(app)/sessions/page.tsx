@@ -98,7 +98,7 @@ export default async function SessionsPage({
     durationMinutes: number
     title: string | null
     notes: string | null
-    statusKey?: 'in-session' | 'booked' | 'done'
+    statusKey?: 'in-session' | 'booked' | 'done' | 'walk-in'
     staffName: string
   } | null = null
 
@@ -209,7 +209,10 @@ export default async function SessionsPage({
         durationMinutes: 60,
         title: null,
         notes: null,
-        statusKey: 'in-session',
+        // Walk-in: NO booking today. Not 施術中 (that's a booking status) — a
+        // distinct 当日 (walk-in) state so the 録音対象 badge is honest about there
+        // being no reservation.
+        statusKey: 'walk-in',
         staffName: activeStaffId
           ? (staffNameById.get(activeStaffId) ?? '—')
           : '—',

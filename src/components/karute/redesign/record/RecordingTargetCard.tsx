@@ -39,7 +39,7 @@ export interface RecordTargetAppointment {
   /** Drives the status pill next to the 録音対象 label. Defaults to
    *  'booked' when unspecified so existing call-sites don't break.
    *  Values mirror RecordTargetBooking.statusKey for consistency. */
-  statusKey?: 'in-session' | 'booked' | 'new' | 'done'
+  statusKey?: 'in-session' | 'booked' | 'new' | 'done' | 'walk-in'
   /** True when this is the customer's first-ever visit. Surfaces as
    *  the green 新規 pill when no in-session signal is present
    *  (matches spike's AppointmentSelectorCard precedence:
@@ -207,6 +207,15 @@ function StatusPill({
   isNew: RecordTargetAppointment['isNew']
   t: ReturnType<typeof useTranslations>
 }) {
+  // Walk-in (no booking) — neutral 当日 pill, NOT 施術中. A walk-in has no
+  // reservation, so a booking-status badge would be misleading.
+  if (statusKey === 'walk-in') {
+    return (
+      <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('slate')}`}>
+        {t('walkIn')}
+      </span>
+    )
+  }
   if (statusKey === 'in-session') {
     return (
       <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('orange')}`}>

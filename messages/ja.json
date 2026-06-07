@@ -436,6 +436,7 @@
       "statusBooked": "予約済み",
       "firstVisit": "新規",
       "booked": "予約済",
+      "walkIn": "当日",
       "honorific": "様",
       "noBookingPrimary": "予約を選択してください",
       "noBookingSecondary": "右上の「別の予約を選択」から本日の予約を選ぶと、お客様情報・時間・担当者などがここに表示されます。",
