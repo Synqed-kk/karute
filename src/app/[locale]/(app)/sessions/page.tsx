@@ -301,7 +301,16 @@ export default async function SessionsPage({
       startTime: hhmm(dt),
       durationLabel: '—',
       karuteLinked: !!r.ai_summary,
-      entryCount: r.entry_count ?? 0,
+      // entry_count is synqed-core's DENORMALIZED list-endpoint count — it is NOT
+      // updated when entries are added/removed (e.g. after AIで再生成), so it goes
+      // stale: a re-extracted session showed 0件 while it actually had 4 real
+      // entries. getCustomerKaruteRecords fetches the MOST-RECENT record in full,
+      // so prefer its real entries.length; fall back to entry_count for the
+      // lighter list rows (which omit per-entry detail).
+      // ANTHONY: synqed-core should recompute entry_count on entry add/remove (or
+      // compute it live in the list endpoint) so EVERY row is accurate, not just
+      // the most recent.
+      entryCount: (r.entries?.length || r.entry_count) ?? 0,
       karuteId: r.id,
     }
   })
