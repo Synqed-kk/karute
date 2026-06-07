@@ -44,7 +44,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
     // detail page (no wrapper padding), the section's border-b spans
     // edge-to-edge while content stays inset — matches the spike's
     // visual exactly.
-    <section className="bg-card px-4 pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
+    <section className="relative bg-card px-4 pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
       <div className="flex items-start gap-3 md:gap-4">
         {/* Avatar — size-11 mobile / size-14 desktop matches spike */}
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-[15px] font-semibold text-foreground ring-1 ring-black/5 md:h-14 md:w-14 md:text-lg">
@@ -151,28 +151,28 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             </span>
           </div>
 
-          {/* 録音 — start a recording for THIS customer (jumps to the recording
-           *  tab; booking-or-walk-in resolved server-side). RED (recording) +
-           *  subtle, placed BELOW the info so it can't be mis-tapped against the
-           *  top-right edit pencil. */}
-          <Link
-            href={
-              {
-                pathname: '/sessions',
-                query: { customerId: c.id },
-              } as Parameters<typeof Link>[0]['href']
-            }
-            className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-red-600 transition-colors hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
-          >
-            <Mic size={13} aria-hidden />
-            {tProfile('record')}
-          </Link>
         </div>
 
-        {/* Top-right action: the edit pencil ONLY — the 録音 button sits below the
-         *  info (red, subtle) so the two can't be confused or mis-tapped. */}
+        {/* Top-right action: the edit pencil. */}
         <CustomerEditDialog customer={c} />
       </div>
+
+      {/* 録音 — round red mic button anchored to the card's BOTTOM-RIGHT. Jumps to
+       *  the recording tab with THIS customer pre-loaded (booking-or-walk-in
+       *  resolved server-side). Icon-only, so aria-label carries the action; sits
+       *  clear of the top-right edit pencil. */}
+      <Link
+        href={
+          {
+            pathname: '/sessions',
+            query: { customerId: c.id },
+          } as Parameters<typeof Link>[0]['href']
+        }
+        aria-label={tProfile('record')}
+        className="absolute bottom-4 right-4 flex size-10 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition-colors hover:bg-red-600 md:bottom-5 md:right-6"
+      >
+        <Mic size={16} aria-hidden />
+      </Link>
     </section>
   )
 }
