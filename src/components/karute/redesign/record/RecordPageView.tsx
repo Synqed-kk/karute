@@ -51,7 +51,7 @@ export interface RecordPageNextAppointment {
    *  component from `Date.now()` (which React Compiler flags as
    *  impure during render). Re-derive on the next server render
    *  if the page is revisited. */
-  statusKey?: 'in-session' | 'booked' | 'done'
+  statusKey?: 'in-session' | 'booked' | 'done' | 'walk-in'
   /** Resolved staff display name for the recording-target card. Server
    *  looks it up from the staff list at render time (the appointment
    *  query already selects staff_profile_id). Earlier version hardcoded

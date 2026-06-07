@@ -396,6 +396,7 @@
       "statusBooked": "Booked",
       "firstVisit": "First visit",
       "booked": "Booked",
+      "walkIn": "Walk-in",
       "honorific": "",
       "noBookingPrimary": "Pick a booking to record",
       "noBookingSecondary": "Tap 'Choose different booking' in the top-right to pick from today's appointments. Once selected, the customer, time, and staff details show here.",
