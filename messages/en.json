@@ -335,7 +335,10 @@
       "running": "Regenerating…",
       "error": "Regeneration failed",
       "warning": "Some old entries lingered — run again to finish cleanup.",
-      "summaryWarning": "Entries updated, but the summary update failed — please try again."
+      "summaryWarning": "Entries updated, but the summary update failed — please try again.",
+      "all": "Regenerate all karute (temp)",
+      "allRunning": "Regenerating… {done}/{total}",
+      "allDone": "{done} regenerated ({failed} failed)"
     },
     "aiSummary": {
       "title": "AI summary"

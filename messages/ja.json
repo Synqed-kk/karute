@@ -335,7 +335,10 @@
       "running": "再生成中…",
       "error": "再生成に失敗しました",
       "warning": "一部の古い項目が残りました。もう一度実行すると解消します。",
-      "summaryWarning": "項目は更新しましたが、要約の更新に失敗しました。もう一度お試しください。"
+      "summaryWarning": "項目は更新しましたが、要約の更新に失敗しました。もう一度お試しください。",
+      "all": "全カルテをAI再生成（一時）",
+      "allRunning": "再生成中… {done}/{total}",
+      "allDone": "{done}件を再生成しました（失敗 {failed}）"
     },
     "aiSummary": {
       "title": "AI要約"

@@ -38,6 +38,7 @@ import { ChevronLeft } from 'lucide-react'
 import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
+import { RegenerateAllForCustomerButton } from './RegenerateAllForCustomerButton'
 import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
 import { CustomerMemoryCard } from '@/components/karute/spike-lifted/memory/CustomerMemoryCard'
 import { BookingMemoCard } from './BookingMemoCard'
@@ -121,7 +122,16 @@ export function CustomerProfileView({
             />
           </div>
         )}
-        {tab === 'sessions' && <SessionsTabContent sessions={sessions} />}
+        {tab === 'sessions' && (
+          <div className="space-y-3">
+            {/* ⚠️ TEMPORARY build tool — bulk re-run the latest prompts across
+             *  this customer's whole karute history. Remove once backfilled. */}
+            <div className="flex justify-end">
+              <RegenerateAllForCustomerButton customerId={customer.id} />
+            </div>
+            <SessionsTabContent sessions={sessions} />
+          </div>
+        )}
         {/* PhotosTabContent renders the real photos prop loaded
          *  server-side via listCustomerPhotos. Read-only thumbnail
          *  grid until uploads ship. ANTHONY: the upload + capture

@@ -178,3 +178,32 @@ export async function updateKaruteSummary(
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
+
+/**
+ * ⚠️ TEMPORARY BUILD TOOL (remove once historical data is backfilled).
+ *
+ * Lists a customer's karute (id + transcript) so the bulk "全カルテ再生成" button can
+ * re-run the latest extraction/summary prompts across their whole history at once
+ * — instead of opening each karute and clicking 再生成. Best-effort: [] on error;
+ * only returns records that actually have a transcript to re-process.
+ */
+export async function listCustomerKaruteForRegen(
+  customerId: string,
+): Promise<Array<{ id: string; transcript: string }>> {
+  if (!customerId) return []
+  try {
+    const synqed = await getSynqedClient()
+    const res = (await synqed.karuteRecords.list({
+      customer_id: customerId,
+      page_size: 200,
+    })) as
+      | { karute_records?: Array<{ id?: string | null; transcript?: string | null }> }
+      | null
+    return (res?.karute_records ?? [])
+      .map((r) => ({ id: r.id ?? '', transcript: r.transcript ?? '' }))
+      .filter((r) => r.id !== '' && r.transcript.trim() !== '')
+  } catch (err) {
+    console.error('[listCustomerKaruteForRegen] failed:', err)
+    return []
+  }
+}
