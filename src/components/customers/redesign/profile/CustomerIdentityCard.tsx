@@ -140,20 +140,21 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               </span>
             </span>
             <span aria-hidden>·</span>
-            <span className="inline-flex items-center gap-1.5 opacity-50">
-              <span>
+            {/* Only the prediction TEXT is dimmed; the 対応予定 chip stays full
+             *  opacity so it reads the same as every other 対応予定 badge. */}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="opacity-50">
                 {t('row.recommendPrefix')}{' '}
                 <span className="text-foreground">{c.nextVisitPredicted}</span>
               </span>
               <ComingSoonChip />
             </span>
           </div>
-        </div>
 
-        {/* Top-right actions: 録音 (jump to the recording tab with THIS
-         *  customer pre-loaded as the target — books-or-walk-in resolved
-         *  server-side) + the edit pencil. */}
-        <div className="flex shrink-0 items-center gap-1.5">
+          {/* 録音 — start a recording for THIS customer (jumps to the recording
+           *  tab; booking-or-walk-in resolved server-side). RED (recording) +
+           *  subtle, placed BELOW the info so it can't be mis-tapped against the
+           *  top-right edit pencil. */}
           <Link
             href={
               {
@@ -161,15 +162,16 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
                 query: { customerId: c.id },
               } as Parameters<typeof Link>[0]['href']
             }
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white transition-colors hover:bg-blue-700"
+            className="mt-3 inline-flex w-fit items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] font-semibold text-red-600 transition-colors hover:bg-red-100 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20"
           >
             <Mic size={13} aria-hidden />
             {tProfile('record')}
           </Link>
-          {/* Edit pencil — opens CustomerEditDialog (pre-populated; save
-           *  revalidates the page). */}
-          <CustomerEditDialog customer={c} />
         </div>
+
+        {/* Top-right action: the edit pencil ONLY — the 録音 button sits below the
+         *  info (red, subtle) so the two can't be confused or mis-tapped. */}
+        <CustomerEditDialog customer={c} />
       </div>
     </section>
   )
