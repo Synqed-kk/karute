@@ -18,6 +18,7 @@ import {
   getCustomerConsent,
   grantCustomerConsent,
 } from '@/actions/customers'
+import { isConsentCurrent } from '@/lib/consent'
 
 type FlowPhase = 'idle' | 'recording' | 'recorded' | 'pipeline'
 
@@ -83,7 +84,8 @@ export function RecordingFlow({ customers, locale, nextAppointment }: RecordingF
     }
     try {
       const { consent: row } = await getCustomerConsent(customerIdForConsent)
-      setConsent({ granted: !!row, grantedAt: row?.granted_at ?? null })
+      // Stale-version consent must NOT count as granted (legal invalidation).
+      setConsent({ granted: isConsentCurrent(row), grantedAt: row?.granted_at ?? null })
     } catch {
       setConsent({ granted: false, grantedAt: null })
     }
