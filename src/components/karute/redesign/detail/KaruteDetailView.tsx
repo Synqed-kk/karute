@@ -9,6 +9,7 @@ import {
   CurrentSessionCard,
   type SessionEntry,
 } from './CurrentSessionCard'
+import { RegenerateEntriesButton } from './RegenerateEntriesButton'
 import { RecordingTranscriptCard } from './RecordingTranscriptCard'
 import {
   CustomerMemoryCard,
@@ -23,6 +24,12 @@ import {
   type SuggestedMessage,
 } from './AISuggestedMessageCard'
 import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
+import { OutcomeCard } from './OutcomeCard'
+import type { KaruteOutcomeRow } from '@/lib/karute/outcome'
+import {
+  AIBodyPredictionPreview,
+  AIOutreachPreview,
+} from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 
 export interface KaruteDetailViewProps {
   karuteId: string
@@ -40,6 +47,7 @@ export interface KaruteDetailViewProps {
   memory: CustomerMemorySnapshot | null
   bodyPrediction: BodyPrediction | null
   suggestedMessage: SuggestedMessage | null
+  outcome: KaruteOutcomeRow | null
 }
 
 export function KaruteDetailView({
@@ -56,6 +64,7 @@ export function KaruteDetailView({
   memory,
   bodyPrediction,
   suggestedMessage,
+  outcome,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
@@ -67,7 +76,26 @@ export function KaruteDetailView({
         sessionDateLong={sessionDateLong}
       />
 
-      <CustomerHeaderCard {...header} />
+      <CustomerHeaderCard
+        {...header}
+        customerHref={customerId ? `/customers/${customerId}` : undefined}
+      />
+
+      <OutcomeCard
+        karuteRecordId={karuteId}
+        customerId={customerId}
+        customerName={header.customerName}
+        current={
+          outcome
+            ? {
+                outcome: outcome.outcome,
+                reason: outcome.reason,
+                autoDecided: outcome.auto_decided,
+                isFirstVisit: outcome.is_first_visit,
+              }
+            : null
+        }
+      />
 
       <CustomerMemoryCard memory={memory} />
 
@@ -75,18 +103,39 @@ export function KaruteDetailView({
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
-          <AIBodyPredictionCard prediction={bodyPrediction} />
+          {/* Show the 対応予定 scaffold when there's no prediction yet, so the
+           *  section stays visible as a reminder instead of vanishing (the card
+           *  itself returns null when empty). Lights up when Anthony's pipeline
+           *  passes a real prediction. */}
+          {bodyPrediction ? (
+            <AIBodyPredictionCard prediction={bodyPrediction} />
+          ) : (
+            <AIBodyPredictionPreview />
+          )}
           <CurrentSessionCard
             sessionDate={sessionDateLong}
             entries={entries}
+            headerAction={
+              transcript ? (
+                <RegenerateEntriesButton
+                  karuteRecordId={karuteId}
+                  transcript={transcript}
+                />
+              ) : null
+            }
           />
         </div>
         <div className="flex flex-col gap-4">
-          <AISuggestedMessageCard
-            customerName={header.customerName}
-            customerId={customerId}
-            draft={suggestedMessage}
-          />
+          {/* Same pattern — 対応予定 scaffold when there's no draft yet. */}
+          {suggestedMessage ? (
+            <AISuggestedMessageCard
+              customerName={header.customerName}
+              customerId={customerId}
+              draft={suggestedMessage}
+            />
+          ) : (
+            <AIOutreachPreview />
+          )}
           <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
           <RecordingTranscriptCard
             transcript={transcript}

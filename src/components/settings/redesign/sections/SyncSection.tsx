@@ -4,6 +4,38 @@ import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 
+type SyncResponse = {
+  error?: string
+  message?: string
+  created?: number
+  updated?: number
+  skipped?: number
+}
+
+/**
+ * Read a sync API response defensively. On a HANDLED failure the route returns
+ * clean JSON ({ error }); but on a platform CRASH/timeout Vercel returns PLAIN
+ * TEXT ("Internal Server Error") — calling res.json() on that threw
+ * "Unexpected token 'I'" and masked the real failure. So: read text first, parse
+ * if we can, and ALWAYS surface the HTTP status so the true error is visible.
+ */
+async function readSyncResponse(
+  res: Response,
+): Promise<{ ok: true; data: SyncResponse } | { ok: false; message: string }> {
+  const raw = await res.text().catch(() => '')
+  let data: SyncResponse | null = null
+  try {
+    data = raw ? (JSON.parse(raw) as SyncResponse) : null
+  } catch {
+    /* non-JSON body (e.g. Vercel's plain "Internal Server Error" on a crash) */
+  }
+  if (!res.ok || data?.error) {
+    const detail = data?.error ?? (raw ? raw.slice(0, 160) : res.statusText)
+    return { ok: false, message: `Error (${res.status}): ${detail}` }
+  }
+  return { ok: true, data: data ?? {} }
+}
+
 export function SyncSection() {
   const t = useTranslations('settings')
   const tAuth = useTranslations('auth')
@@ -32,8 +64,8 @@ export function SyncSection() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, enabled }),
       })
-      const data = await res.json()
-      setLastResult(data.error ? `Error: ${data.error}` : 'Config saved')
+      const parsed = await readSyncResponse(res)
+      setLastResult(parsed.ok ? 'Config saved' : parsed.message)
     } catch {
       setLastResult('Failed to save')
     }
@@ -45,14 +77,16 @@ export function SyncSection() {
     setLastResult('Syncing...')
     try {
       const res = await fetch('/api/sync/quickreserve', { method: 'POST' })
-      const data = await res.json()
-      setLastResult(
-        data.error
-          ? `Error: ${data.error}`
-          : data.message
-            ? data.message
-            : `Synced: ${data.created} created, ${data.updated} updated, ${data.skipped} skipped`,
-      )
+      const parsed = await readSyncResponse(res)
+      if (!parsed.ok) {
+        setLastResult(parsed.message)
+      } else {
+        const d = parsed.data
+        setLastResult(
+          d.message ??
+            `Synced: ${d.created ?? 0} created, ${d.updated ?? 0} updated, ${d.skipped ?? 0} skipped`,
+        )
+      }
     } catch (err) {
       setLastResult(
         `Failed: ${err instanceof Error ? err.message : 'Unknown'}`,

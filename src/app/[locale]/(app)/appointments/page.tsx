@@ -9,12 +9,17 @@ import {
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
-import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { enrichCustomers, isReturningCustomer } from '@/lib/customers/list-enrich'
+import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
 import type { DayWeekMonthView } from '@synqed-kk/ui'
 import type { ReservationStaff } from '@/components/reservation/StaffRow'
-import { jstStartOfToday, ymdInJst, partsInJst } from '@/lib/date/jst'
+import { jstStartOfToday, ymdInJst } from '@/lib/date/jst'
+import {
+  computeWeekRange,
+  computeMonthRange,
+} from '@/lib/date/calendar-range'
 
 function parseDateParam(value: string | undefined): Date {
   // Interpret the ?date= YYYY-MM-DD as a JST calendar day. Vercel runs in
@@ -31,66 +36,8 @@ function parseViewParam(value: string | undefined): DayWeekMonthView {
   return value === 'week' || value === 'month' ? value : 'day'
 }
 
-const pad2 = (n: number) => String(n).padStart(2, '0')
-
-/** A Date at JST midnight for the given JST calendar y/m/d (month is 1-12). */
-function jstMidnight(year: number, month: number, day: number): Date {
-  return new Date(`${year}-${pad2(month)}-${pad2(day)}T00:00:00+09:00`)
-}
-
-// JST-anchored week start. The runtime is UTC on Vercel, so getFullYear()/
-// getMonth()/getDate()/getDay() report the UTC calendar day — which rolls a
-// JST-midnight `d` back to the previous day (and the previous MONTH on the 1st).
-// That made the month/week grid render one month off from the selected date.
-// Derive from JST parts so the grid matches what the user picked.
-function startOfWeekSun(d: Date): Date {
-  const p = partsInJst(d)
-  const out = jstMidnight(p.year, p.month, p.day)
-  out.setDate(out.getDate() - p.weekday) // p.weekday: 0=Sun..6=Sat (JST)
-  return out
-}
-
-// ─────────────────────────────────────────────────────────────
-// Date-range pre-computers — pulled OUT of the await chain so
-// they can be computed synchronously up-front, allowing the
-// week/month range fetch to fan out alongside Stage 1 of the
-// page-level Promise.all (instead of running serially after).
-// ─────────────────────────────────────────────────────────────
-function computeWeekRange(selectedDate: Date): {
-  weekStart: Date
-  weekEnd: Date
-  rangeFrom: Date
-  rangeTo: Date
-} {
-  const weekStart = startOfWeekSun(selectedDate)
-  const weekEnd = new Date(weekStart)
-  weekEnd.setDate(weekEnd.getDate() + 6)
-  const rangeFrom = new Date(weekStart)
-  const rangeTo = new Date(weekEnd)
-  rangeTo.setHours(23, 59, 59, 999)
-  return { weekStart, weekEnd, rangeFrom, rangeTo }
-}
-
-function computeMonthRange(selectedDate: Date): {
-  monthStart: Date
-  monthEnd: Date
-  rangeFrom: Date
-  rangeTo: Date
-} {
-  // JST month boundaries (see startOfWeekSun note — raw getMonth() is UTC on
-  // Vercel and rolls the 1st back into the previous month, so the whole month
-  // grid rendered one month off from the selected date).
-  const p = partsInJst(selectedDate)
-  const monthStart = jstMidnight(p.year, p.month, 1)
-  const daysInMonth = new Date(p.year, p.month, 0).getDate()
-  const monthEnd = jstMidnight(p.year, p.month, daysInMonth)
-  const rangeFrom = new Date(monthStart)
-  rangeFrom.setDate(rangeFrom.getDate() - 7) // include leading days
-  const rangeTo = new Date(monthEnd)
-  rangeTo.setDate(rangeTo.getDate() + 7) // include trailing days
-  rangeTo.setHours(23, 59, 59, 999)
-  return { monthStart, monthEnd, rangeFrom, rangeTo }
-}
+// Date-range pre-computers (JST-anchored) live in a tested lib so the week/
+// month fetch windows stay correct on the UTC runtime — see calendar-range.ts.
 
 /**
  * Parse the ?staff= URL param into one of:
@@ -209,18 +156,35 @@ export default async function AppointmentsPage({
     businessId && clientIdsForDay.length
       ? await enrichCustomers(businessId, clientIdsForDay)
       : new Map()
-  // "First-time customer" = no past appointments AND no recorded karute.
-  // Previously this was derived from `totalKarute === 0` alone, which meant
-  // any existing customer without a recorded karute rendered as 新規 on the
-  // reservation agenda even if they'd been coming in for months. Liam hit
-  // this on Vercel — every booking showed as 新規.
+  // QR "returning customer" flag per client (cached 500-customer list). A known
+  // existing customer is NEVER 新規 — even with no karute/past appointment yet
+  // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
+  // Cached customer by id — carries the QR returning-signals (visit_count, 回数券).
+  const cachedById = new Map(customers.map((c) => [c.id, c] as const))
+  // "First-time customer" = NOT returning, via the SAME resolver signal the 顧客
+  // list + profile use (isReturningCustomer). One source of truth → a 回数券 or
+  // visit_count regular is never shown 新規 here while reading 継続中 elsewhere.
   const isFirstTimeByClient = new Map<string, boolean>()
   for (const [id, e] of enrichment.entries()) {
+    const cc = cachedById.get(id)
     isFirstTimeByClient.set(
       id,
-      e.totalKarute === 0 && e.pastAppointmentCount === 0,
+      !isReturningCustomer({
+        joinDateIso: null,
+        lastVisitIso: null,
+        isExistingCustomer: cc?.isExistingCustomer,
+        visitCount: cc?.visitCount,
+        hasTicketPack: cc?.hasTicketPack,
+        karuteCount: e.totalKarute,
+        pastAppointmentCount: e.pastAppointmentCount,
+      }),
     )
   }
+
+  // Sequential salon karute number per customer — same helper + same cached
+  // customer list the 顧客 page + karute detail use, so the agenda row's
+  // #00139 matches every other surface exactly (it sorts deterministically).
+  const karuteNumberByClientId = assignSequentialKaruteNumbers(customers)
 
   // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
   // know whether an appointment is past/in-progress/future relative to right
@@ -230,6 +194,7 @@ export default async function AppointmentsPage({
     staffList,
     now,
     isFirstTimeByClient,
+    karuteNumberByClientId,
   )
 
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
@@ -272,12 +237,17 @@ export default async function AppointmentsPage({
       return Math.round(sum / 7)
     })()
 
+    const newCustomerIds = new Set(
+      customers.filter((c) => !c.isExistingCustomer).map((c) => c.id),
+    )
     weekData = appointmentsToWeekData(
       weekRangeAppts,
       weekRange.weekStart,
       weekRange.weekEnd,
       totalMinutes,
       now,
+      locale,
+      newCustomerIds,
     )
     weekStartIso = weekRange.weekStart.toISOString()
   } else if (monthRange && monthRangeAppts) {

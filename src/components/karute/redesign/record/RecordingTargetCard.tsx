@@ -6,6 +6,7 @@ import { ChevronUp, Clock } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { SelectBookingSheet } from './SelectBookingSheet'
+import { badge } from '@/lib/badge-styles'
 
 export interface RecordTargetBooking {
   id: string
@@ -16,6 +17,13 @@ export interface RecordTargetBooking {
   karute: string | null
   service: string
   staff: string
+  /** Assigned staff id — drives the avatar color (same palette as the 予約 agenda). */
+  staffId: string | null
+  /** Distinct staff color, resolved from the full roster on the page
+   *  (sessions/page.tsx via assignStaffColors). The picker avatar reads
+   *  this through getStaffColorByKey — never a per-id hash — so a stylist's
+   *  color matches every other surface. Null → neutral fallback. */
+  staffColorKey: import('@/lib/staff-colors').StaffColor['key'] | null
   statusKey: 'done' | 'in-session' | 'booked' | 'new'
   statusLabel: string
 }
@@ -31,7 +39,7 @@ export interface RecordTargetAppointment {
   /** Drives the status pill next to the 録音対象 label. Defaults to
    *  'booked' when unspecified so existing call-sites don't break.
    *  Values mirror RecordTargetBooking.statusKey for consistency. */
-  statusKey?: 'in-session' | 'booked' | 'new' | 'done'
+  statusKey?: 'in-session' | 'booked' | 'new' | 'done' | 'walk-in'
   /** True when this is the customer's first-ever visit. Surfaces as
    *  the green 新規 pill when no in-session signal is present
    *  (matches spike's AppointmentSelectorCard precedence:
@@ -129,12 +137,12 @@ export function RecordingTargetCard({
           </div>
           <div className="flex min-w-0 flex-col gap-1">
             <div className="flex flex-wrap items-baseline gap-2">
-              <span className="text-base font-semibold text-foreground">
+              <span className="min-w-0 truncate text-base font-semibold text-foreground">
                 {appointment.customerName}
               </span>
-              <span className="text-[13px] text-muted-foreground">{t('honorific')}</span>
+              <span className="shrink-0 text-[13px] text-muted-foreground">{t('honorific')}</span>
               {appointment.karuteNumber && (
-                <span className="text-[13px] tabular-nums text-muted-foreground">
+                <span className="shrink-0 text-[13px] tabular-nums text-muted-foreground">
                   {appointment.karuteNumber}
                 </span>
               )}
@@ -199,16 +207,25 @@ function StatusPill({
   isNew: RecordTargetAppointment['isNew']
   t: ReturnType<typeof useTranslations>
 }) {
+  // Walk-in (no booking) — neutral 当日 pill, NOT 施術中. A walk-in has no
+  // reservation, so a booking-status badge would be misleading.
+  if (statusKey === 'walk-in') {
+    return (
+      <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('slate')}`}>
+        {t('walkIn')}
+      </span>
+    )
+  }
   if (statusKey === 'in-session') {
     return (
-      <span className="inline-flex h-[22px] items-center rounded-full border border-orange-400/40 bg-orange-500/15 px-2.5 text-[11px] font-medium text-orange-400">
+      <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('orange')}`}>
         {t('inSession')}
       </span>
     )
   }
   if (isNew || statusKey === 'new') {
     return (
-      <span className="inline-flex h-[22px] items-center rounded-full border border-emerald-400/40 bg-emerald-500/15 px-2.5 text-[11px] font-medium text-emerald-400">
+      <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('blue')}`}>
         {t('firstVisit')}
       </span>
     )
@@ -217,7 +234,7 @@ function StatusPill({
     return null
   }
   return (
-    <span className="inline-flex h-[22px] items-center rounded-full border border-sky-400/40 bg-sky-500/15 px-2.5 text-[11px] font-medium text-sky-400">
+    <span className={`inline-flex h-[22px] items-center rounded-full border px-2.5 text-[11px] font-medium ${badge('green')}`}>
       {t('booked')}
     </span>
   )

@@ -20,7 +20,7 @@ import { CustomersListPagination } from './CustomersListPagination'
 import { CustomerRowDesktop } from './CustomerRowDesktop'
 import { CustomerCardMobile } from './CustomerCardMobile'
 import { ComingSoonChip } from '../ComingSoonChip'
-import { getStaffColor } from '@/lib/staff/colors'
+import { assignStaffColors } from '@/lib/staff-colors'
 
 /**
  * Cards per page. 12 matches the design spike's footer pagination
@@ -87,6 +87,16 @@ export function CustomersListView({
   useEffect(() => {
     setPage(0)
   }, [statusFilter, staffFilter, query])
+
+  // DISTINCT staff-color map, derived from the FULL tenant roster (the same
+  // `staffList` that feeds the staff-filter pills). Computing it once here —
+  // off the complete roster, not the current page — guarantees the assignment
+  // is collision-free and identical to the filter pills + every other surface.
+  // Each card looks up its own key by the displayed 担当 (指名 → booking).
+  const staffColors = useMemo(
+    () => assignStaffColors(staffList.map((s) => s.id)),
+    [staffList],
+  )
 
   const counts: CustomerListCounts = useMemo(() => {
     const since30 = new Date()
@@ -189,7 +199,10 @@ export function CustomersListView({
               <CustomerRowDesktop
                 key={c.id}
                 c={c}
-                staffColor={getStaffColor(c.preferredStaffId ?? c.bookingStaffId)}
+                staffColorKey={
+                  staffColors.get(c.preferredStaffId ?? c.bookingStaffId ?? '')
+                    ?.key ?? null
+                }
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
               />
@@ -205,7 +218,10 @@ export function CustomersListView({
               <CustomerCardMobile
                 key={c.id}
                 c={c}
-                staffColor={getStaffColor(c.preferredStaffId ?? c.bookingStaffId)}
+                staffColorKey={
+                  staffColors.get(c.preferredStaffId ?? c.bookingStaffId ?? '')
+                    ?.key ?? null
+                }
                 karuteContext={karuteContext}
                 hrefBase={hrefBase}
               />

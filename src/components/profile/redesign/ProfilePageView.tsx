@@ -85,7 +85,10 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
     try {
       const supabase = createClient()
       await supabase.auth.signOut()
-      router.push('/login')
+      // Locale-prefixed: this page uses next/navigation's router (the language
+      // swapper above needs the locale in the path), so prefix manually here —
+      // otherwise logout lands on /login (no locale) → 404.
+      router.push(`/${locale}/login`)
       router.refresh()
     } catch {
       setSigningOut(false)

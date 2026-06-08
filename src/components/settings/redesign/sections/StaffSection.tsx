@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl'
 import { Mic } from 'lucide-react'
 import type { StaffMember } from '@/lib/staff'
 import { StaffList } from '@/components/staff/StaffList'
+import { InviteStaffDialog } from './staff/InviteStaffDialog'
 
 interface StaffSectionProps {
   staffList: StaffMember[]
@@ -32,6 +33,15 @@ export function StaffSection({
         currentUserId={activeStaffId}
         isOwner={isOwner}
       />
+
+      {/* Invite staff — owner-only, behind the staff-invites flag (off until the
+          tenant-isolation migration lands). Lets the owner generate a /join link
+          so a teammate logs into THIS salon instead of creating their own. */}
+      {isOwner && process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true' && (
+        <div className="flex justify-end">
+          <InviteStaffDialog />
+        </div>
+      )}
 
       <div className="border-t border-border/30 pt-4">
         <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border/50 bg-card/40 px-4 py-3">

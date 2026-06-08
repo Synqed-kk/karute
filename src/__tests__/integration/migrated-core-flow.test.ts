@@ -82,6 +82,13 @@ describe('Migrated core flow — customers + karute + entries', () => {
       furigana: 'テストタロウ',
       phone: null,
       email: null,
+      assigned_staff_id: null,
+      // Deep-data fields the 0.12.0 client's CreateCustomerInput carries —
+      // createCustomer sends them as null when the form omits them.
+      date_of_birth: null,
+      gender: null,
+      occupation: null,
+      member_number: null,
     })
   })
 

@@ -1,16 +1,22 @@
 import { notFound } from 'next/navigation'
 
 import { getCustomer } from '@/lib/customers/queries'
+import { computeAge, jpGender, isBirthdayMonth } from '@/lib/customers/demographics'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listCustomerPhotos } from '@/actions/customers'
+import { getCustomerMemory } from '@/lib/karute/customer-memory'
+import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
+import { buildCustomerMemory } from '@/lib/karute/memory-adapter'
+import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
+import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
-  deriveStatus,
+  resolveCustomerStatus,
   enrichCustomers,
   formatJoinDate,
 } from '@/lib/customers/list-enrich'
@@ -25,14 +31,18 @@ interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
 }
 
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-
-function prettyDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
+function prettyDate(iso: string, locale: string): string {
+  return new Date(iso).toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     year: 'numeric',
+    month: locale === 'ja' ? 'long' : 'short',
+    day: 'numeric',
   })
+}
+
+function weekdayLabel(dt: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    weekday: 'short',
+  }).format(dt)
 }
 
 export default async function CustomerProfilePage({
@@ -109,9 +119,58 @@ export default async function CustomerProfilePage({
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
 
+  // ─── Customer memory (お客様メモリー card) ───────────────────────────────
+  // Read the persistent store; if empty, bootstrap ONCE from this customer's
+  // past transcripts (the same backfill the pre-session brief uses). The result
+  // is cached (1d) so it never re-runs the OpenAI call per page view — and once
+  // the customer_memory_items table is migrated, the store itself short-circuits
+  // the backfill (items.length > 0). Best-effort: empty card if the table is
+  // absent.
+  let memoryItems = await getCustomerMemory(id)
+  if (memoryItems.length === 0) {
+    // synqedKaruteRows (not the merged KaruteRow) carry the transcript field.
+    const transcripts = synqedKaruteRows
+      .map((r) => r.transcript ?? '')
+      .filter((t) => t.trim())
+    if (transcripts.length > 0) {
+      const cacheKey = { c: id, t: synqedKaruteRows.map((r) => r.id) }
+      const cached = (await getCachedAI('memory-backfill', cacheKey)) as
+        | MemoryItem[]
+        | null
+      if (cached) {
+        memoryItems = cached
+      } else {
+        memoryItems = await backfillMemoryFromTranscripts({
+          customerId: id,
+          businessId,
+          transcripts,
+          locale,
+        })
+        await setCachedAI('memory-backfill', cacheKey, memoryItems, 1)
+      }
+    }
+  }
+  const customerMemory = buildCustomerMemory(memoryItems, id)
+
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
-  const status = deriveStatus(customer.created_at, lastVisitIso, customer.is_existing_customer)
+  // Returning signal = the MAX of QR visit_count AND the actual karute history.
+  // A customer can have many recorded sessions but visit_count 0 (hand-added, or
+  // QR never synced the count) — ぴあそん has 11 karute but visit_count 0, so
+  // passing visit_count alone wrongly flagged her 新規. The list page already
+  // uses the karute count; this aligns the profile with it.
+  // SINGLE SOURCE: identical signals + resolver as the list/recording/agenda, so
+  // this customer's badge is the same on every page (the chopstick — computed
+  // once, shown everywhere).
+  const status = resolveCustomerStatus({
+    joinDateIso: customer.created_at,
+    lastVisitIso,
+    isExistingCustomer: customer.is_existing_customer,
+    visitCount: customer.visit_count,
+    karuteCount: karuteRecords.length,
+    pastAppointmentCount: enrichment.get(id)?.pastAppointmentCount,
+    hasTicketPack: customer.has_ticket_pack,
+  })
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
@@ -126,8 +185,8 @@ export default async function CustomerProfilePage({
     return {
       id: r.id,
       karuteId: r.id,
-      date: prettyDate(r.session_date ?? r.created_at),
-      weekday: WEEKDAYS[dt.getDay()],
+      date: prettyDate(r.session_date ?? r.created_at, locale),
+      weekday: weekdayLabel(dt, locale),
       // Service '—' + duration 0 instead of literal 'Session' /
       // 60 — same '施術' bug fixed on the main karute list. The
       // session-row renderer should gate the duration display on
@@ -158,8 +217,10 @@ export default async function CustomerProfilePage({
       assignSequentialKaruteNumbers(allCustomersList.customers).get(
         customer.id,
       ) ?? '#00000',
-    age: null,
-    gender: null,
+    age: computeAge(customer.date_of_birth),
+    gender: jpGender(customer.gender),
+    dateOfBirth: customer.date_of_birth,
+    genderCode: customer.gender,
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
     // Lifetime visit count from external sync (QuickReserve visits_number_cache);
@@ -169,6 +230,13 @@ export default async function CustomerProfilePage({
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
     bookingMemo: customer.notes ?? null,
+    occupation: customer.occupation,
+    memberNumber: customer.member_number,
+    hasTicketPack: customer.has_ticket_pack,
+    isBirthdayMonth: isBirthdayMonth(customer.date_of_birth),
+    lastVisitDate: customer.last_visit_at
+      ? formatJoinDate(customer.last_visit_at, locale)
+      : null,
     preferredStaffId,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)
@@ -178,7 +246,7 @@ export default async function CustomerProfilePage({
       : null,
     nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,
-    memoryCount: 0, // Customer Memory backend not built yet
+    memoryCount: memoryItems.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,
   }
@@ -188,6 +256,7 @@ export default async function CustomerProfilePage({
       customer={profile}
       sessions={sessions}
       photos={photos}
+      customerMemory={customerMemory}
     />
   )
 }

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
+import { toast } from 'sonner'
 
 import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -16,6 +17,7 @@ import {
   getCustomerConsent,
   grantCustomerConsent,
 } from '@/actions/customers'
+import { isConsentCurrent } from '@/lib/consent'
 
 import { RecordPageHeader } from './RecordPageHeader'
 import {
@@ -35,11 +37,15 @@ import {
   type RecentRecording,
 } from './RecentRecordingsCard'
 import { LiveTranscriptCard } from './LiveTranscriptCard'
+import { PostSessionResolutionDialog } from './PostSessionResolutionDialog'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 export interface RecordPageNextAppointment {
   id: string
   customerName: string
   customerId: string
+  /** Sequential karute number ("#00007") — matches the 顧客/予約 surfaces. */
+  karuteNumber: string | null
   startTime: string
   durationMinutes: number
   title: string | null
@@ -48,7 +54,7 @@ export interface RecordPageNextAppointment {
    *  component from `Date.now()` (which React Compiler flags as
    *  impure during render). Re-derive on the next server render
    *  if the page is revisited. */
-  statusKey?: 'in-session' | 'booked' | 'done'
+  statusKey?: 'in-session' | 'booked' | 'done' | 'walk-in'
   /** Resolved staff display name for the recording-target card. Server
    *  looks it up from the staff list at render time (the appointment
    *  query already selects staff_profile_id). Earlier version hardcoded
@@ -103,6 +109,8 @@ export function RecordPageView({
     error: micError,
     stream,
     startedAt,
+    overrun,
+    autoStopped,
     startRecording,
     stopRecording,
     discardRecording,
@@ -112,6 +120,15 @@ export function RecordPageView({
   // singleton — survives navigation; the top-corner chip (ProcessingIndicator)
   // shows progress instead of a full-screen blocker.
   const pipeline = useGlobalPipeline()
+
+  // Runaway-recording safety nets (see global-recorder): nudge the staff when a
+  // recording runs unusually long, and tell them when the hard cap auto-saved it.
+  useEffect(() => {
+    if (overrun) toast.warning(t('overrunWarning'))
+  }, [overrun, t])
+  useEffect(() => {
+    if (autoStopped) toast.info(t('autoStopped'))
+  }, [autoStopped, t])
 
   // 別の予約を選択: tapping a booking in the picker re-targets the record page
   // at THAT appointment. We push the id through `?appointmentId` so the server
@@ -141,6 +158,10 @@ export function RecordPageView({
   })
   const [showNoBookingPrompt, setShowNoBookingPrompt] = useState(false)
   const [recordingDuration, setRecordingDuration] = useState(0)
+  // Outcome is chosen the MOMENT recording stops (the staff knows it live),
+  // before transcription — so they decide once, up front, then the AI runs in
+  // the background while they move on. It rides the pipeline context to save.
+  const [outcomeOpen, setOutcomeOpen] = useState(false)
 
   const [consent, setConsent] = useState<{ granted: boolean; grantedAt: string | null } | null>(null)
   const [showConsentDialog, setShowConsentDialog] = useState(false)
@@ -155,7 +176,8 @@ export function RecordPageView({
     }
     try {
       const { consent: row } = await getCustomerConsent(customerIdForConsent)
-      setConsent({ granted: !!row, grantedAt: row?.granted_at ?? null })
+      // Stale-version consent must NOT count as granted (legal invalidation).
+      setConsent({ granted: isConsentCurrent(row), grantedAt: row?.granted_at ?? null })
     } catch {
       setConsent({ granted: false, grantedAt: null })
     }
@@ -218,12 +240,17 @@ export function RecordPageView({
     discardRecording()
     setPhase('idle')
   }
-  function handleUseRecording() {
+  function handleUseRecording(outcome?: SessionOutcome) {
     if (!result) return
     // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
     // modal on this page). The top-corner chip shows progress; staff can leave
     // and keep working. When it's done the chip brings them back to review+save.
-    const effectiveAppointmentId = recordingAppointmentId ?? nextAppointment?.id
+    // The outcome (chosen at stop) rides along so the save applies it without
+    // re-prompting at the end.
+    // `|| undefined`: a walk-in target (customer recorded with no booking)
+    // carries id='' — coerce it so the save writes appointment_id null, not ''.
+    const effectiveAppointmentId =
+      (recordingAppointmentId ?? nextAppointment?.id) || undefined
     const effectiveCustomerId = recordingAppointmentId
       ? (recordingCustomerId ?? undefined)
       : nextAppointment?.customerId
@@ -233,6 +260,7 @@ export function RecordPageView({
       duration: Math.round(result.durationMs / 1000),
       appointmentId: effectiveAppointmentId,
       appointmentCustomerId: effectiveCustomerId,
+      outcome,
     })
     // The pipeline now owns the audio; clear the recorder + return to idle so
     // the page isn't stuck on the "review your take" screen.
@@ -257,6 +285,7 @@ export function RecordPageView({
         duration={pipeline.context.duration}
         appointmentId={pipeline.context.appointmentId}
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
+        outcome={pipeline.context.outcome}
         onSaved={() => {
           globalPipeline.reset()
           handleNewSession()
@@ -307,7 +336,7 @@ export function RecordPageView({
         id: nextAppointment.id,
         customerName: nextAppointment.customerName,
         initials: deriveInitials(nextAppointment.customerName),
-        karuteNumber: null,
+        karuteNumber: nextAppointment.karuteNumber ?? null,
         service: nextAppointment.title ?? '—',
         timeRange: (() => {
           const start = new Date(nextAppointment.startTime)
@@ -349,7 +378,7 @@ export function RecordPageView({
         <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
           {t('discard')}
         </Button>
-        <Button variant="default" size="md" className="flex-1" onClick={handleUseRecording}>
+        <Button variant="default" size="md" className="flex-1" onClick={() => setOutcomeOpen(true)}>
           {t('useRecording')}
         </Button>
       </div>
@@ -446,6 +475,20 @@ export function RecordPageView({
       <LiveTranscriptCard connected={false} lines={[]} />
 
       <RecentRecordingsCard recordings={recentRecordings} />
+
+      {/* Outcome — chosen at stop, BEFORE transcription, so staff aren't stuck
+          waiting for the AI. Centered pop-up; the choice rides the pipeline
+          context to the save. */}
+      <PostSessionResolutionDialog
+        open={outcomeOpen}
+        customerName={nextAppointment?.customerName ?? ''}
+        isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        onCancel={() => setOutcomeOpen(false)}
+        onResolve={(outcome) => {
+          setOutcomeOpen(false)
+          handleUseRecording(outcome)
+        }}
+      />
 
       {/* Consent dialog */}
       {showConsentDialog && nextAppointment && (

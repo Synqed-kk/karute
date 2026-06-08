@@ -3,7 +3,7 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import { SummaryResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
-import { createClient } from '@/lib/supabase/server'
+import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -20,19 +20,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'transcript is required' }, { status: 400 })
     }
 
-    const supabase = await createClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
+    // Business type from synqed-core. (The previous from('organization_settings')
+    // read a Supabase table that doesn't exist — it silently failed to the
+    // default, so the summary was never actually business-type-aware.)
+    const orgSettings = await getOrgSettings().catch(() => null)
     const businessType = orgSettings?.business_type || 'salon/clinic'
 
-    const systemPrompt = getSummarySystemPrompt(locale ?? 'en')
+    const systemPrompt = getSummarySystemPrompt(
+      locale ?? 'en',
+      orgSettings?.business_type,
+    )
 
     const completion = await openai.chat.completions.parse({
-      model: 'gpt-4o-mini',
+      // gpt-4o (not -mini): the summary is reasoning-heavy (condense narrative,
+      // keep concrete dates) — the spike AI_PROMPTS.md §3 calls for a strong
+      // reasoning model here. DEDICATED env var (not the shared AI_MODEL) so a
+      // system-wide cost setting can't silently revert it. gpt-4o supports
+      // structured outputs.
+      model: process.env.AI_SUMMARIZE_MODEL || 'gpt-4o',
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {

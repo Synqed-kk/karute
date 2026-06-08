@@ -1,7 +1,7 @@
 'use client'
 
 import { useTransition, useState } from 'react'
-import { Trash2, Edit2, ChevronDown, ChevronUp } from 'lucide-react'
+import { Trash2, ChevronDown, ChevronUp } from 'lucide-react'
 import { CategoryBadge } from '@/components/karute/CategoryBadge'
 import { ConfidenceDot } from '@/components/karute/ConfidenceDot'
 import { deleteEntry } from '@/actions/entries'
@@ -83,16 +83,10 @@ export function EntryCard({ entry, karuteRecordId }: EntryCardProps) {
           </button>
         )}
 
-        {/* Hover-reveal action buttons */}
+        {/* Hover-reveal action buttons. (A no-op "edit" button was removed — it
+         *  did nothing on click; entries are managed via delete + the karute
+         *  AIで再生成 flow. Re-add a real inline edit here if/when it's built.) */}
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          <button
-            className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-            aria-label="Edit entry"
-            // TODO: Implement inline edit in a future plan
-            onClick={() => {}}
-          >
-            <Edit2 className="size-3.5" />
-          </button>
           <button
             onClick={handleDelete}
             disabled={isPending}

@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getRecentKaruteForAI } from '@/lib/karute/ai-context'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
+import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -14,24 +15,22 @@ export async function POST(request: Request) {
   if (limited) return limited
   try {
     const { message, locale, history } = await request.json()
-    const supabase = await createClient()
 
-    // Fetch recent karute + customer data for context
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: records } = await (supabase as any)
-      .from('karute_records')
-      .select('summary, created_at, customers:client_id ( name ), entries ( category, content )')
-      .order('created_at', { ascending: false })
-      .limit(5)
+    // Recent karute from synqed-core (the Supabase mirror is empty
+    // post-migration — chat previously had NO session context).
+    const records = await getRecentKaruteForAI(5)
 
     const synqed = await getSynqedClient()
     const customerResult = await synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc' })
 
-    const karuteContext = (records ?? []).map((r: { summary: string; created_at: string; customers: { name: string } | null; entries: { category: string; content: string }[] }) => {
-      const name = (r.customers as { name: string } | null)?.name ?? 'Unknown'
-      const entries = (r.entries || []).map((e: { category: string; content: string }) => `[${e.category}] ${e.content}`).join(', ')
-      return `${name} (${r.created_at}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
-    }).join('\n')
+    const karuteContext = records
+      .map((r) => {
+        const entries = r.entries
+          .map((e) => `[${e.category}] ${e.content}`)
+          .join(', ')
+        return `${r.customerName} (${r.createdAt}): ${r.summary ?? 'No summary'}. Entries: ${entries}`
+      })
+      .join('\n')
 
     const customerNames = customerResult.customers.map((c) => c.name).join(', ')
 
@@ -52,7 +51,9 @@ export async function POST(request: Request) {
     const messages: OpenAI.ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: `You are a helpful AI assistant for a ${businessType} business. You have access to the business's karute (client records) and customer data. Help staff with questions about customers, treatments, scheduling advice, and business insights.
+        content: `${personaSystemFragment(orgSettings?.business_type, locale)}
+
+You are a helpful AI assistant for a ${businessType} business. You have access to the business's karute (client records) and customer data. Help staff with questions about customers, treatments, scheduling advice, and business insights.
 
 ${langInstruction}
 

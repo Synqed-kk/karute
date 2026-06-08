@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
-import { createClient } from '@/lib/supabase/server'
+import { getRecentKaruteForAI } from '@/lib/karute/ai-context'
+import { getOrgSettings } from '@/actions/org-settings'
+import { getBusinessProfile } from '@/lib/welcome/business-types'
+import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
@@ -25,27 +28,18 @@ export async function POST(request: Request) {
   if (limited) return limited
   try {
     const { locale } = await request.json()
-    const supabase = await createClient()
 
-    // Fetch recent karute records with customer names
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: records } = await (supabase as any)
-      .from('karute_records')
-      .select(`
-        id, summary, created_at,
-        customers:client_id ( name ),
-        entries ( category, content )
-      `)
-      .order('created_at', { ascending: false })
-      .limit(10)
+    // Recent karute from synqed-core — the Supabase mirror is empty
+    // post-migration, so this route returned NO insights until now.
+    const records = await getRecentKaruteForAI(10)
 
-    if (!records || records.length === 0) {
+    if (records.length === 0) {
       return NextResponse.json({ insights: [] })
     }
 
     // Cache key based on record IDs + locale
     const cacheInput = {
-      ids: records.map((r: { id: string }) => r.id),
+      ids: records.map((r) => r.id),
       locale,
     }
     const cached = await getCachedAI('insights', cacheInput)
@@ -53,30 +47,33 @@ export async function POST(request: Request) {
       return NextResponse.json(cached)
     }
 
-    const context = records.map((r: { summary: string; created_at: string; customers: { name: string } | null; entries: { category: string; content: string }[] }) => {
-      const customer = r.customers as { name: string } | null
-      const entries = (r.entries || []).map((e: { category: string; content: string }) => `[${e.category}] ${e.content}`).join('\n')
-      return `Customer: ${customer?.name ?? 'Unknown'}\nDate: ${r.created_at}\nSummary: ${r.summary}\nEntries:\n${entries}`
-    }).join('\n\n---\n\n')
+    const context = records
+      .map((r) => {
+        const entries = r.entries
+          .map((e) => `[${e.category}] ${e.content}`)
+          .join('\n')
+        return `Customer: ${r.customerName}\nDate: ${r.createdAt}\nSummary: ${r.summary ?? ''}\nEntries:\n${entries}`
+      })
+      .join('\n\n---\n\n')
 
     const langInstruction = locale === 'ja'
       ? 'Respond entirely in Japanese.'
       : 'Respond entirely in English.'
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: orgSettings } = await (supabase as any)
-      .from('organization_settings')
-      .select('business_type')
-      .limit(1)
-      .single()
-    const businessType = orgSettings?.business_type || 'salon/clinic'
+    // synqed-core org settings (the previous `from('organization_settings')`
+    // hit a Supabase table that doesn't exist — it silently 500'd to the default).
+    const orgSettings = await getOrgSettings()
+    const businessProfile = orgSettings?.business_type
+      ? getBusinessProfile(orgSettings.business_type)
+      : null
+    const businessType = businessProfile?.label || 'salon/clinic'
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
     const completion = await openai.chat.completions.create({
       model: process.env.AI_MODEL || 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: getSystemPrompt(businessType) + '\n\n' + langInstruction + '\n\n' + defensivePreamble(locale) },
+        { role: 'system', content: personaSystemFragment(orgSettings?.business_type, locale) + '\n\n' + getSystemPrompt(businessType) + '\n\n' + langInstruction + '\n\n' + defensivePreamble(locale) },
         { role: 'user', content: `Analyze these recent karute records and generate insights:\n\n${wrapUntrustedContent('karute_records', context)}` },
       ],
       response_format: { type: 'json_object' },

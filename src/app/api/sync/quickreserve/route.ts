@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { SynqedClient } from '@synqed-kk/client'
+import { SynqedClient, SynqedError } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
@@ -143,6 +143,9 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     let created = 0
     let updated = 0
     let skipped = 0
+    // Bookings synqed-core rejected as overlapping an existing slot (409).
+    // Counted + skipped instead of crashing the whole run mid-way.
+    let overlapped = 0
     let total = 0
     // Existing customers whose visit_count/is_existing_customer we've already
     // refreshed this run — keep returning customers' counts current without
@@ -241,17 +244,31 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           continue
         }
 
-        const appt = await synqed.appointments.create({
-          customer_id: customerId,
-          staff_id: staffId,
-          starts_at: mapped.startTime,
-          ends_at: mapped.endTime,
-          duration_minutes: mapped.durationMinutes,
-          title: mapped.treatmentName,
-          notes,
-        })
-        existingByKey.set(key, appt.id)
-        created++
+        try {
+          const appt = await synqed.appointments.create({
+            customer_id: customerId,
+            staff_id: staffId,
+            starts_at: mapped.startTime,
+            ends_at: mapped.endTime,
+            duration_minutes: mapped.durationMinutes,
+            title: mapped.treatmentName,
+            notes,
+          })
+          existingByKey.set(key, appt.id)
+          created++
+        } catch (err) {
+          // synqed-core rejects a booking that overlaps an existing slot with a
+          // 409. Without this guard a single overlap (e.g. two QR therapists the
+          // fuzzy matcher collapsed onto one synqed staff) aborts the entire
+          // sync after it already wrote the earlier bookings — so the run looks
+          // like it fails differently on each retry. Skip the overlap, keep going.
+          if (err instanceof SynqedError && err.status === 409) {
+            console.warn(`[QR Sync] Slot overlap, skipping QR #${mapped.qrId}`)
+            overlapped++
+            continue
+          }
+          throw err
+        }
       }
     }
 
@@ -273,6 +290,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       created,
       updated,
       skipped,
+      overlapped,
     })
   } catch (error) {
     console.error('[QR Sync]', error)

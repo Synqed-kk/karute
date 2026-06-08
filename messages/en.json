@@ -129,6 +129,23 @@
       "label": "Legend",
       "block": "Owner duties"
     },
+    "month": {
+      "legendLight": "Light",
+      "legendMedium": "Medium",
+      "legendBusy": "Busy"
+    },
+    "weekCard": {
+      "today": "Today",
+      "bookings": " bookings",
+      "utilized": "utilized",
+      "open": "open",
+      "new": "new",
+      "reminder": "reminder",
+      "consent": "consent",
+      "pending": "pending",
+      "empty": "No bookings",
+      "more": "more"
+    },
     "status": {
       "booked": "Booked",
       "in_session": "In session",
@@ -140,7 +157,21 @@
       "duration": "{n} min",
       "appointments": "{n} appts",
       "customerSuffix": "",
-      "tantou": "Staff: {name}"
+      "tantou": "Staff: {name}",
+      "renewalFlag": "Renewal"
+    },
+    "actionSheet": {
+      "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
+      "subtitleReturn": "Booked customer. Choose an action.",
+      "viewKarute": "View karute",
+      "viewKaruteHint": "Review prior sessions and last-visit recommendations",
+      "newKarute": "Create new karute",
+      "newKaruteHintFirst": "Manually create a karute for this customer",
+      "newKaruteHintReturn": "Add a new karute for today's session",
+      "startRecording": "Start recording",
+      "startRecordingHint": "AI will draft the karute from the session audio",
+      "startRecordingHintFirst": "Creates a provisional karute. You'll resolve conversion status after the session.",
+      "firstTimeNote": "First-time customers start as a provisional karute. If they convert it becomes active; if not, it's kept for AI coaching learning (and hidden from the customer list)."
     },
     "mobile": {
       "empty": "No appointments",
@@ -241,6 +272,7 @@
       "edit": "Edit"
     },
     "header": {
+      "openCustomer": "Open customer profile",
       "staff": "Staff",
       "phone": "Phone",
       "email": "Email"
@@ -291,9 +323,22 @@
         "treatment": "Treatment",
         "concern": "Concern",
         "condition": "Condition",
+        "lifestyle": "Lifestyle",
         "product": "Product",
         "next": "Next"
       }
+    },
+    "regenerate": {
+      "label": "Regenerate with AI",
+      "confirm": "Replace & regenerate",
+      "cancel": "Cancel",
+      "running": "Regenerating…",
+      "error": "Regeneration failed",
+      "warning": "Some old entries lingered — run again to finish cleanup.",
+      "summaryWarning": "Entries updated, but the summary update failed — please try again.",
+      "all": "Regenerate all karute (temp)",
+      "allRunning": "Regenerating… {done}/{total}",
+      "allDone": "{done} regenerated ({failed} failed)"
     },
     "aiSummary": {
       "title": "AI summary"
@@ -306,6 +351,46 @@
     }
   },
   "recording": {
+    "outcome": {
+      "title": "Result — {name}",
+      "titleFirst": "First session result — {name}",
+      "cardTitle": "Session outcome",
+      "edit": "Change",
+      "record": "Record outcome",
+      "autoNote": "Auto-decided after 14 days",
+      "chip": {
+        "success": "Converted",
+        "no_deal": "No deal",
+        "pending": "Provisional",
+        "none": "Not set"
+      },
+      "subtitle": "Record whether this session converted, together with saving the recording.",
+      "subtitleHint": "One tap updates your close rate, the AI's learning, and the customer ledger.",
+      "success": {
+        "title": "Converted",
+        "desc": "Led to a booking or purchase. Saved as a normal karute."
+      },
+      "noDeal": {
+        "title": "No deal this time",
+        "desc": "Kept as AI coaching training data, but hidden from the customer list."
+      },
+      "pending": {
+        "title": "Decide later",
+        "desc": "Held as a provisional karute. Auto-moves to no-deal after 14 days if undecided."
+      },
+      "reasonLabel": "Reason (optional)",
+      "reason": {
+        "budget": "Budget",
+        "considering": "Considering",
+        "mismatch": "Store mismatch",
+        "follow_up": "Will follow up",
+        "other": "Other"
+      },
+      "disclaimer": "Your converted / no-deal records also help the AI learn top-performer conversation patterns. This customer's individual details are never shared with other staff.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
+    },
     "title": "Record",
     "selectStaff": "Select staff",
     "start": "Start recording",
@@ -351,6 +436,7 @@
       "statusBooked": "Booked",
       "firstVisit": "First visit",
       "booked": "Booked",
+      "walkIn": "Walk-in",
       "honorific": "",
       "noBookingPrimary": "Pick a booking to record",
       "noBookingSecondary": "Tap 'Choose different booking' in the top-right to pick from today's appointments. Once selected, the customer, time, and staff details show here.",
@@ -370,6 +456,7 @@
       "lastProduct": "Last product offered",
       "recommendedFocus": "Recommended focus today",
       "reservationMemo": "Booking note",
+      "memoAnalysisLabel": "AI pre-read",
       "firstTimeHeader": "First-time customer",
       "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
       "empty": "Pre-session brief unavailable — AI will generate one after the first karute.",
@@ -415,7 +502,9 @@
       "disconnected": "Disconnected",
       "speakerCustomer": "Customer",
       "speakerStaff": "{name} (Staff)"
-    }
+    },
+    "overrunWarning": "Still recording — tap stop when the session's done.",
+    "autoStopped": "Recording ran long, so it was auto-saved."
   },
   "customers": {
     "title": "Customers",
@@ -430,6 +519,44 @@
     },
     "visitHistoryChain": {
       "aria": "Attended {attended} of last {window} visits. {total} total."
+    },
+    "sessionHistory": {
+      "title": "Session history",
+      "count": "{n} sessions",
+      "empty": "No sessions recorded yet",
+      "latest": "latest",
+      "minutes": "{n} min",
+      "entries": "{n} entries",
+      "aiSummarized": "AI summarized",
+      "memoryAdded": "+{n} memory",
+      "openFullKarute": "Open full karute record →",
+      "noKaruteLinked": "No karute record linked to this session yet"
+    },
+    "photos": {
+      "title": "Photos",
+      "count": "{n} total",
+      "emptyTitle": "No photos yet",
+      "emptyBody": "Upload before / after / reference photos to track customer progress across sessions.",
+      "before": "Before",
+      "after": "After",
+      "reference": "Reference",
+      "progress": "Progress"
+    },
+    "comingSoon": "Coming soon",
+    "privacy": {
+      "title": "Privacy & data",
+      "subtitle": "APPI (Japan's Personal Information Protection Act) compliance actions for {name}'s data. Owner or assigned-staff privileges required.",
+      "accessHistoryTitle": "Access history",
+      "accessHistoryBody": "See which staff accessed or modified {name}'s data in the audit log.",
+      "accessHistoryCta": "View history",
+      "exportTitle": "Export data",
+      "exportBody": "Exports profile, karute, memory, photos, and recording transcripts as an encrypted PDF (signed URL, 24h TTL).",
+      "exportCta": "Export",
+      "deleteTitle": "Delete customer data",
+      "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
+      "deleteCta": "Delete data",
+      "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
+      "wiringPending": "Wiring pending — APPI compliance backend in flight"
     },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
@@ -458,10 +585,14 @@
       "givenNamePlaceholder": "Misaki",
       "age": "Age",
       "agePlaceholder": "32",
+      "birthDate": "Date of birth",
       "gender": "Gender",
+      "genderNone": "Not set",
       "female": "Female",
       "male": "Male",
       "other": "Other",
+      "occupation": "Occupation",
+      "memberNumber": "Member number",
       "preferredStaff": "Preferred staff",
       "noPreference": "No preference",
       "comingSoon": "Coming soon",
@@ -525,6 +656,13 @@
       "lastVisitPrefix": "Last visit",
       "usualServicePrefix": "Usual",
       "visitsSuffix": "{n} visits",
+      "memberNumber": "Member #{number}",
+      "ticketPack": "Ticket pack",
+      "birthdayMonth": "Birthday month",
+      "record": "Record",
+      "ageValue": "{age} y/o",
+      "visitCountSuffix": " visits",
+      "staffPrefix": "Staff",
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
@@ -579,6 +717,8 @@
       },
       "heading": "Customers",
       "showing": "{n} showing",
+      "newCustomer": "New customer",
+      "searchPlaceholder": "Search customers…",
       "status": {
         "on-track": "On track",
         "new": "New",
@@ -858,6 +998,10 @@
     "extracting": "Extracting entries...",
     "summarizing": "Generating summary...",
     "reviewReady": "Review",
+    "autoSaving": "Saving...",
+    "autoSaved": "Karute saved",
+    "viewSaved": "View",
+    "autosaveFailed": "Auto-save failed. Please save from the review screen.",
     "discard": "Discard",
     "aiSummaryPlaceholder": "AI-generated session summary...",
     "entryTitlePlaceholder": "Entry title...",
@@ -1345,6 +1489,7 @@
       "ownerDesc": "You can view and manage data (bookings, karute, AI analysis) across all stores.",
       "storesCount": "{n} {n, plural, one {store} other {stores}} active",
       "addStore": "Add",
+      "limitReached": "You've reached your plan's store limit",
       "primaryBadge": "Main",
       "activeBadge": "Active",
       "staffUnit": "{n} staff",
@@ -1388,7 +1533,9 @@
         "save": "Add store",
         "saveEdit": "Save changes",
         "saved": "Saved"
-      }
+      },
+      "assignLabel": "Store / location",
+      "unassigned": "Unassigned"
     },
     "coaching": {
       "title": "Coaching settings",
@@ -2173,5 +2320,58 @@
     "incorrectPin": "Incorrect PIN",
     "switchOut": "Switch out",
     "selectStaff": "Select staff"
+  },
+  "invite": {
+    "joinTitle": "Join {salon}",
+    "joinSubtitle": "Set your name and a password to access your salon's Karute.",
+    "joinNameLabel": "Your name",
+    "joinEmailLabel": "Email",
+    "joinPasswordLabel": "Password",
+    "joinSubmit": "Join salon",
+    "joinSubmitting": "Joining…",
+    "joinInvalidTitle": "Invitation unavailable",
+    "disabled": "Staff invitations aren't enabled yet.",
+    "reason_missing": "This invitation link is missing its token.",
+    "reason_not_found": "We couldn't find this invitation.",
+    "reason_used": "This invitation has already been used.",
+    "reason_revoked": "This invitation was revoked.",
+    "reason_expired": "This invitation has expired. Ask the owner to resend it.",
+    "inviteStaff": "Invite staff",
+    "inviteDescription": "Send a teammate a link to join this salon. They'll get their own login and appear on your staff list.",
+    "inviteEmailLabel": "Staff email",
+    "inviteRoleLabel": "Role",
+    "role_ADMIN": "Admin",
+    "role_STYLIST": "Stylist",
+    "role_ASSISTANT": "Assistant",
+    "inviteCreate": "Create invite link",
+    "inviteCreating": "Creating…",
+    "inviteLinkReady": "Invite link ready — share it with your staff:",
+    "copy": "Copy",
+    "copied": "Copied",
+    "pendingInvites": "Pending invites",
+    "revoke": "Revoke"
+  },
+  "permissions": {
+    "roleLabel": "Role & permissions",
+    "roleHint": "Separate from job title — this sets what this person can do.",
+    "ownerFullAccess": "Account owner — full access to everything.",
+    "permissionsLabel": "Individual permissions",
+    "role_manager": "Manager",
+    "role_senior": "Senior",
+    "role_practitioner": "Staff",
+    "role_frontdesk": "Front desk",
+    "role_custom": "Custom",
+    "cap_billing_manage": "Billing & subscription",
+    "cap_business_manage": "Delete / transfer the salon",
+    "cap_staff_invite": "Invite staff",
+    "cap_staff_manage": "Manage & remove staff",
+    "cap_settings_manage": "Salon settings",
+    "cap_audit_view": "Audit log",
+    "cap_data_export": "Export / import data",
+    "cap_records_delete": "Delete records",
+    "cap_records_write": "Record sessions & edit karute",
+    "cap_analytics_viewAll": "Whole-salon analytics",
+    "cap_customers_view": "View customers",
+    "cap_bookings_manage": "Manage bookings"
   }
 }

@@ -2,7 +2,7 @@
 
 import { Crown, Sparkles } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/i18n/navigation'
 
 interface DashboardHeaderProps {
   name: string
@@ -42,8 +42,8 @@ export function DashboardHeader({
       </div>
       <div className="flex shrink-0 items-center gap-2.5">
         {isOwner && (
-          <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 text-xs font-medium text-sky-200">
-            <Crown size={13} className="text-sky-300" />
+          <span className="inline-flex h-8 items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-3 text-xs font-medium text-sky-700 dark:border-sky-500/20 dark:bg-sky-500/10 dark:text-sky-300">
+            <Crown size={13} className="text-sky-600 dark:text-sky-400" />
             {t('ownerView')}
           </span>
         )}

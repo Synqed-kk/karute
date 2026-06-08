@@ -129,6 +129,23 @@
       "label": "凡例",
       "block": "オーナー業務"
     },
+    "month": {
+      "legendLight": "少なめ",
+      "legendMedium": "普通",
+      "legendBusy": "混雑"
+    },
+    "weekCard": {
+      "today": "今日",
+      "bookings": "件",
+      "utilized": "稼働",
+      "open": "空き",
+      "new": "新規",
+      "reminder": "リマインド",
+      "consent": "同意待ち",
+      "pending": "未確定",
+      "empty": "予約なし",
+      "more": "他"
+    },
     "status": {
       "booked": "予約済",
       "in_session": "施術中",
@@ -140,7 +157,21 @@
       "duration": "{n}分",
       "appointments": "{n}件の予約",
       "customerSuffix": "様",
-      "tantou": "担当 {name}"
+      "tantou": "担当 {name}",
+      "renewalFlag": "更新案内"
+    },
+    "actionSheet": {
+      "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
+      "subtitleReturn": "ご予約済みのお客様です。操作を選択してください。",
+      "viewKarute": "カルテを見る",
+      "viewKaruteHint": "過去のセッションと前回までの申し送りを確認します",
+      "newKarute": "新規カルテを作成",
+      "newKaruteHintFirst": "このお客様のカルテを手動で作成します",
+      "newKaruteHintReturn": "本日のセッションのカルテを作成します",
+      "startRecording": "録音を開始",
+      "startRecordingHint": "セッションの音声からAIがカルテを作成します",
+      "startRecordingHintFirst": "仮カルテを作成します。セッション後に本登録の有無を確定できます。",
+      "firstTimeNote": "初めてのお客様は仮カルテとして登録されます。本登録されれば有効になり、されない場合もAIコーチングの学習用に保持されます（顧客一覧には表示されません）。"
     },
     "mobile": {
       "empty": "本日の予約はありません",
@@ -241,6 +272,7 @@
       "edit": "編集"
     },
     "header": {
+      "openCustomer": "顧客カルテを開く",
       "staff": "担当",
       "phone": "電話",
       "email": "メール"
@@ -291,9 +323,22 @@
         "treatment": "施術",
         "concern": "気になる点",
         "condition": "状態",
+        "lifestyle": "ライフスタイル",
         "product": "製品",
         "next": "次回"
       }
+    },
+    "regenerate": {
+      "label": "AIで再生成",
+      "confirm": "上書きして再生成",
+      "cancel": "キャンセル",
+      "running": "再生成中…",
+      "error": "再生成に失敗しました",
+      "warning": "一部の古い項目が残りました。もう一度実行すると解消します。",
+      "summaryWarning": "項目は更新しましたが、要約の更新に失敗しました。もう一度お試しください。",
+      "all": "全カルテをAI再生成（一時）",
+      "allRunning": "再生成中… {done}/{total}",
+      "allDone": "{done}件を再生成しました（失敗 {failed}）"
     },
     "aiSummary": {
       "title": "AI要約"
@@ -306,6 +351,46 @@
     }
   },
   "recording": {
+    "outcome": {
+      "title": "結果 — {name}様",
+      "titleFirst": "初回セッションの結果 — {name}様",
+      "cardTitle": "セッションの結果",
+      "edit": "結果を変更",
+      "record": "結果を記録",
+      "autoNote": "14日経過で自動判定",
+      "chip": {
+        "success": "成約",
+        "no_deal": "不成約",
+        "pending": "仮カルテ",
+        "none": "結果 未記録"
+      },
+      "subtitle": "録音の保存と合わせて、成約の可否を記録します。",
+      "subtitleHint": "この1タップで、成約率の計算・AIの学習・顧客台帳の整理がすべて反映されます。",
+      "success": {
+        "title": "成約しました",
+        "desc": "ご契約またはご予約に繋がりました。通常カルテとして保存します。"
+      },
+      "noDeal": {
+        "title": "今回は不成約でした",
+        "desc": "カルテはAIコーチング学習データとして保持しますが、顧客一覧には表示しません。"
+      },
+      "pending": {
+        "title": "後で決める",
+        "desc": "仮カルテのまま保留します。未決のまま14日経過すると、自動で不成約に移行します。"
+      },
+      "reasonLabel": "理由（任意）",
+      "reason": {
+        "budget": "予算",
+        "considering": "検討中",
+        "mismatch": "店舗ミスマッチ",
+        "follow_up": "後日連絡予定",
+        "other": "その他"
+      },
+      "disclaimer": "ご記録いただいた成約・不成約は、AIがトップパフォーマーの会話パターンを学習するためにも活用されます。お客様の個別情報は他のスタッフには共有されません。",
+      "save": "保存",
+      "saving": "保存中...",
+      "cancel": "キャンセル"
+    },
     "title": "録音",
     "selectStaff": "スタッフを選択",
     "start": "録音開始",
@@ -351,6 +436,7 @@
       "statusBooked": "予約済み",
       "firstVisit": "新規",
       "booked": "予約済",
+      "walkIn": "当日",
       "honorific": "様",
       "noBookingPrimary": "予約を選択してください",
       "noBookingSecondary": "右上の「別の予約を選択」から本日の予約を選ぶと、お客様情報・時間・担当者などがここに表示されます。",
@@ -370,6 +456,7 @@
       "lastProduct": "前回の商品提案",
       "recommendedFocus": "本日のおすすめフォーカス",
       "reservationMemo": "ご予約時のメモ",
+      "memoAnalysisLabel": "AIによる事前読み取り",
       "firstTimeHeader": "初めてのお客様",
       "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
       "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。",
@@ -415,7 +502,9 @@
       "disconnected": "切断",
       "speakerCustomer": "お客様",
       "speakerStaff": "{name}(スタッフ)"
-    }
+    },
+    "overrunWarning": "まだ録音中です。セッションが終わったら停止してください。",
+    "autoStopped": "録音が長時間に達したため、自動的に保存しました。"
   },
   "customers": {
     "title": "顧客",
@@ -430,6 +519,44 @@
     },
     "visitHistoryChain": {
       "aria": "直近{window}回中{attended}回来店。通算{total}回。"
+    },
+    "sessionHistory": {
+      "title": "セッション履歴",
+      "count": "{n}件",
+      "empty": "まだセッションがありません",
+      "latest": "最新",
+      "minutes": "{n}分",
+      "entries": "{n}件の記録",
+      "aiSummarized": "AI要約済",
+      "memoryAdded": "メモリー+{n}",
+      "openFullKarute": "カルテ詳細を開く →",
+      "noKaruteLinked": "このセッションにカルテはまだ紐付いていません"
+    },
+    "photos": {
+      "title": "写真",
+      "count": "{n}枚",
+      "emptyTitle": "写真はまだありません",
+      "emptyBody": "ビフォー／アフター／参考写真をアップロードして、セッションごとの変化を記録できます。",
+      "before": "ビフォー",
+      "after": "アフター",
+      "reference": "参考",
+      "progress": "経過"
+    },
+    "comingSoon": "対応予定",
+    "privacy": {
+      "title": "プライバシー・データ",
+      "subtitle": "{name}様のデータに関するAPPI（個人情報保護法）対応です。オーナーまたは担当スタッフの権限が必要です。",
+      "accessHistoryTitle": "アクセス履歴",
+      "accessHistoryBody": "{name}様のデータに誰がアクセス・編集したかを監査ログで確認できます。",
+      "accessHistoryCta": "履歴を表示",
+      "exportTitle": "データのエクスポート",
+      "exportBody": "プロフィール・カルテ・メモリー・写真・録音の文字起こしを暗号化PDFとして書き出します（署名付きURL・24時間有効）。",
+      "exportCta": "エクスポート",
+      "deleteTitle": "顧客データの削除",
+      "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
+      "deleteCta": "データを削除",
+      "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
@@ -458,10 +585,14 @@
       "givenNamePlaceholder": "美咲",
       "age": "年齢",
       "agePlaceholder": "32",
+      "birthDate": "生年月日",
       "gender": "性別",
+      "genderNone": "未設定",
       "female": "女性",
       "male": "男性",
       "other": "その他",
+      "occupation": "職業",
+      "memberNumber": "会員番号",
       "preferredStaff": "指名スタッフ",
       "noPreference": "指名なし",
       "comingSoon": "対応予定",
@@ -525,6 +656,13 @@
       "lastVisitPrefix": "前回",
       "usualServicePrefix": "よく選ぶコース",
       "visitsSuffix": "{n}回目",
+      "memberNumber": "会員 #{number}",
+      "ticketPack": "回数券あり",
+      "birthdayMonth": "誕生月",
+      "record": "録音",
+      "ageValue": "{age}歳",
+      "visitCountSuffix": " 回",
+      "staffPrefix": "担当",
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
@@ -579,6 +717,8 @@
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
+      "newCustomer": "新規顧客",
+      "searchPlaceholder": "お客様を検索…",
       "status": {
         "on-track": "継続中",
         "new": "新規",
@@ -858,6 +998,10 @@
     "extracting": "エントリー抽出中...",
     "summarizing": "サマリー生成中...",
     "reviewReady": "確認する",
+    "autoSaving": "保存中...",
+    "autoSaved": "カルテを保存しました",
+    "viewSaved": "確認する",
+    "autosaveFailed": "自動保存に失敗しました。確認画面から保存してください。",
     "discard": "破棄",
     "aiSummaryPlaceholder": "AIが生成したセッションサマリー...",
     "entryTitlePlaceholder": "エントリータイトル...",
@@ -1345,6 +1489,7 @@
       "ownerDesc": "すべての店舗のデータ（予約・カルテ・AI分析）を閲覧・管理できます。",
       "storesCount": "{n}店舗を運営中",
       "addStore": "追加",
+      "limitReached": "店舗数が現在のプランの上限に達しています",
       "primaryBadge": "本店",
       "activeBadge": "営業中",
       "staffUnit": "スタッフ{n}名",
@@ -1388,7 +1533,9 @@
         "save": "店舗を追加",
         "saveEdit": "変更を保存",
         "saved": "保存しました"
-      }
+      },
+      "assignLabel": "店舗（所属）",
+      "unassigned": "未割り当て"
     },
     "coaching": {
       "title": "コーチング設定",
@@ -2173,5 +2320,58 @@
     "incorrectPin": "PINが正しくありません",
     "switchOut": "切り替えを解除",
     "selectStaff": "スタッフを選択"
+  },
+  "invite": {
+    "joinTitle": "{salon} に参加",
+    "joinSubtitle": "お名前とパスワードを設定して、サロンのカルテにアクセスしましょう。",
+    "joinNameLabel": "お名前",
+    "joinEmailLabel": "メールアドレス",
+    "joinPasswordLabel": "パスワード",
+    "joinSubmit": "サロンに参加",
+    "joinSubmitting": "参加しています…",
+    "joinInvalidTitle": "招待を利用できません",
+    "disabled": "スタッフ招待はまだ有効になっていません。",
+    "reason_missing": "招待リンクのトークンがありません。",
+    "reason_not_found": "この招待が見つかりませんでした。",
+    "reason_used": "この招待はすでに使用されています。",
+    "reason_revoked": "この招待は取り消されました。",
+    "reason_expired": "この招待は有効期限が切れています。オーナーに再送を依頼してください。",
+    "inviteStaff": "スタッフを招待",
+    "inviteDescription": "スタッフにこのサロンへの参加リンクを送ります。各自のログインが作成され、スタッフ一覧に表示されます。",
+    "inviteEmailLabel": "スタッフのメールアドレス",
+    "inviteRoleLabel": "役割",
+    "role_ADMIN": "管理者",
+    "role_STYLIST": "スタイリスト",
+    "role_ASSISTANT": "アシスタント",
+    "inviteCreate": "招待リンクを作成",
+    "inviteCreating": "作成しています…",
+    "inviteLinkReady": "招待リンクができました。スタッフに共有してください：",
+    "copy": "コピー",
+    "copied": "コピーしました",
+    "pendingInvites": "保留中の招待",
+    "revoke": "取り消す"
+  },
+  "permissions": {
+    "roleLabel": "権限",
+    "roleHint": "役職とは別に、このスタッフができる操作を設定します。",
+    "ownerFullAccess": "アカウントオーナー — すべての権限があります。",
+    "permissionsLabel": "個別の権限",
+    "role_manager": "マネージャー",
+    "role_senior": "シニアスタッフ",
+    "role_practitioner": "スタッフ",
+    "role_frontdesk": "受付",
+    "role_custom": "カスタム",
+    "cap_billing_manage": "支払い・サブスク",
+    "cap_business_manage": "店舗の削除・譲渡",
+    "cap_staff_invite": "スタッフを招待",
+    "cap_staff_manage": "スタッフの管理・削除",
+    "cap_settings_manage": "店舗設定",
+    "cap_audit_view": "監査ログ",
+    "cap_data_export": "データの書き出し・取り込み",
+    "cap_records_delete": "記録の削除",
+    "cap_records_write": "録音・カルテ編集",
+    "cap_analytics_viewAll": "全店舗の分析",
+    "cap_customers_view": "顧客の閲覧",
+    "cap_bookings_manage": "予約の管理"
   }
 }

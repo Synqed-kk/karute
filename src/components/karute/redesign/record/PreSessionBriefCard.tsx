@@ -64,6 +64,10 @@ export interface PreSessionBrief {
    *  paraphrased) in an amber block so staff sees exactly what
    *  the customer wrote. Null when no memo. */
   reservationMemo?: string | null
+  /** AI's read of the booking memo — signals/concerns (兆候), expectations
+   *  (期待), tone (トーン), points to watch (注意点). Rendered under the verbatim
+   *  memo. Empty/undefined when there's no memo or no AI analysis. */
+  memoAnalysis?: string[]
 }
 
 interface PreSessionBriefCardProps {
@@ -97,6 +101,7 @@ export function PreSessionBriefCard({
   // scaffolding shell above so staff sees every AI-capability hint.
   const isScaffoldOnly = !brief
   const effectiveBrief = brief ?? EMPTY_BRIEF_SCAFFOLD
+  const hasMemoAnalysis = (effectiveBrief.memoAnalysis?.length ?? 0) > 0
 
   // FIRST-VISIT FRAMING — gradient blue card with warm intro copy.
   // Matches the spike's first-visit branch (no recap sections; just
@@ -116,24 +121,21 @@ export function PreSessionBriefCard({
         <p className="text-[14px] leading-relaxed text-foreground/90">
           {t('firstTimeBody', { name: customerName ?? '' })}
         </p>
+        {/* Booking note verbatim when present. No memo → render nothing —
+         *  the first-visit framing copy already carries the card, and an
+         *  empty "AI will analyze the memo" hint read as broken/dead. */}
         {effectiveBrief.reservationMemo && (
-          <>
-            <MemoBlock memo={effectiveBrief.reservationMemo} label={t('reservationMemo')} className="mt-4" />
-            <AiCapabilityHint
-              label={t('aiHintLabel')}
-              body={t('aiHintMemoAnalysis')}
-              className="mt-2"
-            />
-          </>
-        )}
-        {/* No memo? Surface the same AI capability hint so staff
-         *  knows what'll fill this gap once customers leave booking
-         *  notes (or once we wire that field in the booking form). */}
-        {!effectiveBrief.reservationMemo && (
-          <AiCapabilityHint
-            label={t('aiHintLabel')}
-            body={t('aiHintNoMemo')}
+          <MemoBlock
+            memo={effectiveBrief.reservationMemo}
+            label={t('reservationMemo')}
             className="mt-4"
+          />
+        )}
+        {hasMemoAnalysis && (
+          <MemoAnalysisBlock
+            points={effectiveBrief.memoAnalysis!}
+            label={t('memoAnalysisLabel')}
+            className="mt-2"
           />
         )}
       </section>
@@ -176,20 +178,26 @@ export function PreSessionBriefCard({
        *  Most relevant hook staff should open with. */}
       {effectiveBrief.reservationMemo ? (
         <>
-          <MemoBlock memo={effectiveBrief.reservationMemo} label={t('reservationMemo')} className="mb-2" />
-          <AiCapabilityHint
-            label={t('aiHintLabel')}
-            body={t('aiHintMemoAnalysis')}
-            className="mb-4"
+          <MemoBlock
+            memo={effectiveBrief.reservationMemo}
+            label={t('reservationMemo')}
+            className={hasMemoAnalysis ? 'mb-2' : 'mb-4'}
           />
+          {hasMemoAnalysis && (
+            <MemoAnalysisBlock
+              points={effectiveBrief.memoAnalysis!}
+              label={t('memoAnalysisLabel')}
+              className="mb-4"
+            />
+          )}
         </>
-      ) : (
+      ) : isScaffoldOnly ? (
         <AiCapabilityHint
           label={t('aiHintLabel')}
           body={t('aiHintNoMemo')}
           className="mb-4"
         />
-      )}
+      ) : null}
 
       {/* Conversation hooks — most actionable, surface near top */}
       {effectiveBrief.hooks.length > 0 ? (
@@ -209,11 +217,11 @@ export function PreSessionBriefCard({
             ))}
           </ul>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
         </BriefSection>
-      )}
+      ) : null}
 
       {/* Last concerns — clinical recap */}
       {effectiveBrief.concerns.length > 0 ? (
@@ -234,7 +242,7 @@ export function PreSessionBriefCard({
             ))}
           </ul>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection
           icon={<Clock className="size-3" />}
           title={t('concerns')}
@@ -242,7 +250,7 @@ export function PreSessionBriefCard({
         >
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
         </BriefSection>
-      )}
+      ) : null}
 
       {/* Last product + reaction */}
       {effectiveBrief.lastProduct ? (
@@ -258,7 +266,7 @@ export function PreSessionBriefCard({
             )}
           </div>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection
           icon={<Gift className="size-3" />}
           title={t('lastProduct')}
@@ -266,7 +274,7 @@ export function PreSessionBriefCard({
         >
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
         </BriefSection>
-      )}
+      ) : null}
 
       {/* AI-suggested focus for this session */}
       {effectiveBrief.recommendedFocus ? (
@@ -279,7 +287,7 @@ export function PreSessionBriefCard({
             {effectiveBrief.recommendedFocus}
           </p>
         </BriefSection>
-      ) : (
+      ) : isScaffoldOnly ? (
         <BriefSection
           icon={<Target className="size-3" />}
           title={t('recommendedFocus')}
@@ -287,7 +295,7 @@ export function PreSessionBriefCard({
         >
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
         </BriefSection>
-      )}
+      ) : null}
     </section>
   )
 }
@@ -342,6 +350,43 @@ function MemoBlock({
       <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
         {memo}
       </p>
+    </div>
+  )
+}
+
+// AI's read of the booking memo — the analysis the reservation-memo box always
+// promised ("AIがご予約メモを解析し…"). Distinct from MemoBlock (the customer's
+// verbatim words): this is the AI's extracted 兆候 / 期待 / トーン / 注意点.
+function MemoAnalysisBlock({
+  points,
+  label,
+  className,
+}: {
+  points: string[]
+  label: string
+  className?: string
+}) {
+  return (
+    <div
+      className={`flex gap-2 rounded-lg border border-blue-200/70 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/[0.07] ${className ?? ''}`}
+    >
+      <Wand2 className="mt-0.5 size-3 shrink-0 text-blue-500/80 dark:text-blue-300/80" aria-hidden />
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+          {label}
+        </div>
+        <ul className="space-y-0.5">
+          {points.map((p, i) => (
+            <li
+              key={i}
+              className="flex gap-1.5 text-[12px] leading-relaxed text-foreground/85"
+            >
+              <span className="mt-0.5 shrink-0 text-blue-400">•</span>
+              <span>{p}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   )
 }

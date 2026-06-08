@@ -43,7 +43,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { useRouter } from 'next/navigation'
+import { useRouter } from '@/i18n/navigation'
 import { Info, ShieldCheck, Square, X } from 'lucide-react'
 
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
@@ -186,7 +186,7 @@ export function DiscreetRecordingIndicator() {
               type="button"
               onClick={() => {
                 setOpen(false)
-                router.push('/ja/sessions')
+                router.push('/sessions')
               }}
               className="inline-flex h-9 flex-1 items-center justify-center rounded-md border border-border bg-background text-[13px] font-medium text-foreground transition-colors hover:bg-muted"
             >

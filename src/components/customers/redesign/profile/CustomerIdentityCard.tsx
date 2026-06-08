@@ -9,15 +9,20 @@
 // staff scans before a session.
 
 import {
+  Briefcase,
+  Cake,
   Calendar,
   Clipboard,
   Heart,
   Mail,
+  Mic,
   Phone,
   Sparkles,
+  Ticket,
   User,
 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
@@ -39,7 +44,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
     // detail page (no wrapper padding), the section's border-b spans
     // edge-to-edge while content stays inset — matches the spike's
     // visual exactly.
-    <section className="bg-card px-4 pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
+    <section className="relative bg-card px-4 pb-4 pt-4 border-b border-black/5 dark:border-white/5 md:px-6 md:pb-5 md:pt-6">
       <div className="flex items-start gap-3 md:gap-4">
         {/* Avatar — size-11 mobile / size-14 desktop matches spike */}
         <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-muted text-[15px] font-semibold text-foreground ring-1 ring-black/5 md:h-14 md:w-14 md:text-lg">
@@ -54,29 +59,52 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
               {c.karuteNumber}
             </span>
+            {c.memberNumber && (
+              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/70">
+                {tProfile('memberNumber', { number: c.memberNumber })}
+              </span>
+            )}
             <span
               className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
             >
               {t(`status.${c.status}`)}
             </span>
+            {c.hasTicketPack && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
+                <Ticket size={11} />
+                {tProfile('ticketPack')}
+              </span>
+            )}
+            {c.isBirthdayMonth && (
+              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[11px] font-medium text-pink-700 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-300">
+                <Cake size={11} />
+                {tProfile('birthdayMonth')}
+              </span>
+            )}
           </div>
 
           {/* Meta — age/gender + visit count + last visit + usual
            *  service + joined date. The at-a-glance facts staff scans
            *  before a session, matching the spike's customer header. */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            <span
-              className="inline-flex items-center gap-1 opacity-40"
-              title="Coming soon — age + gender capture not in intake form yet"
-            >
-              <User size={12} className="text-muted-foreground/70" />
-              <span className="tabular-nums">{c.age ?? '—'}</span>
-              <span> · </span>
-              <span>{c.gender ?? '—'}</span>
-            </span>
+            {(c.age != null || c.gender) && (
+              <span className="inline-flex items-center gap-1">
+                <User size={12} className="text-muted-foreground/70" />
+                {c.age != null && (
+                  <span className="tabular-nums">{tProfile('ageValue', { age: c.age })}</span>
+                )}
+                {c.age != null && c.gender && <span> · </span>}
+                {c.gender && <span>{c.gender}</span>}
+              </span>
+            )}
+            {c.occupation && (
+              <Meta icon={<Briefcase size={12} />}>
+                <span>{c.occupation}</span>
+              </Meta>
+            )}
             <Meta icon={<Clipboard size={12} />}>
               <span className="tabular-nums">{Math.max(c.visitCount ?? 0, c.totalKarute)}</span>
-              <span>{' 回'}</span>
+              <span>{tProfile('visitCountSuffix')}</span>
             </Meta>
             <Meta icon={<Heart size={12} />}>
               <span className="text-muted-foreground/70">
@@ -106,31 +134,45 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
           {/* Staff + next-visit prediction */}
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
             <span>
-              担当{' '}
+              {tProfile('staffPrefix')}{' '}
               <span className="text-foreground">
                 {c.preferredStaffName ?? c.bookingStaffName ?? '—'}
               </span>
             </span>
             <span aria-hidden>·</span>
-            <span
-              className="inline-flex items-center gap-1.5 opacity-50"
-              title="Coming soon — rebooking prediction not wired"
-            >
-              <span>
-                推奨来店{' '}
+            {/* Only the prediction TEXT is dimmed; the 対応予定 chip stays full
+             *  opacity so it reads the same as every other 対応予定 badge. */}
+            <span className="inline-flex items-center gap-1.5">
+              <span className="opacity-50">
+                {t('row.recommendPrefix')}{' '}
                 <span className="text-foreground">{c.nextVisitPredicted}</span>
               </span>
               <ComingSoonChip />
             </span>
           </div>
+
         </div>
 
-        {/* Edit pencil — opens CustomerEditDialog. Form pre-populates
-         *  with current customer data; save calls updateCustomer +
-         *  revalidates the page so the header re-renders with new
-         *  values. */}
+        {/* Top-right action: the edit pencil. */}
         <CustomerEditDialog customer={c} />
       </div>
+
+      {/* 録音 — round red mic button anchored to the card's BOTTOM-RIGHT. Jumps to
+       *  the recording tab with THIS customer pre-loaded (booking-or-walk-in
+       *  resolved server-side). Icon-only, so aria-label carries the action; sits
+       *  clear of the top-right edit pencil. */}
+      <Link
+        href={
+          {
+            pathname: '/sessions',
+            query: { customerId: c.id },
+          } as Parameters<typeof Link>[0]['href']
+        }
+        aria-label={tProfile('record')}
+        className="absolute bottom-4 right-4 flex size-10 items-center justify-center rounded-full bg-red-500 text-white shadow-sm transition-colors hover:bg-red-600 md:bottom-5 md:right-6"
+      >
+        <Mic size={16} aria-hidden />
+      </Link>
     </section>
   )
 }

@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -50,6 +51,15 @@ const CustomerFormSchema = z.object({
   // DB FK is the real guard. Optional so the quick-create path + older
   // callers that omit it still parse.
   assigned_staff_id: z.string().max(100).optional().or(z.literal('')),
+  // 生年月日 ('YYYY-MM-DD') + 性別 ('male' | 'female' | ''). Editable by staff and
+  // seeded by the deep crawl — synqed-core accepts both on create/update (the
+  // crawl writes them the same way). Age is DERIVED from DOB at render, never
+  // stored. '' → null.
+  date_of_birth: z.string().max(10).optional().or(z.literal('')),
+  gender: z.string().max(10).optional().or(z.literal('')),
+  // 職業 + 会員番号 — CRM fields seeded by the deep crawl, also staff-editable. '' → null.
+  occupation: z.string().max(100).optional().or(z.literal('')),
+  member_number: z.string().max(100).optional().or(z.literal('')),
 })
 
 type CustomerFormInput = z.infer<typeof CustomerFormSchema>
@@ -75,7 +85,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     }
   }
 
-  const { name, furigana, phone, email, assigned_staff_id } = parsed.data
+  const { name, furigana, phone, email, assigned_staff_id, date_of_birth, gender, occupation, member_number } = parsed.data
 
   try {
     const synqed = await getSynqedClient()
@@ -93,6 +103,10 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       phone: phone || null,
       email: email || null,
       assigned_staff_id: assigned_staff_id || null,
+      date_of_birth: date_of_birth || null,
+      gender: gender || null,
+      occupation: occupation || null,
+      member_number: member_number || null,
     })
 
     revalidatePath('/customers')
@@ -182,6 +196,18 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
         // customer's assigned stylist. '' → null (指名なし).
         ...(('assigned_staff_id' in input)
           ? { assigned_staff_id: (input.assigned_staff_id as string) || null }
+          : {}),
+        // 生年月日 / 性別 — presence-guarded so partial updates don't wipe them.
+        // The edit form seeds current values, so a normal save preserves them.
+        ...(('date_of_birth' in input)
+          ? { date_of_birth: (input.date_of_birth as string) || null }
+          : {}),
+        ...(('gender' in input) ? { gender: (input.gender as string) || null } : {}),
+        ...(('occupation' in input)
+          ? { occupation: (input.occupation as string) || null }
+          : {}),
+        ...(('member_number' in input)
+          ? { member_number: (input.member_number as string) || null }
           : {}),
       })
     } else {
@@ -288,8 +314,9 @@ export async function deleteCustomerPhoto(
 // Recording consent
 // ---------------------------------------------------------------------------
 
-// Bump when the wording of the consent script changes — invalidates prior consents legally.
-const RECORDING_CONSENT_POLICY_VERSION = 'v1-2026-05'
+// RECORDING_CONSENT_POLICY_VERSION lives in @/lib/consent (client-safe single
+// source of truth) — a 'use server' module can't export a plain const, and the
+// recording gate (client) must compare against the same value.
 
 export async function getCustomerConsent(customerId: string) {
   const synqed = await getSynqedClient()

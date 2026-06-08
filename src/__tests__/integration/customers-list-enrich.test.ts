@@ -20,14 +20,22 @@ const scenario: {
 
 const karuteRecords = { list: jest.fn(async () => ({ karute_records: scenario.karute })) }
 const appointments = { list: jest.fn(async () => ({ appointments: scenario.appts })) }
+// list-enrich resolves the booking's 担当 via staff.list (added in 90f60ad);
+// these tests don't assert staff names, so an empty roster is sufficient.
+const staff = {
+  list: jest.fn(async () => ({ staff: [] as Array<{ id: string; user_id: string | null }> })),
+}
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn(() => ({ karuteRecords, appointments })),
+  SynqedClient: jest.fn(() => ({ karuteRecords, appointments, staff })),
 }))
 
 import {
   enrichCustomers,
   deriveStatus,
+  resolveCustomerStatus,
+  isReturningCustomer,
+  customerVisitCount,
   formatJoinDate,
   formatLastVisit,
   deriveKaruteNumber,
@@ -82,6 +90,7 @@ describe('enrichCustomers', () => {
       visitsDone: 0,
       pastAppointmentCount: 0,
       lastVisitService: null,
+      bookingStaffId: null,
     })
   })
 
@@ -181,6 +190,85 @@ describe('deriveStatus', () => {
   it('prioritizes the recent-join "new" rule over an old last visit', () => {
     // Joined 5 days ago but last visit 200 days ago → still "new".
     expect(deriveStatus(iso(5 * DAY), iso(200 * DAY))).toBe('new')
+  })
+
+  it('a recently-joined customer WITH prior visits is NOT 新規 (the 11-visit bug)', () => {
+    // Joined 5 days ago (would be "new" by join date) but has 11 prior visits —
+    // a hand-added / QR-backfilled customer. visit_count overrides the join date.
+    expect(deriveStatus(iso(5 * DAY), null, false, 11)).toBe('on-track')
+    expect(deriveStatus(iso(5 * DAY), iso(10 * DAY), false, 11)).toBe('on-track')
+    // Zero prior visits → the recent-join "new" rule still applies (unchanged).
+    expect(deriveStatus(iso(5 * DAY), null, false, 0)).toBe('new')
+  })
+})
+
+describe('resolveCustomerStatus / isReturningCustomer (single source of truth)', () => {
+  const iso = (msAgo: number) => new Date(Date.now() - msAgo).toISOString()
+
+  it('a QR regular (visit_count>0) recorded 0 karute is RETURNING, not 新規 — the 臼井 bug', () => {
+    // 臼井: joined recently, NO karute in the new system, but visit_count 5 + a
+    // 6回券. The list used to ignore visit_count + ticket pack → 新規; the profile
+    // used them → 継続中. The resolver makes both agree: returning.
+    const signals = {
+      joinDateIso: iso(5 * DAY),
+      lastVisitIso: null,
+      isExistingCustomer: false,
+      visitCount: 5,
+      karuteCount: 0,
+      hasTicketPack: true,
+    }
+    expect(isReturningCustomer(signals)).toBe(true)
+    expect(resolveCustomerStatus(signals)).not.toBe('new')
+    expect(resolveCustomerStatus(signals)).toBe('on-track')
+  })
+
+  it('the 回数券 alone makes a brand-new-looking customer returning', () => {
+    expect(
+      resolveCustomerStatus({
+        joinDateIso: iso(2 * DAY),
+        lastVisitIso: null,
+        hasTicketPack: true,
+      }),
+    ).toBe('on-track')
+  })
+
+  it('a genuinely new customer (no signals) is still 新規', () => {
+    expect(
+      resolveCustomerStatus({ joinDateIso: iso(2 * DAY), lastVisitIso: null }),
+    ).toBe('new')
+    expect(
+      isReturningCustomer({ joinDateIso: iso(2 * DAY), lastVisitIso: null }),
+    ).toBe(false)
+  })
+
+  it('the SAME signals always yield the SAME status (every surface agrees)', () => {
+    const s = {
+      joinDateIso: iso(5 * DAY),
+      lastVisitIso: iso(10 * DAY),
+      visitCount: 5,
+      karuteCount: 0,
+    }
+    // List, profile, recording, agenda all call this with the same fields →
+    // identical result. No page can drift.
+    expect(resolveCustomerStatus(s)).toBe(resolveCustomerStatus({ ...s }))
+  })
+
+  it('customerVisitCount returns the strongest visit evidence (max), consistently', () => {
+    expect(
+      customerVisitCount({
+        joinDateIso: null,
+        lastVisitIso: null,
+        visitCount: 5,
+        karuteCount: 2,
+        pastAppointmentCount: 1,
+      }),
+    ).toBe(5)
+  })
+
+  it('deriveStatus is a thin shim over the resolver (back-compat preserved)', () => {
+    // priorVisitCount maps to karuteCount; old behavior unchanged.
+    expect(deriveStatus(iso(5 * DAY), null, false, 11)).toBe('on-track')
+    expect(deriveStatus(iso(5 * DAY), null, false, 0)).toBe('new')
   })
 })
 

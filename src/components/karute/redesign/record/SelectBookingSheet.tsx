@@ -9,9 +9,11 @@
 //
 // Opens from RecordingTargetCard's 「別の予約を選択」 button.
 // Lists today's bookings; tapping a row swaps the recording
-// target. Full-height bottom sheet (max-h-[85vh]) so staff can
-// scroll through the whole day instead of being trapped in a
-// small popover.
+// target. Bottom sheet capped at max-h-[85vh]; the list below is a
+// `min-h-0 flex-1 overflow-y-auto` child so it scrolls *within* the
+// cap. min-h-0 is load-bearing — without it the flex child grows
+// past the cap and the late bookings spill off-screen, unreachable
+// (that was the reported bug: 20:00 rows couldn't be reached).
 //
 // EMPTY STATE — when nearbyBookings is empty, surface the same
 // 対応予定 scaffolding copy the popover used (matches the karute
@@ -40,6 +42,8 @@ import {
 } from '@/components/ui/sheet'
 
 import type { RecordTargetBooking } from './RecordingTargetCard'
+import { badge } from '@/lib/badge-styles'
+import { getStaffColorByKey } from '@/lib/staff-colors'
 
 interface SelectBookingSheetProps {
   open: boolean
@@ -51,13 +55,14 @@ interface SelectBookingSheetProps {
   onSelect: (booking: RecordTargetBooking) => void
 }
 
+// Booking-status pills derive from the shared BADGE_COLORS source — identical to
+// the agenda + customer + dashboard badges. 予約済 booked = green, 新規 new = blue
+// (the app-wide swap); 施術中 in-session = orange; 完了 done = slate.
 const STATUS_TONE: Record<RecordTargetBooking['statusKey'], string> = {
-  done: 'bg-foreground/8 text-muted-foreground ring-1 ring-foreground/10',
-  'in-session':
-    'bg-orange-500/15 text-orange-600 ring-1 ring-orange-400/40 dark:text-orange-300 dark:ring-orange-500/30',
-  booked:
-    'bg-sky-500/15 text-sky-700 ring-1 ring-sky-400/30 dark:text-sky-300 dark:ring-sky-500/30',
-  new: 'bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-400/40 dark:text-emerald-300 dark:ring-emerald-500/30',
+  done: badge('slate'),
+  'in-session': badge('orange'),
+  booked: badge('green'),
+  new: badge('blue'),
 }
 
 export function SelectBookingSheet({
@@ -73,7 +78,7 @@ export function SelectBookingSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="flex max-h-[85vh] flex-col gap-0 p-0"
+        className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0"
       >
         <SheetHeader className="gap-1 border-b border-border/60 px-5 pb-3 pt-5">
           <SheetTitle className="flex items-center gap-2 text-[15px]">
@@ -88,7 +93,7 @@ export function SelectBookingSheet({
         {bookings.length === 0 ? (
           // Empty state — 対応予定 scaffolding so staff + Anthony
           // see the contract for the populated path above.
-          <div className="flex-1 overflow-y-auto px-5 py-6">
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
             <div className="flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-4 dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
               <div className="min-w-0 flex-1">
                 <div className="mb-1.5 flex items-center gap-1.5">
@@ -106,10 +111,18 @@ export function SelectBookingSheet({
           <ul
             role="listbox"
             aria-label={t('sheetTitle')}
-            className="flex-1 space-y-1.5 overflow-y-auto px-4 py-3"
+            // EXPLICIT max-height scroll container — NOT flex-1. The bottom-sheet
+            // primitive (ui/sheet.tsx) sets data-[side=bottom]:h-auto, which left
+            // the flex height unresolved, so `flex-1 min-h-0 overflow-y-auto`
+            // never produced a scroll (the list just ran off the bottom — Liam
+            // hit this twice). A self-contained `max-h-[70vh] overflow-y-auto`
+            // scrolls on its own, independent of the flex chain. overscroll-contain
+            // stops the scroll from chaining to the page behind the sheet.
+            className="max-h-[70vh] space-y-1.5 overflow-y-auto overscroll-contain px-4 py-3"
           >
             {bookings.map((b) => {
               const isCurrent = b.id === currentBookingId
+              const staffColor = getStaffColorByKey(b.staffColorKey)
               return (
                 <li key={b.id}>
                   <button
@@ -118,7 +131,7 @@ export function SelectBookingSheet({
                     aria-selected={isCurrent}
                     onClick={() => onSelect(b)}
                     className={cn(
-                      'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left ring-1 transition-colors',
+                      'flex w-full items-center gap-2.5 rounded-lg px-3 py-2.5 text-left ring-1 transition-colors',
                       isCurrent
                         ? 'bg-sky-50 ring-sky-300 dark:bg-sky-500/10 dark:ring-sky-500/30'
                         : 'bg-card ring-border hover:bg-muted/60',
@@ -138,20 +151,28 @@ export function SelectBookingSheet({
                       {isCurrent && <Check className="size-3" aria-hidden />}
                     </span>
                     {/* Time + duration */}
-                    <div className="w-[72px] shrink-0 text-[12px] font-semibold tabular-nums text-foreground/90">
+                    <div className="w-[50px] shrink-0 text-[12px] font-semibold tabular-nums text-foreground/90">
                       {b.start}
                       <span className="mt-0.5 block text-[10px] font-normal tabular-nums text-muted-foreground">
                         {durationLabel(b.start, b.end, t)}
                       </span>
                     </div>
-                    {/* Avatar */}
-                    <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-foreground ring-1 ring-border">
+                    {/* Avatar — colored by the booking's staff (same as the
+                     *  予約 agenda), neutral fallback when no staff. Subtle
+                     *  tint + dark text from the shared staff palette. */}
+                    <span
+                      className={cn(
+                        'inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                        staffColor.bg,
+                        staffColor.text,
+                      )}
+                    >
                       {b.initials}
                     </span>
                     {/* Customer + karute # + service */}
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-baseline gap-1">
-                        <span className="truncate text-[13px] font-medium text-foreground">
+                      <div className="flex items-baseline gap-1">
+                        <span className="min-w-0 truncate text-[13px] font-medium text-foreground">
                           {b.customer}
                         </span>
                         <span className="shrink-0 text-[10px] text-muted-foreground">
@@ -170,7 +191,7 @@ export function SelectBookingSheet({
                     {/* Status pill */}
                     <span
                       className={cn(
-                        'inline-flex h-5 shrink-0 items-center rounded-full px-1.5 text-[10px] font-medium',
+                        'inline-flex h-5 shrink-0 items-center rounded-full border px-1.5 text-[10px] font-medium',
                         STATUS_TONE[b.statusKey],
                       )}
                     >

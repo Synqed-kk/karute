@@ -100,7 +100,21 @@ export function karuteSummaryToBullets(
   karute: KaruteWithRelations,
 ): string[] {
   if (!karute.summary) return []
-  return karute.summary
+  const raw = karute.summary
+  // New format (prompts.ts): bullet lines, each optionally prefixed with ・/•/-.
+  // Detect the new format by a bullet marker OR a newline — NOT by line count.
+  // That way a SINGLE bullet ("・次回来店：6月29日 16:00") isn't mis-routed to the
+  // period-split (which mangles "16:00" / a 。inside the bullet), while a legacy
+  // prose summary (no markers, no newlines) still splits into sentences.
+  const looksBulleted = /\r?\n/.test(raw) || /^\s*[・•▪◦*\-–—]/.test(raw.trimStart())
+  if (looksBulleted) {
+    return raw
+      .split(/\r?\n+/)
+      .map((s) => s.replace(/^[\s・*•▪◦\-–—]+/, '').trim())
+      .filter(Boolean)
+  }
+  // Legacy/prose fallback — records summarized before the bullet format.
+  return raw
     .split(/[.。]\s*/)
     .map((s) => s.trim())
     .filter(Boolean)
@@ -114,7 +128,9 @@ const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
   symptom: 'concern',
   concern: 'concern',
   body_area: 'condition',
-  lifestyle: 'condition',
+  // Personal / life facts (pets, family, routine) get their OWN group — they are
+  // NOT a body 状態. This is what surfaces "犬を飼い始めた" as rapport, not a condition.
+  lifestyle: 'lifestyle',
   treatment: 'treatment',
   product: 'product',
   preference: 'product',
@@ -139,9 +155,4 @@ export function karuteEntriesToSessionEntries(
     time: timeOfDay(e.created_at),
     body: e.content,
   }))
-}
-
-export function deriveKaruteNumber(id: string): string {
-  const hex = id.replace(/-/g, '').slice(0, 5).toUpperCase()
-  return `#${hex}`
 }

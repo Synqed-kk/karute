@@ -1,29 +1,101 @@
 'use client'
 
+import { useEffect, useRef } from 'react'
 import { AlertCircle, CheckCircle2, Loader2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 
-import { Link } from '@/i18n/navigation'
+import { Link, useRouter } from '@/i18n/navigation'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
+import { globalPipeline } from '@/lib/global-pipeline'
+import { saveKaruteRecordInline } from '@/actions/karute'
+import type { EntryCategory } from '@/lib/karute/categories'
 
 /**
- * Top-corner, NON-blocking progress chip for the background AI pipeline.
+ * Top-corner, NON-blocking progress chip for the background AI pipeline — AND
+ * the home of the B2 auto-save.
  *
- * Mounted at the (app) layout root next to DiscreetRecordingIndicator, so it
- * floats over every route — the app stays fully usable while a 60–90 min
- * recording transcribes in the background (no more full-screen ProcessingModal
- * freezing the whole UI). Staff can start a NEW recording while a previous take
- * processes, so this chip and DiscreetRecordingIndicator can be visible at once
- * — it's offset to the left of the recording dot to sit beside it, not under it.
+ * Mounted once at the (app) layout root, so it floats over every route and its
+ * effects run no matter which page the staff has moved on to. The app stays
+ * fully usable while a 60–90 min recording transcribes in the background.
  *
- *   processing → spinner + current stage (文字起こし中 → 抽出 → 要約)
- *   review     → green "確認する" pill → taps through to /sessions to review+save
- *   error      → red "処理に失敗" pill → taps through to /sessions to retry/discard
- *   idle       → renders nothing
+ *   processing  → spinner + current stage (文字起こし中 → 抽出 → 要約)
+ *   autosaving  → spinner + 保存中; the effect below saves the take (known
+ *                 customer + outcome chosen at stop) so the staff NEVER returns
+ *                 to a review screen. On failure it drops to `review`.
+ *   review      → green "確認する" pill → /sessions to review+save (walk-ins /
+ *                 no-outcome takes / auto-save fallbacks)
+ *   error       → red "処理に失敗" pill → /sessions to retry/discard
+ *   idle        → renders nothing
  */
 export function ProcessingIndicator() {
   const t = useTranslations('review')
+  const router = useRouter()
   const { state, step } = useGlobalPipeline()
+  // One-shot per run, keyed by the pipeline's runId: a re-render can't re-fire
+  // the save for the same take, and a NEW take (new runId) still fires once.
+  const autosavedRunRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (state !== 'autosaving') return
+    const runId = globalPipeline.runId
+    if (autosavedRunRef.current === runId) return
+    autosavedRunRef.current = runId
+
+    const ctx = globalPipeline.context
+    const result = globalPipeline.result
+    // The state machine only enters 'autosaving' with a customer + outcome; this
+    // guard is defensive (incl. an empty AI summary). Fall back to review.
+    if (
+      !ctx?.appointmentCustomerId ||
+      !ctx.outcome ||
+      !result ||
+      !result.summary?.trim()
+    ) {
+      globalPipeline.failAutosaveToReview(runId)
+      return
+    }
+    const customerId = ctx.appointmentCustomerId
+
+    // NOTE: like the rest of the in-memory pipeline, a full page reload mid-save
+    // isn't recovered here (the record still persists server-side if the request
+    // landed; the durable server-job is the documented v2). runId guards the
+    // in-session races: a save resolving after a new recording started must not
+    // clobber or hijack the new take.
+    void (async () => {
+      const res = await saveKaruteRecordInline({
+        customerId,
+        transcript: result.transcript,
+        summary: result.summary,
+        entries: result.entries.map((e) => ({
+          category: e.category as EntryCategory,
+          content: e.title,
+          sourceQuote: e.source_quote,
+          confidenceScore: e.confidence_score,
+        })),
+        duration: ctx.duration,
+        appointmentId: ctx.appointmentId,
+        outcome: ctx.outcome,
+      })
+      if ('error' in res) {
+        // Never silently lose a take — tell the staff, and drop THIS run to
+        // review (no-op if a newer recording already superseded it).
+        toast.error(t('autosaveFailed'))
+        globalPipeline.failAutosaveToReview(runId)
+      } else {
+        const id = res.id
+        toast.success(t('autoSaved'), {
+          action: {
+            label: t('viewSaved'),
+            onClick: () =>
+              router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
+          },
+        })
+        // Guarded: won't wipe a newer take if the staff already moved on.
+        globalPipeline.reset(runId)
+      }
+    })()
+  }, [state, t, router])
 
   if (state === 'idle') return null
 
@@ -32,13 +104,15 @@ export function ProcessingIndicator() {
   const wrap =
     'fixed right-12 top-[max(0.75rem,env(safe-area-inset-top))] z-[90]'
 
-  if (state === 'processing') {
+  if (state === 'processing' || state === 'autosaving') {
     const stepLabel =
-      step === 'extracting'
-        ? t('extracting')
-        : step === 'summarizing'
-          ? t('summarizing')
-          : t('transcribing')
+      state === 'autosaving'
+        ? t('autoSaving')
+        : step === 'extracting'
+          ? t('extracting')
+          : step === 'summarizing'
+            ? t('summarizing')
+            : t('transcribing')
     return (
       <div className={wrap} role="status" aria-live="polite">
         <span className="inline-flex items-center gap-2 rounded-full border border-border bg-card/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-lg backdrop-blur supports-backdrop-filter:bg-card/80">

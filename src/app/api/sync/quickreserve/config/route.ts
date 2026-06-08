@@ -1,11 +1,21 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
+import { getBusinessId } from '@/lib/staff'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SB = any
 
+// sync_config holds the QuickReserve login (incl. password_encrypted). It's now
+// RLS-locked with no anon policies, so it's reachable only via the service-role
+// client below. getBusinessId() throws when there's no authenticated session,
+// so it doubles as the auth gate this route previously lacked.
 export async function GET() {
-  const supabase = await createClient() as SB
+  try {
+    await getBusinessId()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const supabase = createServiceClient() as SB
 
   const { data } = await supabase
     .from('sync_config')
@@ -27,8 +37,13 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  try {
+    await getBusinessId()
+  } catch {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
   const { username, password, enabled } = await request.json()
-  const supabase = await createClient() as SB
+  const supabase = createServiceClient() as SB
 
   // Check if config exists
   const { data: existing } = await supabase

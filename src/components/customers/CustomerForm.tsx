@@ -32,6 +32,13 @@ function createCustomerFormSchema(messages: { nameRequired: string; invalidEmail
     email: z.string().email(messages.invalidEmail).optional().or(z.literal('')),
     // 指名スタッフ — assigned/preferred stylist (profile id). '' = 指名なし.
     assignedStaffId: z.string().optional().or(z.literal('')),
+    // 生年月日 (YYYY-MM-DD) — age is derived from it at render, never stored. '' = unset.
+    dateOfBirth: z.string().optional().or(z.literal('')),
+    // 性別 — '' (未設定) | 'male' | 'female'.
+    gender: z.string().optional().or(z.literal('')),
+    // 職業 + 会員番号 — CRM fields seeded by the crawl, also staff-editable.
+    occupation: z.string().max(100).optional().or(z.literal('')),
+    memberNumber: z.string().max(100).optional().or(z.literal('')),
   })
 }
 
@@ -145,6 +152,10 @@ export function CustomerForm({
       phone: '',
       email: '',
       assignedStaffId: '',
+      dateOfBirth: '',
+      gender: '',
+      occupation: '',
+      memberNumber: '',
       ...seededDefaults,
     },
   })
@@ -160,6 +171,13 @@ export function CustomerForm({
       // camelCase form field → snake_case the server action / synqed-core
       // expect. '' (指名なし) is forwarded as-is; the action maps it to null.
       assigned_staff_id: values.assignedStaffId ?? '',
+      // 生年月日 + 性別. The action maps '' → null. Both are seeded from the
+      // customer's current values (CustomerEditDialog) so a normal save never
+      // wipes a crawled DOB/gender.
+      date_of_birth: values.dateOfBirth ?? '',
+      gender: values.gender ?? '',
+      occupation: values.occupation ?? '',
+      member_number: values.memberNumber ?? '',
     }
 
     const result = customerId
@@ -207,39 +225,36 @@ export function CustomerForm({
         </Field>
       </div>
 
-      {/* 年齢 / 性別 — visible-but-disabled stubs.
-       *
-       * ANTHONY: these need DB columns + a schema extension on
-       * createCustomer / updateCustomer in src/actions/customers.ts
-       * before they can be enabled. Suggested columns:
-       *   age:    integer NULL
-       *   gender: text NULL CHECK (gender IN ('female','male','other'))
-       *
-       * Once the schema's ready, drop `disabled` + the `comingSoon`
-       * badges and wire {...register('age')} / {...register('gender')}.
-       * The CustomerListRow already has `age` and `gender` typed as
-       * `number|null` / `string|null` so the read path is ready. */}
+      {/* 生年月日 / 性別 — EDITABLE. We store DATE OF BIRTH (not raw age): a stored
+       *  age silently goes wrong every year, whereas DOB stays correct forever and
+       *  powers the 誕生月 birthday hook. Age is derived from DOB at render on the
+       *  profile. The deep crawl seeds both (synqed-core accepts them on
+       *  customers.update); staff can fill/correct them here. */}
       <div className="grid grid-cols-2 gap-3">
-        <StubField label={t('form.age')}>
-          <Input
-            type="number"
-            inputMode="numeric"
-            placeholder={t('form.agePlaceholder')}
-            min={0}
-            max={120}
-            disabled
-          />
-        </StubField>
-        <StubField label={t('form.gender')}>
+        <Field label={t('form.birthDate')}>
+          <Input type="date" max="9999-12-31" {...register('dateOfBirth')} />
+        </Field>
+        <Field label={t('form.gender')}>
           <select
-            disabled
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-muted-foreground/70 focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-60"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+            {...register('gender')}
           >
-            <option>{t('form.female')}</option>
-            <option>{t('form.male')}</option>
-            <option>{t('form.other')}</option>
+            <option value="">{t('form.genderNone')}</option>
+            <option value="female">{t('form.female')}</option>
+            <option value="male">{t('form.male')}</option>
           </select>
-        </StubField>
+        </Field>
+      </div>
+
+      {/* 職業 / 会員番号 — CRM fields. Seeded by the deep crawl; staff-editable
+       *  here so they can be filled for any customer (not only crawled ones). */}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label={t('form.occupation')}>
+          <Input type="text" {...register('occupation')} />
+        </Field>
+        <Field label={t('form.memberNumber')}>
+          <Input type="text" inputMode="numeric" {...register('memberNumber')} />
+        </Field>
       </div>
 
       {/* 読み (ふりがな) — preserved from the previous form; lives below
@@ -361,30 +376,3 @@ function Field({
   )
 }
 
-/**
- * Visually-present, disabled stub field. Used for fields the design
- * calls for but whose underlying schema/action wiring is Anthony's to
- * land. The small "soon" pill next to the label makes the disabled
- * state legible at a glance (so users don't think the input is
- * broken).
- */
-function StubField({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  const t = useTranslations('customers.form')
-  return (
-    <div className="flex flex-col gap-1.5">
-      <label className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground">
-        {label}
-        <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] uppercase tracking-wide text-amber-700 dark:text-amber-300">
-          {t('comingSoon')}
-        </span>
-      </label>
-      {children}
-    </div>
-  )
-}

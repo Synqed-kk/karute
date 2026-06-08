@@ -5,7 +5,48 @@ import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
+import type { KaruteRecord } from '@synqed-kk/client'
+
+/**
+ * The recent karute records for ONE customer, newest first — read from
+ * synqed-core (the source of truth). The Supabase `karute_records` mirror is
+ * empty post-migration, so the record page's "recent recordings" + first-visit
+ * brief must read here, scoped to the recording-target customer. Best-effort:
+ * returns [] on any failure.
+ */
+export async function getCustomerKaruteRecords(
+  customerId: string,
+  limit = 5,
+): Promise<KaruteRecord[]> {
+  try {
+    const synqed = await getSynqedClient()
+    const res = await synqed.karuteRecords.list({
+      customer_id: customerId,
+      page_size: limit,
+    })
+    const rows = [...(res.karute_records ?? [])].sort((a, b) =>
+      b.created_at.localeCompare(a.created_at),
+    )
+    // The list endpoint omits per-entry detail (only entry_count). The
+    // pre-session brief derives 会話のきっかけ / 前回の主訴 / 前回の商品提案 from the
+    // MOST-RECENT record's entries — so fetch that one in full. Without this the
+    // brief boxes were empty and the card fell back to its placeholder copy.
+    // Best-effort: keep the lighter list row if the detail fetch fails.
+    if (rows.length > 0) {
+      const full = await synqed.karuteRecords
+        .get(rows[0].id, { include_entries: true })
+        .catch(() => null)
+      if (full) rows[0] = full
+    }
+    return rows
+  } catch (err) {
+    console.error('[getCustomerKaruteRecords] failed:', err)
+    return []
+  }
+}
 
 /**
  * Save a karute record with all AI-extracted entries in a single atomic
@@ -49,6 +90,29 @@ export async function saveKaruteRecord(
       })),
     })
     recordId = record.id
+
+    // Best-effort: persist the session outcome (the coaching training label).
+    // NEVER gate the save/redirect on it — the recording is the critical
+    // artifact, and setKaruteOutcome swallows its own errors.
+    if (input.outcome) {
+      await setKaruteOutcome({
+        karuteRecordId: recordId,
+        customerId: input.customerId,
+        status: input.outcome.status,
+        reason: input.outcome.reason,
+        isFirstVisit: input.outcome.isFirstVisit,
+        decidedBy: staffId,
+      })
+    }
+
+    // Best-effort: grow the customer's persistent memory from this transcript
+    // (the personal-bits + body-trajectory loop). Awaited so it reliably runs in
+    // serverless; never throws — the recording is the critical artifact.
+    await ingestSessionMemory({
+      customerId: input.customerId,
+      transcript: input.transcript,
+      locale: await getLocale(),
+    })
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
@@ -91,6 +155,26 @@ export async function saveKaruteRecordInline(
         confidence: entry.confidenceScore,
         is_manual: false,
       })),
+    })
+
+    // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
+    // Never gate the return on it; setKaruteOutcome swallows its own errors.
+    if (input.outcome) {
+      await setKaruteOutcome({
+        karuteRecordId: record.id,
+        customerId: input.customerId,
+        status: input.outcome.status,
+        reason: input.outcome.reason,
+        isFirstVisit: input.outcome.isFirstVisit,
+        decidedBy: staffId,
+      })
+    }
+
+    // Best-effort memory ingest — same loop as saveKaruteRecord.
+    await ingestSessionMemory({
+      customerId: input.customerId,
+      transcript: input.transcript,
+      locale: await getLocale(),
     })
 
     revalidatePath(`/customers/${input.customerId}`)
