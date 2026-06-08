@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 
 export const maxDuration = 30
 
@@ -7,9 +7,12 @@ export const maxDuration = 30
  * Daily cleanup:
  * 1. Delete any orphaned recordings from storage (older than 1 hour)
  * 2. Delete expired AI cache entries
+ *
+ * Runs from cron (no user session), so it uses the service-role client — which
+ * is also required now that ai_cache is RLS-locked (no anon policies).
  */
 export async function GET() {
-  const supabase = await createClient()
+  const supabase = createServiceClient()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
 
