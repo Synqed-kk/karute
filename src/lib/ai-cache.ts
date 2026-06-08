@@ -1,9 +1,13 @@
-import { createClient } from '@/lib/supabase/server'
+import { createServiceClient } from '@/lib/supabase/service'
 import crypto from 'crypto'
 
 /**
  * Simple AI response cache using Supabase.
  * Caches by a hash of the input to avoid duplicating expensive AI calls.
+ *
+ * Uses the service-role client (server-only): ai_cache is internal infra, not
+ * per-user data, and it's now RLS-locked with no anon policies, so the
+ * authenticated browser client can't reach it. Access is server-side only.
  */
 
 function hashKey(input: unknown): string {
@@ -14,7 +18,7 @@ function hashKey(input: unknown): string {
 export async function getCachedAI(prefix: string, input: unknown): Promise<unknown | null> {
   const key = `${prefix}:${hashKey(input)}`
   try {
-    const supabase = await createClient()
+    const supabase = createServiceClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data } = await (supabase as any)
       .from('ai_cache')
@@ -33,7 +37,7 @@ export async function getCachedAI(prefix: string, input: unknown): Promise<unkno
 export async function setCachedAI(prefix: string, input: unknown, result: unknown, ttlDays = 7): Promise<void> {
   const key = `${prefix}:${hashKey(input)}`
   try {
-    const supabase = await createClient()
+    const supabase = createServiceClient()
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase as any)
