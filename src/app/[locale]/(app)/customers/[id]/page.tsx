@@ -8,6 +8,11 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listCustomerPhotos } from '@/actions/customers'
+import { getCustomerMemory } from '@/lib/karute/customer-memory'
+import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
+import { buildCustomerMemory } from '@/lib/karute/memory-adapter'
+import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
+import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
@@ -114,6 +119,39 @@ export default async function CustomerProfilePage({
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
 
+  // ─── Customer memory (お客様メモリー card) ───────────────────────────────
+  // Read the persistent store; if empty, bootstrap ONCE from this customer's
+  // past transcripts (the same backfill the pre-session brief uses). The result
+  // is cached (1d) so it never re-runs the OpenAI call per page view — and once
+  // the customer_memory_items table is migrated, the store itself short-circuits
+  // the backfill (items.length > 0). Best-effort: empty card if the table is
+  // absent.
+  let memoryItems = await getCustomerMemory(id)
+  if (memoryItems.length === 0) {
+    // synqedKaruteRows (not the merged KaruteRow) carry the transcript field.
+    const transcripts = synqedKaruteRows
+      .map((r) => r.transcript ?? '')
+      .filter((t) => t.trim())
+    if (transcripts.length > 0) {
+      const cacheKey = { c: id, t: synqedKaruteRows.map((r) => r.id) }
+      const cached = (await getCachedAI('memory-backfill', cacheKey)) as
+        | MemoryItem[]
+        | null
+      if (cached) {
+        memoryItems = cached
+      } else {
+        memoryItems = await backfillMemoryFromTranscripts({
+          customerId: id,
+          businessId,
+          transcripts,
+          locale,
+        })
+        await setCachedAI('memory-backfill', cacheKey, memoryItems, 1)
+      }
+    }
+  }
+  const customerMemory = buildCustomerMemory(memoryItems, id)
+
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
   // Returning signal = the MAX of QR visit_count AND the actual karute history.
@@ -208,7 +246,7 @@ export default async function CustomerProfilePage({
       : null,
     nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,
-    memoryCount: 0, // Customer Memory backend not built yet
+    memoryCount: memoryItems.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,
   }
@@ -218,6 +256,7 @@ export default async function CustomerProfilePage({
       customer={profile}
       sessions={sessions}
       photos={photos}
+      customerMemory={customerMemory}
     />
   )
 }

@@ -90,7 +90,11 @@ ${wrapUntrustedContent('transcript', joined)}
 Emit the delta.`
 
     const completion = await openai.chat.completions.parse({
-      model: process.env.AI_MODEL || 'gpt-4o',
+      // DEDICATED env so memory extraction (reads FULL transcripts — the most
+      // token-heavy AI path) can run on a cheaper model (e.g. gpt-4o-mini) for
+      // cost WITHOUT downgrading extract/summary. Falls back to the shared
+      // AI_MODEL, then gpt-4o.
+      model: process.env.AI_MEMORY_MODEL || process.env.AI_MODEL || 'gpt-4o',
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },

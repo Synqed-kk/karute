@@ -27,6 +27,9 @@ export interface MemoryItem {
   confidence: number
   pinned: boolean
   suggestTalkingPoint: boolean
+  /** ISO timestamp of the store row's last update — drives the card's
+   *  "captured at" date. Empty string when not yet known. */
+  updatedAt: string
 }
 
 /** One reconciliation op the extractor emits against existing memory. */
