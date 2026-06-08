@@ -3,6 +3,7 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import { ExtractionResultSchema } from '@/types/ai'
 import { openai } from '@/lib/openai'
 import { getExtractionSystemPrompt } from '@/lib/prompts'
+import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 
@@ -19,7 +20,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'transcript is required' }, { status: 400 })
     }
 
-    const systemPrompt = getExtractionSystemPrompt(locale ?? 'en')
+    // Business type from synqed-core → extraction tuned per business (整体 vs gym
+    // vs dental). Best-effort: falls back to the neutral persona on failure.
+    const orgSettings = await getOrgSettings().catch(() => null)
+    const systemPrompt = getExtractionSystemPrompt(
+      locale ?? 'en',
+      orgSettings?.business_type,
+    )
 
     const completion = await openai.chat.completions.parse({
       // gpt-4o (not -mini): the extraction must FOLLOW detailed instructions

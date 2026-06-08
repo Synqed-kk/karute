@@ -6,6 +6,7 @@ import {
   type PipelineResult,
 } from '@/lib/ai-pipeline'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
  * Global AI-pipeline singleton — the background counterpart to globalRecorder.
@@ -35,9 +36,17 @@ export interface PipelineContext {
   appointmentId?: string
   /** Customer carried from the booking so review pre-fills attribution. */
   appointmentCustomerId?: string
+  /** Outcome chosen at stop (the coaching label) — carried to the save so the
+   *  staff decides once, up front, and never re-opens a dialog at the end. */
+  outcome?: SessionOutcome
 }
 
-export type PipelineState = 'idle' | 'processing' | 'review' | 'error'
+export type PipelineState =
+  | 'idle'
+  | 'processing'
+  | 'autosaving' // known customer + outcome → saving in the background, no review
+  | 'review'
+  | 'error'
 
 type Listener = () => void
 
@@ -56,8 +65,12 @@ class GlobalPipeline {
    * Identifies the live run. A new start()/retry() supersedes an in-flight run,
    * and reset() invalidates it — a stale run() resolving late checks this and
    * bails instead of clobbering newer state (e.g. record-while-processing).
+   *
+   * Public (read-only outside the class) so the auto-save in ProcessingIndicator
+   * can capture the run it belongs to and pass it back to reset()/
+   * failAutosaveToReview(), which bail if a newer run has superseded it.
    */
-  private runId = 0
+  runId = 0
 
   subscribe(fn: Listener) {
     this.listeners.add(fn)
@@ -94,7 +107,15 @@ class GlobalPipeline {
       })
       if (runId !== this.runId) return
       this.result = result
-      this.state = 'review'
+      // Auto-save when nothing more is needed from the staff: a known customer
+      // (from the booking) + an outcome chosen at stop. The always-mounted
+      // ProcessingIndicator performs the save, so the staff never comes back.
+      // Otherwise fall to review — a walk-in still needs customer selection,
+      // and a take with no outcome needs the manual save.
+      this.state =
+        this.context?.outcome && this.context?.appointmentCustomerId
+          ? 'autosaving'
+          : 'review'
       this.notify()
     } catch (err) {
       if (runId !== this.runId) return
@@ -117,8 +138,24 @@ class GlobalPipeline {
     void this.run()
   }
 
-  /** Clear everything — called after the karute is saved or discarded. */
-  reset() {
+  /** Auto-save failed — fall back to review so the take is never lost. The
+   *  staff finishes it manually on the record page. `ownRunId` is the run the
+   *  caller started saving; if a newer run has superseded it (the staff began
+   *  a new recording mid-save), this is a no-op so we never hijack the new
+   *  take's state. */
+  failAutosaveToReview(ownRunId?: number) {
+    if (ownRunId !== undefined && ownRunId !== this.runId) return
+    if (this.state !== 'autosaving') return
+    this.state = 'review'
+    this.notify()
+  }
+
+  /** Clear everything — called after the karute is saved or discarded. A late
+   *  auto-save passes its `ownRunId`; if a newer run has started, reset() bails
+   *  so it can't wipe the NEW take's result/blob/context. Lifecycle owners
+   *  (review save/discard, error dismiss) pass nothing and always reset. */
+  reset(ownRunId?: number) {
+    if (ownRunId !== undefined && ownRunId !== this.runId) return
     // Invalidate any in-flight run so a late resolve can't revive the chip.
     this.runId++
     this.state = 'idle'

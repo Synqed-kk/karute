@@ -11,6 +11,7 @@ import { EntryCard } from './EntryCard'
 import { ReviewHeader } from './ReviewHeader'
 import { saveKaruteRecord } from '@/actions/karute'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 const ReviewFormSchema = z.object({
   summary: z.string().min(1),
@@ -27,6 +28,9 @@ interface ReviewScreenProps {
   duration?: number
   appointmentId?: string
   appointmentCustomerId?: string
+  /** Outcome chosen at stop (RecordPageView) — applied directly at save, so no
+   *  dialog re-opens here. */
+  outcome?: SessionOutcome
   onSaved: () => void
   /** Bail out without saving — clears the background pipeline + take. */
   onDiscard?: () => void
@@ -40,6 +44,7 @@ export function ReviewScreen({
   duration,
   appointmentId,
   appointmentCustomerId,
+  outcome,
   onSaved,
   onDiscard,
 }: ReviewScreenProps) {
@@ -96,6 +101,8 @@ export function ReviewScreen({
     })
   }
 
+  // Outcome is captured upstream (at stop, in RecordPageView) and arrives via
+  // the `outcome` prop — applied directly here, no dialog.
   async function handleSave(data: ReviewFormValues) {
     if (!appointmentCustomerId && !selectedCustomerId) {
       toast.error(t('selectCustomer'))
@@ -117,6 +124,7 @@ export function ReviewScreen({
         })),
         duration,
         appointmentId,
+        outcome,
       })
 
       if (result && 'error' in result) {
@@ -137,8 +145,9 @@ export function ReviewScreen({
     }
   }
 
-  const customerName = appointmentCustomerId
-    ? customers.find((c) => c.id === appointmentCustomerId)?.name
+  const resolvedCustomerId = appointmentCustomerId ?? selectedCustomerId
+  const customerName = resolvedCustomerId
+    ? (customers.find((c) => c.id === resolvedCustomerId)?.name ?? null)
     : null
 
   const [checkedSuggestions, setCheckedSuggestions] = useState<Set<number>>(new Set())

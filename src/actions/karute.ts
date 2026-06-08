@@ -5,6 +5,8 @@ import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord } from '@synqed-kk/client'
 
@@ -88,6 +90,29 @@ export async function saveKaruteRecord(
       })),
     })
     recordId = record.id
+
+    // Best-effort: persist the session outcome (the coaching training label).
+    // NEVER gate the save/redirect on it — the recording is the critical
+    // artifact, and setKaruteOutcome swallows its own errors.
+    if (input.outcome) {
+      await setKaruteOutcome({
+        karuteRecordId: recordId,
+        customerId: input.customerId,
+        status: input.outcome.status,
+        reason: input.outcome.reason,
+        isFirstVisit: input.outcome.isFirstVisit,
+        decidedBy: staffId,
+      })
+    }
+
+    // Best-effort: grow the customer's persistent memory from this transcript
+    // (the personal-bits + body-trajectory loop). Awaited so it reliably runs in
+    // serverless; never throws — the recording is the critical artifact.
+    await ingestSessionMemory({
+      customerId: input.customerId,
+      transcript: input.transcript,
+      locale: await getLocale(),
+    })
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
@@ -130,6 +155,26 @@ export async function saveKaruteRecordInline(
         confidence: entry.confidenceScore,
         is_manual: false,
       })),
+    })
+
+    // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
+    // Never gate the return on it; setKaruteOutcome swallows its own errors.
+    if (input.outcome) {
+      await setKaruteOutcome({
+        karuteRecordId: record.id,
+        customerId: input.customerId,
+        status: input.outcome.status,
+        reason: input.outcome.reason,
+        isFirstVisit: input.outcome.isFirstVisit,
+        decidedBy: staffId,
+      })
+    }
+
+    // Best-effort memory ingest — same loop as saveKaruteRecord.
+    await ingestSessionMemory({
+      customerId: input.customerId,
+      transcript: input.transcript,
+      locale: await getLocale(),
     })
 
     revalidatePath(`/customers/${input.customerId}`)

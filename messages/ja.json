@@ -351,6 +351,46 @@
     }
   },
   "recording": {
+    "outcome": {
+      "title": "結果 — {name}様",
+      "titleFirst": "初回セッションの結果 — {name}様",
+      "cardTitle": "セッションの結果",
+      "edit": "結果を変更",
+      "record": "結果を記録",
+      "autoNote": "14日経過で自動判定",
+      "chip": {
+        "success": "成約",
+        "no_deal": "不成約",
+        "pending": "仮カルテ",
+        "none": "結果 未記録"
+      },
+      "subtitle": "録音の保存と合わせて、成約の可否を記録します。",
+      "subtitleHint": "この1タップで、成約率の計算・AIの学習・顧客台帳の整理がすべて反映されます。",
+      "success": {
+        "title": "成約しました",
+        "desc": "ご契約またはご予約に繋がりました。通常カルテとして保存します。"
+      },
+      "noDeal": {
+        "title": "今回は不成約でした",
+        "desc": "カルテはAIコーチング学習データとして保持しますが、顧客一覧には表示しません。"
+      },
+      "pending": {
+        "title": "後で決める",
+        "desc": "仮カルテのまま保留します。未決のまま14日経過すると、自動で不成約に移行します。"
+      },
+      "reasonLabel": "理由（任意）",
+      "reason": {
+        "budget": "予算",
+        "considering": "検討中",
+        "mismatch": "店舗ミスマッチ",
+        "follow_up": "後日連絡予定",
+        "other": "その他"
+      },
+      "disclaimer": "ご記録いただいた成約・不成約は、AIがトップパフォーマーの会話パターンを学習するためにも活用されます。お客様の個別情報は他のスタッフには共有されません。",
+      "save": "保存",
+      "saving": "保存中...",
+      "cancel": "キャンセル"
+    },
     "title": "録音",
     "selectStaff": "スタッフを選択",
     "start": "録音開始",
@@ -416,6 +456,7 @@
       "lastProduct": "前回の商品提案",
       "recommendedFocus": "本日のおすすめフォーカス",
       "reservationMemo": "ご予約時のメモ",
+      "memoAnalysisLabel": "AIによる事前読み取り",
       "firstTimeHeader": "初めてのお客様",
       "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
       "empty": "事前ブリーフは未生成です — 最初のカルテ完了後にAIが生成します。",
@@ -957,6 +998,10 @@
     "extracting": "エントリー抽出中...",
     "summarizing": "サマリー生成中...",
     "reviewReady": "確認する",
+    "autoSaving": "保存中...",
+    "autoSaved": "カルテを保存しました",
+    "viewSaved": "確認する",
+    "autosaveFailed": "自動保存に失敗しました。確認画面から保存してください。",
     "discard": "破棄",
     "aiSummaryPlaceholder": "AIが生成したセッションサマリー...",
     "entryTitlePlaceholder": "エントリータイトル...",

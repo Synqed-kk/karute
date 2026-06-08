@@ -1,4 +1,5 @@
 import type { EntryCategory } from '@/lib/karute/categories'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /**
  * A single entry in a karute record.
@@ -54,6 +55,8 @@ export type SaveKaruteInput = {
   }>
   duration?: number
   appointmentId?: string
+  /** Session outcome (the coaching label) chosen at save — best-effort persisted. */
+  outcome?: SessionOutcome
 }
 
 /**

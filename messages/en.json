@@ -351,6 +351,46 @@
     }
   },
   "recording": {
+    "outcome": {
+      "title": "Result — {name}",
+      "titleFirst": "First session result — {name}",
+      "cardTitle": "Session outcome",
+      "edit": "Change",
+      "record": "Record outcome",
+      "autoNote": "Auto-decided after 14 days",
+      "chip": {
+        "success": "Converted",
+        "no_deal": "No deal",
+        "pending": "Provisional",
+        "none": "Not set"
+      },
+      "subtitle": "Record whether this session converted, together with saving the recording.",
+      "subtitleHint": "One tap updates your close rate, the AI's learning, and the customer ledger.",
+      "success": {
+        "title": "Converted",
+        "desc": "Led to a booking or purchase. Saved as a normal karute."
+      },
+      "noDeal": {
+        "title": "No deal this time",
+        "desc": "Kept as AI coaching training data, but hidden from the customer list."
+      },
+      "pending": {
+        "title": "Decide later",
+        "desc": "Held as a provisional karute. Auto-moves to no-deal after 14 days if undecided."
+      },
+      "reasonLabel": "Reason (optional)",
+      "reason": {
+        "budget": "Budget",
+        "considering": "Considering",
+        "mismatch": "Store mismatch",
+        "follow_up": "Will follow up",
+        "other": "Other"
+      },
+      "disclaimer": "Your converted / no-deal records also help the AI learn top-performer conversation patterns. This customer's individual details are never shared with other staff.",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel"
+    },
     "title": "Record",
     "selectStaff": "Select staff",
     "start": "Start recording",
@@ -416,6 +456,7 @@
       "lastProduct": "Last product offered",
       "recommendedFocus": "Recommended focus today",
       "reservationMemo": "Booking note",
+      "memoAnalysisLabel": "AI pre-read",
       "firstTimeHeader": "First-time customer",
       "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
       "empty": "Pre-session brief unavailable — AI will generate one after the first karute.",
@@ -957,6 +998,10 @@
     "extracting": "Extracting entries...",
     "summarizing": "Generating summary...",
     "reviewReady": "Review",
+    "autoSaving": "Saving...",
+    "autoSaved": "Karute saved",
+    "viewSaved": "View",
+    "autosaveFailed": "Auto-save failed. Please save from the review screen.",
     "discard": "Discard",
     "aiSummaryPlaceholder": "AI-generated session summary...",
     "entryTitlePlaceholder": "Entry title...",
