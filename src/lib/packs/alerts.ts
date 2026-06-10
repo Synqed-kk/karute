@@ -25,7 +25,13 @@ export async function getPackAlerts(thresholdDays?: number): Promise<PackAlerts>
     getCachedCustomerList(),
     getBusinessId().catch(() => null),
   ])
-  if (usage.size === 0) return { contact: [], low: [] }
+  if (usage.size === 0) {
+    return {
+      contact: [],
+      low: [],
+      totals: { atRiskValue: 0, unconsumedTotal: 0, holderCount: 0 },
+    }
+  }
 
   const holderIds = Array.from(usage.keys())
   const enrichment =

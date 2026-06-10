@@ -1475,7 +1475,11 @@
       "forbidden": "Only managers can dismiss",
       "showAll": "Show all ({n})",
       "lowTitle": "{n} customers on their last session — suggest the next pack",
-      "lowChip": "{remaining} left"
+      "lowChip": "{remaining} left",
+      "atRiskLabel": "At risk",
+      "unconsumedLabel": "Unused total",
+      "holderCount": "({n} holders)",
+      "allClear": "Nothing needs attention"
     }
   },
   "settings": {

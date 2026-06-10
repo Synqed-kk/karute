@@ -26,6 +26,12 @@ export interface PackAlerts {
   contact: PackAlertEntry[]
   /** 残り1回 → suggest the next pack at their upcoming visit. */
   low: PackAlertEntry[]
+  /** The owner's money line (Kitano's sheet header, whose 未消化 cells are
+   *  literally #REF! in the manual system):
+   *  - atRiskValue: Σ unconsumed across the VISIBLE contact list (回収リスク)
+   *  - unconsumedTotal: Σ unconsumed across ALL active pack holders (未消化総額)
+   *  - holderCount: customers holding an active counted pack */
+  totals: { atRiskValue: number; unconsumedTotal: number; holderCount: number }
 }
 
 export interface ComputePackAlertsInput {
@@ -46,7 +52,13 @@ export interface ComputePackAlertsInput {
 export function computePackAlerts(input: ComputePackAlertsInput): PackAlerts {
   const contact: PackAlertEntry[] = []
   const low: PackAlertEntry[] = []
+  let unconsumedTotal = 0
+  let holderCount = 0
   for (const [customerId, u] of input.usage) {
+    if (u.hasActivePack) {
+      unconsumedTotal += u.unconsumed
+      holderCount += 1
+    }
     const visits = input.visitById.get(customerId)
     const daysSinceLastVisit = daysSince(visits?.lastVisitIso ?? null, input.now)
     const hasNextBooking = !!visits?.nextAppointmentIso
@@ -81,5 +93,13 @@ export function computePackAlerts(input: ComputePackAlertsInput): PackAlerts {
     (a, b) => (b.daysSinceLastVisit ?? 0) - (a.daysSinceLastVisit ?? 0),
   )
   low.sort((a, b) => (b.unconsumed ?? 0) - (a.unconsumed ?? 0))
-  return { contact, low }
+  return {
+    contact,
+    low,
+    totals: {
+      atRiskValue: contact.reduce((s, e) => s + e.unconsumed, 0),
+      unconsumedTotal,
+      holderCount,
+    },
+  }
 }

@@ -1475,7 +1475,11 @@
       "forbidden": "解除は店長のみ可能です",
       "showAll": "すべて表示（{n}人）",
       "lowTitle": "残り1回のお客様（{n}人）— 次の回数券のご案内を",
-      "lowChip": "残{remaining}"
+      "lowChip": "残{remaining}",
+      "atRiskLabel": "回収リスク",
+      "unconsumedLabel": "未消化総額",
+      "holderCount": "（{n}名）",
+      "allClear": "対応必要なし"
     }
   },
   "settings": {
