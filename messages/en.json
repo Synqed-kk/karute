@@ -1974,7 +1974,24 @@
     "voiceEnrollCta": "Enroll voice (optional)",
     "voiceRevoke": "Delete voice profile",
     "coachingDescription": "Master settings, weights, consent",
-    "addStore": "Add store"
+    "addStore": "Add store",
+    "packsDescription": "Pack presets and staff permissions",
+    "packs": {
+      "label": "Ticket packs",
+      "presetsTitle": "Pack presets",
+      "presetsHint": "The size/price options shown in the post-recording New Pack panel. A customer's previous pack takes priority as the prefill.",
+      "sizeLabel": "Sessions",
+      "priceLabel": "Unit price",
+      "addPreset": "Add preset",
+      "remove": "Remove",
+      "empty": "No presets yet — add one to get started.",
+      "allowStaffCustom": "Allow staff custom input",
+      "allowStaffCustomHint": "When off, staff can only choose from presets (owner-only setting).",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "saveFailed": "Could not save"
+    }
   },
   "aiActions": {
     "title": "AI Recommended Actions",

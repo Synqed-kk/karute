@@ -17,6 +17,12 @@ export type RecordingDisclosureMode = 'A' | 'B' | 'C'
 export type AudioSource = 'phone' | 'bluetooth' | 'wired'
 export type AIVoiceStyle = 'formal' | 'polite' | 'friendly'
 
+/** Owner-managed default for the stop-dialog pack picker (設定 → 回数券). */
+export interface PackPreset {
+  size: number
+  unitPrice: number
+}
+
 export interface OrgSettings {
   id: string
   salon_name: string
@@ -45,6 +51,10 @@ export interface OrgSettings {
   voice_recognition_improved: boolean
   recording_consent_required: boolean
   recording_consent_template: string
+  /** 回数券プリセット — the picker's size/price chips. Owner-managed. */
+  pack_presets: PackPreset[]
+  /** Off → staff may only pick from presets (no free price/size input). */
+  staff_can_customize_packs: boolean
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -99,6 +109,19 @@ const orgSettingsByBusiness = unstable_cache(
         recording_consent_required: Boolean(s.recording_consent_required),
         recording_consent_template:
           (s.recording_consent_template as string | undefined) ?? '',
+        pack_presets: Array.isArray(s.pack_presets)
+          ? (s.pack_presets as PackPreset[]).filter(
+              (p) =>
+                typeof p?.size === 'number' &&
+                p.size > 0 &&
+                typeof p?.unitPrice === 'number' &&
+                p.unitPrice >= 0,
+            )
+          : [],
+        staff_can_customize_packs:
+          s.staff_can_customize_packs === undefined
+            ? true
+            : Boolean(s.staff_can_customize_packs),
       }
     } catch {
       return null
