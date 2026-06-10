@@ -19,6 +19,10 @@ export interface ListStats {
   unconsumedTotal: number
   /** Any pack data at all? false pre-import → pack stats hide. */
   hasPackData: boolean
+  /** Booking enrichment actually loaded? When the synqed-core env is missing,
+   *  enrichment silently returns empty → every row reads 予約なし → the strip
+   *  would confidently claim 100%. Same honesty gate as the pack stats. */
+  hasBookingData: boolean
 }
 
 export function CustomerListStatsStrip({
@@ -32,12 +36,17 @@ export function CustomerListStatsStrip({
 }) {
   const t = useTranslations('customers.list.stats')
   if (stats.total === 0) return null
-  const pct =
-    stats.total > 0 ? Math.round((stats.noBooking / stats.total) * 100) : 0
+  const showNoBooking = stats.hasBookingData || active === 'noBooking'
+  const showPackLow =
+    (stats.hasPackData && stats.packLow > 0) || active === 'packLow'
+  const showUnconsumed = stats.hasPackData && stats.unconsumedTotal > 0
+  if (!showNoBooking && !showPackLow && !showUnconsumed) return null
+  const pct = Math.round((stats.noBooking / stats.total) * 100)
   const toggle = (key: CustomerListFilterKey) =>
     onSelect(active === key ? 'all' : key)
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] tabular-nums">
+      {showNoBooking && (
       <button
         type="button"
         onClick={() => toggle('noBooking')}
@@ -52,7 +61,11 @@ export function CustomerListStatsStrip({
         </span>
         <span className="text-muted-foreground">({pct}%)</span>
       </button>
-      {stats.hasPackData && stats.packLow > 0 && (
+      )}
+      {/* Stays visible while ITS filter is active even if the count hits 0 —
+       *  otherwise the only tap-to-clear control vanishes mid-use (same guard
+       *  the hide-when-zero pills use). */}
+      {showPackLow && (
         <button
           type="button"
           onClick={() => toggle('packLow')}
@@ -65,7 +78,7 @@ export function CustomerListStatsStrip({
           {t('packLow', { n: stats.packLow })}
         </button>
       )}
-      {stats.hasPackData && stats.unconsumedTotal > 0 && (
+      {showUnconsumed && (
         <span className="ml-auto font-semibold text-foreground">
           {t('unconsumed', {
             amount: stats.unconsumedTotal.toLocaleString('ja-JP'),

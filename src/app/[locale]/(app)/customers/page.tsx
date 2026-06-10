@@ -183,6 +183,7 @@ export default async function CustomersPage({
       totalRegistered={list.total}
       query={query}
       selfStaffId={activeStaffId}
+      bookingDataAvailable={enrichment.size > 0}
       staffList={staffForFilter}
     />
   )

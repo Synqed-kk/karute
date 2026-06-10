@@ -1,9 +1,7 @@
 'use client'
 
-import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
-import { formatJpPhone } from '@/lib/format/phone'
 import { cn } from '@/lib/utils'
 import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
@@ -143,7 +141,8 @@ export function CustomerRowDesktop({
         )}
       </div>
 
-      {/* Staff + phone */}
+      {/* Staff — ☎ digits removed (案B, chopstick: one phone policy on EVERY
+       *  list surface). The staff sheet never tracked phone; profile keeps it. */}
       <div className="flex min-w-0 flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 truncate">
           {staffColorKey && (
@@ -156,12 +155,6 @@ export function CustomerRowDesktop({
             {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
           </span>
         </span>
-        {c.phone && (
-          <span className="inline-flex items-center gap-1 truncate tabular-nums">
-            <Phone className="size-2.5 shrink-0" aria-hidden />
-            <span className="truncate">{formatJpPhone(c.phone)}</span>
-          </span>
-        )}
       </div>
 
       {/* Total — visit count badge */}

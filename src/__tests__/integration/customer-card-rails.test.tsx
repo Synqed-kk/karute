@@ -230,6 +230,23 @@ describe('案A rails card — mock fidelity', () => {
     expect(card.getByText('（219日前）').className).not.toContain('amber')
   })
 
+  it('卒業 with no booking: 予約なし stays NEUTRAL (closed case, no action color)', () => {
+    const { container } = renderCard(
+      row({
+        name: '小川拓也',
+        status: 'graduated',
+        lastVisitDate: '2025年11月3日',
+        lastVisitDateCompact: '2025/11/3',
+        lastVisitAgo: '219日前',
+        totalKarute: 4,
+        nextBookingDate: null,
+      }),
+    )
+    const rail = within(container).getByText('予約なし')
+    expect(rail.className).not.toContain('amber')
+    expect(rail.className).toContain('text-muted-foreground')
+  })
+
   it('state b (count without date): 「最終来店日の記録なし」 — never the 来店履歴なし contradiction', () => {
     const { container } = renderCard(
       row({

@@ -7,7 +7,6 @@ import { ComingSoonChip } from '../ComingSoonChip'
 
 export type CustomerListFilterKey =
   | 'all'
-  | 'preferredStaff'
   | 'newRecent'
   | 'followup'
   | 'dormant'
@@ -18,7 +17,6 @@ export type CustomerListFilterKey =
 
 export interface CustomerListCounts {
   all: number
-  preferredStaff: number
   newRecent: number
   followup: number
   dormant: number
@@ -112,7 +110,6 @@ export function applyCustomerFilter(
     packAlert?: 'contact' | 'low' | null
   }>,
   filter: CustomerListFilterKey,
-  selfStaffId: string | null,
 ): Array<number> {
   // Returns the indices of rows matching the filter so the caller can map.
   const out: number[] = []
@@ -120,9 +117,7 @@ export function applyCustomerFilter(
   since30.setDate(since30.getDate() - 30)
   rows.forEach((r, i) => {
     if (filter === 'all') out.push(i)
-    else if (filter === 'preferredStaff') {
-      if (selfStaffId && r.preferredStaffId === selfStaffId) out.push(i)
-    } else if (filter === 'newRecent') {
+    else if (filter === 'newRecent') {
       // status==='new' is the resolver's verdict (returning customers are
       // excluded) — without it, a bulk import where created_at = sync date
       // made ALL 192 customers count as 新規(30日以内) while their card chips

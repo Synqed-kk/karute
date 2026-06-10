@@ -277,6 +277,14 @@ describe('CustomersListView', () => {
 })
 
 describe('案D stats strip', () => {
+  it('honesty gate: bookingDataAvailable=false hides 予約なし (no confident 100% lie)', () => {
+    const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: null })]
+    render(
+      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} bookingDataAvailable={false} />,
+    )
+    expect(screen.queryByText(/noBooking:/)).toBeNull()
+  })
+
   it('予約なし counts in-play customers only (卒業/離客 excluded) and taps to filter', () => {
     const rows = [
       row({ id: 'a', name: 'NoBook', nextBookingDate: null }),
