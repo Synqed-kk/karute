@@ -26,6 +26,7 @@ import {
 } from '@/lib/customers/identity'
 import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
 import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
+import { getCustomerLifecycle, listCustomerPacks } from '@/lib/packs/store'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
@@ -152,6 +153,13 @@ export default async function CustomerProfilePage({
   }
   const customerMemory = buildCustomerMemory(memoryItems, id)
 
+  // 回数券 + lifecycle (卒業/離客/口コミ) — best-effort: empty card / no chips
+  // until the ticket_packs migration is applied (store degrades gracefully).
+  const [packs, lifecycle] = await Promise.all([
+    listCustomerPacks(id),
+    getCustomerLifecycle(id),
+  ])
+
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
   // Returning signal = the MAX of QR visit_count AND the actual karute history.
@@ -257,6 +265,8 @@ export default async function CustomerProfilePage({
       sessions={sessions}
       photos={photos}
       customerMemory={customerMemory}
+      packs={packs}
+      lifecycle={lifecycle}
     />
   )
 }
