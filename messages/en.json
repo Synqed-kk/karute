@@ -393,7 +393,23 @@
       "cancel": "Cancel",
       "redeemLabel": "Use 1 pack session",
       "redeemDelta": "({from} → {to} left)",
-      "redeemZeroHint": "Pack will be empty — suggest the next pack"
+      "redeemZeroHint": "Pack will be empty — suggest the next pack",
+      "repurchase": {
+        "title": "{name} — next pack conversation",
+        "subtitle": "Their pack is almost used up. Did you talk about the next one?",
+        "success": {
+          "title": "Bought",
+          "desc": "They purchased the next pack"
+        },
+        "noDeal": {
+          "title": "Offered, not bought",
+          "desc": "You suggested it but they didn't buy this time"
+        },
+        "pending": {
+          "title": "Decide later",
+          "desc": "Not discussed yet / waiting on their answer"
+        }
+      }
     },
     "title": "Record",
     "selectStaff": "Select staff",
@@ -700,7 +716,10 @@
         "notesPlaceholder": "e.g. campaign price",
         "save": "Save",
         "saved": "Pack saved",
-        "saveFailed": "Could not save"
+        "saveFailed": "Could not save",
+        "autoRedeemed": "Pack session used ({from} → {to} left)",
+        "undo": "Undo",
+        "undone": "Undone"
       },
       "record": "Record",
       "ageValue": "{age} y/o",

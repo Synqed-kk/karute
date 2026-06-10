@@ -38,7 +38,8 @@ import {
 } from './RecentRecordingsCard'
 import { LiveTranscriptCard } from './LiveTranscriptCard'
 import { PostSessionResolutionDialog } from './PostSessionResolutionDialog'
-import { redeemSessionAction } from '@/actions/packs'
+import { redeemSessionAction, undoRedemptionAction } from '@/actions/packs'
+import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 export interface RecordPageNextAppointment {
@@ -246,7 +247,7 @@ export function RecordPageView({
     discardRecording()
     setPhase('idle')
   }
-  function handleUseRecording(outcome?: SessionOutcome) {
+  function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
     // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
     // modal on this page). The top-corner chip shows progress; staff can leave
@@ -267,6 +268,7 @@ export function RecordPageView({
       appointmentId: effectiveAppointmentId,
       appointmentCustomerId: effectiveCustomerId,
       outcome,
+      outcomeSkipped,
     })
     // The pipeline now owns the audio; clear the recorder + return to idle so
     // the page isn't stuck on the "review your take" screen.
@@ -276,6 +278,46 @@ export function RecordPageView({
   function handleNewSession() {
     discardRecording()
     setPhase('idle')
+  }
+
+  // What the stop flow shows, decided by the pack state (single source —
+  // resolveOutcomeMode): conversion dialog / repurchase dialog / nothing at all.
+  const outcomeMode = resolveOutcomeMode(targetPack)
+
+  // Mid-pack ZERO-TAP flow: the customer already paid and keeps rebooking — no
+  // conversion conversation happened, so asking 成約/不成約 would pollute the
+  // coaching labels. Consume 1 session (undo-able toast) + autosave without an
+  // outcome row.
+  function handleAutoFlow() {
+    if (targetPack && nextAppointment?.customerId) {
+      const from = targetPack.remaining
+      void redeemSessionAction({
+        packId: targetPack.id,
+        customerId: nextAppointment.customerId,
+      }).then((res) => {
+        if (res.ok) {
+          toast.success(
+            tPacks('autoRedeemed', { from, to: from - 1 }),
+            res.redemptionId
+              ? {
+                  action: {
+                    label: tPacks('undo'),
+                    onClick: () =>
+                      void undoRedemptionAction(res.redemptionId!).then((u) =>
+                        u.ok
+                          ? toast.success(tPacks('undone'))
+                          : toast.error(tPacks('redeemFailed')),
+                      ),
+                  },
+                }
+              : undefined,
+          )
+        } else {
+          toast.error(tPacks('redeemFailed'))
+        }
+      })
+    }
+    handleUseRecording(undefined, true)
   }
 
   // Background pipeline finished → render the SAME ReviewScreen the old
@@ -384,7 +426,14 @@ export function RecordPageView({
         <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
           {t('discard')}
         </Button>
-        <Button variant="default" size="md" className="flex-1" onClick={() => setOutcomeOpen(true)}>
+        <Button
+          variant="default"
+          size="md"
+          className="flex-1"
+          onClick={() =>
+            outcomeMode === 'auto' ? handleAutoFlow() : setOutcomeOpen(true)
+          }
+        >
           {t('useRecording')}
         </Button>
       </div>
@@ -489,6 +538,7 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={nextAppointment?.customerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}
         onCancel={() => setOutcomeOpen(false)}
         onResolve={(outcome, redeemPack) => {
