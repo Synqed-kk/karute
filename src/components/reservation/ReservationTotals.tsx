@@ -8,10 +8,12 @@ interface ReservationTotalsProps {
   reservations: ReservationView[]
 }
 
+// 予約済 dropped (Liam): the headline already counts every booking — a
+// 予約済 N beside 本日の予約 N件 restated the same number. Remaining tones
+// render only when nonzero, so a normal day reads as one phrase.
 const TONES: Array<{ key: DisplayStatus; cssKey: string }> = [
   { key: 'completed', cssKey: 'completed' },
   { key: 'in_session', cssKey: 'in-session' },
-  { key: 'booked', cssKey: 'booked' },
   { key: 'new', cssKey: 'new' },
 ]
 
@@ -30,8 +32,10 @@ export function ReservationTotals({ reservations }: ReservationTotalsProps) {
       <span className="font-medium text-foreground">
         {t('totals.today', { n: reservations.length })}
       </span>
-      <span className="text-muted-foreground">·</span>
-      {TONES.map(({ key, cssKey }) => (
+      {TONES.some(({ key }) => counts[key] > 0) && (
+        <span className="text-muted-foreground">·</span>
+      )}
+      {TONES.filter(({ key }) => counts[key] > 0).map(({ key, cssKey }) => (
         <span key={key} className="inline-flex items-center gap-1.5 text-muted-foreground">
           <span
             className="inline-block h-2 w-2 rounded-full"

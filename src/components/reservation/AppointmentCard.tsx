@@ -206,7 +206,11 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
             {view.customerName}
             {customerSuffix && <span className="ml-0.5 text-muted-foreground">{customerSuffix}</span>}
           </span>
-          {!tight && (
+          {/* Exceptions-only chip (same policy as mobile): the tinted block
+           *  background already carries the default states on the grid. */}
+          {!tight &&
+            (view.displayStatus === 'new' ||
+              view.displayStatus === 'in_session') && (
             <span
               className="inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
               style={{ background: tone.chipBg, color: tone.chipText }}

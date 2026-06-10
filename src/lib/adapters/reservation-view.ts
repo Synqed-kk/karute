@@ -47,6 +47,10 @@ export interface ReservationView {
   karuteNumber: string | null
   service: string
   displayStatus: DisplayStatus
+  /** Raw CANCELLED from synqed — displayStatus maps it to 'completed' for
+   *  dimming, but a cancelled booking must stay distinguishable (strikethrough
+   *  time): the slot is FREE, a finished session is not. */
+  isCancelled: boolean
   staffColorKey: StaffColorKey | 'neutral'
   /** ID of the customer, used to route follow-up actions (memory, new karute). */
   clientId: string
@@ -159,6 +163,7 @@ export function appointmentsToReservationViews(
       // The left time column already shows duration prominently.
       service: r.title ?? '',
       displayStatus: computeDisplayStatus(r, now, { isFirstTimeCustomer }),
+      isCancelled: r.synqed_status === 'CANCELLED',
       staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
