@@ -373,6 +373,9 @@ export default async function SessionsPage({
   // — never blocks the page. Both paths get targetVisitCount so a returning
   // customer with no synqed karute isn't flagged 新規.
   let brief: PreSessionBrief | null = null
+  // The target's active 回数券 — drives the one-tap 消化 row in the post-session
+  // outcome dialog (design #1). null when no pack / no sessions left.
+  let targetPack: { id: string; remaining: number; size: number } | null = null
   if (nextAppointment?.customerId) {
     // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
     // cached list — same fields the 顧客 list + profile use, so the recording
@@ -385,6 +388,12 @@ export default async function SessionsPage({
     const targetHasActivePack = targetPacks.some(
       (p) => p.status === 'active' && p.kind === 'pack',
     )
+    const activePack = targetPacks.find(
+      (p) => p.status === 'active' && p.kind === 'pack' && p.remaining > 0,
+    )
+    targetPack = activePack
+      ? { id: activePack.id, remaining: activePack.remaining, size: activePack.pack_size }
+      : null
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
       lastVisitIso: null,
@@ -423,6 +432,7 @@ export default async function SessionsPage({
       brief={brief}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      targetPack={targetPack}
     />
   )
 }
