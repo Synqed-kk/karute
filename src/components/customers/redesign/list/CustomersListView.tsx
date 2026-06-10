@@ -40,6 +40,8 @@ interface CustomersListViewProps {
   totalRegistered: number
   query: string
   selfStaffId: string | null
+  /** Booking enrichment loaded? false → the 予約なし stat hides (honesty gate). */
+  bookingDataAvailable?: boolean
   /**
    * Full tenant staff roster (id + display name). Fed in from the server
    * page so the staff-filter pills can render every stylist, not just the
@@ -75,6 +77,7 @@ export function CustomersListView({
   query,
   selfStaffId,
   staffList,
+  bookingDataAvailable = true,
   karuteContext = false,
   hrefBase = '/customers',
   heading,
@@ -108,16 +111,14 @@ export function CustomersListView({
   // counted by join date alone → 192/192 after the bulk import).
   const counts: CustomerListCounts = useMemo(
     () => ({
-      all: applyCustomerFilter(rows, 'all', selfStaffId).length,
-      preferredStaff: applyCustomerFilter(rows, 'preferredStaff', selfStaffId)
-        .length,
-      newRecent: applyCustomerFilter(rows, 'newRecent', selfStaffId).length,
-      followup: applyCustomerFilter(rows, 'followup', selfStaffId).length,
-      dormant: applyCustomerFilter(rows, 'dormant', selfStaffId).length,
-      noBooking: applyCustomerFilter(rows, 'noBooking', selfStaffId).length,
-      packLow: applyCustomerFilter(rows, 'packLow', selfStaffId).length,
+      all: applyCustomerFilter(rows, 'all').length,
+      newRecent: applyCustomerFilter(rows, 'newRecent').length,
+      followup: applyCustomerFilter(rows, 'followup').length,
+      dormant: applyCustomerFilter(rows, 'dormant').length,
+      noBooking: applyCustomerFilter(rows, 'noBooking').length,
+      packLow: applyCustomerFilter(rows, 'packLow').length,
     }),
-    [rows, selfStaffId],
+    [rows],
   )
 
   // Kitano's sheet-top stats, live from row memory (案D header). The counts
@@ -133,14 +134,15 @@ export function CustomersListView({
         0,
       ),
       hasPackData: rows.some((r) => r.pack != null),
+      hasBookingData: bookingDataAvailable,
     }),
-    [rows, counts.noBooking, counts.packLow],
+    [rows, counts.noBooking, counts.packLow, bookingDataAvailable],
   )
 
   // Filter composition: status filter (existing) AND staff filter (new).
   // Order doesn't matter for correctness — both are simple predicates.
   const filteredRows = useMemo(() => {
-    const indices = applyCustomerFilter(rows, statusFilter, selfStaffId)
+    const indices = applyCustomerFilter(rows, statusFilter)
     const afterStatus = indices.map((i) => rows[i])
     if (staffFilter === 'all') return afterStatus
     const targetId = staffFilter === 'self' ? selfStaffId : staffFilter

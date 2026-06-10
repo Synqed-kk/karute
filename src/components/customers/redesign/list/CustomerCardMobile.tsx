@@ -199,9 +199,14 @@ export function CustomerCardMobile({
               ¥{c.pack.unconsumed.toLocaleString('ja-JP')}
             </span>
           )}
+          {/* 予約なし is an ACTION color only for in-play customers — 卒業/
+           *  離客 are closed cases (the strip's rebook queue excludes them
+           *  too), so their rail stays neutral. */}
           <span
             className={`ml-auto shrink-0 whitespace-nowrap ${
-              c.nextBookingDate
+              c.nextBookingDate ||
+              c.status === 'graduated' ||
+              c.status === 'lost'
                 ? 'text-muted-foreground'
                 : 'text-amber-600 dark:text-amber-400'
             }`}
