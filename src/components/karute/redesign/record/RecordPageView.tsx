@@ -295,6 +295,8 @@ export function RecordPageView({
       void redeemSessionAction({
         packId: targetPack.id,
         customerId: nextAppointment.customerId,
+        // '' for walk-in targets → null (no booking to link)
+        appointmentId: nextAppointment.id || null,
       }).then((res) => {
         if (res.ok) {
           toast.success(
@@ -553,6 +555,7 @@ export function RecordPageView({
             void redeemSessionAction({
               packId: targetPack.id,
               customerId: nextAppointment.customerId,
+              appointmentId: nextAppointment.id || null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
               else toast.error(tPacks('redeemFailed'))
