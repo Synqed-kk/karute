@@ -89,8 +89,11 @@ export default async function CustomersPage({
       visit_count?: number
       has_ticket_pack?: boolean
     }
+    const usage = packUsage.get(c.id)
+    const lifecycle = lifecycles.get(c.id)
     // SINGLE SOURCE: same signals + same resolver the profile/recording/agenda
     // use, so the badge + 来店 count match everywhere for this customer.
+    // hasTicketPack = QR flag OR a real ticket_packs ledger entry.
     const statusSignals = {
       joinDateIso: c.created_at,
       lastVisitIso,
@@ -98,7 +101,7 @@ export default async function CustomersPage({
       visitCount: qr.visit_count,
       karuteCount: enriched?.totalKarute,
       pastAppointmentCount: enriched?.pastAppointmentCount,
-      hasTicketPack: qr.has_ticket_pack,
+      hasTicketPack: (qr.has_ticket_pack ?? false) || (usage?.hasActivePack ?? false),
     }
     const status = resolveCustomerStatus(statusSignals)
     const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
@@ -107,8 +110,6 @@ export default async function CustomersPage({
     const totalKarute = customerVisitCount(statusSignals)
     // 回数券 line + alert — resolvePackAlert is the single source (chopstick);
     // the dashboard/alert surfaces (P3b) reuse these identical inputs.
-    const usage = packUsage.get(c.id)
-    const lifecycle = lifecycles.get(c.id)
     const hasNextBooking = !!enriched?.nextAppointmentIso
     const packAlert = usage
       ? resolvePackAlert({

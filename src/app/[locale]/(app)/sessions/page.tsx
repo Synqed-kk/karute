@@ -6,6 +6,7 @@ import { isReturningCustomer } from '@/lib/customers/list-enrich'
 import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
+import { listCustomerPacks } from '@/lib/packs/store'
 import {
   getAppointmentsByDate,
   getAppointmentById,
@@ -377,12 +378,19 @@ export default async function SessionsPage({
     // cached list — same fields the 顧客 list + profile use, so the recording
     // target's 新規 flag matches the customer's badge everywhere.
     const cc = customers.find((c) => c.id === nextAppointment.customerId)
+    // Real ticket_packs ledger for the target (graceful empty pre-migration) —
+    // a manually-registered pack holder is returning here too, matching the
+    // list/profile/agenda exactly.
+    const targetPacks = await listCustomerPacks(nextAppointment.customerId)
+    const targetHasActivePack = targetPacks.some(
+      (p) => p.status === 'active' && p.kind === 'pack',
+    )
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
       lastVisitIso: null,
       isExistingCustomer: cc?.isExistingCustomer,
       visitCount: cc?.visitCount,
-      hasTicketPack: cc?.hasTicketPack,
+      hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
       karuteCount: customerKarute.length,
     })
     // AI brief (richer, business-type-aware) with the mechanical fallback — the

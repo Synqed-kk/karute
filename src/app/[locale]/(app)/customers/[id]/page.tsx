@@ -159,6 +159,10 @@ export default async function CustomerProfilePage({
     listCustomerPacks(id),
     getCustomerLifecycle(id),
   ])
+  // Real ledger signal: any active counted pack → 回数券 holder, regardless of
+  // whether the QR flag has synced. Joins the status resolver + the 回数券あり
+  // chip so a manually-registered pack reads consistently everywhere.
+  const hasActivePack = packs.some((p) => p.status === 'active' && p.kind === 'pack')
 
   const lastVisitIso =
     karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
@@ -177,7 +181,7 @@ export default async function CustomerProfilePage({
     visitCount: customer.visit_count,
     karuteCount: karuteRecords.length,
     pastAppointmentCount: enrichment.get(id)?.pastAppointmentCount,
-    hasTicketPack: customer.has_ticket_pack,
+    hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
   })
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
@@ -240,7 +244,7 @@ export default async function CustomerProfilePage({
     bookingMemo: customer.notes ?? null,
     occupation: customer.occupation,
     memberNumber: customer.member_number,
-    hasTicketPack: customer.has_ticket_pack,
+    hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
     isBirthdayMonth: isBirthdayMonth(customer.date_of_birth),
     lastVisitDate: customer.last_visit_at
       ? formatJoinDate(customer.last_visit_at, locale)
