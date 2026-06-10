@@ -20,6 +20,11 @@ interface PostSessionResolutionDialogProps {
    *  staff are guaranteed to be in the app (design #1). null/absent → row
    *  hidden, dialog unchanged. */
   pack?: { id: string; remaining: number; size: number } | null
+  /** conversion (default) = the trial/first-visit sale question (成約/不成約).
+   *  repurchase = the 残2/残1 decision point — 「次の回数券のご案内は？」 with
+   *  購入した/案内したが未購入/後で決める. Same Outcome values, different copy —
+   *  the coaching labels keep one schema. */
+  mode?: 'conversion' | 'repurchase'
   onResolve: (outcome: SessionOutcome, redeemPack: boolean) => void
   onCancel: () => void
 }
@@ -51,6 +56,7 @@ export function PostSessionResolutionDialog({
   isFirstVisit,
   saving = false,
   pack = null,
+  mode = 'conversion',
   onResolve,
   onCancel,
 }: PostSessionResolutionDialogProps) {
@@ -101,7 +107,9 @@ export function PostSessionResolutionDialog({
       <div className="relative max-h-[88vh] w-full max-w-md overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl md:p-6">
         <header className="mb-1 flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold tracking-tight text-foreground">
-            {t(isFirstVisit ? 'titleFirst' : 'title', { name: customerName })}
+            {mode === 'repurchase'
+              ? t('repurchase.title', { name: customerName })
+              : t(isFirstVisit ? 'titleFirst' : 'title', { name: customerName })}
           </h2>
           <button
             type="button"
@@ -112,10 +120,14 @@ export function PostSessionResolutionDialog({
             <X size={18} />
           </button>
         </header>
-        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
-        <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-          {t('subtitleHint')}
+        <p className="text-sm text-muted-foreground">
+          {mode === 'repurchase' ? t('repurchase.subtitle') : t('subtitle')}
         </p>
+        {mode === 'conversion' && (
+          <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+            {t('subtitleHint')}
+          </p>
+        )}
 
         <div className="mt-4 space-y-2.5">
           {(['success', 'no_deal', 'pending'] as Outcome[]).map((s) => {
@@ -137,10 +149,14 @@ export function PostSessionResolutionDialog({
                 </span>
                 <span className="flex flex-col gap-0.5">
                   <span className="text-sm font-semibold text-foreground">
-                    {t(`${KEY[s]}.title`)}
+                    {mode === 'repurchase'
+                      ? t(`repurchase.${KEY[s]}.title`)
+                      : t(`${KEY[s]}.title`)}
                   </span>
                   <span className="text-xs leading-relaxed text-muted-foreground">
-                    {t(`${KEY[s]}.desc`)}
+                    {mode === 'repurchase'
+                      ? t(`repurchase.${KEY[s]}.desc`)
+                      : t(`${KEY[s]}.desc`)}
                   </span>
                 </span>
               </button>

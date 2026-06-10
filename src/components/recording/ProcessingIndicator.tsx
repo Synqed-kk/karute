@@ -54,7 +54,7 @@ export function ProcessingIndicator() {
     // guard is defensive (incl. an empty AI summary). Fall back to review.
     if (
       !ctx?.appointmentCustomerId ||
-      !ctx.outcome ||
+      (!ctx.outcome && !ctx.outcomeSkipped) ||
       !result ||
       !result.summary?.trim()
     ) {

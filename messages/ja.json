@@ -393,7 +393,23 @@
       "cancel": "キャンセル",
       "redeemLabel": "回数券を消化",
       "redeemDelta": "（残{from} → 残{to}）",
-      "redeemZeroHint": "残り0回になります — 次回パックのご案内を"
+      "redeemZeroHint": "残り0回になります — 次回パックのご案内を",
+      "repurchase": {
+        "title": "{name}様 — 次の回数券のご案内",
+        "subtitle": "回数券が残りわずかです。次の回数券についてお話しされましたか？",
+        "success": {
+          "title": "購入した",
+          "desc": "次の回数券をご購入いただきました"
+        },
+        "noDeal": {
+          "title": "案内したが未購入",
+          "desc": "ご案内しましたが、今回は購入されませんでした"
+        },
+        "pending": {
+          "title": "後で決める",
+          "desc": "まだご案内していない・お返事待ちの場合"
+        }
+      }
     },
     "title": "録音",
     "selectStaff": "スタッフを選択",
@@ -700,7 +716,10 @@
         "notesPlaceholder": "例: キャンペーン価格",
         "save": "登録する",
         "saved": "回数券を登録しました",
-        "saveFailed": "登録できませんでした"
+        "saveFailed": "登録できませんでした",
+        "autoRedeemed": "回数券を消化しました（残{from} → 残{to}）",
+        "undo": "取り消す",
+        "undone": "取り消しました"
       },
       "record": "録音",
       "ageValue": "{age}歳",

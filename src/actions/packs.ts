@@ -63,7 +63,7 @@ export async function redeemSessionAction(input: {
   packId: string
   customerId: string
   redeemedOn?: string
-}): Promise<{ ok: boolean; error?: string }> {
+}): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -74,7 +74,10 @@ export async function redeemSessionAction(input: {
     createdBy: staffId,
   })
   if (result.ok) revalidateProfile()
-  return result.ok ? { ok: true } : { ok: false, error: result.error }
+  // redemptionId lets the auto-consume toast offer 取り消す (undoRedemptionAction).
+  return result.ok
+    ? { ok: true, redemptionId: result.id }
+    : { ok: false, error: result.error }
 }
 
 export async function undoRedemptionAction(redemptionId: string): Promise<{ ok: boolean }> {

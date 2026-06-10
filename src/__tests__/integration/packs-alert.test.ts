@@ -87,3 +87,20 @@ describe('daysSince', () => {
     expect(daysSince('2026-06-11T12:00:00Z', now)).toBe(0)
   })
 })
+
+describe('resolveOutcomeMode (what the stop flow shows)', () => {
+  const { resolveOutcomeMode } = jest.requireActual('@/lib/packs/resolve')
+  it('no pack → conversion question (the trial/first-visit sale)', () => {
+    expect(resolveOutcomeMode(null)).toBe('conversion')
+    expect(resolveOutcomeMode(undefined)).toBe('conversion')
+    expect(resolveOutcomeMode({ remaining: 0 })).toBe('conversion')
+  })
+  it('mid-pack (残3+) → auto: NO dialog, consume + autosave', () => {
+    expect(resolveOutcomeMode({ remaining: 3 })).toBe('auto')
+    expect(resolveOutcomeMode({ remaining: 10 })).toBe('auto')
+  })
+  it('decision point (残2/残1) → repurchase question', () => {
+    expect(resolveOutcomeMode({ remaining: 2 })).toBe('repurchase')
+    expect(resolveOutcomeMode({ remaining: 1 })).toBe('repurchase')
+  })
+})
