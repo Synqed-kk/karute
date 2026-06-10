@@ -7,6 +7,7 @@ import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
 import { listCustomerPacks } from '@/lib/packs/store'
+import { getOrgSettings } from '@/actions/org-settings'
 import {
   getAppointmentsByDate,
   getAppointmentById,
@@ -376,6 +377,9 @@ export default async function SessionsPage({
   // The target's active 回数券 — drives the one-tap 消化 row in the post-session
   // outcome dialog (design #1). null when no pack / no sessions left.
   let targetPack: { id: string; remaining: number; size: number } | null = null
+  // The picker prefill — the customer's most recent pack (any status; the
+  // store returns purchased_at DESC, so [0] is newest).
+  let previousPack: { size: number; unitPrice: number } | null = null
   if (nextAppointment?.customerId) {
     // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
     // cached list — same fields the 顧客 list + profile use, so the recording
@@ -393,6 +397,10 @@ export default async function SessionsPage({
     )
     targetPack = activePack
       ? { id: activePack.id, remaining: activePack.remaining, size: activePack.pack_size }
+      : null
+    const newest = targetPacks[0]
+    previousPack = newest
+      ? { size: newest.pack_size, unitPrice: newest.unit_price }
       : null
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
@@ -423,6 +431,9 @@ export default async function SessionsPage({
       )
   }
 
+  // Owner pack presets + staff permission for the 新しい回数券 panel (cached).
+  const orgSettings = await getOrgSettings()
+
   return (
     <RecordPageView
       customers={customers}
@@ -433,6 +444,9 @@ export default async function SessionsPage({
       recentRecordings={recentRecordings}
       consentDate={consentDate}
       targetPack={targetPack}
+      packPresets={orgSettings?.pack_presets ?? []}
+      staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
+      previousPack={previousPack}
     />
   )
 }

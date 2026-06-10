@@ -37,9 +37,17 @@ import {
   type RecentRecording,
 } from './RecentRecordingsCard'
 import { LiveTranscriptCard } from './LiveTranscriptCard'
-import { PostSessionResolutionDialog } from './PostSessionResolutionDialog'
+import {
+  PostSessionResolutionDialog,
+  type NewPackInput,
+} from './PostSessionResolutionDialog'
+import type { PackPreset } from '@/actions/org-settings'
 import { RepurchaseCueBanner } from './RepurchaseCueBanner'
-import { redeemSessionAction, undoRedemptionAction } from '@/actions/packs'
+import {
+  createPackAction,
+  redeemSessionAction,
+  undoRedemptionAction,
+} from '@/actions/packs'
 import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -77,6 +85,11 @@ export interface RecordPageViewProps {
   /** The target customer's active 回数券 (sessions remaining) — drives the
    *  one-tap 消化 row in the post-session outcome dialog (design #1). */
   targetPack?: { id: string; remaining: number; size: number } | null
+  /** Owner presets + permission for the 新しい回数券 panel (設定 → 回数券). */
+  packPresets?: PackPreset[]
+  staffCanCustomizePacks?: boolean
+  /** The customer's most recent pack (any status) — the picker prefill. */
+  previousPack?: { size: number; unitPrice: number } | null
 }
 
 function deriveInitials(name: string): string {
@@ -104,6 +117,9 @@ export function RecordPageView({
   recentRecordings,
   consentDate,
   targetPack = null,
+  packPresets = [],
+  staffCanCustomizePacks = true,
+  previousPack = null,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -545,9 +561,38 @@ export function RecordPageView({
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
         mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}
+        packPresets={packPresets}
+        staffCanCustomize={staffCanCustomizePacks}
+        previousPack={previousPack}
         onCancel={() => setOutcomeOpen(false)}
-        onResolve={(outcome, redeemPack) => {
+        onResolve={(outcome, redeemPack, newPack: NewPackInput | null) => {
           setOutcomeOpen(false)
+          // 成約/購入した with the inline picker filled → the pack is created
+          // HERE, at the moment of sale (conservation law: the count-from-N
+          // needs an input moment, not a profile errand).
+          if (newPack && nextAppointment?.customerId) {
+            const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
+              .toISOString()
+              .slice(0, 10)
+            void createPackAction({
+              customerId: nextAppointment.customerId,
+              kind: 'pack',
+              packSize: newPack.size,
+              unitPrice: newPack.unitPrice,
+              purchasedAt: jstToday,
+            }).then((res) => {
+              if (res.ok) {
+                toast.success(
+                  tPacks('packCreated', {
+                    size: newPack.size,
+                    price: newPack.unitPrice.toLocaleString('ja-JP'),
+                  }),
+                )
+              } else {
+                toast.error(tPacks('packCreateFailed'))
+              }
+            })
+          }
           // Redemption records the VISIT (which already happened), so it fires
           // immediately — independent of whether the transcription/save later
           // succeeds. Failure → toast; the profile pack card is the fallback.
@@ -565,8 +610,8 @@ export function RecordPageView({
           // alert system keeps treating them as nearly-out. One tap to the
           // profile's 登録 dialog.
           if (
-            outcomeMode === 'repurchase' &&
             outcome.status === 'success' &&
+            !newPack &&
             nextAppointment?.customerId
           ) {
             const customerId = nextAppointment.customerId
