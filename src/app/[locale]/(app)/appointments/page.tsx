@@ -10,6 +10,7 @@ import {
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { enrichCustomers, isReturningCustomer } from '@/lib/customers/list-enrich'
+import { listAllPackUsage } from '@/lib/packs/store'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { getOperatingHoursForDate } from '@/lib/operating-hours'
@@ -152,10 +153,14 @@ export default async function AppointmentsPage({
   const clientIdsForDay = Array.from(
     new Set(dayAppointments.map((a) => a.client_id)),
   )
-  const enrichment =
+  // Pack usage loads in parallel — the 残3/10 pill on each agenda row. Empty
+  // map until the ticket_packs migration applies (graceful).
+  const [enrichment, packUsage] = await Promise.all([
     businessId && clientIdsForDay.length
-      ? await enrichCustomers(businessId, clientIdsForDay)
-      : new Map()
+      ? enrichCustomers(businessId, clientIdsForDay)
+      : Promise.resolve(new Map()),
+    listAllPackUsage(),
+  ])
   // QR "returning customer" flag per client (cached 500-customer list). A known
   // existing customer is NEVER 新規 — even with no karute/past appointment yet
   // (QR-migrated regulars who hold 回数券). Without this they all showed 新規.
@@ -195,6 +200,7 @@ export default async function AppointmentsPage({
     now,
     isFirstTimeByClient,
     karuteNumberByClientId,
+    packUsage,
   )
 
   // Apply the Self/All/specific-staff filter. URL is the source of truth so

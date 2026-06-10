@@ -245,3 +245,35 @@ describe('DisplayStatus type surface', () => {
     expect(seen).toEqual(new Set(['completed', 'in_session', 'new', 'booked']))
   })
 })
+
+describe('appointmentsToReservationViews — pack usage (残3/10 pill)', () => {
+  it('threads pack usage onto the view when the customer holds an active pack', () => {
+    const packs = new Map([['cust-1', { remaining: 3, size: 10 }]])
+    const [view] = appointmentsToReservationViews(
+      [row()],
+      [staff()],
+      NOW,
+      new Map(),
+      new Map(),
+      packs,
+    )
+    expect(view.pack).toEqual({ remaining: 3, size: 10 })
+  })
+
+  it('pack is null when the customer has no entry in the map', () => {
+    const [view] = appointmentsToReservationViews(
+      [row()],
+      [staff()],
+      NOW,
+      new Map(),
+      new Map(),
+      new Map(),
+    )
+    expect(view.pack).toBe(null)
+  })
+
+  it('pack defaults to null when the caller omits the map (back-compat)', () => {
+    const [view] = appointmentsToReservationViews([row()], [staff()], NOW)
+    expect(view.pack).toBe(null)
+  })
+})

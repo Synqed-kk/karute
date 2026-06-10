@@ -15,6 +15,29 @@ interface StatusTone {
   chipText: string
 }
 
+/** 残3/10 — live pack usage next to the course title. Color = urgency:
+ *  emerald (sessions left) → amber (残1: next-pack conversation) → red
+ *  (used up: renewal NOW). Same data source as the 顧客 list (chopstick). */
+function PackPill({ remaining, size }: { remaining: number; size: number }) {
+  const t = useTranslations('reservation')
+  const tone =
+    remaining === 0
+      ? 'border-red-200 bg-red-50 text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400'
+      : remaining === 1
+        ? 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300'
+  return (
+    <span
+      className={cn(
+        'inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-[10px] font-medium tabular-nums',
+        tone,
+      )}
+    >
+      {t('card.packLeft', { remaining, size })}
+    </span>
+  )
+}
+
 const STATUS_TONES: Record<DisplayStatus, StatusTone> = {
   booked: {
     bg: 'var(--reservation-booked-bg)',
@@ -131,7 +154,12 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
             </span>
             {isLive && <span className="h-2 w-2 shrink-0 rounded-full bg-red-500" />}
           </div>
-          <div className="mt-0.5 truncate text-xs text-muted-foreground">{view.service}</div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">{view.service}</span>
+            {view.pack && (
+              <PackPill remaining={view.pack.remaining} size={view.pack.size} />
+            )}
+          </div>
         </div>
         <span
           className="inline-flex h-6 shrink-0 items-center self-center rounded-full border px-2 text-[10px] font-medium"
@@ -187,7 +215,14 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
             </span>
           )}
         </div>
-        {!tight && <div className="truncate text-[10px] text-muted-foreground">{view.service}</div>}
+        {!tight && (
+          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="truncate">{view.service}</span>
+            {view.pack && (
+              <PackPill remaining={view.pack.remaining} size={view.pack.size} />
+            )}
+          </div>
+        )}
         <div className="flex items-center justify-between gap-1 text-[10px] text-muted-foreground tabular-nums">
           <span>
             <span>{view.startTimeHm}</span>

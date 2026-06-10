@@ -56,6 +56,11 @@ export interface ReservationView {
    *  action sheet AND the 'new' displayStatus. True only when this is the
    *  customer's first-ever appointment at this salon. */
   isFirstTimeVisit: boolean
+  /** Live 回数券 usage for this CUSTOMER (active counted packs, from the pack
+   *  store) — the 残3/10 pill next to the course title. null when the customer
+   *  holds no active pack or the caller didn't supply the map. Single source:
+   *  the same bulk read the 顧客 list uses, so the numbers always agree. */
+  pack: { remaining: number; size: number } | null
   /** Action flag (not a status): the booking's course marks a finished ticket
    *  pack (e.g. "6回券終了") → prompt a renewal/re-sell. Drives the 更新案内 chip. */
   needsRenewal: boolean
@@ -113,6 +118,10 @@ export function appointmentsToReservationViews(
   now: Date,
   isFirstTimeByClient: Map<string, boolean> = new Map(),
   karuteNumberByClientId: ReadonlyMap<string, string> = new Map(),
+  packUsageByClient: ReadonlyMap<
+    string,
+    { remaining: number; size: number }
+  > = new Map(),
 ): ReservationView[] {
   const staffNameById = new Map<string, string>()
   for (const s of staffList) {
@@ -153,6 +162,7 @@ export function appointmentsToReservationViews(
       isFirstTimeVisit: isFirstTimeCustomer,
       // Finished-pack signal from the QR course title (e.g. "6回券終了") → 更新案内.
       needsRenewal: (r.title ?? '').includes('終了'),
+      pack: packUsageByClient.get(r.client_id) ?? null,
     }
   })
 }

@@ -170,6 +170,8 @@ export async function removeRedemption(redemptionId: string): Promise<{ ok: bool
 export interface CustomerPackUsage {
   /** Remaining sessions across ACTIVE counted packs (kind='pack'). */
   remaining: number
+  /** Σ pack_size across active counted packs — denominator for 残3/10. */
+  size: number
   /** Σ remaining × unit_price across active counted packs (消化残高). */
   unconsumed: number
   hasActivePack: boolean
@@ -201,10 +203,12 @@ export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>
       const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
       const cur = map.get(p.customer_id) ?? {
         remaining: 0,
+        size: 0,
         unconsumed: 0,
         hasActivePack: false,
       }
       cur.remaining += remaining
+      cur.size += p.pack_size
       cur.unconsumed += remaining * p.unit_price
       cur.hasActivePack = true
       map.set(p.customer_id, cur)
