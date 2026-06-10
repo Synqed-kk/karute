@@ -103,6 +103,9 @@ export default async function CustomersPage({
       karuteCount: enriched?.totalKarute,
       pastAppointmentCount: enriched?.pastAppointmentCount,
       hasTicketPack: (qr.has_ticket_pack ?? false) || (usage?.hasActivePack ?? false),
+      // Staff lifecycle decision (卒業/離客) — outranks cadence in the resolver
+      // so closed cases never fake-render as 休眠/要フォロー.
+      lifecycleStatus: lifecycle?.status,
     }
     const status = resolveCustomerStatus(statusSignals)
     const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
@@ -147,7 +150,11 @@ export default async function CustomersPage({
       totalKarute,
       phone: c.phone,
       pack: usage?.hasActivePack
-        ? { remaining: usage.remaining, unconsumed: usage.unconsumed }
+        ? {
+            remaining: usage.remaining,
+            size: usage.size,
+            unconsumed: usage.unconsumed,
+          }
         : null,
       packAlert,
       // 案A rails: compact dates + the actual next-booking date (already in

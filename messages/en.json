@@ -785,9 +785,9 @@
         "visitsSuffix": "{n} visits",
         "packContact": "Contact",
         "ageValue": "{age} y/o",
-        "packRemainingShort": "{n} left",
         "bookingDate": "Booked {date}",
-        "bookingNone": "No booking"
+        "bookingNone": "No booking",
+        "packFraction": "{n}/{m} left"
       },
       "heading": "Customers",
       "showing": "{n} showing",
@@ -797,7 +797,9 @@
         "on-track": "On track",
         "new": "New",
         "needs-followup": "Needs follow-up",
-        "dormant": "Dormant"
+        "dormant": "Dormant",
+        "graduated": "Graduated",
+        "lost": "Lost"
       },
       "filters": {
         "all": "All",

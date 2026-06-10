@@ -5,7 +5,15 @@
 
 import { BADGE_COLORS, type BadgeStyle } from '@/lib/badge-styles'
 
-export type CustomerStatusKey = 'on-track' | 'new' | 'needs-followup' | 'dormant'
+export type CustomerStatusKey =
+  | 'on-track'
+  | 'new'
+  | 'needs-followup'
+  | 'dormant'
+  // Staff lifecycle decisions (customer_lifecycle.status) — terminal, slate
+  // chips: informational, never action-colored, never 休眠 false alarms.
+  | 'graduated'
+  | 'lost'
 
 export interface CustomerListRow {
   id: string
@@ -34,8 +42,9 @@ export interface CustomerListRow {
   totalKarute: number
   phone: string | null
   /** 回数券 summary (active counted packs) — only the list page adapter
-   *  populates it; undefined/null hides the pack line entirely. */
-  pack?: { remaining: number; unconsumed: number } | null
+   *  populates it; undefined/null hides the pack tokens (the booking rail
+   *  renders regardless). size = Σ pack_size, the 残3/10 denominator. */
+  pack?: { remaining: number; size: number; unconsumed: number } | null
   /** Pack alert from resolvePackAlert: 'contact' (tickets + no booking +
    *  N days absent) | 'low' (残り1回) | null. Single source — never re-derive. */
   packAlert?: 'contact' | 'low' | null
@@ -119,4 +128,8 @@ export const STATUS_STYLES: Record<CustomerStatusKey, BadgeStyle> = {
   // text-amber-600 — one hue per semantic state, every surface.
   'needs-followup': BADGE_COLORS.amber,
   dormant: BADGE_COLORS.red,
+  // Lifecycle decisions are informational, not actionable → slate, so the
+  // red/amber action budget stays trustworthy on the 200-row scan.
+  graduated: BADGE_COLORS.slate,
+  lost: BADGE_COLORS.slate,
 }
