@@ -98,21 +98,21 @@ export function CustomersListView({
     [staffList],
   )
 
-  const counts: CustomerListCounts = useMemo(() => {
-    const since30 = new Date()
-    since30.setDate(since30.getDate() - 30)
-    return {
-      all: rows.length,
-      preferredStaff: selfStaffId
-        ? rows.filter((r) => r.preferredStaffId === selfStaffId).length
-        : 0,
-      newRecent: rows.filter(
-        (r) => r.joinDateIso && new Date(r.joinDateIso) >= since30,
-      ).length,
-      followup: rows.filter((r) => r.status === 'needs-followup').length,
-      dormant: rows.filter((r) => r.status === 'dormant').length,
-    }
-  }, [rows, selfStaffId])
+  // Counts come from THE SAME predicate the filter uses (applyCustomerFilter)
+  // — the pill number and the filtered list can never disagree. Previously the
+  // predicates were hand-duplicated here and had already drifted (the 新規 pill
+  // counted by join date alone → 192/192 after the bulk import).
+  const counts: CustomerListCounts = useMemo(
+    () => ({
+      all: applyCustomerFilter(rows, 'all', selfStaffId).length,
+      preferredStaff: applyCustomerFilter(rows, 'preferredStaff', selfStaffId)
+        .length,
+      newRecent: applyCustomerFilter(rows, 'newRecent', selfStaffId).length,
+      followup: applyCustomerFilter(rows, 'followup', selfStaffId).length,
+      dormant: applyCustomerFilter(rows, 'dormant', selfStaffId).length,
+    }),
+    [rows, selfStaffId],
+  )
 
   // Filter composition: status filter (existing) AND staff filter (new).
   // Order doesn't matter for correctness — both are simple predicates.

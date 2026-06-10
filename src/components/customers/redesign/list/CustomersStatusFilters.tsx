@@ -97,7 +97,16 @@ export function applyCustomerFilter(
     else if (filter === 'preferredStaff') {
       if (selfStaffId && r.preferredStaffId === selfStaffId) out.push(i)
     } else if (filter === 'newRecent') {
-      if (r.joinDateIso && new Date(r.joinDateIso) >= since30) out.push(i)
+      // status==='new' is the resolver's verdict (returning customers are
+      // excluded) — without it, a bulk import where created_at = sync date
+      // made ALL 192 customers count as 新規(30日以内) while their card chips
+      // correctly said 継続中.
+      if (
+        r.status === 'new' &&
+        r.joinDateIso &&
+        new Date(r.joinDateIso) >= since30
+      )
+        out.push(i)
     } else if (filter === 'followup') {
       if (r.status === 'needs-followup') out.push(i)
     } else if (filter === 'dormant') {

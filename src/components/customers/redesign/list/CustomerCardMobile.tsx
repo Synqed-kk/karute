@@ -122,24 +122,52 @@ export function CustomerCardMobile({
           </span>
         </div>
 
-        {/* Line 2: meta */}
+        {/* Line 2: meta — age/gender render ONLY when present (they're stub-
+         *  null on every QR-synced customer today; printing 'ー・ー・' burned
+         *  the line on all 192 cards). */}
         <div className="text-[11px] text-muted-foreground tabular-nums">
-          <span>{c.age ?? '—'}</span>
-          <span> · </span>
-          <span>{c.gender ?? '—'}</span>
-          <span> · </span>
+          {c.age != null && (
+            <>
+              <span>{t('row.ageValue', { age: c.age })}</span>
+              <span> · </span>
+            </>
+          )}
+          {c.gender && (
+            <>
+              <span>{c.gender}</span>
+              <span> · </span>
+            </>
+          )}
           <span>{t('joined', { date: c.joinDate })}</span>
         </div>
 
-        {/* Line 3: last visit summary — date ·（ago）· [last treatment] · visit count */}
-        <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-          <span>{t('row.lastVisitPrefix')} {c.lastVisitDate}</span>
-          <span className="text-muted-foreground/60"> （{c.lastVisitAgo}） · </span>
-          {c.lastVisitService && (
-            <span className="text-foreground/80">{c.lastVisitService} · </span>
-          )}
-          <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
-        </div>
+        {/* Line 3: last visit — THREE honest states. (a) dated visit → full
+         *  line. (b) no date but a nonzero count (QR carries visit_count
+         *  without visit rows) → count + 「最終来店日の記録なし」; NEVER print
+         *  来店履歴なし next to 来店4回 (a literal contradiction). (c) truly
+         *  zero history → the single 来店履歴なし token, once. */}
+        {c.lastVisitDate !== '—' ? (
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            <span>{t('row.lastVisitPrefix')} {c.lastVisitDate}</span>
+            <span className="text-muted-foreground/60"> （{c.lastVisitAgo}） · </span>
+            {c.lastVisitService && (
+              <span className="text-foreground/80">{c.lastVisitService} · </span>
+            )}
+            <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
+          </div>
+        ) : c.totalKarute > 0 ? (
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
+            <span className="text-muted-foreground/60">
+              {' '}
+              ·（{t('lastVisit.dateUnknown')}）
+            </span>
+          </div>
+        ) : (
+          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            {c.lastVisitAgo}
+          </div>
+        )}
 
         {/* Line 3b: 回数券 — remaining sessions, unconsumed value, 次回予約.
          *  Renders ONLY for pack holders (no clutter otherwise). 'contact'
@@ -179,16 +207,28 @@ export function CustomerCardMobile({
           </div>
         )}
 
-        {/* Line 4: staff + recommended next visit (recommend half is stubbed) */}
-        <div className="text-[11px] text-muted-foreground tabular-nums">
-          <span>
-            {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
-          </span>
-          <span className="text-muted-foreground/40">
-            {' · '}
-            {t('row.recommendPrefix')} {c.aiPredict.when}
-          </span>
-        </div>
+        {/* Line 4: staff + recommended next visit — each half renders only
+         *  when it has real content. 担当：— told staff nothing; 推奨来店 ー is
+         *  a stub (defaultAiPredict returns '—' until the model ships) that
+         *  printed an unexplained dash on ~90% of cards. Whole line skipped
+         *  when both are empty. */}
+        {(c.preferredStaffName ?? c.bookingStaffName) || c.aiPredict.when !== '—' ? (
+          <div className="text-[11px] text-muted-foreground tabular-nums">
+            {(c.preferredStaffName ?? c.bookingStaffName) && (
+              <span>
+                {t('row.staff', {
+                  name: c.preferredStaffName ?? c.bookingStaffName ?? '',
+                })}
+              </span>
+            )}
+            {c.aiPredict.when !== '—' && (
+              <span className="text-muted-foreground/40">
+                {(c.preferredStaffName ?? c.bookingStaffName) ? ' · ' : ''}
+                {t('row.recommendPrefix')} {c.aiPredict.when}
+              </span>
+            )}
+          </div>
+        ) : null}
 
         {/* Line 5: phone — only on the 顧客 tab (CRM context). The
          *  カルテ tab is treatment-focused; phone is contact data, not
