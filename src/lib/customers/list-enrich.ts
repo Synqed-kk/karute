@@ -191,6 +191,27 @@ export async function enrichCustomers(
   return map
 }
 
+/** Compact date for the mobile card rails — current-year dates drop the year
+ *  (「前回 6/2」), prior years keep it (2025/12/24). JST-pinned. */
+export function formatCompactDate(
+  iso: string | null,
+  locale: string,
+  now: Date = new Date(),
+): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const jstYear = (x: Date) =>
+    x.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric' })
+  const sameYear = jstYear(d) === jstYear(now)
+  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    month: 'numeric',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+}
+
 // ─── SINGLE SOURCE OF TRUTH for customer status ──────────────────────────────
 // One chopstick through the apple: a customer's status is decided in ONE place
 // and that value is shown on EVERY surface (list, profile, recording target, 予約

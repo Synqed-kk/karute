@@ -787,7 +787,10 @@
         "packContact": "Contact",
         "nextBookingYes": "Next booking set",
         "nextBookingNo": "No next booking",
-        "ageValue": "{age} y/o"
+        "ageValue": "{age} y/o",
+        "packRemainingShort": "{n} left",
+        "bookingDate": "Booked {date}",
+        "bookingNone": "No booking"
       },
       "heading": "Customers",
       "showing": "{n} showing",

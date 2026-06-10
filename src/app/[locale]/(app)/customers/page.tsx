@@ -8,6 +8,7 @@ import {
   resolveCustomerStatus,
   customerVisitCount,
   enrichCustomers,
+  formatCompactDate,
   formatJoinDate,
   formatLastVisit,
   type LastVisitStrings,
@@ -153,6 +154,14 @@ export default async function CustomersPage({
         : null,
       hasNextBooking,
       packAlert,
+      // 案A rails: compact dates + the actual next-booking date (already in
+      // enrichment memory — no extra query).
+      lastVisitDateCompact: formatCompactDate(lastVisitIso, locale),
+      joinDateCompact: formatCompactDate(c.created_at ?? null, locale),
+      nextBookingDate: formatCompactDate(
+        enriched?.nextAppointmentIso ?? null,
+        locale,
+      ),
     }
   })
 

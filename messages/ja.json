@@ -787,7 +787,10 @@
         "packContact": "要連絡",
         "nextBookingYes": "次回予約あり",
         "nextBookingNo": "次回予約なし",
-        "ageValue": "{age}歳"
+        "ageValue": "{age}歳",
+        "packRemainingShort": "残り{n}回",
+        "bookingDate": "予約 {date}",
+        "bookingNone": "予約なし"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
