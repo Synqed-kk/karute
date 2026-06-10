@@ -158,7 +158,8 @@
       "appointments": "{n} appts",
       "customerSuffix": "",
       "tantou": "Staff: {name}",
-      "renewalFlag": "Renewal"
+      "renewalFlag": "Renewal",
+      "packLeft": "{remaining}/{size} left"
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",

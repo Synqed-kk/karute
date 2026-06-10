@@ -158,7 +158,8 @@
       "appointments": "{n}件の予約",
       "customerSuffix": "様",
       "tantou": "担当 {name}",
-      "renewalFlag": "更新案内"
+      "renewalFlag": "更新案内",
+      "packLeft": "残{remaining}/{size}"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
