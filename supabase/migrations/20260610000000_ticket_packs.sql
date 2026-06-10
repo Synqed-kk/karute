@@ -62,6 +62,12 @@ create table if not exists public.customer_lifecycle (
   customer_id  text primary key,
   status       text not null default 'active' check (status in ('active', 'graduated', 'lost')),
   referral     boolean not null default false,   -- 口コミ
+  -- WHEN the 卒業/離客 decision was made + WHY — churn/repurchase models need
+  -- the label DATE (upserts would otherwise destroy it). The importer seeds
+  -- status_changed_at from the sheet's 最終来店日; the app writes it only on
+  -- actual status transitions (see setCustomerLifecycle).
+  status_changed_at timestamptz,
+  reason       text,
   updated_by   text,
   updated_at   timestamptz not null default now()
 );

@@ -308,15 +308,32 @@ export async function setCustomerLifecycle(
   status: CustomerLifecycle['status'],
   referral: boolean,
   updatedBy?: string | null,
+  reason?: string | null,
 ): Promise<{ ok: boolean }> {
   try {
     const supabase = createServiceClient()
+    // status_changed_at is the churn-model LABEL DATE — written only on an
+    // actual status transition (a blind upsert would overwrite it on every
+    // referral toggle and destroy the history).
+    const { data: existing } = await supabase
+      .from('customer_lifecycle')
+      .select('status')
+      .eq('customer_id', customerId)
+      .maybeSingle()
+    const statusChanged =
+      (existing as { status?: string } | null)?.status !== status
     const { error } = await supabase.from('customer_lifecycle').upsert({
       customer_id: customerId,
       status,
       referral,
       updated_by: updatedBy ?? null,
       updated_at: new Date().toISOString(),
+      ...(statusChanged
+        ? {
+            status_changed_at: new Date().toISOString(),
+            reason: reason ?? null,
+          }
+        : {}),
     })
     if (error) throw error
     return { ok: true }
