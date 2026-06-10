@@ -183,9 +183,10 @@ describe('deriveStatus', () => {
     expect(deriveStatus(iso(365 * DAY), iso(10 * DAY))).toBe('on-track')
   })
 
-  it('treats exactly 90 days as on the followup side (not dormant)', () => {
-    // daysSince === 90 → not > 90, but > 60 → needs-followup
-    expect(deriveStatus(iso(365 * DAY), iso(90 * DAY))).toBe('needs-followup')
+  it('treats exactly 90 days as dormant — the label says 90日以上 (inclusive)', () => {
+    // daysSince === 90 → >= 90 → dormant (matches 休眠（90日以上）); 89 stays followup
+    expect(deriveStatus(iso(365 * DAY), iso(90 * DAY))).toBe('dormant')
+    expect(deriveStatus(iso(365 * DAY), iso(89 * DAY))).toBe('needs-followup')
   })
 
   it('prioritizes the recent-join "new" rule over an old last visit', () => {

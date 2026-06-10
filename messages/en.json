@@ -786,7 +786,8 @@
         "packRemaining": "Pack: {n} left",
         "packContact": "Contact",
         "nextBookingYes": "Next booking set",
-        "nextBookingNo": "No next booking"
+        "nextBookingNo": "No next booking",
+        "ageValue": "{age} y/o"
       },
       "heading": "Customers",
       "showing": "{n} showing",
@@ -816,7 +817,8 @@
         "today": "Today",
         "oneDayAgo": "1 day ago",
         "daysAgo": "{n} days ago",
-        "monthsAgo": "{n} mo ago"
+        "monthsAgo": "{n} mo ago",
+        "dateUnknown": "Last visit date not on record"
       },
       "paginatedShowing": "Showing {from}–{to} of {total}",
       "previousPage": "Previous page",

@@ -252,7 +252,9 @@ export function resolveCustomerStatus(s: CustomerStatusSignals): CustomerStatusK
   const daysSince = Math.floor(
     (now - new Date(s.lastVisitIso).getTime()) / 86_400_000,
   )
-  if (daysSince > 90) return 'dormant'
+  // >= : the label says 休眠（90日以上） — 以上 is inclusive, so exactly-90 is
+  // dormant, not 要フォロー. One source; every surface inherits.
+  if (daysSince >= 90) return 'dormant'
   if (daysSince > 60) return 'needs-followup'
   return 'on-track'
 }

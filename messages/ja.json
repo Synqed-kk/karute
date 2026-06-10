@@ -786,7 +786,8 @@
         "packRemaining": "回数券 残り{n}回",
         "packContact": "要連絡",
         "nextBookingYes": "次回予約あり",
-        "nextBookingNo": "次回予約なし"
+        "nextBookingNo": "次回予約なし",
+        "ageValue": "{age}歳"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
@@ -816,7 +817,8 @@
         "today": "本日",
         "oneDayAgo": "1日前",
         "daysAgo": "{n}日前",
-        "monthsAgo": "{n}ヶ月前"
+        "monthsAgo": "{n}ヶ月前",
+        "dateUnknown": "最終来店日の記録なし"
       },
       "paginatedShowing": "{total}名中 {from}〜{to}名を表示",
       "previousPage": "前のページ",

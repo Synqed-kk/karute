@@ -76,22 +76,36 @@ export function CustomerRowDesktop({
               {c.karuteNumber}
             </span>
           </div>
+          {/* age/gender render only when present (stub-null today — printing
+           *  'ー・ー・' burned this line on every card). Mirrors the mobile card. */}
           <div className="truncate text-[11px] text-muted-foreground tabular-nums">
-            <span>{c.age ?? '—'}</span>
-            <span> · </span>
-            <span>{c.gender ?? '—'}</span>
-            <span> · </span>
+            {c.age != null && (
+              <>
+                <span>{t('row.ageValue', { age: c.age })}</span>
+                <span> · </span>
+              </>
+            )}
+            {c.gender && (
+              <>
+                <span>{c.gender}</span>
+                <span> · </span>
+              </>
+            )}
             <span>{t('joined', { date: c.joinDate })}</span>
           </div>
           {karuteContext && <AiStatusChipRow />}
         </div>
       </div>
 
-      {/* Last visit */}
+      {/* Last visit — when the date is unknown but a visit COUNT exists (QR
+       *  carries visit_count without visit rows), say 「最終来店日の記録なし」
+       *  instead of 来店履歴なし, which contradicts the nonzero Total column. */}
       <div className="flex min-w-0 flex-col tabular-nums">
         <span className="text-xs text-foreground">{c.lastVisitDate}</span>
         <span className="text-[10px] text-muted-foreground">
-          {c.lastVisitAgo}
+          {c.lastVisitDate === '—' && c.totalKarute > 0
+            ? t('lastVisit.dateUnknown')
+            : c.lastVisitAgo}
         </span>
         {c.lastVisitService && (
           <span className="truncate text-[10px] text-muted-foreground/80">
