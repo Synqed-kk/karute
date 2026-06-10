@@ -133,12 +133,15 @@ export function appointmentsToReservationViews(
   const staffColors = assignStaffColors(staffList.map((s) => s.id))
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
-    // A 回数券 (multi-session ticket) booking means an established returning
+    // REAL pack data first (the ticket_packs ledger, same source as the 顧客
+    // list/profile — chopstick), course-title string only as the fallback for
+    // customers with no ledger entry yet (pre-migration / pre-import).
+    const packUsage = packUsageByClient.get(r.client_id) ?? null
+    // A 回数券 (multi-session ticket) holder is an established returning
     // customer — never 新規 — even when the QuickReserve existing-customer flag
-    // or karute history hasn't synced. The course title carries it reliably
-    // ("10回券", "6回券", "6回券終了"). Without this, every ticket regular on the
-    // agenda wrongly read 新規 because their past visits aren't in synqed yet.
-    const holdsTicketPack = /回数?券/.test(r.title ?? '')
+    // or karute history hasn't synced. Ledger entry decides; title regex
+    // ("10回券", "6回券終了") only covers un-imported customers.
+    const holdsTicketPack = packUsage !== null || /回数?券/.test(r.title ?? '')
     const isFirstTimeCustomer =
       (isFirstTimeByClient.get(r.client_id) ?? false) && !holdsTicketPack
     return {
@@ -160,9 +163,13 @@ export function appointmentsToReservationViews(
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
       isFirstTimeVisit: isFirstTimeCustomer,
-      // Finished-pack signal from the QR course title (e.g. "6回券終了") → 更新案内.
-      needsRenewal: (r.title ?? '').includes('終了'),
-      pack: packUsageByClient.get(r.client_id) ?? null,
+      // 更新案内 (renewal prompt): the LEDGER decides when it exists — remaining
+      // 0 means the pack is genuinely used up. The QR title's "終了" marker is
+      // only trusted for customers with no ledger entry (pre-import).
+      needsRenewal: packUsage
+        ? packUsage.remaining === 0
+        : (r.title ?? '').includes('終了'),
+      pack: packUsage,
     }
   })
 }

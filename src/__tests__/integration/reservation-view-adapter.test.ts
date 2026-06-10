@@ -277,3 +277,41 @@ describe('appointmentsToReservationViews — pack usage (残3/10 pill)', () => {
     expect(view.pack).toBe(null)
   })
 })
+
+describe('real ledger data beats title-string heuristics (chopstick)', () => {
+  const packs = (entry: { remaining: number; size: number } | null) =>
+    entry ? new Map([['cust-1', entry]]) : new Map()
+
+  it('needsRenewal fires from remaining 0 even without 終了 in the title', () => {
+    const r = row({ title: '10回券' })
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, new Map(), new Map(), packs({ remaining: 0, size: 10 }),
+    )
+    expect(view.needsRenewal).toBe(true)
+  })
+
+  it('ledger says sessions remain → NO renewal even when the title says 終了', () => {
+    const r = row({ title: '6回券終了' })
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, new Map(), new Map(), packs({ remaining: 3, size: 6 }),
+    )
+    expect(view.needsRenewal).toBe(false)
+  })
+
+  it('no ledger entry → falls back to the 終了 title marker (pre-import)', () => {
+    const r = row({ title: '6回券終了' })
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, new Map(), new Map(), packs(null),
+    )
+    expect(view.needsRenewal).toBe(true)
+  })
+
+  it('a ledger entry marks the customer as pack holder → never 新規, even with a plain title', () => {
+    const r = row({ title: 'メンテナンス' })
+    const isFirst = new Map([['cust-1', true]])
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, isFirst, new Map(), packs({ remaining: 5, size: 10 }),
+    )
+    expect(view.isFirstTimeVisit).toBe(false)
+  })
+})

@@ -179,7 +179,9 @@ export default async function AppointmentsPage({
         lastVisitIso: null,
         isExistingCustomer: cc?.isExistingCustomer,
         visitCount: cc?.visitCount,
-        hasTicketPack: cc?.hasTicketPack,
+        // QR flag OR a real ticket_packs ledger entry — a manually-registered
+        // pack holder is returning even before QR knows about them.
+        hasTicketPack: (cc?.hasTicketPack ?? false) || packUsage.has(id),
         karuteCount: e.totalKarute,
         pastAppointmentCount: e.pastAppointmentCount,
       }),
