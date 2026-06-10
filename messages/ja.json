@@ -785,9 +785,9 @@
         "visitsSuffix": "来店{n}回",
         "packContact": "要連絡",
         "ageValue": "{age}歳",
-        "packRemainingShort": "残り{n}回",
         "bookingDate": "予約 {date}",
-        "bookingNone": "予約なし"
+        "bookingNone": "予約なし",
+        "packFraction": "残{n}/{m}"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
@@ -797,7 +797,9 @@
         "on-track": "継続中",
         "new": "新規",
         "needs-followup": "要フォロー",
-        "dormant": "休眠"
+        "dormant": "休眠",
+        "graduated": "卒業",
+        "lost": "離客"
       },
       "filters": {
         "all": "すべて",

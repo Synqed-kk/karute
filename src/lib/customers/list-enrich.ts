@@ -230,6 +230,11 @@ export interface CustomerStatusSignals {
   pastAppointmentCount?: number
   /** Holds a 回数券 / multi-session pass → definitively a returning customer. */
   hasTicketPack?: boolean
+  /** customer_lifecycle.status — a staff DECISION that outranks cadence math.
+   *  卒業 (graduated) / 離客 (lost) customers must never fake-render as 休眠/
+   *  要フォロー: that red would poison the 200-row scan with known-closed
+   *  cases (the Kitano sheet tracks 卒業/離客 as its first two columns). */
+  lifecycleStatus?: 'active' | 'graduated' | 'lost'
 }
 
 /** Has this customer been here before (i.e. NOT 新規)? ANY signal counts. The
@@ -259,6 +264,10 @@ export function customerVisitCount(s: CustomerStatusSignals): number {
 /** THE status-badge resolver. Every surface MUST call this (not the raw rules)
  *  so the badge is computed once and rendered identically everywhere. */
 export function resolveCustomerStatus(s: CustomerStatusSignals): CustomerStatusKey {
+  // Staff decisions first: 卒業/離客 are terminal states — no cadence rule may
+  // override them (a graduated customer 200 days out is NOT 休眠).
+  if (s.lifecycleStatus === 'graduated') return 'graduated'
+  if (s.lifecycleStatus === 'lost') return 'lost'
   const now = Date.now()
   if (!isReturningCustomer(s)) {
     if (s.joinDateIso && now - new Date(s.joinDateIso).getTime() < 30 * 86_400_000)

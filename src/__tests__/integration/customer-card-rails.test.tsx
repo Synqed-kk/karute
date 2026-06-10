@@ -79,7 +79,7 @@ describe('案A rails card — mock fidelity', () => {
         lastVisitAgo: '2日前',
         lastVisitService: '10回券',
         totalKarute: 19,
-        pack: { remaining: 3, unconsumed: 29700 },
+        pack: { remaining: 3, size: 10, unconsumed: 29700 },
         nextBookingDate: '6/15',
         preferredStaffName: '原田 かなみ',
         preferredStaffId: 's-1',
@@ -99,7 +99,7 @@ describe('案A rails card — mock fidelity', () => {
         lastVisitAgo: '2日前',
         lastVisitService: '10回券',
         totalKarute: 19,
-        pack: { remaining: 3, unconsumed: 29700 },
+        pack: { remaining: 3, size: 10, unconsumed: 29700 },
         nextBookingDate: '6/15',
         preferredStaffName: '原田 かなみ',
         preferredStaffId: 's-1',
@@ -120,15 +120,16 @@ describe('案A rails card — mock fidelity', () => {
     expect(ago.className).toContain('font-medium')
     expect(ago.className).not.toContain('amber')
     // L3 — pack rail with the REAL booking date (not a boolean).
-    expect(card.getByText('残り3回')).toBeInTheDocument()
+    expect(card.getByText('残3/10')).toBeInTheDocument()
     expect(card.getByText('¥29,700')).toBeInTheDocument()
     const booking = card.getByText('予約 6/15')
     expect(booking.className).toContain('ml-auto')
     expect(booking.className).not.toContain('amber')
-    // L4 — relationship line: 担当 truncator, count, plain phone.
+    // L4 — relationship line: 担当 truncator, count. ☎ digits CUT (案B —
+    // the staff sheet never tracked phone; the 要連絡 button + profile keep it).
     expect(card.getByText('担当：原田 かなみ').className).toContain('truncate')
     expect(card.getByText('来店19回').className).toContain('shrink-0')
-    expect(card.getByText(/090-1234-5678/)).toBeInTheDocument()
+    expect(card.queryByText(/090-1234-5678/)).toBeNull()
     // 登録日 is 新規-only — absent on a regular.
     expect(card.queryByText(/登録/)).toBeNull()
     // No ・ separator strings anywhere (the orphan factory).
@@ -157,8 +158,10 @@ describe('案A rails card — mock fidelity', () => {
     const count = card.getByText('来店1回')
     expect(count.className).toContain('shrink-0')
     expect(count.className).toContain('whitespace-nowrap')
-    // No pack → no pack line.
-    expect(card.queryByText(/予約/)).toBeNull()
+    // No pack → pack tokens absent, but the booking rail renders for ALL
+    // rows (案B): 予約なし amber — the sheet's #1 stat universalized.
+    expect(card.queryByText(/残/)).toBeNull()
+    expect(card.getByText('予約なし').className).toContain('amber')
   })
 
   it('籠嶋 (新規, zero history): blue chip, 来店履歴なし + compact 登録, no count line noise', () => {
@@ -192,7 +195,7 @@ describe('案A rails card — mock fidelity', () => {
         lastVisitAgo: '85日前',
         lastVisitService: '6回券',
         totalKarute: 7,
-        pack: { remaining: 3, unconsumed: 26400 },
+        pack: { remaining: 3, size: 6, unconsumed: 26400 },
         nextBookingDate: null,
         packAlert: 'contact',
         phone: '09026647278',
@@ -206,6 +209,25 @@ describe('案A rails card — mock fidelity', () => {
     const callBtn = container.querySelector('button[aria-label*="橋 加奈絵"]')
     expect(callBtn).not.toBeNull()
     expect(callBtn!.className).toContain('size-11')
+  })
+
+  it('卒業 renders a slate chip and NEVER fake-red dormant styling', () => {
+    const { container } = renderCard(
+      row({
+        name: '小川拓也',
+        status: 'graduated',
+        lastVisitDate: '2025年11月3日',
+        lastVisitDateCompact: '2025/11/3',
+        lastVisitAgo: '219日前',
+        totalKarute: 4,
+      }),
+    )
+    const card = within(container)
+    const chip = card.getByText('卒業')
+    expect(chip.className).toContain('slate')
+    expect(chip.className).not.toContain('red')
+    // recency token NOT amber for lifecycle states (not followup/dormant)
+    expect(card.getByText('（219日前）').className).not.toContain('amber')
   })
 
   it('state b (count without date): 「最終来店日の記録なし」 — never the 来店履歴なし contradiction', () => {

@@ -406,3 +406,18 @@ describe('formatCompactDate (案A card rails)', () => {
     expect(formatCompactDate('garbage', 'ja', NOW)).toBe(null)
   })
 })
+
+describe('lifecycle decisions outrank cadence (案B)', () => {
+  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/list-enrich')
+  const old = new Date(Date.now() - 219 * 86_400_000).toISOString()
+  const join = new Date(Date.now() - 365 * 86_400_000).toISOString()
+  it('卒業 + 219 days absent → graduated, NOT dormant', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'graduated' })).toBe('graduated')
+  })
+  it('離客 → lost regardless of cadence', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'lost' })).toBe('lost')
+  })
+  it('active lifecycle → cadence rules unchanged (219d → dormant)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'active' })).toBe('dormant')
+  })
+})

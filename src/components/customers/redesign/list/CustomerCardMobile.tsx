@@ -171,17 +171,19 @@ export function CustomerCardMobile({
           </div>
         )}
 
-        {/* L3 PACK (holders only) — every token shrink-0; the booking rail
-         *  pinned right shows the REAL next-booking date (予約 6/15), not a
-         *  boolean. Color budget: red 要連絡 pill / amber 残り1回・予約なし only. */}
-        {c.pack && (
-          <div className="mt-1 flex items-center gap-x-2 text-[11px] tabular-nums">
-            {c.packAlert === 'contact' && (
-              <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
-                <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
-                {t('row.packContact')}
-              </span>
-            )}
+        {/* L3 PACK + BOOKING — UNCONDITIONAL (案B): the booking rail renders on
+         *  EVERY row, because the staff sheet's #1 stat is 次回予約なし (26%) —
+         *  the rebook-at-checkout glance can't depend on pack ownership. Pack
+         *  tokens (残N/M with the denominator, ¥) appear for holders only.
+         *  Color budget: red 要連絡 pill / amber 残り1回・予約なし only. */}
+        <div className="mt-1 flex items-center gap-x-2 text-[11px] tabular-nums">
+          {c.packAlert === 'contact' && (
+            <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+              <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+              {t('row.packContact')}
+            </span>
+          )}
+          {c.pack && (
             <span
               className={`shrink-0 whitespace-nowrap font-medium ${
                 c.packAlert === 'low'
@@ -189,35 +191,35 @@ export function CustomerCardMobile({
                   : 'text-foreground/90'
               }`}
             >
-              {t('row.packRemainingShort', { n: c.pack.remaining })}
+              {t('row.packFraction', { n: c.pack.remaining, m: c.pack.size })}
             </span>
-            {c.pack.unconsumed > 0 && (
-              <span className="shrink-0 whitespace-nowrap text-muted-foreground">
-                ¥{c.pack.unconsumed.toLocaleString('ja-JP')}
-              </span>
-            )}
-            <span
-              className={`ml-auto shrink-0 whitespace-nowrap ${
-                c.nextBookingDate
-                  ? 'text-muted-foreground'
-                  : 'text-amber-600 dark:text-amber-400'
-              }`}
-            >
-              {c.nextBookingDate
-                ? t('row.bookingDate', { date: c.nextBookingDate })
-                : t('row.bookingNone')}
+          )}
+          {c.pack && c.pack.unconsumed > 0 && (
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+              ¥{c.pack.unconsumed.toLocaleString('ja-JP')}
             </span>
-          </div>
-        )}
+          )}
+          <span
+            className={`ml-auto shrink-0 whitespace-nowrap ${
+              c.nextBookingDate
+                ? 'text-muted-foreground'
+                : 'text-amber-600 dark:text-amber-400'
+            }`}
+          >
+            {c.nextBookingDate
+              ? t('row.bookingDate', { date: c.nextBookingDate })
+              : t('row.bookingNone')}
+          </span>
+        </div>
 
-        {/* L4 RELATIONSHIP — 担当 (this line's truncator + spacer) | 来店N回
-         *  (the formerly-orphaned token, now physically un-orphanable) | ☎
-         *  pinned right (plain text per Liam's rule; intent lives in the
-         *  要連絡 button + profile tel:). Skips entirely when empty. */}
+        {/* L4 RELATIONSHIP — 担当 (truncator) | 来店N回 pinned right. The ☎
+         *  digits are GONE by design (案B, unanimous): the staff's own
+         *  16-column sheet never tracked phone — calls match by NAME, and the
+         *  one outbound moment (要連絡) has the red tel: button; profile keeps
+         *  the links. Skips entirely when empty. */}
         {(() => {
           const staffName = c.preferredStaffName ?? c.bookingStaffName
-          const showPhone = !!c.phone && !karuteContext
-          if (!staffName && c.totalKarute === 0 && !showPhone) return null
+          if (!staffName && c.totalKarute === 0) return null
           return (
             <div className="mt-1 flex items-center gap-x-2 text-[11px] text-muted-foreground tabular-nums">
               {staffName ? (
@@ -228,14 +230,8 @@ export function CustomerCardMobile({
                 <span className="min-w-0 flex-1" aria-hidden />
               )}
               {c.totalKarute > 0 && (
-                <span className="shrink-0 whitespace-nowrap">
+                <span className="ml-auto shrink-0 whitespace-nowrap">
                   {t('row.visitsSuffix', { n: c.totalKarute })}
-                </span>
-              )}
-              {showPhone && (
-                <span className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
-                  <Phone className="size-2.5 shrink-0" aria-hidden />
-                  {formatJpPhone(c.phone!)}
                 </span>
               )}
             </div>
