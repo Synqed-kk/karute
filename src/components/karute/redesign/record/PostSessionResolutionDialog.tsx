@@ -15,7 +15,12 @@ interface PostSessionResolutionDialogProps {
   customerName: string
   isFirstVisit: boolean
   saving?: boolean
-  onResolve: (outcome: SessionOutcome) => void
+  /** The customer's active 回数券 (counted pack with sessions left) — shows the
+   *  pre-checked 「回数券を消化」 row so redemption happens at the one moment
+   *  staff are guaranteed to be in the app (design #1). null/absent → row
+   *  hidden, dialog unchanged. */
+  pack?: { id: string; remaining: number; size: number } | null
+  onResolve: (outcome: SessionOutcome, redeemPack: boolean) => void
   onCancel: () => void
 }
 
@@ -45,12 +50,16 @@ export function PostSessionResolutionDialog({
   customerName,
   isFirstVisit,
   saving = false,
+  pack = null,
   onResolve,
   onCancel,
 }: PostSessionResolutionDialogProps) {
   const t = useTranslations('recording.outcome')
   const [status, setStatus] = useState<Outcome | null>(null)
   const [reason, setReason] = useState<DeclineReason>('considering')
+  // Pre-checked: the session just happened, so consuming one pack session is
+  // the default truth — unticking is the exception (e.g. a service visit).
+  const [redeem, setRedeem] = useState(true)
 
   // The dialog stays mounted (parent toggles `open`), so a cancelled pick would
   // otherwise survive into the next open and submit a stale outcome. Reset the
@@ -59,6 +68,7 @@ export function PostSessionResolutionDialog({
     if (open) {
       setStatus(null)
       setReason('considering')
+      setRedeem(true)
     }
   }, [open])
 
@@ -138,6 +148,68 @@ export function PostSessionResolutionDialog({
           })}
         </div>
 
+        {/* 回数券消化 — one tap at the moment staff are guaranteed in the app.
+         *  Forgotten redemptions silently corrupt 残回数 (which every 離客 alert
+         *  depends on); this makes the check-off part of the existing stop flow. */}
+        {pack && pack.remaining > 0 && (
+          <div className="mt-4 rounded-xl border border-border p-3.5">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                {pack.size <= 12 && (
+                  <div className="mb-1.5 flex flex-wrap items-center gap-1" aria-hidden>
+                    {Array.from({ length: pack.size }, (_, i) => {
+                      const consumed = pack.size - pack.remaining
+                      const isNext = i === consumed
+                      return (
+                        <span
+                          key={i}
+                          className={`size-2 rounded-full ${
+                            i < consumed
+                              ? 'bg-muted-foreground/30'
+                              : isNext && redeem
+                                ? 'animate-pulse bg-emerald-500'
+                                : 'bg-emerald-500'
+                          }`}
+                        />
+                      )
+                    })}
+                  </div>
+                )}
+                <div className="text-[12px] font-medium text-foreground">
+                  {t('redeemLabel')}{' '}
+                  <span className="font-normal text-muted-foreground tabular-nums">
+                    {t('redeemDelta', {
+                      from: pack.remaining,
+                      to: redeem ? pack.remaining - 1 : pack.remaining,
+                    })}
+                  </span>
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={redeem}
+                aria-label={t('redeemLabel')}
+                onClick={() => setRedeem((v) => !v)}
+                className={`relative h-[26px] w-11 shrink-0 rounded-full transition-colors ${
+                  redeem ? 'bg-emerald-600' : 'bg-muted-foreground/30'
+                }`}
+              >
+                <span
+                  className={`absolute top-[3px] size-5 rounded-full bg-white transition-all ${
+                    redeem ? 'right-[3px]' : 'left-[3px]'
+                  }`}
+                />
+              </button>
+            </div>
+            {pack.remaining === 1 && redeem && (
+              <p className="mt-2.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+                {t('redeemZeroHint')}
+              </p>
+            )}
+          </div>
+        )}
+
         {status === 'no_deal' && (
           <div className="mt-4">
             <p className="mb-2 text-xs font-medium text-muted-foreground">
@@ -172,11 +244,14 @@ export function PostSessionResolutionDialog({
             disabled={status === null || saving}
             onClick={() =>
               status &&
-              onResolve({
-                status,
-                reason: status === 'no_deal' ? reason : null,
-                isFirstVisit,
-              })
+              onResolve(
+                {
+                  status,
+                  reason: status === 'no_deal' ? reason : null,
+                  isFirstVisit,
+                },
+                !!pack && pack.remaining > 0 && redeem,
+              )
             }
             className="inline-flex h-11 items-center justify-center rounded-xl bg-foreground text-sm font-semibold text-background transition-opacity hover:opacity-90 disabled:opacity-40"
           >

@@ -38,6 +38,7 @@ import {
 } from './RecentRecordingsCard'
 import { LiveTranscriptCard } from './LiveTranscriptCard'
 import { PostSessionResolutionDialog } from './PostSessionResolutionDialog'
+import { redeemSessionAction } from '@/actions/packs'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 export interface RecordPageNextAppointment {
@@ -71,6 +72,9 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  /** The target customer's active 回数券 (sessions remaining) — drives the
+   *  one-tap 消化 row in the post-session outcome dialog (design #1). */
+  targetPack?: { id: string; remaining: number; size: number } | null
 }
 
 function deriveInitials(name: string): string {
@@ -97,9 +101,11 @@ export function RecordPageView({
   brief,
   recentRecordings,
   consentDate,
+  targetPack = null,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
+  const tPacks = useTranslations('customers.profile.packs')
   const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
   const recordingCustomerId = useTimetableStore((s) => s.recordingCustomerId)
 
@@ -483,9 +489,22 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={nextAppointment?.customerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        pack={targetPack}
         onCancel={() => setOutcomeOpen(false)}
-        onResolve={(outcome) => {
+        onResolve={(outcome, redeemPack) => {
           setOutcomeOpen(false)
+          // Redemption records the VISIT (which already happened), so it fires
+          // immediately — independent of whether the transcription/save later
+          // succeeds. Failure → toast; the profile pack card is the fallback.
+          if (redeemPack && targetPack && nextAppointment?.customerId) {
+            void redeemSessionAction({
+              packId: targetPack.id,
+              customerId: nextAppointment.customerId,
+            }).then((res) => {
+              if (res.ok) toast.success(tPacks('redeemDone'))
+              else toast.error(tPacks('redeemFailed'))
+            })
+          }
           handleUseRecording(outcome)
         }}
       />
