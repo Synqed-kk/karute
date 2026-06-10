@@ -12,6 +12,10 @@ import {
   type CustomerListCounts,
 } from './CustomersStatusFilters'
 import {
+  CustomerListStatsStrip,
+  type ListStats,
+} from './CustomerListStatsStrip'
+import {
   CustomersStaffFilter,
   type StaffFilterEntry,
   type StaffFilterKey,
@@ -110,8 +114,27 @@ export function CustomersListView({
       newRecent: applyCustomerFilter(rows, 'newRecent', selfStaffId).length,
       followup: applyCustomerFilter(rows, 'followup', selfStaffId).length,
       dormant: applyCustomerFilter(rows, 'dormant', selfStaffId).length,
+      noBooking: applyCustomerFilter(rows, 'noBooking', selfStaffId).length,
+      packLow: applyCustomerFilter(rows, 'packLow', selfStaffId).length,
     }),
     [rows, selfStaffId],
+  )
+
+  // Kitano's sheet-top stats, live from row memory (案D header). The counts
+  // reuse applyCustomerFilter so the strip number and the tapped list can
+  // never disagree; ¥ and hasPackData are simple folds.
+  const stats: ListStats = useMemo(
+    () => ({
+      total: rows.length,
+      noBooking: counts.noBooking,
+      packLow: counts.packLow,
+      unconsumedTotal: rows.reduce(
+        (sum, r) => sum + (r.pack?.unconsumed ?? 0),
+        0,
+      ),
+      hasPackData: rows.some((r) => r.pack != null),
+    }),
+    [rows, counts.noBooking, counts.packLow],
   )
 
   // Filter composition: status filter (existing) AND staff filter (new).
@@ -164,6 +187,14 @@ export function CustomersListView({
       />
 
       <CustomerSearchInput initialQuery={query} />
+
+      {/* Kitano's daily read (案D): 予約なし N件(%) · 残り1回 N人 · 未消化 ¥ —
+       *  the sheet's pinned top block, tappable to filter. */}
+      <CustomerListStatsStrip
+        stats={stats}
+        active={statusFilter}
+        onSelect={setStatusFilter}
+      />
 
       <CustomersStatusFilters
         active={statusFilter}

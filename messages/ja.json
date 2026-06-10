@@ -832,6 +832,11 @@
         "summary": "要約",
         "transcript": "録音",
         "comingSoonShort": "対応予定"
+      },
+      "stats": {
+        "noBooking": "予約なし {n}件",
+        "packLow": "残り1回 {n}人",
+        "unconsumed": "未消化 ¥{amount}"
       }
     },
     "listFilter": {

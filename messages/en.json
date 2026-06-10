@@ -832,6 +832,11 @@
         "summary": "Summary",
         "transcript": "Transcript",
         "comingSoonShort": "soon"
+      },
+      "stats": {
+        "noBooking": "No booking: {n}",
+        "packLow": "1 left: {n}",
+        "unconsumed": "Unconsumed ¥{amount}"
       }
     },
     "listFilter": {
