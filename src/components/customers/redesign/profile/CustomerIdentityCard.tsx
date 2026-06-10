@@ -64,11 +64,16 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
                 {tProfile('memberNumber', { number: c.memberNumber })}
               </span>
             )}
-            <span
-              className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
-            >
-              {t(`status.${c.status}`)}
-            </span>
+            {/* EXCEPTIONS-ONLY chip — same rule as the 顧客 list (chopstick:
+             *  one badge policy, every surface). 継続中 (the default state)
+             *  renders nothing; only 新規/要フォロー/休眠 get a chip. */}
+            {c.status !== 'on-track' && (
+              <span
+                className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
+              >
+                {t(`status.${c.status}`)}
+              </span>
+            )}
             {c.hasTicketPack && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
                 <Ticket size={11} />
