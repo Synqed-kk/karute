@@ -160,7 +160,8 @@
       "tantou": "Staff: {name}",
       "renewalFlag": "Renewal",
       "packLeft": "{remaining}/{size} left",
-      "unrecorded": "No record"
+      "unrecorded": "No record",
+      "nextUp": "Next ▸"
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
@@ -177,7 +178,9 @@
     },
     "mobile": {
       "empty": "No appointments",
-      "dayHeader": "{date} ({weekday})"
+      "dayHeader": "{date} ({weekday})",
+      "stickyRemaining": "{n} left",
+      "stickyNext": "Next {time} {name}"
     },
     "grid": {
       "blockOwner": "Not taking bookings (owner)",

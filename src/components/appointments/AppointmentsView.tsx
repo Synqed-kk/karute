@@ -391,6 +391,7 @@ export function AppointmentsView(props: AppointmentsViewProps) {
             </div>
             <div className="md:hidden">
               <ReservationMobileAgenda
+                selectedDateYmd={ymdInJst(selectedDate)}
                 reservations={props.reservationViews}
                 onSelect={setSelected}
               />

@@ -160,7 +160,8 @@
       "tantou": "担当 {name}",
       "renewalFlag": "更新案内",
       "packLeft": "残{remaining}/{size}",
-      "unrecorded": "未記録"
+      "unrecorded": "未記録",
+      "nextUp": "次 ▸"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
@@ -177,7 +178,9 @@
     },
     "mobile": {
       "empty": "本日の予約はありません",
-      "dayHeader": "{date}（{weekday}）"
+      "dayHeader": "{date}（{weekday}）",
+      "stickyRemaining": "残り {n}件",
+      "stickyNext": "次 {time} {name}様"
     },
     "grid": {
       "blockOwner": "予約を受け付けていません（オーナー業務）",
