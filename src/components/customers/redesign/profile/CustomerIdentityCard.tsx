@@ -126,9 +126,29 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
           {/* Contact — phone + email */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
             <Meta icon={<Phone size={12} />}>
-              <span className="tabular-nums">{c.phone ?? '—'}</span>
+              {c.phone ? (
+                <a
+                  href={`tel:${c.phone}`}
+                  className="tabular-nums text-blue-600 underline decoration-blue-600/40 underline-offset-2 transition-transform active:scale-95 dark:text-blue-400"
+                >
+                  {c.phone}
+                </a>
+              ) : (
+                <span className="tabular-nums">—</span>
+              )}
             </Meta>
-            <Meta icon={<Mail size={12} />}>{c.email ?? '—'}</Meta>
+            <Meta icon={<Mail size={12} />}>
+              {c.email ? (
+                <a
+                  href={`mailto:${c.email}`}
+                  className="text-blue-600 underline decoration-blue-600/40 underline-offset-2 dark:text-blue-400"
+                >
+                  {c.email}
+                </a>
+              ) : (
+                '—'
+              )}
+            </Meta>
           </div>
 
           {/* Staff + next-visit prediction */}
