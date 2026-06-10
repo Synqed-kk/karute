@@ -159,7 +159,8 @@
       "customerSuffix": "",
       "tantou": "Staff: {name}",
       "renewalFlag": "Renewal",
-      "packLeft": "{remaining}/{size} left"
+      "packLeft": "{remaining}/{size} left",
+      "unrecorded": "No record"
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
@@ -184,7 +185,10 @@
       "staffColumnLabel": "STAFF"
     },
     "totals": {
-      "today": "Today's bookings: {n}"
+      "today": "Today's bookings: {n}",
+      "remaining": "{n} left",
+      "renewal": "Renewal {n}",
+      "unrecorded": "Unrecorded {n}"
     },
     "newBookingDialog": {
       "title": "New booking",

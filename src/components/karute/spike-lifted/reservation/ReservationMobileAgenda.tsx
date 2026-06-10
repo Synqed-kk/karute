@@ -26,6 +26,7 @@
 
 import { useTranslations } from 'next-intl'
 import { Radio } from 'lucide-react'
+import { PackPill } from '@/components/reservation/AppointmentCard'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
 import { getStaffColorByKey } from '@/lib/staff-colors'
@@ -177,9 +178,16 @@ function AgendaRow({
 
         {/* Service — hidden when title is empty (no misleading "セッション"
          *  fallback). Duration is already in the left column. */}
-        {r.service && (
-          <div className="mt-0.5 truncate text-[13px] text-foreground/85">
-            {r.service}
+        {(r.service || r.pack) && (
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[13px] text-foreground/85">
+            {r.service && <span className="min-w-0 truncate">{r.service}</span>}
+            {/* 残N/M — the morning-scan prep signal (pack holders only; the
+             *  desktop grid has shown this since #224, mobile never did). */}
+            {r.pack && (
+              <span className="shrink-0">
+                <PackPill remaining={r.pack.remaining} size={r.pack.size} />
+              </span>
+            )}
           </div>
         )}
 
@@ -218,6 +226,16 @@ function AgendaRow({
             className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
           >
             {t('renewalFlag')}
+          </span>
+        )}
+        {/* Done-but-unrecorded: the forgot-to-record failure mode caught the
+         *  same day, on the page staff already stare at. Cancelled rows have
+         *  nothing to record — excluded. */}
+        {r.displayStatus === 'completed' && !r.isCancelled && !r.karuteRecordId && (
+          <span
+            className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
+          >
+            {t('unrecorded')}
           </span>
         )}
       </div>
