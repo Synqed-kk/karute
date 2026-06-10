@@ -524,7 +524,14 @@
       "speakerStaff": "{name} (Staff)"
     },
     "overrunWarning": "Still recording — tap stop when the session's done.",
-    "autoStopped": "Recording ran long, so it was auto-saved."
+    "autoStopped": "Recording ran long, so it was auto-saved.",
+    "registerNewPackPrompt": "Pack purchased — register the new pack now",
+    "registerNewPackAction": "Register",
+    "repurchaseCue": {
+      "title": "Today's heads-up — {n} pack sessions left",
+      "body": "Talk about the next pack during the session. You'll record the result after stopping.",
+      "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
+    }
   },
   "customers": {
     "title": "Customers",

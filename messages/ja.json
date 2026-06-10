@@ -524,7 +524,14 @@
       "speakerStaff": "{name}(スタッフ)"
     },
     "overrunWarning": "まだ録音中です。セッションが終わったら停止してください。",
-    "autoStopped": "録音が長時間に達したため、自動的に保存しました。"
+    "autoStopped": "録音が長時間に達したため、自動的に保存しました。",
+    "registerNewPackPrompt": "ご購入ありがとうございます！新しい回数券を登録しましょう",
+    "registerNewPackAction": "登録する",
+    "repurchaseCue": {
+      "title": "本日のご案内 — 回数券が残り{n}回",
+      "body": "セッション中に次の回数券のお話を。録音終了後に結果（購入した／案内した）を記録できます。",
+      "bodyLast": "本日が最後の1回です。セッション中に必ず次の回数券のご案内を — 録音終了後に結果を記録できます。"
+    }
   },
   "customers": {
     "title": "顧客",
