@@ -38,6 +38,7 @@ import {
 } from './RecentRecordingsCard'
 import { LiveTranscriptCard } from './LiveTranscriptCard'
 import { PostSessionResolutionDialog } from './PostSessionResolutionDialog'
+import { RepurchaseCueBanner } from './RepurchaseCueBanner'
 import { redeemSessionAction, undoRedemptionAction } from '@/actions/packs'
 import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
@@ -505,6 +506,7 @@ export function RecordPageView({
               nearbyBookings={nearbyBookings}
               onSwitchBooking={handleSwitchBooking}
             />
+            <RepurchaseCueBanner pack={targetPack} />
             <PreSessionBriefCard
               brief={brief}
               customerName={nextAppointment?.customerName ?? null}
@@ -519,6 +521,7 @@ export function RecordPageView({
             nearbyBookings={nearbyBookings}
             onSwitchBooking={handleSwitchBooking}
           />
+          <RepurchaseCueBanner pack={targetPack} />
           <PreSessionBriefCard
             brief={brief}
             customerName={nextAppointment?.customerName ?? null}
@@ -553,6 +556,26 @@ export function RecordPageView({
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
               else toast.error(tPacks('redeemFailed'))
+            })
+          }
+          // 購入した → close the loop: the NEW pack must be registered, or the
+          // alert system keeps treating them as nearly-out. One tap to the
+          // profile's 登録 dialog.
+          if (
+            outcomeMode === 'repurchase' &&
+            outcome.status === 'success' &&
+            nextAppointment?.customerId
+          ) {
+            const customerId = nextAppointment.customerId
+            toast.success(t('registerNewPackPrompt'), {
+              duration: 10_000,
+              action: {
+                label: t('registerNewPackAction'),
+                onClick: () =>
+                  router.push(
+                    `/customers/${customerId}` as Parameters<typeof router.push>[0],
+                  ),
+              },
             })
           }
           handleUseRecording(outcome)
