@@ -128,7 +128,11 @@ function AgendaRow({
 
       {/* Time + duration column */}
       <div className="w-12 shrink-0 text-left">
-        <div className="text-[17px] font-semibold leading-none tabular-nums text-foreground">
+        <div
+          className={`text-[17px] font-semibold leading-none tabular-nums text-foreground ${
+            r.isCancelled ? 'line-through' : ''
+          }`}
+        >
           {r.startTimeHm}
         </div>
         <div className="mt-1 text-[11px] leading-none tabular-nums text-muted-foreground">
@@ -199,11 +203,16 @@ function AgendaRow({
        *  card; the amber 更新案内 action flag hangs directly beneath it when
        *  the customer's pack is finished. */}
       <div className="flex shrink-0 flex-col items-end gap-1 self-start">
-        <span
-          className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${visuals.bg} ${visuals.text} ${visuals.border}`}
-        >
-          {tStatus(r.displayStatus)}
-        </span>
+        {/* EXCEPTIONS-ONLY (Liam): 予約済/完了 are the default states — the
+         *  stripe + dimming already say them quietly. Pills are reserved for
+         *  states that change staff behavior. */}
+        {(r.displayStatus === 'new' || r.displayStatus === 'in_session') && (
+          <span
+            className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${visuals.bg} ${visuals.text} ${visuals.border}`}
+          >
+            {tStatus(r.displayStatus)}
+          </span>
+        )}
         {r.needsRenewal && (
           <span
             className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}

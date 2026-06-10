@@ -340,18 +340,21 @@ export function AppointmentsView(props: AppointmentsViewProps) {
        *  weird". Removed: the agenda's `transition-opacity` below
        *  already provides loading feedback (content drops to 50%
        *  opacity during pending). No additional indicator needed. */}
-      <div className="flex flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs">
+      <div className="hidden flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xl border border-border bg-card px-3 py-2 text-xs md:flex">
         <span className="text-muted-foreground">
           {tReservation('legend.label')}
         </span>
-        {(['booked', 'in_session', 'completed', 'new'] as const).map(
+        {/* Trimmed to the states that still mark rows (exceptions-only). */}
+        {(['in_session', 'new'] as const).map(
           (tone) => (
             <span key={tone} className="inline-flex items-center gap-1.5">
               <span
                 className="inline-block h-2.5 w-2.5 rounded-sm"
                 style={{
                   background: `var(--reservation-${tone.replace('_', '-')}-bg)`,
-                  border: `1px ${tone === 'new' ? 'dashed' : 'solid'} var(--reservation-${tone.replace('_', '-')}-border)`,
+                  // solid for ALL — the dashed 新規 swatch was a legend-only artifact
+                  // that never matched the actual badge (solid).
+                  border: `1px solid var(--reservation-${tone.replace('_', '-')}-border)`,
                 }}
               />
               {tReservation(`status.${tone}`)}

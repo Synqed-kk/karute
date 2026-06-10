@@ -315,3 +315,28 @@ describe('real ledger data beats title-string heuristics (chopstick)', () => {
     expect(view.isFirstTimeVisit).toBe(false)
   })
 })
+
+describe('isCancelled (PR① — cancelled ≠ completed)', () => {
+  const { appointmentsToReservationViews } = jest.requireActual('@/lib/adapters/reservation-view')
+  const base = {
+    id: 'a1', staff_profile_id: 's1', client_id: 'c1',
+    start_time: '2026-06-11T01:00:00Z', duration_minutes: 60,
+    title: 'コース', notes: null, karute_record_id: null,
+    created_at: '2026-06-01T00:00:00Z',
+    customers: { name: '山田太郎' }, source: 'MANUAL',
+  }
+  const now = new Date('2026-06-11T05:00:00Z')
+  it('CANCELLED → isCancelled true (and displayStatus completed for dimming)', () => {
+    const [v] = appointmentsToReservationViews(
+      [{ ...base, synqed_status: 'CANCELLED' }], [], now,
+    )
+    expect(v.isCancelled).toBe(true)
+    expect(v.displayStatus).toBe('completed')
+  })
+  it('COMPLETED → isCancelled false', () => {
+    const [v] = appointmentsToReservationViews(
+      [{ ...base, synqed_status: 'COMPLETED' }], [], now,
+    )
+    expect(v.isCancelled).toBe(false)
+  })
+})
