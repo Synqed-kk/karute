@@ -30,6 +30,10 @@ export interface CustomerEnrichment {
    *  指名 (assigned_staff_id) — which QR-synced customers never do. Null when
    *  the customer has no booking in the fetched list. */
   bookingStaffId: string | null
+  /** Start of the customer's NEAREST UPCOMING booking, null when none — the
+   *  次回予約 あり/なし signal. Feeds the pack alert rule (tickets left + no
+   *  next booking + N days absent → contact). */
+  nextAppointmentIso: string | null
 }
 
 export async function enrichCustomers(
@@ -162,12 +166,14 @@ export async function enrichCustomers(
     // booking is the only source of who's handling this customer. Translate the
     // synqed staff id → profile id (the id the app's color/name maps key on).
     let bookingStaffId: string | null = null
+    let nextAppointmentIso: string | null = null
     {
       const sorted = [...appts].sort((x, y) =>
         x.start_time < y.start_time ? -1 : 1,
       )
-      const chosen =
-        sorted.find((a) => a.start_time >= nowIso) ?? sorted[sorted.length - 1]
+      const upcoming = sorted.find((a) => a.start_time >= nowIso)
+      nextAppointmentIso = upcoming?.start_time ?? null
+      const chosen = upcoming ?? sorted[sorted.length - 1]
       if (chosen?.staff_id)
         bookingStaffId = profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id
     }
@@ -178,6 +184,7 @@ export async function enrichCustomers(
       pastAppointmentCount,
       lastVisitService,
       bookingStaffId,
+      nextAppointmentIso,
     })
   }
 

@@ -752,7 +752,11 @@
         "lastVisitPrefix": "前回",
         "staff": "担当：{name}",
         "recommendPrefix": "推奨来店",
-        "visitsSuffix": "来店{n}回"
+        "visitsSuffix": "来店{n}回",
+        "packRemaining": "回数券 残り{n}回",
+        "packContact": "要連絡",
+        "nextBookingYes": "次回予約あり",
+        "nextBookingNo": "次回予約なし"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
