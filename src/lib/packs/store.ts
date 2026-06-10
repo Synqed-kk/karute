@@ -333,6 +333,58 @@ export async function listRecentContacts(
   }
 }
 
+/** 来店なし answer for a flagged 未処理来店 — stops the reconcile row from
+ *  re-surfacing. Any staff; audit-trailed. No-op until migration applies. */
+export async function addVisitReconcileDismissal(input: {
+  customerId: string
+  appointmentId?: string | null
+  visitDay: string // yyyy-mm-dd
+  dismissedBy: string
+  reason?: string | null
+}): Promise<{ ok: boolean }> {
+  try {
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('visit_reconcile_dismissals').insert({
+      customer_id: input.customerId,
+      appointment_id: input.appointmentId ?? null,
+      visit_day: input.visitDay,
+      dismissed_by: input.dismissedBy,
+      reason: input.reason ?? null,
+    })
+    if (error) throw error
+    return { ok: true }
+  } catch (err) {
+    warn('addVisitReconcileDismissal', err)
+    return { ok: false }
+  }
+}
+
+/** Recent 来店なし dismissals — the reconcile detector excludes these visits.
+ *  Empty until migration applies. */
+export async function listVisitReconcileDismissals(
+  sinceDays: number,
+): Promise<Array<{ customer_id: string; appointment_id: string | null; visit_day: string }>> {
+  try {
+    const supabase = createServiceClient()
+    const since = new Date(Date.now() - sinceDays * 86_400_000)
+      .toISOString()
+      .slice(0, 10)
+    const { data, error } = await supabase
+      .from('visit_reconcile_dismissals')
+      .select('customer_id, appointment_id, visit_day')
+      .gte('visit_day', since)
+    if (error) throw error
+    return (data ?? []) as Array<{
+      customer_id: string
+      appointment_id: string | null
+      visit_day: string
+    }>
+  } catch (err) {
+    warn('listVisitReconcileDismissals', err)
+    return []
+  }
+}
+
 export async function getCustomerLifecycle(
   customerId: string,
 ): Promise<CustomerLifecycle | null> {

@@ -63,6 +63,12 @@ export async function redeemSessionAction(input: {
   packId: string
   customerId: string
   redeemedOn?: string
+  /** The booking this consumption covers — links the redemption to the visit
+   *  so the 未処理来店 reconciler can tell covered visits from missed ones. */
+  appointmentId?: string | null
+  karuteRecordId?: string | null
+  /** 'backfill' when the reconcile strip redeems retroactively. */
+  source?: 'manual' | 'backfill'
 }): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
@@ -71,6 +77,9 @@ export async function redeemSessionAction(input: {
     packId: input.packId,
     customerId: input.customerId,
     redeemedOn: input.redeemedOn ?? jstToday,
+    appointmentId: input.appointmentId ?? null,
+    karuteRecordId: input.karuteRecordId ?? null,
+    source: input.source ?? 'manual',
     createdBy: staffId,
   })
   if (result.ok) revalidateProfile()

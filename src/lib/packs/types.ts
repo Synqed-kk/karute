@@ -2,7 +2,9 @@
 // 20260610000000_ticket_packs.sql. synqed ids are opaque strings.
 
 export type PackKind = 'pack' | 'subscription' | 'single'
-export type PackSource = 'manual' | 'import' | 'qr' | 'pos'
+// 'backfill' is pack_redemptions-only (the 未処理来店 reconcile fix writes it;
+// the ticket_packs check constraint deliberately does NOT accept it).
+export type PackSource = 'manual' | 'import' | 'qr' | 'pos' | 'backfill'
 export type PackStatus = 'active' | 'exhausted' | 'cancelled'
 export type LifecycleStatus = 'active' | 'graduated' | 'lost'
 

@@ -45,7 +45,7 @@ create table if not exists public.pack_redemptions (
   redeemed_on     date not null,
   appointment_id  text,                          -- synqed appointment (when known)
   karute_record_id text,                         -- synqed karute (when known)
-  source          text not null default 'manual' check (source in ('manual', 'import', 'qr', 'pos')),
+  source          text not null default 'manual' check (source in ('manual', 'import', 'qr', 'pos', 'backfill')),
   created_by      text,
   created_at      timestamptz not null default now()
 );
@@ -96,3 +96,24 @@ alter table public.ticket_packs enable row level security;
 alter table public.pack_redemptions enable row level security;
 alter table public.customer_lifecycle enable row level security;
 alter table public.pack_alert_dismissals enable row level security;
+
+-- ── 未処理来店 reconcile dismissals ──────────────────────────────────────────
+-- The forgot-to-record safety net: when a pack holder's past booking has no
+-- redemption and no karute, the dashboard offers この日に消化 (a 'backfill'
+-- redemption) or 来店なし — this table stores the 来店なし answer so the row
+-- never re-surfaces. Audit-trailed; any staff may dismiss (it's "didn't
+-- happen", not the manager-gated alert give-up).
+create table if not exists public.visit_reconcile_dismissals (
+  id             uuid primary key default gen_random_uuid(),
+  customer_id    text not null,
+  appointment_id text,
+  visit_day      date not null,
+  dismissed_by   text not null,
+  reason         text,
+  created_at     timestamptz not null default now()
+);
+
+create index if not exists visit_reconcile_dismissals_customer_idx
+  on public.visit_reconcile_dismissals (customer_id, visit_day);
+
+alter table public.visit_reconcile_dismissals enable row level security;
