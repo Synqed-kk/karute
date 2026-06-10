@@ -409,6 +409,16 @@
           "title": "後で決める",
           "desc": "まだご案内していない・お返事待ちの場合"
         }
+      },
+      "newPack": {
+        "title": "🎫 新しい回数券",
+        "later": "あとで登録",
+        "sizeLabel": "回数",
+        "sizeChip": "{n}回",
+        "priceLabel": "単価（前回の回数券から自動入力）",
+        "customSize": "他…",
+        "customPrice": "直接入力",
+        "invalidHint": "回数と単価を選択してください"
       }
     },
     "title": "録音",
@@ -726,7 +736,9 @@
         "saveFailed": "登録できませんでした",
         "autoRedeemed": "回数券を消化しました（残{from} → 残{to}）",
         "undo": "取り消す",
-        "undone": "取り消しました"
+        "undone": "取り消しました",
+        "packCreated": "回数券を登録しました（{size}回 × ¥{price}）",
+        "packCreateFailed": "回数券を登録できませんでした — プロフィールから登録してください"
       },
       "record": "録音",
       "ageValue": "{age}歳",

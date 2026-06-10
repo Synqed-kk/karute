@@ -409,6 +409,16 @@
           "title": "Decide later",
           "desc": "Not discussed yet / waiting on their answer"
         }
+      },
+      "newPack": {
+        "title": "🎫 New ticket pack",
+        "later": "Register later",
+        "sizeLabel": "Sessions",
+        "sizeChip": "{n}x",
+        "priceLabel": "Unit price (prefilled from their last pack)",
+        "customSize": "Other…",
+        "customPrice": "Custom",
+        "invalidHint": "Pick a size and price"
       }
     },
     "title": "Record",
@@ -726,7 +736,9 @@
         "saveFailed": "Could not save",
         "autoRedeemed": "Pack session used ({from} → {to} left)",
         "undo": "Undo",
-        "undone": "Undone"
+        "undone": "Undone",
+        "packCreated": "Pack registered ({size} × ¥{price})",
+        "packCreateFailed": "Could not register the pack — add it from the profile"
       },
       "record": "Record",
       "ageValue": "{age} y/o",
