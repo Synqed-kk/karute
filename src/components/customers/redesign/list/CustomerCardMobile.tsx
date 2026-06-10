@@ -91,12 +91,16 @@ export function CustomerCardMobile({
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {/* Line 1: name · honorific · karute # · status chip.
-         *  The name gets `min-w-0` (so it truncates) and the trailing
-         *  items get `shrink-0`, so a long name can't push the #number +
-         *  status chip onto a second line — that wrap read as the chip
-         *  "drifting to center" + the number "going missing". */}
-        <div className="flex flex-wrap items-baseline gap-1.5">
+        {/* ── 案A "rails" (Liam-approved): NO flex-wrap anywhere in this card.
+         *  Every line is a single flex row; fixed tokens are shrink-0 +
+         *  whitespace-nowrap; exactly ONE element per line may truncate.
+         *  With no legal wrap points, overflow can only resolve as an
+         *  ellipsis in the designated truncator — token orphaning (the
+         *  来店1回-on-its-own-line bug) is impossible by construction.
+         *  Right edges form four scannable rails: chip → （N日前）→ 予約 → ☎. */}
+
+        {/* L1 IDENTITY — name is the sole truncator; chip pinned right. */}
+        <div className="flex items-baseline gap-1.5">
           {/* Name — `text-[15px] md:text-sm font-medium` mirrors the
            *  design spike. Previous `text-sm font-semibold` rendered
            *  smaller + heavier, making the name look "fatter and
@@ -127,146 +131,116 @@ export function CustomerCardMobile({
           )}
         </div>
 
-        {/* Line 2: meta — segments render ONLY with real content, joined with
-         *  '·' (no dangling separators). age/gender are stub-null today; 登録日
-         *  shows only while the customer is 新規 (Liam: a regular's join date
-         *  is trivia). Line skips entirely when empty. */}
-        {(() => {
-          const segs: string[] = []
-          if (c.age != null) segs.push(t('row.ageValue', { age: c.age }))
-          if (c.gender) segs.push(c.gender)
-          if (c.status === 'new') segs.push(t('joined', { date: c.joinDate }))
-          return segs.length > 0 ? (
-            <div className="text-[11px] text-muted-foreground tabular-nums">
-              {segs.join(' · ')}
-            </div>
-          ) : null
-        })()}
-
-        {/* Line 3: last visit — THREE honest states. (a) dated visit → full
-         *  line. (b) no date but a nonzero count (QR carries visit_count
-         *  without visit rows) → count + 「最終来店日の記録なし」; NEVER print
-         *  来店履歴なし next to 来店4回 (a literal contradiction). (c) truly
-         *  zero history → the single 来店履歴なし token, once. */}
+        {/* L2 VISIT — date (muted, compact) | course (sole truncator, doubles
+         *  as the spacer) |（N日前）pinned right (the recency rail; amber via
+         *  the resolver's own 要フォロー/休眠 states). Three honest states. */}
         {c.lastVisitDate !== '—' ? (
-          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-            {/* Emphasis FLIPPED (Liam ①): the（N日前）token is the decision-
-             *  relevant string — full foreground, amber once the resolver says
-             *  要フォロー/休眠 (same thresholds, single source); the date is
-             *  the muted detail. */}
-            <span className="text-muted-foreground/60">
-              {t('row.lastVisitPrefix')} {c.lastVisitDate}
+          <div className="mt-1 flex items-baseline gap-x-2 text-[11px] tabular-nums">
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground/60">
+              {t('row.lastVisitPrefix')} {c.lastVisitDateCompact ?? c.lastVisitDate}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground/80">
+              {c.lastVisitService ?? ''}
             </span>
             <span
-              className={
+              className={`ml-auto shrink-0 whitespace-nowrap font-medium ${
                 c.status === 'needs-followup' || c.status === 'dormant'
-                  ? 'font-medium text-amber-600 dark:text-amber-400'
-                  : 'font-medium text-foreground/90'
-              }
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-foreground/90'
+              }`}
             >
-              {' '}（{c.lastVisitAgo}）
+              （{c.lastVisitAgo}）
             </span>
-            <span> · </span>
-            {c.lastVisitService && (
-              <span className="text-foreground/80">{c.lastVisitService} · </span>
-            )}
-            <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
           </div>
         ) : c.totalKarute > 0 ? (
-          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-            <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
-            <span className="text-muted-foreground/60">
-              {' '}
-              ·（{t('lastVisit.dateUnknown')}）
+          <div className="mt-1 flex items-baseline gap-x-2 text-[11px] tabular-nums">
+            <span className="shrink-0 text-muted-foreground/60">
+              {t('lastVisit.dateUnknown')}
             </span>
           </div>
         ) : (
-          <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-            {c.lastVisitAgo}
+          <div className="mt-1 flex items-baseline gap-x-2 text-[11px] text-muted-foreground tabular-nums">
+            <span className="shrink-0">{c.lastVisitAgo}</span>
+            {c.status === 'new' && (
+              <span className="shrink-0 whitespace-nowrap text-muted-foreground/60">
+                {t('joined', { date: c.joinDateCompact ?? c.joinDate })}
+              </span>
+            )}
           </div>
         )}
 
-        {/* Line 3b: 回数券 — remaining sessions, unconsumed value, 次回予約.
-         *  Renders ONLY for pack holders (no clutter otherwise). 'contact'
-         *  alert = pulsing red 要連絡 pill (manager-dismissable in P3b);
-         *  'low' = amber 残り1回 (next-pack conversation). */}
+        {/* L3 PACK (holders only) — every token shrink-0; the booking rail
+         *  pinned right shows the REAL next-booking date (予約 6/15), not a
+         *  boolean. Color budget: red 要連絡 pill / amber 残り1回・予約なし only. */}
         {c.pack && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+          <div className="mt-1 flex items-center gap-x-2 text-[11px] tabular-nums">
             {c.packAlert === 'contact' && (
-              <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+              <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
                 <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
                 {t('row.packContact')}
               </span>
             )}
-            {/* Color budget (Liam ③): healthy counts are PLAIN text — color
-             *  only where action is needed (amber 残り1回, red 要連絡 pill), so
-             *  the post-import list doesn't become a wall of green. */}
             <span
-              className={
+              className={`shrink-0 whitespace-nowrap font-medium ${
                 c.packAlert === 'low'
-                  ? 'font-medium text-amber-600 dark:text-amber-400'
-                  : 'font-medium text-foreground/90'
-              }
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-foreground/90'
+              }`}
             >
-              {t('row.packRemaining', { n: c.pack.remaining })}
+              {t('row.packRemainingShort', { n: c.pack.remaining })}
             </span>
             {c.pack.unconsumed > 0 && (
-              <span className="text-muted-foreground">
+              <span className="shrink-0 whitespace-nowrap text-muted-foreground">
                 ¥{c.pack.unconsumed.toLocaleString('ja-JP')}
               </span>
             )}
             <span
-              className={
-                c.hasNextBooking
+              className={`ml-auto shrink-0 whitespace-nowrap ${
+                c.nextBookingDate
                   ? 'text-muted-foreground'
                   : 'text-amber-600 dark:text-amber-400'
-              }
+              }`}
             >
-              {c.hasNextBooking ? t('row.nextBookingYes') : t('row.nextBookingNo')}
+              {c.nextBookingDate
+                ? t('row.bookingDate', { date: c.nextBookingDate })
+                : t('row.bookingNone')}
             </span>
           </div>
         )}
 
-        {/* Line 4: staff + recommended next visit — each half renders only
-         *  when it has real content. 担当：— told staff nothing; 推奨来店 ー is
-         *  a stub (defaultAiPredict returns '—' until the model ships) that
-         *  printed an unexplained dash on ~90% of cards. Whole line skipped
-         *  when both are empty. */}
-        {(c.preferredStaffName ?? c.bookingStaffName) || c.aiPredict.when !== '—' ? (
-          <div className="text-[11px] text-muted-foreground tabular-nums">
-            {(c.preferredStaffName ?? c.bookingStaffName) && (
-              <span>
-                {t('row.staff', {
-                  name: c.preferredStaffName ?? c.bookingStaffName ?? '',
-                })}
-              </span>
-            )}
-            {c.aiPredict.when !== '—' && (
-              <span className="text-muted-foreground/40">
-                {(c.preferredStaffName ?? c.bookingStaffName) ? ' · ' : ''}
-                {t('row.recommendPrefix')} {c.aiPredict.when}
-              </span>
-            )}
-          </div>
-        ) : null}
+        {/* L4 RELATIONSHIP — 担当 (this line's truncator + spacer) | 来店N回
+         *  (the formerly-orphaned token, now physically un-orphanable) | ☎
+         *  pinned right (plain text per Liam's rule; intent lives in the
+         *  要連絡 button + profile tel:). Skips entirely when empty. */}
+        {(() => {
+          const staffName = c.preferredStaffName ?? c.bookingStaffName
+          const showPhone = !!c.phone && !karuteContext
+          if (!staffName && c.totalKarute === 0 && !showPhone) return null
+          return (
+            <div className="mt-1 flex items-center gap-x-2 text-[11px] text-muted-foreground tabular-nums">
+              {staffName ? (
+                <span className="min-w-0 flex-1 truncate">
+                  {t('row.staff', { name: staffName })}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1" aria-hidden />
+              )}
+              {c.totalKarute > 0 && (
+                <span className="shrink-0 whitespace-nowrap">
+                  {t('row.visitsSuffix', { n: c.totalKarute })}
+                </span>
+              )}
+              {showPhone && (
+                <span className="ml-auto inline-flex shrink-0 items-center gap-1 whitespace-nowrap">
+                  <Phone className="size-2.5 shrink-0" aria-hidden />
+                  {formatJpPhone(c.phone!)}
+                </span>
+              )}
+            </div>
+          )
+        })()}
 
-        {/* Line 5: phone — only on the 顧客 tab (CRM context). The
-         *  カルテ tab is treatment-focused; phone is contact data, not
-         *  treatment context. Hide it there to tighten the row + match
-         *  the spike's karute pattern. */}
-        {/* PLAIN text by design (Liam): in the list you're SCANNING, not
-         *  calling — a blue link on every card is noise + a mis-tap hazard
-         *  inside the card's big tap-target. Calling lives where there's
-         *  INTENT: the profile's tel: link, and the round call button that
-         *  appears on 要連絡 cards below. */}
-        {c.phone && !karuteContext && (
-          <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
-            <Phone className="size-2.5 shrink-0" aria-hidden />
-            <span>{formatJpPhone(c.phone)}</span>
-          </div>
-        )}
-
-        {/* Line 6 (karute context only): AI status chip row */}
+        {/* karute context only: AI status chip row */}
         {karuteContext && <AiStatusChipRow />}
       </div>
 
@@ -282,7 +256,7 @@ export function CustomerCardMobile({
             e.stopPropagation()
             window.location.href = `tel:${c.phone}`
           }}
-          className="flex size-10 shrink-0 items-center justify-center rounded-full border-[1.5px] border-red-400 text-red-600 transition-transform active:scale-95 dark:border-red-500/50 dark:text-red-400"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full border-[1.5px] border-red-400 text-red-600 transition-transform active:scale-95 dark:border-red-500/50 dark:text-red-400"
         >
           <Phone className="size-[18px]" aria-hidden />
         </button>

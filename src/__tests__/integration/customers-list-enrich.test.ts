@@ -393,3 +393,18 @@ describe('defaultAiPredict', () => {
     expect(defaultAiPredict('new')).toEqual({ label: 'Recommend', when: '—' })
   })
 })
+
+describe('formatCompactDate (案A card rails)', () => {
+  const { formatCompactDate } = jest.requireActual('@/lib/customers/list-enrich')
+  const NOW = new Date('2026-06-11T03:00:00Z')
+  it('current-year dates drop the year', () => {
+    expect(formatCompactDate('2026-06-02T01:00:00Z', 'ja', NOW)).toBe('6/2')
+  })
+  it('prior-year dates keep the year', () => {
+    expect(formatCompactDate('2025-12-24T01:00:00Z', 'ja', NOW)).toBe('2025/12/24')
+  })
+  it('null/invalid → null', () => {
+    expect(formatCompactDate(null, 'ja', NOW)).toBe(null)
+    expect(formatCompactDate('garbage', 'ja', NOW)).toBe(null)
+  })
+})
