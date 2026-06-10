@@ -16,8 +16,6 @@ export interface CustomerListRow {
   gender: string | null
   joinDate: string // pretty
   joinDateIso: string | null
-  visitsDone: number
-  visitsTotal: number
   lastVisitDate: string // pretty
   lastVisitAgo: string // "28 days ago"
   /** Treatment/course from the last past visit (QR course name, from
@@ -35,12 +33,9 @@ export interface CustomerListRow {
   bookingStaffName?: string | null
   totalKarute: number
   phone: string | null
-  email: string | null
   /** 回数券 summary (active counted packs) — only the list page adapter
    *  populates it; undefined/null hides the pack line entirely. */
   pack?: { remaining: number; unconsumed: number } | null
-  /** 次回予約 あり/なし — derived from the nearest upcoming booking. */
-  hasNextBooking?: boolean
   /** Pack alert from resolvePackAlert: 'contact' (tickets + no booking +
    *  N days absent) | 'low' (残り1回) | null. Single source — never re-derive. */
   packAlert?: 'contact' | 'low' | null
@@ -119,6 +114,9 @@ export interface CustomerProfileData {
 export const STATUS_STYLES: Record<CustomerStatusKey, BadgeStyle> = {
   'on-track': BADGE_COLORS.green,
   new: BADGE_COLORS.blue,
-  'needs-followup': BADGE_COLORS.yellow,
+  // amber, not yellow: the approved card mock uses amber for 要フォロー, and
+  // the card's own accents for the same state (（N日前）/予約なし) are
+  // text-amber-600 — one hue per semantic state, every surface.
+  'needs-followup': BADGE_COLORS.amber,
   dormant: BADGE_COLORS.red,
 }

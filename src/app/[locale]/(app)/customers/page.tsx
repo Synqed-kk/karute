@@ -131,8 +131,6 @@ export default async function CustomersPage({
       gender: null,
       joinDate: formatJoinDate(c.created_at, locale),
       joinDateIso: c.created_at ?? null,
-      visitsDone: Math.min(totalKarute, 5),
-      visitsTotal: 5,
       lastVisitDate: last.date,
       lastVisitAgo: last.ago,
       lastVisitService: enriched?.lastVisitService ?? null,
@@ -148,11 +146,9 @@ export default async function CustomersPage({
         : null,
       totalKarute,
       phone: c.phone,
-      email: c.email,
       pack: usage?.hasActivePack
         ? { remaining: usage.remaining, unconsumed: usage.unconsumed }
         : null,
-      hasNextBooking,
       packAlert,
       // 案A rails: compact dates + the actual next-booking date (already in
       // enrichment memory — no extra query).

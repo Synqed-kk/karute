@@ -65,7 +65,6 @@ describe('enrichCustomers', () => {
     const map = await enrichCustomers('biz-1', ['a', 'b'])
     expect(map.get('a')).toMatchObject({
       totalKarute: 2,
-      visitsDone: 2,
       lastVisitIso: '2026-03-02T00:00:00Z',
     })
     expect(map.get('b')).toMatchObject({ totalKarute: 1, lastVisitIso: '2026-02-02T00:00:00Z' })
@@ -87,7 +86,6 @@ describe('enrichCustomers', () => {
     expect(map.get('a')).toEqual({
       totalKarute: 0,
       lastVisitIso: null,
-      visitsDone: 0,
       pastAppointmentCount: 0,
       lastVisitService: null,
       bookingStaffId: null,
