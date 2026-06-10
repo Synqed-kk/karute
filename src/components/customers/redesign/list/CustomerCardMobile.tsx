@@ -194,24 +194,15 @@ export function CustomerCardMobile({
          *  カルテ tab is treatment-focused; phone is contact data, not
          *  treatment context. Hide it there to tighten the row + match
          *  the spike's karute pattern. */}
+        {/* PLAIN text by design (Liam): in the list you're SCANNING, not
+         *  calling — a blue link on every card is noise + a mis-tap hazard
+         *  inside the card's big tap-target. Calling lives where there's
+         *  INTENT: the profile's tel: link, and the round call button that
+         *  appears on 要連絡 cards below. */}
         {c.phone && !karuteContext && (
           <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
             <Phone className="size-2.5 shrink-0" aria-hidden />
-            {/* Tap-to-call. The whole card is an <a> (profile Link), so a
-             *  nested anchor is invalid HTML — a button that opens the dialer
-             *  keeps the markup legal. preventDefault stops the card's own
-             *  navigation; active:scale-95 acknowledges the inner tap. */}
-            <button
-              type="button"
-              onClick={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                window.location.href = `tel:${c.phone}`
-              }}
-              className="text-blue-600 underline decoration-blue-600/40 underline-offset-2 transition-transform active:scale-95 dark:text-blue-400"
-            >
-              {formatJpPhone(c.phone)}
-            </button>
+            <span>{formatJpPhone(c.phone)}</span>
           </div>
         )}
 
