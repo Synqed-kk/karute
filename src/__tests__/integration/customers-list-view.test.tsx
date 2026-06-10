@@ -249,7 +249,7 @@ describe('CustomersListView', () => {
     expect(screen.getByText('noMatchHint')).toBeInTheDocument()
   })
 
-  it('reports preferredStaff count as 0 when the viewer has no staff profile', () => {
+  it('does NOT render the 指名あり pill (removed by design — the 自分 staff pill covers it)', () => {
     const rows = [row({ preferredStaffId: 's-1' }), row({ preferredStaffId: 's-2' })]
     render(
       <CustomersListView
@@ -260,6 +260,21 @@ describe('CustomersListView', () => {
         staffList={[]}
       />,
     )
-    expect(screen.getByText('filters.preferredStaff').parentElement).toHaveTextContent('0')
+    expect(screen.queryByText('filters.preferredStaff')).toBeNull()
+  })
+
+  it('hides 要フォロー/休眠 pills while their count is 0 (no-data state)', () => {
+    const rows = [row({ status: 'on-track' }), row({ status: 'on-track' })]
+    render(
+      <CustomersListView
+        rows={rows}
+        totalRegistered={2}
+        query=""
+        selfStaffId={null}
+        staffList={[]}
+      />,
+    )
+    expect(screen.queryByText('filters.followup')).toBeNull()
+    expect(screen.queryByText('filters.dormant')).toBeNull()
   })
 })
