@@ -9,6 +9,8 @@ import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { startTiming } from '@/lib/perf/timing'
+import { getPackAlerts } from '@/lib/packs/alerts'
+import { can } from '@/lib/auth/require-permission'
 import type { DashboardAppointment, AppointmentStatusKey } from '@/components/dashboard/redesign/TodaysAppointmentsCard'
 import type { DashboardRecentKarute } from '@/components/dashboard/redesign/RecentKaruteCard'
 
@@ -56,6 +58,8 @@ export default async function DashboardPage() {
     tStatus,
     locale,
     customerList,
+    packAlerts,
+    canDismissAlerts,
   ] = await Promise.all([
     t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
@@ -65,6 +69,10 @@ export default async function DashboardPage() {
     getTranslations('reservation.status'),
     getLocale(),
     t.phase('customerList', () => getCachedCustomerList()),
+    // 離客/upsell alerts — { [], [] } until the ticket_packs migration applies.
+    t.phase('packAlerts', () => getPackAlerts()),
+    // Manager+ only may dismiss (Kitano's rule) — alerts.manage capability.
+    can('alerts.manage').catch(() => false),
   ])
   t.end()
 
@@ -165,6 +173,8 @@ export default async function DashboardPage() {
       stats={stats}
       appointments={appointments}
       recentKarute={recentKarute}
+      packAlerts={packAlerts}
+      canDismissAlerts={canDismissAlerts}
     />
   )
 }

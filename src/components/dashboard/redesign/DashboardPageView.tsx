@@ -1,7 +1,9 @@
 import type { BusinessProfile } from '@/lib/welcome/business-types'
+import type { PackAlerts } from '@/lib/packs/alerts'
 import { AIActionsHero } from './AIActionsHero'
 import { DashboardHeader } from './DashboardHeader'
 import { OnboardingBanner } from './OnboardingBanner'
+import { PackAlertsCard } from './PackAlertsCard'
 import {
   RecentKaruteCard,
   type DashboardRecentKarute,
@@ -21,6 +23,10 @@ interface DashboardPageViewProps {
   stats: StatStripData
   appointments: DashboardAppointment[]
   recentKarute: DashboardRecentKarute[]
+  /** 離客/upsell alerts — card renders nothing when both lists are empty. */
+  packAlerts: PackAlerts
+  /** alerts.manage capability (manager+) — shows the dismiss buttons. */
+  canDismissAlerts: boolean
 }
 
 export function DashboardPageView({
@@ -32,6 +38,8 @@ export function DashboardPageView({
   stats,
   appointments,
   recentKarute,
+  packAlerts,
+  canDismissAlerts,
 }: DashboardPageViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
@@ -43,6 +51,10 @@ export function DashboardPageView({
       />
 
       {!onboardingComplete && <OnboardingBanner />}
+
+      {/* 離客アラート — ABOVE everything else (Kitano: a prominent, always-
+       *  visible place so staff can't forget to bring pack holders back). */}
+      <PackAlertsCard alerts={packAlerts} canDismiss={canDismissAlerts} />
 
       <AIActionsHero businessProfile={businessProfile} />
 
