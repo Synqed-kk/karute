@@ -26,13 +26,24 @@ interface CustomersStatusFiltersProps {
   counts: CustomerListCounts
 }
 
+// 指名あり removed by design (Liam, proposal ②): mislabeled (it counted
+// "nominated ME", not "has a nomination") and structurally dead (QR sync never
+// writes assigned_staff_id) — the 自分 staff pill already covers "my customers".
+// The filter logic stays; only the pill is gone.
 const FILTER_KEYS: CustomerListFilterKey[] = [
   'all',
-  'preferredStaff',
   'newRecent',
   'followup',
   'dormant',
 ]
+
+// Pills that hide while their count is 0 (proposal ②): a confident「休眠 0」
+// reads as "no dormant customers", which is false while the data simply isn't
+// imported yet. They reappear automatically at the first nonzero count.
+const HIDE_WHEN_ZERO: ReadonlySet<CustomerListFilterKey> = new Set([
+  'followup',
+  'dormant',
+])
 
 export function CustomersStatusFilters({
   active,
@@ -44,6 +55,9 @@ export function CustomersStatusFilters({
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div className="flex flex-wrap items-center gap-2">
         {FILTER_KEYS.map((key) => {
+          if (HIDE_WHEN_ZERO.has(key) && counts[key] === 0 && active !== key) {
+            return null
+          }
           const isActive = key === active
           return (
             <button

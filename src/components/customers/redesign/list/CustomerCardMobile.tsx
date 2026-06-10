@@ -115,31 +115,33 @@ export function CustomerCardMobile({
           <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
             {c.karuteNumber}
           </span>
-          <span
-            className={`ml-auto shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
-          >
-            {t(`status.${c.status}`)}
-          </span>
+          {/* EXCEPTIONS-ONLY chip (Liam): 継続中 is the default state — a green
+           *  chip on ~90% of rows camouflaged the rare amber/red ones staff
+           *  actually scan for. No chip = fine; 新規/要フォロー/休眠 pop. */}
+          {c.status !== 'on-track' && (
+            <span
+              className={`ml-auto shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
+            >
+              {t(`status.${c.status}`)}
+            </span>
+          )}
         </div>
 
-        {/* Line 2: meta — age/gender render ONLY when present (they're stub-
-         *  null on every QR-synced customer today; printing 'ー・ー・' burned
-         *  the line on all 192 cards). */}
-        <div className="text-[11px] text-muted-foreground tabular-nums">
-          {c.age != null && (
-            <>
-              <span>{t('row.ageValue', { age: c.age })}</span>
-              <span> · </span>
-            </>
-          )}
-          {c.gender && (
-            <>
-              <span>{c.gender}</span>
-              <span> · </span>
-            </>
-          )}
-          <span>{t('joined', { date: c.joinDate })}</span>
-        </div>
+        {/* Line 2: meta — segments render ONLY with real content, joined with
+         *  '·' (no dangling separators). age/gender are stub-null today; 登録日
+         *  shows only while the customer is 新規 (Liam: a regular's join date
+         *  is trivia). Line skips entirely when empty. */}
+        {(() => {
+          const segs: string[] = []
+          if (c.age != null) segs.push(t('row.ageValue', { age: c.age }))
+          if (c.gender) segs.push(c.gender)
+          if (c.status === 'new') segs.push(t('joined', { date: c.joinDate }))
+          return segs.length > 0 ? (
+            <div className="text-[11px] text-muted-foreground tabular-nums">
+              {segs.join(' · ')}
+            </div>
+          ) : null
+        })()}
 
         {/* Line 3: last visit — THREE honest states. (a) dated visit → full
          *  line. (b) no date but a nonzero count (QR carries visit_count
@@ -148,8 +150,23 @@ export function CustomerCardMobile({
          *  zero history → the single 来店履歴なし token, once. */}
         {c.lastVisitDate !== '—' ? (
           <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-            <span>{t('row.lastVisitPrefix')} {c.lastVisitDate}</span>
-            <span className="text-muted-foreground/60"> （{c.lastVisitAgo}） · </span>
+            {/* Emphasis FLIPPED (Liam ①): the（N日前）token is the decision-
+             *  relevant string — full foreground, amber once the resolver says
+             *  要フォロー/休眠 (same thresholds, single source); the date is
+             *  the muted detail. */}
+            <span className="text-muted-foreground/60">
+              {t('row.lastVisitPrefix')} {c.lastVisitDate}
+            </span>
+            <span
+              className={
+                c.status === 'needs-followup' || c.status === 'dormant'
+                  ? 'font-medium text-amber-600 dark:text-amber-400'
+                  : 'font-medium text-foreground/90'
+              }
+            >
+              {' '}（{c.lastVisitAgo}）
+            </span>
+            <span> · </span>
             {c.lastVisitService && (
               <span className="text-foreground/80">{c.lastVisitService} · </span>
             )}
@@ -181,11 +198,14 @@ export function CustomerCardMobile({
                 {t('row.packContact')}
               </span>
             )}
+            {/* Color budget (Liam ③): healthy counts are PLAIN text — color
+             *  only where action is needed (amber 残り1回, red 要連絡 pill), so
+             *  the post-import list doesn't become a wall of green. */}
             <span
               className={
                 c.packAlert === 'low'
                   ? 'font-medium text-amber-600 dark:text-amber-400'
-                  : 'font-medium text-emerald-600 dark:text-emerald-400'
+                  : 'font-medium text-foreground/90'
               }
             >
               {t('row.packRemaining', { n: c.pack.remaining })}
