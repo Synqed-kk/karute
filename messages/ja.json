@@ -1483,7 +1483,19 @@
       "atRiskLabel": "回収リスク",
       "unconsumedLabel": "未消化総額",
       "holderCount": "（{n}名）",
-      "allClear": "対応必要なし"
+      "allClear": "対応必要なし",
+      "contacted": "連絡済み",
+      "channelQuestion": "どの方法で連絡しましたか？",
+      "channel_phone": "電話",
+      "channel_sms": "SMS",
+      "channel_email": "メール",
+      "channel_line": "LINE",
+      "channel_in_person": "対面",
+      "notePlaceholder": "メモ（任意）",
+      "contactLogged": "連絡を記録しました — 7日間スヌーズします",
+      "contactFailed": "記録できませんでした",
+      "inProgressTitle": "対応中 {n}件（7日間スヌーズ · 再来店で自動解決）",
+      "monthlyMetric": "今月: 対応 {contacted}件 → 再来店 {rebooked}件（{pct}%）"
     }
   },
   "settings": {

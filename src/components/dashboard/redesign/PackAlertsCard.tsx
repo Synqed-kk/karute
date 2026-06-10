@@ -11,10 +11,25 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { BellRing, Check, CheckCircle2, ChevronRight, Loader2 } from 'lucide-react'
+import {
+  BellRing,
+  Check,
+  CheckCircle2,
+  ChevronRight,
+  Loader2,
+  Mail,
+  MessageCircle,
+  MessageSquareText,
+  Phone,
+  User,
+} from 'lucide-react'
 
 import { Link } from '@/i18n/navigation'
-import { dismissPackAlertAction } from '@/actions/packs'
+import {
+  dismissPackAlertAction,
+  logCustomerContactAction,
+} from '@/actions/packs'
+import type { ContactChannel } from '@/lib/packs/store'
 import type { PackAlerts } from '@/lib/packs/alerts'
 import { DEFAULT_CONTACT_THRESHOLD_DAYS } from '@/lib/packs/resolve'
 
@@ -68,7 +83,11 @@ export function PackAlertsCard({
 
   // No alerts: the liability number still needs a home (Kitano's 未消化 cells
   // are #REF! in the sheet) — a calm one-line all-clear instead of vanishing.
-  if (alerts.contact.length === 0 && alerts.low.length === 0) {
+  if (
+    alerts.contact.length === 0 &&
+    alerts.low.length === 0 &&
+    alerts.inProgress.length === 0
+  ) {
     if (totals.holderCount === 0) return null
     return (
       <section className="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-5 py-3.5 shadow-sm">
@@ -132,10 +151,45 @@ export function PackAlertsCard({
         </>
       )}
 
-      {alerts.low.length > 0 && (
+      {/* 対応中 — contacted within the snooze window. Auto-resolves (vanishes)
+       *  the moment the customer books/visits; re-arms after 7 days. */}
+      {alerts.inProgress.length > 0 && (
         <div
           className={
             alerts.contact.length > 0
+              ? 'mt-4 border-t border-dashed border-border/60 pt-3'
+              : ''
+          }
+        >
+          <div className="mb-1.5 text-[12px] font-medium text-amber-700 dark:text-amber-300">
+            {t('inProgressTitle', { n: alerts.inProgress.length })}
+          </div>
+          <ul className="m-0 flex list-none flex-col gap-1.5 p-0">
+            {alerts.inProgress.map((e) => (
+              <li
+                key={e.customerId}
+                className="flex items-center justify-between gap-3 text-[11px] tabular-nums animate-in fade-in duration-300"
+              >
+                <Link
+                  href={`/customers/${e.customerId}` as Parameters<typeof Link>[0]['href']}
+                  className="truncate font-medium text-foreground hover:opacity-80"
+                >
+                  {e.name}
+                </Link>
+                <span className="shrink-0 text-muted-foreground">
+                  {t('remaining', { remaining: e.remaining, size: e.size })} ·{' '}
+                  {yen(e.unconsumed)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {alerts.low.length > 0 && (
+        <div
+          className={
+            alerts.contact.length > 0 || alerts.inProgress.length > 0
               ? 'mt-4 border-t border-border/60 pt-3.5'
               : ''
           }
@@ -159,6 +213,20 @@ export function PackAlertsCard({
           </div>
         </div>
       )}
+
+      {/* 今月: 対応 N件 → 再来店 M件 — staff effectiveness + the outcome stream
+       *  coaching trains on. Hidden until there's at least one contact. */}
+      {alerts.monthly.contacted > 0 && (
+        <p className="mt-3.5 border-t border-border/60 pt-2.5 text-right text-[11px] text-muted-foreground tabular-nums">
+          {t('monthlyMetric', {
+            contacted: alerts.monthly.contacted,
+            rebooked: alerts.monthly.rebooked,
+            pct: Math.round(
+              (alerts.monthly.rebooked / alerts.monthly.contacted) * 100,
+            ),
+          })}
+        </p>
+      )}
     </section>
   )
 }
@@ -174,6 +242,9 @@ function AlertRow({
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [contactOpen, setContactOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const [busyContact, setBusyContact] = useState(false)
 
   const dismiss = async () => {
     setBusy(true)
@@ -188,8 +259,28 @@ function AlertRow({
     }
   }
 
+  const logContact = async (channel: ContactChannel) => {
+    setBusyContact(true)
+    const res = await logCustomerContactAction({
+      customerId: entry.customerId,
+      channel,
+      note: note.trim() || undefined,
+    })
+    setBusyContact(false)
+    if (res.ok) {
+      toast.success(t('contactLogged'))
+      setContactOpen(false)
+      setNote('')
+      // The assembly moves the row into 対応中 on the next server render.
+      router.refresh()
+    } else {
+      toast.error(t('contactFailed'))
+    }
+  }
+
   return (
-    <li className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-border/60 py-2.5 last:border-b-0">
+    <li className="flex flex-col border-b border-border/60 py-2.5 last:border-b-0">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
       <Link
         href={`/customers/${entry.customerId}` as Parameters<typeof Link>[0]['href']}
         className="flex min-w-0 items-baseline gap-1.5 hover:opacity-80"
@@ -211,6 +302,19 @@ function AlertRow({
           {t('remaining', { remaining: entry.remaining, size: entry.size })}
         </span>
         <span className="text-muted-foreground">{yen(entry.unconsumed)}</span>
+        {/* 連絡済み — available to ALL staff (logging an attempt is not the
+         *  manager-gated give-up; that's the dismiss next to it). */}
+        <button
+          type="button"
+          onClick={() => setContactOpen((v) => !v)}
+          className={`rounded-md border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+            contactOpen
+              ? 'border-emerald-500/50 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300'
+              : 'border-border text-muted-foreground hover:border-emerald-500/40 hover:text-emerald-600'
+          }`}
+        >
+          {t('contacted')}
+        </button>
         {canDismiss &&
           (confirming ? (
             <span className="inline-flex items-center gap-1">
@@ -242,6 +346,51 @@ function AlertRow({
             </button>
           ))}
       </div>
+      </div>
+
+      {/* Channel panel — どの方法で連絡しましたか？ Tapping a channel logs the
+       *  contact immediately (note optional, captured first). */}
+      {contactOpen && (
+        <div className="mt-2 rounded-lg border border-border bg-muted/40 p-2.5 animate-in fade-in duration-200">
+          <div className="mb-2 text-[11px] text-muted-foreground">
+            {t('channelQuestion')}
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                ['phone', Phone],
+                ['sms', MessageSquareText],
+                ['email', Mail],
+                ['line', MessageCircle],
+                ['in_person', User],
+              ] as const
+            ).map(([ch, Icon]) => (
+              <button
+                key={ch}
+                type="button"
+                disabled={busyContact}
+                onClick={() => logContact(ch)}
+                aria-label={t(`channel_${ch}`)}
+                title={t(`channel_${ch}`)}
+                className="flex size-8 items-center justify-center rounded-full border border-border text-muted-foreground transition-colors hover:border-emerald-500/50 hover:text-emerald-600 disabled:opacity-50"
+              >
+                {busyContact ? (
+                  <Loader2 size={13} className="animate-spin" />
+                ) : (
+                  <Icon size={14} />
+                )}
+              </button>
+            ))}
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={t('notePlaceholder')}
+              className="min-w-0 flex-1 rounded-md border border-border bg-transparent px-2 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground/60"
+            />
+          </div>
+        </div>
+      )}
     </li>
   )
 }

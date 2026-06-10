@@ -108,4 +108,42 @@ describe('computePackAlerts (dashboard 離客/upsell assembly)', () => {
     expect(totals.atRiskValue).toBe(0)
     expect(totals.unconsumedTotal).toBe(14 * 9900)
   })
+
+  it('連絡済み within 7 days → 対応中 (out of contact, out of at-risk)', () => {
+    const { contact, inProgress, totals } = build({
+      recentContactAt: new Map([['c-risk', daysAgo(2)]]),
+    })
+    expect(contact).toEqual([])
+    expect(inProgress.map((e) => e.customerId)).toEqual(['c-risk'])
+    expect(totals.atRiskValue).toBe(0)
+  })
+
+  it('snooze lapsed (8 days) with no result → re-arms into contact', () => {
+    const { contact, inProgress } = build({
+      recentContactAt: new Map([['c-risk', daysAgo(8)]]),
+    })
+    expect(contact.map((e) => e.customerId)).toEqual(['c-risk'])
+    expect(inProgress).toEqual([])
+  })
+
+  it('contacted customer who then BOOKED → fully auto-resolved (no list at all)', () => {
+    const { contact, inProgress } = build({
+      recentContactAt: new Map([['c-risk', daysAgo(2)]]),
+      visitById: new Map([
+        ['c-risk', { lastVisitIso: daysAgo(78), nextAppointmentIso: daysAgo(-3) }],
+        ['c-fine', { lastVisitIso: daysAgo(3), nextAppointmentIso: daysAgo(-2) }],
+        ['c-low', { lastVisitIso: daysAgo(5), nextAppointmentIso: daysAgo(-7) }],
+      ]),
+    })
+    expect(contact).toEqual([])
+    expect(inProgress).toEqual([])
+  })
+
+  it('monthly metric: contacted count + rebooked = those with a next booking now', () => {
+    const { monthly } = build({
+      monthlyContactIds: new Set(['c-risk', 'c-low']),
+    })
+    // c-low has a next booking; c-risk does not.
+    expect(monthly).toEqual({ contacted: 2, rebooked: 1 })
+  })
 })

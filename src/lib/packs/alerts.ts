@@ -10,6 +10,7 @@ import {
   listActiveDismissals,
   listAllLifecycles,
   listAllPackUsage,
+  listRecentContacts,
 } from './store'
 import { computePackAlerts, type PackAlerts } from './alerts-core'
 
@@ -18,18 +19,39 @@ export type { PackAlertEntry, PackAlerts } from './alerts-core'
 /** Server loader for the dashboard. Bulk reads only (no per-customer queries);
  *  every map is empty until the ticket_packs migration applies → { [], [] }. */
 export async function getPackAlerts(thresholdDays?: number): Promise<PackAlerts> {
-  const [usage, lifecycles, dismissed, customers, businessId] = await Promise.all([
-    listAllPackUsage(),
-    listAllLifecycles(),
-    listActiveDismissals(),
-    getCachedCustomerList(),
-    getBusinessId().catch(() => null),
-  ])
+  const [usage, lifecycles, dismissed, customers, businessId, recentContacts] =
+    await Promise.all([
+      listAllPackUsage(),
+      listAllLifecycles(),
+      listActiveDismissals(),
+      getCachedCustomerList(),
+      getBusinessId().catch(() => null),
+      // 31 days covers both consumers: the 7-day 対応中 snooze AND the
+      // current-calendar-month 対応→再来店 metric.
+      listRecentContacts(31),
+    ])
   if (usage.size === 0) {
     return {
       contact: [],
       low: [],
+      inProgress: [],
       totals: { atRiskValue: 0, unconsumedTotal: 0, holderCount: 0 },
+      monthly: { contacted: 0, rebooked: 0 },
+    }
+  }
+
+  // Latest contact per customer (rows arrive newest-first) + this month's set.
+  const recentContactAt = new Map<string, string>()
+  const monthlyContactIds = new Set<string>()
+  const monthStart = new Date()
+  monthStart.setUTCDate(1)
+  monthStart.setUTCHours(0, 0, 0, 0)
+  for (const row of recentContacts) {
+    if (!recentContactAt.has(row.customer_id)) {
+      recentContactAt.set(row.customer_id, row.contacted_at)
+    }
+    if (new Date(row.contacted_at) >= monthStart) {
+      monthlyContactIds.add(row.customer_id)
     }
   }
 
@@ -54,6 +76,8 @@ export async function getPackAlerts(thresholdDays?: number): Promise<PackAlerts>
     nameById: new Map(customers.map((c) => [c.id, c.name])),
     visitById,
     karuteNumberById: assignSequentialKaruteNumbers(customers),
+    recentContactAt,
+    monthlyContactIds,
     thresholdDays,
   })
 }
