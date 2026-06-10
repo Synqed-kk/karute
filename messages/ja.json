@@ -1455,6 +1455,27 @@
       "todaysCustomers": "本日のお客様",
       "monthlyKarute": "今月のカルテ",
       "rebookingRate": "再予約率"
+    },
+    "onboarding": {
+      "title": "店舗のセットアップを完了しましょう",
+      "body": "業種と録音の開示モードを選ぶと、AIがあなたのサロンに合わせて調整されます。約2分で完了します。",
+      "start": "セットアップを開始",
+      "dismiss": "閉じる"
+    },
+    "packAlerts": {
+      "title": "要連絡のお客様",
+      "summary": "回数券が残っているのに{days}日以上来店のないお客様が{n}人います",
+      "daysAbsent": "{n}日来店なし",
+      "remaining": "残{remaining}/{size}",
+      "dismiss": "解除",
+      "dismissConfirm": "解除する",
+      "cancel": "キャンセル",
+      "dismissed": "アラートを解除しました",
+      "dismissFailed": "解除できませんでした",
+      "forbidden": "解除は店長のみ可能です",
+      "showAll": "すべて表示（{n}人）",
+      "lowTitle": "残り1回のお客様（{n}人）— 次の回数券のご案内を",
+      "lowChip": "残{remaining}"
     }
   },
   "settings": {

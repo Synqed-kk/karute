@@ -238,6 +238,52 @@ export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle
   }
 }
 
+/** Customers with an ACTIVE alert dismissal (no expiry, or expiry in the
+ *  future). The 要連絡 alert list excludes them — Kitano's rule: only a manager
+ *  dismisses, with an audit trail. Empty until the migration applies. */
+export async function listActiveDismissals(): Promise<Set<string>> {
+  const set = new Set<string>()
+  try {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+      .from('pack_alert_dismissals')
+      .select('customer_id, expires_at')
+    if (error) throw error
+    const now = Date.now()
+    for (const row of (data ?? []) as Array<{ customer_id: string; expires_at: string | null }>) {
+      if (row.expires_at === null || new Date(row.expires_at).getTime() > now) {
+        set.add(row.customer_id)
+      }
+    }
+    return set
+  } catch (err) {
+    warn('listActiveDismissals', err)
+    return set
+  }
+}
+
+export async function addPackAlertDismissal(input: {
+  customerId: string
+  dismissedBy: string
+  reason?: string | null
+  expiresAt?: string | null
+}): Promise<{ ok: boolean }> {
+  try {
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('pack_alert_dismissals').insert({
+      customer_id: input.customerId,
+      dismissed_by: input.dismissedBy,
+      reason: input.reason ?? null,
+      expires_at: input.expiresAt ?? null,
+    })
+    if (error) throw error
+    return { ok: true }
+  } catch (err) {
+    warn('addPackAlertDismissal', err)
+    return { ok: false }
+  }
+}
+
 export async function getCustomerLifecycle(
   customerId: string,
 ): Promise<CustomerLifecycle | null> {

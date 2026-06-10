@@ -1455,6 +1455,27 @@
       "todaysCustomers": "Today's customers",
       "monthlyKarute": "Monthly karute",
       "rebookingRate": "Rebooking rate"
+    },
+    "onboarding": {
+      "title": "Finish setting up your store",
+      "body": "Pick your business type + recording disclosure mode so the AI is tuned to your salon. Takes about 2 minutes.",
+      "start": "Start setup",
+      "dismiss": "Dismiss"
+    },
+    "packAlerts": {
+      "title": "Customers to contact",
+      "summary": "{n} pack holders haven't visited in {days}+ days",
+      "daysAbsent": "{n} days absent",
+      "remaining": "{remaining}/{size} left",
+      "dismiss": "Dismiss",
+      "dismissConfirm": "Confirm",
+      "cancel": "Cancel",
+      "dismissed": "Alert dismissed",
+      "dismissFailed": "Could not dismiss",
+      "forbidden": "Only managers can dismiss",
+      "showAll": "Show all ({n})",
+      "lowTitle": "{n} customers on their last session — suggest the next pack",
+      "lowChip": "{remaining} left"
     }
   },
   "settings": {

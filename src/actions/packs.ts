@@ -2,7 +2,9 @@
 
 import { revalidatePath } from 'next/cache'
 import { getCurrentUserStaffId } from '@/lib/staff'
+import { requireCapability } from '@/lib/auth/require-permission'
 import {
+  addPackAlertDismissal,
   addRedemption,
   createPack,
   removeRedemption,
@@ -78,6 +80,34 @@ export async function undoRedemptionAction(redemptionId: string): Promise<{ ok: 
   const result = await removeRedemption(redemptionId)
   if (result.ok) revalidateProfile()
   return result
+}
+
+/** Dismiss a customer's 要連絡 alert — MANAGER+ ONLY (Kitano's rule: staff show
+ *  the manager they contacted the customer; the manager silences the alert).
+ *  Audit-trailed (who/when/why); the alert re-arms automatically after the
+ *  customer's next visit resets their absence clock. */
+export async function dismissPackAlertAction(input: {
+  customerId: string
+  reason?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!input.customerId) return { ok: false, error: 'customerId required' }
+  try {
+    await requireCapability('alerts.manage')
+  } catch {
+    return { ok: false, error: 'forbidden' }
+  }
+  const staffId = await getCurrentUserStaffId().catch(() => null)
+  if (!staffId) return { ok: false, error: 'no staff identity' }
+  const result = await addPackAlertDismissal({
+    customerId: input.customerId,
+    dismissedBy: staffId,
+    reason: input.reason?.trim() || null,
+  })
+  if (result.ok) {
+    revalidatePath('/[locale]/(app)/dashboard', 'page')
+    revalidatePath('/[locale]/(app)/customers', 'page')
+  }
+  return result.ok ? { ok: true } : { ok: false, error: 'write failed' }
 }
 
 export async function setLifecycleAction(input: {
