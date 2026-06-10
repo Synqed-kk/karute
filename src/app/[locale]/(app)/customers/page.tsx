@@ -18,6 +18,8 @@ import {
 } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
+import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
+import { daysSince, resolvePackAlert } from '@/lib/packs/resolve'
 
 export default async function CustomersPage({
   searchParams,
@@ -63,9 +65,13 @@ export default async function CustomersPage({
   )
 
   const customerIds = list.customers.map((c) => c.id)
-  const enrichment = await t.phase('enrichCustomers', () =>
-    enrichCustomers(businessId, customerIds),
-  )
+  // Pack usage + lifecycle load in parallel with the enrichment — both come
+  // back as empty maps until the ticket_packs migration applies (graceful).
+  const [enrichment, packUsage, lifecycles] = await Promise.all([
+    t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
+    listAllPackUsage(),
+    listAllLifecycles(),
+  ])
   t.end()
 
   // Sequential per-tenant karute numbers — sorted by created_at so the
@@ -99,6 +105,20 @@ export default async function CustomersPage({
     // The displayed 来店 count = the unified visit count (max of QR visits +
     // recorded karute), not the karute count alone — matches the profile.
     const totalKarute = customerVisitCount(statusSignals)
+    // 回数券 line + alert — resolvePackAlert is the single source (chopstick);
+    // the dashboard/alert surfaces (P3b) reuse these identical inputs.
+    const usage = packUsage.get(c.id)
+    const lifecycle = lifecycles.get(c.id)
+    const hasNextBooking = !!enriched?.nextAppointmentIso
+    const packAlert = usage
+      ? resolvePackAlert({
+          remainingTotal: usage.remaining,
+          hasActivePack: usage.hasActivePack,
+          daysSinceLastVisit: daysSince(lastVisitIso),
+          hasNextBooking,
+          lifecycleStatus: lifecycle?.status,
+        })
+      : null
     return {
       id: c.id,
       name: c.name,
@@ -127,6 +147,11 @@ export default async function CustomersPage({
       totalKarute,
       phone: c.phone,
       email: c.email,
+      pack: usage?.hasActivePack
+        ? { remaining: usage.remaining, unconsumed: usage.unconsumed }
+        : null,
+      hasNextBooking,
+      packAlert,
     }
   })
 

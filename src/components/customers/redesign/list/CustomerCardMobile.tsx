@@ -141,6 +141,44 @@ export function CustomerCardMobile({
           <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
         </div>
 
+        {/* Line 3b: 回数券 — remaining sessions, unconsumed value, 次回予約.
+         *  Renders ONLY for pack holders (no clutter otherwise). 'contact'
+         *  alert = pulsing red 要連絡 pill (manager-dismissable in P3b);
+         *  'low' = amber 残り1回 (next-pack conversation). */}
+        {c.pack && (
+          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] tabular-nums">
+            {c.packAlert === 'contact' && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+                <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+                {t('row.packContact')}
+              </span>
+            )}
+            <span
+              className={
+                c.packAlert === 'low'
+                  ? 'font-medium text-amber-600 dark:text-amber-400'
+                  : 'font-medium text-emerald-600 dark:text-emerald-400'
+              }
+            >
+              {t('row.packRemaining', { n: c.pack.remaining })}
+            </span>
+            {c.pack.unconsumed > 0 && (
+              <span className="text-muted-foreground">
+                ¥{c.pack.unconsumed.toLocaleString('ja-JP')}
+              </span>
+            )}
+            <span
+              className={
+                c.hasNextBooking
+                  ? 'text-muted-foreground'
+                  : 'text-amber-600 dark:text-amber-400'
+              }
+            >
+              {c.hasNextBooking ? t('row.nextBookingYes') : t('row.nextBookingNo')}
+            </span>
+          </div>
+        )}
+
         {/* Line 4: staff + recommended next visit (recommend half is stubbed) */}
         <div className="text-[11px] text-muted-foreground tabular-nums">
           <span>

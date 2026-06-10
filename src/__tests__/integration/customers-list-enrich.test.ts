@@ -91,6 +91,7 @@ describe('enrichCustomers', () => {
       pastAppointmentCount: 0,
       lastVisitService: null,
       bookingStaffId: null,
+      nextAppointmentIso: null,
     })
   })
 

@@ -167,6 +167,73 @@ export async function removeRedemption(redemptionId: string): Promise<{ ok: bool
   }
 }
 
+export interface CustomerPackUsage {
+  /** Remaining sessions across ACTIVE counted packs (kind='pack'). */
+  remaining: number
+  /** Σ remaining × unit_price across active counted packs (消化残高). */
+  unconsumed: number
+  hasActivePack: boolean
+}
+
+/** Bulk pack usage for the customer LIST page — two queries total (not per
+ *  customer), grouped in memory. Map is empty until the migration applies. */
+export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
+  const map = new Map<string, CustomerPackUsage>()
+  try {
+    const supabase = createServiceClient()
+    const [{ data: packs, error: pErr }, { data: reds, error: rErr }] = await Promise.all([
+      supabase
+        .from('ticket_packs')
+        .select('id, customer_id, kind, pack_size, unit_price')
+        .eq('status', 'active'),
+      supabase.from('pack_redemptions').select('pack_id'),
+    ])
+    if (pErr) throw pErr
+    if (rErr) throw rErr
+    const countByPack = new Map<string, number>()
+    for (const r of (reds ?? []) as Array<{ pack_id: string }>) {
+      countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
+    }
+    for (const p of (packs ?? []) as Array<
+      Pick<TicketPack, 'id' | 'customer_id' | 'kind' | 'pack_size' | 'unit_price'>
+    >) {
+      if (p.kind !== 'pack') continue
+      const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
+      const cur = map.get(p.customer_id) ?? {
+        remaining: 0,
+        unconsumed: 0,
+        hasActivePack: false,
+      }
+      cur.remaining += remaining
+      cur.unconsumed += remaining * p.unit_price
+      cur.hasActivePack = true
+      map.set(p.customer_id, cur)
+    }
+    return map
+  } catch (err) {
+    warn('listAllPackUsage', err)
+    return map
+  }
+}
+
+/** Bulk lifecycle for the list page — graduated/lost customers are excluded
+ *  from alerts. Empty map until the migration applies. */
+export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle>> {
+  const map = new Map<string, CustomerLifecycle>()
+  try {
+    const supabase = createServiceClient()
+    const { data, error } = await supabase
+      .from('customer_lifecycle')
+      .select('customer_id, status, referral')
+    if (error) throw error
+    for (const row of (data ?? []) as CustomerLifecycle[]) map.set(row.customer_id, row)
+    return map
+  } catch (err) {
+    warn('listAllLifecycles', err)
+    return map
+  }
+}
+
 export async function getCustomerLifecycle(
   customerId: string,
 ): Promise<CustomerLifecycle | null> {

@@ -36,6 +36,14 @@ export interface CustomerListRow {
   totalKarute: number
   phone: string | null
   email: string | null
+  /** 回数券 summary (active counted packs) — only the list page adapter
+   *  populates it; undefined/null hides the pack line entirely. */
+  pack?: { remaining: number; unconsumed: number } | null
+  /** 次回予約 あり/なし — derived from the nearest upcoming booking. */
+  hasNextBooking?: boolean
+  /** Pack alert from resolvePackAlert: 'contact' (tickets + no booking +
+   *  N days absent) | 'low' (残り1回) | null. Single source — never re-derive. */
+  packAlert?: 'contact' | 'low' | null
 }
 
 export interface CustomerProfileData {

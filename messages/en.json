@@ -752,7 +752,11 @@
         "lastVisitPrefix": "Last visit",
         "staff": "Staff: {name}",
         "recommendPrefix": "Recommend",
-        "visitsSuffix": "{n} visits"
+        "visitsSuffix": "{n} visits",
+        "packRemaining": "Pack: {n} left",
+        "packContact": "Contact",
+        "nextBookingYes": "Next booking set",
+        "nextBookingNo": "No next booking"
       },
       "heading": "Customers",
       "showing": "{n} showing",
