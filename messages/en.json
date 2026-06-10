@@ -1053,7 +1053,8 @@
     "entriesConfirmed": "{count, plural, one {# entry} other {# entries}} confirmed",
     "selectCustomerAndSave": "Select customer & save",
     "staff": "Staff",
-    "selectStaff": "Select a staff member"
+    "selectStaff": "Select a staff member",
+    "savedChip": "Saved — karute created"
   },
   "coaching": {
     "common": {

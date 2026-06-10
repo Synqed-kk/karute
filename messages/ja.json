@@ -1053,7 +1053,8 @@
     "entriesConfirmed": "{count, plural, other {#件のエントリー}}確認済み",
     "selectCustomerAndSave": "顧客を選択して保存",
     "staff": "スタッフ",
-    "selectStaff": "スタッフを選択してください"
+    "selectStaff": "スタッフを選択してください",
+    "savedChip": "保存済み — カルテ作成完了"
   },
   "coaching": {
     "common": {
