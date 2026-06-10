@@ -11,6 +11,10 @@ export type CustomerListFilterKey =
   | 'newRecent'
   | 'followup'
   | 'dormant'
+  // Stat-strip filters (案D header): entered by tapping the Kitano stats, not
+  // pills — 予約なし (the sheet's #1 stat) and 残り1回 (the upsell queue).
+  | 'noBooking'
+  | 'packLow'
 
 export interface CustomerListCounts {
   all: number
@@ -18,6 +22,8 @@ export interface CustomerListCounts {
   newRecent: number
   followup: number
   dormant: number
+  noBooking: number
+  packLow: number
 }
 
 interface CustomersStatusFiltersProps {
@@ -98,7 +104,13 @@ export function CustomersStatusFilters({
 }
 
 export function applyCustomerFilter(
-  rows: Array<{ status: CustomerStatusKey; joinDateIso: string | null; preferredStaffId: string | null }>,
+  rows: Array<{
+    status: CustomerStatusKey
+    joinDateIso: string | null
+    preferredStaffId: string | null
+    nextBookingDate?: string | null
+    packAlert?: 'contact' | 'low' | null
+  }>,
   filter: CustomerListFilterKey,
   selfStaffId: string | null,
 ): Array<number> {
@@ -125,6 +137,17 @@ export function applyCustomerFilter(
       if (r.status === 'needs-followup') out.push(i)
     } else if (filter === 'dormant') {
       if (r.status === 'dormant') out.push(i)
+    } else if (filter === 'noBooking') {
+      // Kitano's #1 sheet stat: customers with no upcoming booking — but only
+      // those still IN PLAY (卒業/離客 are closed cases, not rebook targets).
+      if (
+        !r.nextBookingDate &&
+        r.status !== 'graduated' &&
+        r.status !== 'lost'
+      )
+        out.push(i)
+    } else if (filter === 'packLow') {
+      if (r.packAlert === 'low') out.push(i)
     }
   })
   return out

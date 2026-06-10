@@ -275,3 +275,45 @@ describe('CustomersListView', () => {
     expect(screen.queryByText('filters.dormant')).toBeNull()
   })
 })
+
+describe('案D stats strip', () => {
+  it('予約なし counts in-play customers only (卒業/離客 excluded) and taps to filter', () => {
+    const rows = [
+      row({ id: 'a', name: 'NoBook', nextBookingDate: null }),
+      row({ id: 'b', name: 'Booked', nextBookingDate: '6/15' }),
+      row({ id: 'c', name: 'Grad', status: 'graduated', nextBookingDate: null }),
+    ]
+    render(
+      <CustomersListView rows={rows} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // counts a but not c (graduated) → 1
+    const stat = screen.getByText('noBooking:{"n":1}')
+    fireEvent.click(stat)
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    // tap again clears back to all
+    fireEvent.click(screen.getByText('noBooking:{"n":1}'))
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+  })
+
+  it('pack stats hide pre-import (no pack data) — 予約なし stays', () => {
+    const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: '6/20' })]
+    render(
+      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getByText('noBooking:{"n":1}')).toBeInTheDocument()
+    expect(screen.queryByText(/packLow:/)).toBeNull()
+    expect(screen.queryByText(/unconsumed:/)).toBeNull()
+  })
+
+  it('with pack data: 残り1回 count + 未消化 total render', () => {
+    const rows = [
+      row({ id: 'a', pack: { remaining: 1, size: 6, unconsumed: 9900 }, packAlert: 'low', nextBookingDate: '6/15' }),
+      row({ id: 'b', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: '6/16' }),
+    ]
+    render(
+      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getByText('packLow:{"n":1}')).toBeInTheDocument()
+    expect(screen.getByText('unconsumed:{"amount":"49,500"}')).toBeInTheDocument()
+  })
+})
