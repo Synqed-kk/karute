@@ -93,4 +93,19 @@ describe('computePackAlerts (dashboard 離客/upsell assembly)', () => {
     const { contact } = build({ nameById: new Map() })
     expect(contact[0]?.name).toBe('—')
   })
+
+  it('totals: 回収リスク sums the VISIBLE contact list; 未消化総額 sums every holder', () => {
+    const { totals } = build()
+    // c-risk 8×9900 + c-fine 5×9900 + c-low 1×9900 = 14×9900
+    expect(totals.unconsumedTotal).toBe(14 * 9900)
+    expect(totals.holderCount).toBe(3)
+    // only c-risk is in the contact list → at-risk = 8×9900
+    expect(totals.atRiskValue).toBe(8 * 9900)
+  })
+
+  it('totals: a dismissal removes the customer from atRiskValue but NOT from 未消化総額', () => {
+    const { totals } = build({ dismissed: new Set(['c-risk']) })
+    expect(totals.atRiskValue).toBe(0)
+    expect(totals.unconsumedTotal).toBe(14 * 9900)
+  })
 })
