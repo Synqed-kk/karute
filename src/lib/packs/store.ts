@@ -284,6 +284,55 @@ export async function addPackAlertDismissal(input: {
   }
 }
 
+export type ContactChannel = 'phone' | 'sms' | 'email' | 'line' | 'in_person'
+
+/** Log a win-back contact attempt (the 連絡済み workflow). ANY staff — the
+ *  outcome stream coaching trains on + the owner's effectiveness metric. */
+export async function addCustomerContact(input: {
+  customerId: string
+  channel: ContactChannel
+  alertKind?: string | null
+  note?: string | null
+  contactedBy: string
+}): Promise<{ ok: boolean }> {
+  try {
+    const supabase = createServiceClient()
+    const { error } = await supabase.from('customer_contacts').insert({
+      customer_id: input.customerId,
+      channel: input.channel,
+      alert_kind: input.alertKind ?? null,
+      note: input.note ?? null,
+      contacted_by: input.contactedBy,
+    })
+    if (error) throw error
+    return { ok: true }
+  } catch (err) {
+    warn('addCustomerContact', err)
+    return { ok: false }
+  }
+}
+
+/** Recent contact attempts (newest first) — feeds the 対応中 snooze on the
+ *  alert card + the monthly 対応→再来店 metric. Empty until migration applies. */
+export async function listRecentContacts(
+  sinceDays: number,
+): Promise<Array<{ customer_id: string; contacted_at: string }>> {
+  try {
+    const supabase = createServiceClient()
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString()
+    const { data, error } = await supabase
+      .from('customer_contacts')
+      .select('customer_id, contacted_at')
+      .gte('contacted_at', since)
+      .order('contacted_at', { ascending: false })
+    if (error) throw error
+    return (data ?? []) as Array<{ customer_id: string; contacted_at: string }>
+  } catch (err) {
+    warn('listRecentContacts', err)
+    return []
+  }
+}
+
 export async function getCustomerLifecycle(
   customerId: string,
 ): Promise<CustomerLifecycle | null> {

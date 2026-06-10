@@ -1480,7 +1480,19 @@
       "atRiskLabel": "At risk",
       "unconsumedLabel": "Unused total",
       "holderCount": "({n} holders)",
-      "allClear": "Nothing needs attention"
+      "allClear": "Nothing needs attention",
+      "contacted": "Contacted",
+      "channelQuestion": "How did you reach them?",
+      "channel_phone": "Phone",
+      "channel_sms": "SMS",
+      "channel_email": "Email",
+      "channel_line": "LINE",
+      "channel_in_person": "In person",
+      "notePlaceholder": "Note (optional)",
+      "contactLogged": "Contact logged — snoozed 7 days",
+      "contactFailed": "Could not log",
+      "inProgressTitle": "In progress {n} (7-day snooze · auto-resolves on rebooking)",
+      "monthlyMetric": "This month: {contacted} contacted → {rebooked} rebooked ({pct}%)"
     }
   },
   "settings": {
