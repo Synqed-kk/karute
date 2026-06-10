@@ -18,7 +18,7 @@ interface StatusTone {
 /** 残3/10 — live pack usage next to the course title. Color = urgency:
  *  emerald (sessions left) → amber (残1: next-pack conversation) → red
  *  (used up: renewal NOW). Same data source as the 顧客 list (chopstick). */
-function PackPill({ remaining, size }: { remaining: number; size: number }) {
+export function PackPill({ remaining, size }: { remaining: number; size: number }) {
   const t = useTranslations('reservation')
   const tone =
     remaining === 0

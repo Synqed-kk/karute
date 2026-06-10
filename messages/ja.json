@@ -159,7 +159,8 @@
       "customerSuffix": "様",
       "tantou": "担当 {name}",
       "renewalFlag": "更新案内",
-      "packLeft": "残{remaining}/{size}"
+      "packLeft": "残{remaining}/{size}",
+      "unrecorded": "未記録"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
@@ -184,7 +185,10 @@
       "staffColumnLabel": "STAFF"
     },
     "totals": {
-      "today": "本日の予約 {n}件"
+      "today": "本日の予約 {n}件",
+      "remaining": "残り {n}件",
+      "renewal": "更新案内 {n}",
+      "unrecorded": "未記録 {n}"
     },
     "newBookingDialog": {
       "title": "新規予約",
