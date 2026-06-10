@@ -24,9 +24,11 @@ interface CustomerCardMobileProps {
   /**
    * URL base for the card's tap target. The customer id gets
    * appended as `${hrefBase}/${c.id}`. Defaults to `/customers` so
-   * 顧客-tab cards route to the customer profile (with tabs). The
-   * カルテ tab passes `/karute/customer` so cards route to the
-   * karute-detail page (vertical stack, spike's layout).
+   * 顧客-tab cards route to the customer profile (with tabs). NOTE:
+   * no production caller passes a different base today — the カルテ tab
+   * renders KaruteRecordListView and /karute/customer/[id] redirects to
+   * /customers/[id]; this prop (and karuteContext) stay for the planned
+   * customer-centric karute list (Phase B).
    */
   hrefBase?: string
 }
@@ -154,7 +156,7 @@ export function CustomerCardMobile({
           </div>
         ) : c.totalKarute > 0 ? (
           <div className="mt-1 flex items-baseline gap-x-2 text-[11px] tabular-nums">
-            <span className="shrink-0 text-muted-foreground/60">
+            <span className="shrink-0 text-muted-foreground">
               {t('lastVisit.dateUnknown')}
             </span>
           </div>

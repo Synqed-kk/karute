@@ -58,8 +58,6 @@ function row(over: Partial<CustomerListRow> = {}): CustomerListRow {
     gender: null,
     joinDate: '',
     joinDateIso: iso(200),
-    visitsDone: 0,
-    visitsTotal: 0,
     lastVisitDate: '',
     lastVisitAgo: '',
     aiPredict: { label: '', when: '' },
@@ -68,7 +66,6 @@ function row(over: Partial<CustomerListRow> = {}): CustomerListRow {
     preferredStaffName: null,
     totalKarute: 0,
     phone: null,
-    email: null,
     ...over,
   }
 }

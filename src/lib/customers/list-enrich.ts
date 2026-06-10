@@ -4,7 +4,6 @@
 //
 // Fields the list still stubs (no producer in karute today):
 //   - aiPredict.{label,when} — needs the rebooking-window model
-//   - visitsDone / visitsTotal — needs a "course" concept the data model doesn't have
 //   - status enum — we derive a best-guess from cadence (see derive)
 
 import { SynqedClient } from '@synqed-kk/client'
@@ -13,7 +12,6 @@ import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/
 export interface CustomerEnrichment {
   totalKarute: number
   lastVisitIso: string | null
-  visitsDone: number
   /** Count of appointments that have already STARTED before now (= "they've
    *  been here before"). Drives the 新規 (new) badge on the reservation
    *  agenda — a customer with 0 past appointments is genuinely first-time
@@ -180,7 +178,6 @@ export async function enrichCustomers(
     map.set(id, {
       totalKarute: karute.length,
       lastVisitIso,
-      visitsDone: karute.length,
       pastAppointmentCount,
       lastVisitService,
       bookingStaffId,

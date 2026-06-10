@@ -53,7 +53,7 @@ interface CustomersListViewProps {
   /**
    * URL base for each card's tap target. Defaults to `/customers`
    * so 顧客-tab cards land on the customer profile (with tabs).
-   * The カルテ tab passes `/karute/customer` so cards land on the
+   * No production caller overrides this today (カルテ tab Phase B); /customers cards land on the
    * karute-detail page (vertical stack, spike's layout).
    */
   hrefBase?: string
