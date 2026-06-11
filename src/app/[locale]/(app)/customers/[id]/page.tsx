@@ -16,6 +16,8 @@ import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
+  customerVisitCount,
+  effectiveLastVisitIso,
   resolveCustomerStatus,
   enrichCustomers,
   formatJoinDate,
@@ -164,8 +166,18 @@ export default async function CustomerProfilePage({
   // chip so a manually-registered pack reads consistently everywhere.
   const hasActivePack = packs.some((p) => p.status === 'active' && p.kind === 'pack')
 
-  const lastVisitIso =
-    karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
+  // SAME last-visit rule as the list (effectiveLastVisitIso): enrichment
+  // (karute + past appointments, incl. imported visits) beats the customer
+  // field, beats karute-only. The header read customer.last_visit_at alone —
+  // which core never persists — so imported customers showed 前回 — up top
+  // while their own pack card below was correct.
+  const lastVisitIso = effectiveLastVisitIso(
+    enrichment.get(id)?.lastVisitIso ??
+      karuteRecords[0]?.session_date ??
+      karuteRecords[0]?.created_at ??
+      null,
+    customer.last_visit_at,
+  )
   // Returning signal = the MAX of QR visit_count AND the actual karute history.
   // A customer can have many recorded sessions but visit_count 0 (hand-added, or
   // QR never synced the count) — ぴあそん has 11 karute but visit_count 0, so
@@ -174,7 +186,7 @@ export default async function CustomerProfilePage({
   // SINGLE SOURCE: identical signals + resolver as the list/recording/agenda, so
   // this customer's badge is the same on every page (the chopstick — computed
   // once, shown everywhere).
-  const status = resolveCustomerStatus({
+  const statusSignals = {
     joinDateIso: customer.created_at,
     lastVisitIso,
     isExistingCustomer: customer.is_existing_customer,
@@ -182,6 +194,9 @@ export default async function CustomerProfilePage({
     karuteCount: karuteRecords.length,
     pastAppointmentCount: enrichment.get(id)?.pastAppointmentCount,
     hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
+  }
+  const status = resolveCustomerStatus({
+    ...statusSignals,
     // Same booking signal as the list — a booked customer is never a chase
     // target on ANY surface (chopstick).
     hasUpcomingBooking: !!enrichment.get(id)?.nextAppointmentIso,
@@ -241,10 +256,10 @@ export default async function CustomerProfilePage({
     genderCode: customer.gender,
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
-    // Lifetime visit count from external sync (QuickReserve visits_number_cache);
-    // 0 for in-app-only customers. The identity card shows the larger of this
-    // and the karute count so returning customers don't read as "0 visits".
-    visitCount: customer.visit_count,
+    // SAME 来店 count as the list (customerVisitCount — the max of every
+    // visit evidence incl. imported past appointments), so the header and the
+    // list can never disagree.
+    visitCount: customerVisitCount(statusSignals),
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
     bookingMemo: customer.notes ?? null,
@@ -252,9 +267,7 @@ export default async function CustomerProfilePage({
     memberNumber: customer.member_number,
     hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
     isBirthdayMonth: isBirthdayMonth(customer.date_of_birth),
-    lastVisitDate: customer.last_visit_at
-      ? formatJoinDate(customer.last_visit_at, locale)
-      : null,
+    lastVisitDate: lastVisitIso ? formatJoinDate(lastVisitIso, locale) : null,
     preferredStaffId,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)

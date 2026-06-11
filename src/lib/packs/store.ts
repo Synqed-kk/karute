@@ -179,26 +179,47 @@ export interface CustomerPackUsage {
 
 /** Bulk pack usage for the customer LIST page — two queries total (not per
  *  customer), grouped in memory. Map is empty until the migration applies. */
+/** Range-paginate past PostgREST's SILENT 1,000-row cap. Every bulk read in
+ *  this store must go through this: the cap is invisible (no error, no
+ *  warning) — an unpaginated redemption read showed 残3/3 on the list while
+ *  the profile's per-customer read correctly said 残り2回, and inflated the
+ *  strip's 未消化¥ and the alert engine's inputs. */
+async function pageAll<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
+): Promise<T[]> {
+  const out: T[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await build(from, from + 999)
+    if (error) throw error
+    const rows = (data ?? []) as T[]
+    out.push(...rows)
+    if (rows.length < 1000) return out
+  }
+}
+
 export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
   const map = new Map<string, CustomerPackUsage>()
   try {
     const supabase = createServiceClient()
-    const [{ data: packs, error: pErr }, { data: reds, error: rErr }] = await Promise.all([
-      supabase
-        .from('ticket_packs')
-        .select('id, customer_id, kind, pack_size, unit_price')
-        .eq('status', 'active'),
-      supabase.from('pack_redemptions').select('pack_id'),
+    const [packs, reds] = await Promise.all([
+      pageAll<Pick<TicketPack, 'id' | 'customer_id' | 'kind' | 'pack_size' | 'unit_price'>>(
+        (from, to) =>
+          supabase
+            .from('ticket_packs')
+            .select('id, customer_id, kind, pack_size, unit_price')
+            .eq('status', 'active')
+            .order('id')
+            .range(from, to),
+      ),
+      pageAll<{ pack_id: string }>((from, to) =>
+        supabase.from('pack_redemptions').select('pack_id').order('id').range(from, to),
+      ),
     ])
-    if (pErr) throw pErr
-    if (rErr) throw rErr
     const countByPack = new Map<string, number>()
-    for (const r of (reds ?? []) as Array<{ pack_id: string }>) {
+    for (const r of reds) {
       countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
     }
-    for (const p of (packs ?? []) as Array<
-      Pick<TicketPack, 'id' | 'customer_id' | 'kind' | 'pack_size' | 'unit_price'>
-    >) {
+    for (const p of packs) {
       if (p.kind !== 'pack') continue
       const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
       const cur = map.get(p.customer_id) ?? {
@@ -226,11 +247,14 @@ export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle
   const map = new Map<string, CustomerLifecycle>()
   try {
     const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('customer_lifecycle')
-      .select('customer_id, status, referral')
-    if (error) throw error
-    for (const row of (data ?? []) as CustomerLifecycle[]) map.set(row.customer_id, row)
+    const rows = await pageAll<CustomerLifecycle>((from, to) =>
+      supabase
+        .from('customer_lifecycle')
+        .select('customer_id, status, referral')
+        .order('customer_id')
+        .range(from, to),
+    )
+    for (const row of rows) map.set(row.customer_id, row)
     return map
   } catch (err) {
     warn('listAllLifecycles', err)
@@ -245,12 +269,16 @@ export async function listActiveDismissals(): Promise<Set<string>> {
   const set = new Set<string>()
   try {
     const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('pack_alert_dismissals')
-      .select('customer_id, expires_at')
-    if (error) throw error
+    const rows = await pageAll<{ customer_id: string; expires_at: string | null }>(
+      (from, to) =>
+        supabase
+          .from('pack_alert_dismissals')
+          .select('customer_id, expires_at')
+          .order('customer_id')
+          .range(from, to),
+    )
     const now = Date.now()
-    for (const row of (data ?? []) as Array<{ customer_id: string; expires_at: string | null }>) {
+    for (const row of rows) {
       if (row.expires_at === null || new Date(row.expires_at).getTime() > now) {
         set.add(row.customer_id)
       }
@@ -320,13 +348,14 @@ export async function listRecentContacts(
   try {
     const supabase = createServiceClient()
     const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString()
-    const { data, error } = await supabase
-      .from('customer_contacts')
-      .select('customer_id, contacted_at')
-      .gte('contacted_at', since)
-      .order('contacted_at', { ascending: false })
-    if (error) throw error
-    return (data ?? []) as Array<{ customer_id: string; contacted_at: string }>
+    return await pageAll<{ customer_id: string; contacted_at: string }>((from, to) =>
+      supabase
+        .from('customer_contacts')
+        .select('customer_id, contacted_at')
+        .gte('contacted_at', since)
+        .order('contacted_at', { ascending: false })
+        .range(from, to),
+    )
   } catch (err) {
     warn('listRecentContacts', err)
     return []
@@ -369,16 +398,18 @@ export async function listVisitReconcileDismissals(
     const since = new Date(Date.now() - sinceDays * 86_400_000)
       .toISOString()
       .slice(0, 10)
-    const { data, error } = await supabase
-      .from('visit_reconcile_dismissals')
-      .select('customer_id, appointment_id, visit_day')
-      .gte('visit_day', since)
-    if (error) throw error
-    return (data ?? []) as Array<{
+    return await pageAll<{
       customer_id: string
       appointment_id: string | null
       visit_day: string
-    }>
+    }>((from, to) =>
+      supabase
+        .from('visit_reconcile_dismissals')
+        .select('customer_id, appointment_id, visit_day')
+        .gte('visit_day', since)
+        .order('visit_day')
+        .range(from, to),
+    )
   } catch (err) {
     warn('listVisitReconcileDismissals', err)
     return []
