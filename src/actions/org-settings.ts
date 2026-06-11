@@ -23,6 +23,18 @@ export interface PackPreset {
   unitPrice: number
 }
 
+/** One staff member's voice-enrollment record (org-settings blob — the
+ *  documented zero-migration extension path). The SAMPLE is stored in the
+ *  recordings bucket; once a matching engine is chosen (Stage 1 bake-off,
+ *  docs/diarization-stack.md) samples are converted to embeddings and the
+ *  raw audio is deleted. Consent + revocation are first-class. */
+export interface VoiceEnrollment {
+  consent_at: string
+  sample_path: string
+  status: 'saved' | 'revoked'
+  revoked_at?: string | null
+}
+
 export interface OrgSettings {
   id: string
   salon_name: string
@@ -53,6 +65,7 @@ export interface OrgSettings {
   recording_consent_template: string
   /** 回数券プリセット — the picker's size/price chips. Owner-managed. */
   pack_presets: PackPreset[]
+  voice_enrollments: Record<string, VoiceEnrollment>
   /** Off → staff may only pick from presets (no free price/size input). */
   staff_can_customize_packs: boolean
 }
@@ -122,6 +135,10 @@ const orgSettingsByBusiness = unstable_cache(
           s.staff_can_customize_packs === undefined
             ? true
             : Boolean(s.staff_can_customize_packs),
+        voice_enrollments:
+          s.voice_enrollments && typeof s.voice_enrollments === 'object'
+            ? (s.voice_enrollments as Record<string, VoiceEnrollment>)
+            : {},
       }
     } catch {
       return null
