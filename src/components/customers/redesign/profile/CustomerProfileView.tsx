@@ -69,6 +69,8 @@ interface CustomerProfileViewProps {
   /** Persistent customer memory (5 categories), read from the store +
    *  one-time backfill on the server. Omitted → card shows its empty state. */
   customerMemory?: CustomerMemory
+  /** Upcoming booking on file — softens the pack card's 使い切り hint. */
+  hasNextBooking?: boolean
   /** 回数券 + lifecycle (卒業/離客/口コミ) — server-loaded via the packs store.
    *  Empty until the ticket_packs migration is applied (graceful). */
   packs?: PackWithUsage[]
@@ -82,6 +84,7 @@ export function CustomerProfileView({
   customerMemory,
   packs = [],
   lifecycle = null,
+  hasNextBooking = false,
 }: CustomerProfileViewProps) {
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
@@ -119,6 +122,7 @@ export function CustomerProfileView({
         customerId={customer.id}
         packs={packs}
         lifecycle={lifecycle}
+        hasNextBooking={hasNextBooking}
       />
 
       {/* 3c. AI re-engagement card — sits ABOVE tabs so staff catch

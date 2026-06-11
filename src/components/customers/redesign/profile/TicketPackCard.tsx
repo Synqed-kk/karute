@@ -32,6 +32,8 @@ import type {
   PackKind,
   PackWithUsage,
 } from '@/lib/packs/types'
+import { DEFAULT_CONTACT_THRESHOLD_DAYS } from '@/lib/packs/resolve'
+import { jstDaysBetween } from '@/lib/date/jst'
 
 const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
 
@@ -41,10 +43,17 @@ const PRICE_PRESETS = [8800, 9350, 9900, 10450]
 interface TicketPackCardProps {
   customerId: string
   packs: PackWithUsage[]
+  /** Upcoming booking on file — softens the 使い切り hint (they're coming). */
+  hasNextBooking?: boolean
   lifecycle: CustomerLifecycle | null
 }
 
-export function TicketPackCard({ customerId, packs, lifecycle }: TicketPackCardProps) {
+export function TicketPackCard({
+  customerId,
+  packs,
+  lifecycle,
+  hasNextBooking = false,
+}: TicketPackCardProps) {
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
   const inactive = packs.filter((p) => p.status !== 'active')
@@ -75,7 +84,19 @@ export function TicketPackCard({ customerId, packs, lifecycle }: TicketPackCardP
       ) : (
         <ul className="m-0 flex list-none flex-col gap-3 p-0">
           {active.map((p) => (
-            <PackRow key={p.id} pack={p} customerId={customerId} />
+            <PackRow
+              key={p.id}
+              pack={p}
+              customerId={customerId}
+              hasNextBooking={hasNextBooking}
+              hasNewerActive={packs.some(
+                (o) =>
+                  o.id !== p.id &&
+                  o.kind === 'pack' &&
+                  o.status === 'active' &&
+                  o.remaining > 0,
+              )}
+            />
           ))}
         </ul>
       )}
@@ -112,13 +133,31 @@ function roundLabel(round: number, t: ReturnType<typeof useTranslations>): strin
   return round === 0 ? t('roundFirst') : t('roundN', { n: round })
 }
 
-function PackRow({ pack, customerId }: { pack: PackWithUsage; customerId: string }) {
+function PackRow({
+  pack,
+  customerId,
+  hasNewerActive = false,
+  hasNextBooking = false,
+}: {
+  pack: PackWithUsage
+  customerId: string
+  hasNewerActive?: boolean
+  hasNextBooking?: boolean
+}) {
   const t = useTranslations('customers.profile.packs')
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
-  // Low-remaining nudge — the "talk about the next pack" moment.
-  const low = pack.kind === 'pack' && pack.remaining <= 1
+  // The state LADDER (Liam-approved): each state names what's true NOW and
+  // what to DO. 残1 = talk on the NEXT visit (they're coming back). 残0
+  // unrenewed = the visit already happened and didn't close — reach out, the
+  // day counter is running. 残0 with a newer pack = quietly 終了.
+  const exhausted = pack.kind === 'pack' && pack.remaining === 0
+  const closed = exhausted && hasNewerActive
+  const low = pack.kind === 'pack' && pack.remaining === 1
+  const daysSinceLast = pack.lastRedeemedOn
+    ? jstDaysBetween(pack.lastRedeemedOn)
+    : null
 
   const redeem = async () => {
     setBusy(true)
@@ -134,7 +173,9 @@ function PackRow({ pack, customerId }: { pack: PackWithUsage; customerId: string
   }
 
   return (
-    <li className="rounded-xl border border-border/70 p-3.5">
+    <li
+      className={`rounded-xl border border-border/70 p-3.5 ${closed ? 'opacity-60' : ''}`}
+    >
       <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <div className="flex items-baseline gap-2">
           <span className="text-[13px] font-semibold text-foreground">
@@ -151,10 +192,18 @@ function PackRow({ pack, customerId }: { pack: PackWithUsage; customerId: string
         </div>
         <span
           className={`text-[15px] font-semibold tabular-nums ${
-            low ? 'text-amber-600 dark:text-amber-400' : 'text-foreground'
+            closed
+              ? 'text-muted-foreground'
+              : low || exhausted
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-foreground'
           }`}
         >
-          {t('remaining', { n: pack.remaining })}
+          {closed
+            ? t('closedLabel')
+            : exhausted
+              ? t('exhaustedLabel')
+              : t('remaining', { n: pack.remaining })}
         </span>
       </div>
 
@@ -187,10 +236,17 @@ function PackRow({ pack, customerId }: { pack: PackWithUsage; customerId: string
 
       <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-baseline gap-3 text-[11px] text-muted-foreground">
-          {pack.unit_price > 0 && (
+          {exhausted ? (
             <span className="tabular-nums">
-              {t('unconsumed')} <span className="text-foreground">{yen(pack.unconsumedValue)}</span>
+              {t('consumedAll', { n: pack.pack_size })}
             </span>
+          ) : (
+            pack.unit_price > 0 && (
+              <span className="tabular-nums">
+                {t('unconsumed')}{' '}
+                <span className="text-foreground">{yen(pack.unconsumedValue)}</span>
+              </span>
+            )
           )}
           {pack.purchased_at && (
             <span className="tabular-nums">{t('purchased', { date: pack.purchased_at })}</span>
@@ -232,6 +288,18 @@ function PackRow({ pack, customerId }: { pack: PackWithUsage; customerId: string
       {low && (
         <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-[11px] text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
           {t('lowRemaining')}
+        </p>
+      )}
+      {exhausted && !closed && (
+        <p className="mt-2 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[11px] text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+          <span className="font-semibold">
+            {daysSinceLast != null
+              ? t('exhaustedHint', { n: daysSinceLast })
+              : t('exhaustedHintUnknown')}
+          </span>
+          {!hasNextBooking && (
+            <> {t('exhaustedHintNoBooking', { d: DEFAULT_CONTACT_THRESHOLD_DAYS })}</>
+          )}
         </p>
       )}
     </li>
