@@ -8,12 +8,14 @@ import { InviteStaffDialog } from './staff/InviteStaffDialog'
 
 interface StaffSectionProps {
   staffList: StaffMember[]
+  voiceEnrollments?: Record<string, string | null>
   activeStaffId: string | null
   isOwner: boolean
 }
 
 export function StaffSection({
   staffList,
+  voiceEnrollments,
   activeStaffId,
   isOwner,
 }: StaffSectionProps) {
@@ -29,6 +31,7 @@ export function StaffSection({
     <div className="space-y-6">
       <StaffList
         staffList={staffList}
+        voiceEnrollments={voiceEnrollments}
         activeStaffId={activeStaffId}
         currentUserId={activeStaffId}
         isOwner={isOwner}

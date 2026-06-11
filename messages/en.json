@@ -2488,7 +2488,7 @@
     "title": "Enroll your voice (optional)",
     "description": "Enrolling {name}'s voice slightly improves speaker recognition accuracy. Enrollment is optional — diarization works without it.",
     "privacyTitle": "About privacy",
-    "privacyItem1": "Recorded audio is converted to a voice embedding (256-dim vector); the raw audio is then discarded.",
+    "privacyItem1": "Your voice sample is stored in encrypted storage. When voice matching goes live it is converted to a voiceprint and the original audio is deleted.",
     "privacyItem2": "Embeddings are used only by the server-side diarization job; they're never sent back to the app.",
     "privacyItem3": "Stored in encrypted storage compliant with Japan's Personal Information Protection Act (APPI).",
     "privacyItem4": "Click 'delete' at any time to permanently remove your voice profile within 30 days.",
@@ -2506,7 +2506,10 @@
     "cancel": "Cancel",
     "proceed": "Next",
     "back": "Back",
-    "done": "Done"
+    "done": "Done",
+    "uploading": "Saving…",
+    "uploadFailed": "Could not save. Please try again.",
+    "micDenied": "Microphone unavailable. Please check browser permissions."
   },
   "switcher": {
     "switchStaff": "Switch staff",
