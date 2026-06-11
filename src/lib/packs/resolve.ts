@@ -1,3 +1,5 @@
+import { jstDaysBetween } from '@/lib/date/jst'
+
 // Pack-alert resolution — the ONE place the "who needs attention" rules live
 // (chopstick rule: every surface — customer list, dashboard, profile, alert
 // page — calls these; none re-derives its own version).
@@ -68,7 +70,7 @@ export function resolveOutcomeMode(
  *  ±1 day, which the threshold comparison absorbs). null for no visits. */
 export function daysSince(iso: string | null, now: Date = new Date()): number | null {
   if (!iso) return null
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return null
-  return Math.max(0, Math.floor((now.getTime() - then) / 86_400_000))
+  if (Number.isNaN(new Date(iso).getTime())) return null
+  // JST calendar days — same rule as ago-strings/status (jstDaysBetween).
+  return jstDaysBetween(iso, now)
 }

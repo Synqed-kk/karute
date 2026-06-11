@@ -839,7 +839,8 @@
         "oneDayAgo": "1日前",
         "daysAgo": "{n}日前",
         "monthsAgo": "{n}ヶ月前",
-        "dateUnknown": "最終来店日の記録なし"
+        "dateUnknown": "最終来店日の記録なし",
+        "yearsAgo": "{n}年前"
       },
       "paginatedShowing": "{total}名中 {from}〜{to}名を表示",
       "previousPage": "前のページ",

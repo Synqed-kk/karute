@@ -138,8 +138,11 @@ export function CustomerCardMobile({
          *  the resolver's own 要フォロー/休眠 states). Three honest states. */}
         {c.lastVisitDate !== '—' ? (
           <div className="mt-1 flex items-baseline gap-x-2 text-[11px] tabular-nums">
+            {/* 案1 (Liam): DAYS ONLY — no calendar date on the list (it lives
+             *  on the profile). 「前回」 is a bare prefix; the ago-token holds
+             *  the right rail without the old full-width parens. */}
             <span className="shrink-0 whitespace-nowrap text-muted-foreground/60">
-              {t('row.lastVisitPrefix')} {c.lastVisitDateCompact ?? c.lastVisitDate}
+              {t('row.lastVisitPrefix')}
             </span>
             <span className="min-w-0 flex-1 truncate text-foreground/80">
               {c.lastVisitService ?? ''}
@@ -151,7 +154,7 @@ export function CustomerCardMobile({
                   : 'text-foreground/90'
               }`}
             >
-              （{c.lastVisitAgo}）
+              {c.lastVisitAgo}
             </span>
           </div>
         ) : c.totalKarute > 0 ? (
@@ -165,7 +168,7 @@ export function CustomerCardMobile({
             <span className="shrink-0">{c.lastVisitAgo}</span>
             {c.status === 'new' && (
               <span className="shrink-0 whitespace-nowrap text-muted-foreground/60">
-                {t('joined', { date: c.joinDateCompact ?? c.joinDate })}
+                {t('joined', { date: c.joinAgo ?? c.joinDate })}
               </span>
             )}
           </div>

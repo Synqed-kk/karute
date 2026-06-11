@@ -75,7 +75,6 @@ describe('案A rails card — mock fidelity', () => {
       row({
         name: '久保田 ゆき',
         lastVisitDate: '2026年6月8日',
-        lastVisitDateCompact: '6/8',
         lastVisitAgo: '2日前',
         lastVisitService: '10回券',
         totalKarute: 19,
@@ -95,7 +94,6 @@ describe('案A rails card — mock fidelity', () => {
         name: '久保田 ゆき',
         karuteNumber: '#00111',
         lastVisitDate: '2026年6月8日',
-        lastVisitDateCompact: '6/8',
         lastVisitAgo: '2日前',
         lastVisitService: '10回券',
         totalKarute: 19,
@@ -111,11 +109,13 @@ describe('案A rails card — mock fidelity', () => {
     expect(card.queryByText('継続中')).toBeNull()
     expect(card.getByText('久保田 ゆき')).toBeInTheDocument()
     expect(card.getByText('#00111')).toBeInTheDocument()
-    // L2 — compact date, course as the sole truncator, recency rail right.
-    expect(card.getByText(/前回 6\/8/)).toBeInTheDocument()
+    // L2 (案1) — DAYS ONLY: bare 前回 prefix, no calendar date, course as the
+    // sole truncator, bare ago token on the recency rail (no parens).
+    expect(card.getByText('前回')).toBeInTheDocument()
+    expect(card.queryByText(/6\/8/)).toBeNull()
     const course = card.getByText('10回券')
     expect(course.className).toContain('truncate')
-    const ago = card.getByText('（2日前）')
+    const ago = card.getByText('2日前')
     expect(ago.className).toContain('ml-auto')
     expect(ago.className).toContain('font-medium')
     expect(ago.className).not.toContain('amber')
@@ -142,7 +142,6 @@ describe('案A rails card — mock fidelity', () => {
         name: '松本日向',
         karuteNumber: '#00021',
         lastVisitDate: '2026年6月2日',
-        lastVisitDateCompact: '6/2',
         lastVisitAgo: '8日前',
         lastVisitService: '新規コース ¥1,980',
         totalKarute: 1,
@@ -170,7 +169,7 @@ describe('案A rails card — mock fidelity', () => {
         name: '籠嶋 知美',
         karuteNumber: '#00193',
         status: 'new',
-        joinDateCompact: '6/10',
+        joinAgo: '2日前',
         totalKarute: 0,
         preferredStaffName: '原田 かなみ',
         preferredStaffId: 's-1',
@@ -179,7 +178,7 @@ describe('案A rails card — mock fidelity', () => {
     const card = within(container)
     expect(card.getByText('新規')).toBeInTheDocument()
     expect(card.getByText('来店履歴なし')).toBeInTheDocument()
-    expect(card.getByText('登録 6/10')).toBeInTheDocument()
+    expect(card.getByText('登録 2日前')).toBeInTheDocument()
     expect(card.queryByText(/来店0回/)).toBeNull()
     expect(card.queryByText(/前回/)).toBeNull()
   })
@@ -191,7 +190,6 @@ describe('案A rails card — mock fidelity', () => {
         karuteNumber: '#00112',
         status: 'needs-followup',
         lastVisitDate: '2026年3月17日',
-        lastVisitDateCompact: '3/17',
         lastVisitAgo: '85日前',
         lastVisitService: '6回券',
         totalKarute: 7,
@@ -203,7 +201,7 @@ describe('案A rails card — mock fidelity', () => {
     )
     const card = within(container)
     expect(card.getByText('要フォロー')).toBeInTheDocument()
-    expect(card.getByText('（85日前）').className).toContain('amber')
+    expect(card.getByText('85日前').className).toContain('amber')
     expect(card.getByText('要連絡')).toBeInTheDocument()
     expect(card.getByText('予約なし').className).toContain('amber')
     const callBtn = container.querySelector('button[aria-label*="橋 加奈絵"]')
@@ -217,7 +215,6 @@ describe('案A rails card — mock fidelity', () => {
         name: '小川拓也',
         status: 'graduated',
         lastVisitDate: '2025年11月3日',
-        lastVisitDateCompact: '2025/11/3',
         lastVisitAgo: '219日前',
         totalKarute: 4,
       }),
@@ -227,7 +224,7 @@ describe('案A rails card — mock fidelity', () => {
     expect(chip.className).toContain('slate')
     expect(chip.className).not.toContain('red')
     // recency token NOT amber for lifecycle states (not followup/dormant)
-    expect(card.getByText('（219日前）').className).not.toContain('amber')
+    expect(card.getByText('219日前').className).not.toContain('amber')
   })
 
   it('卒業 with no booking: 予約なし stays NEUTRAL (closed case, no action color)', () => {
@@ -236,7 +233,6 @@ describe('案A rails card — mock fidelity', () => {
         name: '小川拓也',
         status: 'graduated',
         lastVisitDate: '2025年11月3日',
-        lastVisitDateCompact: '2025/11/3',
         lastVisitAgo: '219日前',
         totalKarute: 4,
         nextBookingDate: null,

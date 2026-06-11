@@ -56,6 +56,7 @@ export default async function CustomersPage({
 
   const lastVisitStrings: LastVisitStrings = {
     noVisits: lvT('noVisits'),
+    yearsAgo: (n) => lvT('yearsAgo', { n }),
     today: lvT('today'),
     oneDayAgo: lvT('oneDayAgo'),
     daysAgo: (n) => lvT('daysAgo', { n }),
@@ -162,13 +163,16 @@ export default async function CustomersPage({
           }
         : null,
       packAlert,
-      // 案A rails: compact dates + the actual next-booking date (already in
-      // enrichment memory — no extra query).
-      lastVisitDateCompact: formatCompactDate(lastVisitIso, locale),
-      joinDateCompact: formatCompactDate(c.created_at ?? null, locale),
+      // 案1: the list speaks in DAYS (前回 …6日前 / 登録 2日前); the one
+      // calendar date that earns list space is the FUTURE booking, weekday
+      // included (予約 6/15(火)) to match the reservation surfaces.
+      joinAgo: formatLastVisit(c.created_at ?? null, locale, lastVisitStrings)
+        .ago,
       nextBookingDate: formatCompactDate(
         enriched?.nextAppointmentIso ?? null,
         locale,
+        new Date(),
+        { withWeekday: true },
       ),
     }
   })
