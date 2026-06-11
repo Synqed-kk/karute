@@ -26,6 +26,18 @@ HONEST CURRENT STATE (audited against origin/main bebcda9, 2026-06-08): Diarizat
 
 - STAGE 3 — Optional hardware, at-volume only (effort: integration project; cost: $179+/device + per-usage API). If real-salon benchmarks after Stages 0-2 still show unacceptable bystander leakage, evaluate a dedicated mic: Plaud Note Pro / NotePin S via the new Plaud Developer Platform (BLE/WiFi device SDK + transcription API, explicitly sold to vertical CRMs), or simply a positioned dedicated iPhone per bed. Go in skeptical — Plaud's own beamforming claims are unverified and their support docs admit speaker-merging in noise. Hardware buys you mic placement and pickup range, not magic isolation. FIXES: capture quality at distance; marginal gain on bystander rejection.
 
+### Liam's hardware directive (2026-06-11)
+
+Pin mics are PLANNED, not optional: phones in pockets can't capture reliably,
+so La Estro will run Plaud-class wearable mics soon. Stage 3 is therefore a
+committed phase — and the target is Plaud-parity quality. The software stack
+(Stages 0-1: diarization → role attribution → staff voiceprints + implicit
+labeling) IS ~80% of Plaud's quality per the teardown; the pin mic supplies
+the remaining capture-quality layer (placement + pickup range). Candidates:
+Plaud Developer Platform (BLE/WiFi SDK + their transcription API, sold to
+vertical CRMs) vs generic BLE pin mic + our own stack. Decide after the
+Stage-1 bake-off — the benchmark set doubles as the hardware acceptance test.
+
 ## 4. This month vs at-volume
 
 - Wire diarized output end-to-end (Stage 0): ai-pipeline passes words/paragraphs through, DiarizedTranscript persisted, prompts get speaker-attributed text with ignore-bystander instructions. Single highest-leverage change in the codebase — we currently pay for and discard the exact data that solves the problem.
