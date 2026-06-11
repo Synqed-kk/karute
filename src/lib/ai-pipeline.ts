@@ -57,7 +57,7 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
 
 /**
  * Orchestrates the full AI processing pipeline:
- *   1. Transcribe audio blob via Whisper (/api/ai/transcribe)
+ *   1. Transcribe audio blob via Deepgram nova-3 (/api/ai/transcribe)
  *   2. Run extraction and summary in parallel via Promise.all (/api/ai/extract + /api/ai/summarize)
  *
  * Calls onProgress at each stage so UI can show step-by-step progress.

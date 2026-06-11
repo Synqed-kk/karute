@@ -38,6 +38,7 @@ export async function POST(request: Request) {
       // system-wide cost setting can't silently revert it. gpt-4o supports
       // structured outputs.
       model: process.env.AI_SUMMARIZE_MODEL || 'gpt-4o',
+      temperature: 0.2,
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
