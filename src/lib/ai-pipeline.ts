@@ -1,5 +1,6 @@
 import { Entry } from '@/types/ai'
 import { createClient } from '@/lib/supabase/client'
+import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
  * Represents each step of the AI processing pipeline.
@@ -112,6 +113,18 @@ export async function runAIPipeline(
     throw new Error('Transcription returned an empty transcript.')
   }
 
+  // Stage 0 (docs/diarization-stack.md): use the speaker labels we already
+  // pay Deepgram for. When attribution succeeds, BOTH the prompts and the
+  // stored transcript get the labeled text (施術者:/お客様:/周囲) — what the
+  // AI read is exactly what staff can audit. Any failure → flat transcript,
+  // exactly yesterday's behavior (graceful degradation).
+  const diarized = buildDiarizedTranscript(
+    transcribeData.paragraphs ?? [],
+    transcribeData.words ?? [],
+    transcribeData.confidence ?? 0,
+  )
+  const aiTranscript = diarized ? toSpeakerText(diarized) : transcript
+
   // Step 2: Parallel extraction and summary
   onProgress('extracting')
 
@@ -120,7 +133,7 @@ export async function runAIPipeline(
       fetch('/api/ai/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, locale }),
+        body: JSON.stringify({ transcript: aiTranscript, locale }),
       }),
     ).catch((err) => {
       throw new Error(`Extraction failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -129,7 +142,7 @@ export async function runAIPipeline(
       fetch('/api/ai/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript, locale }),
+        body: JSON.stringify({ transcript: aiTranscript, locale }),
       }),
     ).catch((err) => {
       throw new Error(`Summary generation failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -145,5 +158,5 @@ export async function runAIPipeline(
   // Step 3: Complete
   onProgress('complete')
 
-  return { transcript, entries, summary }
+  return { transcript: aiTranscript, entries, summary }
 }
