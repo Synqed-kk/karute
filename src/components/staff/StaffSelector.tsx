@@ -86,14 +86,15 @@ export function StaffSelector({
             >
               {active.initials}
             </span>
-            {!compact && (
-              <span className="max-w-[9rem] truncate">{active.name}</span>
-            )}
+            <span className="shrink-0 text-muted-foreground">{t('trigger')}:</span>
+            <span className={cn('truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
+              {active.name}
+            </span>
           </>
         ) : (
           <>
             <Users size={13} className="shrink-0 text-muted-foreground" aria-hidden />
-            {!compact && <span>{t('trigger')}</span>}
+            <span>{t('trigger')}</span>
           </>
         )}
         <ChevronDown size={13} className="shrink-0 text-muted-foreground" aria-hidden />
