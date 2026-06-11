@@ -44,3 +44,9 @@ jobs:
       - name: Test
         run: npm test -- --passWithNoTests
         # --passWithNoTests allows CI to pass when no test files exist yet (Phase 8 adds tests)
+        env:
+          # jest.setup.ts requires these at import time but every suite is fully
+          # mocked (verified: 78 suites pass with these exact dummies). Real
+          # values would point CI at a live project — never do that.
+          NEXT_PUBLIC_SUPABASE_URL: https://test-dummy.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
