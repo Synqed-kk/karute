@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter } from '@/i18n/navigation'
 import type { CustomerListRow } from '../types'
 import { CustomersListHeader } from './CustomersListHeader'
 import { CustomerSearchInput } from './CustomerSearchInput'
@@ -84,9 +86,36 @@ export function CustomersListView({
 }: CustomersListViewProps) {
   const t = useTranslations('customers.list')
   const tCustomers = useTranslations('customers')
-  const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>('all')
-  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
-  const [page, setPage] = useState(0)
+  // List state lives in the URL (?f=&s=&p=) via replace — no history spam,
+  // no scroll jump — so the BACK button restores the exact page + filters the
+  // staff left (Liam: "go into a card, come back, don't reset me to page 1").
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const VALID_FILTERS: CustomerListFilterKey[] = [
+    'all', 'newRecent', 'followup', 'dormant', 'noBooking', 'packLow',
+  ]
+  const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>(() => {
+    const f = searchParams.get('f') as CustomerListFilterKey | null
+    return f && VALID_FILTERS.includes(f) ? f : 'all'
+  })
+  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
+    () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
+  )
+  const [page, setPage] = useState(() =>
+    Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
+  )
+  useEffect(() => {
+    const next = new URLSearchParams(window.location.search)
+    if (page > 0) next.set('p', String(page + 1))
+    else next.delete('p')
+    if (statusFilter !== 'all') next.set('f', statusFilter)
+    else next.delete('f')
+    if (staffFilter !== 'all') next.set('s', String(staffFilter))
+    else next.delete('s')
+    const qs = next.toString()
+    router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
+  }, [page, statusFilter, staffFilter, pathname, router])
 
   // Reset to page 1 whenever the filter changes — otherwise switching
   // to a smaller result set could leave the viewer stranded on an

@@ -73,8 +73,10 @@ for (const row of rows) {
     const idx = slotIdx.get(sKey) ?? 0
     slotIdx.set(sKey, idx + 1)
     let ok = false
-    for (let attempt = 0; attempt < 8 && !ok; attempt++) {
-      const minutes = (10 * 60) + (idx + attempt) * 65 // 10:00 JST + 65min slots
+    for (let attempt = 0; attempt < 24 && !ok; attempt++) {
+      // wrap within 07:00-21:55 — slot 13+ on a busy day must not march past
+      // midnight (the Invalid-time bug on 2026-06-06)
+      const minutes = (7 * 60) + (((idx + attempt) * 65) % (15 * 60))
       const h = String(Math.floor(minutes / 60)).padStart(2, '0')
       const mm = String(minutes % 60).padStart(2, '0')
       const starts = new Date(`${d}T${h}:${mm}:00+09:00`)
@@ -92,9 +94,9 @@ for (const row of rows) {
         ok = true
         log.created++
       } catch (e) {
-        if (!String(e.message).includes('overlap') && attempt === 7) {
+        if (attempt === 23) {
           log.errors++
-          if (log.errors < 4) console.log('ERR', row.name, d, e.message?.slice(0, 70))
+          if (log.errors < 6) console.log('ERR', row.name, d, e.message?.slice(0, 70))
         }
       }
     }

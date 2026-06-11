@@ -24,6 +24,8 @@
 import { FilePlus2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
+import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter } from '@/i18n/navigation'
 
 import {
   CustomersStaffFilter,
@@ -91,10 +93,32 @@ export function KaruteRecordListView({
   const t = useTranslations('karute.recordList')
   const tHead = useTranslations('karute')
   const locale = useLocale()
-  const [filter, setFilter] = useState<KaruteListFilter>('all')
-  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
+  // URL-backed list state — back-navigation restores page + filters (same
+  // pattern as the 顧客 list; search text deliberately stays local).
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const [filter, setFilter] = useState<KaruteListFilter>(
+    () => (searchParams.get('f') as KaruteListFilter | null) ?? 'all',
+  )
+  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
+    () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
+  )
   const [searchQuery, setSearchQuery] = useState('')
-  const [page, setPage] = useState(0)
+  const [page, setPage] = useState(() =>
+    Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
+  )
+  useEffect(() => {
+    const next = new URLSearchParams(window.location.search)
+    if (page > 0) next.set('p', String(page + 1))
+    else next.delete('p')
+    if (filter !== 'all') next.set('f', String(filter))
+    else next.delete('f')
+    if (staffFilter !== 'all') next.set('s', String(staffFilter))
+    else next.delete('s')
+    const qs = next.toString()
+    router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
+  }, [page, filter, staffFilter, pathname, router])
   const [newKaruteOpen, setNewKaruteOpen] = useState(false)
 
   // Reset to first page when filter or search changes — otherwise a
