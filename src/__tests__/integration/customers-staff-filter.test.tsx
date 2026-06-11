@@ -30,7 +30,7 @@ describe('CustomersStaffFilter', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders the self + all toggle and a pill per staff member', () => {
+  it('renders the toggle + 担当 trigger; staff names live in the SHEET (option D)', () => {
     render(
       <CustomersStaffFilter
         staffList={staff}
@@ -41,6 +41,10 @@ describe('CustomersStaffFilter', () => {
     )
     expect(screen.getByText('self')).toBeInTheDocument()
     expect(screen.getByText('all')).toBeInTheDocument()
+    // no inline pills anymore — one chrome line
+    expect(screen.queryByText('Jon Chan')).toBeNull()
+    expect(screen.getByText('trigger')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('trigger'))
     expect(screen.getByText('Jon Chan')).toBeInTheDocument()
     expect(screen.getByText('佐藤')).toBeInTheDocument()
   })
@@ -102,7 +106,7 @@ describe('CustomersStaffFilter', () => {
     expect(onChange).toHaveBeenLastCalledWith('all')
   })
 
-  it('emits the staff id when an inactive pill is clicked', () => {
+  it('emits the staff id when picked from the sheet', () => {
     const onChange = jest.fn()
     render(
       <CustomersStaffFilter
@@ -112,11 +116,12 @@ describe('CustomersStaffFilter', () => {
         onChange={onChange}
       />,
     )
+    fireEvent.click(screen.getByText('trigger'))
     fireEvent.click(screen.getByText('Jon Chan'))
     expect(onChange).toHaveBeenCalledWith('s-1')
   })
 
-  it('snaps back to "all" when the already-active staff pill is clicked', () => {
+  it('snaps back to "all" when the already-active staff is picked in the sheet', () => {
     const onChange = jest.fn()
     render(
       <CustomersStaffFilter
@@ -126,11 +131,13 @@ describe('CustomersStaffFilter', () => {
         onChange={onChange}
       />,
     )
-    fireEvent.click(screen.getByText('Jon Chan'))
+    // trigger names the active staff inline; the sheet row is the last match
+    fireEvent.click(screen.getAllByText('Jon Chan')[0])
+    fireEvent.click(screen.getAllByText('Jon Chan').at(-1)!)
     expect(onChange).toHaveBeenCalledWith('all')
   })
 
-  it('marks the active staff pill with aria-pressed', () => {
+  it('the trigger NAMES the active staff inline (selected always visible)', () => {
     render(
       <CustomersStaffFilter
         staffList={staff}
@@ -139,7 +146,7 @@ describe('CustomersStaffFilter', () => {
         onChange={jest.fn()}
       />,
     )
-    expect(screen.getByText('佐藤').closest('button')).toHaveAttribute('aria-pressed', 'true')
-    expect(screen.getByText('Jon Chan').closest('button')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByText('佐藤')).toBeInTheDocument()
+    expect(screen.queryByText('Jon Chan')).toBeNull()
   })
 })
