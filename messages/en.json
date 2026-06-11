@@ -1557,6 +1557,24 @@
       "contactFailed": "Could not log",
       "inProgressTitle": "In progress {n} (7-day snooze · auto-resolves on rebooking)",
       "monthlyMetric": "This month: {contacted} contacted → {rebooked} rebooked ({pct}%)"
+    },
+    "reconcile": {
+      "title": "Unprocessed visits: {n}",
+      "subtitle": "Visits that never touched the pack ledger",
+      "visitLine": "Visited {date}",
+      "packShort": "{n}/{m} left",
+      "chipUnrecorded": "No record",
+      "chipUnredeemed": "Pack not ticked",
+      "hintUnrecorded": "No karute, no redemption",
+      "hintUnredeemed": "Karute exists; pack untipped",
+      "actionRedeem": "Redeem on that day",
+      "actionNoVisit": "No visit",
+      "redeemed": "Redeemed for {date}",
+      "undo": "Undo",
+      "redeemFailed": "Could not redeem",
+      "dismissed": "Recorded as no-visit",
+      "dismissFailed": "Could not record",
+      "more": "{n} more (shown as these are processed)"
     }
   },
   "settings": {

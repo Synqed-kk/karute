@@ -25,6 +25,8 @@ export interface ReconcileEntry extends UnprocessedVisit {
   karuteNumber: string | null
   remaining: number
   size: number
+  /** この日に消化 target — null disables the redeem button (display-only row). */
+  packId: string | null
 }
 
 export interface ReconcileData {
@@ -119,6 +121,7 @@ export async function loadUnprocessedVisits(): Promise<ReconcileData> {
       karuteNumber: karuteNumberById.get(v.customerId) ?? null,
       remaining: usage.get(v.customerId)?.remaining ?? 0,
       size: usage.get(v.customerId)?.size ?? 0,
+      packId: usage.get(v.customerId)?.firstPackId ?? null,
     }))
     return { entries, truncated }
   } catch {
