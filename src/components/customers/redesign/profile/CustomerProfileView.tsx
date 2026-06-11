@@ -35,7 +35,7 @@
 
 import { useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
-import { Link } from '@/i18n/navigation'
+import { useRouter } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
 import { RegenerateAllForCustomerButton } from './RegenerateAllForCustomerButton'
@@ -83,19 +83,23 @@ export function CustomerProfileView({
   packs = [],
   lifecycle = null,
 }: CustomerProfileViewProps) {
+  const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
 
   return (
     <main className="mx-auto w-full max-w-[1120px] space-y-4 px-4 py-5 md:space-y-5 md:px-8 md:py-8">
       {/* 1. Back link — desktop only (mobile uses bottom nav back) */}
       <div className="hidden items-center gap-1.5 text-[13px] text-muted-foreground md:flex">
-        <Link
-          href={'/customers' as Parameters<typeof Link>[0]['href']}
+        {/* TRUE back (router.back) — a hard Link to /customers wiped the
+         *  list's page+filter params; history navigation restores them. */}
+        <button
+          type="button"
+          onClick={() => router.back()}
           className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-3.5" aria-hidden />
           <span>顧客一覧に戻る</span>
-        </Link>
+        </button>
       </div>
 
       {/* 2. Pending-deletion banner — only renders if this customer

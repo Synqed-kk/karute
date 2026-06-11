@@ -14,6 +14,15 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
+}))
+jest.mock('@/i18n/navigation', () => ({
+  useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
+  usePathname: () => '/customers',
+  Link: ({ children }: { children: unknown }) => children,
+}))
+
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
     vars ? `${key}:${JSON.stringify(vars)}` : key,
