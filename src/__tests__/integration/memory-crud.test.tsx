@@ -7,7 +7,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
-  const ja = require('../../../messages/ja.json')
+  const ja = jest.requireActual('../../../messages/ja.json')
   return {
     useTranslations: (ns: string) => (key: string, vars?: Record<string, unknown>) => {
       let cur: unknown = ja
@@ -24,7 +24,6 @@ jest.mock('@/actions/memory', () => ({
   toggleMemoryPinAction: jest.fn().mockResolvedValue({ ok: true }),
   deleteMemoryItemAction: jest.fn().mockResolvedValue({ ok: true }),
 }))
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const actions = jest.requireMock('@/actions/memory') as Record<string, jest.Mock>
 
 import { CustomerMemoryCard } from '@/components/karute/spike-lifted/memory/CustomerMemoryCard'

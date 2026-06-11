@@ -8,7 +8,7 @@
 import { render, screen, fireEvent, act } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
-  const ja = require('../../../messages/ja.json')
+  const ja = jest.requireActual('../../../messages/ja.json')
   return {
     useTranslations: (ns: string) => (key: string, vars?: Record<string, unknown>) => {
       let cur: unknown = ja
@@ -26,7 +26,7 @@ const actions = jest.requireMock('@/actions/voice') as Record<string, jest.Mock>
 
 import { VoiceEnrollmentDialog } from '@/components/staff/VoiceEnrollmentDialog'
 
-const ja = require('../../../messages/ja.json').voiceEnrollment
+const ja = jest.requireActual('../../../messages/ja.json').voiceEnrollment
 
 class FakeRecorder {
   ondataavailable: ((e: { data: Blob }) => void) | null = null
