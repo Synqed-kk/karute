@@ -48,10 +48,9 @@ export interface CustomerListRow {
   /** Pack alert from resolvePackAlert: 'contact' (tickets + no booking +
    *  N days absent) | 'low' (残り1回) | null. Single source — never re-derive. */
   packAlert?: 'contact' | 'low' | null
-  /** Compact dates for the mobile card rails (案A): current-year dates drop
-   *  the year (6/2), prior years keep it (2025/12/24). */
-  lastVisitDateCompact?: string | null
-  joinDateCompact?: string | null
+  /** Relative 登録 age (「2日前」) — shown on zero-history 新規 cards (案1:
+   *  the list speaks in days, never dates; exact dates live on the profile). */
+  joinAgo?: string | null
   /** Pretty compact date of the NEAREST upcoming booking (予約 6/15) — null
    *  when none. From enrichment.nextAppointmentIso, no extra query. */
   nextBookingDate?: string | null

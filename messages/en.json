@@ -839,7 +839,8 @@
         "oneDayAgo": "1 day ago",
         "daysAgo": "{n} days ago",
         "monthsAgo": "{n} mo ago",
-        "dateUnknown": "Last visit date not on record"
+        "dateUnknown": "Last visit date not on record",
+        "yearsAgo": "{n}y ago"
       },
       "paginatedShowing": "Showing {from}–{to} of {total}",
       "previousPage": "Previous page",

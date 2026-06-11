@@ -435,3 +435,26 @@ describe('effectiveLastVisitIso — one rule for every surface', () => {
     expect(effectiveLastVisitIso(undefined, undefined)).toBe(null)
   })
 })
+
+describe('案1 day math + formats', () => {
+  const { formatLastVisit, formatCompactDate } = jest.requireActual('@/lib/customers/list-enrich')
+  const { jstDaysBetween } = jest.requireActual('@/lib/date/jst')
+  const S = { noVisits: 'なし', today: '本日', oneDayAgo: '1日前', daysAgo: (n: number) => `${n}日前`, monthsAgo: (n: number) => `${n}ヶ月前`, yearsAgo: (n: number) => `${n}年前` }
+  it('yearsAgo tier: 400 days → 1年前 (not 13ヶ月前)', () => {
+    const iso = new Date(Date.now() - 400 * 86_400_000).toISOString()
+    expect(formatLastVisit(iso, 'ja', S).ago).toBe('1年前')
+  })
+  it('monthsAgo tier unchanged: 219 days → 7ヶ月前', () => {
+    const iso = new Date(Date.now() - 219 * 86_400_000).toISOString()
+    expect(formatLastVisit(iso, 'ja', S).ago).toBe('7ヶ月前')
+  })
+  it('jstDaysBetween counts JST midnights (same-instant offset = exact days)', () => {
+    const iso = new Date(Date.now() - 6 * 86_400_000).toISOString()
+    expect(jstDaysBetween(iso)).toBe(6)
+  })
+  it('formatCompactDate withWeekday: 予約 rail form 6/15(月) style', () => {
+    const NOW = new Date('2026-06-11T03:00:00Z')
+    const out = formatCompactDate('2026-06-15T01:00:00Z', 'ja', NOW, { withWeekday: true })
+    expect(out).toMatch(/^6\/15\(.\)$/)
+  })
+})

@@ -7,6 +7,7 @@
 //   - status enum — we derive a best-guess from cadence (see derive)
 
 import { SynqedClient } from '@synqed-kk/client'
+import { jstDaysBetween } from '@/lib/date/jst'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
 export interface CustomerEnrichment {
@@ -208,6 +209,7 @@ export function formatCompactDate(
   iso: string | null,
   locale: string,
   now: Date = new Date(),
+  opts?: { withWeekday?: boolean },
 ): string | null {
   if (!iso) return null
   const d = new Date(iso)
@@ -215,12 +217,18 @@ export function formatCompactDate(
   const jstYear = (x: Date) =>
     x.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric' })
   const sameYear = jstYear(d) === jstYear(now)
-  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+  const base = d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
     timeZone: 'Asia/Tokyo',
     month: 'numeric',
     day: 'numeric',
     ...(sameYear ? {} : { year: 'numeric' }),
   })
+  if (!opts?.withWeekday) return base
+  const wd = d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short',
+  })
+  return locale === 'ja' ? `${base}(${wd})` : `${base} (${wd})`
 }
 
 // ─── SINGLE SOURCE OF TRUTH for customer status ──────────────────────────────
@@ -290,9 +298,9 @@ export function resolveCustomerStatus(s: CustomerStatusSignals): CustomerStatusK
   }
   // Returning but no dated visit yet → on-track (not new, not dormant).
   if (!s.lastVisitIso) return 'on-track'
-  const daysSince = Math.floor(
-    (now - new Date(s.lastVisitIso).getTime()) / 86_400_000,
-  )
+  // JST calendar days — the SAME rule the ago-string uses (jstDaysBetween),
+  // so 「90日前」 and the 休眠 chip can never disagree around midnight.
+  const daysSince = jstDaysBetween(s.lastVisitIso, new Date(now))
   // >= : the label says 休眠（90日以上） — 以上 is inclusive, so exactly-90 is
   // dormant, not 要フォロー. One source; every surface inherits.
   if (daysSince >= 90) return 'dormant'
@@ -351,6 +359,8 @@ export interface LastVisitStrings {
   oneDayAgo: string
   daysAgo: (n: number) => string
   monthsAgo: (n: number) => string
+  /** Optional — falls back to monthsAgo for callers that predate the tier. */
+  yearsAgo?: (n: number) => string
 }
 
 export function formatLastVisit(
@@ -367,11 +377,12 @@ export function formatLastVisit(
     oneDayAgo: '1 day ago',
     daysAgo: (n) => `${n} days ago`,
     monthsAgo: (n) => `${n} mo ago`,
+    yearsAgo: (n) => `${n}y ago`,
   }
   if (!iso) return { date: '—', ago: s.noVisits }
-  const dt = new Date(iso)
   const date = formatJoinDate(iso, locale)
-  const days = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 86_400_000))
+  // JST calendar days — same rule as the status/alert thresholds (jstDaysBetween)
+  const days = jstDaysBetween(iso)
   const ago =
     days === 0
       ? s.today
@@ -379,7 +390,9 @@ export function formatLastVisit(
         ? s.oneDayAgo
         : days < 30
           ? s.daysAgo(days)
-          : s.monthsAgo(Math.floor(days / 30))
+          : days < 365 || !s.yearsAgo
+            ? s.monthsAgo(Math.floor(days / 30))
+            : s.yearsAgo(Math.floor(days / 365))
   return { date, ago }
 }
 
