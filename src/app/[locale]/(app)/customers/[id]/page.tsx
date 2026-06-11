@@ -290,6 +290,7 @@ export default async function CustomerProfilePage({
       customerMemory={customerMemory}
       packs={packs}
       lifecycle={lifecycle}
+      hasNextBooking={!!enrichment.get(id)?.nextAppointmentIso}
     />
   )
 }

@@ -30,9 +30,11 @@ export const DEFAULT_CONTACT_THRESHOLD_DAYS = 20
 export function resolvePackAlert(i: PackAlertInput): PackAlertLevel {
   if (i.lifecycleStatus === 'graduated' || i.lifecycleStatus === 'lost') return null
   const threshold = i.thresholdDays ?? DEFAULT_CONTACT_THRESHOLD_DAYS
+  // remaining > 0 (stranded sessions) OR remaining === 0 (used the LAST
+  // ticket and walked out unrenewed — Liam: the highest-value churn moment;
+  // the old rule made these customers permanently invisible to the funnel).
   if (
     i.hasActivePack &&
-    i.remainingTotal > 0 &&
     !i.hasNextBooking &&
     i.daysSinceLastVisit != null &&
     i.daysSinceLastVisit >= threshold

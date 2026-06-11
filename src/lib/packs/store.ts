@@ -36,17 +36,20 @@ export async function listCustomerPacks(customerId: string): Promise<PackWithUsa
         .order('created_at', { ascending: false }),
       supabase
         .from('pack_redemptions')
-        .select('pack_id')
+        .select('pack_id, redeemed_on')
         .eq('customer_id', customerId),
     ])
     if (pErr) throw pErr
     if (rErr) throw rErr
     const countByPack = new Map<string, number>()
-    for (const r of (reds ?? []) as Array<{ pack_id: string }>) {
+    const lastByPack = new Map<string, string>()
+    for (const r of (reds ?? []) as Array<{ pack_id: string; redeemed_on: string }>) {
       countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
+      const cur = lastByPack.get(r.pack_id)
+      if (!cur || r.redeemed_on > cur) lastByPack.set(r.pack_id, r.redeemed_on)
     }
     return ((packs ?? []) as TicketPack[]).map((p) =>
-      withUsage(p, countByPack.get(p.id) ?? 0),
+      withUsage(p, countByPack.get(p.id) ?? 0, lastByPack.get(p.id) ?? null),
     )
   } catch (err) {
     warn('listCustomerPacks', err)

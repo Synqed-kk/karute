@@ -104,3 +104,19 @@ describe('resolveOutcomeMode (what the stop flow shows)', () => {
     expect(resolveOutcomeMode({ remaining: 1 })).toBe('repurchase')
   })
 })
+
+describe('exhausted-unrenewed joins 要連絡 (Liam: the highest-value churn moment)', () => {
+  const { resolvePackAlert } = jest.requireActual('@/lib/packs/resolve')
+  it('残0・未更新・予約なし・20日 → contact', () => {
+    expect(resolvePackAlert({ hasActivePack: true, remainingTotal: 0, hasNextBooking: false, daysSinceLastVisit: 20 })).toBe('contact')
+  })
+  it('残0 but BOOKED → no alert (they are coming back)', () => {
+    expect(resolvePackAlert({ hasActivePack: true, remainingTotal: 0, hasNextBooking: true, daysSinceLastVisit: 30 })).toBe(null)
+  })
+  it('残0 at 19 days → not yet (threshold honored)', () => {
+    expect(resolvePackAlert({ hasActivePack: true, remainingTotal: 0, hasNextBooking: false, daysSinceLastVisit: 19 })).toBe(null)
+  })
+  it('lifecycle 卒業 still suppresses even at 残0', () => {
+    expect(resolvePackAlert({ hasActivePack: true, remainingTotal: 0, hasNextBooking: false, daysSinceLastVisit: 40, lifecycleStatus: 'graduated' })).toBe(null)
+  })
+})

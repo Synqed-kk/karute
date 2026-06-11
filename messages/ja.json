@@ -724,7 +724,7 @@
         "redeemDone": "消化を記録しました",
         "redeemFailed": "記録できませんでした",
         "cancel": "キャンセル",
-        "lowRemaining": "残りわずか — 次の回数券のご案内タイミングです",
+        "lowRemaining": "残りわずか — 次回ご来店時に次の回数券のご案内を",
         "lifecycleLabel": "ステータス",
         "lifecycle_active": "通常",
         "lifecycle_graduated": "卒業",
@@ -745,7 +745,13 @@
         "undo": "取り消す",
         "undone": "取り消しました",
         "packCreated": "回数券を登録しました（{size}回 × ¥{price}）",
-        "packCreateFailed": "回数券を登録できませんでした — プロフィールから登録してください"
+        "packCreateFailed": "回数券を登録できませんでした — プロフィールから登録してください",
+        "exhaustedLabel": "使い切り",
+        "closedLabel": "終了",
+        "consumedAll": "全{n}回消化済み",
+        "exhaustedHint": "最終消化から{n}日 — 更新のご案内を。",
+        "exhaustedHintUnknown": "使い切り — 更新のご案内を。",
+        "exhaustedHintNoBooking": "次回予約もありません。{d}日で要連絡リストに入ります。"
       },
       "record": "録音",
       "ageValue": "{age}歳",

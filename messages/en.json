@@ -724,7 +724,7 @@
         "redeemDone": "Session recorded",
         "redeemFailed": "Could not record",
         "cancel": "Cancel",
-        "lowRemaining": "Almost out — time to talk about the next pack",
+        "lowRemaining": "Almost out — bring up the next pack at their next visit",
         "lifecycleLabel": "Status",
         "lifecycle_active": "Active",
         "lifecycle_graduated": "Graduated",
@@ -745,7 +745,13 @@
         "undo": "Undo",
         "undone": "Undone",
         "packCreated": "Pack registered ({size} × ¥{price})",
-        "packCreateFailed": "Could not register the pack — add it from the profile"
+        "packCreateFailed": "Could not register the pack — add it from the profile",
+        "exhaustedLabel": "Used up",
+        "closedLabel": "Closed",
+        "consumedAll": "All {n} sessions used",
+        "exhaustedHint": "{n} days since the last session — time to offer a renewal.",
+        "exhaustedHintUnknown": "Used up — time to offer a renewal.",
+        "exhaustedHintNoBooking": "No upcoming booking either. Joins the 要連絡 list at {d} days."
       },
       "record": "Record",
       "ageValue": "{age} y/o",

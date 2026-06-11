@@ -39,6 +39,8 @@ export interface PackWithUsage extends TicketPack {
   remaining: number
   /** remaining × unit_price (yen) — the 消化残高. */
   unconsumedValue: number
+  /** Latest redeemed_on (yyyy-mm-dd) — drives the 使い切り day counter. */
+  lastRedeemedOn: string | null
 }
 
 export interface CustomerLifecycle {
@@ -49,12 +51,17 @@ export interface CustomerLifecycle {
 
 /** Compute usage for a pack from its redemption count — the ONE place the
  *  残回数/消化残高 math lives. Every surface goes through this. */
-export function withUsage(pack: TicketPack, redeemedCount: number): PackWithUsage {
+export function withUsage(
+  pack: TicketPack,
+  redeemedCount: number,
+  lastRedeemedOn: string | null = null,
+): PackWithUsage {
   const remaining = Math.max(0, pack.pack_size - redeemedCount)
   return {
     ...pack,
     redeemedCount,
     remaining,
     unconsumedValue: remaining * pack.unit_price,
+    lastRedeemedOn,
   }
 }
