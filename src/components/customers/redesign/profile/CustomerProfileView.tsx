@@ -147,6 +147,7 @@ export function CustomerProfileView({
             <BookingMemoCard memo={customer.bookingMemo} />
             <CustomerMemoryCard
               customerName={customer.name}
+              customerId={customer.id}
               pastSessionCount={customer.sessionCount}
               memory={customerMemory}
             />
