@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import {
+  listCustomerPacks,
   addVisitReconcileDismissal,
   addCustomerContact,
   addPackAlertDismissal,
@@ -40,8 +41,18 @@ export async function createPackAction(input: {
   if (!Number.isFinite(input.unitPrice) || input.unitPrice < 0)
     return { ok: false, error: 'unitPrice must be >= 0' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
+  // SERVER-derived 購入回数 when the caller doesn't supply one (the stop-dialog
+  // picker doesn't): round = count of the customer's existing counted packs —
+  // identical to TicketPackCard's nextRound, business-wide, store-blind. A
+  // 銀座 re-subscribe is 2枚目, never a fresh 初回 (§7.4 — the first-timer
+  // nightmare in money clothing).
+  const purchaseRound =
+    input.purchaseRound ??
+    (await listCustomerPacks(input.customerId)).filter((p) => p.kind === 'pack')
+      .length
   const result = await createPack({
     ...(input as CreatePackInput),
+    purchaseRound,
     source: 'manual',
     createdBy: staffId,
   })
