@@ -35,7 +35,7 @@
 
 import { useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
-import { Link } from '@/i18n/navigation'
+import { useRouter } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
 import { RegenerateAllForCustomerButton } from './RegenerateAllForCustomerButton'
@@ -51,6 +51,8 @@ import { PhotosTabContent, type CustomerPhoto } from './PhotosTabContent'
 import { PrivacyTabContent } from './PrivacyTabContent'
 import { CustomerReengagementPreview } from './UpcomingAiFeatures'
 import { CustomerDeletionBanner } from '../CustomerDeletionBanner'
+import { TicketPackCard } from './TicketPackCard'
+import type { CustomerLifecycle, PackWithUsage } from '@/lib/packs/types'
 
 interface CustomerProfileViewProps {
   customer: CustomerProfileData
@@ -67,6 +69,12 @@ interface CustomerProfileViewProps {
   /** Persistent customer memory (5 categories), read from the store +
    *  one-time backfill on the server. Omitted → card shows its empty state. */
   customerMemory?: CustomerMemory
+  /** Upcoming booking on file — softens the pack card's 使い切り hint. */
+  hasNextBooking?: boolean
+  /** 回数券 + lifecycle (卒業/離客/口コミ) — server-loaded via the packs store.
+   *  Empty until the ticket_packs migration is applied (graceful). */
+  packs?: PackWithUsage[]
+  lifecycle?: CustomerLifecycle | null
 }
 
 export function CustomerProfileView({
@@ -74,20 +82,27 @@ export function CustomerProfileView({
   sessions,
   photos,
   customerMemory,
+  packs = [],
+  lifecycle = null,
+  hasNextBooking = false,
 }: CustomerProfileViewProps) {
+  const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
 
   return (
     <main className="mx-auto w-full max-w-[1120px] space-y-4 px-4 py-5 md:space-y-5 md:px-8 md:py-8">
       {/* 1. Back link — desktop only (mobile uses bottom nav back) */}
       <div className="hidden items-center gap-1.5 text-[13px] text-muted-foreground md:flex">
-        <Link
-          href={'/customers' as Parameters<typeof Link>[0]['href']}
+        {/* TRUE back (router.back) — a hard Link to /customers wiped the
+         *  list's page+filter params; history navigation restores them. */}
+        <button
+          type="button"
+          onClick={() => router.back()}
           className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
         >
           <ChevronLeft className="size-3.5" aria-hidden />
           <span>顧客一覧に戻る</span>
-        </Link>
+        </button>
       </div>
 
       {/* 2. Pending-deletion banner — only renders if this customer
@@ -101,7 +116,16 @@ export function CustomerProfileView({
       {/* 3. Identity */}
       <CustomerIdentityCard c={customer} />
 
-      {/* 3. AI re-engagement card — sits ABOVE tabs so staff catch
+      {/* 3b. 回数券・サブスク — above the tabs so staff see remaining sessions
+       *     + the "残り1回 → next-pack conversation" nudge at a glance. */}
+      <TicketPackCard
+        customerId={customer.id}
+        packs={packs}
+        lifecycle={lifecycle}
+        hasNextBooking={hasNextBooking}
+      />
+
+      {/* 3c. AI re-engagement card — sits ABOVE tabs so staff catch
        *     the draft message on profile open (spike pattern). */}
       <CustomerReengagementPreview />
 
@@ -123,6 +147,7 @@ export function CustomerProfileView({
             <BookingMemoCard memo={customer.bookingMemo} />
             <CustomerMemoryCard
               customerName={customer.name}
+              customerId={customer.id}
               pastSessionCount={customer.sessionCount}
               memory={customerMemory}
             />
@@ -139,13 +164,13 @@ export function CustomerProfileView({
           </div>
         )}
         {/* PhotosTabContent renders the real photos prop loaded
-         *  server-side via listCustomerPhotos. Read-only thumbnail
-         *  grid until uploads ship. ANTHONY: the upload + capture
-         *  flow lives in PhotoRecordCard / PhotoCaptureDialog under
-         *  spike-lifted/photos/ — those still need wiring against
-         *  uploadCustomerPhoto + Storage signed URLs before they're
-         *  swapped back in here. */}
-        {tab === 'photos' && <PhotosTabContent photos={photos} />}
+         *  server-side via listCustomerPhotos, plus the upload flow
+         *  (uploadCustomerPhoto → synqed-core → Storage signed URLs).
+         *  The richer capture dialog (caption/consent) from
+         *  spike-lifted/photos/ can replace the inline picker later. */}
+        {tab === 'photos' && (
+          <PhotosTabContent customerId={customer.id} photos={photos} />
+        )}
         {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
       </div>
     </main>

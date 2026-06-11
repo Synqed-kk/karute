@@ -25,7 +25,9 @@
 // this UI pass.
 
 import { useTranslations } from 'next-intl'
+import { useEffect, useState } from 'react'
 import { Radio } from 'lucide-react'
+import { PackPill } from '@/components/reservation/AppointmentCard'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
 import { getStaffColorByKey } from '@/lib/staff-colors'
@@ -35,6 +37,9 @@ import { cn } from '@/lib/utils'
 interface Props {
   reservations: ReservationView[]
   onSelect?: (view: ReservationView) => void
+  /** JST yyyy-mm-dd of the day being viewed — the timeline's live elements
+   *  (now-line/次/sticky bar) render only when it equals the client's today. */
+  selectedDateYmd?: string
 }
 
 // Each booking status → a color from the shared BADGE_COLORS source, so these
@@ -77,11 +82,41 @@ const STATUS_VISUALS: Record<DisplayStatus, StatusVisuals> = {
   },
 }
 
-export function ReservationMobileAgenda({ reservations, onSelect }: Props) {
+export function ReservationMobileAgenda({
+  reservations,
+  onSelect,
+  selectedDateYmd,
+}: Props) {
   const t = useTranslations('reservation')
   const sorted = [...reservations].sort((a, b) =>
     a.startTimeHm.localeCompare(b.startTimeHm),
   )
+
+  // Timeline (B+C hybrid): the red now-line, 次 marker and sticky bar are
+  // CLIENT-CLOCK elements — they appear only on today's view and only after
+  // mount (the server can't know the viewer's clock; null = render nothing,
+  // so hydration always matches).
+  const [nowHm, setNowHm] = useState<string | null>(null)
+  useEffect(() => {
+    const fmt = new Intl.DateTimeFormat('ja-JP', {
+      timeZone: 'Asia/Tokyo',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    const ymdFmt = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' })
+    const tick = () => {
+      const today = ymdFmt.format(new Date())
+      setNowHm(
+        !selectedDateYmd || selectedDateYmd === today
+          ? fmt.format(new Date())
+          : null,
+      )
+    }
+    tick()
+    const id = setInterval(tick, 60_000)
+    return () => clearInterval(id)
+  }, [selectedDateYmd])
 
   if (sorted.length === 0) {
     return (
@@ -91,23 +126,73 @@ export function ReservationMobileAgenda({ reservations, onSelect }: Props) {
     )
   }
 
-  return (
-    <div className="overflow-hidden rounded-xl bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-black/5 dark:ring-white/5">
-      <div className="divide-y divide-black/5 dark:divide-white/5">
-        {sorted.map((r) => (
-          <AgendaRow key={r.id} reservation={r} onSelect={onSelect} />
-        ))}
-      </div>
+  // Where the now-line slots in + who is 次 (first future booked/new row).
+  const nowIdx = nowHm ? sorted.findIndex((r) => r.startTimeHm > nowHm) : -1
+  const next = nowHm
+    ? sorted.find(
+        (r) =>
+          (r.displayStatus === 'booked' || r.displayStatus === 'new') &&
+          r.startTimeHm >= nowHm,
+      )
+    : undefined
+  const remaining = sorted.filter((r) => r.displayStatus !== 'completed').length
+
+  const nowLine = (
+    <div className="flex items-center gap-3 px-4 py-1" aria-hidden>
+      <span className="w-12 shrink-0 text-[10px] font-bold tabular-nums text-red-500">
+        {nowHm}
+      </span>
+      <span className="size-2 shrink-0 rounded-full bg-red-500" />
+      <span className="h-px flex-1 bg-red-500/60" />
     </div>
+  )
+
+  return (
+    <>
+      <div className="overflow-hidden rounded-xl bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] ring-1 ring-black/5 dark:ring-white/5">
+        <div className="divide-y divide-black/5 dark:divide-white/5">
+          {sorted.map((r, i) => (
+            <div key={r.id}>
+              {i === nowIdx && nowLine}
+              <AgendaRow
+                reservation={r}
+                onSelect={onSelect}
+                isNext={next?.id === r.id}
+              />
+            </div>
+          ))}
+          {nowIdx === -1 && nowHm !== null && sorted.length > 0 && nowLine}
+        </div>
+      </div>
+      {/* Sticky mid-day bar — the two numbers staff glance for between
+       *  sessions. Today only; hidden once the day is done. */}
+      {nowHm && remaining > 0 && (
+        <div className="sticky bottom-20 z-10 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-card/95 px-3.5 py-2 text-xs shadow-lg backdrop-blur tabular-nums">
+          <span className="font-semibold text-foreground">
+            {t('mobile.stickyRemaining', { n: remaining })}
+          </span>
+          {next && (
+            <span className="text-muted-foreground">
+              {t('mobile.stickyNext', {
+                time: next.startTimeHm,
+                name: next.customerName,
+              })}
+            </span>
+          )}
+        </div>
+      )}
+    </>
   )
 }
 
 function AgendaRow({
   reservation: r,
   onSelect,
+  isNext = false,
 }: {
   reservation: ReservationView
   onSelect?: (view: ReservationView) => void
+  isNext?: boolean
 }) {
   const t = useTranslations('reservation.card')
   const tStatus = useTranslations('reservation.status')
@@ -117,6 +202,56 @@ function AgendaRow({
   const honorific = t('customerSuffix')
   const interactive = !!onSelect
   const staff = getStaffColorByKey(r.staffColorKey)
+  // Past rows collapse to a single line (timeline density) — first tap
+  // expands to the full card; the expanded card's tap opens the action sheet
+  // as before. Liam's keeps: the stripe AND the avatar survive even here.
+  const [expanded, setExpanded] = useState(false)
+
+  if (isCompleted && !expanded) {
+    const showUnrecorded = !r.isCancelled && !r.karuteRecordId
+    return (
+      <button
+        type="button"
+        onClick={() => setExpanded(true)}
+        className="relative flex w-full items-center gap-2.5 px-4 py-2 text-left opacity-60 transition-colors active:bg-black/[0.02]"
+      >
+        <span
+          aria-hidden
+          className={`absolute bottom-1.5 left-0 top-1.5 w-[3px] rounded-r-full ${visuals.stripe}`}
+        />
+        <span
+          className={`w-12 shrink-0 text-[13px] font-semibold tabular-nums text-foreground ${
+            r.isCancelled ? 'line-through' : ''
+          }`}
+        >
+          {r.startTimeHm}
+        </span>
+        <span
+          className={cn(
+            'flex size-4 shrink-0 items-center justify-center rounded-full text-[8px] font-semibold ring-1 ring-black/5',
+            staff.bg,
+            staff.text,
+          )}
+          aria-hidden
+        >
+          {r.customerInitials}
+        </span>
+        <span className="min-w-0 truncate text-[13px] text-foreground">
+          {r.customerName}
+          {honorific && (
+            <span className="ml-1 text-[11px] text-muted-foreground">{honorific}</span>
+          )}
+        </span>
+        {showUnrecorded && (
+          <span
+            className={`ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
+          >
+            {t('unrecorded')}
+          </span>
+        )}
+      </button>
+    )
+  }
 
   const content = (
     <>
@@ -128,12 +263,21 @@ function AgendaRow({
 
       {/* Time + duration column */}
       <div className="w-12 shrink-0 text-left">
-        <div className="text-[17px] font-semibold leading-none tabular-nums text-foreground">
+        <div
+          className={`text-[17px] font-semibold leading-none tabular-nums text-foreground ${
+            r.isCancelled ? 'line-through' : ''
+          }`}
+        >
           {r.startTimeHm}
         </div>
         <div className="mt-1 text-[11px] leading-none tabular-nums text-muted-foreground">
           {t('duration', { n: r.durationMin })}
         </div>
+        {isNext && (
+          <div className="mt-1 text-[9px] font-bold leading-none text-foreground">
+            {t('nextUp')}
+          </div>
+        )}
       </div>
 
       {/* Main column: name, service, 担当 */}
@@ -173,9 +317,16 @@ function AgendaRow({
 
         {/* Service — hidden when title is empty (no misleading "セッション"
          *  fallback). Duration is already in the left column. */}
-        {r.service && (
-          <div className="mt-0.5 truncate text-[13px] text-foreground/85">
-            {r.service}
+        {(r.service || r.pack) && (
+          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[13px] text-foreground/85">
+            {r.service && <span className="min-w-0 truncate">{r.service}</span>}
+            {/* 残N/M — the morning-scan prep signal (pack holders only; the
+             *  desktop grid has shown this since #224, mobile never did). */}
+            {r.pack && (
+              <span className="shrink-0">
+                <PackPill remaining={r.pack.remaining} size={r.pack.size} />
+              </span>
+            )}
           </div>
         )}
 
@@ -199,16 +350,31 @@ function AgendaRow({
        *  card; the amber 更新案内 action flag hangs directly beneath it when
        *  the customer's pack is finished. */}
       <div className="flex shrink-0 flex-col items-end gap-1 self-start">
-        <span
-          className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${visuals.bg} ${visuals.text} ${visuals.border}`}
-        >
-          {tStatus(r.displayStatus)}
-        </span>
+        {/* EXCEPTIONS-ONLY (Liam): 予約済/完了 are the default states — the
+         *  stripe + dimming already say them quietly. Pills are reserved for
+         *  states that change staff behavior. */}
+        {(r.displayStatus === 'new' || r.displayStatus === 'in_session') && (
+          <span
+            className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${visuals.bg} ${visuals.text} ${visuals.border}`}
+          >
+            {tStatus(r.displayStatus)}
+          </span>
+        )}
         {r.needsRenewal && (
           <span
             className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
           >
             {t('renewalFlag')}
+          </span>
+        )}
+        {/* Done-but-unrecorded: the forgot-to-record failure mode caught the
+         *  same day, on the page staff already stare at. Cancelled rows have
+         *  nothing to record — excluded. */}
+        {r.displayStatus === 'completed' && !r.isCancelled && !r.karuteRecordId && (
+          <span
+            className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
+          >
+            {t('unrecorded')}
           </span>
         )}
       </div>
@@ -218,7 +384,9 @@ function AgendaRow({
 
   const rowClass = `relative flex min-h-[72px] items-start gap-3 px-4 py-3.5 ${
     isCompleted ? 'opacity-60' : ''
-  } ${interactive ? 'cursor-pointer text-left transition-colors active:bg-black/[0.02]' : ''}`
+  } ${isNext ? 'ring-1 ring-inset ring-foreground/15' : ''} ${
+    interactive ? 'cursor-pointer text-left transition-colors active:bg-black/[0.02]' : ''
+  }`
 
   if (interactive) {
     return (

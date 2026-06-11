@@ -16,6 +16,7 @@ import {
   Store,
   Users,
   type LucideIcon,
+  Ticket,
 } from 'lucide-react'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StaffMember } from '@/lib/staff'
@@ -27,6 +28,7 @@ import { CoachingSection } from './sections/CoachingSection'
 import { RecordingSection } from './sections/RecordingSection'
 import { StaffSection } from './sections/StaffSection'
 import { SyncSection } from './sections/SyncSection'
+import { PacksSection } from './sections/PacksSection'
 import { SubscriptionSection } from './sections/SubscriptionSection'
 import { AuditLogSection } from './sections/AuditLogSection'
 
@@ -39,6 +41,7 @@ export type SettingsTabId =
   | 'recording'
   | 'staff'
   | 'sync'
+  | 'packs'
   | 'subscription'
   | 'audit'
 
@@ -120,6 +123,13 @@ const TABS: TabDef[] = [
     descriptionKey: 'bookingSyncDescription',
     icon: RefreshCw,
   },
+  {
+    id: 'packs',
+    labelKey: 'packs.label',
+    descriptionKey: 'packsDescription',
+    icon: Ticket,
+    ownerOnly: true,
+  },
   // Subscription tab is gated behind NEXT_PUBLIC_FEATURE_SUBSCRIPTION.
   // The underlying SubscriptionSection renders subscriptionMockSeed
   // (`tier: 'trial'`, `trialEndsAt: '2026-06-15'`) — a fake countdown
@@ -195,10 +205,17 @@ export function SettingsShell({
             staffList={staffList}
             activeStaffId={activeStaffId}
             isOwner={isOwner}
+            voiceEnrollments={Object.fromEntries(
+              Object.entries(orgSettings?.voice_enrollments ?? {}).map(
+                ([id, v]) => [id, v.status === 'saved' ? v.consent_at : null],
+              ),
+            )}
           />
         )
       case 'sync':
         return <SyncSection />
+      case 'packs':
+        return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
       case 'subscription':
         return isOwner ? <SubscriptionSection /> : null
       case 'audit':

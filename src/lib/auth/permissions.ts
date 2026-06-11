@@ -22,6 +22,8 @@ export const CAPABILITIES = [
   'records.delete',    // delete customers / karute (destructive)
   'records.write',     // record sessions, create / edit karute
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
+  'alerts.manage',     // dismiss 離客/pack alerts (Kitano's rule: manager+ only —
+                       // staff must show the manager they contacted the customer)
   'customers.view',    // baseline — view customers + karute
   'bookings.manage',   // baseline — manage appointments
 ] as const

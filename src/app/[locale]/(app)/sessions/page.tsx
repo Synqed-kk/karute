@@ -6,6 +6,9 @@ import { isReturningCustomer } from '@/lib/customers/list-enrich'
 import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
+import { listCustomerPacks } from '@/lib/packs/store'
+import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { getOrgSettings } from '@/actions/org-settings'
 import {
   getAppointmentsByDate,
   getAppointmentById,
@@ -372,17 +375,41 @@ export default async function SessionsPage({
   // — never blocks the page. Both paths get targetVisitCount so a returning
   // customer with no synqed karute isn't flagged 新規.
   let brief: PreSessionBrief | null = null
+  // The target's active 回数券 — drives the one-tap 消化 row in the post-session
+  // outcome dialog (design #1). null when no pack / no sessions left.
+  let targetPack: { id: string; remaining: number; size: number } | null = null
+  // The picker prefill — the customer's most recent pack (any status; the
+  // store returns purchased_at DESC, so [0] is newest).
+  let previousPack: { size: number; unitPrice: number } | null = null
   if (nextAppointment?.customerId) {
     // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
     // cached list — same fields the 顧客 list + profile use, so the recording
     // target's 新規 flag matches the customer's badge everywhere.
     const cc = customers.find((c) => c.id === nextAppointment.customerId)
+    // Real ticket_packs ledger for the target (graceful empty pre-migration) —
+    // a manually-registered pack holder is returning here too, matching the
+    // list/profile/agenda exactly.
+    const targetPacks = await listCustomerPacks(nextAppointment.customerId)
+    const targetHasActivePack = targetPacks.some(
+      (p) => p.status === 'active' && p.kind === 'pack',
+    )
+    // FIFO: finish the old ticket first (pickRedemptionTarget — §7 rule).
+    // listCustomerPacks returns newest-first, so .find() picked the NEWEST
+    // and stranded the old pack's 残1 after a 残2-prompt repurchase.
+    const activePack = pickRedemptionTarget(targetPacks)
+    targetPack = activePack
+      ? { id: activePack.id, remaining: activePack.remaining, size: activePack.pack_size }
+      : null
+    const newest = targetPacks[0]
+    previousPack = newest
+      ? { size: newest.pack_size, unitPrice: newest.unit_price }
+      : null
     const targetReturning = isReturningCustomer({
       joinDateIso: null,
       lastVisitIso: null,
       isExistingCustomer: cc?.isExistingCustomer,
       visitCount: cc?.visitCount,
-      hasTicketPack: cc?.hasTicketPack,
+      hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
       karuteCount: customerKarute.length,
     })
     // AI brief (richer, business-type-aware) with the mechanical fallback — the
@@ -406,6 +433,9 @@ export default async function SessionsPage({
       )
   }
 
+  // Owner pack presets + staff permission for the 新しい回数券 panel (cached).
+  const orgSettings = await getOrgSettings()
+
   return (
     <RecordPageView
       customers={customers}
@@ -415,6 +445,10 @@ export default async function SessionsPage({
       brief={brief}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      targetPack={targetPack}
+      packPresets={orgSettings?.pack_presets ?? []}
+      staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
+      previousPack={previousPack}
     />
   )
 }

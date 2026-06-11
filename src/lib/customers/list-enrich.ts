@@ -4,16 +4,15 @@
 //
 // Fields the list still stubs (no producer in karute today):
 //   - aiPredict.{label,when} — needs the rebooking-window model
-//   - visitsDone / visitsTotal — needs a "course" concept the data model doesn't have
 //   - status enum — we derive a best-guess from cadence (see derive)
 
 import { SynqedClient } from '@synqed-kk/client'
+import { jstDaysBetween } from '@/lib/date/jst'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
 export interface CustomerEnrichment {
   totalKarute: number
   lastVisitIso: string | null
-  visitsDone: number
   /** Count of appointments that have already STARTED before now (= "they've
    *  been here before"). Drives the 新規 (new) badge on the reservation
    *  agenda — a customer with 0 past appointments is genuinely first-time
@@ -30,6 +29,10 @@ export interface CustomerEnrichment {
    *  指名 (assigned_staff_id) — which QR-synced customers never do. Null when
    *  the customer has no booking in the fetched list. */
   bookingStaffId: string | null
+  /** Start of the customer's NEAREST UPCOMING booking, null when none — the
+   *  次回予約 あり/なし signal. Feeds the pack alert rule (tickets left + no
+   *  next booking + N days absent → contact). */
+  nextAppointmentIso: string | null
 }
 
 export async function enrichCustomers(
@@ -162,26 +165,70 @@ export async function enrichCustomers(
     // booking is the only source of who's handling this customer. Translate the
     // synqed staff id → profile id (the id the app's color/name maps key on).
     let bookingStaffId: string | null = null
+    let nextAppointmentIso: string | null = null
     {
       const sorted = [...appts].sort((x, y) =>
         x.start_time < y.start_time ? -1 : 1,
       )
-      const chosen =
-        sorted.find((a) => a.start_time >= nowIso) ?? sorted[sorted.length - 1]
+      const upcoming = sorted.find((a) => a.start_time >= nowIso)
+      nextAppointmentIso = upcoming?.start_time ?? null
+      const chosen = upcoming ?? sorted[sorted.length - 1]
       if (chosen?.staff_id)
         bookingStaffId = profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id
     }
     map.set(id, {
       totalKarute: karute.length,
       lastVisitIso,
-      visitsDone: karute.length,
       pastAppointmentCount,
       lastVisitService,
       bookingStaffId,
+      nextAppointmentIso,
     })
   }
 
   return map
+}
+
+/** Effective last visit — ONE rule, every surface (list adapter + dashboard
+ *  alert loader must both call this; the customers/[id] profile reads
+ *  customer.last_visit_at directly, which this rule converges with):
+ *  synced visit rows (karute/appointments) beat the customer-record field
+ *  (deep crawl / sheet import), which beats nothing. Without the fallback,
+ *  imported customers have no 前回/（N日前）and — worse — the 離客 alert math
+ *  (daysSinceLastVisit) can never fire for them. */
+export function effectiveLastVisitIso(
+  enrichedIso: string | null | undefined,
+  customerLastVisitAt: string | null | undefined,
+): string | null {
+  return enrichedIso ?? customerLastVisitAt ?? null
+}
+
+/** Compact date for the mobile card rails — current-year dates drop the year
+ *  (「前回 6/2」), prior years keep it (2025/12/24). JST-pinned. */
+export function formatCompactDate(
+  iso: string | null,
+  locale: string,
+  now: Date = new Date(),
+  opts?: { withWeekday?: boolean },
+): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const jstYear = (x: Date) =>
+    x.toLocaleDateString('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric' })
+  const sameYear = jstYear(d) === jstYear(now)
+  const base = d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    month: 'numeric',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  })
+  if (!opts?.withWeekday) return base
+  const wd = d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
+    timeZone: 'Asia/Tokyo',
+    weekday: 'short',
+  })
+  return locale === 'ja' ? `${base}(${wd})` : `${base} (${wd})`
 }
 
 // ─── SINGLE SOURCE OF TRUTH for customer status ──────────────────────────────
@@ -205,6 +252,18 @@ export interface CustomerStatusSignals {
   pastAppointmentCount?: number
   /** Holds a 回数券 / multi-session pass → definitively a returning customer. */
   hasTicketPack?: boolean
+  /** Upcoming booking on file → the customer is ALREADY coming back, so the
+   *  chase states (要フォロー/休眠) are moot: a follow-up queue containing
+   *  people who already booked wastes staff calls (Liam; Kitano's sheet keys
+   *  every chase list on 次回予約なし). Self-healing: a no-show stops being
+   *  "upcoming" and the customer re-enters the queue automatically. Matches
+   *  resolvePackAlert, which has required hasNextBooking=false from day one. */
+  hasUpcomingBooking?: boolean
+  /** customer_lifecycle.status — a staff DECISION that outranks cadence math.
+   *  卒業 (graduated) / 離客 (lost) customers must never fake-render as 休眠/
+   *  要フォロー: that red would poison the 200-row scan with known-closed
+   *  cases (the Kitano sheet tracks 卒業/離客 as its first two columns). */
+  lifecycleStatus?: 'active' | 'graduated' | 'lost'
 }
 
 /** Has this customer been here before (i.e. NOT 新規)? ANY signal counts. The
@@ -234,6 +293,10 @@ export function customerVisitCount(s: CustomerStatusSignals): number {
 /** THE status-badge resolver. Every surface MUST call this (not the raw rules)
  *  so the badge is computed once and rendered identically everywhere. */
 export function resolveCustomerStatus(s: CustomerStatusSignals): CustomerStatusKey {
+  // Staff decisions first: 卒業/離客 are terminal states — no cadence rule may
+  // override them (a graduated customer 200 days out is NOT 休眠).
+  if (s.lifecycleStatus === 'graduated') return 'graduated'
+  if (s.lifecycleStatus === 'lost') return 'lost'
   const now = Date.now()
   if (!isReturningCustomer(s)) {
     if (s.joinDateIso && now - new Date(s.joinDateIso).getTime() < 30 * 86_400_000)
@@ -242,10 +305,14 @@ export function resolveCustomerStatus(s: CustomerStatusSignals): CustomerStatusK
   }
   // Returning but no dated visit yet → on-track (not new, not dormant).
   if (!s.lastVisitIso) return 'on-track'
-  const daysSince = Math.floor(
-    (now - new Date(s.lastVisitIso).getTime()) / 86_400_000,
-  )
-  if (daysSince > 90) return 'dormant'
+  // A booked customer is never a chase target — see hasUpcomingBooking doc.
+  if (s.hasUpcomingBooking) return 'on-track'
+  // JST calendar days — the SAME rule the ago-string uses (jstDaysBetween),
+  // so 「90日前」 and the 休眠 chip can never disagree around midnight.
+  const daysSince = jstDaysBetween(s.lastVisitIso, new Date(now))
+  // >= : the label says 休眠（90日以上） — 以上 is inclusive, so exactly-90 is
+  // dormant, not 要フォロー. One source; every surface inherits.
+  if (daysSince >= 90) return 'dormant'
   if (daysSince > 60) return 'needs-followup'
   return 'on-track'
 }
@@ -301,6 +368,8 @@ export interface LastVisitStrings {
   oneDayAgo: string
   daysAgo: (n: number) => string
   monthsAgo: (n: number) => string
+  /** Optional — falls back to monthsAgo for callers that predate the tier. */
+  yearsAgo?: (n: number) => string
 }
 
 export function formatLastVisit(
@@ -317,11 +386,12 @@ export function formatLastVisit(
     oneDayAgo: '1 day ago',
     daysAgo: (n) => `${n} days ago`,
     monthsAgo: (n) => `${n} mo ago`,
+    yearsAgo: (n) => `${n}y ago`,
   }
   if (!iso) return { date: '—', ago: s.noVisits }
-  const dt = new Date(iso)
   const date = formatJoinDate(iso, locale)
-  const days = Math.max(0, Math.floor((Date.now() - dt.getTime()) / 86_400_000))
+  // JST calendar days — same rule as the status/alert thresholds (jstDaysBetween)
+  const days = jstDaysBetween(iso)
   const ago =
     days === 0
       ? s.today
@@ -329,7 +399,9 @@ export function formatLastVisit(
         ? s.oneDayAgo
         : days < 30
           ? s.daysAgo(days)
-          : s.monthsAgo(Math.floor(days / 30))
+          : days < 365 || !s.yearsAgo
+            ? s.monthsAgo(Math.floor(days / 30))
+            : s.yearsAgo(Math.floor(days / 365))
   return { date, ago }
 }
 

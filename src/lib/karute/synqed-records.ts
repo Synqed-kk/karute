@@ -15,6 +15,10 @@ export interface KaruteListRow {
   customer_id: string | null
   client_id: string
   entries: Array<{ count: number }>
+  /** Session metadata persisted on synqed-core karute_records
+   *  (2026-06-11). Optional: Supabase-side rows predate the columns. */
+  service?: string | null
+  duration_minutes?: number | null
 }
 
 /**
@@ -26,10 +30,11 @@ export interface KaruteListRow {
  * to synqed-core. Same read-migration pattern as the staff fix (#107) and the
  * karute detail fallback (#109).
  *
- * `session_date` is null (synqed-core has no such column); callers sort by
- * created_at as the fallback. `staff_profile_id` carries the synqed staff id
- * (id-space differs from profiles.id), so staff-name lookups may fall back to
- * 'Unknown' until the rename lands — non-fatal. Degrades to [] on any error.
+ * session_date / service / duration_minutes now persist on synqed-core
+ * (2026-06-11 migration); the installed client types predate them, hence the
+ * structural reads. `staff_profile_id` carries the synqed staff id (id-space
+ * differs from profiles.id), so staff-name lookups may fall back to 'Unknown'
+ * until the rename lands — non-fatal. Degrades to [] on any error.
  */
 export async function listSynqedKaruteRows(
   synqed: SynqedClient,
@@ -40,17 +45,26 @@ export async function listSynqedKaruteRows(
       ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
       page_size: 200,
     })
-    return (res.karute_records ?? []).map((r) => ({
-      id: r.id,
-      session_date: null,
-      created_at: r.created_at,
-      summary: r.ai_summary ?? null,
-      transcript: r.transcript ?? null,
-      staff_profile_id: r.staff_id ?? null,
-      customer_id: r.business_id ?? null,
-      client_id: r.customer_id ?? '',
-      entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
-    }))
+    return (res.karute_records ?? []).map((r) => {
+      const extra = r as unknown as {
+        session_date?: string | null
+        service?: string | null
+        duration_minutes?: number | null
+      }
+      return {
+        id: r.id,
+        session_date: extra.session_date ?? null,
+        created_at: r.created_at,
+        summary: r.ai_summary ?? null,
+        transcript: r.transcript ?? null,
+        staff_profile_id: r.staff_id ?? null,
+        customer_id: r.business_id ?? null,
+        client_id: r.customer_id ?? '',
+        entries: [{ count: r.entry_count ?? r.entries?.length ?? 0 }],
+        service: extra.service ?? null,
+        duration_minutes: extra.duration_minutes ?? null,
+      }
+    })
   } catch (err) {
     console.error('[listSynqedKaruteRows] synqed-core fetch failed:', err)
     return []

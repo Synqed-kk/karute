@@ -37,7 +37,18 @@ import {
   type RecentRecording,
 } from './RecentRecordingsCard'
 import { LiveTranscriptCard } from './LiveTranscriptCard'
-import { PostSessionResolutionDialog } from './PostSessionResolutionDialog'
+import {
+  PostSessionResolutionDialog,
+  type NewPackInput,
+} from './PostSessionResolutionDialog'
+import type { PackPreset } from '@/actions/org-settings'
+import { RepurchaseCueBanner } from './RepurchaseCueBanner'
+import {
+  createPackAction,
+  redeemSessionAction,
+  undoRedemptionAction,
+} from '@/actions/packs'
+import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 export interface RecordPageNextAppointment {
@@ -71,6 +82,14 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  /** The target customer's active 回数券 (sessions remaining) — drives the
+   *  one-tap 消化 row in the post-session outcome dialog (design #1). */
+  targetPack?: { id: string; remaining: number; size: number } | null
+  /** Owner presets + permission for the 新しい回数券 panel (設定 → 回数券). */
+  packPresets?: PackPreset[]
+  staffCanCustomizePacks?: boolean
+  /** The customer's most recent pack (any status) — the picker prefill. */
+  previousPack?: { size: number; unitPrice: number } | null
 }
 
 function deriveInitials(name: string): string {
@@ -97,9 +116,14 @@ export function RecordPageView({
   brief,
   recentRecordings,
   consentDate,
+  targetPack = null,
+  packPresets = [],
+  staffCanCustomizePacks = true,
+  previousPack = null,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
+  const tPacks = useTranslations('customers.profile.packs')
   const recordingAppointmentId = useTimetableStore((s) => s.recordingAppointmentId)
   const recordingCustomerId = useTimetableStore((s) => s.recordingCustomerId)
 
@@ -240,7 +264,7 @@ export function RecordPageView({
     discardRecording()
     setPhase('idle')
   }
-  function handleUseRecording(outcome?: SessionOutcome) {
+  function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
     // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
     // modal on this page). The top-corner chip shows progress; staff can leave
@@ -261,6 +285,7 @@ export function RecordPageView({
       appointmentId: effectiveAppointmentId,
       appointmentCustomerId: effectiveCustomerId,
       outcome,
+      outcomeSkipped,
     })
     // The pipeline now owns the audio; clear the recorder + return to idle so
     // the page isn't stuck on the "review your take" screen.
@@ -270,6 +295,48 @@ export function RecordPageView({
   function handleNewSession() {
     discardRecording()
     setPhase('idle')
+  }
+
+  // What the stop flow shows, decided by the pack state (single source —
+  // resolveOutcomeMode): conversion dialog / repurchase dialog / nothing at all.
+  const outcomeMode = resolveOutcomeMode(targetPack)
+
+  // Mid-pack ZERO-TAP flow: the customer already paid and keeps rebooking — no
+  // conversion conversation happened, so asking 成約/不成約 would pollute the
+  // coaching labels. Consume 1 session (undo-able toast) + autosave without an
+  // outcome row.
+  function handleAutoFlow() {
+    if (targetPack && nextAppointment?.customerId) {
+      const from = targetPack.remaining
+      void redeemSessionAction({
+        packId: targetPack.id,
+        customerId: nextAppointment.customerId,
+        // '' for walk-in targets → null (no booking to link)
+        appointmentId: nextAppointment.id || null,
+      }).then((res) => {
+        if (res.ok) {
+          toast.success(
+            tPacks('autoRedeemed', { from, to: from - 1 }),
+            res.redemptionId
+              ? {
+                  action: {
+                    label: tPacks('undo'),
+                    onClick: () =>
+                      void undoRedemptionAction(res.redemptionId!).then((u) =>
+                        u.ok
+                          ? toast.success(tPacks('undone'))
+                          : toast.error(tPacks('redeemFailed')),
+                      ),
+                  },
+                }
+              : undefined,
+          )
+        } else {
+          toast.error(tPacks('redeemFailed'))
+        }
+      })
+    }
+    handleUseRecording(undefined, true)
   }
 
   // Background pipeline finished → render the SAME ReviewScreen the old
@@ -378,7 +445,14 @@ export function RecordPageView({
         <Button variant="outline" size="md" className="flex-1" onClick={handleDiscard}>
           {t('discard')}
         </Button>
-        <Button variant="default" size="md" className="flex-1" onClick={() => setOutcomeOpen(true)}>
+        <Button
+          variant="default"
+          size="md"
+          className="flex-1"
+          onClick={() =>
+            outcomeMode === 'auto' ? handleAutoFlow() : setOutcomeOpen(true)
+          }
+        >
           {t('useRecording')}
         </Button>
       </div>
@@ -450,6 +524,7 @@ export function RecordPageView({
               nearbyBookings={nearbyBookings}
               onSwitchBooking={handleSwitchBooking}
             />
+            <RepurchaseCueBanner pack={targetPack} />
             <PreSessionBriefCard
               brief={brief}
               customerName={nextAppointment?.customerName ?? null}
@@ -464,6 +539,7 @@ export function RecordPageView({
             nearbyBookings={nearbyBookings}
             onSwitchBooking={handleSwitchBooking}
           />
+          <RepurchaseCueBanner pack={targetPack} />
           <PreSessionBriefCard
             brief={brief}
             customerName={nextAppointment?.customerName ?? null}
@@ -483,9 +559,73 @@ export function RecordPageView({
         open={outcomeOpen}
         customerName={nextAppointment?.customerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
+        mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
+        pack={targetPack}
+        packPresets={packPresets}
+        staffCanCustomize={staffCanCustomizePacks}
+        previousPack={previousPack}
         onCancel={() => setOutcomeOpen(false)}
-        onResolve={(outcome) => {
+        onResolve={(outcome, redeemPack, newPack: NewPackInput | null) => {
           setOutcomeOpen(false)
+          // 成約/購入した with the inline picker filled → the pack is created
+          // HERE, at the moment of sale (conservation law: the count-from-N
+          // needs an input moment, not a profile errand).
+          if (newPack && nextAppointment?.customerId) {
+            const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
+              .toISOString()
+              .slice(0, 10)
+            void createPackAction({
+              customerId: nextAppointment.customerId,
+              kind: 'pack',
+              packSize: newPack.size,
+              unitPrice: newPack.unitPrice,
+              purchasedAt: jstToday,
+            }).then((res) => {
+              if (res.ok) {
+                toast.success(
+                  tPacks('packCreated', {
+                    size: newPack.size,
+                    price: newPack.unitPrice.toLocaleString('ja-JP'),
+                  }),
+                )
+              } else {
+                toast.error(tPacks('packCreateFailed'))
+              }
+            })
+          }
+          // Redemption records the VISIT (which already happened), so it fires
+          // immediately — independent of whether the transcription/save later
+          // succeeds. Failure → toast; the profile pack card is the fallback.
+          if (redeemPack && targetPack && nextAppointment?.customerId) {
+            void redeemSessionAction({
+              packId: targetPack.id,
+              customerId: nextAppointment.customerId,
+              appointmentId: nextAppointment.id || null,
+            }).then((res) => {
+              if (res.ok) toast.success(tPacks('redeemDone'))
+              else toast.error(tPacks('redeemFailed'))
+            })
+          }
+          // 購入した → close the loop: the NEW pack must be registered, or the
+          // alert system keeps treating them as nearly-out. One tap to the
+          // profile's 登録 dialog.
+          if (
+            outcome.status === 'success' &&
+            !newPack &&
+            nextAppointment?.customerId
+          ) {
+            const customerId = nextAppointment.customerId
+            toast.success(t('registerNewPackPrompt'), {
+              duration: 10_000,
+              action: {
+                label: t('registerNewPackAction'),
+                onClick: () =>
+                  router.push(
+                    `/customers/${customerId}` as Parameters<typeof router.push>[0],
+                  ),
+              },
+            })
+          }
           handleUseRecording(outcome)
         }}
       />

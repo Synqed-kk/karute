@@ -8,6 +8,8 @@ import {
   resolveCustomerStatus,
   customerVisitCount,
   enrichCustomers,
+  effectiveLastVisitIso,
+  formatCompactDate,
   formatJoinDate,
   formatLastVisit,
   type LastVisitStrings,
@@ -18,6 +20,8 @@ import {
 } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
+import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
+import { daysSince, resolvePackAlert } from '@/lib/packs/resolve'
 
 export default async function CustomersPage({
   searchParams,
@@ -52,6 +56,7 @@ export default async function CustomersPage({
 
   const lastVisitStrings: LastVisitStrings = {
     noVisits: lvT('noVisits'),
+    yearsAgo: (n) => lvT('yearsAgo', { n }),
     today: lvT('today'),
     oneDayAgo: lvT('oneDayAgo'),
     daysAgo: (n) => lvT('daysAgo', { n }),
@@ -63,9 +68,13 @@ export default async function CustomersPage({
   )
 
   const customerIds = list.customers.map((c) => c.id)
-  const enrichment = await t.phase('enrichCustomers', () =>
-    enrichCustomers(businessId, customerIds),
-  )
+  // Pack usage + lifecycle load in parallel with the enrichment — both come
+  // back as empty maps until the ticket_packs migration applies (graceful).
+  const [enrichment, packUsage, lifecycles] = await Promise.all([
+    t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
+    listAllPackUsage(),
+    listAllLifecycles(),
+  ])
   t.end()
 
   // Sequential per-tenant karute numbers — sorted by created_at so the
@@ -76,29 +85,52 @@ export default async function CustomersPage({
 
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
-    const lastVisitIso = enriched?.lastVisitIso ?? null
     // SDK-skew: local Customer type lags the API's QR fields — cast to read them.
     const qr = c as typeof c & {
       is_existing_customer?: boolean
       visit_count?: number
       has_ticket_pack?: boolean
+      last_visit_at?: string | null
     }
+    const lastVisitIso = effectiveLastVisitIso(
+      enriched?.lastVisitIso,
+      qr.last_visit_at,
+    )
+    const usage = packUsage.get(c.id)
+    const lifecycle = lifecycles.get(c.id)
     // SINGLE SOURCE: same signals + same resolver the profile/recording/agenda
     // use, so the badge + 来店 count match everywhere for this customer.
+    // hasTicketPack = QR flag OR a real ticket_packs ledger entry.
+    const hasNextBooking = !!enriched?.nextAppointmentIso
     const statusSignals = {
       joinDateIso: c.created_at,
       lastVisitIso,
+      hasUpcomingBooking: hasNextBooking,
       isExistingCustomer: qr.is_existing_customer,
       visitCount: qr.visit_count,
       karuteCount: enriched?.totalKarute,
       pastAppointmentCount: enriched?.pastAppointmentCount,
-      hasTicketPack: qr.has_ticket_pack,
+      hasTicketPack: (qr.has_ticket_pack ?? false) || (usage?.hasActivePack ?? false),
+      // Staff lifecycle decision (卒業/離客) — outranks cadence in the resolver
+      // so closed cases never fake-render as 休眠/要フォロー.
+      lifecycleStatus: lifecycle?.status,
     }
     const status = resolveCustomerStatus(statusSignals)
     const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
     // The displayed 来店 count = the unified visit count (max of QR visits +
     // recorded karute), not the karute count alone — matches the profile.
     const totalKarute = customerVisitCount(statusSignals)
+    // 回数券 line + alert — resolvePackAlert is the single source (chopstick);
+    // the dashboard/alert surfaces (P3b) reuse these identical inputs.
+    const packAlert = usage
+      ? resolvePackAlert({
+          remainingTotal: usage.remaining,
+          hasActivePack: usage.hasActivePack,
+          daysSinceLastVisit: daysSince(lastVisitIso),
+          hasNextBooking,
+          lifecycleStatus: lifecycle?.status,
+        })
+      : null
     return {
       id: c.id,
       name: c.name,
@@ -109,8 +141,6 @@ export default async function CustomersPage({
       gender: null,
       joinDate: formatJoinDate(c.created_at, locale),
       joinDateIso: c.created_at ?? null,
-      visitsDone: Math.min(totalKarute, 5),
-      visitsTotal: 5,
       lastVisitDate: last.date,
       lastVisitAgo: last.ago,
       lastVisitService: enriched?.lastVisitService ?? null,
@@ -126,7 +156,25 @@ export default async function CustomersPage({
         : null,
       totalKarute,
       phone: c.phone,
-      email: c.email,
+      pack: usage?.hasActivePack
+        ? {
+            remaining: usage.remaining,
+            size: usage.size,
+            unconsumed: usage.unconsumed,
+          }
+        : null,
+      packAlert,
+      // 案1: the list speaks in DAYS (前回 …6日前 / 登録 2日前); the one
+      // calendar date that earns list space is the FUTURE booking, weekday
+      // included (予約 6/15(火)) to match the reservation surfaces.
+      joinAgo: formatLastVisit(c.created_at ?? null, locale, lastVisitStrings)
+        .ago,
+      nextBookingDate: formatCompactDate(
+        enriched?.nextAppointmentIso ?? null,
+        locale,
+        new Date(),
+        { withWeekday: true },
+      ),
     }
   })
 
@@ -145,6 +193,7 @@ export default async function CustomersPage({
       totalRegistered={list.total}
       query={query}
       selfStaffId={activeStaffId}
+      bookingDataAvailable={enrichment.size > 0}
       staffList={staffForFilter}
     />
   )

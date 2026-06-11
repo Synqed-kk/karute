@@ -14,6 +14,15 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
+jest.mock('next/navigation', () => ({
+  useSearchParams: () => new URLSearchParams(),
+}))
+jest.mock('@/i18n/navigation', () => ({
+  useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
+  usePathname: () => '/customers',
+  Link: ({ children }: { children: unknown }) => children,
+}))
+
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string, vars?: Record<string, unknown>) =>
     vars ? `${key}:${JSON.stringify(vars)}` : key,
@@ -58,8 +67,6 @@ function row(over: Partial<CustomerListRow> = {}): CustomerListRow {
     gender: null,
     joinDate: '',
     joinDateIso: iso(200),
-    visitsDone: 0,
-    visitsTotal: 0,
     lastVisitDate: '',
     lastVisitAgo: '',
     aiPredict: { label: '', when: '' },
@@ -68,7 +75,6 @@ function row(over: Partial<CustomerListRow> = {}): CustomerListRow {
     preferredStaffName: null,
     totalKarute: 0,
     phone: null,
-    email: null,
     ...over,
   }
 }
@@ -187,7 +193,8 @@ describe('CustomersListView', () => {
         ]}
       />,
     )
-    // Pick staff s-1 pill, then the followup status filter.
+    // Open the 担当 trigger, pick staff s-1 in the sheet, then followup.
+    fireEvent.click(screen.getByText('trigger'))
     fireEvent.click(screen.getByText('Me'))
     fireEvent.click(screen.getByText('filters.followup'))
     const visible = desktopRows()
@@ -249,7 +256,7 @@ describe('CustomersListView', () => {
     expect(screen.getByText('noMatchHint')).toBeInTheDocument()
   })
 
-  it('reports preferredStaff count as 0 when the viewer has no staff profile', () => {
+  it('does NOT render the 指名あり pill (removed by design — the 自分 staff pill covers it)', () => {
     const rows = [row({ preferredStaffId: 's-1' }), row({ preferredStaffId: 's-2' })]
     render(
       <CustomersListView
@@ -260,6 +267,71 @@ describe('CustomersListView', () => {
         staffList={[]}
       />,
     )
-    expect(screen.getByText('filters.preferredStaff').parentElement).toHaveTextContent('0')
+    expect(screen.queryByText('filters.preferredStaff')).toBeNull()
+  })
+
+  it('hides 要フォロー/休眠 pills while their count is 0 (no-data state)', () => {
+    const rows = [row({ status: 'on-track' }), row({ status: 'on-track' })]
+    render(
+      <CustomersListView
+        rows={rows}
+        totalRegistered={2}
+        query=""
+        selfStaffId={null}
+        staffList={[]}
+      />,
+    )
+    expect(screen.queryByText('filters.followup')).toBeNull()
+    expect(screen.queryByText('filters.dormant')).toBeNull()
+  })
+})
+
+describe('案D stats strip', () => {
+  it('honesty gate: bookingDataAvailable=false hides 予約なし (no confident 100% lie)', () => {
+    const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: null })]
+    render(
+      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} bookingDataAvailable={false} />,
+    )
+    expect(screen.queryByText(/noBooking:/)).toBeNull()
+  })
+
+  it('予約なし counts in-play customers only (卒業/離客 excluded) and taps to filter', () => {
+    const rows = [
+      row({ id: 'a', name: 'NoBook', nextBookingDate: null }),
+      row({ id: 'b', name: 'Booked', nextBookingDate: '6/15' }),
+      row({ id: 'c', name: 'Grad', status: 'graduated', nextBookingDate: null }),
+    ]
+    render(
+      <CustomersListView rows={rows} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // counts a but not c (graduated) → 1
+    const stat = screen.getByText('noBooking:{"n":1}')
+    fireEvent.click(stat)
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    // tap again clears back to all
+    fireEvent.click(screen.getByText('noBooking:{"n":1}'))
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+  })
+
+  it('pack stats hide pre-import (no pack data) — 予約なし stays', () => {
+    const rows = [row({ id: 'a', nextBookingDate: null }), row({ id: 'b', nextBookingDate: '6/20' })]
+    render(
+      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getByText('noBooking:{"n":1}')).toBeInTheDocument()
+    expect(screen.queryByText(/packLow:/)).toBeNull()
+    expect(screen.queryByText(/unconsumed:/)).toBeNull()
+  })
+
+  it('with pack data: 残り1回 count + 未消化 total render', () => {
+    const rows = [
+      row({ id: 'a', pack: { remaining: 1, size: 6, unconsumed: 9900 }, packAlert: 'low', nextBookingDate: '6/15' }),
+      row({ id: 'b', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: '6/16' }),
+    ]
+    render(
+      <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getByText('packLow:{"n":1}')).toBeInTheDocument()
+    expect(screen.getByText('unconsumed:{"amount":"49,500"}')).toBeInTheDocument()
   })
 })

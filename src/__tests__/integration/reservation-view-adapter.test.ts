@@ -245,3 +245,98 @@ describe('DisplayStatus type surface', () => {
     expect(seen).toEqual(new Set(['completed', 'in_session', 'new', 'booked']))
   })
 })
+
+describe('appointmentsToReservationViews — pack usage (残3/10 pill)', () => {
+  it('threads pack usage onto the view when the customer holds an active pack', () => {
+    const packs = new Map([['cust-1', { remaining: 3, size: 10 }]])
+    const [view] = appointmentsToReservationViews(
+      [row()],
+      [staff()],
+      NOW,
+      new Map(),
+      new Map(),
+      packs,
+    )
+    expect(view.pack).toEqual({ remaining: 3, size: 10 })
+  })
+
+  it('pack is null when the customer has no entry in the map', () => {
+    const [view] = appointmentsToReservationViews(
+      [row()],
+      [staff()],
+      NOW,
+      new Map(),
+      new Map(),
+      new Map(),
+    )
+    expect(view.pack).toBe(null)
+  })
+
+  it('pack defaults to null when the caller omits the map (back-compat)', () => {
+    const [view] = appointmentsToReservationViews([row()], [staff()], NOW)
+    expect(view.pack).toBe(null)
+  })
+})
+
+describe('real ledger data beats title-string heuristics (chopstick)', () => {
+  const packs = (entry: { remaining: number; size: number } | null) =>
+    entry ? new Map([['cust-1', entry]]) : new Map()
+
+  it('needsRenewal fires from remaining 0 even without 終了 in the title', () => {
+    const r = row({ title: '10回券' })
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, new Map(), new Map(), packs({ remaining: 0, size: 10 }),
+    )
+    expect(view.needsRenewal).toBe(true)
+  })
+
+  it('ledger says sessions remain → NO renewal even when the title says 終了', () => {
+    const r = row({ title: '6回券終了' })
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, new Map(), new Map(), packs({ remaining: 3, size: 6 }),
+    )
+    expect(view.needsRenewal).toBe(false)
+  })
+
+  it('no ledger entry → falls back to the 終了 title marker (pre-import)', () => {
+    const r = row({ title: '6回券終了' })
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, new Map(), new Map(), packs(null),
+    )
+    expect(view.needsRenewal).toBe(true)
+  })
+
+  it('a ledger entry marks the customer as pack holder → never 新規, even with a plain title', () => {
+    const r = row({ title: 'メンテナンス' })
+    const isFirst = new Map([['cust-1', true]])
+    const [view] = appointmentsToReservationViews(
+      [r], [staff()], NOW, isFirst, new Map(), packs({ remaining: 5, size: 10 }),
+    )
+    expect(view.isFirstTimeVisit).toBe(false)
+  })
+})
+
+describe('isCancelled (PR① — cancelled ≠ completed)', () => {
+  const { appointmentsToReservationViews } = jest.requireActual('@/lib/adapters/reservation-view')
+  const base = {
+    id: 'a1', staff_profile_id: 's1', client_id: 'c1',
+    start_time: '2026-06-11T01:00:00Z', duration_minutes: 60,
+    title: 'コース', notes: null, karute_record_id: null,
+    created_at: '2026-06-01T00:00:00Z',
+    customers: { name: '山田太郎' }, source: 'MANUAL',
+  }
+  const now = new Date('2026-06-11T05:00:00Z')
+  it('CANCELLED → isCancelled true (and displayStatus completed for dimming)', () => {
+    const [v] = appointmentsToReservationViews(
+      [{ ...base, synqed_status: 'CANCELLED' }], [], now,
+    )
+    expect(v.isCancelled).toBe(true)
+    expect(v.displayStatus).toBe('completed')
+  })
+  it('COMPLETED → isCancelled false', () => {
+    const [v] = appointmentsToReservationViews(
+      [{ ...base, synqed_status: 'COMPLETED' }], [], now,
+    )
+    expect(v.isCancelled).toBe(false)
+  })
+})

@@ -31,6 +31,7 @@ create table if not exists business_entitlements (
     check (tier in ('trial', 'free', 'standard', 'professional', 'enterprise'))
 );
 
+drop trigger if exists update_business_entitlements_updated_at on business_entitlements;
 create trigger update_business_entitlements_updated_at before update on business_entitlements
   for each row execute procedure update_updated_at_column();
 

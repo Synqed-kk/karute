@@ -24,9 +24,11 @@ interface CustomerCardMobileProps {
   /**
    * URL base for the card's tap target. The customer id gets
    * appended as `${hrefBase}/${c.id}`. Defaults to `/customers` so
-   * 顧客-tab cards route to the customer profile (with tabs). The
-   * カルテ tab passes `/karute/customer` so cards route to the
-   * karute-detail page (vertical stack, spike's layout).
+   * 顧客-tab cards route to the customer profile (with tabs). NOTE:
+   * no production caller passes a different base today — the カルテ tab
+   * renders KaruteRecordListView and /karute/customer/[id] redirects to
+   * /customers/[id]; this prop (and karuteContext) stay for the planned
+   * customer-centric karute list (Phase B).
    */
   hrefBase?: string
 }
@@ -91,12 +93,16 @@ export function CustomerCardMobile({
       </span>
 
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {/* Line 1: name · honorific · karute # · status chip.
-         *  The name gets `min-w-0` (so it truncates) and the trailing
-         *  items get `shrink-0`, so a long name can't push the #number +
-         *  status chip onto a second line — that wrap read as the chip
-         *  "drifting to center" + the number "going missing". */}
-        <div className="flex flex-wrap items-baseline gap-1.5">
+        {/* ── 案A "rails" (Liam-approved): NO flex-wrap anywhere in this card.
+         *  Every line is a single flex row; fixed tokens are shrink-0 +
+         *  whitespace-nowrap; exactly ONE element per line may truncate.
+         *  With no legal wrap points, overflow can only resolve as an
+         *  ellipsis in the designated truncator — token orphaning (the
+         *  来店1回-on-its-own-line bug) is impossible by construction.
+         *  Right edges form four scannable rails: chip → （N日前）→ 予約 → ☎. */}
+
+        {/* L1 IDENTITY — name is the sole truncator; chip pinned right. */}
+        <div className="flex items-baseline gap-1.5">
           {/* Name — `text-[15px] md:text-sm font-medium` mirrors the
            *  design spike. Previous `text-sm font-semibold` rendered
            *  smaller + heavier, making the name look "fatter and
@@ -115,57 +121,152 @@ export function CustomerCardMobile({
           <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
             {c.karuteNumber}
           </span>
-          <span
-            className={`ml-auto shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
-          >
-            {t(`status.${c.status}`)}
-          </span>
-        </div>
-
-        {/* Line 2: meta */}
-        <div className="text-[11px] text-muted-foreground tabular-nums">
-          <span>{c.age ?? '—'}</span>
-          <span> · </span>
-          <span>{c.gender ?? '—'}</span>
-          <span> · </span>
-          <span>{t('joined', { date: c.joinDate })}</span>
-        </div>
-
-        {/* Line 3: last visit summary — date ·（ago）· [last treatment] · visit count */}
-        <div className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-          <span>{t('row.lastVisitPrefix')} {c.lastVisitDate}</span>
-          <span className="text-muted-foreground/60"> （{c.lastVisitAgo}） · </span>
-          {c.lastVisitService && (
-            <span className="text-foreground/80">{c.lastVisitService} · </span>
+          {/* EXCEPTIONS-ONLY chip (Liam): 継続中 is the default state — a green
+           *  chip on ~90% of rows camouflaged the rare amber/red ones staff
+           *  actually scan for. No chip = fine; 新規/要フォロー/休眠 pop. */}
+          {c.status !== 'on-track' && (
+            <span
+              className={`ml-auto shrink-0 inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
+            >
+              {t(`status.${c.status}`)}
+            </span>
           )}
-          <span>{t('row.visitsSuffix', { n: c.totalKarute })}</span>
         </div>
 
-        {/* Line 4: staff + recommended next visit (recommend half is stubbed) */}
-        <div className="text-[11px] text-muted-foreground tabular-nums">
-          <span>
-            {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
-          </span>
-          <span className="text-muted-foreground/40">
-            {' · '}
-            {t('row.recommendPrefix')} {c.aiPredict.when}
-          </span>
-        </div>
-
-        {/* Line 5: phone — only on the 顧客 tab (CRM context). The
-         *  カルテ tab is treatment-focused; phone is contact data, not
-         *  treatment context. Hide it there to tighten the row + match
-         *  the spike's karute pattern. */}
-        {c.phone && !karuteContext && (
-          <div className="mt-0.5 inline-flex items-center gap-1 text-[11px] text-muted-foreground tabular-nums">
-            <Phone className="size-2.5 shrink-0" aria-hidden />
-            <span>{formatJpPhone(c.phone)}</span>
+        {/* L2 VISIT — date (muted, compact) | course (sole truncator, doubles
+         *  as the spacer) |（N日前）pinned right (the recency rail; amber via
+         *  the resolver's own 要フォロー/休眠 states). Three honest states. */}
+        {c.lastVisitDate !== '—' ? (
+          <div className="mt-1 flex items-baseline gap-x-2 text-[11px] tabular-nums">
+            {/* 案1 (Liam): DAYS ONLY — no calendar date on the list (it lives
+             *  on the profile). 「前回」 is a bare prefix; the ago-token holds
+             *  the right rail without the old full-width parens. */}
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground/60">
+              {t('row.lastVisitPrefix')}
+            </span>
+            <span className="min-w-0 flex-1 truncate text-foreground/80">
+              {c.lastVisitService ?? ''}
+            </span>
+            <span
+              className={`ml-auto shrink-0 whitespace-nowrap font-medium ${
+                c.status === 'needs-followup' || c.status === 'dormant'
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-foreground/90'
+              }`}
+            >
+              {c.lastVisitAgo}
+            </span>
+          </div>
+        ) : c.totalKarute > 0 ? (
+          <div className="mt-1 flex items-baseline gap-x-2 text-[11px] tabular-nums">
+            <span className="shrink-0 text-muted-foreground">
+              {t('lastVisit.dateUnknown')}
+            </span>
+          </div>
+        ) : (
+          <div className="mt-1 flex items-baseline gap-x-2 text-[11px] text-muted-foreground tabular-nums">
+            <span className="shrink-0">{c.lastVisitAgo}</span>
+            {c.status === 'new' && (
+              <span className="shrink-0 whitespace-nowrap text-muted-foreground/60">
+                {t('joined', { date: c.joinAgo ?? c.joinDate })}
+              </span>
+            )}
           </div>
         )}
 
-        {/* Line 6 (karute context only): AI status chip row */}
+        {/* L3 PACK + BOOKING — UNCONDITIONAL (案B): the booking rail renders on
+         *  EVERY row, because the staff sheet's #1 stat is 次回予約なし (26%) —
+         *  the rebook-at-checkout glance can't depend on pack ownership. Pack
+         *  tokens (残N/M with the denominator, ¥) appear for holders only.
+         *  Color budget: red 要連絡 pill / amber 残り1回・予約なし only. */}
+        <div className="mt-1 flex items-center gap-x-2 text-[11px] tabular-nums">
+          {c.packAlert === 'contact' && (
+            <span className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full border border-red-200 bg-red-50 px-1.5 py-px font-medium text-red-600 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-400">
+              <span className="size-1.5 animate-pulse rounded-full bg-red-500" />
+              {t('row.packContact')}
+            </span>
+          )}
+          {c.pack && (
+            <span
+              className={`shrink-0 whitespace-nowrap font-medium ${
+                c.packAlert === 'low'
+                  ? 'text-amber-600 dark:text-amber-400'
+                  : 'text-foreground/90'
+              }`}
+            >
+              {t('row.packFraction', { n: c.pack.remaining, m: c.pack.size })}
+            </span>
+          )}
+          {c.pack && c.pack.unconsumed > 0 && (
+            <span className="shrink-0 whitespace-nowrap text-muted-foreground">
+              ¥{c.pack.unconsumed.toLocaleString('ja-JP')}
+            </span>
+          )}
+          {/* 予約なし is an ACTION color only for in-play customers — 卒業/
+           *  離客 are closed cases (the strip's rebook queue excludes them
+           *  too), so their rail stays neutral. */}
+          <span
+            className={`ml-auto shrink-0 whitespace-nowrap ${
+              c.nextBookingDate ||
+              c.status === 'graduated' ||
+              c.status === 'lost'
+                ? 'text-muted-foreground'
+                : 'text-amber-600 dark:text-amber-400'
+            }`}
+          >
+            {c.nextBookingDate
+              ? t('row.bookingDate', { date: c.nextBookingDate })
+              : t('row.bookingNone')}
+          </span>
+        </div>
+
+        {/* L4 RELATIONSHIP — 担当 (truncator) | 来店N回 pinned right. The ☎
+         *  digits are GONE by design (案B, unanimous): the staff's own
+         *  16-column sheet never tracked phone — calls match by NAME, and the
+         *  one outbound moment (要連絡) has the red tel: button; profile keeps
+         *  the links. Skips entirely when empty. */}
+        {(() => {
+          const staffName = c.preferredStaffName ?? c.bookingStaffName
+          if (!staffName && c.totalKarute === 0) return null
+          return (
+            <div className="mt-1 flex items-center gap-x-2 text-[11px] text-muted-foreground tabular-nums">
+              {staffName ? (
+                <span className="min-w-0 flex-1 truncate">
+                  {t('row.staff', { name: staffName })}
+                </span>
+              ) : (
+                <span className="min-w-0 flex-1" aria-hidden />
+              )}
+              {c.totalKarute > 0 && (
+                <span className="ml-auto shrink-0 whitespace-nowrap">
+                  {t('row.visitsSuffix', { n: c.totalKarute })}
+                </span>
+              )}
+            </div>
+          )
+        })()}
+
+        {/* karute context only: AI status chip row */}
         {karuteContext && <AiStatusChipRow />}
       </div>
+
+      {/* 要連絡 cards get a round call button on the right edge — the alert
+       *  and its resolution sit together (design #4). Same idiom as the
+       *  profile's bottom-right mic button. */}
+      {c.packAlert === 'contact' && c.phone && !karuteContext && (
+        <button
+          type="button"
+          aria-label={`${c.name} ${formatJpPhone(c.phone)}`}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            window.location.href = `tel:${c.phone}`
+          }}
+          className="flex size-11 shrink-0 items-center justify-center rounded-full border-[1.5px] border-red-400 text-red-600 transition-transform active:scale-95 dark:border-red-500/50 dark:text-red-400"
+        >
+          <Phone className="size-[18px]" aria-hidden />
+        </button>
+      )}
     </Link>
   )
 }

@@ -47,6 +47,10 @@ export interface ReservationView {
   karuteNumber: string | null
   service: string
   displayStatus: DisplayStatus
+  /** Raw CANCELLED from synqed — displayStatus maps it to 'completed' for
+   *  dimming, but a cancelled booking must stay distinguishable (strikethrough
+   *  time): the slot is FREE, a finished session is not. */
+  isCancelled: boolean
   staffColorKey: StaffColorKey | 'neutral'
   /** ID of the customer, used to route follow-up actions (memory, new karute). */
   clientId: string
@@ -56,6 +60,11 @@ export interface ReservationView {
    *  action sheet AND the 'new' displayStatus. True only when this is the
    *  customer's first-ever appointment at this salon. */
   isFirstTimeVisit: boolean
+  /** Live 回数券 usage for this CUSTOMER (active counted packs, from the pack
+   *  store) — the 残3/10 pill next to the course title. null when the customer
+   *  holds no active pack or the caller didn't supply the map. Single source:
+   *  the same bulk read the 顧客 list uses, so the numbers always agree. */
+  pack: { remaining: number; size: number } | null
   /** Action flag (not a status): the booking's course marks a finished ticket
    *  pack (e.g. "6回券終了") → prompt a renewal/re-sell. Drives the 更新案内 chip. */
   needsRenewal: boolean
@@ -113,6 +122,10 @@ export function appointmentsToReservationViews(
   now: Date,
   isFirstTimeByClient: Map<string, boolean> = new Map(),
   karuteNumberByClientId: ReadonlyMap<string, string> = new Map(),
+  packUsageByClient: ReadonlyMap<
+    string,
+    { remaining: number; size: number }
+  > = new Map(),
 ): ReservationView[] {
   const staffNameById = new Map<string, string>()
   for (const s of staffList) {
@@ -124,12 +137,15 @@ export function appointmentsToReservationViews(
   const staffColors = assignStaffColors(staffList.map((s) => s.id))
   return rows.map((r) => {
     const customerName = r.customers?.name ?? '—'
-    // A 回数券 (multi-session ticket) booking means an established returning
+    // REAL pack data first (the ticket_packs ledger, same source as the 顧客
+    // list/profile — chopstick), course-title string only as the fallback for
+    // customers with no ledger entry yet (pre-migration / pre-import).
+    const packUsage = packUsageByClient.get(r.client_id) ?? null
+    // A 回数券 (multi-session ticket) holder is an established returning
     // customer — never 新規 — even when the QuickReserve existing-customer flag
-    // or karute history hasn't synced. The course title carries it reliably
-    // ("10回券", "6回券", "6回券終了"). Without this, every ticket regular on the
-    // agenda wrongly read 新規 because their past visits aren't in synqed yet.
-    const holdsTicketPack = /回数?券/.test(r.title ?? '')
+    // or karute history hasn't synced. Ledger entry decides; title regex
+    // ("10回券", "6回券終了") only covers un-imported customers.
+    const holdsTicketPack = packUsage !== null || /回数?券/.test(r.title ?? '')
     const isFirstTimeCustomer =
       (isFirstTimeByClient.get(r.client_id) ?? false) && !holdsTicketPack
     return {
@@ -147,12 +163,18 @@ export function appointmentsToReservationViews(
       // The left time column already shows duration prominently.
       service: r.title ?? '',
       displayStatus: computeDisplayStatus(r, now, { isFirstTimeCustomer }),
+      isCancelled: r.synqed_status === 'CANCELLED',
       staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
       isFirstTimeVisit: isFirstTimeCustomer,
-      // Finished-pack signal from the QR course title (e.g. "6回券終了") → 更新案内.
-      needsRenewal: (r.title ?? '').includes('終了'),
+      // 更新案内 (renewal prompt): the LEDGER decides when it exists — remaining
+      // 0 means the pack is genuinely used up. The QR title's "終了" marker is
+      // only trusted for customers with no ledger entry (pre-import).
+      needsRenewal: packUsage
+        ? packUsage.remaining === 0
+        : (r.title ?? '').includes('終了'),
+      pack: packUsage,
     }
   })
 }

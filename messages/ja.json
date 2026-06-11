@@ -158,7 +158,10 @@
       "appointments": "{n}件の予約",
       "customerSuffix": "様",
       "tantou": "担当 {name}",
-      "renewalFlag": "更新案内"
+      "renewalFlag": "更新案内",
+      "packLeft": "残{remaining}/{size}",
+      "unrecorded": "未記録",
+      "nextUp": "次 ▸"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
@@ -175,7 +178,9 @@
     },
     "mobile": {
       "empty": "本日の予約はありません",
-      "dayHeader": "{date}（{weekday}）"
+      "dayHeader": "{date}（{weekday}）",
+      "stickyRemaining": "残り {n}件",
+      "stickyNext": "次 {time} {name}様"
     },
     "grid": {
       "blockOwner": "予約を受け付けていません（オーナー業務）",
@@ -183,7 +188,10 @@
       "staffColumnLabel": "STAFF"
     },
     "totals": {
-      "today": "本日の予約 {n}件"
+      "today": "本日の予約 {n}件",
+      "remaining": "残り {n}件",
+      "renewal": "更新案内 {n}",
+      "unrecorded": "未記録 {n}"
     },
     "newBookingDialog": {
       "title": "新規予約",
@@ -322,7 +330,7 @@
       "categories": {
         "treatment": "施術",
         "concern": "気になる点",
-        "condition": "状態",
+        "condition": "部位",
         "lifestyle": "ライフスタイル",
         "product": "製品",
         "next": "次回"
@@ -389,7 +397,36 @@
       "disclaimer": "ご記録いただいた成約・不成約は、AIがトップパフォーマーの会話パターンを学習するためにも活用されます。お客様の個別情報は他のスタッフには共有されません。",
       "save": "保存",
       "saving": "保存中...",
-      "cancel": "キャンセル"
+      "cancel": "キャンセル",
+      "redeemLabel": "回数券を消化",
+      "redeemDelta": "（残{from} → 残{to}）",
+      "redeemZeroHint": "残り0回になります — 次回パックのご案内を",
+      "repurchase": {
+        "title": "{name}様 — 次の回数券のご案内",
+        "subtitle": "回数券が残りわずかです。次の回数券についてお話しされましたか？",
+        "success": {
+          "title": "購入した",
+          "desc": "次の回数券をご購入いただきました"
+        },
+        "noDeal": {
+          "title": "案内したが未購入",
+          "desc": "ご案内しましたが、今回は購入されませんでした"
+        },
+        "pending": {
+          "title": "後で決める",
+          "desc": "まだご案内していない・お返事待ちの場合"
+        }
+      },
+      "newPack": {
+        "title": "🎫 新しい回数券",
+        "later": "あとで登録",
+        "sizeLabel": "回数",
+        "sizeChip": "{n}回",
+        "priceLabel": "単価（前回の回数券から自動入力）",
+        "customSize": "他…",
+        "customPrice": "直接入力",
+        "invalidHint": "回数と単価を選択してください"
+      }
     },
     "title": "録音",
     "selectStaff": "スタッフを選択",
@@ -504,7 +541,14 @@
       "speakerStaff": "{name}(スタッフ)"
     },
     "overrunWarning": "まだ録音中です。セッションが終わったら停止してください。",
-    "autoStopped": "録音が長時間に達したため、自動的に保存しました。"
+    "autoStopped": "録音が長時間に達したため、自動的に保存しました。",
+    "registerNewPackPrompt": "ご購入ありがとうございます！新しい回数券を登録しましょう",
+    "registerNewPackAction": "登録する",
+    "repurchaseCue": {
+      "title": "本日のご案内 — 回数券が残り{n}回",
+      "body": "セッション中に次の回数券のお話を。録音終了後に結果（購入した／案内した）を記録できます。",
+      "bodyLast": "本日が最後の1回です。セッション中に必ず次の回数券のご案内を — 録音終了後に結果を記録できます。"
+    }
   },
   "customers": {
     "title": "顧客",
@@ -540,7 +584,11 @@
       "before": "ビフォー",
       "after": "アフター",
       "reference": "参考",
-      "progress": "経過"
+      "progress": "経過",
+      "addPhoto": "写真を追加",
+      "uploading": "アップロード中…",
+      "uploadError": "アップロードに失敗しました。もう一度お試しください。",
+      "categoryLabel": "カテゴリ"
     },
     "comingSoon": "対応予定",
     "privacy": {
@@ -659,6 +707,56 @@
       "memberNumber": "会員 #{number}",
       "ticketPack": "回数券あり",
       "birthdayMonth": "誕生月",
+      "packs": {
+        "title": "回数券・サブスク",
+        "add": "登録",
+        "empty": "回数券はまだ登録されていません",
+        "kindPack": "{n}回券",
+        "kindPackPlain": "回数券",
+        "kindSubscription": "サブスク",
+        "kindSingle": "単発",
+        "roundFirst": "初回",
+        "roundN": "{n}回目",
+        "remaining": "残り{n}回",
+        "unitPerSession": "¥{price}/回",
+        "unconsumed": "未消化",
+        "purchased": "購入 {date}",
+        "exhausted": "使い切り",
+        "cancelledPack": "停止",
+        "redeem": "1回消化",
+        "redeemConfirm": "記録する",
+        "redeemDone": "消化を記録しました",
+        "redeemFailed": "記録できませんでした",
+        "cancel": "キャンセル",
+        "lowRemaining": "残りわずか — 次回ご来店時に次の回数券のご案内を",
+        "lifecycleLabel": "ステータス",
+        "lifecycle_active": "通常",
+        "lifecycle_graduated": "卒業",
+        "lifecycle_lost": "離客",
+        "referral": "口コミ",
+        "lifecycleFailed": "更新できませんでした",
+        "dialogTitle": "回数券を登録",
+        "kindLabel": "種類",
+        "sizeLabel": "回数",
+        "priceLabel": "単価（1回あたり）",
+        "dateLabel": "購入日",
+        "notesLabel": "メモ（任意）",
+        "notesPlaceholder": "例: キャンペーン価格",
+        "save": "登録する",
+        "saved": "回数券を登録しました",
+        "saveFailed": "登録できませんでした",
+        "autoRedeemed": "回数券を消化しました（残{from} → 残{to}）",
+        "undo": "取り消す",
+        "undone": "取り消しました",
+        "packCreated": "回数券を登録しました（{size}回 × ¥{price}）",
+        "packCreateFailed": "回数券を登録できませんでした — プロフィールから登録してください",
+        "exhaustedLabel": "使い切り",
+        "closedLabel": "終了",
+        "consumedAll": "全{n}回消化済み",
+        "exhaustedHint": "最終消化から{n}日 — 更新のご案内を。",
+        "exhaustedHintUnknown": "使い切り — 更新のご案内を。",
+        "exhaustedHintNoBooking": "次回予約もありません。{d}日で要連絡リストに入ります。"
+      },
       "record": "録音",
       "ageValue": "{age}歳",
       "visitCountSuffix": " 回",
@@ -713,7 +811,12 @@
         "lastVisitPrefix": "前回",
         "staff": "担当：{name}",
         "recommendPrefix": "推奨来店",
-        "visitsSuffix": "来店{n}回"
+        "visitsSuffix": "来店{n}回",
+        "packContact": "要連絡",
+        "ageValue": "{age}歳",
+        "bookingDate": "予約 {date}",
+        "bookingNone": "予約なし",
+        "packFraction": "残{n}/{m}"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
@@ -723,7 +826,9 @@
         "on-track": "継続中",
         "new": "新規",
         "needs-followup": "要フォロー",
-        "dormant": "休眠"
+        "dormant": "休眠",
+        "graduated": "卒業",
+        "lost": "離客"
       },
       "filters": {
         "all": "すべて",
@@ -743,7 +848,9 @@
         "today": "本日",
         "oneDayAgo": "1日前",
         "daysAgo": "{n}日前",
-        "monthsAgo": "{n}ヶ月前"
+        "monthsAgo": "{n}ヶ月前",
+        "dateUnknown": "最終来店日の記録なし",
+        "yearsAgo": "{n}年前"
       },
       "paginatedShowing": "{total}名中 {from}〜{to}名を表示",
       "previousPage": "前のページ",
@@ -755,6 +862,11 @@
         "summary": "要約",
         "transcript": "録音",
         "comingSoonShort": "対応予定"
+      },
+      "stats": {
+        "noBooking": "予約なし {n}件",
+        "packLow": "残り1回 {n}人",
+        "unconsumed": "未消化 ¥{amount}"
       }
     },
     "listFilter": {
@@ -874,7 +986,6 @@
       "sourceIntake": "初診カルテより",
       "addManually": "手動で追加",
       "lastUpdated": "最終更新: {date}",
-      "comingSoonEdit": "編集・ピン留め・手動追加機能は対応予定です（Anthonyが実装中）。",
       "sectionEmpty": "対応予定 — このカテゴリーにはまだ情報がありません",
       "comingSoonPill": "対応予定",
       "intakeEmpty": "初診情報は初回の問診票が完了すると、ここに表示されます。",
@@ -888,7 +999,21 @@
       "sessionsBadge": "{n}件のセッション記録から学習",
       "sessionsBadgeTooltip": "過去の録音から抽出された情報数。多いほど信頼度が高くなります。",
       "noSessionsBadge": "セッション記録なし",
-      "noSessionsBadgeTooltip": "まだ録音がありません。セッションを録音すると、AIが特徴的なポイントを抽出してここに蓄積されます。"
+      "noSessionsBadgeTooltip": "まだ録音がありません。セッションを録音すると、AIが特徴的なポイントを抽出してここに蓄積されます。",
+      "editItem": "メモリーを編集",
+      "fieldCategory": "カテゴリ",
+      "fieldLabel": "ラベル",
+      "fieldDetail": "詳細（任意）",
+      "save": "保存",
+      "cancel": "キャンセル",
+      "deleteTitle": "このメモリーを削除しますか？",
+      "deleteBody": "「{label}」を削除します。",
+      "delete": "削除",
+      "saved": "保存しました",
+      "deleted": "削除しました",
+      "actionFailed": "操作に失敗しました",
+      "pinnedToast": "ピン留めしました",
+      "unpinned": "ピン留めを解除しました"
     },
     "tabHeading": "カルテ",
     "recordList": {
@@ -1009,7 +1134,8 @@
     "entriesConfirmed": "{count, plural, other {#件のエントリー}}確認済み",
     "selectCustomerAndSave": "顧客を選択して保存",
     "staff": "スタッフ",
-    "selectStaff": "スタッフを選択してください"
+    "selectStaff": "スタッフを選択してください",
+    "savedChip": "保存済み — カルテ作成完了"
   },
   "coaching": {
     "common": {
@@ -1411,6 +1537,61 @@
       "todaysCustomers": "本日のお客様",
       "monthlyKarute": "今月のカルテ",
       "rebookingRate": "再予約率"
+    },
+    "onboarding": {
+      "title": "店舗のセットアップを完了しましょう",
+      "body": "業種と録音の開示モードを選ぶと、AIがあなたのサロンに合わせて調整されます。約2分で完了します。",
+      "start": "セットアップを開始",
+      "dismiss": "閉じる"
+    },
+    "packAlerts": {
+      "title": "要連絡のお客様",
+      "summary": "回数券が残っているのに{days}日以上来店のないお客様が{n}人います",
+      "daysAbsent": "{n}日来店なし",
+      "remaining": "残{remaining}/{size}",
+      "dismiss": "解除",
+      "dismissConfirm": "解除する",
+      "cancel": "キャンセル",
+      "dismissed": "アラートを解除しました",
+      "dismissFailed": "解除できませんでした",
+      "forbidden": "解除は店長のみ可能です",
+      "showAll": "すべて表示（{n}人）",
+      "lowTitle": "残り1回のお客様（{n}人）— 次の回数券のご案内を",
+      "lowChip": "残{remaining}",
+      "atRiskLabel": "回収リスク",
+      "unconsumedLabel": "未消化総額",
+      "holderCount": "（{n}名）",
+      "allClear": "対応必要なし",
+      "contacted": "連絡済み",
+      "channelQuestion": "どの方法で連絡しましたか？",
+      "channel_phone": "電話",
+      "channel_sms": "SMS",
+      "channel_email": "メール",
+      "channel_line": "LINE",
+      "channel_in_person": "対面",
+      "notePlaceholder": "メモ（任意）",
+      "contactLogged": "連絡を記録しました — 7日間スヌーズします",
+      "contactFailed": "記録できませんでした",
+      "inProgressTitle": "対応中 {n}件（7日間スヌーズ · 再来店で自動解決）",
+      "monthlyMetric": "今月: 対応 {contacted}件 → 再来店 {rebooked}件（{pct}%）"
+    },
+    "reconcile": {
+      "title": "未処理来店 {n}件",
+      "subtitle": "来店したのに回数券が消化されていません",
+      "visitLine": "{date} 来店",
+      "packShort": "残{n}/{m}",
+      "chipUnrecorded": "記録なし",
+      "chipUnredeemed": "消化のみ未処理",
+      "hintUnrecorded": "カルテも消化も無し",
+      "hintUnredeemed": "カルテ有り・チェック漏れ",
+      "actionRedeem": "この日に消化",
+      "actionNoVisit": "来店なし",
+      "redeemed": "{date}の分を消化しました",
+      "undo": "取り消す",
+      "redeemFailed": "消化できませんでした",
+      "dismissed": "来店なしとして記録しました",
+      "dismissFailed": "記録できませんでした",
+      "more": "他{n}件（処理すると順に表示されます）"
     }
   },
   "settings": {
@@ -1854,7 +2035,24 @@
     "voiceRevoke": "声紋を削除",
     "coachingDescription": "マスター設定・重み・同意",
     "addStore": "店舗を追加",
-    "singleStoreNote": "マルチ店舗は近日公開。現在はシングル店舗プランです。"
+    "singleStoreNote": "マルチ店舗は近日公開。現在はシングル店舗プランです。",
+    "packsDescription": "回数券のプリセットとスタッフ権限",
+    "packs": {
+      "label": "回数券",
+      "presetsTitle": "回数券プリセット",
+      "presetsHint": "録音停止後の「新しい回数券」パネルに表示される回数・単価の選択肢です。前回購入がある顧客はその内容が優先で自動入力されます。",
+      "sizeLabel": "回数",
+      "priceLabel": "単価",
+      "addPreset": "プリセットを追加",
+      "remove": "削除",
+      "empty": "プリセットがまだありません。「プリセットを追加」から登録してください。",
+      "allowStaffCustom": "スタッフの自由入力を許可",
+      "allowStaffCustomHint": "オフにすると、スタッフはプリセット以外の回数・価格を入力できません（オーナーのみ変更可）。",
+      "save": "保存する",
+      "saving": "保存中…",
+      "saved": "保存しました",
+      "saveFailed": "保存できませんでした"
+    }
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -2294,7 +2492,7 @@
     "title": "自分の声を登録（任意）",
     "description": "{name}さんの声を登録すると、話者識別の精度が少し向上します。登録は任意です — 話者分離は登録なしでも動作します。",
     "privacyTitle": "プライバシーについて",
-    "privacyItem1": "録音音声は声紋データ（256次元ベクトル）に変換後、元の音声は破棄されます。",
+    "privacyItem1": "音声サンプルは暗号化ストレージに安全に保管されます。声紋照合の開始時に声紋データへ変換され、元の音声は削除されます。",
     "privacyItem2": "声紋はサーバー側の話者分離処理のみで使用され、アプリには送信されません。",
     "privacyItem3": "個人情報保護法（APPI）に準拠した暗号化ストレージで保管されます。",
     "privacyItem4": "いつでも「削除」をクリックして、声紋と関連データを30日以内に完全削除できます。",
@@ -2312,7 +2510,10 @@
     "cancel": "キャンセル",
     "proceed": "次へ",
     "back": "戻る",
-    "done": "完了"
+    "done": "完了",
+    "uploading": "保存中…",
+    "uploadFailed": "保存に失敗しました。もう一度お試しください。",
+    "micDenied": "マイクを使用できません。ブラウザのマイク許可を確認してください。"
   },
   "switcher": {
     "switchStaff": "スタッフを切り替え",
@@ -2373,5 +2574,10 @@
     "cap_analytics_viewAll": "全店舗の分析",
     "cap_customers_view": "顧客の閲覧",
     "cap_bookings_manage": "予約の管理"
+  },
+  "staffSelector": {
+    "trigger": "担当",
+    "title": "スタッフで絞り込み",
+    "all": "全スタッフ"
   }
 }

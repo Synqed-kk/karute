@@ -1,6 +1,14 @@
 'use client'
 
-// LIFTED FROM SPIKE (visual + flow, recording is a STUB)
+// REAL voice enrollment (was a UI stub until 2026-06-11 — fake timer, audio
+// discarded). Now: MediaRecorder captures ~15s, the sample uploads via
+// enrollVoiceAction to the recordings bucket, enrollment state persists in
+// org-settings, and the delete chip revokes for real. When the Stage-1
+// matching engine lands (docs/diarization-stack.md), saved samples convert
+// to voice embeddings (raw audio then deleted) and start driving
+// transcription speaker-matching automatically.
+//
+// ORIGINALLY LIFTED FROM SPIKE (visual + flow)
 //   src: /Users/liam/Documents/synqed-karute-design-spike/src/components/settings/VoiceEnrollmentDialog.tsx
 //
 // 3-step opt-in voice enrollment for a staff member:
@@ -47,7 +55,7 @@
 //   header comment — see the karute MERGE_NOTES_FOR_ANTHONY.md
 //   "Staff voice enrollment" section for the lift.
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   AlertTriangle,
@@ -65,13 +73,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { enrollVoiceAction } from '@/actions/voice'
 
-type Step = 'consent' | 'recording' | 'complete'
+type Step = 'consent' | 'recording' | 'uploading' | 'complete'
 
 interface Props {
   open: boolean
   onClose: () => void
   staffName: string
+  /** Supabase profile id — the enrollment key. */
+  staffId: string
   /** Fires when enrollment completes with the recorded-at ISO timestamp.
    *  Today the timestamp is synthesized client-side; once Anthony wires
    *  the real POST → embedding pipeline, this should be the
@@ -85,6 +96,7 @@ export function VoiceEnrollmentDialog({
   open,
   onClose,
   staffName,
+  staffId,
   onEnrolled,
 }: Props) {
   const t = useTranslations('voiceEnrollment')
@@ -92,6 +104,32 @@ export function VoiceEnrollmentDialog({
   const [consentChecked, setConsentChecked] = useState(false)
   const [recordingSeconds, setRecordingSeconds] = useState(0)
   const [isRecording, setIsRecording] = useState(false)
+  const [errorKey, setErrorKey] = useState<'micDenied' | 'uploadFailed' | null>(null)
+  const mediaRef = useRef<{
+    rec: MediaRecorder
+    stream: MediaStream
+    chunks: Blob[]
+  } | null>(null)
+
+  const stopRecording = useCallback(() => {
+    setIsRecording(false)
+    const m = mediaRef.current
+    if (!m) return
+    mediaRef.current = null
+    m.rec.onstop = () => {
+      m.stream.getTracks().forEach((track) => track.stop())
+      const type = m.rec.mimeType || 'audio/webm'
+      const blob = new Blob(m.chunks, { type })
+      // ≤10s reference derivative for the speaker-id engine (2–10s API cap).
+      const refBlob = new Blob(m.chunks.slice(0, 9), { type })
+      void upload(blob, refBlob)
+    }
+    m.rec.stop()
+    // upload() is stable enough (uses only setters + the staffId prop via
+    // closure recreated per render — acceptable: the callback only fires
+    // while the CURRENT dialog instance is recording).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Tick while recording + auto-stop at target. Threshold check lives
   // inside the functional updater so we don't need a separate effect
@@ -105,18 +143,13 @@ export function VoiceEnrollmentDialog({
         if (next >= RECORD_TARGET_SECONDS) {
           // Defer the state-mutating stop to the next tick so we're not
           // calling setState synchronously inside a setter.
-          window.setTimeout(() => {
-            setIsRecording(false)
-            setStep('complete')
-            const enrolledAt = new Date().toISOString()
-            onEnrolled?.(enrolledAt)
-          }, 0)
+          window.setTimeout(() => stopRecording(), 0)
         }
         return next
       })
     }, 1000)
     return () => window.clearInterval(id)
-  }, [isRecording, onEnrolled])
+  }, [isRecording, stopRecording])
 
   function reset() {
     setStep('consent')
@@ -130,20 +163,44 @@ export function VoiceEnrollmentDialog({
     onClose()
   }
 
-  function startRecording() {
-    // ANTHONY: replace this stub with MediaRecorder (web) or the
-    // Capacitor audio-recorder (native). The tick is just visual
-    // feedback for the spike-aligned UI. See the function-branch
-    // entry in MERGE_NOTES_FOR_ANTHONY.md for the full wiring path.
-    setRecordingSeconds(0)
-    setIsRecording(true)
+  async function startRecording() {
+    setErrorKey(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { noiseSuppression: true, echoCancellation: true },
+      })
+      const chunks: Blob[] = []
+      const rec = new MediaRecorder(stream)
+      rec.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) chunks.push(e.data)
+      }
+      mediaRef.current = { rec, stream, chunks }
+      // 1s timeslices so a valid ≤10s reference clip can be assembled from
+      // the leading chunks (first chunk carries the webm header).
+      rec.start(1000)
+      setRecordingSeconds(0)
+      setIsRecording(true)
+    } catch {
+      setErrorKey('micDenied')
+    }
   }
 
-  function stopRecording() {
-    setIsRecording(false)
-    setStep('complete')
-    const enrolledAt = new Date().toISOString()
-    onEnrolled?.(enrolledAt)
+
+  async function upload(blob: Blob, refBlob?: Blob) {
+    setStep('uploading')
+    const fd = new FormData()
+    fd.append('audio', new File([blob], 'voice.webm', { type: blob.type || 'audio/webm' }))
+    if (refBlob && refBlob.size > 0) {
+      fd.append('audioRef', new File([refBlob], 'voice-ref.webm', { type: refBlob.type || 'audio/webm' }))
+    }
+    const res = await enrollVoiceAction(staffId, fd)
+    if (res.ok && res.enrolledAt) {
+      setStep('complete')
+      onEnrolled?.(res.enrolledAt)
+    } else {
+      setErrorKey('uploadFailed')
+      setStep('recording')
+    }
   }
 
   return (
@@ -246,7 +303,19 @@ export function VoiceEnrollmentDialog({
               <div className="text-[11px] text-muted-foreground">
                 {isRecording ? t('recordingHint') : t('readyHint')}
               </div>
+              {errorKey && (
+                <div className="text-[12px] font-medium text-red-600 dark:text-red-400">
+                  {t(errorKey)}
+                </div>
+              )}
             </div>
+          </div>
+        )}
+
+        {step === 'uploading' && (
+          <div className="flex flex-col items-center gap-3 py-8">
+            <Mic className="size-6 animate-pulse text-blue-600" aria-hidden />
+            <span className="text-sm text-muted-foreground">{t('uploading')}</span>
           </div>
         )}
 

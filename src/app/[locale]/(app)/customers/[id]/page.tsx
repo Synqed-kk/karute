@@ -16,6 +16,8 @@ import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
+  customerVisitCount,
+  effectiveLastVisitIso,
   resolveCustomerStatus,
   enrichCustomers,
   formatJoinDate,
@@ -26,6 +28,7 @@ import {
 } from '@/lib/customers/identity'
 import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
 import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
+import { getCustomerLifecycle, listCustomerPacks } from '@/lib/packs/store'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
@@ -59,11 +62,10 @@ export default async function CustomerProfilePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = service as any
 
-  // Also fetch the full tenant customer list so we can compute the
-  // sequential karute number for this customer in the same way the
-  // list page does (sort by created_at, assign 1-based index). The
-  // numbers stay consistent across both views until Anthony adds the
-  // real `customers.karute_number` column.
+  // Also fetch the full tenant customer list for the karute-number
+  // helper (it prefers the persisted customers.karute_number and only
+  // derives sequentially for rows without one), keeping this view
+  // consistent with the list page.
   const synqed = await getSynqedClient()
 
   const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
@@ -110,6 +112,8 @@ export default async function CustomerProfilePage({
     summary: string | null
     staff_profile_id: string | null
     entries: Array<{ count: number }> | null
+    service?: string | null
+    duration_minutes?: number | null
   }
   const karuteRecords = mergeKaruteRows<KaruteRow>(
     (karuteRes.data ?? []) as KaruteRow[],
@@ -152,8 +156,29 @@ export default async function CustomerProfilePage({
   }
   const customerMemory = buildCustomerMemory(memoryItems, id)
 
-  const lastVisitIso =
-    karuteRecords[0]?.session_date ?? karuteRecords[0]?.created_at ?? null
+  // 回数券 + lifecycle (卒業/離客/口コミ) — best-effort: empty card / no chips
+  // until the ticket_packs migration is applied (store degrades gracefully).
+  const [packs, lifecycle] = await Promise.all([
+    listCustomerPacks(id),
+    getCustomerLifecycle(id),
+  ])
+  // Real ledger signal: any active counted pack → 回数券 holder, regardless of
+  // whether the QR flag has synced. Joins the status resolver + the 回数券あり
+  // chip so a manually-registered pack reads consistently everywhere.
+  const hasActivePack = packs.some((p) => p.status === 'active' && p.kind === 'pack')
+
+  // SAME last-visit rule as the list (effectiveLastVisitIso): enrichment
+  // (karute + past appointments, incl. imported visits) beats the customer
+  // field, beats karute-only. The header read customer.last_visit_at alone —
+  // which core never persists — so imported customers showed 前回 — up top
+  // while their own pack card below was correct.
+  const lastVisitIso = effectiveLastVisitIso(
+    enrichment.get(id)?.lastVisitIso ??
+      karuteRecords[0]?.session_date ??
+      karuteRecords[0]?.created_at ??
+      null,
+    customer.last_visit_at,
+  )
   // Returning signal = the MAX of QR visit_count AND the actual karute history.
   // A customer can have many recorded sessions but visit_count 0 (hand-added, or
   // QR never synced the count) — ぴあそん has 11 karute but visit_count 0, so
@@ -162,14 +187,23 @@ export default async function CustomerProfilePage({
   // SINGLE SOURCE: identical signals + resolver as the list/recording/agenda, so
   // this customer's badge is the same on every page (the chopstick — computed
   // once, shown everywhere).
-  const status = resolveCustomerStatus({
+  const statusSignals = {
     joinDateIso: customer.created_at,
     lastVisitIso,
     isExistingCustomer: customer.is_existing_customer,
     visitCount: customer.visit_count,
     karuteCount: karuteRecords.length,
     pastAppointmentCount: enrichment.get(id)?.pastAppointmentCount,
-    hasTicketPack: customer.has_ticket_pack,
+    hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
+  }
+  const status = resolveCustomerStatus({
+    ...statusSignals,
+    // Same booking signal as the list — a booked customer is never a chase
+    // target on ANY surface (chopstick).
+    hasUpcomingBooking: !!enrichment.get(id)?.nextAppointmentIso,
+    // Same lifecycle signal as the list — a 卒業 customer must read slate 卒業
+    // HERE too, never red 休眠 (the lifecycle fetch above already has it).
+    lifecycleStatus: lifecycle?.status,
   })
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
@@ -187,14 +221,11 @@ export default async function CustomerProfilePage({
       karuteId: r.id,
       date: prettyDate(r.session_date ?? r.created_at, locale),
       weekday: weekdayLabel(dt, locale),
-      // Service '—' + duration 0 instead of literal 'Session' /
-      // 60 — same '施術' bug fixed on the main karute list. The
-      // session-row renderer should gate the duration display on
-      // `duration > 0` so the line hides instead of rendering "0 min".
-      // ANTHONY: when karute_records gains `service` + `duration_minutes`
-      // columns, pass the real values.
-      service: '—',
-      duration: 0,
+      // Real fields from synqed-core (2026-06-11 migration); '—' / 0
+      // remain the honest "unset" displays for records that predate
+      // the columns (renderer gates duration display on > 0).
+      service: r.service || '—',
+      duration: r.duration_minutes ?? 0,
       summary: r.summary ?? '—',
       staffName: r.staff_profile_id
         ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
@@ -223,20 +254,18 @@ export default async function CustomerProfilePage({
     genderCode: customer.gender,
     joinDate: formatJoinDate(customer.created_at, locale),
     totalKarute: karuteRecords.length,
-    // Lifetime visit count from external sync (QuickReserve visits_number_cache);
-    // 0 for in-app-only customers. The identity card shows the larger of this
-    // and the karute count so returning customers don't read as "0 visits".
-    visitCount: customer.visit_count,
+    // SAME 来店 count as the list (customerVisitCount — the max of every
+    // visit evidence incl. imported past appointments), so the header and the
+    // list can never disagree.
+    visitCount: customerVisitCount(statusSignals),
     phone: contact.phone ?? customer.phone,
     email: contact.email ?? customer.email,
     bookingMemo: customer.notes ?? null,
     occupation: customer.occupation,
     memberNumber: customer.member_number,
-    hasTicketPack: customer.has_ticket_pack,
+    hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
     isBirthdayMonth: isBirthdayMonth(customer.date_of_birth),
-    lastVisitDate: customer.last_visit_at
-      ? formatJoinDate(customer.last_visit_at, locale)
-      : null,
+    lastVisitDate: lastVisitIso ? formatJoinDate(lastVisitIso, locale) : null,
     preferredStaffId,
     preferredStaffName: preferredStaffId
       ? (staffNameById.get(preferredStaffId) ?? null)
@@ -257,6 +286,9 @@ export default async function CustomerProfilePage({
       sessions={sessions}
       photos={photos}
       customerMemory={customerMemory}
+      packs={packs}
+      lifecycle={lifecycle}
+      hasNextBooking={!!enrichment.get(id)?.nextAppointmentIso}
     />
   )
 }

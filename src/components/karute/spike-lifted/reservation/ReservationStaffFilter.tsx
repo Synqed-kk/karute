@@ -15,12 +15,11 @@
 // an already-active pill snaps back to 'all'. The Self segment hides when
 // the viewer has no staff identity (e.g. owner with no `staff_profile`).
 
-import { useMemo, useTransition } from 'react'
+import { useTransition } from 'react'
 import { User, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
-import { assignStaffColors, getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
-import { cn } from '@/lib/utils'
+import { StaffSelector } from '@/components/staff/StaffSelector'
 
 export interface ReservationStaffEntry {
   id: string
@@ -52,13 +51,6 @@ export function ReservationStaffFilter({
   const pathname = usePathname()
   const search = useSearchParams()
   const [isPending, startTransition] = useTransition()
-  // Distinct color per staff over the FULL roster of chips (sorted-index
-  // assignment, no collisions) — same mapping the agenda/grid use.
-  const staffColors = useMemo(
-    () => assignStaffColors(staffList.map((s) => s.id)),
-    [staffList],
-  )
-
   function setStaff(next: string) {
     const params = new URLSearchParams(search?.toString() ?? '')
     if (next === 'all') params.delete('staff')
@@ -95,25 +87,16 @@ export function ReservationStaffFilter({
             label={t('all')}
           />
         </div>
+        {/* 担当 trigger (option D, compact) — the pill rows are gone; the
+         *  roster lives in the shared bottom sheet. */}
+        <StaffSelector
+          staffList={staffList}
+          selected={selected}
+          onChange={(next) => setStaff(next)}
+          compact
+        />
       </div>
 
-      {/* Per-staff pills with deterministic colors. >3 staff still renders
-       *  inline as flex-wrap — at salon scale this stays readable. If a
-       *  tenant ever has 15+ staff, consider switching to the spike's
-       *  dropdown picker (see ViewModeSelector). */}
-      {staffList.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          {staffList.map((s) => (
-            <StaffPill
-              key={s.id}
-              staff={s}
-              color={getStaffColorByKey(staffColors.get(s.id)?.key)}
-              active={selected === s.id}
-              onClick={() => setStaff(selected === s.id ? 'all' : s.id)}
-            />
-          ))}
-        </div>
-      )}
     </div>
   )
 }
@@ -146,39 +129,3 @@ function SegmentButton({
   )
 }
 
-function StaffPill({
-  staff,
-  color,
-  active,
-  onClick,
-}: {
-  staff: ReservationStaffEntry
-  color: StaffColor
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`inline-flex h-8 items-center gap-2 rounded-full border pl-1 pr-3 text-xs font-medium transition-colors ${
-        active
-          ? 'border-foreground bg-foreground text-background'
-          : 'border-border bg-card text-foreground hover:bg-muted'
-      }`}
-    >
-      <span
-        className={cn(
-          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-black/5',
-          color.bg,
-          color.text,
-        )}
-        aria-hidden
-      >
-        {staff.initials}
-      </span>
-      <span className="max-w-[120px] truncate">{staff.name}</span>
-    </button>
-  )
-}

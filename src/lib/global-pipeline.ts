@@ -39,6 +39,10 @@ export interface PipelineContext {
   /** Outcome chosen at stop (the coaching label) — carried to the save so the
    *  staff decides once, up front, and never re-opens a dialog at the end. */
   outcome?: SessionOutcome
+  /** Mid-pack sessions DELIBERATELY have no outcome (no conversion conversation
+   *  happened — asking would pollute the coaching labels). true = autosave
+   *  proceeds without one; the save simply writes no outcome row. */
+  outcomeSkipped?: boolean
 }
 
 export type PipelineState =
@@ -113,7 +117,8 @@ class GlobalPipeline {
       // Otherwise fall to review — a walk-in still needs customer selection,
       // and a take with no outcome needs the manual save.
       this.state =
-        this.context?.outcome && this.context?.appointmentCustomerId
+        (this.context?.outcome || this.context?.outcomeSkipped) &&
+        this.context?.appointmentCustomerId
           ? 'autosaving'
           : 'review'
       this.notify()

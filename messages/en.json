@@ -158,7 +158,10 @@
       "appointments": "{n} appts",
       "customerSuffix": "",
       "tantou": "Staff: {name}",
-      "renewalFlag": "Renewal"
+      "renewalFlag": "Renewal",
+      "packLeft": "{remaining}/{size} left",
+      "unrecorded": "No record",
+      "nextUp": "Next ▸"
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
@@ -175,7 +178,9 @@
     },
     "mobile": {
       "empty": "No appointments",
-      "dayHeader": "{date} ({weekday})"
+      "dayHeader": "{date} ({weekday})",
+      "stickyRemaining": "{n} left",
+      "stickyNext": "Next {time} {name}"
     },
     "grid": {
       "blockOwner": "Not taking bookings (owner)",
@@ -183,7 +188,10 @@
       "staffColumnLabel": "STAFF"
     },
     "totals": {
-      "today": "Today's bookings: {n}"
+      "today": "Today's bookings: {n}",
+      "remaining": "{n} left",
+      "renewal": "Renewal {n}",
+      "unrecorded": "Unrecorded {n}"
     },
     "newBookingDialog": {
       "title": "New booking",
@@ -322,7 +330,7 @@
       "categories": {
         "treatment": "Treatment",
         "concern": "Concern",
-        "condition": "Condition",
+        "condition": "Body area",
         "lifestyle": "Lifestyle",
         "product": "Product",
         "next": "Next"
@@ -389,7 +397,36 @@
       "disclaimer": "Your converted / no-deal records also help the AI learn top-performer conversation patterns. This customer's individual details are never shared with other staff.",
       "save": "Save",
       "saving": "Saving…",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "redeemLabel": "Use 1 pack session",
+      "redeemDelta": "({from} → {to} left)",
+      "redeemZeroHint": "Pack will be empty — suggest the next pack",
+      "repurchase": {
+        "title": "{name} — next pack conversation",
+        "subtitle": "Their pack is almost used up. Did you talk about the next one?",
+        "success": {
+          "title": "Bought",
+          "desc": "They purchased the next pack"
+        },
+        "noDeal": {
+          "title": "Offered, not bought",
+          "desc": "You suggested it but they didn't buy this time"
+        },
+        "pending": {
+          "title": "Decide later",
+          "desc": "Not discussed yet / waiting on their answer"
+        }
+      },
+      "newPack": {
+        "title": "🎫 New ticket pack",
+        "later": "Register later",
+        "sizeLabel": "Sessions",
+        "sizeChip": "{n}x",
+        "priceLabel": "Unit price (prefilled from their last pack)",
+        "customSize": "Other…",
+        "customPrice": "Custom",
+        "invalidHint": "Pick a size and price"
+      }
     },
     "title": "Record",
     "selectStaff": "Select staff",
@@ -504,7 +541,14 @@
       "speakerStaff": "{name} (Staff)"
     },
     "overrunWarning": "Still recording — tap stop when the session's done.",
-    "autoStopped": "Recording ran long, so it was auto-saved."
+    "autoStopped": "Recording ran long, so it was auto-saved.",
+    "registerNewPackPrompt": "Pack purchased — register the new pack now",
+    "registerNewPackAction": "Register",
+    "repurchaseCue": {
+      "title": "Today's heads-up — {n} pack sessions left",
+      "body": "Talk about the next pack during the session. You'll record the result after stopping.",
+      "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
+    }
   },
   "customers": {
     "title": "Customers",
@@ -540,7 +584,11 @@
       "before": "Before",
       "after": "After",
       "reference": "Reference",
-      "progress": "Progress"
+      "progress": "Progress",
+      "addPhoto": "Add photo",
+      "uploading": "Uploading…",
+      "uploadError": "Upload failed. Please try again.",
+      "categoryLabel": "Category"
     },
     "comingSoon": "Coming soon",
     "privacy": {
@@ -659,6 +707,56 @@
       "memberNumber": "Member #{number}",
       "ticketPack": "Ticket pack",
       "birthdayMonth": "Birthday month",
+      "packs": {
+        "title": "Ticket packs",
+        "add": "Add",
+        "empty": "No ticket packs recorded yet",
+        "kindPack": "{n}-session pack",
+        "kindPackPlain": "Pack",
+        "kindSubscription": "Subscription",
+        "kindSingle": "Single",
+        "roundFirst": "First pack",
+        "roundN": "Repurchase {n}",
+        "remaining": "{n} left",
+        "unitPerSession": "¥{price}/session",
+        "unconsumed": "Unused value",
+        "purchased": "Purchased {date}",
+        "exhausted": "Used up",
+        "cancelledPack": "Cancelled",
+        "redeem": "Use 1 session",
+        "redeemConfirm": "Record",
+        "redeemDone": "Session recorded",
+        "redeemFailed": "Could not record",
+        "cancel": "Cancel",
+        "lowRemaining": "Almost out — bring up the next pack at their next visit",
+        "lifecycleLabel": "Status",
+        "lifecycle_active": "Active",
+        "lifecycle_graduated": "Graduated",
+        "lifecycle_lost": "Lost",
+        "referral": "Referral",
+        "lifecycleFailed": "Could not update",
+        "dialogTitle": "Add a ticket pack",
+        "kindLabel": "Type",
+        "sizeLabel": "Sessions",
+        "priceLabel": "Price per session",
+        "dateLabel": "Purchase date",
+        "notesLabel": "Notes (optional)",
+        "notesPlaceholder": "e.g. campaign price",
+        "save": "Save",
+        "saved": "Pack saved",
+        "saveFailed": "Could not save",
+        "autoRedeemed": "Pack session used ({from} → {to} left)",
+        "undo": "Undo",
+        "undone": "Undone",
+        "packCreated": "Pack registered ({size} × ¥{price})",
+        "packCreateFailed": "Could not register the pack — add it from the profile",
+        "exhaustedLabel": "Used up",
+        "closedLabel": "Closed",
+        "consumedAll": "All {n} sessions used",
+        "exhaustedHint": "{n} days since the last session — time to offer a renewal.",
+        "exhaustedHintUnknown": "Used up — time to offer a renewal.",
+        "exhaustedHintNoBooking": "No upcoming booking either. Joins the 要連絡 list at {d} days."
+      },
       "record": "Record",
       "ageValue": "{age} y/o",
       "visitCountSuffix": " visits",
@@ -713,7 +811,12 @@
         "lastVisitPrefix": "Last visit",
         "staff": "Staff: {name}",
         "recommendPrefix": "Recommend",
-        "visitsSuffix": "{n} visits"
+        "visitsSuffix": "{n} visits",
+        "packContact": "Contact",
+        "ageValue": "{age} y/o",
+        "bookingDate": "Booked {date}",
+        "bookingNone": "No booking",
+        "packFraction": "{n}/{m} left"
       },
       "heading": "Customers",
       "showing": "{n} showing",
@@ -723,7 +826,9 @@
         "on-track": "On track",
         "new": "New",
         "needs-followup": "Needs follow-up",
-        "dormant": "Dormant"
+        "dormant": "Dormant",
+        "graduated": "Graduated",
+        "lost": "Lost"
       },
       "filters": {
         "all": "All",
@@ -743,7 +848,9 @@
         "today": "Today",
         "oneDayAgo": "1 day ago",
         "daysAgo": "{n} days ago",
-        "monthsAgo": "{n} mo ago"
+        "monthsAgo": "{n} mo ago",
+        "dateUnknown": "Last visit date not on record",
+        "yearsAgo": "{n}y ago"
       },
       "paginatedShowing": "Showing {from}–{to} of {total}",
       "previousPage": "Previous page",
@@ -755,6 +862,11 @@
         "summary": "Summary",
         "transcript": "Transcript",
         "comingSoonShort": "soon"
+      },
+      "stats": {
+        "noBooking": "No booking: {n}",
+        "packLow": "1 left: {n}",
+        "unconsumed": "Unconsumed ¥{amount}"
       }
     },
     "listFilter": {
@@ -874,7 +986,6 @@
       "sourceIntake": "From intake",
       "addManually": "Add manually",
       "lastUpdated": "Last updated: {date}",
-      "comingSoonEdit": "Edit, pin, and manual-add features are coming soon — wired by Anthony.",
       "sectionEmpty": "Coming soon — nothing here yet",
       "comingSoonPill": "Coming soon",
       "intakeEmpty": "Intake info will appear here once the first intake form is completed.",
@@ -888,7 +999,21 @@
       "sessionsBadge": "Learned from {n} session record(s)",
       "sessionsBadgeTooltip": "Number of past recordings the memory is grounded in. More sessions = higher confidence.",
       "noSessionsBadge": "No session records yet",
-      "noSessionsBadgeTooltip": "No recordings yet. Once you record a session, the AI will extract key points and accumulate them here."
+      "noSessionsBadgeTooltip": "No recordings yet. Once you record a session, the AI will extract key points and accumulate them here.",
+      "editItem": "Edit memory",
+      "fieldCategory": "Category",
+      "fieldLabel": "Label",
+      "fieldDetail": "Detail (optional)",
+      "save": "Save",
+      "cancel": "Cancel",
+      "deleteTitle": "Delete this memory?",
+      "deleteBody": "This removes “{label}”.",
+      "delete": "Delete",
+      "saved": "Saved",
+      "deleted": "Deleted",
+      "actionFailed": "Action failed",
+      "pinnedToast": "Pinned",
+      "unpinned": "Unpinned"
     },
     "tabHeading": "Karute",
     "recordList": {
@@ -1009,7 +1134,8 @@
     "entriesConfirmed": "{count, plural, one {# entry} other {# entries}} confirmed",
     "selectCustomerAndSave": "Select customer & save",
     "staff": "Staff",
-    "selectStaff": "Select a staff member"
+    "selectStaff": "Select a staff member",
+    "savedChip": "Saved — karute created"
   },
   "coaching": {
     "common": {
@@ -1411,6 +1537,61 @@
       "todaysCustomers": "Today's customers",
       "monthlyKarute": "Monthly karute",
       "rebookingRate": "Rebooking rate"
+    },
+    "onboarding": {
+      "title": "Finish setting up your store",
+      "body": "Pick your business type + recording disclosure mode so the AI is tuned to your salon. Takes about 2 minutes.",
+      "start": "Start setup",
+      "dismiss": "Dismiss"
+    },
+    "packAlerts": {
+      "title": "Customers to contact",
+      "summary": "{n} pack holders haven't visited in {days}+ days",
+      "daysAbsent": "{n} days absent",
+      "remaining": "{remaining}/{size} left",
+      "dismiss": "Dismiss",
+      "dismissConfirm": "Confirm",
+      "cancel": "Cancel",
+      "dismissed": "Alert dismissed",
+      "dismissFailed": "Could not dismiss",
+      "forbidden": "Only managers can dismiss",
+      "showAll": "Show all ({n})",
+      "lowTitle": "{n} customers on their last session — suggest the next pack",
+      "lowChip": "{remaining} left",
+      "atRiskLabel": "At risk",
+      "unconsumedLabel": "Unused total",
+      "holderCount": "({n} holders)",
+      "allClear": "Nothing needs attention",
+      "contacted": "Contacted",
+      "channelQuestion": "How did you reach them?",
+      "channel_phone": "Phone",
+      "channel_sms": "SMS",
+      "channel_email": "Email",
+      "channel_line": "LINE",
+      "channel_in_person": "In person",
+      "notePlaceholder": "Note (optional)",
+      "contactLogged": "Contact logged — snoozed 7 days",
+      "contactFailed": "Could not log",
+      "inProgressTitle": "In progress {n} (7-day snooze · auto-resolves on rebooking)",
+      "monthlyMetric": "This month: {contacted} contacted → {rebooked} rebooked ({pct}%)"
+    },
+    "reconcile": {
+      "title": "Unprocessed visits: {n}",
+      "subtitle": "Visits that never touched the pack ledger",
+      "visitLine": "Visited {date}",
+      "packShort": "{n}/{m} left",
+      "chipUnrecorded": "No record",
+      "chipUnredeemed": "Pack not ticked",
+      "hintUnrecorded": "No karute, no redemption",
+      "hintUnredeemed": "Karute exists; pack untipped",
+      "actionRedeem": "Redeem on that day",
+      "actionNoVisit": "No visit",
+      "redeemed": "Redeemed for {date}",
+      "undo": "Undo",
+      "redeemFailed": "Could not redeem",
+      "dismissed": "Recorded as no-visit",
+      "dismissFailed": "Could not record",
+      "more": "{n} more (shown as these are processed)"
     }
   },
   "settings": {
@@ -1854,7 +2035,24 @@
     "voiceEnrollCta": "Enroll voice (optional)",
     "voiceRevoke": "Delete voice profile",
     "coachingDescription": "Master settings, weights, consent",
-    "addStore": "Add store"
+    "addStore": "Add store",
+    "packsDescription": "Pack presets and staff permissions",
+    "packs": {
+      "label": "Ticket packs",
+      "presetsTitle": "Pack presets",
+      "presetsHint": "The size/price options shown in the post-recording New Pack panel. A customer's previous pack takes priority as the prefill.",
+      "sizeLabel": "Sessions",
+      "priceLabel": "Unit price",
+      "addPreset": "Add preset",
+      "remove": "Remove",
+      "empty": "No presets yet — add one to get started.",
+      "allowStaffCustom": "Allow staff custom input",
+      "allowStaffCustomHint": "When off, staff can only choose from presets (owner-only setting).",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "saveFailed": "Could not save"
+    }
   },
   "aiActions": {
     "title": "AI Recommended Actions",
@@ -2294,7 +2492,7 @@
     "title": "Enroll your voice (optional)",
     "description": "Enrolling {name}'s voice slightly improves speaker recognition accuracy. Enrollment is optional — diarization works without it.",
     "privacyTitle": "About privacy",
-    "privacyItem1": "Recorded audio is converted to a voice embedding (256-dim vector); the raw audio is then discarded.",
+    "privacyItem1": "Your voice sample is stored in encrypted storage. When voice matching goes live it is converted to a voiceprint and the original audio is deleted.",
     "privacyItem2": "Embeddings are used only by the server-side diarization job; they're never sent back to the app.",
     "privacyItem3": "Stored in encrypted storage compliant with Japan's Personal Information Protection Act (APPI).",
     "privacyItem4": "Click 'delete' at any time to permanently remove your voice profile within 30 days.",
@@ -2312,7 +2510,10 @@
     "cancel": "Cancel",
     "proceed": "Next",
     "back": "Back",
-    "done": "Done"
+    "done": "Done",
+    "uploading": "Saving…",
+    "uploadFailed": "Could not save. Please try again.",
+    "micDenied": "Microphone unavailable. Please check browser permissions."
   },
   "switcher": {
     "switchStaff": "Switch staff",
@@ -2373,5 +2574,10 @@
     "cap_analytics_viewAll": "Whole-salon analytics",
     "cap_customers_view": "View customers",
     "cap_bookings_manage": "Manage bookings"
+  },
+  "staffSelector": {
+    "trigger": "Staff",
+    "title": "Filter by staff",
+    "all": "All staff"
   }
 }

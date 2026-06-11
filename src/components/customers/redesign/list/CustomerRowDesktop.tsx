@@ -1,9 +1,7 @@
 'use client'
 
-import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
-import { formatJpPhone } from '@/lib/format/phone'
 import { cn } from '@/lib/utils'
 import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
@@ -76,22 +74,40 @@ export function CustomerRowDesktop({
               {c.karuteNumber}
             </span>
           </div>
-          <div className="truncate text-[11px] text-muted-foreground tabular-nums">
-            <span>{c.age ?? '—'}</span>
-            <span> · </span>
-            <span>{c.gender ?? '—'}</span>
-            <span> · </span>
-            <span>{t('joined', { date: c.joinDate })}</span>
-          </div>
+          {/* Meta segments render only with real content (age/gender are
+           *  stub-null today); 登録日 only while 新規. Mirrors the mobile card. */}
+          {(() => {
+            const segs: string[] = []
+            if (c.age != null) segs.push(t('row.ageValue', { age: c.age }))
+            if (c.gender) segs.push(c.gender)
+            if (c.status === 'new') segs.push(t('joined', { date: c.joinDate }))
+            return segs.length > 0 ? (
+              <div className="truncate text-[11px] text-muted-foreground tabular-nums">
+                {segs.join(' · ')}
+              </div>
+            ) : null
+          })()}
           {karuteContext && <AiStatusChipRow />}
         </div>
       </div>
 
-      {/* Last visit */}
+      {/* Last visit — when the date is unknown but a visit COUNT exists (QR
+       *  carries visit_count without visit rows), say 「最終来店日の記録なし」
+       *  instead of 来店履歴なし, which contradicts the nonzero Total column. */}
       <div className="flex min-w-0 flex-col tabular-nums">
         <span className="text-xs text-foreground">{c.lastVisitDate}</span>
-        <span className="text-[10px] text-muted-foreground">
-          {c.lastVisitAgo}
+        {/* ago-token carries the emphasis (amber once 要フォロー/休眠 — same
+         *  resolver thresholds as the mobile card). */}
+        <span
+          className={
+            c.status === 'needs-followup' || c.status === 'dormant'
+              ? 'text-[10px] font-medium text-amber-600 dark:text-amber-400'
+              : 'text-[10px] text-muted-foreground'
+          }
+        >
+          {c.lastVisitDate === '—' && c.totalKarute > 0
+            ? t('lastVisit.dateUnknown')
+            : c.lastVisitAgo}
         </span>
         {c.lastVisitService && (
           <span className="truncate text-[10px] text-muted-foreground/80">
@@ -113,16 +129,20 @@ export function CustomerRowDesktop({
         </span>
       </div>
 
-      {/* Status */}
+      {/* Status — EXCEPTIONS-ONLY (Liam): 継続中 renders no chip so the rare
+       *  新規/要フォロー/休眠 pop when scanning. Empty cell = fine. */}
       <div>
-        <span
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
-        >
-          {t(`status.${c.status}`)}
-        </span>
+        {c.status !== 'on-track' && (
+          <span
+            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
+          >
+            {t(`status.${c.status}`)}
+          </span>
+        )}
       </div>
 
-      {/* Staff + phone */}
+      {/* Staff — ☎ digits removed (案B, chopstick: one phone policy on EVERY
+       *  list surface). The staff sheet never tracked phone; profile keeps it. */}
       <div className="flex min-w-0 flex-col gap-0.5 text-[11px] text-muted-foreground">
         <span className="inline-flex items-center gap-1.5 truncate">
           {staffColorKey && (
@@ -135,12 +155,6 @@ export function CustomerRowDesktop({
             {t('row.staff', { name: c.preferredStaffName ?? c.bookingStaffName ?? '—' })}
           </span>
         </span>
-        {c.phone && (
-          <span className="inline-flex items-center gap-1 truncate tabular-nums">
-            <Phone className="size-2.5 shrink-0" aria-hidden />
-            <span className="truncate">{formatJpPhone(c.phone)}</span>
-          </span>
-        )}
       </div>
 
       {/* Total — visit count badge */}

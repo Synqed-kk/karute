@@ -65,7 +65,6 @@ describe('enrichCustomers', () => {
     const map = await enrichCustomers('biz-1', ['a', 'b'])
     expect(map.get('a')).toMatchObject({
       totalKarute: 2,
-      visitsDone: 2,
       lastVisitIso: '2026-03-02T00:00:00Z',
     })
     expect(map.get('b')).toMatchObject({ totalKarute: 1, lastVisitIso: '2026-02-02T00:00:00Z' })
@@ -87,10 +86,10 @@ describe('enrichCustomers', () => {
     expect(map.get('a')).toEqual({
       totalKarute: 0,
       lastVisitIso: null,
-      visitsDone: 0,
       pastAppointmentCount: 0,
       lastVisitService: null,
       bookingStaffId: null,
+      nextAppointmentIso: null,
     })
   })
 
@@ -182,9 +181,10 @@ describe('deriveStatus', () => {
     expect(deriveStatus(iso(365 * DAY), iso(10 * DAY))).toBe('on-track')
   })
 
-  it('treats exactly 90 days as on the followup side (not dormant)', () => {
-    // daysSince === 90 → not > 90, but > 60 → needs-followup
-    expect(deriveStatus(iso(365 * DAY), iso(90 * DAY))).toBe('needs-followup')
+  it('treats exactly 90 days as dormant — the label says 90日以上 (inclusive)', () => {
+    // daysSince === 90 → >= 90 → dormant (matches 休眠（90日以上）); 89 stays followup
+    expect(deriveStatus(iso(365 * DAY), iso(90 * DAY))).toBe('dormant')
+    expect(deriveStatus(iso(365 * DAY), iso(89 * DAY))).toBe('needs-followup')
   })
 
   it('prioritizes the recent-join "new" rule over an old last visit', () => {
@@ -389,5 +389,91 @@ describe('defaultAiPredict', () => {
   it('falls back to a recommendation for on-track / new', () => {
     expect(defaultAiPredict('on-track')).toEqual({ label: 'Recommend', when: '—' })
     expect(defaultAiPredict('new')).toEqual({ label: 'Recommend', when: '—' })
+  })
+})
+
+describe('formatCompactDate (案A card rails)', () => {
+  const { formatCompactDate } = jest.requireActual('@/lib/customers/list-enrich')
+  const NOW = new Date('2026-06-11T03:00:00Z')
+  it('current-year dates drop the year', () => {
+    expect(formatCompactDate('2026-06-02T01:00:00Z', 'ja', NOW)).toBe('6/2')
+  })
+  it('prior-year dates keep the year', () => {
+    expect(formatCompactDate('2025-12-24T01:00:00Z', 'ja', NOW)).toBe('2025/12/24')
+  })
+  it('null/invalid → null', () => {
+    expect(formatCompactDate(null, 'ja', NOW)).toBe(null)
+    expect(formatCompactDate('garbage', 'ja', NOW)).toBe(null)
+  })
+})
+
+describe('lifecycle decisions outrank cadence (案B)', () => {
+  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/list-enrich')
+  const old = new Date(Date.now() - 219 * 86_400_000).toISOString()
+  const join = new Date(Date.now() - 365 * 86_400_000).toISOString()
+  it('卒業 + 219 days absent → graduated, NOT dormant', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'graduated' })).toBe('graduated')
+  })
+  it('離客 → lost regardless of cadence', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'lost' })).toBe('lost')
+  })
+  it('active lifecycle → cadence rules unchanged (219d → dormant)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'active' })).toBe('dormant')
+  })
+})
+
+describe('effectiveLastVisitIso — one rule for every surface', () => {
+  const { effectiveLastVisitIso } = jest.requireActual('@/lib/customers/list-enrich')
+  it('synced rows beat the customer-record field', () => {
+    expect(effectiveLastVisitIso('2026-06-09', '2026-06-01')).toBe('2026-06-09')
+  })
+  it('falls back to last_visit_at (sheet import) when no synced rows', () => {
+    expect(effectiveLastVisitIso(null, '2026-06-01')).toBe('2026-06-01')
+  })
+  it('null when neither exists', () => {
+    expect(effectiveLastVisitIso(null, null)).toBe(null)
+    expect(effectiveLastVisitIso(undefined, undefined)).toBe(null)
+  })
+})
+
+describe('案1 day math + formats', () => {
+  const { formatLastVisit, formatCompactDate } = jest.requireActual('@/lib/customers/list-enrich')
+  const { jstDaysBetween } = jest.requireActual('@/lib/date/jst')
+  const S = { noVisits: 'なし', today: '本日', oneDayAgo: '1日前', daysAgo: (n: number) => `${n}日前`, monthsAgo: (n: number) => `${n}ヶ月前`, yearsAgo: (n: number) => `${n}年前` }
+  it('yearsAgo tier: 400 days → 1年前 (not 13ヶ月前)', () => {
+    const iso = new Date(Date.now() - 400 * 86_400_000).toISOString()
+    expect(formatLastVisit(iso, 'ja', S).ago).toBe('1年前')
+  })
+  it('monthsAgo tier unchanged: 219 days → 7ヶ月前', () => {
+    const iso = new Date(Date.now() - 219 * 86_400_000).toISOString()
+    expect(formatLastVisit(iso, 'ja', S).ago).toBe('7ヶ月前')
+  })
+  it('jstDaysBetween counts JST midnights (same-instant offset = exact days)', () => {
+    const iso = new Date(Date.now() - 6 * 86_400_000).toISOString()
+    expect(jstDaysBetween(iso)).toBe(6)
+  })
+  it('formatCompactDate withWeekday: 予約 rail form 6/15(月) style', () => {
+    const NOW = new Date('2026-06-11T03:00:00Z')
+    const out = formatCompactDate('2026-06-15T01:00:00Z', 'ja', NOW, { withWeekday: true })
+    expect(out).toMatch(/^6\/15\(.\)$/)
+  })
+})
+
+describe('a future booking clears the chase states (Liam: booked ≠ follow-up)', () => {
+  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/list-enrich')
+  const old65 = new Date(Date.now() - 65 * 86_400_000).toISOString()
+  const old200 = new Date(Date.now() - 200 * 86_400_000).toISOString()
+  const join = new Date(Date.now() - 400 * 86_400_000).toISOString()
+  it('65 days absent + upcoming booking → on-track (not 要フォロー)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old65, visitCount: 9, hasUpcomingBooking: true })).toBe('on-track')
+  })
+  it('200 days absent + upcoming booking → on-track (not 休眠)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old200, visitCount: 9, hasUpcomingBooking: true })).toBe('on-track')
+  })
+  it('no booking → cadence rules unchanged (65d → 要フォロー)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old65, visitCount: 9, hasUpcomingBooking: false })).toBe('needs-followup')
+  })
+  it('lifecycle still outranks the booking (卒業 + booking → graduated)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old200, visitCount: 9, hasUpcomingBooking: true, lifecycleStatus: 'graduated' })).toBe('graduated')
   })
 })

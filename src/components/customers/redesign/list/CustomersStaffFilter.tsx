@@ -1,14 +1,8 @@
 'use client'
 
-import { useMemo } from 'react'
 import { Users, User } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import { cn } from '@/lib/utils'
-import {
-  assignStaffColors,
-  getStaffColorByKey,
-  type StaffColor,
-} from '@/lib/staff-colors'
+import { StaffSelector } from '@/components/staff/StaffSelector'
 
 /**
  * Staff filter row — mirrors the design-spike's staff-picker. Lets the
@@ -57,21 +51,15 @@ export function CustomersStaffFilter({
 }: CustomersStaffFilterProps) {
   const t = useTranslations('customers.list.staffFilter')
 
-  // DISTINCT staff-color map over the FULL roster — same helper, same input
-  // (every staff id) as the customer list, so a stylist's color is identical
-  // on the pills and on their customers' rows. No hashing, no collisions.
-  const staffColors = useMemo(
-    () => assignStaffColors(staffList.map((s) => s.id)),
-    [staffList],
-  )
-
   // If there are no staff at all (and no self), the picker has nothing
   // to offer — render nothing rather than a useless empty row.
   if (staffList.length === 0 && !selfStaffId) return null
 
   return (
-    <div className="flex flex-col gap-2">
-      {/* Row 1: scope toggle — bound segment, mirrors the spike */}
+    // ONE chrome line (Liam-approved D): segment + 担当 trigger. The pill
+    // rows are gone — the roster lives in the StaffSelector bottom sheet,
+    // constant height from 9 staff to 200.
+    <div className="flex flex-wrap items-center gap-2">
       <ScopeToggle
         selfStaffId={selfStaffId}
         selected={selected}
@@ -79,23 +67,11 @@ export function CustomersStaffFilter({
         selfLabel={t('self')}
         allLabel={t('all')}
       />
-
-      {/* Row 2: per-staff pills with deterministic colors */}
-      {staffList.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          {staffList.map((s) => (
-            <StaffPill
-              key={s.id}
-              staff={s}
-              color={getStaffColorByKey(staffColors.get(s.id)?.key)}
-              active={selected === s.id}
-              onClick={() =>
-                onChange(selected === s.id ? 'all' : s.id)
-              }
-            />
-          ))}
-        </div>
-      )}
+      <StaffSelector
+        staffList={staffList}
+        selected={selected}
+        onChange={(next) => onChange(next as StaffFilterKey)}
+      />
     </div>
   )
 }
@@ -177,39 +153,3 @@ function SegmentButton({
   )
 }
 
-function StaffPill({
-  staff,
-  color,
-  active,
-  onClick,
-}: {
-  staff: StaffFilterEntry
-  color: StaffColor
-  active: boolean
-  onClick: () => void
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`inline-flex h-8 items-center gap-2 rounded-full border pl-1 pr-3 text-xs font-medium transition-colors ${
-        active
-          ? 'border-foreground bg-foreground text-background'
-          : 'border-border bg-card text-foreground hover:bg-muted'
-      }`}
-      aria-pressed={active}
-    >
-      <span
-        className={cn(
-          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold ring-1 ring-black/5',
-          color.bg,
-          color.text,
-        )}
-        aria-hidden
-      >
-        {staff.initials}
-      </span>
-      <span className="truncate max-w-[120px]">{staff.name}</span>
-    </button>
-  )
-}

@@ -33,6 +33,7 @@ create index if not exists stores_business_id_idx on stores (business_id);
 create unique index if not exists stores_one_primary_per_business
   on stores (business_id) where is_primary;
 
+drop trigger if exists update_stores_updated_at on stores;
 create trigger update_stores_updated_at before update on stores
   for each row execute procedure update_updated_at_column();
 

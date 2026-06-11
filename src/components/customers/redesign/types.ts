@@ -5,7 +5,15 @@
 
 import { BADGE_COLORS, type BadgeStyle } from '@/lib/badge-styles'
 
-export type CustomerStatusKey = 'on-track' | 'new' | 'needs-followup' | 'dormant'
+export type CustomerStatusKey =
+  | 'on-track'
+  | 'new'
+  | 'needs-followup'
+  | 'dormant'
+  // Staff lifecycle decisions (customer_lifecycle.status) — terminal, slate
+  // chips: informational, never action-colored, never 休眠 false alarms.
+  | 'graduated'
+  | 'lost'
 
 export interface CustomerListRow {
   id: string
@@ -16,8 +24,6 @@ export interface CustomerListRow {
   gender: string | null
   joinDate: string // pretty
   joinDateIso: string | null
-  visitsDone: number
-  visitsTotal: number
   lastVisitDate: string // pretty
   lastVisitAgo: string // "28 days ago"
   /** Treatment/course from the last past visit (QR course name, from
@@ -35,7 +41,19 @@ export interface CustomerListRow {
   bookingStaffName?: string | null
   totalKarute: number
   phone: string | null
-  email: string | null
+  /** 回数券 summary (active counted packs) — only the list page adapter
+   *  populates it; undefined/null hides the pack tokens (the booking rail
+   *  renders regardless). size = Σ pack_size, the 残3/10 denominator. */
+  pack?: { remaining: number; size: number; unconsumed: number } | null
+  /** Pack alert from resolvePackAlert: 'contact' (tickets + no booking +
+   *  N days absent) | 'low' (残り1回) | null. Single source — never re-derive. */
+  packAlert?: 'contact' | 'low' | null
+  /** Relative 登録 age (「2日前」) — shown on zero-history 新規 cards (案1:
+   *  the list speaks in days, never dates; exact dates live on the profile). */
+  joinAgo?: string | null
+  /** Pretty compact date of the NEAREST upcoming booking (予約 6/15) — null
+   *  when none. From enrichment.nextAppointmentIso, no extra query. */
+  nextBookingDate?: string | null
 }
 
 export interface CustomerProfileData {
@@ -104,6 +122,13 @@ export interface CustomerProfileData {
 export const STATUS_STYLES: Record<CustomerStatusKey, BadgeStyle> = {
   'on-track': BADGE_COLORS.green,
   new: BADGE_COLORS.blue,
-  'needs-followup': BADGE_COLORS.yellow,
+  // amber, not yellow: the approved card mock uses amber for 要フォロー, and
+  // the card's own accents for the same state (（N日前）/予約なし) are
+  // text-amber-600 — one hue per semantic state, every surface.
+  'needs-followup': BADGE_COLORS.amber,
   dormant: BADGE_COLORS.red,
+  // Lifecycle decisions are informational, not actionable → slate, so the
+  // red/amber action budget stays trustworthy on the 200-row scan.
+  graduated: BADGE_COLORS.slate,
+  lost: BADGE_COLORS.slate,
 }

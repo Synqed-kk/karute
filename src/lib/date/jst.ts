@@ -21,6 +21,20 @@ export interface JstParts {
   weekday: number
 }
 
+/** JST CALENDAR-day difference (not ms-floor): how many JST midnights lie
+ *  between `fromIso` and `to`. The ago-strings (6日前) and every day-based
+ *  threshold (要フォロー/休眠/離客アラート) must share THIS rule, or the
+ *  amber and the text disagree around midnight. */
+export function jstDaysBetween(fromIso: string, to: Date = new Date()): number {
+  const from = new Date(fromIso)
+  if (Number.isNaN(from.getTime())) return 0
+  const utcMidnight = (d: Date) => {
+    const [y, m, dd] = ymdInJst(d).split('-').map(Number)
+    return Date.UTC(y, m - 1, dd)
+  }
+  return Math.max(0, Math.round((utcMidnight(to) - utcMidnight(from)) / 86_400_000))
+}
+
 /** Decompose a Date into JST calendar parts (year/month/day/hour/minute/weekday). */
 export function partsInJst(d: Date): JstParts {
   // Intl.DateTimeFormat is the only stdlib-clean way to get calendar parts

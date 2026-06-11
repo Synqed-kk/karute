@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
+import { useSearchParams } from 'next/navigation'
+import { usePathname, useRouter } from '@/i18n/navigation'
 import type { CustomerListRow } from '../types'
 import { CustomersListHeader } from './CustomersListHeader'
 import { CustomerSearchInput } from './CustomerSearchInput'
@@ -11,6 +13,10 @@ import {
   type CustomerListFilterKey,
   type CustomerListCounts,
 } from './CustomersStatusFilters'
+import {
+  CustomerListStatsStrip,
+  type ListStats,
+} from './CustomerListStatsStrip'
 import {
   CustomersStaffFilter,
   type StaffFilterEntry,
@@ -36,6 +42,8 @@ interface CustomersListViewProps {
   totalRegistered: number
   query: string
   selfStaffId: string | null
+  /** Booking enrichment loaded? false → the 予約なし stat hides (honesty gate). */
+  bookingDataAvailable?: boolean
   /**
    * Full tenant staff roster (id + display name). Fed in from the server
    * page so the staff-filter pills can render every stylist, not just the
@@ -53,7 +61,7 @@ interface CustomersListViewProps {
   /**
    * URL base for each card's tap target. Defaults to `/customers`
    * so 顧客-tab cards land on the customer profile (with tabs).
-   * The カルテ tab passes `/karute/customer` so cards land on the
+   * No production caller overrides this today (カルテ tab Phase B); /customers cards land on the
    * karute-detail page (vertical stack, spike's layout).
    */
   hrefBase?: string
@@ -71,15 +79,43 @@ export function CustomersListView({
   query,
   selfStaffId,
   staffList,
+  bookingDataAvailable = true,
   karuteContext = false,
   hrefBase = '/customers',
   heading,
 }: CustomersListViewProps) {
   const t = useTranslations('customers.list')
   const tCustomers = useTranslations('customers')
-  const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>('all')
-  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>('all')
-  const [page, setPage] = useState(0)
+  // List state lives in the URL (?f=&s=&p=) via replace — no history spam,
+  // no scroll jump — so the BACK button restores the exact page + filters the
+  // staff left (Liam: "go into a card, come back, don't reset me to page 1").
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const VALID_FILTERS: CustomerListFilterKey[] = [
+    'all', 'newRecent', 'followup', 'dormant', 'noBooking', 'packLow',
+  ]
+  const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>(() => {
+    const f = searchParams.get('f') as CustomerListFilterKey | null
+    return f && VALID_FILTERS.includes(f) ? f : 'all'
+  })
+  const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
+    () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
+  )
+  const [page, setPage] = useState(() =>
+    Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
+  )
+  useEffect(() => {
+    const next = new URLSearchParams(window.location.search)
+    if (page > 0) next.set('p', String(page + 1))
+    else next.delete('p')
+    if (statusFilter !== 'all') next.set('f', statusFilter)
+    else next.delete('f')
+    if (staffFilter !== 'all') next.set('s', String(staffFilter))
+    else next.delete('s')
+    const qs = next.toString()
+    router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
+  }, [page, statusFilter, staffFilter, pathname, router])
 
   // Reset to page 1 whenever the filter changes — otherwise switching
   // to a smaller result set could leave the viewer stranded on an
@@ -98,26 +134,44 @@ export function CustomersListView({
     [staffList],
   )
 
-  const counts: CustomerListCounts = useMemo(() => {
-    const since30 = new Date()
-    since30.setDate(since30.getDate() - 30)
-    return {
-      all: rows.length,
-      preferredStaff: selfStaffId
-        ? rows.filter((r) => r.preferredStaffId === selfStaffId).length
-        : 0,
-      newRecent: rows.filter(
-        (r) => r.joinDateIso && new Date(r.joinDateIso) >= since30,
-      ).length,
-      followup: rows.filter((r) => r.status === 'needs-followup').length,
-      dormant: rows.filter((r) => r.status === 'dormant').length,
-    }
-  }, [rows, selfStaffId])
+  // Counts come from THE SAME predicate the filter uses (applyCustomerFilter)
+  // — the pill number and the filtered list can never disagree. Previously the
+  // predicates were hand-duplicated here and had already drifted (the 新規 pill
+  // counted by join date alone → 192/192 after the bulk import).
+  const counts: CustomerListCounts = useMemo(
+    () => ({
+      all: applyCustomerFilter(rows, 'all').length,
+      newRecent: applyCustomerFilter(rows, 'newRecent').length,
+      followup: applyCustomerFilter(rows, 'followup').length,
+      dormant: applyCustomerFilter(rows, 'dormant').length,
+      noBooking: applyCustomerFilter(rows, 'noBooking').length,
+      packLow: applyCustomerFilter(rows, 'packLow').length,
+    }),
+    [rows],
+  )
+
+  // Kitano's sheet-top stats, live from row memory (案D header). The counts
+  // reuse applyCustomerFilter so the strip number and the tapped list can
+  // never disagree; ¥ and hasPackData are simple folds.
+  const stats: ListStats = useMemo(
+    () => ({
+      total: rows.length,
+      noBooking: counts.noBooking,
+      packLow: counts.packLow,
+      unconsumedTotal: rows.reduce(
+        (sum, r) => sum + (r.pack?.unconsumed ?? 0),
+        0,
+      ),
+      hasPackData: rows.some((r) => r.pack != null),
+      hasBookingData: bookingDataAvailable,
+    }),
+    [rows, counts.noBooking, counts.packLow, bookingDataAvailable],
+  )
 
   // Filter composition: status filter (existing) AND staff filter (new).
   // Order doesn't matter for correctness — both are simple predicates.
   const filteredRows = useMemo(() => {
-    const indices = applyCustomerFilter(rows, statusFilter, selfStaffId)
+    const indices = applyCustomerFilter(rows, statusFilter)
     const afterStatus = indices.map((i) => rows[i])
     if (staffFilter === 'all') return afterStatus
     const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
@@ -164,6 +218,14 @@ export function CustomersListView({
       />
 
       <CustomerSearchInput initialQuery={query} />
+
+      {/* Kitano's daily read (案D): 予約なし N件(%) · 残り1回 N人 · 未消化 ¥ —
+       *  the sheet's pinned top block, tappable to filter. */}
+      <CustomerListStatsStrip
+        stats={stats}
+        active={statusFilter}
+        onSelect={setStatusFilter}
+      />
 
       <CustomersStatusFilters
         active={statusFilter}

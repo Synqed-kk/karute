@@ -2,9 +2,11 @@
 
 import { ArrowRight, Sparkles, X } from 'lucide-react'
 import { useRouter } from '@/i18n/navigation'
+import { useTranslations } from 'next-intl'
 import { useState } from 'react'
 
 export function OnboardingBanner() {
+  const t = useTranslations('dashboard.onboarding')
   const router = useRouter()
   const [dismissed, setDismissed] = useState(false)
   if (dismissed) return null
@@ -15,19 +17,15 @@ export function OnboardingBanner() {
         <Sparkles size={16} />
       </div>
       <div className="flex flex-1 flex-col gap-2">
-        <div className="text-sm font-semibold text-foreground">
-          Finish setting up your store
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Pick your business type + recording disclosure mode so the AI is tuned to your salon. Takes about 2 minutes.
-        </p>
+        <div className="text-sm font-semibold text-foreground">{t('title')}</div>
+        <p className="text-xs text-muted-foreground">{t('body')}</p>
         <div className="mt-1 flex items-center gap-2">
           <button
             type="button"
             onClick={() => router.push('/welcome')}
             className="inline-flex h-8 items-center gap-1.5 rounded-full bg-sky-500 px-3.5 text-xs font-semibold text-white transition-colors hover:bg-sky-600"
           >
-            <span>Start setup</span>
+            <span>{t('start')}</span>
             <ArrowRight size={13} />
           </button>
           <button
@@ -36,7 +34,7 @@ export function OnboardingBanner() {
             className="inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <X size={12} />
-            <span>Dismiss</span>
+            <span>{t('dismiss')}</span>
           </button>
         </div>
       </div>
