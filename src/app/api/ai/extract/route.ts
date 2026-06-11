@@ -36,6 +36,9 @@ export async function POST(request: Request) {
       // to the very model that caused the bug. gpt-4o supports json_schema
       // structured outputs (zodResponseFormat).
       model: process.env.AI_EXTRACT_MODEL || 'gpt-4o',
+      // Deterministic extraction — unpinned this ran at the API default (1.0),
+      // which is run-to-run category flapping. Same 0.2 as memory-extract.
+      temperature: 0.2,
       messages: [
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
