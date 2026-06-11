@@ -208,28 +208,17 @@ export async function deleteKaruteRecord(karuteId: string): Promise<{ success: t
  * OR they later attach a recording (and the AI pass populates the
  * entries from the transcript).
  *
- * ANTHONY contracts:
- *   • `service` (text) and `duration_minutes` (int) are captured by
- *     the dialog UI but NOT yet persisted — the karute_records
- *     schema doesn't have those columns. Add them + a follow-up
- *     migration backfills existing rows with null. The list-row
- *     renderer (KaruteListRow) already expects both fields; this
- *     will close that gap.
- *   • `session_date` (date) — same situation. The dialog lets staff
- *     pick a date for backdating; today the create call uses
- *     `created_at` (now) implicitly. Adding the column lets staff
- *     log a session from yesterday.
- *
- * Until those columns land, the captured values are dropped server-
- * side. The dialog stays functional — staff get a draft karute
- * record they can open and start adding entries to.
+ * service / duration_minutes / session_date are persisted on
+ * synqed-core karute_records (2026-06-11 manual migration). The
+ * installed @synqed-kk/client types predate the fields, so the
+ * payload is widened structurally until the client republish.
  */
 export async function createManualKaruteRecord(input: {
   customerId: string
   staffId: string
-  sessionDate: string // YYYY-MM-DD — captured but not persisted yet
-  durationMinutes: number // captured but not persisted yet
-  service: string // captured but not persisted yet
+  sessionDate: string // YYYY-MM-DD — actual session day (backdating)
+  durationMinutes: number
+  service: string
 }): Promise<{ error: string } | void> {
   let recordId: string
 
@@ -245,6 +234,11 @@ export async function createManualKaruteRecord(input: {
       transcript: null,
       ai_summary: null,
       entries: [],
+      ...({
+        service: input.service || null,
+        duration_minutes: input.durationMinutes > 0 ? input.durationMinutes : null,
+        session_date: input.sessionDate || null,
+      } as Record<string, unknown>),
     })
     recordId = record.id
   } catch (err) {

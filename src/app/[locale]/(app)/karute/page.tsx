@@ -100,6 +100,8 @@ export default async function KaruteRecordsListPage() {
     staff_profile_id: string | null
     client_id: string
     entries: Array<{ count: number }> | null
+    service?: string | null
+    duration_minutes?: number | null
   }
 
   const records = mergeKaruteRows<RecordRow>(
@@ -195,16 +197,12 @@ export default async function KaruteRecordsListPage() {
         karuteNumberByCustomerId.get(r.client_id) ?? '#00000',
       date: isoDate,
       weekday,
-      // ANTHONY: service + duration aren't on karute_records yet —
-      // schema gap also flagged in the manual-create dialog's server
-      // action (createManualKaruteRecord in src/actions/karute.ts).
-      // Sending '—' instead of a hardcoded '施術' so the row reads
-      // honestly as "unset" rather than printing the same generic
-      // label on every record. Once the columns land, swap to the
-      // real fields and the row's existing `duration > 0 && ...`
-      // guard hides the duration line when truly unknown.
-      service: '—',
-      duration: 0,
+      // Real fields from synqed-core (2026-06-11 migration). '—' / 0
+      // remain the honest "unset" displays for records that predate the
+      // columns; the row's `duration > 0 && ...` guard hides the
+      // duration line when unknown.
+      service: r.service || '—',
+      duration: r.duration_minutes ?? 0,
       staffId: r.staff_profile_id,
       staffColorKey: r.staff_profile_id
         ? (staffColors.get(r.staff_profile_id)?.key ?? null)

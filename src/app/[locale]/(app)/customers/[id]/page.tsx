@@ -62,11 +62,10 @@ export default async function CustomerProfilePage({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = service as any
 
-  // Also fetch the full tenant customer list so we can compute the
-  // sequential karute number for this customer in the same way the
-  // list page does (sort by created_at, assign 1-based index). The
-  // numbers stay consistent across both views until Anthony adds the
-  // real `customers.karute_number` column.
+  // Also fetch the full tenant customer list for the karute-number
+  // helper (it prefers the persisted customers.karute_number and only
+  // derives sequentially for rows without one), keeping this view
+  // consistent with the list page.
   const synqed = await getSynqedClient()
 
   const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
@@ -113,6 +112,8 @@ export default async function CustomerProfilePage({
     summary: string | null
     staff_profile_id: string | null
     entries: Array<{ count: number }> | null
+    service?: string | null
+    duration_minutes?: number | null
   }
   const karuteRecords = mergeKaruteRows<KaruteRow>(
     (karuteRes.data ?? []) as KaruteRow[],
@@ -220,14 +221,11 @@ export default async function CustomerProfilePage({
       karuteId: r.id,
       date: prettyDate(r.session_date ?? r.created_at, locale),
       weekday: weekdayLabel(dt, locale),
-      // Service '—' + duration 0 instead of literal 'Session' /
-      // 60 — same '施術' bug fixed on the main karute list. The
-      // session-row renderer should gate the duration display on
-      // `duration > 0` so the line hides instead of rendering "0 min".
-      // ANTHONY: when karute_records gains `service` + `duration_minutes`
-      // columns, pass the real values.
-      service: '—',
-      duration: 0,
+      // Real fields from synqed-core (2026-06-11 migration); '—' / 0
+      // remain the honest "unset" displays for records that predate
+      // the columns (renderer gates duration display on > 0).
+      service: r.service || '—',
+      duration: r.duration_minutes ?? 0,
       summary: r.summary ?? '—',
       staffName: r.staff_profile_id
         ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
