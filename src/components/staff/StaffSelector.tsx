@@ -86,7 +86,8 @@ export function StaffSelector({
             >
               {active.initials}
             </span>
-            <span className="shrink-0 text-muted-foreground">{t('trigger')}:</span>
+            {/* avatar + name only — the 担当: prefix read as clutter once a
+             *  staff is picked (Liam); the unselected state keeps 「担当」. */}
             <span className={cn('truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
               {active.name}
             </span>
