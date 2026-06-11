@@ -2554,5 +2554,10 @@
     "cap_analytics_viewAll": "Whole-salon analytics",
     "cap_customers_view": "View customers",
     "cap_bookings_manage": "Manage bookings"
+  },
+  "staffSelector": {
+    "trigger": "Staff",
+    "title": "Filter by staff",
+    "all": "All staff"
   }
 }

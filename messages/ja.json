@@ -2554,5 +2554,10 @@
     "cap_analytics_viewAll": "全店舗の分析",
     "cap_customers_view": "顧客の閲覧",
     "cap_bookings_manage": "予約の管理"
+  },
+  "staffSelector": {
+    "trigger": "担当",
+    "title": "スタッフで絞り込み",
+    "all": "全スタッフ"
   }
 }
