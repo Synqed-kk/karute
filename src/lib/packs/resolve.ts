@@ -45,6 +45,37 @@ export function resolvePackAlert(i: PackAlertInput): PackAlertLevel {
   return null
 }
 
+/** FIFO redemption target — the OLDEST active counted pack with sessions
+ *  left (by purchased_at, nulls last, id tiebreak). ONE rule, every consumer
+ *  (recording auto-flow, stop-dialog toggle, bulk usage's firstPackId).
+ *  Why FIFO is load-bearing: the repurchase prompt fires at 残2, so a
+ *  customer can buy the next pack while the old one holds 残1 — newest-first
+ *  targeting then drains the new pack and strands the old 残1 FOREVER:
+ *  permanent phantom 未消化, a pack that never reaches 終了, and (multi-store)
+ *  a settlement undercount. "Finish the old ticket first" is the business
+ *  truth (Liam, §7 of docs/store-transfer-design.md). */
+export function pickRedemptionTarget<
+  T extends {
+    kind: string
+    status: string
+    remaining: number
+    purchased_at: string | null
+    id: string
+  },
+>(packs: readonly T[]): T | null {
+  const candidates = packs.filter(
+    (p) => p.kind === 'pack' && p.status === 'active' && p.remaining > 0,
+  )
+  if (candidates.length === 0) return null
+  return [...candidates].sort((a, b) => {
+    if (a.purchased_at && b.purchased_at)
+      return a.purchased_at.localeCompare(b.purchased_at) || a.id.localeCompare(b.id)
+    if (a.purchased_at) return -1
+    if (b.purchased_at) return 1
+    return a.id.localeCompare(b.id)
+  })[0]
+}
+
 // ─── Post-session outcome mode ──────────────────────────────────────────────
 // The 成約/不成約 dialog is the CONVERSION question — meaningless mid-pack
 // (customer already paid, keeps rebooking; forcing a label pollutes the
