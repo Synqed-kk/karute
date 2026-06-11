@@ -213,6 +213,9 @@ export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>
             .from('ticket_packs')
             .select('id, customer_id, kind, pack_size, unit_price')
             .eq('status', 'active')
+            // FIFO: firstPackId (the この日に消化 target) must be the OLDEST
+            // pack with sessions left — same §7 rule as pickRedemptionTarget.
+            .order('purchased_at', { ascending: true, nullsFirst: false })
             .order('id')
             .range(from, to),
       ),

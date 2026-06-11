@@ -7,6 +7,7 @@ import { getCustomer } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
 import { listCustomerPacks } from '@/lib/packs/store'
+import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   getAppointmentsByDate,
@@ -392,9 +393,10 @@ export default async function SessionsPage({
     const targetHasActivePack = targetPacks.some(
       (p) => p.status === 'active' && p.kind === 'pack',
     )
-    const activePack = targetPacks.find(
-      (p) => p.status === 'active' && p.kind === 'pack' && p.remaining > 0,
-    )
+    // FIFO: finish the old ticket first (pickRedemptionTarget — §7 rule).
+    // listCustomerPacks returns newest-first, so .find() picked the NEWEST
+    // and stranded the old pack's 残1 after a 残2-prompt repurchase.
+    const activePack = pickRedemptionTarget(targetPacks)
     targetPack = activePack
       ? { id: activePack.id, remaining: activePack.remaining, size: activePack.pack_size }
       : null
