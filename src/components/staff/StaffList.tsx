@@ -41,6 +41,7 @@ import { StaffConsentStatusBadge } from '@/components/coaching/redesign/StaffCon
 import { StaffForm } from './StaffForm'
 import { PinSetup } from './PinSetup'
 import { VoiceEnrollmentDialog } from './VoiceEnrollmentDialog'
+import { revokeVoiceAction } from '@/actions/voice'
 
 interface StaffMember {
   id: string
@@ -84,6 +85,9 @@ interface StaffListProps {
   currentUserId?: string | null
   /** Whether the current user is the account owner */
   isOwner?: boolean
+  /** Server-persisted enrollments (org-settings voice_enrollments, status
+   *  'saved'): staff profile id → consent_at ISO. */
+  voiceEnrollments?: Record<string, string | null>
 }
 
 function formatJpDate(dateString: string, locale: 'ja' | 'en'): string {
@@ -109,6 +113,7 @@ export function StaffList({
   activeStaffId,
   currentUserId,
   isOwner = false,
+  voiceEnrollments,
 }: StaffListProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
@@ -127,7 +132,7 @@ export function StaffList({
   // reads from staff.voice_enrolled_at and the chip will light up
   // automatically.
   const [localEnrollments, setLocalEnrollments] = useState<
-    Record<string, string>
+    Record<string, string | null>
   >({})
 
   async function handleDelete(staff: StaffMember) {
@@ -201,7 +206,9 @@ export function StaffList({
             // can be dropped (drop `localEnrollments` entirely + this
             // fallback expression).
             const enrolledAt =
-              staff.voice_enrolled_at ?? localEnrollments[staff.id] ?? null
+              staff.id in localEnrollments
+                ? localEnrollments[staff.id]
+                : (staff.voice_enrolled_at ?? voiceEnrollments?.[staff.id] ?? null)
             return (
               <StaffRow
                 key={staff.id}
@@ -216,15 +223,13 @@ export function StaffList({
                 voiceEnrolledAt={enrolledAt}
                 onEnrollVoice={() => setVoiceEnrollStaff(staff)}
                 onRevokeVoice={() => {
-                  // ANTHONY: real impl posts to a revoke endpoint that
-                  // clears staff.voice_enrolled_at + voice_embedding +
-                  // inserts a voice_enrollment_audit row. Today this
-                  // just clears the local mirror so the UI snaps back
-                  // to the "声を登録（任意）" CTA chip.
-                  setLocalEnrollments((m) => {
-                    const next = { ...m }
-                    delete next[staff.id]
-                    return next
+                  // REAL revoke: deletes the stored sample + records the
+                  // revocation (audit trail). Local mirror cleared so the
+                  // chip snaps back immediately; server state follows via
+                  // the revalidated settings page.
+                  void revokeVoiceAction(staff.id).then((res) => {
+                    if (!res.ok) return
+                    setLocalEnrollments((m) => ({ ...m, [staff.id]: null }))
                   })
                 }}
                 labels={{
@@ -279,12 +284,12 @@ export function StaffList({
       {voiceEnrollStaff && (
         <VoiceEnrollmentDialog
           open
+          staffId={voiceEnrollStaff.id}
           staffName={voiceEnrollStaff.full_name ?? 'Staff'}
           onClose={() => setVoiceEnrollStaff(null)}
           onEnrolled={(enrolledAt) => {
-            // Mirror in local state so the row's chip flips to 声登録済
-            // immediately. ANTHONY: replace with the POST → embedding
-            // pipeline (see MERGE_NOTES "Staff voice enrollment" section).
+            // Server-confirmed timestamp (enrollVoiceAction) — local mirror
+            // flips the chip immediately; revalidation carries it after.
             setLocalEnrollments((m) => ({
               ...m,
               [voiceEnrollStaff.id]: enrolledAt,

@@ -205,6 +205,11 @@ export function SettingsShell({
             staffList={staffList}
             activeStaffId={activeStaffId}
             isOwner={isOwner}
+            voiceEnrollments={Object.fromEntries(
+              Object.entries(orgSettings?.voice_enrollments ?? {}).map(
+                ([id, v]) => [id, v.status === 'saved' ? v.consent_at : null],
+              ),
+            )}
           />
         )
       case 'sync':
