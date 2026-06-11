@@ -1557,6 +1557,24 @@
       "contactFailed": "記録できませんでした",
       "inProgressTitle": "対応中 {n}件（7日間スヌーズ · 再来店で自動解決）",
       "monthlyMetric": "今月: 対応 {contacted}件 → 再来店 {rebooked}件（{pct}%）"
+    },
+    "reconcile": {
+      "title": "未処理来店 {n}件",
+      "subtitle": "来店したのに回数券が消化されていません",
+      "visitLine": "{date} 来店",
+      "packShort": "残{n}/{m}",
+      "chipUnrecorded": "記録なし",
+      "chipUnredeemed": "消化のみ未処理",
+      "hintUnrecorded": "カルテも消化も無し",
+      "hintUnredeemed": "カルテ有り・チェック漏れ",
+      "actionRedeem": "この日に消化",
+      "actionNoVisit": "来店なし",
+      "redeemed": "{date}の分を消化しました",
+      "undo": "取り消す",
+      "redeemFailed": "消化できませんでした",
+      "dismissed": "来店なしとして記録しました",
+      "dismissFailed": "記録できませんでした",
+      "more": "他{n}件（処理すると順に表示されます）"
     }
   },
   "settings": {

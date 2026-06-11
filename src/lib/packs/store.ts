@@ -178,6 +178,8 @@ export interface CustomerPackUsage {
   /** Σ remaining × unit_price across active counted packs (消化残高). */
   unconsumed: number
   hasActivePack: boolean
+  /** First active counted pack with sessions left — the この日に消化 target. */
+  firstPackId?: string | null
 }
 
 /** Bulk pack usage for the customer LIST page — two queries total (not per
@@ -230,11 +232,13 @@ export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>
         size: 0,
         unconsumed: 0,
         hasActivePack: false,
+        firstPackId: null,
       }
       cur.remaining += remaining
       cur.size += p.pack_size
       cur.unconsumed += remaining * p.unit_price
       cur.hasActivePack = true
+      if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
       map.set(p.customer_id, cur)
     }
     return map

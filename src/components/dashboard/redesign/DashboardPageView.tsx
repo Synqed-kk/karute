@@ -4,6 +4,8 @@ import { AIActionsHero } from './AIActionsHero'
 import { DashboardHeader } from './DashboardHeader'
 import { OnboardingBanner } from './OnboardingBanner'
 import { PackAlertsCard } from './PackAlertsCard'
+import { ReconcileStrip } from './ReconcileStrip'
+import type { ReconcileData } from '@/lib/packs/reconcile'
 import {
   RecentKaruteCard,
   type DashboardRecentKarute,
@@ -25,6 +27,7 @@ interface DashboardPageViewProps {
   recentKarute: DashboardRecentKarute[]
   /** 離客/upsell alerts — card renders nothing when both lists are empty. */
   packAlerts: PackAlerts
+  reconcile: ReconcileData
   /** alerts.manage capability (manager+) — shows the dismiss buttons. */
   canDismissAlerts: boolean
 }
@@ -39,6 +42,7 @@ export function DashboardPageView({
   appointments,
   recentKarute,
   packAlerts,
+  reconcile,
   canDismissAlerts,
 }: DashboardPageViewProps) {
   return (
@@ -55,6 +59,10 @@ export function DashboardPageView({
       {/* 離客アラート — ABOVE everything else (Kitano: a prominent, always-
        *  visible place so staff can't forget to bring pack holders back). */}
       <PackAlertsCard alerts={packAlerts} canDismiss={canDismissAlerts} />
+
+      {/* 未処理来店 — housekeeping below the red action block; renders null
+       *  when there's nothing to fix. */}
+      <ReconcileStrip data={reconcile} />
 
       <AIActionsHero businessProfile={businessProfile} />
 

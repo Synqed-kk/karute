@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import {
+  addVisitReconcileDismissal,
   addCustomerContact,
   addPackAlertDismissal,
   addRedemption,
@@ -87,6 +88,26 @@ export async function redeemSessionAction(input: {
   return result.ok
     ? { ok: true, redemptionId: result.id }
     : { ok: false, error: result.error }
+}
+
+/** 来店なし — the visit didn't actually happen; the reconcile row never
+ *  re-surfaces. ANY staff (unlike alert dismissal): correcting a record is
+ *  not the manager-gated "give up". Audit-trailed via dismissed_by. */
+export async function dismissVisitReconcileAction(input: {
+  customerId: string
+  appointmentId?: string | null
+  visitDay: string
+}): Promise<{ ok: boolean }> {
+  if (!input.customerId || !input.visitDay) return { ok: false }
+  const staffId = await getCurrentUserStaffId().catch(() => null)
+  const result = await addVisitReconcileDismissal({
+    customerId: input.customerId,
+    appointmentId: input.appointmentId ?? null,
+    visitDay: input.visitDay,
+    dismissedBy: staffId ?? 'unknown',
+  })
+  if (result.ok) revalidatePath('/dashboard')
+  return result
 }
 
 export async function undoRedemptionAction(redemptionId: string): Promise<{ ok: boolean }> {
