@@ -193,7 +193,8 @@ describe('CustomersListView', () => {
         ]}
       />,
     )
-    // Pick staff s-1 pill, then the followup status filter.
+    // Open the 担当 trigger, pick staff s-1 in the sheet, then followup.
+    fireEvent.click(screen.getByText('trigger'))
     fireEvent.click(screen.getByText('Me'))
     fireEvent.click(screen.getByText('filters.followup'))
     const visible = desktopRows()
