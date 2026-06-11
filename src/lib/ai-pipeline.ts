@@ -118,10 +118,18 @@ export async function runAIPipeline(
   // stored transcript get the labeled text (施術者:/お客様:/周囲) — what the
   // AI read is exactly what staff can audit. Any failure → flat transcript,
   // exactly yesterday's behavior (graceful degradation).
+  // Voiceprint staff hint (speaker-id pass) — acted on only in enforce mode;
+  // shadow mode logs server-side without changing behavior.
+  const sid = transcribeData.speakerId
+  const staffHint =
+    sid && sid.mode === 'enforce'
+      ? { speaker: sid.staffSpeakerIndex as number, confidence: sid.confidence as number }
+      : null
   const diarized = buildDiarizedTranscript(
     transcribeData.paragraphs ?? [],
     transcribeData.words ?? [],
     transcribeData.confidence ?? 0,
+    staffHint,
   )
   const aiTranscript = diarized ? toSpeakerText(diarized) : transcript
 
