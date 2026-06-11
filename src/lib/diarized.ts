@@ -36,10 +36,20 @@ const SEGMENT_CONFIDENCE_FLOOR = 0.45
  *  (caller falls back to the flat transcript — graceful degradation). */
 const OVERALL_CONFIDENCE_FLOOR = 0.55
 
+/** Voiceprint match from the speaker-id pass — overrides the first-speaker
+ *  heuristic when confident. Upgrade-only: a weak hint changes nothing. */
+export interface StaffHint {
+  speaker: number
+  confidence: number
+}
+
+const STAFF_HINT_MIN_CONFIDENCE = 0.7
+
 export function buildDiarizedTranscript(
   paragraphs: readonly DeepgramParagraph[],
   words: readonly DeepgramWord[],
   overallConfidence: number,
+  staffHint?: StaffHint | null,
 ): DiarizedTranscript | null {
   if (paragraphs.length === 0) return null
   if (overallConfidence > 0 && overallConfidence < OVERALL_CONFIDENCE_FLOOR) return null
@@ -48,8 +58,14 @@ export function buildDiarizedTranscript(
   // One voice = nothing to attribute; flat transcript is strictly clearer.
   if (speakers.length < 2) return null
 
-  // H1 — first voice on the recording is the staff member.
-  const staff = paragraphs[0].speaker
+  // Staff = the ENROLLED VOICE when the speaker-id pass matched confidently
+  // (proof beats heuristic); otherwise H1 — first voice on the recording.
+  const staff =
+    staffHint &&
+    staffHint.confidence >= STAFF_HINT_MIN_CONFIDENCE &&
+    speakers.includes(staffHint.speaker)
+      ? staffHint.speaker
+      : paragraphs[0].speaker
 
   // Customer = the non-staff speaker most interleaved with staff turns.
   const adjacency = new Map<number, number>()
