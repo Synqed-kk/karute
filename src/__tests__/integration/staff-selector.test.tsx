@@ -29,9 +29,10 @@ describe('StaffSelector (担当トリガー)', () => {
     render(<StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />)
     expect(screen.getByText('担当')).toBeInTheDocument()
   })
-  it('staff selected: trigger names them with their avatar', () => {
+  it('staff selected: trigger reads 担当: 名前 (the approved mock format)', () => {
     render(<StaffSelector staffList={STAFF} selected="s2" onChange={() => {}} />)
     expect(screen.getByText('浜野')).toBeInTheDocument()
+    expect(screen.getByText('担当:')).toBeInTheDocument()
   })
   it('opens the sheet and picking a staff fires onChange + closes', () => {
     const calls: string[] = []
