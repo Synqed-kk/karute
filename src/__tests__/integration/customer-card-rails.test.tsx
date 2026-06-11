@@ -14,7 +14,7 @@ import { render, within } from '@testing-library/react'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
 jest.mock('next-intl', () => {
-  const ja = require('../../../messages/ja.json')
+  const ja = jest.requireActual('../../../messages/ja.json')
   return {
     useTranslations:
       (ns: string) =>
@@ -34,7 +34,7 @@ jest.mock('next-intl', () => {
 })
 
 jest.mock('@/i18n/navigation', () => {
-  const React = require('react')
+  const React = jest.requireActual('react')
   return {
     Link: ({ href, children, className }: { href: unknown; children: React.ReactNode; className?: string }) =>
       React.createElement('a', { href: String(href), className }, children),
