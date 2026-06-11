@@ -365,6 +365,34 @@ export async function listRecentContacts(
   }
 }
 
+/** Redemptions in the last N days — feeds the 未処理来店 reconciler's
+ *  "was this visit ticked off?" check. Paginated; empty until data exists. */
+export async function listRecentRedemptions(
+  sinceDays: number,
+): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> {
+  try {
+    const supabase = createServiceClient()
+    const since = new Date(Date.now() - sinceDays * 86_400_000)
+      .toISOString()
+      .slice(0, 10)
+    return await pageAll<{
+      customer_id: string
+      appointment_id: string | null
+      redeemed_on: string
+    }>((from, to) =>
+      supabase
+        .from('pack_redemptions')
+        .select('customer_id, appointment_id, redeemed_on')
+        .gte('redeemed_on', since)
+        .order('redeemed_on')
+        .range(from, to),
+    )
+  } catch (err) {
+    warn('listRecentRedemptions', err)
+    return []
+  }
+}
+
 /** 来店なし answer for a flagged 未処理来店 — stops the reconcile row from
  *  re-surfacing. Any staff; audit-trailed. No-op until migration applies. */
 export async function addVisitReconcileDismissal(input: {
