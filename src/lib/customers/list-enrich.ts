@@ -252,6 +252,13 @@ export interface CustomerStatusSignals {
   pastAppointmentCount?: number
   /** Holds a 回数券 / multi-session pass → definitively a returning customer. */
   hasTicketPack?: boolean
+  /** Upcoming booking on file → the customer is ALREADY coming back, so the
+   *  chase states (要フォロー/休眠) are moot: a follow-up queue containing
+   *  people who already booked wastes staff calls (Liam; Kitano's sheet keys
+   *  every chase list on 次回予約なし). Self-healing: a no-show stops being
+   *  "upcoming" and the customer re-enters the queue automatically. Matches
+   *  resolvePackAlert, which has required hasNextBooking=false from day one. */
+  hasUpcomingBooking?: boolean
   /** customer_lifecycle.status — a staff DECISION that outranks cadence math.
    *  卒業 (graduated) / 離客 (lost) customers must never fake-render as 休眠/
    *  要フォロー: that red would poison the 200-row scan with known-closed
@@ -298,6 +305,8 @@ export function resolveCustomerStatus(s: CustomerStatusSignals): CustomerStatusK
   }
   // Returning but no dated visit yet → on-track (not new, not dormant).
   if (!s.lastVisitIso) return 'on-track'
+  // A booked customer is never a chase target — see hasUpcomingBooking doc.
+  if (s.hasUpcomingBooking) return 'on-track'
   // JST calendar days — the SAME rule the ago-string uses (jstDaysBetween),
   // so 「90日前」 and the 休眠 chip can never disagree around midnight.
   const daysSince = jstDaysBetween(s.lastVisitIso, new Date(now))
