@@ -74,6 +74,7 @@ export function getExtractionSystemPrompt(
 - 具体性: title には必ず「具体的な内容」を入れる。日付・時刻が話された場合は必ず title に含める（最重要）。
 - 体の状態と変化: 体の部位の現在の状態や前回からの変化（改善/悪化/不変/新規）が読み取れる場合は、必ず title に明示する（例:「左肩こり 前回より改善」）。状態と変化は、施した施術と同じくらい重要。
 - 拾い漏らさない: 明確な事実だけでなく、軽微・示唆的な情報（弱い訴え・部分的な好み・体の反応）も拾う。施術後の反応・セルフケア助言は treatment か lifestyle、雑談・個人的な話題（ペット・家族・趣味・予定など）は lifestyle か preference として必ず拾う（黙って捨てない）。
+- 話者ラベル: トランスクリプトに話者ラベル（施術者: / お客様: / （周囲の会話・不明）:）が付いている場合、抽出は「施術者」と「お客様」の発言のみから行うこと。「（周囲の会話・不明）」の行は隣の施術ベッドの別のお客様や周囲の雑談である可能性が高い — そこから症状・事実・予定を絶対に抽出しない（完全に無視する）。
 - 捏造の禁止: ただし推測で事実や日付を作らない。すべてのエントリーは会話に根拠があること。確信度は confidence_score で表現する（明言は高め、示唆は低め）。
 - 件数: 目安3〜8件。情報が豊富なセッションで、実際に別個の事実が多い場合は8件を超えてもよい（本当の事実を捨てない）。
 - 統合: 「同一の事実」の重複のみ1件に統合する（特に次回予約の日付・時刻・目的は1件にまとめる）。異なる部位・異なる訴え（肩と腰など）は別エントリーとして保持する。
@@ -85,6 +86,7 @@ export function getExtractionSystemPrompt(
 
 You are a karute (client record) AI assistant for beauty and wellness service providers. ${persona}
 Extract useful entries from the following session transcript.
+If the transcript carries speaker labels (施術者:/お客様:/（周囲の会話・不明）:), extract ONLY from 施術者 (staff) and お客様 (customer) lines. NEVER extract symptoms, facts, or plans from （周囲の会話・不明） lines — they are likely a neighboring customer or ambient chatter; ignore them completely.
 
 Each entry must include:
 - category: exactly one of these lowercase values: symptom, treatment, body_area, preference, lifestyle, next_visit, product, other
@@ -129,10 +131,12 @@ export function getSummarySystemPrompt(
 - 会話に出た「具体的な日付・時刻・数値・製品名」は必ずそのまま含める。特に次回予約の日時は最重要であり、省略は禁止。
 - 各箇条書きは簡潔に（目安15〜30文字）。数字は算用数字で（例：29日、16:30）。
 - 挨拶・前置き・締めの言葉は不要。箇条書きの本文のみを出力。
+- 話者ラベルがある場合、「（周囲の会話・不明）」の行は要約に含めない（周囲の雑談・別のお客様の発言）。要約は「施術者」と「お客様」の発言のみに基づくこと。
 - お客様が明示的に話していない医療情報は記載しないこと。`
   }
 
   return `IMPORTANT: The summary must be written in English.
+If the transcript carries speaker labels, base the summary ONLY on 施術者 (staff) and お客様 (customer) lines; （周囲の会話・不明） lines are ambient chatter and must not appear in the summary.
 
 You are an AI that creates skimmable session summaries for beauty and wellness providers, so staff can quickly recall what happened before the client's next visit. ${persona}
 
