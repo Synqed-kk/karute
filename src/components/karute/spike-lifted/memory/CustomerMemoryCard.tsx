@@ -54,6 +54,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
+import { useRouter } from '@/i18n/navigation'
+import {
+  addMemoryItemAction,
+  deleteMemoryItemAction,
+  toggleMemoryPinAction,
+  updateMemoryItemAction,
+} from '@/actions/memory'
 import {
   EMPTY_MEMORY,
   type CustomerIntake,
@@ -65,6 +73,10 @@ import {
 
 interface Props {
   customerName: string
+  /** Required for mutations (pin/edit/delete/add write to
+   *  customer_memory_items). Optional so read-only mounts keep compiling —
+   *  without it the add action no-ops with an error toast. */
+  customerId?: string
   /**
    * Customer memory data. Defaults to an empty memory shell — the
    * empty-state UI renders ("まだメモリーがありません" / equivalent)
@@ -142,11 +154,78 @@ const CATEGORY_KEYS: MemoryCategory[] = [
 
 export function CustomerMemoryCard({
   customerName,
+  customerId,
   memory = EMPTY_MEMORY,
   pastSessionCount = 0,
 }: Props) {
   const t = useTranslations('karute.memorySection')
-  const [stubOpen, setStubOpen] = useState(false)
+  const router = useRouter()
+  // Editor (add + edit modes) and delete-confirm — the real mutations the
+  // stub dialog used to block on "Anthony" (stale: the schema shipped with
+  // source='staff', pinned, and soft deleted_at from day one).
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [editorItem, setEditorItem] = useState<MemoryItem | null>(null)
+  const [editorCategory, setEditorCategory] = useState<MemoryCategory>('personal')
+  const [label, setLabel] = useState('')
+  const [detail, setDetail] = useState('')
+  const [confirmItem, setConfirmItem] = useState<MemoryItem | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const openAdd = () => {
+    setEditorItem(null)
+    setEditorCategory('personal')
+    setLabel('')
+    setDetail('')
+    setEditorOpen(true)
+  }
+  const openEdit = (item: MemoryItem) => {
+    setEditorItem(item)
+    setEditorCategory(item.category)
+    setLabel(item.label)
+    setDetail(item.body ?? '')
+    setEditorOpen(true)
+  }
+  const saveEditor = async () => {
+    if (!label.trim()) return
+    setBusy(true)
+    const res = editorItem
+      ? await updateMemoryItemAction({ id: editorItem.id, label, detail })
+      : await addMemoryItemAction({
+          customerId: customerId ?? '',
+          category: editorCategory,
+          label,
+          detail,
+        })
+    setBusy(false)
+    if (res.ok) {
+      toast.success(t('saved'))
+      setEditorOpen(false)
+      router.refresh()
+    } else {
+      toast.error(t('actionFailed'))
+    }
+  }
+  const onItemAction = (item: MemoryItem, kind: 'pin' | 'edit' | 'delete') => {
+    if (kind === 'edit') return openEdit(item)
+    if (kind === 'delete') return setConfirmItem(item)
+    void toggleMemoryPinAction(item.id, !item.pinned).then((res) => {
+      if (res.ok) {
+        toast.success(item.pinned ? t('unpinned') : t('pinnedToast'))
+        router.refresh()
+      } else toast.error(t('actionFailed'))
+    })
+  }
+  const confirmDelete = async () => {
+    if (!confirmItem) return
+    setBusy(true)
+    const res = await deleteMemoryItemAction(confirmItem.id)
+    setBusy(false)
+    if (res.ok) {
+      toast.success(t('deleted'))
+      setConfirmItem(null)
+      router.refresh()
+    } else toast.error(t('actionFailed'))
+  }
   const talkingPoints = memory.items.filter((i) => i.suggestTalkingPoint)
   const byCategory = groupByCategory(memory.items)
 
@@ -263,7 +342,7 @@ export function CustomerMemoryCard({
                 items={items}
                 isCollapsed={collapsed.has(cat)}
                 onToggleCollapse={() => toggleCollapsed(cat)}
-                onActionStub={() => setStubOpen(true)}
+                onItemAction={onItemAction}
               />
             )
           })}
@@ -273,7 +352,7 @@ export function CustomerMemoryCard({
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-black/5 pt-3 dark:border-white/5">
           <button
             type="button"
-            onClick={() => setStubOpen(true)}
+            onClick={openAdd}
             className="inline-flex h-9 items-center gap-1.5 rounded-md bg-foreground px-3 text-[13px] font-medium text-background transition-opacity hover:opacity-90"
           >
             <Plus className="size-3.5" />
@@ -285,18 +364,77 @@ export function CustomerMemoryCard({
         </div>
       </section>
 
-      {/* Stub dialog for mutations (pin/edit/delete/add). Replace
-       *  with the lifted MemoryItemDialog when Anthony wires real
-       *  mutations. */}
-      <Dialog open={stubOpen} onOpenChange={setStubOpen}>
+      {/* Editor — add + edit modes, writes source='staff' rows. */}
+      <Dialog open={editorOpen} onOpenChange={setEditorOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>{t('addManually')}</DialogTitle>
-            <DialogDescription>{t('comingSoonEdit')}</DialogDescription>
+            <DialogTitle>
+              {editorItem ? t('editItem') : t('addManually')}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {!editorItem && (
+              <label className="block text-[12px] text-muted-foreground">
+                {t('fieldCategory')}
+                <select
+                  value={editorCategory}
+                  onChange={(e) => setEditorCategory(e.target.value as MemoryCategory)}
+                  className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
+                >
+                  {CATEGORY_KEYS.map((c) => (
+                    <option key={c} value={c}>
+                      {t(`category${categoryKeySuffix(c)}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <label className="block text-[12px] text-muted-foreground">
+              {t('fieldLabel')}
+              <input
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                maxLength={60}
+                className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
+              />
+            </label>
+            <label className="block text-[12px] text-muted-foreground">
+              {t('fieldDetail')}
+              <textarea
+                value={detail}
+                onChange={(e) => setDetail(e.target.value)}
+                rows={3}
+                maxLength={300}
+                className="mt-1 w-full rounded-lg border border-border bg-card px-3 py-2 text-[13px] text-foreground"
+              />
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditorOpen(false)} disabled={busy}>
+              {t('cancel')}
+            </Button>
+            <Button onClick={saveEditor} disabled={busy || !label.trim()}>
+              {t('save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Soft-delete confirm — deleted_at, reversible at the data layer. */}
+      <Dialog open={!!confirmItem} onOpenChange={(o) => !o && setConfirmItem(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t('deleteTitle')}</DialogTitle>
+            <DialogDescription>
+              {confirmItem ? t('deleteBody', { label: confirmItem.label }) : ''}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setStubOpen(false)}>
-              OK
+            <Button variant="outline" onClick={() => setConfirmItem(null)} disabled={busy}>
+              {t('cancel')}
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete} disabled={busy}>
+              {t('delete')}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -416,13 +554,13 @@ function CategorySection({
   items,
   isCollapsed,
   onToggleCollapse,
-  onActionStub,
+  onItemAction,
 }: {
   category: MemoryCategory
   items: MemoryItem[]
   isCollapsed: boolean
   onToggleCollapse: () => void
-  onActionStub: () => void
+  onItemAction: (item: MemoryItem, kind: 'pin' | 'edit' | 'delete') => void
 }) {
   const t = useTranslations('karute.memorySection')
   const visual = CATEGORY_VISUAL[category]
@@ -473,7 +611,7 @@ function CategorySection({
               <MemoryItemRow
                 key={item.id}
                 item={item}
-                onActionStub={onActionStub}
+                onItemAction={onItemAction}
               />
             ))}
           </ul>
@@ -485,10 +623,10 @@ function CategorySection({
 
 function MemoryItemRow({
   item,
-  onActionStub,
+  onItemAction,
 }: {
   item: MemoryItem
-  onActionStub: () => void
+  onItemAction: (item: MemoryItem, kind: 'pin' | 'edit' | 'delete') => void
 }) {
   const t = useTranslations('karute.memorySection')
   return (
@@ -526,15 +664,19 @@ function MemoryItemRow({
       <div className="flex gap-0.5 opacity-60 transition-opacity hover:opacity-100 focus-within:opacity-100">
         <button
           type="button"
-          onClick={onActionStub}
+          onClick={() => onItemAction(item, 'pin')}
           aria-label={item.pinned ? 'unpin' : 'pin'}
-          className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
+          className={`inline-flex size-6 items-center justify-center rounded hover:bg-muted ${
+            item.pinned
+              ? 'text-amber-600 dark:text-amber-300'
+              : 'text-muted-foreground hover:text-foreground'
+          }`}
         >
           <Pin className="size-3" />
         </button>
         <button
           type="button"
-          onClick={onActionStub}
+          onClick={() => onItemAction(item, 'edit')}
           aria-label="edit"
           className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
         >
@@ -542,7 +684,7 @@ function MemoryItemRow({
         </button>
         <button
           type="button"
-          onClick={onActionStub}
+          onClick={() => onItemAction(item, 'delete')}
           aria-label="remove"
           className="inline-flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground"
         >

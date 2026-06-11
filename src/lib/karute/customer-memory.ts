@@ -102,3 +102,87 @@ export async function applyMemoryDelta(params: {
     console.error('[applyMemoryDelta] failed (table may not exist yet):', err)
   }
 }
+
+// ─── Staff-owned mutations (pin / edit / delete / manual add) ────────────────
+// The schema anticipated these from day one: source='staff' is in the check,
+// `pinned` exists, delete is SOFT (deleted_at) so nothing is ever lost. The
+// AI delta path above remains scoped to source='ai_extraction' and never
+// touches staff rows (migration comment = law).
+
+export async function addStaffMemoryItem(input: {
+  customerId: string
+  businessId?: string | null
+  category: MemoryItem['category']
+  label: string
+  detail?: string | null
+}): Promise<{ ok: boolean; id?: string }> {
+  try {
+    const sb = createServiceClient()
+    const { data, error } = await sb
+      .from(TABLE)
+      .insert({
+        customer_id: input.customerId,
+        business_id: input.businessId ?? null,
+        category: input.category,
+        label: input.label,
+        detail: input.detail ?? null,
+        source: 'staff',
+        confidence: 1,
+      })
+      .select('id')
+      .single()
+    if (error) throw error
+    return { ok: true, id: (data as { id: string }).id }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export async function updateMemoryItem(
+  id: string,
+  patch: { label?: string; detail?: string | null },
+): Promise<{ ok: boolean }> {
+  try {
+    const sb = createServiceClient()
+    const { error } = await sb
+      .from(TABLE)
+      .update({ ...patch, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+export async function setMemoryItemPinned(
+  id: string,
+  pinned: boolean,
+): Promise<{ ok: boolean }> {
+  try {
+    const sb = createServiceClient()
+    const { error } = await sb
+      .from(TABLE)
+      .update({ pinned, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** SOFT delete (deleted_at) — reversible by design; reads filter it out. */
+export async function softDeleteMemoryItem(id: string): Promise<{ ok: boolean }> {
+  try {
+    const sb = createServiceClient()
+    const { error } = await sb
+      .from(TABLE)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id)
+    if (error) throw error
+    return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
