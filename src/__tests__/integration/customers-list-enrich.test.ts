@@ -458,3 +458,22 @@ describe('案1 day math + formats', () => {
     expect(out).toMatch(/^6\/15\(.\)$/)
   })
 })
+
+describe('a future booking clears the chase states (Liam: booked ≠ follow-up)', () => {
+  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/list-enrich')
+  const old65 = new Date(Date.now() - 65 * 86_400_000).toISOString()
+  const old200 = new Date(Date.now() - 200 * 86_400_000).toISOString()
+  const join = new Date(Date.now() - 400 * 86_400_000).toISOString()
+  it('65 days absent + upcoming booking → on-track (not 要フォロー)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old65, visitCount: 9, hasUpcomingBooking: true })).toBe('on-track')
+  })
+  it('200 days absent + upcoming booking → on-track (not 休眠)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old200, visitCount: 9, hasUpcomingBooking: true })).toBe('on-track')
+  })
+  it('no booking → cadence rules unchanged (65d → 要フォロー)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old65, visitCount: 9, hasUpcomingBooking: false })).toBe('needs-followup')
+  })
+  it('lifecycle still outranks the booking (卒業 + booking → graduated)', () => {
+    expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old200, visitCount: 9, hasUpcomingBooking: true, lifecycleStatus: 'graduated' })).toBe('graduated')
+  })
+})

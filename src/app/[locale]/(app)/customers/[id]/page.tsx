@@ -182,6 +182,9 @@ export default async function CustomerProfilePage({
     karuteCount: karuteRecords.length,
     pastAppointmentCount: enrichment.get(id)?.pastAppointmentCount,
     hasTicketPack: (customer.has_ticket_pack ?? false) || hasActivePack,
+    // Same booking signal as the list — a booked customer is never a chase
+    // target on ANY surface (chopstick).
+    hasUpcomingBooking: !!enrichment.get(id)?.nextAppointmentIso,
     // Same lifecycle signal as the list — a 卒業 customer must read slate 卒業
     // HERE too, never red 休眠 (the lifecycle fetch above already has it).
     lifecycleStatus: lifecycle?.status,

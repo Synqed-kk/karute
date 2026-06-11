@@ -101,9 +101,11 @@ export default async function CustomersPage({
     // SINGLE SOURCE: same signals + same resolver the profile/recording/agenda
     // use, so the badge + 来店 count match everywhere for this customer.
     // hasTicketPack = QR flag OR a real ticket_packs ledger entry.
+    const hasNextBooking = !!enriched?.nextAppointmentIso
     const statusSignals = {
       joinDateIso: c.created_at,
       lastVisitIso,
+      hasUpcomingBooking: hasNextBooking,
       isExistingCustomer: qr.is_existing_customer,
       visitCount: qr.visit_count,
       karuteCount: enriched?.totalKarute,
@@ -120,7 +122,6 @@ export default async function CustomersPage({
     const totalKarute = customerVisitCount(statusSignals)
     // 回数券 line + alert — resolvePackAlert is the single source (chopstick);
     // the dashboard/alert surfaces (P3b) reuse these identical inputs.
-    const hasNextBooking = !!enriched?.nextAppointmentIso
     const packAlert = usage
       ? resolvePackAlert({
           remainingTotal: usage.remaining,
