@@ -28,7 +28,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PACKAGES_READ_TOKEN, not GITHUB_TOKEN: @synqed-kk/client is published
+          # from the synqed-core repo, and this repo's GITHUB_TOKEN has no access
+          # to it (403 on npm ci). Re-applies f4d264d, reverted by ab90af5.
+          NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
       - name: Lint
         run: npm run lint
