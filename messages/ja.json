@@ -584,7 +584,11 @@
       "before": "ビフォー",
       "after": "アフター",
       "reference": "参考",
-      "progress": "経過"
+      "progress": "経過",
+      "addPhoto": "写真を追加",
+      "uploading": "アップロード中…",
+      "uploadError": "アップロードに失敗しました。もう一度お試しください。",
+      "categoryLabel": "カテゴリ"
     },
     "comingSoon": "対応予定",
     "privacy": {

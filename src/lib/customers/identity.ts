@@ -67,12 +67,12 @@ export function deriveFamilyInitials(name: string | null | undefined): string {
  * drops by one). For a real salon CRM this is wrong — a customer's
  * number should be immutable for life.
  *
- * ANTHONY: the production fix is a `customers.karute_number` text
- * column with `unique (business_id, karute_number)` and a Postgres
- * sequence per tenant. Insert trigger:
- *   lpad(nextval('karute_number_seq_' || NEW.business_id)::text, 5, '0')
- * Once that's live, both pages read the field directly and we
- * delete this helper.
+ * PRODUCTION FIELD: synqed-core now persists `customers.karute_number`
+ * (per-business sequential int, assigned at create and backfilled by
+ * created_at, unique per business). When the API row carries it, that
+ * immutable number wins; the sequential derivation stays as a fallback
+ * for rows without one (e.g. a stale core deploy). The installed
+ * @synqed-kk/client types predate the field, hence the structural read.
  */
 export function assignSequentialKaruteNumbers<
   T extends { id: string; created_at?: string | null },
@@ -85,7 +85,9 @@ export function assignSequentialKaruteNumbers<
   })
   const map = new Map<string, string>()
   sorted.forEach((c, i) => {
-    map.set(c.id, `#${String(i + 1).padStart(5, '0')}`)
+    const real = (c as { karute_number?: number | null }).karute_number
+    const n = typeof real === 'number' && real > 0 ? real : i + 1
+    map.set(c.id, `#${String(n).padStart(5, '0')}`)
   })
   return map
 }

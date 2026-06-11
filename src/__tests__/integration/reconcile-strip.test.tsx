@@ -6,7 +6,7 @@
 import { render, screen } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
-  const ja = require('../../../messages/ja.json')
+  const ja = jest.requireActual('../../../messages/ja.json')
   return {
     useTranslations: (ns: string) => (key: string, vars?: Record<string, unknown>) => {
       let cur: unknown = ja

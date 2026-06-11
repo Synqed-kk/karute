@@ -584,7 +584,11 @@
       "before": "Before",
       "after": "After",
       "reference": "Reference",
-      "progress": "Progress"
+      "progress": "Progress",
+      "addPhoto": "Add photo",
+      "uploading": "Uploading…",
+      "uploadError": "Upload failed. Please try again.",
+      "categoryLabel": "Category"
     },
     "comingSoon": "Coming soon",
     "privacy": {
