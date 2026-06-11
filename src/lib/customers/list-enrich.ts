@@ -188,6 +188,20 @@ export async function enrichCustomers(
   return map
 }
 
+/** Effective last visit — ONE rule, every surface (list adapter + dashboard
+ *  alert loader must both call this; the customers/[id] profile reads
+ *  customer.last_visit_at directly, which this rule converges with):
+ *  synced visit rows (karute/appointments) beat the customer-record field
+ *  (deep crawl / sheet import), which beats nothing. Without the fallback,
+ *  imported customers have no 前回/（N日前）and — worse — the 離客 alert math
+ *  (daysSinceLastVisit) can never fire for them. */
+export function effectiveLastVisitIso(
+  enrichedIso: string | null | undefined,
+  customerLastVisitAt: string | null | undefined,
+): string | null {
+  return enrichedIso ?? customerLastVisitAt ?? null
+}
+
 /** Compact date for the mobile card rails — current-year dates drop the year
  *  (「前回 6/2」), prior years keep it (2025/12/24). JST-pinned. */
 export function formatCompactDate(

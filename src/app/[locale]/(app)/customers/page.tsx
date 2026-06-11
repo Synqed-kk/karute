@@ -8,6 +8,7 @@ import {
   resolveCustomerStatus,
   customerVisitCount,
   enrichCustomers,
+  effectiveLastVisitIso,
   formatCompactDate,
   formatJoinDate,
   formatLastVisit,
@@ -83,13 +84,17 @@ export default async function CustomersPage({
 
   const rows: CustomerListRow[] = list.customers.map((c) => {
     const enriched = enrichment.get(c.id)
-    const lastVisitIso = enriched?.lastVisitIso ?? null
     // SDK-skew: local Customer type lags the API's QR fields — cast to read them.
     const qr = c as typeof c & {
       is_existing_customer?: boolean
       visit_count?: number
       has_ticket_pack?: boolean
+      last_visit_at?: string | null
     }
+    const lastVisitIso = effectiveLastVisitIso(
+      enriched?.lastVisitIso,
+      qr.last_visit_at,
+    )
     const usage = packUsage.get(c.id)
     const lifecycle = lifecycles.get(c.id)
     // SINGLE SOURCE: same signals + same resolver the profile/recording/agenda
