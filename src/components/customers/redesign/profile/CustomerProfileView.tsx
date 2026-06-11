@@ -164,13 +164,13 @@ export function CustomerProfileView({
           </div>
         )}
         {/* PhotosTabContent renders the real photos prop loaded
-         *  server-side via listCustomerPhotos. Read-only thumbnail
-         *  grid until uploads ship. ANTHONY: the upload + capture
-         *  flow lives in PhotoRecordCard / PhotoCaptureDialog under
-         *  spike-lifted/photos/ — those still need wiring against
-         *  uploadCustomerPhoto + Storage signed URLs before they're
-         *  swapped back in here. */}
-        {tab === 'photos' && <PhotosTabContent photos={photos} />}
+         *  server-side via listCustomerPhotos, plus the upload flow
+         *  (uploadCustomerPhoto → synqed-core → Storage signed URLs).
+         *  The richer capture dialog (caption/consent) from
+         *  spike-lifted/photos/ can replace the inline picker later. */}
+        {tab === 'photos' && (
+          <PhotosTabContent customerId={customer.id} photos={photos} />
+        )}
         {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
       </div>
     </main>

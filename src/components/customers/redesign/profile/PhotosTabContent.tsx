@@ -1,7 +1,11 @@
 'use client'
 
-import { Image as ImageIcon } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Camera, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+
+import { uploadCustomerPhoto } from '@/actions/customers'
 
 export interface CustomerPhoto {
   id: string
@@ -11,6 +15,7 @@ export interface CustomerPhoto {
 }
 
 interface PhotosTabContentProps {
+  customerId: string
   photos: CustomerPhoto[]
 }
 
@@ -32,11 +37,84 @@ function toneFor(category: string) {
   )
 }
 
-export function PhotosTabContent({ photos }: PhotosTabContentProps) {
+export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) {
   const t = useTranslations('customers.photos')
+  const router = useRouter()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [category, setCategory] = useState('before')
+  const [uploading, setUploading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+    setUploading(true)
+    setError(null)
+    try {
+      for (const file of Array.from(files)) {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('category', category)
+        const result = await uploadCustomerPhoto(customerId, fd)
+        if (result && 'error' in result) throw new Error(result.error)
+      }
+      // Photos are server-loaded (listCustomerPhotos on the page); refresh
+      // re-renders the grid with the new signed URLs.
+      router.refresh()
+    } catch {
+      setError(t('uploadError'))
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  const uploadControls = (
+    <div className="flex items-center gap-2">
+      <select
+        value={category}
+        onChange={(e) => setCategory(e.target.value)}
+        disabled={uploading}
+        aria-label={t('categoryLabel')}
+        className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground"
+      >
+        {KNOWN_CATEGORIES.map((key) => (
+          <option key={key} value={key}>
+            {t(key)}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => fileInputRef.current?.click()}
+        disabled={uploading}
+        className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-sky-500/15 px-3 text-xs font-medium text-sky-600 transition-colors hover:bg-sky-500/25 disabled:opacity-60 dark:text-sky-300"
+      >
+        {uploading ? (
+          <Loader2 size={14} className="animate-spin" />
+        ) : (
+          <Camera size={14} />
+        )}
+        <span>{uploading ? t('uploading') : t('addPhoto')}</span>
+      </button>
+    </div>
+  )
+
+  const hiddenInput = (
+    <input
+      ref={fileInputRef}
+      type="file"
+      accept="image/*"
+      multiple
+      onChange={handleFileSelect}
+      className="hidden"
+    />
+  )
+
   if (photos.length === 0) {
     return (
       <section className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center shadow-sm md:px-8 md:py-16">
+        {hiddenInput}
         <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
           <ImageIcon size={18} />
         </div>
@@ -44,20 +122,25 @@ export function PhotosTabContent({ photos }: PhotosTabContentProps) {
         <p className="mx-auto mt-2 max-w-md text-xs text-muted-foreground">
           {t('emptyBody')}
         </p>
+        <div className="mt-4 flex justify-center">{uploadControls}</div>
+        {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
       </section>
     )
   }
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
-      <header className="mb-4 flex items-center gap-2.5">
+      {hiddenInput}
+      <header className="mb-4 flex flex-wrap items-center gap-2.5">
         <div className="flex h-7 w-7 items-center justify-center rounded-full bg-sky-500/15 text-sky-600 dark:text-sky-300">
           <ImageIcon size={14} />
         </div>
         <h3 className="text-sm font-semibold text-foreground">{t('title')}</h3>
-        <span className="ml-auto text-xs tabular-nums text-muted-foreground">
+        <span className="text-xs tabular-nums text-muted-foreground">
           {t('count', { n: photos.length })}
         </span>
+        <div className="ml-auto">{uploadControls}</div>
       </header>
+      {error && <p className="mb-3 text-xs text-destructive">{error}</p>}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {photos.map((p) => {
           const tone = toneFor(p.category)
