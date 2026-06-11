@@ -4,7 +4,10 @@
 
 import { getBusinessId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
-import { enrichCustomers } from '@/lib/customers/list-enrich'
+import {
+  effectiveLastVisitIso,
+  enrichCustomers,
+} from '@/lib/customers/list-enrich'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import {
   listActiveDismissals,
@@ -60,11 +63,23 @@ export async function getPackAlerts(thresholdDays?: number): Promise<PackAlerts>
     businessId && holderIds.length
       ? await enrichCustomers(businessId, holderIds)
       : new Map()
+  // last_visit_at fallback (sheet import / deep crawl) — same ONE rule the
+  // list adapter uses, so the dashboard and the list can never disagree about
+  // who is N days absent.
+  const lastVisitAtById = new Map(
+    customers.map((c) => [
+      c.id,
+      (c as { last_visit_at?: string | null }).last_visit_at ?? null,
+    ]),
+  )
   const visitById = new Map(
     Array.from(enrichment.entries()).map(([id, e]) => [
       id,
       {
-        lastVisitIso: e.lastVisitIso,
+        lastVisitIso: effectiveLastVisitIso(
+          e.lastVisitIso,
+          lastVisitAtById.get(id),
+        ),
         nextAppointmentIso: e.nextAppointmentIso,
       },
     ]),

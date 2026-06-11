@@ -421,3 +421,17 @@ describe('lifecycle decisions outrank cadence (案B)', () => {
     expect(resolveCustomerStatus({ joinDateIso: join, lastVisitIso: old, visitCount: 4, lifecycleStatus: 'active' })).toBe('dormant')
   })
 })
+
+describe('effectiveLastVisitIso — one rule for every surface', () => {
+  const { effectiveLastVisitIso } = jest.requireActual('@/lib/customers/list-enrich')
+  it('synced rows beat the customer-record field', () => {
+    expect(effectiveLastVisitIso('2026-06-09', '2026-06-01')).toBe('2026-06-09')
+  })
+  it('falls back to last_visit_at (sheet import) when no synced rows', () => {
+    expect(effectiveLastVisitIso(null, '2026-06-01')).toBe('2026-06-01')
+  })
+  it('null when neither exists', () => {
+    expect(effectiveLastVisitIso(null, null)).toBe(null)
+    expect(effectiveLastVisitIso(undefined, undefined)).toBe(null)
+  })
+})
