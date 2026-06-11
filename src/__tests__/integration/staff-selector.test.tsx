@@ -32,7 +32,8 @@ describe('StaffSelector (担当トリガー)', () => {
   it('staff selected: trigger reads 担当: 名前 (the approved mock format)', () => {
     render(<StaffSelector staffList={STAFF} selected="s2" onChange={() => {}} />)
     expect(screen.getByText('浜野')).toBeInTheDocument()
-    expect(screen.getByText('担当:')).toBeInTheDocument()
+    // avatar + name only — no 担当: prefix in the selected state (Liam)
+    expect(screen.queryByText('担当:')).toBeNull()
   })
   it('opens the sheet and picking a staff fires onChange + closes', () => {
     const calls: string[] = []
