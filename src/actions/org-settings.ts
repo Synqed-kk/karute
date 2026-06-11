@@ -31,6 +31,10 @@ export interface PackPreset {
 export interface VoiceEnrollment {
   consent_at: string
   sample_path: string
+  /** ≤10s reference derivative (engine APIs cap reference clips at 2–10s).
+   *  Absent on pre-#277 enrollments — identify skips, heuristic applies;
+   *  re-enrolling adds it. */
+  ref_path?: string
   status: 'saved' | 'revoked'
   revoked_at?: string | null
 }

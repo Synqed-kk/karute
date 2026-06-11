@@ -118,8 +118,11 @@ export function VoiceEnrollmentDialog({
     mediaRef.current = null
     m.rec.onstop = () => {
       m.stream.getTracks().forEach((track) => track.stop())
-      const blob = new Blob(m.chunks, { type: m.rec.mimeType || 'audio/webm' })
-      void upload(blob)
+      const type = m.rec.mimeType || 'audio/webm'
+      const blob = new Blob(m.chunks, { type })
+      // ≤10s reference derivative for the speaker-id engine (2–10s API cap).
+      const refBlob = new Blob(m.chunks.slice(0, 9), { type })
+      void upload(blob, refBlob)
     }
     m.rec.stop()
     // upload() is stable enough (uses only setters + the staffId prop via
@@ -172,7 +175,9 @@ export function VoiceEnrollmentDialog({
         if (e.data && e.data.size > 0) chunks.push(e.data)
       }
       mediaRef.current = { rec, stream, chunks }
-      rec.start()
+      // 1s timeslices so a valid ≤10s reference clip can be assembled from
+      // the leading chunks (first chunk carries the webm header).
+      rec.start(1000)
       setRecordingSeconds(0)
       setIsRecording(true)
     } catch {
@@ -181,10 +186,13 @@ export function VoiceEnrollmentDialog({
   }
 
 
-  async function upload(blob: Blob) {
+  async function upload(blob: Blob, refBlob?: Blob) {
     setStep('uploading')
     const fd = new FormData()
     fd.append('audio', new File([blob], 'voice.webm', { type: blob.type || 'audio/webm' }))
+    if (refBlob && refBlob.size > 0) {
+      fd.append('audioRef', new File([refBlob], 'voice-ref.webm', { type: refBlob.type || 'audio/webm' }))
+    }
     const res = await enrollVoiceAction(staffId, fd)
     if (res.ok && res.enrolledAt) {
       setStep('complete')

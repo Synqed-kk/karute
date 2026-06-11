@@ -58,3 +58,24 @@ describe('toSpeakerText — the ONE rendering for prompts AND storage', () => {
     expect(text).toContain('（周囲の会話・不明）: マッキーは筋肉痛の中施術するのが、まじで相性悪かったですね')
   })
 })
+
+describe('staffHint — voiceprint proof beats the first-speaker heuristic', () => {
+  // Session where the CUSTOMER speaks first (the heuristic's failure case).
+  const CUSTOMER_FIRST = [
+    para(1, 'すみません、ちょっと早く着いちゃって', 0, 3),
+    para(0, 'こんにちは、今日はどうされましたか', 3, 6),
+    para(1, '腰が痛くて', 6, 9),
+  ]
+  it('confident hint overrides: enrolled voice becomes 施術者 even when not first', () => {
+    const d = buildDiarizedTranscript(CUSTOMER_FIRST, [], 0.9, { speaker: 0, confidence: 0.95 })!
+    expect(d.turns.map((t) => t.role)).toEqual(['customer', 'staff', 'customer'])
+  })
+  it('weak hint (<0.7) changes nothing — upgrade-only', () => {
+    const d = buildDiarizedTranscript(CUSTOMER_FIRST, [], 0.9, { speaker: 0, confidence: 0.5 })!
+    expect(d.turns[0].role).toBe('staff') // heuristic: first speaker
+  })
+  it('hint pointing at a speaker not in the recording → heuristic', () => {
+    const d = buildDiarizedTranscript(CUSTOMER_FIRST, [], 0.9, { speaker: 7, confidence: 0.99 })!
+    expect(d.turns[0].role).toBe('staff')
+  })
+})
