@@ -47,11 +47,12 @@ export async function identifyStaffSegments(input: {
     fd.append('chunking_strategy', 'auto')
     fd.append('language', input.language)
     fd.append('known_speaker_names[]', 'staff')
+    // The API requires references as base64 data-URI STRINGS, not file
+    // parts — sending a File gets HTTP 400 'Input should be a valid string'
+    // (verified live 2026-06-12).
     fd.append(
       'known_speaker_references[]',
-      new File([new Uint8Array(input.referenceClip)], 'staff-ref.webm', {
-        type: 'audio/webm',
-      }),
+      `data:audio/webm;base64,${input.referenceClip.toString('base64')}`,
     )
 
     const controller = new AbortController()
