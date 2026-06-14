@@ -164,22 +164,30 @@ export function ReservationMobileAgenda({
           {nowIdx === -1 && nowHm !== null && sorted.length > 0 && nowLine}
         </div>
       </div>
-      {/* Sticky mid-day bar — the two numbers staff glance for between
-       *  sessions. Today only; hidden once the day is done. */}
+      {/* Bottom-pinned mid-day bar — the two numbers staff glance for
+       *  between sessions. Today only; hidden once the day is done.
+       *  position:fixed (NOT sticky) so it stays pinned to the viewport
+       *  bottom instead of riding up with the list on scroll: the scroll
+       *  container is <main> and the tab bar is a flex sibling below it
+       *  (h-16 + safe-area), which the bottom offset clears. The in-flow
+       *  spacer lets the last card scroll clear of the now-floating bar. */}
       {nowHm && remaining > 0 && (
-        <div className="sticky bottom-20 z-10 mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-card/95 px-3.5 py-2 text-xs shadow-lg backdrop-blur tabular-nums">
-          <span className="font-semibold text-foreground">
-            {t('mobile.stickyRemaining', { n: remaining })}
-          </span>
-          {next && (
-            <span className="text-muted-foreground">
-              {t('mobile.stickyNext', {
-                time: next.startTimeHm,
-                name: next.customerName,
-              })}
+        <>
+          <div aria-hidden className="h-20" />
+          <div className="fixed inset-x-4 bottom-[calc(4rem_+_env(safe-area-inset-bottom)_+_0.5rem)] z-30 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-card/95 px-3.5 py-2 text-xs shadow-lg backdrop-blur tabular-nums">
+            <span className="font-semibold text-foreground">
+              {t('mobile.stickyRemaining', { n: remaining })}
             </span>
-          )}
-        </div>
+            {next && (
+              <span className="text-muted-foreground">
+                {t('mobile.stickyNext', {
+                  time: next.startTimeHm,
+                  name: next.customerName,
+                })}
+              </span>
+            )}
+          </div>
+        </>
       )}
     </>
   )
