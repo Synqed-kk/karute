@@ -34,6 +34,11 @@ import { getStaffColorByKey } from '@/lib/staff-colors'
 import { BADGE_COLORS } from '@/lib/badge-styles'
 import { cn } from '@/lib/utils'
 
+// Mid-day 残りN件・次… bar — built and working (bottom-pinned), but Liam
+// parked it as unnecessary for now (2026-06-12). Flip to true to bring it
+// back; the spacer + bar are gated together so re-enabling is one line.
+const SHOW_MIDDAY_BAR = false
+
 interface Props {
   reservations: ReservationView[]
   onSelect?: (view: ReservationView) => void
@@ -171,7 +176,7 @@ export function ReservationMobileAgenda({
        *  container is <main> and the tab bar is a flex sibling below it
        *  (h-16 + safe-area), which the bottom offset clears. The in-flow
        *  spacer lets the last card scroll clear of the now-floating bar. */}
-      {nowHm && remaining > 0 && (
+      {SHOW_MIDDAY_BAR && nowHm && remaining > 0 && (
         <>
           <div aria-hidden className="h-20" />
           <div className="fixed inset-x-4 bottom-[calc(4rem_+_env(safe-area-inset-bottom)_+_0.5rem)] z-30 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-border bg-card/95 px-3.5 py-2 text-xs shadow-lg backdrop-blur tabular-nums">
