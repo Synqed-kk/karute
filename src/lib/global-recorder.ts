@@ -1,5 +1,6 @@
 'use client'
 
+import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
 
 /**
@@ -100,7 +101,7 @@ class GlobalRecorder {
     }
   }
 
-  async start() {
+  async start(opts?: { noiseSuppression?: boolean }) {
     this.error = null
     this.result = null
     this.chunks = []
@@ -110,7 +111,10 @@ class GlobalRecorder {
 
     let micStream: MediaStream
     try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: recordingAudioConstraints(opts?.noiseSuppression ?? true),
+        video: false,
+      })
     } catch {
       this.error = 'Microphone access denied.'
       this.notify()

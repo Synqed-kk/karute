@@ -1,5 +1,6 @@
 'use client'
 import { useState, useRef, useCallback } from 'react'
+import { recordingAudioConstraints } from '@/lib/recording-constraints'
 
 // Full state machine: idle → recording → paused ↔ recording → recorded
 export type RecordingState = 'idle' | 'recording' | 'paused' | 'recorded'
@@ -46,7 +47,12 @@ export function useMediaRecorder() {
 
     let micStream: MediaStream
     try {
-      micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      // Dashboard quick-record widgets: apply the standard voice-capture
+      // constraints (noise suppression on by default).
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: recordingAudioConstraints(true),
+        video: false,
+      })
     } catch {
       setError('Microphone access denied. Please allow microphone access and try again.')
       return
