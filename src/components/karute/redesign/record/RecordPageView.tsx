@@ -90,6 +90,8 @@ export interface RecordPageViewProps {
   staffCanCustomizePacks?: boolean
   /** The customer's most recent pack (any status) — the picker prefill. */
   previousPack?: { size: number; unitPrice: number } | null
+  /** Org 録音設定 noise-suppression toggle (default on) — applied to the mic. */
+  noiseSuppression?: boolean
 }
 
 function deriveInitials(name: string): string {
@@ -120,6 +122,7 @@ export function RecordPageView({
   packPresets = [],
   staffCanCustomizePacks = true,
   previousPack = null,
+  noiseSuppression = true,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -254,11 +257,11 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
-    startRecording()
+    startRecording({ noiseSuppression })
   }
   function handleStartAnyway() {
     setShowNoBookingPrompt(false)
-    startRecording()
+    startRecording({ noiseSuppression })
   }
   function handleDiscard() {
     discardRecording()

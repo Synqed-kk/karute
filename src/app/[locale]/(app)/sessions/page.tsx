@@ -449,6 +449,7 @@ export default async function SessionsPage({
       packPresets={orgSettings?.pack_presets ?? []}
       staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
       previousPack={previousPack}
+      noiseSuppression={orgSettings?.noise_suppression !== false}
     />
   )
 }

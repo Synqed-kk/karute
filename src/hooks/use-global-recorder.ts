@@ -26,7 +26,8 @@ export function useGlobalRecorder() {
     overrun: globalRecorder.overrun,
     /** The hard cap auto-stopped + saved the recording (~2.5h). */
     autoStopped: globalRecorder.autoStopped,
-    startRecording: () => globalRecorder.start(),
+    startRecording: (opts?: { noiseSuppression?: boolean }) =>
+      globalRecorder.start(opts),
     stopRecording: () => globalRecorder.stop(),
     pauseRecording: () => globalRecorder.pause(),
     resumeRecording: () => globalRecorder.resume(),
