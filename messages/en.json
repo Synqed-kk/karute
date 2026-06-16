@@ -548,7 +548,8 @@
       "title": "Today's heads-up — {n} pack sessions left",
       "body": "Talk about the next pack during the session. You'll record the result after stopping.",
       "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
-    }
+    },
+    "otherStaffBooking": "Booked under {staff} · this record saves under {you}"
   },
   "customers": {
     "title": "Customers",

@@ -193,8 +193,10 @@ describe('Migrated core flow — customers + karute + entries', () => {
     expect(customers.delete).toHaveBeenCalledWith('cust-1')
   })
 
-  it('saveKaruteRecord uses appointment.staff_id when appointmentId is provided', async () => {
-    // Inject appointments.get on the mock client for this test only
+  it('saveKaruteRecord attributes to the signed-in RECORDER, not the booking staff', async () => {
+    // The customer is booked under another staff ('appt-staff-xyz'), but the
+    // record must save under the RECORDER (TEST_STAFF_PROFILE_ID) — covering /
+    // staff swaps. The appointment isn't even fetched when the recorder is known.
     const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz' }) }
     const { getSynqedClient } = await import('@/lib/synqed/client')
     ;(getSynqedClient as jest.Mock).mockResolvedValueOnce({
@@ -212,9 +214,34 @@ describe('Migrated core flow — customers + karute + entries', () => {
       appointmentId: 'appt-1',
     })
 
+    const arg = karuteRecords.create.mock.calls[karuteRecords.create.mock.calls.length - 1][0]
+    expect(arg.staff_id).toBe(TEST_STAFF_PROFILE_ID) // the recorder, NOT appt-staff-xyz
+    expect(arg.appointment_id).toBe('appt-1') // still linked to the booking for context
+    expect(apptClient.get).not.toHaveBeenCalled() // recorder known → no appt lookup
+  })
+
+  it('saveKaruteRecord falls back to the appointment staff when the recorder has no staff identity', async () => {
+    const { getCurrentUserStaffId } = await import('@/lib/staff')
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce(null)
+    const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz' }) }
+    const { getSynqedClient } = await import('@/lib/synqed/client')
+    ;(getSynqedClient as jest.Mock).mockResolvedValueOnce({
+      customers,
+      appointments: apptClient,
+      karuteRecords,
+    })
+    karuteRecords.create.mockResolvedValue({ id: 'karute-3' })
+
+    await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      appointmentId: 'appt-1',
+    })
+
     expect(apptClient.get).toHaveBeenCalledWith('appt-1')
     const arg = karuteRecords.create.mock.calls[karuteRecords.create.mock.calls.length - 1][0]
     expect(arg.staff_id).toBe('appt-staff-xyz')
-    expect(arg.appointment_id).toBe('appt-1')
   })
 })
