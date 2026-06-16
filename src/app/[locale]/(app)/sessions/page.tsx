@@ -196,11 +196,14 @@ export default async function SessionsPage({
       staffName: unlinked.staff_profile_id
         ? (staffNameById.get(unlinked.staff_profile_id) ?? '—')
         : '—',
-      // The selected customer is booked under THIS staff. Flag it when that's
-      // not the signed-in user, so the record page shows the 別のスタッフの予約
-      // heads-up — the karte still saves under the signed-in recorder.
+      // The selected customer is booked under THIS staff. Flag it only when the
+      // signed-in staff is known AND differs, so the record page shows the
+      // 別のスタッフの予約 heads-up — the karte still saves under the recorder.
+      // (Guard on activeStaffId so an unknown signer isn't mislabelled "other".)
       bookedUnderOtherStaff:
-        !!unlinked.staff_profile_id && unlinked.staff_profile_id !== activeStaffId,
+        !!activeStaffId &&
+        !!unlinked.staff_profile_id &&
+        unlinked.staff_profile_id !== activeStaffId,
     }
   } else if (requestedCustomerId) {
     // Walk-in: a customer was chosen from the 顧客 card but has no booking today.
