@@ -70,15 +70,32 @@ export function computeVisitPace(input: VisitPaceInput, now: Date = new Date()):
 
   const spanDays =
     firstVisitIso && lastVisitIso ? jstDaysBetween(firstVisitIso, new Date(lastVisitIso)) : 0
-  const hasDates = !!firstVisitIso && !!lastVisitIso && datedVisitCount >= 2 && spanDays > 0
+  // Need real dated evidence (≥2 dated visits + a real span) AND a lifetime count
+  // to average over.
+  const hasEvidence =
+    !!firstVisitIso && !!lastVisitIso && datedVisitCount >= 2 && totalVisits >= 2 && spanDays > 0
 
-  if (hasDates) {
-    avgIntervalDays = Math.max(1, Math.round(spanDays / (datedVisitCount - 1)))
-    spanMonths = Math.max(1, Math.round(jstDaysBetween(firstVisitIso!, now) / 30))
-    if (lastVisitAgoDays != null) {
-      ratio = lastVisitAgoDays / avgIntervalDays
-      state = ratio <= 1 ? 'on-rhythm' : ratio <= OVERDUE_FACTOR ? 'slightly-over' : 'over'
-      ratio = Math.min(ratio, 2.5)
+  let hasDates = false
+  if (hasEvidence) {
+    // Average over the LIFETIME visit count, not just the synced subset — so the
+    // interval matches the "{totalVisits}回 / 過去Nヶ月" the card shows and isn't
+    // skewed long by how FEW visits happen to carry dates (the 約14週-vs-17回/11ヶ月
+    // mismatch: 4 synced dates over 11mo read as 14週, but 17 visits over 11mo is
+    // really ~3週). dividing the dated span by the lifetime count recovers the
+    // true cadence whenever first/last bound the visiting period.
+    const interval = Math.round(spanDays / (totalVisits - 1))
+    // A sub-weekly result means the dates are incomplete (e.g. only recent visits
+    // synced under a high lifetime count) — implausible for a salon, so rather
+    // than assert a wrong cadence, fall through to the 同期待ち / count-only state.
+    if (interval >= 7) {
+      hasDates = true
+      avgIntervalDays = interval
+      spanMonths = Math.max(1, Math.round(jstDaysBetween(firstVisitIso!, now) / 30))
+      if (lastVisitAgoDays != null) {
+        ratio = lastVisitAgoDays / avgIntervalDays
+        state = ratio <= 1 ? 'on-rhythm' : ratio <= OVERDUE_FACTOR ? 'slightly-over' : 'over'
+        ratio = Math.min(ratio, 2.5)
+      }
     }
   }
 

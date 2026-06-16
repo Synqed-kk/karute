@@ -30,8 +30,8 @@ function input(o: Partial<VisitPaceInput>): VisitPaceInput {
 }
 
 describe('computeVisitPace — full dated history', () => {
-  it('常連 on rhythm: interval from the dated-count denominator, segment jouren', () => {
-    // 14 dated visits over 600→18 days (582-day span) → ÷13 ≈ 45-day 目安; last 18d out → on-rhythm.
+  it('常連 on rhythm: interval over the lifetime count, segment jouren', () => {
+    // 14 visits over a 600→18 (582-day) span → ÷13 ≈ 45-day 目安; last 18d out → on-rhythm.
     const p = computeVisitPace(
       input({
         firstVisitIso: daysAgo(600),
@@ -49,6 +49,44 @@ describe('computeVisitPace — full dated history', () => {
     expect(p.segment).toBe('jouren')
     expect(p.pending).toBe(false)
     expect(p.spanMonths).toBe(20)
+  })
+
+  it('averages over the LIFETIME count, not the synced subset (the 約14週-vs-3週 fix)', () => {
+    // メラリ shape: 17 lifetime visits, only 4 carry dates, spanning ~11 months.
+    // Dividing the 313-day span by the dated 4 → ~104d (約15週, wrong). Dividing by
+    // the lifetime 17 → ~20d (約3週), which matches "17回・過去11ヶ月".
+    const p = computeVisitPace(
+      input({
+        firstVisitIso: daysAgo(330),
+        lastVisitIso: daysAgo(17),
+        datedVisitCount: 4,
+        totalVisits: 17,
+        isReturning: true,
+      }),
+      NOW,
+    )
+    expect(p.avgIntervalDays).toBe(20) // ≈ 約3週, not 約15週
+    expect(p.spanMonths).toBe(11)
+    expect(p.state).toBe('on-rhythm') // 17d out < 20d usual → まだ
+    expect(p.segment).toBe('jouren')
+  })
+
+  it('suppresses an implausible sub-weekly cadence (incomplete dates) → pending', () => {
+    // First synced visit only 30d ago but a lifetime count of 20 → 25/19 ≈ 1d, an
+    // impossible salon cadence → do not assert it; fall to the count-only state.
+    const p = computeVisitPace(
+      input({
+        firstVisitIso: daysAgo(30),
+        lastVisitIso: daysAgo(5),
+        datedVisitCount: 3,
+        totalVisits: 20,
+        isReturning: true,
+      }),
+      NOW,
+    )
+    expect(p.hasDates).toBe(false)
+    expect(p.avgIntervalDays).toBeNull()
+    expect(p.pending).toBe(true)
   })
 
   it('離脱気味: last visit well past the interval → over → ridatsugimi', () => {
