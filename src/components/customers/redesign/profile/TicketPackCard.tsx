@@ -61,12 +61,10 @@ export function TicketPackCard({
   const nextRound = packs.filter((p) => p.kind === 'pack').length
 
   return (
-    <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
-      <header className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2.5">
-          <span className="flex h-6 w-6 items-center justify-center text-emerald-600 dark:text-emerald-400">
-            <Ticket size={15} />
-          </span>
+    <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
+      <header className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Ticket size={15} className="text-emerald-600 dark:text-emerald-400" />
           <span className="text-sm font-semibold text-foreground">{t('title')}</span>
           {active.length > 0 && (
             <span className="text-[12px] tabular-nums text-muted-foreground">

@@ -90,6 +90,22 @@ export function CustomerProfileView({
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
 
+  // The pack the staff would redeem next — FIFO oldest active counted pack with
+  // sessions left — drives the pace card's 残り cell + span. Same `remaining` the
+  // ticket card renders (one ledger source, never the QR yes/no flag). The span
+  // is suppressed when >1 active pack (one cell can't speak for two).
+  const activeCountedPacks = packs
+    .filter((p) => p.status === 'active' && p.kind === 'pack' && p.remaining > 0)
+    .sort((a, b) => (a.purchased_at ?? '').localeCompare(b.purchased_at ?? ''))
+  const primaryPack = activeCountedPacks[0] ?? null
+  const paceTicket = primaryPack
+    ? {
+        remaining: primaryPack.remaining,
+        packSize: primaryPack.pack_size,
+        round: primaryPack.purchase_round,
+      }
+    : null
+
   return (
     <main className="mx-auto w-full max-w-[1120px] space-y-4 px-4 py-5 md:space-y-5 md:px-8 md:py-8">
       {/* 1. Back link — desktop only (mobile uses bottom nav back) */}
@@ -128,6 +144,8 @@ export function CustomerProfileView({
             lastVisitDateShort={customer.visitPaceLastVisitDate ?? null}
             lastVisitService={customer.visitPaceLastService ?? null}
             hasTicketPack={customer.hasTicketPack ?? false}
+            ticket={paceTicket}
+            activePackCount={activeCountedPacks.length}
           />
         )}
 

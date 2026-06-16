@@ -36,6 +36,13 @@ const PACE_KEYS = [
   'verdictMada',
   'verdictSoro',
   'verdictOver',
+  'remaining',
+  'visitsCount',
+  'packLabel',
+  'coversWeeks',
+  'coversMonths',
+  'remainLine',
+  'remainLineSpan',
 ]
 
 const EXPECTED_TACTIC_KEYS: TacticKey[] = [

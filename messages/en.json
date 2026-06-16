@@ -2621,7 +2621,14 @@
       "pending": "Awaiting sync",
       "verdictMada": "Not yet",
       "verdictSoro": "About due",
-      "verdictOver": "Overdue"
+      "verdictOver": "Overdue",
+      "remaining": "Left",
+      "visitsCount": "{n}",
+      "packLabel": "{size}-pack #{round}",
+      "coversWeeks": "~{n} wk",
+      "coversMonths": "~{n} mo",
+      "remainLine": "{n} left",
+      "remainLineSpan": "{n} left ・ {span}"
     }
   }
 }
