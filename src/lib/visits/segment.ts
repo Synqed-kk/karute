@@ -75,10 +75,19 @@ export function computeVisitSignals(
   const totalVisits = customerVisitCount(s)
   const lastVisitAgoDays = s.lastVisitIso ? jstDaysBetween(s.lastVisitIso, now) : null
 
+  // The average interval uses the QR visit_count ALONE — the scalar that
+  // first_visit_at / last_visit_at are derived from — so the numerator and
+  // denominator share ONE source. totalVisits is a MAX over karute + appointments
+  // too; dividing a QR-bounded span by it would compress the interval and
+  // mis-fire 離脱気味 for a customer with more karute records than QR visits.
+  // It's the gap between consecutive QR visits across the visiting PERIOD
+  // (first→last), over (visits − 1) intervals — not first→now, which would
+  // fold today's open gap back into the baseline it's being compared against.
   let avgIntervalDays: number | null = null
-  if (totalVisits >= 2 && s.firstVisitIso) {
-    const span = jstDaysBetween(s.firstVisitIso, now)
-    if (span > 0) avgIntervalDays = Math.max(1, Math.round(span / totalVisits))
+  const qrVisits = s.visitCount ?? 0
+  if (qrVisits >= 2 && s.firstVisitIso && s.lastVisitIso) {
+    const span = jstDaysBetween(s.firstVisitIso, new Date(s.lastVisitIso))
+    if (span > 0) avgIntervalDays = Math.max(1, Math.round(span / (qrVisits - 1)))
   }
 
   return {
@@ -122,7 +131,9 @@ export function computeVisitRhythm(
   now: Date = new Date(),
 ): VisitRhythm | null {
   const sig = computeVisitSignals(s, now)
-  if (sig.avgIntervalDays == null || sig.avgIntervalDays <= 0 || sig.lastVisitAgoDays == null) {
+  // avgIntervalDays is already Math.max(1, …) when present, so a non-null value
+  // is always ≥ 1 — only the null checks are needed.
+  if (sig.avgIntervalDays == null || sig.lastVisitAgoDays == null) {
     return null
   }
   const ratio = sig.lastVisitAgoDays / sig.avgIntervalDays

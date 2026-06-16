@@ -122,6 +122,18 @@ describe('classifyVisitSegment', () => {
     ).toBe('antei')
   })
 
+  it('does NOT false-fire 離脱気味 when karute records exceed QR visit count (cross-source guard)', () => {
+    // QR knows 3 visits (≈ every 150d); 12 karute records. The interval must use
+    // the QR count — same source as first/last visit — not MAX(=12), or the span
+    // compresses to ~30d and a fine 常連 reads as drifting at 60d out.
+    expect(
+      classifyVisitSegment(
+        input({ visitCount: 3, karuteCount: 12, firstVisitIso: daysAgo(360), lastVisitIso: daysAgo(60) }),
+        NOW,
+      ),
+    ).toBe('jouren')
+  })
+
   it('terminal lifecycle (卒業/離客) suppresses the frequency segment', () => {
     const base = input({ visitCount: 20, lastVisitIso: daysAgo(15), firstVisitIso: daysAgo(300) })
     expect(classifyVisitSegment({ ...base, lifecycleStatus: 'graduated' }, NOW)).toBeNull()
@@ -141,8 +153,9 @@ describe('computeVisitRhythm', () => {
   })
 
   it('flags an overdue visit and clamps the ratio', () => {
+    // 10 visits over 300→100d (≈22d 目安); now 100d out = ~4.5× → clamped.
     const r = computeVisitRhythm(
-      input({ visitCount: 10, lastVisitIso: daysAgo(400), firstVisitIso: daysAgo(200) }),
+      input({ visitCount: 10, lastVisitIso: daysAgo(100), firstVisitIso: daysAgo(300) }),
       NOW,
     )
     expect(r?.state).toBe('over')
