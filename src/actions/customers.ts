@@ -109,6 +109,17 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       member_number: member_number || null,
     })
 
+    // synqed-core dedups create on (business_id, email): an email that already
+    // exists returns THAT customer instead of creating a new one. For a manual
+    // add that means a typed-new person silently resolved to an existing,
+    // different record — surface it as an error rather than adopting it.
+    if (email && customer.name !== name) {
+      return {
+        success: false,
+        error: `The email "${email}" is already registered to "${customer.name}"`,
+      }
+    }
+
     revalidatePath('/customers')
     updateTag('customers')
 
