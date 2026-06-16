@@ -38,6 +38,7 @@ import { ChevronLeft } from 'lucide-react'
 import { useRouter } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { CustomerIdentityCard } from './CustomerIdentityCard'
+import { VisitPaceCard } from '@/components/visits/VisitPaceCard'
 import { RegenerateAllForCustomerButton } from './RegenerateAllForCustomerButton'
 import { CustomerTabBar, type CustomerProfileTab } from './CustomerTabBar'
 import { CustomerMemoryCard } from '@/components/karute/spike-lifted/memory/CustomerMemoryCard'
@@ -115,6 +116,20 @@ export function CustomerProfileView({
 
       {/* 3. Identity */}
       <CustomerIdentityCard c={customer} />
+
+      {/* 3a. 来店ペース — how often / when / on-or-off rhythm, the facts the
+       *     staff close on. Shown only when there's a signal (real cadence, or a
+       *     returning customer awaiting history sync); a brand-new customer with
+       *     nothing has no pace card. */}
+      {customer.visitPace &&
+        (customer.visitPace.hasDates || customer.visitPace.pending) && (
+          <VisitPaceCard
+            pace={customer.visitPace}
+            lastVisitDateShort={customer.visitPaceLastVisitDate ?? null}
+            lastVisitService={customer.visitPaceLastService ?? null}
+            hasTicketPack={customer.hasTicketPack ?? false}
+          />
+        )}
 
       {/* 3b. 回数券・サブスク — above the tabs so staff see remaining sessions
        *     + the "残り1回 → next-pack conversation" nudge at a glance. */}

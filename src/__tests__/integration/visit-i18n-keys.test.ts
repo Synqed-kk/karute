@@ -20,6 +20,23 @@ import { visitTacticKey, type VisitSegment, type TacticKey } from '@/lib/visits/
 const SEGMENTS: VisitSegment[] = ['jouren', 'antei', 'ridatsugimi', 'shinki']
 const TICKET = [true, false]
 const RHYTHM_KEYS = ['title', 'sinceLabel', 'daysUnit', 'usual', 'estimate', 'longerBy', 'onRhythm']
+const PACE_KEYS = [
+  'title',
+  'avgInterval',
+  'lastVisit',
+  'total',
+  'daysAgoValue',
+  'aboutWeeks',
+  'aboutDays',
+  'inputs',
+  'existingCustomer',
+  'noVisitDate',
+  'syncing',
+  'pending',
+  'verdictMada',
+  'verdictSoro',
+  'verdictOver',
+]
 
 const EXPECTED_TACTIC_KEYS: TacticKey[] = [
   'jouren_pack',
@@ -31,7 +48,14 @@ const EXPECTED_TACTIC_KEYS: TacticKey[] = [
   'shinki',
 ]
 
-type Messages = { visits: { segment: Record<string, string>; tactic: Record<string, string>; rhythm: Record<string, string> } }
+type Messages = {
+  visits: {
+    segment: Record<string, string>
+    tactic: Record<string, string>
+    rhythm: Record<string, string>
+    pace: Record<string, string>
+  }
+}
 
 describe.each([
   ['ja', ja as unknown as Messages],
@@ -57,6 +81,13 @@ describe.each([
   it('has every rhythm-panel string', () => {
     for (const k of RHYTHM_KEYS) {
       expect(typeof m.visits.rhythm[k]).toBe('string')
+    }
+  })
+
+  it('has every 来店ペース card string', () => {
+    for (const k of PACE_KEYS) {
+      expect(typeof m.visits.pace[k]).toBe('string')
+      expect(m.visits.pace[k].length).toBeGreaterThan(0)
     }
   })
 

@@ -27,6 +27,7 @@ import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
 import { CustomerEditDialog } from './CustomerEditDialog'
+import { SegmentChip } from '@/components/visits/SegmentChip'
 
 interface CustomerIdentityCardProps {
   c: CustomerProfileData
@@ -35,6 +36,7 @@ interface CustomerIdentityCardProps {
 export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
   const t = useTranslations('customers.list')
   const tProfile = useTranslations('customers.profile')
+  const tPace = useTranslations('visits.pace')
   const status = STATUS_STYLES[c.status]
   return (
     // Owns its own px-4 md:px-6 (matches spike's CustomerHeaderCard).
@@ -64,16 +66,25 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
                 {tProfile('memberNumber', { number: c.memberNumber })}
               </span>
             )}
-            {/* EXCEPTIONS-ONLY chip — same rule as the 顧客 list (chopstick:
-             *  one badge policy, every surface). 継続中 (the default state)
-             *  renders nothing; only 新規/要フォロー/休眠 get a chip. */}
-            {c.status !== 'on-track' && (
+            {/* Visit-frequency SEGMENT chip — evidence-backed. Shows the segment
+             *  (常連/安定/離脱気味/新規) only when real cadence backs it; a
+             *  returning customer whose dates haven't synced reads 同期待ち (never
+             *  a confident 安定 the data can't support); a terminal lifecycle
+             *  (卒業/離客) falls back to the exceptions-only status chip. 継続中
+             *  with no segment renders nothing, as before (chopstick). */}
+            {c.visitPace?.segment ? (
+              <SegmentChip segment={c.visitPace.segment} />
+            ) : c.visitPace?.pending ? (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                {tPace('pending')}
+              </span>
+            ) : c.status !== 'on-track' ? (
               <span
                 className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
               >
                 {t(`status.${c.status}`)}
               </span>
-            )}
+            ) : null}
             {c.hasTicketPack && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
                 <Ticket size={11} />

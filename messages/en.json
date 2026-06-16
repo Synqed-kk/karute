@@ -2605,6 +2605,23 @@
       "estimate": "est.",
       "longerBy": "{n} days longer than usual",
       "onRhythm": "On their usual pace"
+    },
+    "pace": {
+      "title": "Visit pace",
+      "avgInterval": "Avg interval",
+      "lastVisit": "Last visit",
+      "total": "Total",
+      "daysAgoValue": "{n}d ago",
+      "aboutWeeks": "~{n} wk",
+      "aboutDays": "~{n} d",
+      "inputs": "{visits} visits ・ past {months} mo",
+      "existingCustomer": "Returning customer",
+      "noVisitDate": "No visit date yet",
+      "syncing": "Syncing visit history — no advice shown",
+      "pending": "Awaiting sync",
+      "verdictMada": "Not yet",
+      "verdictSoro": "About due",
+      "verdictOver": "Overdue"
     }
   }
 }
