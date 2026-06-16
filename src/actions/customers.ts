@@ -113,7 +113,13 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     // exists returns THAT customer instead of creating a new one. For a manual
     // add that means a typed-new person silently resolved to an existing,
     // different record — surface it as an error rather than adopting it.
-    if (email && customer.name !== name) {
+    // Compare names normalized — NFKC folds full-width↔half-width (incl. the
+    // full-width space common in 「姓　名」), and trim/collapse/case cover
+    // cosmetic drift — so a genuine same-person re-add isn't flagged as a
+    // collision just because the typed name differs in formatting.
+    const normName = (s: string) =>
+      s.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase()
+    if (email && normName(customer.name) !== normName(name)) {
       return {
         success: false,
         error: `The email "${email}" is already registered to "${customer.name}"`,
