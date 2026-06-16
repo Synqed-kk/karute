@@ -15,6 +15,7 @@ import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
+import { classifyVisitSegment, computeVisitRhythm } from '@/lib/visits/segment'
 import {
   customerVisitCount,
   effectiveLastVisitIso,
@@ -206,6 +207,18 @@ export default async function CustomerProfilePage({
     lifecycleStatus: lifecycle?.status,
   })
 
+  // Visit-frequency segment + rhythm (closing-tactic axis) — same signal set as
+  // the status above, plus first_visit_at for the 目安 interval. Computed once
+  // here, rendered by the identity card. classifyVisitSegment returns null for
+  // terminal lifecycle (卒業/離客) so the card keeps its status chip instead.
+  const visitSignalsInput = {
+    ...statusSignals,
+    firstVisitIso: customer.first_visit_at,
+    lifecycleStatus: lifecycle?.status,
+  }
+  const visitSegment = classifyVisitSegment(visitSignalsInput)
+  const visitRhythm = computeVisitRhythm(visitSignalsInput)
+
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
     signedUrl: p.signed_url,
@@ -275,6 +288,8 @@ export default async function CustomerProfilePage({
       : null,
     nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,
+    visitSegment,
+    visitRhythm,
     memoryCount: memoryItems.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,

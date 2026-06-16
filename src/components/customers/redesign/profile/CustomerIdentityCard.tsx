@@ -27,6 +27,9 @@ import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
 import { CustomerEditDialog } from './CustomerEditDialog'
+import { SegmentChip } from '@/components/visits/SegmentChip'
+import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
+import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
 
 interface CustomerIdentityCardProps {
   c: CustomerProfileData
@@ -64,15 +67,21 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
                 {tProfile('memberNumber', { number: c.memberNumber })}
               </span>
             )}
-            {/* EXCEPTIONS-ONLY chip — same rule as the 顧客 list (chopstick:
-             *  one badge policy, every surface). 継続中 (the default state)
-             *  renders nothing; only 新規/要フォロー/休眠 get a chip. */}
-            {c.status !== 'on-track' && (
-              <span
-                className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
-              >
-                {t(`status.${c.status}`)}
-              </span>
+            {/* The visit-frequency SEGMENT chip REPLACES the status chip when a
+             *  segment applies (any active customer). When it's null — a terminal
+             *  lifecycle decision (卒業/離客) — fall back to the exceptions-only
+             *  status chip so a staff churn call still shows (chopstick: one badge
+             *  policy). 継続中 with no segment renders nothing, as before. */}
+            {c.visitSegment ? (
+              <SegmentChip segment={c.visitSegment} />
+            ) : (
+              c.status !== 'on-track' && (
+                <span
+                  className={`inline-flex shrink-0 items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${status.bg} ${status.text} ${status.border}`}
+                >
+                  {t(`status.${c.status}`)}
+                </span>
+              )
             )}
             {c.hasTicketPack && (
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:border-green-500/20 dark:bg-green-500/10 dark:text-green-300">
@@ -127,6 +136,24 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               {t('joined', { date: c.joinDate })}
             </Meta>
           </div>
+
+          {/* Closing-tactic cluster — the slim 来店リズム band + the ticket-aware
+           *  tactic. Only for active customers (a segment is present); each piece
+           *  self-hides when its data is missing, so a customer with no honest
+           *  cadence shows the tactic alone, and a terminal/new one shows neither. */}
+          {c.visitSegment && (
+            <div className="flex flex-col gap-1.5 pt-0.5">
+              <VisitRhythmPanel
+                rhythm={c.visitRhythm ?? null}
+                segment={c.visitSegment}
+                variant="inline"
+              />
+              <ClosingTacticHint
+                segment={c.visitSegment}
+                hasTicketPack={c.hasTicketPack ?? false}
+              />
+            </div>
+          )}
 
           {/* Contact — phone + email */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">

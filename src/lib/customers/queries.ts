@@ -140,6 +140,9 @@ export interface CustomerWithStaff extends Customer {
   member_number: string | null
   has_ticket_pack: boolean
   last_visit_at: string | null
+  /** First visit (QR cache) — pairs with visit_count for the average-interval
+   *  目安 (来店リズム). Null for in-app-only customers / before QR sync. */
+  first_visit_at: string | null
 }
 
 export async function getCustomer(id: string): Promise<CustomerWithStaff> {
@@ -165,6 +168,10 @@ export async function getCustomer(id: string): Promise<CustomerWithStaff> {
     member_number: c.member_number ?? null,
     has_ticket_pack: c.has_ticket_pack ?? false,
     last_visit_at: c.last_visit_at ?? null,
+    // SDK-skew: first_visit_at is on the API but lags the local client type.
+    // Cast to read it (same pattern as the QR fields above on the list path).
+    first_visit_at:
+      (c as typeof c & { first_visit_at?: string | null }).first_visit_at ?? null,
   }
 }
 

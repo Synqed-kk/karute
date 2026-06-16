@@ -4,6 +4,7 @@
 // CustomerRowData shape; populated by the page-level adapter.
 
 import { BADGE_COLORS, type BadgeStyle } from '@/lib/badge-styles'
+import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
 
 export type CustomerStatusKey =
   | 'on-track'
@@ -108,6 +109,13 @@ export interface CustomerProfileData {
    *  staff-typed "▶症状:… ▶ゴール:…" booking note. Surfaced read-only by
    *  BookingMemoCard until AI extraction distributes it into the memory boxes. */
   bookingMemo?: string | null
+  /** Visit-frequency segment (常連/安定/離脱気味/新規) driving the closing-tactic
+   *  cluster. null when a terminal lifecycle decision (卒業/離客) owns the
+   *  customer — the card then keeps its status chip instead of a segment chip. */
+  visitSegment?: VisitSegment | null
+  /** Rhythm geometry for the inline 来店リズム band; null when there's no honest
+   *  cadence to plot (<2 QR visits or no first-visit date). */
+  visitRhythm?: VisitRhythm | null
 }
 
 // Display strings live in `messages/{en,ja}.json` under

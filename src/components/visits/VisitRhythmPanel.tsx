@@ -16,17 +16,38 @@ import { RHYTHM_FILL_CLASS } from './tone'
 interface VisitRhythmPanelProps {
   rhythm: VisitRhythm | null
   segment: VisitSegment | null
+  /** 'panel' = the full days-since + bar block (brief). 'inline' = a slim
+   *  one-line band for the integrated identity card (no bar). */
+  variant?: 'panel' | 'inline'
 }
 
 // One usual-interval occupies this fraction of the track, leaving room to show
 // drift out to the clamped 2.5× without the marker running off the end.
 const INTERVAL_PCT = 100 / 2.5 // = 40%
 
-export function VisitRhythmPanel({ rhythm, segment }: VisitRhythmPanelProps) {
+export function VisitRhythmPanel({ rhythm, segment, variant = 'panel' }: VisitRhythmPanelProps) {
   const t = useTranslations('visits.rhythm')
   if (!rhythm) return null
 
   const over = rhythm.state !== 'on-rhythm'
+
+  // Slim band for the integrated identity card: 来店リズム · 48 日 / いつもは約21日.
+  // The days-since goes amber once drifting — the same cue as the segment chip.
+  if (variant === 'inline') {
+    return (
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-muted-foreground">
+        <span className="text-muted-foreground/70">{t('title')}</span>
+        <span className="tabular-nums">
+          <span className={over ? 'font-medium text-amber-600 dark:text-amber-400' : 'text-foreground'}>
+            {rhythm.daysSince}
+          </span>
+          <span> {t('daysUnit')}</span>
+          {` / ${t('usual', { n: rhythm.avgIntervalDays })}`}
+        </span>
+      </div>
+    )
+  }
+
   const overdueDays = Math.max(0, rhythm.daysSince - rhythm.avgIntervalDays)
   const todayPct = Math.min((rhythm.ratio / 2.5) * 100, 98)
 
