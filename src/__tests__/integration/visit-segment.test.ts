@@ -46,7 +46,7 @@ describe('computeVisitSignals', () => {
     )
     expect(sig.totalVisits).toBe(12)
     expect(sig.lastVisitAgoDays).toBe(20)
-    // span 240 / 12 visits = 20-day 目安
+    // (240−20)/(12−1) = 220/11 = 20-day 目安
     expect(sig.avgIntervalDays).toBe(20)
     expect(sig.isFirstVisit).toBe(false)
   })
@@ -93,7 +93,7 @@ describe('classifyVisitSegment', () => {
   })
 
   it('離脱気味 — a 12-visit regular drifted past 1.5× their usual interval beats 常連', () => {
-    // 240/12 = 20-day 目安; 48 days out > 20 × 1.5 = 30 → drifting.
+    // (240−48)/11 ≈ 17-day 目安; 48 days out > 17 × 1.5 ≈ 26 → drifting.
     expect(
       classifyVisitSegment(
         input({ visitCount: 12, lastVisitIso: daysAgo(48), firstVisitIso: daysAgo(240) }),
@@ -103,7 +103,7 @@ describe('classifyVisitSegment', () => {
   })
 
   it('within 1.5× the interval is NOT yet 離脱気味', () => {
-    // 20-day 目安, 28 days out < 30 threshold.
+    // ≈19-day 目安, 28 days out < 19 × 1.5 ≈ 29 threshold.
     expect(
       classifyVisitSegment(
         input({ visitCount: 12, lastVisitIso: daysAgo(28), firstVisitIso: daysAgo(240) }),
