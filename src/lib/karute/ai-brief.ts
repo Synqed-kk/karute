@@ -148,8 +148,11 @@ export async function getAiPreSessionBrief(params: {
 
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
-      // invalidated immediately instead of serving the old wording.
-      v: 4,
+      // invalidated immediately instead of serving the old wording. v5: purge
+      // briefs poisoned by the QR-sync customer mis-link (a corrected
+      // appointment.customer_id must not keep serving a fused brief built from
+      // another customer's reservation memo).
+      v: 5,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
