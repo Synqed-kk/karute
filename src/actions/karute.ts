@@ -64,12 +64,15 @@ export async function saveKaruteRecord(
   try {
     const synqed = await getSynqedClient()
 
-    // If linked to an appointment, attribute to that appointment's staff;
-    // otherwise attribute to the signed-in user's staff identity.
+    // Attribute the record to whoever RECORDED it — the signed-in staff — NOT
+    // the booking's staff. For your own bookings these are identical; when you
+    // record a customer booked under ANOTHER staff (covering, swaps, days off),
+    // the karte correctly saves under YOU. The appointment's staff is only a
+    // fallback for an account with no staff identity, so the save never fails.
     let staffId: string | null = await getCurrentUserStaffId()
-    if (input.appointmentId) {
+    if (!staffId && input.appointmentId) {
       const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      if (appt?.staff_id) staffId = appt.staff_id
+      staffId = appt?.staff_id ?? null
     }
     if (!staffId) {
       return { error: 'No staff identity for the signed-in user.' }
