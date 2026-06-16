@@ -3,6 +3,7 @@ import { SynqedClient, SynqedError } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
+import { qrAppointmentWrite } from '@/lib/sync/qr-appointment'
 
 export const maxDuration = 300
 
@@ -233,27 +234,24 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
         const key = apptKey(staffId, mapped.startTime)
         const existingId = existingByKey.get(key)
+        // customer_id is in BOTH payloads — so a slot rebooked by a DIFFERENT
+        // customer re-links to them instead of keeping the stale customer (the
+        // cross-customer leak: 崎本's 12:00 booking rendering under 中川's name).
+        const { update: apptUpdate, create: apptCreate } = qrAppointmentWrite(
+          customerId,
+          staffId,
+          mapped,
+          notes,
+        )
 
         if (existingId) {
-          await synqed.appointments.update(existingId, {
-            title: mapped.treatmentName,
-            notes,
-            duration_minutes: mapped.durationMinutes,
-          })
+          await synqed.appointments.update(existingId, apptUpdate)
           updated++
           continue
         }
 
         try {
-          const appt = await synqed.appointments.create({
-            customer_id: customerId,
-            staff_id: staffId,
-            starts_at: mapped.startTime,
-            ends_at: mapped.endTime,
-            duration_minutes: mapped.durationMinutes,
-            title: mapped.treatmentName,
-            notes,
-          })
+          const appt = await synqed.appointments.create(apptCreate)
           existingByKey.set(key, appt.id)
           created++
         } catch (err) {
