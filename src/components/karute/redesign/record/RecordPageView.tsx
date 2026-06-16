@@ -497,7 +497,6 @@ export function RecordPageView({
 
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
-      <SourceModeChips />
       {recorderControls}
       <div className="flex justify-center">
         <ConsentPill consentDate={consentDate} />
@@ -577,6 +576,10 @@ export function RecordPageView({
       <LiveTranscriptCard connected={false} lines={[]} />
 
       <RecentRecordingsCard recordings={recentRecordings} />
+
+      {/* Mic source + disclosure mode: set-once config, demoted to a quiet strip
+          at the very bottom so the record button stays the focus (Liam, 2026-06). */}
+      <SourceModeChips />
 
       {/* Outcome — chosen at stop, BEFORE transcription, so staff aren't stuck
           waiting for the AI. Centered pop-up; the choice rides the pipeline
