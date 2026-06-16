@@ -71,6 +71,9 @@ export interface RecordPageNextAppointment {
    *  query already selects staff_profile_id). Earlier version hardcoded
    *  '—' even when staff_profile_id was set. */
   staffName?: string
+  /** True when the selected customer is booked under a DIFFERENT staff than
+   *  the signed-in user — drives the 別のスタッフの予約 heads-up banner. */
+  bookedUnderOtherStaff?: boolean
 }
 
 export interface RecordPageViewProps {
@@ -92,6 +95,9 @@ export interface RecordPageViewProps {
   previousPack?: { size: number; unitPrice: number } | null
   /** Org 録音設定 noise-suppression toggle (default on) — applied to the mic. */
   noiseSuppression?: boolean
+  /** Signed-in staff display name — shown in the 別のスタッフの予約 banner so
+   *  staff see the record will save under THEM. */
+  currentStaffName?: string | null
 }
 
 function deriveInitials(name: string): string {
@@ -123,6 +129,7 @@ export function RecordPageView({
   staffCanCustomizePacks = true,
   previousPack = null,
   noiseSuppression = true,
+  currentStaffName = null,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -304,6 +311,20 @@ export function RecordPageView({
   // resolveOutcomeMode): conversion dialog / repurchase dialog / nothing at all.
   const outcomeMode = resolveOutcomeMode(targetPack)
 
+  // Slim heads-up: the picked customer is booked under another staff. The
+  // record still saves under the signed-in user (currentStaffName).
+  const otherStaffBanner =
+    nextAppointment?.bookedUnderOtherStaff &&
+    nextAppointment.staffName &&
+    currentStaffName ? (
+      <div className="rounded-lg bg-blue-50 px-3 py-1.5 text-[12px] leading-snug text-blue-900 dark:bg-blue-500/10 dark:text-blue-200">
+        {t('otherStaffBooking', {
+          staff: nextAppointment.staffName,
+          you: currentStaffName,
+        })}
+      </div>
+    ) : null
+
   // Mid-pack ZERO-TAP flow: the customer already paid and keeps rebooking — no
   // conversion conversation happened, so asking 成約/不成約 would pollute the
   // coaching labels. Consume 1 session (undo-able toast) + autosave without an
@@ -476,7 +497,6 @@ export function RecordPageView({
 
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
-      <SourceModeChips />
       {recorderControls}
       <div className="flex justify-center">
         <ConsentPill consentDate={consentDate} />
@@ -527,6 +547,7 @@ export function RecordPageView({
               nearbyBookings={nearbyBookings}
               onSwitchBooking={handleSwitchBooking}
             />
+            {otherStaffBanner}
             <RepurchaseCueBanner pack={targetPack} />
             <PreSessionBriefCard
               brief={brief}
@@ -542,6 +563,7 @@ export function RecordPageView({
             nearbyBookings={nearbyBookings}
             onSwitchBooking={handleSwitchBooking}
           />
+          {otherStaffBanner}
           <RepurchaseCueBanner pack={targetPack} />
           <PreSessionBriefCard
             brief={brief}
@@ -554,6 +576,10 @@ export function RecordPageView({
       <LiveTranscriptCard connected={false} lines={[]} />
 
       <RecentRecordingsCard recordings={recentRecordings} />
+
+      {/* Mic source + disclosure mode: set-once config, demoted to a quiet strip
+          at the very bottom so the record button stays the focus (Liam, 2026-06). */}
+      <SourceModeChips />
 
       {/* Outcome — chosen at stop, BEFORE transcription, so staff aren't stuck
           waiting for the AI. Centered pop-up; the choice rides the pipeline
