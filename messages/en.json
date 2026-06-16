@@ -2622,13 +2622,9 @@
       "verdictMada": "Not yet",
       "verdictSoro": "About due",
       "verdictOver": "Overdue",
-      "remaining": "Left",
-      "visitsCount": "{n}",
-      "packLabel": "{size}-pack #{round}",
       "coversWeeks": "~{n} wk",
       "coversMonths": "~{n} mo",
-      "remainLine": "{n} left",
-      "remainLineSpan": "{n} left ・ {span}"
+      "atThisPace": "{span} at this pace"
     }
   }
 }

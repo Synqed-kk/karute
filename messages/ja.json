@@ -2622,13 +2622,9 @@
       "verdictMada": "まだ",
       "verdictSoro": "そろそろ",
       "verdictOver": "空きすぎ",
-      "remaining": "残り",
-      "visitsCount": "{n}回",
-      "packLabel": "{size}回券 {round}回目",
       "coversWeeks": "約{n}週分",
       "coversMonths": "約{n}ヶ月分",
-      "remainLine": "残り{n}回",
-      "remainLineSpan": "残り{n}回・{span}"
+      "atThisPace": "いまのペースで{span}"
     }
   }
 }

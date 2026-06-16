@@ -22,12 +22,6 @@ interface VisitPaceCardProps {
   lastVisitDateShort: string | null
   lastVisitService: string | null
   hasTicketPack: boolean
-  /** Primary active counted pack (FIFO target) — drives the 残り cell + the span
-   *  fact line. null when the customer holds no in-app pack. */
-  ticket?: { remaining: number; packSize: number; round: number } | null
-  /** How many active counted packs the customer holds — the span ('約N週分') is
-   *  shown only when EXACTLY one, since a single cell can't speak for two packs. */
-  activePackCount?: number
 }
 
 const VERDICT_LABEL: Record<RhythmState, 'verdictMada' | 'verdictSoro' | 'verdictOver'> = {
@@ -43,8 +37,6 @@ export function VisitPaceCard({
   lastVisitDateShort,
   lastVisitService,
   hasTicketPack,
-  ticket = null,
-  activePackCount = 0,
 }: VisitPaceCardProps) {
   const t = useTranslations('visits.pace')
   const tTactic = useTranslations('visits.tactic')
@@ -61,30 +53,12 @@ export function VisitPaceCard({
   const lastVisitValue =
     pace.lastVisitAgoDays != null ? t('daysAgoValue', { n: pace.lastVisitAgoDays }) : '—'
 
-  // The span a pack covers at this cadence — factual 目安, shown only with a solid
-  // interval AND exactly one active pack (one cell can't represent two).
-  let spanStr: string | null = null
-  if (ticket && pace.hasDates && pace.avgIntervalDays != null && activePackCount === 1) {
-    const days = ticket.remaining * pace.avgIntervalDays
-    spanStr =
-      days >= 60
-        ? t('coversMonths', { n: Math.round(days / 30) })
-        : t('coversWeeks', { n: Math.round(days / 7) })
-  }
-
+  // The pace card is CADENCE ONLY — no ticket facts (those live, once, in the
+  // 回数券 card). The bottom line is the suggest-a-pack tactic for a returning
+  // customer WITHOUT a pack (the ticket card has nothing to say for them); a
+  // pack-holder gets nothing here — their 残り + span live in the 回数券 card.
   let bottom: React.ReactNode = null
-  if (ticket) {
-    bottom = (
-      <div className="mt-2.5 flex items-start gap-2 text-[12px] text-muted-foreground">
-        <Ticket size={13} className="mt-0.5 shrink-0 text-green-600 dark:text-green-400" aria-hidden />
-        <p className="text-foreground">
-          {spanStr
-            ? t('remainLineSpan', { n: ticket.remaining, span: spanStr })
-            : t('remainLine', { n: ticket.remaining })}
-        </p>
-      </div>
-    )
-  } else if (pace.hasDates && pace.segment) {
+  if (!hasTicketPack && pace.hasDates && pace.segment) {
     bottom = (
       <div className="mt-2.5 flex items-start gap-2 text-[12px] text-muted-foreground">
         <Ticket size={13} className="mt-0.5 shrink-0 text-green-600 dark:text-green-400" aria-hidden />
@@ -120,7 +94,7 @@ export function VisitPaceCard({
         )}
       </div>
 
-      <div className={`grid gap-2 ${ticket ? 'grid-cols-3' : 'grid-cols-2'}`}>
+      <div className="grid grid-cols-2 gap-2">
         {pace.hasDates ? (
           <Cell
             label={t('avgInterval')}
@@ -142,14 +116,6 @@ export function VisitPaceCard({
               : t('noVisitDate')
           }
         />
-        {ticket && (
-          <Cell
-            tone="success"
-            label={t('remaining')}
-            value={t('visitsCount', { n: ticket.remaining })}
-            caption={t('packLabel', { size: ticket.packSize, round: ticket.round })}
-          />
-        )}
       </div>
 
       {pace.hasDates && pace.ratio != null && (
@@ -179,38 +145,21 @@ function Cell({
   value,
   valueClass,
   caption,
-  tone = 'default',
 }: {
   label: string
   value: string
   valueClass?: string
   caption: string
-  tone?: 'default' | 'success'
 }) {
-  const success = tone === 'success'
   return (
-    <div
-      className={`rounded-xl px-2.5 py-2 ${
-        success ? 'bg-green-50 dark:bg-green-500/10' : 'bg-muted/60'
-      }`}
-    >
-      <div className={`text-[10px] ${success ? 'text-green-700/80 dark:text-green-300/80' : 'text-muted-foreground'}`}>
-        {label}
-      </div>
+    <div className="rounded-xl bg-muted/60 px-2.5 py-2">
+      <div className="text-[10px] text-muted-foreground">{label}</div>
       <div
-        className={`text-[19px] font-semibold leading-tight tabular-nums ${
-          valueClass ?? (success ? 'text-green-700 dark:text-green-300' : 'text-foreground')
-        }`}
+        className={`text-[19px] font-semibold leading-tight tabular-nums ${valueClass ?? 'text-foreground'}`}
       >
         {value}
       </div>
-      <div
-        className={`mt-0.5 truncate text-[10px] ${
-          success ? 'text-green-700/70 dark:text-green-300/70' : 'text-muted-foreground/80'
-        }`}
-      >
-        {caption}
-      </div>
+      <div className="mt-0.5 truncate text-[10px] text-muted-foreground/80">{caption}</div>
     </div>
   )
 }

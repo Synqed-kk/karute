@@ -46,6 +46,10 @@ interface TicketPackCardProps {
   /** Upcoming booking on file — softens the 使い切り hint (they're coming). */
   hasNextBooking?: boolean
   lifecycle: CustomerLifecycle | null
+  /** Customer's 目安 visit interval (days) from 来店ペース — lets each pack show
+   *  how long it lasts at their cadence ("いまのペースで約N分"). null when no solid
+   *  cadence. This is the ONE home for the span (it was duplicated in the pace card). */
+  avgIntervalDays?: number | null
 }
 
 export function TicketPackCard({
@@ -53,6 +57,7 @@ export function TicketPackCard({
   packs,
   lifecycle,
   hasNextBooking = false,
+  avgIntervalDays = null,
 }: TicketPackCardProps) {
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
@@ -87,6 +92,7 @@ export function TicketPackCard({
               pack={p}
               customerId={customerId}
               hasNextBooking={hasNextBooking}
+              avgIntervalDays={avgIntervalDays}
               hasNewerActive={packs.some(
                 (o) =>
                   o.id !== p.id &&
@@ -136,13 +142,16 @@ function PackRow({
   customerId,
   hasNewerActive = false,
   hasNextBooking = false,
+  avgIntervalDays = null,
 }: {
   pack: PackWithUsage
   customerId: string
   hasNewerActive?: boolean
   hasNextBooking?: boolean
+  avgIntervalDays?: number | null
 }) {
   const t = useTranslations('customers.profile.packs')
+  const tPace = useTranslations('visits.pace')
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -156,6 +165,19 @@ function PackRow({
   const daysSinceLast = pack.lastRedeemedOn
     ? jstDaysBetween(pack.lastRedeemedOn)
     : null
+
+  // How long this pack lasts at the customer's 来店ペース — a factual 目安, the
+  // ONE home for the span (it used to be duplicated in the pace card). Only
+  // counted packs with sessions left + a solid cadence.
+  let spanLabel: string | null = null
+  if (avgIntervalDays != null && pack.kind === 'pack' && pack.remaining > 0) {
+    const days = pack.remaining * avgIntervalDays
+    const span =
+      days >= 60
+        ? tPace('coversMonths', { n: Math.round(days / 30) })
+        : tPace('coversWeeks', { n: Math.round(days / 7) })
+    spanLabel = tPace('atThisPace', { span })
+  }
 
   const redeem = async () => {
     setBusy(true)
@@ -229,6 +251,12 @@ function PackRow({
               />
             </div>
           )}
+        </div>
+      )}
+
+      {spanLabel && (
+        <div className="mt-2 text-[11px] text-muted-foreground">
+          <span className="text-foreground">{spanLabel}</span>
         </div>
       )}
 

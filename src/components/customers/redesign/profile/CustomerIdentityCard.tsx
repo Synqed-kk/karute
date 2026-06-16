@@ -17,7 +17,6 @@ import {
   Mail,
   Mic,
   Phone,
-  Sparkles,
   Ticket,
   User,
 } from 'lucide-react'
@@ -25,7 +24,6 @@ import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
 import { STATUS_STYLES } from '../types'
-import { ComingSoonChip } from '../ComingSoonChip'
 import { CustomerEditDialog } from './CustomerEditDialog'
 import { SegmentChip } from '@/components/visits/SegmentChip'
 
@@ -128,12 +126,6 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               </span>{' '}
               <span className="tabular-nums">{c.lastVisitDate ?? '—'}</span>
             </Meta>
-            <Meta icon={<Sparkles size={12} />}>
-              <span className="text-muted-foreground/70">
-                {tProfile('usualServicePrefix')}
-              </span>{' '}
-              <span>{c.usualService ?? '—'}</span>
-            </Meta>
             <Meta icon={<Calendar size={12} />}>
               {t('joined', { date: c.joinDate })}
             </Meta>
@@ -167,25 +159,18 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
             </Meta>
           </div>
 
-          {/* Staff + next-visit prediction */}
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
-            <span>
-              {tProfile('staffPrefix')}{' '}
-              <span className="text-foreground">
-                {c.preferredStaffName ?? c.bookingStaffName ?? '—'}
+          {/* 担当 (assigned/booking staff). The 推奨来店 prediction was a dead
+           *  placeholder (always '—' for active customers) — removed. */}
+          {(c.preferredStaffName ?? c.bookingStaffName) && (
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+              <span>
+                {tProfile('staffPrefix')}{' '}
+                <span className="text-foreground">
+                  {c.preferredStaffName ?? c.bookingStaffName}
+                </span>
               </span>
-            </span>
-            <span aria-hidden>·</span>
-            {/* Only the prediction TEXT is dimmed; the 対応予定 chip stays full
-             *  opacity so it reads the same as every other 対応予定 badge. */}
-            <span className="inline-flex items-center gap-1.5">
-              <span className="opacity-50">
-                {t('row.recommendPrefix')}{' '}
-                <span className="text-foreground">{c.nextVisitPredicted}</span>
-              </span>
-              <ComingSoonChip />
-            </span>
-          </div>
+            </div>
+          )}
 
         </div>
 
