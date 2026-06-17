@@ -13,6 +13,7 @@
 // retire (or become the raw-source toggle).
 
 import { ClipboardList } from 'lucide-react'
+import { stripQrPrefix } from '@/lib/sync/qr-notes'
 
 // QR memo keys → display labels. Unknown keys fall back to the raw key.
 const LABELS: Record<string, string> = {
@@ -32,7 +33,7 @@ interface Row {
 /** Parse "▶key:value▶key:value" (optionally prefixed "QR #id | "). Returns null
  *  when there's no ▶ structure so the caller can render the raw text instead. */
 function parseMemo(raw: string): Row[] | null {
-  const body = raw.replace(/^\s*QR\s*#\S+\s*\|\s*/, '').trim()
+  const body = stripQrPrefix(raw)
   if (!body.includes('▶')) return null
   return body
     .split('▶')
