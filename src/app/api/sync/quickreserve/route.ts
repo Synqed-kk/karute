@@ -267,9 +267,21 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         const existing = matchQrReservation(existingIndexes, qrId, staffId, mapped.startTime)
 
         if (existing) {
-          await synqed.appointments.update(existing.id, apptUpdate)
-          updated++
-          dropMatched(existingIndexes, qrId, existing)
+          try {
+            await synqed.appointments.update(existing.id, apptUpdate)
+            updated++
+            dropMatched(existingIndexes, qrId, existing)
+          } catch (err) {
+            // The update now relocates the slot (staff/time) for a moved booking,
+            // so it can overlap another appointment → 409, exactly like create.
+            // Skip the move this run (a later sync retries) instead of aborting.
+            if (err instanceof SynqedError && err.status === 409) {
+              console.warn(`[QR Sync] Move overlap, skipping QR #${mapped.qrId}`)
+              overlapped++
+            } else {
+              throw err
+            }
+          }
           continue
         }
 
