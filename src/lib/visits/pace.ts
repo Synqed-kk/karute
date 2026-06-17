@@ -8,10 +8,13 @@
 // `pending` state: the card shows the count + 同期待ち and NO advice. It never
 // asserts a cadence it can't show.
 //
-// The interval uses the DATED-visit count as its denominator (karute records +
-// past appointments — every entry we have a date for), not the lifetime
-// visit_count which may include undated visits; dividing the dated span by the
-// larger lifetime count would understate the gap and over-fire 離脱気味.
+// The interval uses the LIFETIME visit count (totalVisits − 1) as its
+// denominator, not just the synced dated subset (datedVisitCount). Dividing the
+// dated span (first→last dated visit) by the full lifetime count recovers the
+// true cadence for customers whose undated visits aren't synced yet — e.g. 17
+// lifetime visits over an 11-month dated span → ~3 weeks, not ~15 weeks (the
+// latter is what datedVisitCount ÷ 4 would give). datedVisitCount is used only
+// as an evidence threshold (≥ 2 dated visits required), not the denominator.
 
 import { jstDaysBetween } from '@/lib/date/jst'
 import { OVERDUE_FACTOR, JOUREN_MIN_VISITS, type VisitSegment } from './segment'
@@ -21,7 +24,9 @@ export interface VisitPaceInput {
   firstVisitIso: string | null
   /** Reconciled most-recent dated visit (effectiveLastVisitIso). */
   lastVisitIso: string | null
-  /** Visits we have DATES for (karute + past appointments) — the interval denom. */
+  /** Visits we have DATES for (karute + past appointments) — used as an evidence
+   *  threshold (≥ 2 required to establish a span), NOT the interval denominator.
+   *  The denominator is totalVisits − 1 (the lifetime count). */
   datedVisitCount: number
   /** Lifetime visit count (customerVisitCount) — display + the 常連 threshold. */
   totalVisits: number
@@ -42,7 +47,7 @@ export interface VisitPace {
    *  independent of the interval (recency must never be suppressed by a missing
    *  cadence). null only when there's no last-visit date at all. */
   lastVisitAgoDays: number | null
-  /** Smoothed 目安 interval: dated span ÷ (datedVisitCount − 1). null without dates. */
+  /** Smoothed 目安 interval: dated span ÷ (totalVisits − 1). null without dates. */
   avgIntervalDays: number | null
   /** Months of visiting history (first dated visit → now). null without dates. */
   spanMonths: number | null
