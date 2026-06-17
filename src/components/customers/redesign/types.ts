@@ -4,6 +4,7 @@
 // CustomerRowData shape; populated by the page-level adapter.
 
 import { BADGE_COLORS, type BadgeStyle } from '@/lib/badge-styles'
+import type { VisitPace } from '@/lib/visits/pace'
 
 export type CustomerStatusKey =
   | 'on-track'
@@ -108,6 +109,15 @@ export interface CustomerProfileData {
    *  staff-typed "▶症状:… ▶ゴール:…" booking note. Surfaced read-only by
    *  BookingMemoCard until AI extraction distributes it into the memory boxes. */
   bookingMemo?: string | null
+  /** 来店ペース card data (visit cadence, computed once on the server). When
+   *  hasDates → full read; pending → returning-but-no-dates 同期待ち; absent or
+   *  neither → no pace card (and the identity chip falls back to status). */
+  visitPace?: VisitPace | null
+  /** Compact last-visit date for the pace card ("4/29(火)"); null when unknown. */
+  visitPaceLastVisitDate?: string | null
+  /** Last treatment/course (from the most recent past appointment) for the pace
+   *  card caption; null when unknown. */
+  visitPaceLastService?: string | null
 }
 
 // Display strings live in `messages/{en,ja}.json` under

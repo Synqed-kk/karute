@@ -548,7 +548,8 @@
       "title": "Today's heads-up — {n} pack sessions left",
       "body": "Talk about the next pack during the session. You'll record the result after stopping.",
       "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
-    }
+    },
+    "otherStaffBooking": "Booked under {staff} · this record saves under {you}"
   },
   "customers": {
     "title": "Customers",
@@ -2579,5 +2580,51 @@
     "trigger": "Staff",
     "title": "Filter by staff",
     "all": "All staff"
+  },
+  "visits": {
+    "segment": {
+      "jouren": "Regular",
+      "antei": "Steady",
+      "ridatsugimi": "Slipping",
+      "shinki": "New"
+    },
+    "tactic": {
+      "jouren_pack": "A trusted regular. Their pass is likely running low — a natural moment to suggest securing the next sessions today.",
+      "jouren_nopack": "A steady regular. Mention that a pass works out cheaper than paying each time — a good first pass to offer.",
+      "antei_pack": "Relationship is established. In step with their pass usage, suggest returning around the same interval.",
+      "antei_nopack": "Relationship is established. Use their average interval to lock in the next booking on the spot.",
+      "ridatsugimi_pack": "A longer gap than usual. Open warmly. Prioritise a visit before the pass expires so it is not wasted.",
+      "ridatsugimi_nopack": "A longer gap than usual. Do not push a sale — focus on securing the next booking to get back into rhythm.",
+      "shinki": "First visit today. Confirm how they feel rather than selling. Show the next timing and aim only to book visit 2."
+    },
+    "rhythm": {
+      "title": "Visit rhythm",
+      "sinceLabel": "Since last visit",
+      "daysUnit": "days",
+      "usual": "usually ~{n}d",
+      "estimate": "est.",
+      "longerBy": "{n} days longer than usual",
+      "onRhythm": "On their usual pace"
+    },
+    "pace": {
+      "title": "Visit pace",
+      "avgInterval": "Avg interval",
+      "lastVisit": "Last visit",
+      "total": "Total",
+      "daysAgoValue": "{n}d ago",
+      "aboutWeeks": "~{n} wk",
+      "aboutDays": "~{n} d",
+      "inputs": "{visits} visits ・ past {months} mo",
+      "existingCustomer": "Returning customer",
+      "noVisitDate": "No visit date yet",
+      "syncing": "Syncing visit history — no advice shown",
+      "pending": "Awaiting sync",
+      "verdictMada": "Not yet",
+      "verdictSoro": "About due",
+      "verdictOver": "Overdue",
+      "coversWeeks": "~{n} wk",
+      "coversMonths": "~{n} mo",
+      "atThisPace": "{span} at this pace"
+    }
   }
 }

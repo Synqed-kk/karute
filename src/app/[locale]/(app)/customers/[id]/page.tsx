@@ -18,10 +18,14 @@ import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
   customerVisitCount,
   effectiveLastVisitIso,
+  effectiveFirstVisitIso,
+  isReturningCustomer,
   resolveCustomerStatus,
   enrichCustomers,
   formatJoinDate,
+  formatCompactDate,
 } from '@/lib/customers/list-enrich'
+import { computeVisitPace } from '@/lib/visits/pace'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -206,6 +210,23 @@ export default async function CustomerProfilePage({
     lifecycleStatus: lifecycle?.status,
   })
 
+  // 来店ペース — cadence computed from the RECONCILED dated visit series (the
+  // field fix: first AND last go through the appointment/karute reconciliation,
+  // not the raw QR scalars that are NULL for most customers). Advice and the
+  // numbers come from this one source, so they rise/fall together.
+  const enr = enrichment.get(id)
+  const visitPace = computeVisitPace({
+    firstVisitIso: effectiveFirstVisitIso(enr?.firstVisitIso, customer.first_visit_at),
+    lastVisitIso,
+    datedVisitCount: enr?.datedVisitCount ?? 0,
+    totalVisits: customerVisitCount(statusSignals),
+    isReturning: isReturningCustomer(statusSignals),
+    isTerminal: lifecycle?.status === 'graduated' || lifecycle?.status === 'lost',
+  })
+  const visitPaceLastVisitDate = formatCompactDate(lastVisitIso, locale, new Date(), {
+    withWeekday: true,
+  })
+
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
     signedUrl: p.signed_url,
@@ -275,6 +296,9 @@ export default async function CustomerProfilePage({
       : null,
     nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,
+    visitPace,
+    visitPaceLastVisitDate,
+    visitPaceLastService: enr?.lastVisitService ?? null,
     memoryCount: memoryItems.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,
