@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedClient, SynqedError } from '@synqed-kk/client'
 import type { Appointment } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -11,6 +12,21 @@ import {
   dropMatched,
   staffTimeKey,
 } from '@/lib/sync/qr-index'
+import { planQrCancellations, type SweepDay } from '@/lib/sync/qr-sweep'
+
+/** Bust the data caches the sync just made stale. Best-effort: a cache hiccup
+ *  must never fail a sync that already wrote rows. Uses updateTag — the codebase-
+ *  wide invalidation for these unstable_cache tags (Next 16). */
+function bustSyncCaches() {
+  try {
+    updateTag('customers') // getCachedCustomerList id→name map (予約 list + record target)
+    updateTag('dashboard') // getCachedDashboardData
+    revalidatePath('/appointments')
+    revalidatePath('/dashboard')
+  } catch (e) {
+    console.error('[QR Sync] cache invalidation failed (non-fatal):', e)
+  }
+}
 
 export const maxDuration = 300
 
@@ -50,6 +66,10 @@ export async function POST() {
 async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
   // sync_config (credentials + run status) stays in Supabase — it's config.
   const supabase = createServiceClient()
+
+  // Declared before the try so the catch can still bust caches for rows a
+  // partially-failed run already wrote (else they'd stay stale until TTL).
+  let mutated = false
 
   try {
     let query = supabase
@@ -148,10 +168,16 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     let created = 0
     let updated = 0
     let skipped = 0
+    let cancelled = 0
+    let cancelCapExceeded = false
     // Bookings synqed-core rejected as overlapping an existing slot (409).
     // Counted + skipped instead of crashing the whole run mid-way.
     let overlapped = 0
     let total = 0
+    // Rows updated/created this run (excluded from the cancel-sweep) + per-day
+    // live-id sets for the sweep (only successfully-fetched days are added).
+    const matchedIds = new Set<string>()
+    const sweepDays: SweepDay[] = []
     // Existing customers whose visit_count/is_existing_customer we've already
     // refreshed this run — keep returning customers' counts current without
     // re-updating them once per reservation.
@@ -195,6 +221,14 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       }
       total += reservations.length
       console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
+
+      // This day's QR fetch succeeded (qrGetReservations throws otherwise), so it
+      // is safe to diff for cancellations. Record the live (non-deleted) ids; the
+      // sweep cancels QR-owned rows on this day whose id isn't in this set.
+      const liveQrIds = new Set(
+        reservations.filter((r) => !r.deleted).map((r) => String(r.id)),
+      )
+      sweepDays.push({ dateStr, liveQrIds, reservationsCount: reservations.length })
 
       // Accumulate QR staff (id → name) from this day's schedule so 指名
       // (nominated_staff_id) can resolve to a name without a roster call.
@@ -267,9 +301,20 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         const existing = matchQrReservation(existingIndexes, qrId, staffId, mapped.startTime)
 
         if (existing) {
+          // Reactivate a re-appearing booking: if a prior sweep CANCELLED this
+          // row but the reservation is live again (we're syncing it now), restore
+          // it to SCHEDULED so a mistaken cancel self-heals instead of staying
+          // invisible forever. Safe today — the sweep is the only producer of
+          // CANCELLED; revisit once the manual-override UI can also cancel.
+          const apptUpdateFinal =
+            existing.status === 'CANCELLED'
+              ? { ...apptUpdate, status: 'SCHEDULED' as const }
+              : apptUpdate
           try {
-            await synqed.appointments.update(existing.id, apptUpdate)
+            await synqed.appointments.update(existing.id, apptUpdateFinal)
             updated++
+            mutated = true
+            matchedIds.add(existing.id)
             dropMatched(existingIndexes, qrId, existing)
           } catch (err) {
             // The update now relocates the slot (staff/time) for a moved booking,
@@ -289,6 +334,8 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           const appt = await synqed.appointments.create(apptCreate)
           existingIndexes.byStaffTime.set(staffTimeKey(staffId, mapped.startTime), appt)
           created++
+          mutated = true
+          matchedIds.add(appt.id)
         } catch (err) {
           // synqed-core rejects a booking that overlaps an existing slot with a
           // 409. Without this guard a single overlap (e.g. two QR therapists the
@@ -305,13 +352,47 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       }
     }
 
+    // ── Cancel-sweep ───────────────────────────────────────────────────────
+    // Apply QuickReserve cancellations: a QR-owned booking no longer live
+    // upstream is soft-cancelled (status=CANCELLED, never deleted — reversible
+    // and it keeps its `QR #id` notes). Only days whose fetch SUCCEEDED are in
+    // sweepDays, and planQrCancellations refuses to act on a suspect (empty /
+    // partial) day or to cancel implausibly many rows at once — so a degraded QR
+    // response can never wipe the agenda. All guards live in qr-sweep.ts.
+    const plan = planQrCancellations({
+      allExisting,
+      sweepDays,
+      matchedIds,
+      staleDuplicateIds: existingIndexes.staleDuplicateIds,
+    })
+    cancelCapExceeded = plan.capExceeded
+    if (plan.skippedDays.length) {
+      console.warn('[QR Sync] sweep skipped suspect days:', plan.skippedDays)
+    }
+    if (plan.capExceeded) {
+      console.error(
+        `[QR Sync] cancel-cap exceeded (${plan.attemptedCancels}) — cancelled nothing this run`,
+      )
+    } else {
+      for (const id of plan.toCancel) {
+        await synqed.appointments.update(id, { status: 'CANCELLED' })
+        cancelled++
+        mutated = true
+      }
+    }
+
+    // Refresh the caches the sync just made stale (name map, dashboard, agenda).
+    if (mutated) bustSyncCaches()
+
     // Update sync status (Supabase config row)
     await supabase
       .from('sync_config')
       .update({
         last_sync_at: new Date().toISOString(),
         last_sync_status: 'success',
-        last_sync_error: null,
+        last_sync_error: cancelCapExceeded
+          ? 'cancel-cap exceeded — cancellation sweep skipped this run'
+          : null,
       })
       .eq('id', config.id)
 
@@ -324,9 +405,15 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       updated,
       skipped,
       overlapped,
+      cancelled,
+      cancelCapExceeded,
     })
   } catch (error) {
     console.error('[QR Sync]', error)
+
+    // A run can fail mid-way after already writing/cancelling some rows; bust the
+    // caches so those changes aren't invisible until the 60s TTL.
+    if (mutated) bustSyncCaches()
 
     await supabase
       .from('sync_config')

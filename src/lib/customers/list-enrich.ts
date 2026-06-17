@@ -129,6 +129,10 @@ export async function enrichCustomers(
   const apptByClient = new Map<string, ApptRow[]>()
   for (const a of appointmentsAll) {
     if (!a.customer_id || !idSet.has(a.customer_id)) continue
+    // A CANCELLED booking is not a visit: exclude it so it can't inflate the
+    // visit count, shrink the average interval, or fake a 次回予約あり. The QR
+    // sync newly produces CANCELLED rows, which this count never saw before.
+    if (a.status === 'CANCELLED') continue
     const arr = apptByClient.get(a.customer_id) ?? []
     arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null, staff_id: a.staff_id ?? null })
     apptByClient.set(a.customer_id, arr)
