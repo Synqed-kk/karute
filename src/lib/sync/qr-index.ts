@@ -22,27 +22,38 @@ export interface QrExistingIndexes {
   /** (staff, start) → existing row. Fallback for rows synced before id-keying,
    *  or whose notes lost the `QR #<id>` prefix. */
   byStaffTime: Map<string, Appointment>
+  /** Ids of rows that LOST a duplicate-QR-id tiebreak — an orphan left by an
+   *  earlier move (two rows carry the same QR id). The cancel-sweep retires
+   *  these. */
+  staleDuplicateIds: string[]
 }
 
 /**
  * Index the whole-window existing-appointment snapshot. On the duplicate-QR-id
  * case (a move that left an orphan — two rows share one QR id) keep the LATER
- * starts_at, i.e. the live/moved row, so a re-key patches the right one.
+ * starts_at, i.e. the live/moved row, so a re-key patches the right one; the
+ * loser is recorded in staleDuplicateIds for the sweep.
  */
 export function buildQrExistingIndexes(existing: Appointment[]): QrExistingIndexes {
   const byQrId = new Map<string, Appointment>()
   const byStaffTime = new Map<string, Appointment>()
+  const staleDuplicateIds: string[] = []
   for (const a of existing) {
     byStaffTime.set(staffTimeKey(a.staff_id, a.starts_at), a)
     const id = parseQrId(a.notes)
     if (id) {
       const prev = byQrId.get(id)
-      if (!prev || new Date(a.starts_at).getTime() > new Date(prev.starts_at).getTime()) {
+      if (!prev) {
         byQrId.set(id, a)
+      } else if (new Date(a.starts_at).getTime() > new Date(prev.starts_at).getTime()) {
+        byQrId.set(id, a) // `a` is newer → it wins; `prev` is the orphan
+        staleDuplicateIds.push(prev.id)
+      } else {
+        staleDuplicateIds.push(a.id) // `prev` wins; `a` is the orphan
       }
     }
   }
-  return { byQrId, byStaffTime }
+  return { byQrId, byStaffTime, staleDuplicateIds }
 }
 
 /**
