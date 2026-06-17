@@ -131,7 +131,14 @@ export function buildCustomerIndex(customers: Iterable<CustomerLite>): CustomerI
  *  synqed-core, which stores the QR id. */
 export function candidatesFor(
   idx: CustomerIndex,
-  r: { customerName: string; customerPhone?: string | null; customerEmail?: string | null },
+  r: {
+    customerName: string
+    customerPhone?: string | null
+    customerEmail?: string | null
+    // Captured today (mapReservation) but the byQrId rung stays inert until the
+    // sync delegates to synqed-core — declared here so wiring it up is type-led.
+    qrCustomerId?: number
+  },
 ): IdentityCandidates {
   const n = normName(r.customerName)
   const p = normPhone(r.customerPhone)

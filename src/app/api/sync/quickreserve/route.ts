@@ -212,6 +212,14 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         // exact email → unambiguous exact name → create. An ambiguous same-name
         // with no phone/email confirmer CREATES a recoverable row, never guesses.
         const resolution = resolveByQrIdentity(candidatesFor(customerIndex, mapped))
+        // Surface the two reasons that warrant a human glance: a phone/email that
+        // point at different people, and an ambiguous same-name that we chose to
+        // CREATE (a recoverable row) rather than mis-merge. Silent in prod otherwise.
+        if (resolution.reason === 'phone-email-conflict' || resolution.reason === 'create-ambiguous-name') {
+          console.warn(
+            `[QR Sync] identity ${resolution.reason}: "${mapped.customerName}" (QR customer ${mapped.qrCustomerId})`,
+          )
+        }
         let customerId = resolution.customerId
         if (!customerId) {
           const cust = await synqed.customers.create({
