@@ -114,7 +114,11 @@ const dashboardByDay = unstable_cache(
 
     const todayAppointments: DashboardTodayAppointment[] = (
       'appointments' in appointmentsRes ? appointmentsRes.appointments : []
-    ).map((a) => ({
+    )
+      // Drop cancelled bookings (the QR sync marks them) so the dashboard's
+      // "today" list doesn't show them full-color — matches the agenda's hide.
+      .filter((a) => a.status !== 'CANCELLED')
+      .map((a) => ({
       id: a.id,
       client_id: a.customer_id,
       start_time: a.starts_at,

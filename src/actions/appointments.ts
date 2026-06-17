@@ -113,20 +113,27 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
         .map((s) => [s.id, s.user_id]),
     )
 
-    return list.appointments.map((a) => ({
-      id: a.id,
-      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
-      client_id: a.customer_id,
-      start_time: a.starts_at,
-      duration_minutes: a.duration_minutes ?? 0,
-      title: a.title,
-      notes: a.notes,
-      karute_record_id: karuteByAppointment.get(a.id) ?? null,
-      created_at: a.created_at,
-      customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
-      synqed_status: a.status,
-      source: a.source,
-    }))
+    return list.appointments
+      // Hide cancelled bookings — the QR sync marks a reservation CANCELLED when
+      // it's removed/cancelled upstream ("just don't show it"). This feeds BOTH
+      // the 予約 agenda AND the /sessions recording-target picker, so a cancelled
+      // slot can never be auto-selected as a recording target. (The week-overview
+      // count uses getAppointmentsInRange, which stays unfiltered on purpose.)
+      .filter((a) => a.status !== 'CANCELLED')
+      .map((a) => ({
+        id: a.id,
+        staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
+        client_id: a.customer_id,
+        start_time: a.starts_at,
+        duration_minutes: a.duration_minutes ?? 0,
+        title: a.title,
+        notes: a.notes,
+        karute_record_id: karuteByAppointment.get(a.id) ?? null,
+        created_at: a.created_at,
+        customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
+        synqed_status: a.status,
+        source: a.source,
+      }))
   } catch {
     return []
   }
@@ -150,6 +157,9 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
     const synqed = await getSynqedClient()
     const a = await synqed.appointments.get(id)
     if (!a) return null
+    // A cancelled booking must never resolve as a recording target (the record
+    // page falls back to the next candidate instead). Mirrors the by-date hide.
+    if (a.status === 'CANCELLED') return null
 
     const [cachedCustomers, staffList] = await Promise.all([
       getCachedCustomerList(),
