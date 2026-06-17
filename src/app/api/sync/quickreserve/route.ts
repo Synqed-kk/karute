@@ -227,14 +227,11 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
             assigned_staff_id: resolveNominatedProfileId(mapped.nominatedStaffQrId),
           })
           customerId = cust.id
-          // Register the new row so later reservations in THIS run match it
-          // instead of minting a second copy.
-          addToIndex(customerIndex, {
-            id: cust.id,
-            name: mapped.customerName,
-            phone: mapped.customerPhone,
-            email: mapped.customerEmail,
-          })
+          // Register the RETURNED row (server's stored values, not the raw QR
+          // strings) so later reservations in THIS run match it instead of minting
+          // again — and so synqed-core's email-dedup (create with an existing email
+          // returns that customer) is indexed under the real row's fields.
+          addToIndex(customerIndex, cust)
         } else if (!refreshedCustomerIds.has(customerId)) {
           // Returning customer — refresh the visit count + status once per run.
           refreshedCustomerIds.add(customerId)

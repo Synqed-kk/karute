@@ -89,12 +89,34 @@ export interface CustomerIndex {
   idByEmail: Map<string, string>
 }
 
-/** Add one customer to the index. Used to seed from existing rows AND to register
- *  a row created mid-run so later reservations match it instead of re-minting. */
+// QR sends RAW free-text — full-width spaces in 「姓　名」, unformatted phones
+// ("080-1111-2222"), mixed-case email — while synqed-core + the app's own dedup
+// (actions/customers.ts normName) compare NFKC-normalized. Index AND look up on
+// the SAME normalized key on both sides, or a returning customer with nothing but
+// cosmetic drift re-mints. normName mirrors actions/customers.ts:120 exactly.
+const normName = (s: string | null | undefined): string | null => {
+  if (!s) return null
+  return s.normalize('NFKC').replace(/\s+/g, ' ').trim().toLowerCase() || null
+}
+const normPhone = (s: string | null | undefined): string | null => {
+  if (!s) return null
+  return s.normalize('NFKC').replace(/\D/g, '') || null // digits only — strips -, (), spaces, 全角
+}
+const normEmail = (s: string | null | undefined): string | null => {
+  if (!s) return null
+  return s.normalize('NFKC').trim().toLowerCase() || null
+}
+
+/** Add one customer to the index under NORMALIZED keys. Used to seed from existing
+ *  rows AND to register a row created mid-run so later reservations match it
+ *  instead of re-minting. */
 export function addToIndex(idx: CustomerIndex, c: CustomerLite): void {
-  if (c.name) idx.idsByName.set(c.name, [...(idx.idsByName.get(c.name) ?? []), c.id])
-  if (c.phone) idx.idsByPhone.set(c.phone, [...(idx.idsByPhone.get(c.phone) ?? []), c.id])
-  if (c.email) idx.idByEmail.set(c.email, c.id)
+  const n = normName(c.name)
+  const p = normPhone(c.phone)
+  const e = normEmail(c.email)
+  if (n) idx.idsByName.set(n, [...(idx.idsByName.get(n) ?? []), c.id])
+  if (p) idx.idsByPhone.set(p, [...(idx.idsByPhone.get(p) ?? []), c.id])
+  if (e) idx.idByEmail.set(e, c.id)
 }
 
 export function buildCustomerIndex(customers: Iterable<CustomerLite>): CustomerIndex {
@@ -103,17 +125,21 @@ export function buildCustomerIndex(customers: Iterable<CustomerLite>): CustomerI
   return idx
 }
 
-/** The candidate sets for one reservation. byQrId stays null in the karute interim
- *  (the SDK customer read omits external_refs); it lights up when the sync delegates
- *  to synqed-core, which stores the QR id. Phone/email matching is byte-exact. */
+/** The candidate sets for one reservation, looked up by the SAME normalized keys
+ *  the index was built with. byQrId stays null in the karute interim (the SDK
+ *  customer read omits external_refs); it lights up when the sync delegates to
+ *  synqed-core, which stores the QR id. */
 export function candidatesFor(
   idx: CustomerIndex,
   r: { customerName: string; customerPhone?: string | null; customerEmail?: string | null },
 ): IdentityCandidates {
+  const n = normName(r.customerName)
+  const p = normPhone(r.customerPhone)
+  const e = normEmail(r.customerEmail)
   return {
     byQrId: null,
-    byPhoneExact: r.customerPhone ? (idx.idsByPhone.get(r.customerPhone) ?? []) : [],
-    byEmailExact: r.customerEmail ? (idx.idByEmail.get(r.customerEmail) ?? null) : null,
-    byNameExact: idx.idsByName.get(r.customerName) ?? [],
+    byPhoneExact: p ? (idx.idsByPhone.get(p) ?? []) : [],
+    byEmailExact: e ? (idx.idByEmail.get(e) ?? null) : null,
+    byNameExact: n ? (idx.idsByName.get(n) ?? []) : [],
   }
 }

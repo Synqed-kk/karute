@@ -100,4 +100,22 @@ describe('buildCustomerIndex + candidatesFor (the route wiring)', () => {
     // ...so the same customer's next reservation this run resolves instead of minting again
     expect(resolveByQrIdentity(candidatesFor(idx, newRes))).toEqual({ customerId: 'NEW1', reason: 'phone' })
   })
+
+  it('NORMALIZES name drift — stored full-width space matches QR half-width space (no re-mint)', () => {
+    const idx = buildCustomerIndex([{ id: 'Z', name: '山田　太郎', phone: null, email: null }]) // 全角 space
+    const r = resolveByQrIdentity(candidatesFor(idx, { customerName: '山田 太郎', customerPhone: null, customerEmail: null })) // 半角
+    expect(r).toEqual({ customerId: 'Z', reason: 'name' })
+  })
+
+  it('NORMALIZES phone drift — stored "080-1111-2222" matches QR "08011112222"', () => {
+    const idx = buildCustomerIndex([{ id: 'Y', name: '某', phone: '080-1111-2222', email: null }])
+    const r = resolveByQrIdentity(candidatesFor(idx, { customerName: '別の名前', customerPhone: '08011112222', customerEmail: null }))
+    expect(r).toEqual({ customerId: 'Y', reason: 'phone' })
+  })
+
+  it('NORMALIZES email case/whitespace — stored "Misaki@X.JP " matches QR "misaki@x.jp"', () => {
+    const idx = buildCustomerIndex([{ id: 'W', name: '田中', phone: null, email: 'Misaki@X.JP ' }])
+    const r = resolveByQrIdentity(candidatesFor(idx, { customerName: '田中', customerPhone: null, customerEmail: 'misaki@x.jp' }))
+    expect(r.customerId).toBe('W') // resolves via name(unique) or email — either way, not a re-mint
+  })
 })
