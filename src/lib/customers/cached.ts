@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
+import { paginateDedupe } from '@/lib/customers/paginate'
 
 export interface CachedCustomerOption {
   id: string
@@ -33,14 +34,20 @@ const customerListByBusiness = unstable_cache(
       throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
     }
     const client = new SynqedClient({ baseUrl, apiKey, businessId })
-    // Tenants typically have a few hundred customers; one fetch beats paginating
-    // here since the list is read on every page for dropdowns + name lookups.
-    const result = await client.customers.list({
-      page_size: 500,
-      sort_by: 'name',
-      sort_order: 'asc',
+    // Page to completion — a tenant past 500 customers would otherwise blank the
+    // agenda for everyone sorting past #500. Re-sort by name after the by-id
+    // dedupe (which discarded the per-page server order).
+    const all = await paginateDedupe(async (page) => {
+      const result = await client.customers.list({
+        page,
+        page_size: 500,
+        sort_by: 'name',
+        sort_order: 'asc',
+      })
+      return { items: result.customers, total: result.total }
     })
-    return result.customers.map((c) => {
+    all.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    return all.map((c) => {
       // SDK-skew: the local @synqed-kk/client Customer type lags the API, which
       // returns these QR fields. Cast to read them — Vercel's fresh SDK types them.
       const qr = c as typeof c & {
@@ -58,7 +65,7 @@ const customerListByBusiness = unstable_cache(
       }
     })
   },
-  ['cached-customer-list-v2'],
+  ['cached-customer-list-v3'],
   { revalidate: 60, tags: ['customers'] },
 )
 
