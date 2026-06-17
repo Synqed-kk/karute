@@ -10,10 +10,12 @@ import { Sidebar } from '@/components/layout/sidebar'
 // import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
 import { ProcessingIndicator } from '@/components/recording/ProcessingIndicator'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList, getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getNextCustomer } from '@/lib/appointments/next-customer'
 import { SessionProvider } from '@/providers/session-provider'
+import { NotificationsProvider } from '@/lib/notifications/context'
+import { buildNotificationFeed } from '@/lib/notifications/derive'
 
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -28,7 +30,7 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getCurrentUserStaffId(),
@@ -38,6 +40,13 @@ export default async function DashboardLayout({
     // Failure is non-fatal — bottom nav falls back to its scaffold
     // copy ("予約を選択") if this query errors.
     getNextCustomer().catch(() => null),
+    // v1 notification feed — DERIVED on the server (no notifications table),
+    // seeded here the same way the dashboard seeds packAlerts into its card.
+    // Best-effort: a failure degrades to an empty feed (bell shows no badge),
+    // never blocks the app shell.
+    getBusinessId()
+      .then((businessId) => buildNotificationFeed(businessId, locale))
+      .catch(() => []),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
@@ -67,6 +76,10 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider data={sessionData}>
+      <NotificationsProvider
+        feed={notificationFeed}
+        staffId={activeStaff?.id ?? null}
+      >
       {/* h-dvh (dynamic viewport height) keeps the bottom nav inside the
           visible viewport on iOS Safari + in-app browsers (Discord/Twitter/
           Slack), whose chrome would otherwise occlude a fixed bottom-0
@@ -110,6 +123,7 @@ export default async function DashboardLayout({
           <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>
       </div>
+      </NotificationsProvider>
     </SessionProvider>
   )
 }

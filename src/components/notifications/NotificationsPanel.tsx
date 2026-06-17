@@ -18,13 +18,21 @@
 //   • NO MOCK SEED. Empty state is the natural default.
 //
 // UX rules preserved verbatim from spike header:
-//   - Opening the panel does NOT auto-mark-all-read. Read state
-//     only changes on explicit tap of a row OR the "mark all
-//     read" button. Otherwise unread state is noisy for someone
-//     who just glances at the panel.
-//   - Empty state surfaces an affirming "all caught up"
-//     message + a scaffold hint explaining what'll populate
-//     here once Anthony wires Supabase.
+//   - Opening the panel does NOT auto-mark-all-read. The badge
+//     (booking items newer than the per-staff lastSeen cursor)
+//     only clears when the panel CLOSES or "mark all read" is
+//     tapped — both advance the cursor. Otherwise unread state is
+//     noisy for someone who just glances at the panel.
+//   - Empty state surfaces an affirming "all caught up" message.
+//
+// V1 READ MODEL (derived feed): items have no persisted per-row
+// read_at — the feed is server-derived (buildNotificationFeed) and
+// ephemeral. "Unread" = a BOOKING item created after the staff
+// member last saw the panel (the lastSeen cursor in hooks.ts). So
+// per-item unread styling keys off lastSeen, not item.readAt
+// (which is always null on a derived item). markAllRead / close
+// advance the cursor; markRead is a no-op in this model (kept for
+// the prod-table swap).
 //
 // Navigation uses useRouter().push() (not <Link>) so the order
 // is deterministic: mark read → close sheet → push. The spike's
@@ -43,7 +51,6 @@ import {
   CreditCard,
   GraduationCap,
   Sparkles,
-  Trash2,
   Zap,
   ShieldCheck,
 } from 'lucide-react'
@@ -59,6 +66,8 @@ import {
 import {
   useNotifications,
   useNotificationMutations,
+  useUnreadCount,
+  useUnreadIds,
 } from '@/lib/notifications/hooks'
 import type {
   NotificationCategory,
@@ -123,7 +132,7 @@ export function NotificationsPanel({
 }: NotificationsPanelProps) {
   const router = useRouter()
   const items = useNotifications()
-  const { markRead, markAllRead, clearAll } = useNotificationMutations()
+  const { markRead, markAllRead } = useNotificationMutations()
   const t = useTranslations('notifications')
   const locale = useLocale()
   const isEn = locale === 'en'
@@ -131,14 +140,17 @@ export function NotificationsPanel({
   // mid-view if the user lingers.
   const [now] = useState(() => Date.now())
 
-  const unreadCount = items.filter((i) => i.readAt === null).length
+  // V1 derived-feed read model: "unread" = the booking items the badge counts
+  // (new since the per-staff lastSeen cursor). Single source — the header
+  // badge and the per-row dot both read this, so they can never disagree.
+  const unreadCount = useUnreadCount()
+  const unreadIds = useUnreadIds()
   const hasUnread = unreadCount > 0
-  const allUnread = items.length > 0 && items.every((i) => i.readAt === null)
 
   const { today, thisWeek, older } = groupByAge(items, now)
 
   const handleItemClick = (item: NotificationItem) => {
-    if (item.readAt === null) markRead(item.id)
+    markRead(item.id)
     onClose()
     if (item.href) router.push(item.href)
   }
@@ -164,7 +176,10 @@ export function NotificationsPanel({
           </SheetDescription>
         </SheetHeader>
 
-        {/* Toolbar — only renders when there's at least one item */}
+        {/* Toolbar — only renders when there's at least one item. "Clear read"
+         *  is dropped in the v1 derived model: there's no per-row dismiss to
+         *  apply (the feed reflects live data), only the lastSeen cursor that
+         *  "mark all read" advances. */}
         {items.length > 0 && (
           <div className="flex items-center gap-2 border-b border-black/5 px-4 py-2 dark:border-white/10">
             <button
@@ -175,15 +190,6 @@ export function NotificationsPanel({
             >
               <CheckCheck className="size-3.5" aria-hidden />
               {t('markAllRead')}
-            </button>
-            <button
-              type="button"
-              onClick={clearAll}
-              disabled={allUnread}
-              className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-gray-100 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/[0.05]"
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              {t('clearRead')}
             </button>
           </div>
         )}
@@ -199,6 +205,7 @@ export function NotificationsPanel({
                     <NotificationRow
                       key={n.id}
                       item={n}
+                      isUnread={unreadIds.has(n.id)}
                       onClick={() => handleItemClick(n)}
                       isEn={isEn}
                       now={now}
@@ -213,6 +220,7 @@ export function NotificationsPanel({
                     <NotificationRow
                       key={n.id}
                       item={n}
+                      isUnread={unreadIds.has(n.id)}
                       onClick={() => handleItemClick(n)}
                       isEn={isEn}
                       now={now}
@@ -227,6 +235,7 @@ export function NotificationsPanel({
                     <NotificationRow
                       key={n.id}
                       item={n}
+                      isUnread={unreadIds.has(n.id)}
                       onClick={() => handleItemClick(n)}
                       isEn={isEn}
                       now={now}
@@ -272,12 +281,16 @@ function Section({
 
 function NotificationRow({
   item,
+  isUnread,
   onClick,
   isEn,
   now,
   t,
 }: {
   item: NotificationItem
+  /** v1: derived from the lastSeen cursor (booking items newer than it), not
+   *  item.readAt — see the panel's V1 READ MODEL note. */
+  isUnread: boolean
   onClick: () => void
   isEn: boolean
   now: number
@@ -285,7 +298,6 @@ function NotificationRow({
 }) {
   const meta = CATEGORY_META[item.category]
   const Icon = meta.icon
-  const isUnread = item.readAt === null
   const title = isEn ? item.titleEn : item.titleJa
   const body = isEn ? item.bodyEn : item.bodyJa
   const relTime = formatRelTime(item.createdAt, now, isEn, t)
@@ -333,8 +345,9 @@ function NotificationRow({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Empty state — also functions as the "Anthony wires this"
-// scaffolding hint, since karute ships without mock seeds.
+// Empty state — affirming "all caught up". The scaffold pill (which
+// explained the unwired data layer) is removed now that the feed is
+// real: an empty panel genuinely means nothing needs attention.
 // ─────────────────────────────────────────────────────────────
 
 function EmptyState({
@@ -352,21 +365,6 @@ function EmptyState({
       </div>
       <div className="mt-1 max-w-[260px] text-[12px] leading-relaxed text-muted-foreground">
         {t('emptyBody')}
-      </div>
-      {/* 対応予定 scaffold pill — surfaces the fact that the
-       *  notifications data layer isn't wired yet, so the empty
-       *  state isn't mistaken for "no notifications today". */}
-      <div className="mt-4 flex max-w-[280px] gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-3 text-left dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 inline-flex items-center">
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-              {t('scaffoldLabel')}
-            </span>
-          </div>
-          <p className="text-[11px] italic leading-relaxed text-muted-foreground">
-            {t('scaffoldBody')}
-          </p>
-        </div>
       </div>
     </div>
   )

@@ -77,3 +77,15 @@ export async function getCachedCustomerList(): Promise<CachedCustomerOption[]> {
   const businessId = await getBusinessId()
   return customerListByBusiness(businessId)
 }
+
+/**
+ * businessId-EXPLICIT variant — does NOT read auth (cookies), so it's safe to
+ * call from inside an `unstable_cache` body. The notification feed deriver uses
+ * it to cache its enrichment pass per business without an auth read in the
+ * cache context. Same 60s cache + 'customers' tag as `getCachedCustomerList`.
+ */
+export function getCachedCustomerListFor(
+  businessId: string,
+): Promise<CachedCustomerOption[]> {
+  return customerListByBusiness(businessId)
+}
