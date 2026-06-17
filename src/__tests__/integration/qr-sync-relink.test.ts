@@ -35,20 +35,6 @@ describe('qrAppointmentWrite — rebooked-slot customer relink', () => {
     expect(create.ends_at).toBe(mapped.endTime)
   })
 
-  it('tags a CREATEd row source=QUICKRESERVE (sync-owned)', () => {
-    const { create } = qrAppointmentWrite('c1', 's1', mapped, 'QR #1 | x')
-    expect(create.source).toBe('QUICKRESERVE')
-  })
-
-  it('UPDATE relocates the row (staff + start/end) so a MOVED booking follows itself', () => {
-    // A reservation matched by QR id that moved must patch its OWN row's slot —
-    // not stay at the old time. Update now carries staff_id + starts_at/ends_at.
-    const { update } = qrAppointmentWrite('cust-sakimoto', 'staff-harada', mapped, 'QR #327563 | …')
-    expect(update.staff_id).toBe('staff-harada')
-    expect(update.starts_at).toBe(mapped.startTime)
-    expect(update.ends_at).toBe(mapped.endTime)
-  })
-
   it('title + notes follow the NEW reservation, never a stale fusion', () => {
     const { update, create } = qrAppointmentWrite('cust-sakimoto', 'staff-harada', mapped, 'QR #327563 | 崎本 memo')
     expect(update.title).toBe('VIP施術')

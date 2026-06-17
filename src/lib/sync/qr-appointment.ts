@@ -18,22 +18,14 @@ export interface QrMappedReservation {
 }
 
 export interface QrAppointmentWrite {
-  /** UpdateAppointmentInput-shaped. Carries staff_id + starts_at/ends_at so a
-   *  reservation matched by its QR id that has MOVED relocates its OWN row to the
-   *  new staff/time, instead of being left at the old slot (or hijacking the new
-   *  slot's occupant). customer_id re-links a rebooked slot (the privacy fix). */
+  /** UpdateAppointmentInput-shaped — re-links customer_id (the fix). */
   update: {
     customer_id: string
-    staff_id: string
-    starts_at: string
-    ends_at: string
     title: string
     notes: string
     duration_minutes: number
   }
-  /** CreateAppointmentInput-shaped. source=QUICKRESERVE tags the row as sync-owned
-   *  (existing rows predate this and are MANUAL — the sync identifies QR rows by
-   *  the `QR #<id>` notes prefix, see qr-notes.ts). */
+  /** CreateAppointmentInput-shaped. */
   create: {
     customer_id: string
     staff_id: string
@@ -42,7 +34,6 @@ export interface QrAppointmentWrite {
     duration_minutes: number
     title: string
     notes: string
-    source: 'QUICKRESERVE'
   }
 }
 
@@ -54,15 +45,17 @@ export function qrAppointmentWrite(
 ): QrAppointmentWrite {
   const update = {
     customer_id: customerId,
-    staff_id: staffId,
-    starts_at: mapped.startTime,
-    ends_at: mapped.endTime,
     title: mapped.treatmentName,
     notes,
     duration_minutes: mapped.durationMinutes,
   }
   return {
     update,
-    create: { ...update, source: 'QUICKRESERVE' as const },
+    create: {
+      ...update,
+      staff_id: staffId,
+      starts_at: mapped.startTime,
+      ends_at: mapped.endTime,
+    },
   }
 }
