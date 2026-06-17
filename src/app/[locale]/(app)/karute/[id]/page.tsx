@@ -19,6 +19,7 @@ import {
 } from '@/lib/customers/customer-detail-cached'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
+import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
 import { computeAge, jpGender } from '@/lib/customers/demographics'
 import { formatJoinDate } from '@/lib/customers/list-enrich'
@@ -37,7 +38,8 @@ export default async function KaruteDetailPage({
   const synqed = await getSynqedClient()
   const [karute, allCustomers, outcome] = await Promise.all([
     getKaruteRecord(id),
-    synqed.customers.list({ page_size: 500 }),
+    // Page to completion so the karute number resolves for an overflow customer.
+    listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
     getKaruteOutcome(id),
   ])
   if (!karute) notFound()

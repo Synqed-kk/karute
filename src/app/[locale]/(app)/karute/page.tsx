@@ -6,6 +6,7 @@ import {
 import { getSynqedClient } from '@/lib/synqed/client'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
+import { listAllCustomers } from '@/lib/customers/list-all'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -71,12 +72,9 @@ export default async function KaruteRecordsListPage() {
         .order('created_at', { ascending: false })
         .limit(200),
       getStaffList(),
-      synqed.customers.list({
-        page: 1,
-        page_size: 500,
-        sort_by: 'created_at',
-        sort_order: 'asc',
-      }),
+      // Page to completion so カルテ rows + placeholder rows resolve for every
+      // customer, not just the first 500 (server clamps page_size at 500).
+      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       getCurrentUserStaffId(),
       // synqed-core is the authoritative karute store; the Supabase query above
       // is effectively empty. Union both so synqed-written karute appear here.
