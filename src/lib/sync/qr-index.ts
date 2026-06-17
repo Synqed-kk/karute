@@ -59,8 +59,14 @@ export function matchQrReservation(
 }
 
 /** Remove a matched row from both indexes so it can't be matched twice in a run
- *  (and the cancel-sweep's "not seen" set stays exact). */
+ *  (and the cancel-sweep's "not seen" set stays exact). Evicts BOTH the incoming
+ *  reservation's qrId AND the matched row's OWN qrId: when the match came via the
+ *  (staff,time) fallback those differ, and leaving the row's own qrId in byQrId
+ *  would let a LATER reservation with that id re-match the same row and overwrite
+ *  the first customer's appointment (the Greptile fallback-then-primary bug). */
 export function dropMatched(ix: QrExistingIndexes, qrId: string, matched: Appointment): void {
   ix.byQrId.delete(qrId)
+  const ownId = parseQrId(matched.notes)
+  if (ownId && ownId !== qrId) ix.byQrId.delete(ownId)
   ix.byStaffTime.delete(staffTimeKey(matched.staff_id, matched.starts_at))
 }

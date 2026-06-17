@@ -93,4 +93,18 @@ describe('dropMatched', () => {
     expect(ix.byQrId.has('42')).toBe(false)
     expect(ix.byStaffTime.has(staffTimeKey(STAFF_A, '2026-06-17T03:00:00Z'))).toBe(false)
   })
+
+  it('evicts the matched row OWN qr id on a (staff,time) fallback (no later double-write)', () => {
+    // Row R is QR #500 at (STAFF_A, 10:00). Reservation X (qrId 999) lands on the
+    // same slot → matches R via the (staff,time) FALLBACK, not by id. dropMatched
+    // must also evict R's own id (500), or a later reservation #500 re-matches R
+    // and overwrites X's appointment (the Greptile fallback-then-primary bug).
+    const R = appt({ id: 'R', staff_id: STAFF_A, starts_at: '2026-06-17T01:00:00Z', notes: 'QR #500 | x' })
+    const ix = buildQrExistingIndexes([R])
+    const matched = matchQrReservation(ix, '999', STAFF_A, '2026-06-17T01:00:00Z')
+    expect(matched?.id).toBe('R')
+    dropMatched(ix, '999', matched!)
+    expect(ix.byQrId.has('500')).toBe(false)
+    expect(matchQrReservation(ix, '500', 'staff-z', '2026-06-18T09:00:00Z')).toBeNull()
+  })
 })
