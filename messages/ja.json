@@ -2605,6 +2605,26 @@
       "estimate": "目安",
       "longerBy": "通常より{n}日長めに空いています",
       "onRhythm": "ふだんのペースを保っています"
+    },
+    "pace": {
+      "title": "来店ペース",
+      "avgInterval": "平均間隔",
+      "lastVisit": "前回",
+      "total": "累計",
+      "daysAgoValue": "{n}日前",
+      "aboutWeeks": "約{n}週",
+      "aboutDays": "約{n}日",
+      "inputs": "{visits}回 ・ 過去{months}ヶ月",
+      "existingCustomer": "既存のお客様",
+      "noVisitDate": "来店日が未取得",
+      "syncing": "来店履歴を同期中 — 助言は表示しません",
+      "pending": "同期待ち",
+      "verdictMada": "まだ",
+      "verdictSoro": "そろそろ",
+      "verdictOver": "空きすぎ",
+      "coversWeeks": "約{n}週分",
+      "coversMonths": "約{n}ヶ月分",
+      "atThisPace": "いまのペースで{span}"
     }
   }
 }
