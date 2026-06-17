@@ -33,6 +33,17 @@ export interface CustomerEnrichment {
    *  次回予約 あり/なし signal. Feeds the pack alert rule (tickets left + no
    *  next booking + N days absent → contact). */
   nextAppointmentIso: string | null
+  /** EARLIEST reconciled visit (MIN of karute session_date + past-appointment
+   *  start_time). The twin of lastVisitIso — together they bound the visiting
+   *  PERIOD, so 来店ペース can compute an interval from the dated series the
+   *  system already has, instead of the customer.first_visit_at scalar that QR
+   *  sync never persists (NULL for ~70-80% of customers). */
+  firstVisitIso: string | null
+  /** How many visits we actually have DATES for (karute records + past
+   *  appointments). The HONEST denominator for the average interval — the
+   *  lifetime visit_count may include undated visits, so dividing the dated
+   *  span by it would understate the gap. */
+  datedVisitCount: number
 }
 
 export async function enrichCustomers(
@@ -143,9 +154,16 @@ export async function enrichCustomers(
     const karute = karuteByClient.get(id) ?? []
     const appts = apptByClient.get(id) ?? []
     let lastVisitIso: string | null = null
+    // EARLIEST dated visit + how many dated visits we have — the reconciled
+    // bounds the 来店ペース interval is computed from. Karute records all carry
+    // a date, so each counts.
+    let firstVisitIso: string | null = null
+    let datedVisitCount = 0
     for (const k of karute) {
       const dt = k.session_date ?? k.created_at
       if (!lastVisitIso || dt > lastVisitIso) lastVisitIso = dt
+      if (!firstVisitIso || dt < firstVisitIso) firstVisitIso = dt
+      datedVisitCount += 1
     }
     // Walk PAST appointments (started before now): count them ("they've been
     // here before") and track the most recent one — its title is the last
@@ -154,16 +172,23 @@ export async function enrichCustomers(
     let lastApptIso: string | null = null
     let lastVisitService: string | null = null
     let pastAppointmentCount = 0
+    let firstApptIso: string | null = null
     for (const a of appts) {
       if (a.start_time >= nowIso) continue
       pastAppointmentCount += 1
+      datedVisitCount += 1
       if (!lastApptIso || a.start_time > lastApptIso) {
         lastApptIso = a.start_time
         lastVisitService = a.title
       }
+      if (!firstApptIso || a.start_time < firstApptIso) firstApptIso = a.start_time
     }
-    // Fall back to the last past appointment when there's no karute yet.
+    // Fall back to the past appointments when there's no karute yet (each side
+    // already walked its own series, so combine the extremes).
     if (!lastVisitIso) lastVisitIso = lastApptIso
+    if (firstApptIso && (!firstVisitIso || firstApptIso < firstVisitIso)) {
+      firstVisitIso = firstApptIso
+    }
     // 担当 = staff on the customer's most relevant booking: nearest upcoming,
     // else most recent past. The QR sync never sets assigned_staff_id, so the
     // booking is the only source of who's handling this customer. Translate the
@@ -187,6 +212,8 @@ export async function enrichCustomers(
       lastVisitService,
       bookingStaffId,
       nextAppointmentIso,
+      firstVisitIso,
+      datedVisitCount,
     })
   }
 
@@ -205,6 +232,18 @@ export function effectiveLastVisitIso(
   customerLastVisitAt: string | null | undefined,
 ): string | null {
   return enrichedIso ?? customerLastVisitAt ?? null
+}
+
+/** Twin of effectiveLastVisitIso for the FIRST visit: the reconciled earliest
+ *  karute/appointment date beats the customer.first_visit_at scalar (which QR
+ *  sync never persists). When BOTH dates resolve, 来店ペース can show a real
+ *  interval; this is the field fix that recovers cadence for the ~80% of
+ *  customers whose QR date scalars are NULL but who have dated visit history. */
+export function effectiveFirstVisitIso(
+  enrichedIso: string | null | undefined,
+  customerFirstVisitAt: string | null | undefined,
+): string | null {
+  return enrichedIso ?? customerFirstVisitAt ?? null
 }
 
 /** Compact date for the mobile card rails — current-year dates drop the year
