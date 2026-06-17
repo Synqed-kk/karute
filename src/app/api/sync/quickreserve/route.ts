@@ -1,9 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { SynqedClient, SynqedError } from '@synqed-kk/client'
+import type { Appointment } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
 import { qrAppointmentWrite } from '@/lib/sync/qr-appointment'
+import {
+  buildQrExistingIndexes,
+  matchQrReservation,
+  dropMatched,
+  staffTimeKey,
+} from '@/lib/sync/qr-index'
 
 export const maxDuration = 300
 
@@ -138,9 +145,6 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       if (c.name) customerByName.set(c.name, c.id)
     }
 
-    const apptKey = (staffId: string, startsAt: string) =>
-      `${staffId}|${new Date(startsAt).getTime()}`
-
     let created = 0
     let updated = 0
     let skipped = 0
@@ -152,6 +156,32 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     // refreshed this run — keep returning customers' counts current without
     // re-updating them once per reservation.
     const refreshedCustomerIds = new Set<string>()
+
+    // ── Window-wide existing-appointment snapshot ──────────────────────────
+    // Reservation-id keying must find a booking's row no matter which day it now
+    // sits on — a MOVE relocates it across days, so a per-day index would never
+    // see the source row and would orphan it (the 崎本 6/10→6/17 bug). List the
+    // WHOLE window once and index by the QR id parsed from notes. A parallel
+    // (staff,time) index is the fallback for rows synced before id-keying (or
+    // whose notes lost the prefix). Page past the 200-row cap and assert we got
+    // them all — a missed page would let a move duplicate instead of relocate.
+    const windowFromIso = new Date(`${dates[0]}T00:00:00+09:00`).toISOString()
+    const windowToIso = new Date(`${dates[dates.length - 1]}T23:59:59.999+09:00`).toISOString()
+    const allExisting: Appointment[] = []
+    for (let page = 1; ; page++) {
+      const { appointments, total: totalAppts } = await synqed.appointments.list({
+        from: windowFromIso,
+        to: windowToIso,
+        page,
+        page_size: 200,
+      })
+      allExisting.push(...appointments)
+      if (allExisting.length >= totalAppts || appointments.length === 0) break
+    }
+
+    // QR id → existing row (primary, survives a move). (staff,time) → row
+    // (fallback). Duplicate-tolerant: later starts_at wins (see qr-index.ts).
+    const existingIndexes = buildQrExistingIndexes(allExisting)
 
     for (const dateStr of dates) {
       let reservations
@@ -169,19 +199,6 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       // Accumulate QR staff (id → name) from this day's schedule so 指名
       // (nominated_staff_id) can resolve to a name without a roster call.
       for (const r of reservations) qrStaffNameById.set(r.Staff.id, r.Staff.name)
-
-      // Existing appointments for this JST day, keyed by staff + start instant so
-      // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
-      // so ISO formatting differences between QR and synqed don't break matching.
-      const dayStartIso = new Date(`${dateStr}T00:00:00+09:00`).toISOString()
-      const dayEndIso = new Date(`${dateStr}T23:59:59+09:00`).toISOString()
-      const { appointments: dayAppts } = await synqed.appointments.list({
-        from: dayStartIso,
-        to: dayEndIso,
-        page_size: 200,
-      })
-      const existingByKey = new Map<string, string>()
-      for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
 
       for (const qrRes of reservations) {
         if (qrRes.deleted) { skipped++; continue }
@@ -232,8 +249,6 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         }
 
         const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
-        const key = apptKey(staffId, mapped.startTime)
-        const existingId = existingByKey.get(key)
         // customer_id is in BOTH payloads — so a slot rebooked by a DIFFERENT
         // customer re-links to them instead of keeping the stale customer (the
         // cross-customer leak: 崎本's 12:00 booking rendering under 中川's name).
@@ -244,15 +259,35 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           notes,
         )
 
-        if (existingId) {
-          await synqed.appointments.update(existingId, apptUpdate)
-          updated++
+        // Match ladder (qr-index): (1) by QR id — primary, survives a move/rebook
+        // across days (the moved booking patches its OWN row, never hijacks the
+        // slot's current occupant); (2) by (staff, time) — fallback for rows
+        // synced before id-keying; (3) create.
+        const qrId = String(mapped.qrId)
+        const existing = matchQrReservation(existingIndexes, qrId, staffId, mapped.startTime)
+
+        if (existing) {
+          try {
+            await synqed.appointments.update(existing.id, apptUpdate)
+            updated++
+            dropMatched(existingIndexes, qrId, existing)
+          } catch (err) {
+            // The update now relocates the slot (staff/time) for a moved booking,
+            // so it can overlap another appointment → 409, exactly like create.
+            // Skip the move this run (a later sync retries) instead of aborting.
+            if (err instanceof SynqedError && err.status === 409) {
+              console.warn(`[QR Sync] Move overlap, skipping QR #${mapped.qrId}`)
+              overlapped++
+            } else {
+              throw err
+            }
+          }
           continue
         }
 
         try {
           const appt = await synqed.appointments.create(apptCreate)
-          existingByKey.set(key, appt.id)
+          existingIndexes.byStaffTime.set(staffTimeKey(staffId, mapped.startTime), appt)
           created++
         } catch (err) {
           // synqed-core rejects a booking that overlaps an existing slot with a

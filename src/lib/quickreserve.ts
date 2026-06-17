@@ -120,7 +120,10 @@ export async function qrGetReservations(
 
   if (res.ok) {
     const data = await res.json()
-    return Array.isArray(data) ? data : []
+    if (Array.isArray(data)) return data
+    // 200 with a non-array body (error object / unexpected shape) — fall through
+    // to the timestamp-format retry rather than treating it as an empty day.
+    console.warn(`[QR] non-array 200 body (date=${date}); retrying with timestamp form`)
   }
 
   // Try with unix timestamp
@@ -134,7 +137,11 @@ export async function qrGetReservations(
 
   if (res2.ok) {
     const data = await res2.json()
-    return Array.isArray(data) ? data : []
+    if (Array.isArray(data)) return data
+    // A non-array 200 on the retry too. Do NOT return [] — a silent "empty day"
+    // would let the cancel-sweep treat a day's real bookings as cancelled and
+    // wipe them. Throw so the caller skips the day (its rows are never swept).
+    throw new Error(`QR get-reservations-by-date: non-array 200 body (date=${date})`)
   }
 
   const body = await res2.text().catch(() => '')
