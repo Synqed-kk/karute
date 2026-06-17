@@ -90,6 +90,8 @@ describe('enrichCustomers', () => {
       lastVisitService: null,
       bookingStaffId: null,
       nextAppointmentIso: null,
+      firstVisitIso: null,
+      datedVisitCount: 0,
     })
   })
 
@@ -103,6 +105,20 @@ describe('enrichCustomers', () => {
     const map = await enrichCustomers('biz-1', ['a'])
     // Latest of the two appointment times.
     expect(map.get('a')?.lastVisitIso).toBe(past)
+  })
+
+  it('reconciles firstVisitIso (earliest dated) + datedVisitCount across karute and past appointments', async () => {
+    const future = new Date(Date.now() + 3 * DAY).toISOString()
+    scenario.karute = [{ customer_id: 'a', created_at: '2025-03-10T00:00:00Z' }]
+    scenario.appts = [
+      { customer_id: 'a', starts_at: '2024-11-02T00:00:00Z' }, // earliest dated visit
+      { customer_id: 'a', starts_at: '2025-06-01T00:00:00Z' },
+      { customer_id: 'a', starts_at: future }, // future → not a dated past visit
+    ]
+    const map = await enrichCustomers('biz-1', ['a'])
+    expect(map.get('a')?.firstVisitIso).toBe('2024-11-02T00:00:00Z')
+    // 1 karute + 2 PAST appointments (the future one is excluded).
+    expect(map.get('a')?.datedVisitCount).toBe(3)
   })
 
   it('prefers karute over appointments for last-visit even when an appointment is newer', async () => {

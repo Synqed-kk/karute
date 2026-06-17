@@ -160,14 +160,15 @@ describe('saveKaruteRecord — staff attribution', () => {
     expect(karuteRecords.create).not.toHaveBeenCalled()
   })
 
-  it("uses the appointment's staff_id when an appointmentId is provided (override path)", async () => {
+  it('attributes to the RECORDER, not the appointment staff, when the signer has a staff row', async () => {
     scenario.authUser = { id: 'user-a' }
     scenario.businessProfile = { customer_id: 'biz-1' }
     scenario.staffProfiles = [
       { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
     ]
-    // The appointment is owned by a different staff member — the karute
-    // record should follow the appointment's attribution, not the signer's.
+    // The appointment is owned by a different staff member, but the record must
+    // save under the RECORDER (covering / swaps / off-schedule). The appointment
+    // isn't even fetched once the recorder is identified.
     appointments.get.mockResolvedValue({ staff_id: 'other-staff' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
 
@@ -179,6 +180,35 @@ describe('saveKaruteRecord — staff attribution', () => {
       appointmentId: 'appt-1',
     })
 
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        staff_id: 'user-a', // the recorder, NOT other-staff
+        appointment_id: 'appt-1',
+      }),
+    )
+    expect(appointments.get).not.toHaveBeenCalled()
+  })
+
+  it("falls back to the appointment's staff_id only when the signer has no staff row", async () => {
+    // Orphaned signer recording against a booking — rather than failing, attribute
+    // to the appointment's staff so the record is never lost.
+    scenario.authUser = { id: 'user-orphan' }
+    scenario.businessProfile = { customer_id: 'biz-1' }
+    scenario.staffProfiles = [
+      { id: 'user-b', full_name: 'Grace', customer_id: 'biz-1', pin_hash: null },
+    ]
+    appointments.get.mockResolvedValue({ staff_id: 'other-staff' })
+    karuteRecords.create.mockResolvedValue({ id: 'kr-2b' })
+
+    await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [],
+      appointmentId: 'appt-1',
+    })
+
+    expect(appointments.get).toHaveBeenCalledWith('appt-1')
     expect(karuteRecords.create).toHaveBeenCalledWith(
       expect.objectContaining({
         staff_id: 'other-staff',
