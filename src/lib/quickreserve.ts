@@ -148,6 +148,10 @@ export function mapReservation(r: QRReservation) {
   return {
     qrId: r.id,
     qrRid: r.rid,
+    // QuickReserve's stable customer id — the real identity key (present on every
+    // reservation, unlike phone/email). The find-or-create ladder matches on this
+    // first so a returning customer is never re-created under a new row.
+    qrCustomerId: r.Customer.id,
     customerName: r.Customer.name,
     customerKana: r.Customer.name_kana,
     customerPhone: r.Customer.phone1,

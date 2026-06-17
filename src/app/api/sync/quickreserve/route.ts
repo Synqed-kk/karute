@@ -4,6 +4,8 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
 import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
 import { qrAppointmentWrite } from '@/lib/sync/qr-appointment'
+import { resolveByQrIdentity, buildCustomerIndex, candidatesFor, addToIndex } from '@/lib/sync/qr-identity'
+import { paginateDedupe } from '@/lib/customers/paginate'
 
 export const maxDuration = 300
 
@@ -129,14 +131,17 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       return null
     }
 
-    // synqed customer name → id, for find-or-create. (synqed list caps at 200;
-    // a tenant with >200 customers could create a duplicate for a name beyond
-    // that window — acceptable for now, would need a name filter on the API.)
-    const { customers: existingCustomers } = await synqed.customers.list({ page_size: 200 })
-    const customerByName = new Map<string, string>()
-    for (const c of existingCustomers) {
-      if (c.name) customerByName.set(c.name, c.id)
-    }
+    // Identity indexes for find-or-create. Paged to COMPLETION (synqed clamps
+    // page_size at 500) so a returning customer beyond the first page is MATCHED,
+    // not re-created — the dup-mint root cause (654 customers, 187 minted in a day).
+    // Indexed by name / exact phone / exact email; resolveByQrIdentity decides and
+    // NEVER matches an ambiguous same-name alone (it creates a recoverable row
+    // rather than mis-attribute one person's visit to another).
+    const existingCustomers = await paginateDedupe(async (page) => {
+      const r = await synqed.customers.list({ page, page_size: 500 })
+      return { items: r.customers, total: r.total }
+    })
+    const customerIndex = buildCustomerIndex(existingCustomers)
 
     const apptKey = (staffId: string, startsAt: string) =>
       `${staffId}|${new Date(startsAt).getTime()}`
@@ -203,9 +208,11 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           continue
         }
 
-        // Find or create customer by name, carrying QR's returning-customer
-        // signal + lifetime visit count.
-        let customerId = customerByName.get(mapped.customerName)
+        // Resolve identity: QR-id (inert until core delegation) → exact phone →
+        // exact email → unambiguous exact name → create. An ambiguous same-name
+        // with no phone/email confirmer CREATES a recoverable row, never guesses.
+        const resolution = resolveByQrIdentity(candidatesFor(customerIndex, mapped))
+        let customerId = resolution.customerId
         if (!customerId) {
           const cust = await synqed.customers.create({
             name: mapped.customerName,
@@ -220,10 +227,16 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
             assigned_staff_id: resolveNominatedProfileId(mapped.nominatedStaffQrId),
           })
           customerId = cust.id
-          customerByName.set(mapped.customerName, customerId)
+          // Register the new row so later reservations in THIS run match it
+          // instead of minting a second copy.
+          addToIndex(customerIndex, {
+            id: cust.id,
+            name: mapped.customerName,
+            phone: mapped.customerPhone,
+            email: mapped.customerEmail,
+          })
         } else if (!refreshedCustomerIds.has(customerId)) {
-          // Returning customer already in synqed — refresh the visit count +
-          // status (QR's visits_number_cache grows over time). Once per run.
+          // Returning customer — refresh the visit count + status once per run.
           refreshedCustomerIds.add(customerId)
           await synqed.customers.update(customerId, {
             is_existing_customer: mapped.isExistingCustomer,
