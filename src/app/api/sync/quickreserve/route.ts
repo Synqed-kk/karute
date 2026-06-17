@@ -371,7 +371,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     }
     if (plan.capExceeded) {
       console.error(
-        `[QR Sync] cancel-cap exceeded (${plan.toCancel.length}) — cancelled nothing this run`,
+        `[QR Sync] cancel-cap exceeded (${plan.attemptedCancels}) — cancelled nothing this run`,
       )
     } else {
       for (const id of plan.toCancel) {

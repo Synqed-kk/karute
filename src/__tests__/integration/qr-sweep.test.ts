@@ -88,20 +88,38 @@ describe('planQrCancellations', () => {
     expect(plan.skippedDays).toEqual([{ dateStr: DAY, reason: 'empty-but-populated' }])
   })
 
-  it('SKIPS a partial day (live set < 50% of existing rows) — the truncated-fetch case', () => {
-    // 4 existing rows, QR only returned 1 live id → suspicious partial fetch.
+  it('SKIPS a truncated day (QR returned far fewer TOTAL entries than rows)', () => {
+    // 4 existing rows, but QR returned only 1 total entry for the day → the fetch
+    // is untrustworthy (truncated/degraded), not a real cancellation. Skip.
     const all = ['1', '2', '3', '4'].map((id, i) => appt({ id, starts_at: i < 2 ? T_NOON : T_EVE }))
     const plan = planQrCancellations({ allExisting: all, sweepDays: [day(['1'], 1)], matchedIds: noMatched, staleDuplicateIds: [] })
     expect(plan.toCancel).toEqual([])
     expect(plan.skippedDays).toEqual([{ dateStr: DAY, reason: 'partial-suspect' }])
   })
 
-  it('PER-RUN CAP: aborts (cancels nothing) when a run would cancel too many', () => {
-    const all = ['1', '2', '3', '4'].map((id) => appt({ id }))
-    // All 4 live-ids present so the partial gate passes; but maxCancels=1 and 2 vanished.
+  it('SWEEPS a fully-cancelled day (all entries deleted: full reservationsCount, empty live set)', () => {
+    // The Greptile gap: a therapist cancels their whole day → QR returns all its
+    // entries WITH deleted=true, so liveQrIds is empty but reservationsCount is
+    // full. This is NOT a truncated fetch — those rows must be cancelled, not left
+    // phantom forever.
+    const all = [appt({ id: '1' }), appt({ id: '2', starts_at: T_EVE })]
     const plan = planQrCancellations({
       allExisting: all,
-      sweepDays: [day(['1', '2'])], // 1,2 live; 3,4 gone → 2 cancellations
+      sweepDays: [day([], 2)], // liveQrIds empty, reservationsCount 2 (both deleted)
+      matchedIds: noMatched,
+      staleDuplicateIds: [],
+    })
+    expect(plan.toCancel.sort()).toEqual(['1', '2'])
+    expect(plan.skippedDays).toEqual([])
+  })
+
+  it('PER-RUN CAP: aborts (cancels nothing) when a run would cancel too many', () => {
+    const all = ['1', '2', '3', '4'].map((id) => appt({ id }))
+    // QR returned all 4 entries (full reservationsCount → gate passes), 1,2 live
+    // and 3,4 deleted → 2 cancellations, but maxCancels=1 trips the cap.
+    const plan = planQrCancellations({
+      allExisting: all,
+      sweepDays: [day(['1', '2'], 4)],
       matchedIds: noMatched,
       staleDuplicateIds: [],
       maxCancels: 1,

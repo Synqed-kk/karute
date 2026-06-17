@@ -56,6 +56,9 @@ export interface SweepPlan {
   toCancel: string[]
   capExceeded: boolean
   cancelCount: number
+  /** How many rows the sweep WOULD cancel before the cap — for logging when the
+   *  cap trips (toCancel is empty then, so it can't carry the count). */
+  attemptedCancels: number
   skippedDays: { dateStr: string; reason: 'empty-but-populated' | 'partial-suspect' }[]
 }
 
@@ -108,11 +111,17 @@ export function planQrCancellations({
     })
     if (dayRows.length === 0) continue
 
-    // VALIDITY GATES — never derive cancellations from a suspect day. A degraded
-    // QR response (silent empty / truncated) must not be read as "all cancelled".
+    // VALIDITY GATES — never derive cancellations from a suspect day. The signal
+    // for a degraded/truncated fetch is reservationsCount (QR's OWN total, which
+    // INCLUDES deleted entries): if QR returned far fewer total entries than we
+    // have karute rows, the fetch is untrustworthy → skip. A FULLY-CANCELLED day
+    // is NOT truncated — QR still returns its entries, just all deleted=true, so
+    // reservationsCount stays ~normal while liveQrIds drops to 0; that day SHOULD
+    // sweep (otherwise a therapist's whole cancelled day stays phantom forever —
+    // the bug of comparing liveQrIds.size, not reservationsCount, to dayRows).
     const suspectEmpty = day.reservationsCount === 0
-    const suspectPartial = day.liveQrIds.size < partialMinFraction * dayRows.length
-    if (suspectEmpty || suspectPartial) {
+    const suspectTruncated = day.reservationsCount < partialMinFraction * dayRows.length
+    if (suspectEmpty || suspectTruncated) {
       skippedDays.push({ dateStr: day.dateStr, reason: suspectEmpty ? 'empty-but-populated' : 'partial-suspect' })
       continue
     }
@@ -142,6 +151,7 @@ export function planQrCancellations({
     toCancel: capExceeded ? [] : [...toCancel],
     capExceeded,
     cancelCount: capExceeded ? 0 : toCancel.size,
+    attemptedCancels: toCancel.size,
     skippedDays,
   }
 }
