@@ -18,6 +18,7 @@ import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
 } from '@/lib/customers/identity'
+import { listAllCustomers } from '@/lib/customers/list-all'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
 import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
@@ -38,11 +39,11 @@ export default async function CustomersPage({
   // and threaded into the (synchronous) formatters so JP users see
   // "前回 2026年5月24日 (本日)" instead of "Today" / "May 24, 2026".
   const [list, staffList, activeStaffId, businessId, locale, lvT] = await Promise.all([
+    // Page to completion — a tenant past 500 customers would otherwise drop
+    // every row past #500 off the list (the server clamps page_size at 500).
     t.phase('customers.list', () =>
-      synqed.customers.list({
+      listAllCustomers(synqed, {
         search: query.trim() || undefined,
-        page: 1,
-        page_size: 500,
         sort_by: 'updated_at',
         sort_order: 'desc',
       }),

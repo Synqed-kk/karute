@@ -7,6 +7,7 @@ import { getStaffList, getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
+import { listAllCustomers } from '@/lib/customers/list-all'
 import { listCustomerPhotos } from '@/actions/customers'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
@@ -93,12 +94,9 @@ export default async function CustomerProfilePage({
           caption: string | null
         }>,
       })),
-      synqed.customers.list({
-        page: 1,
-        page_size: 500,
-        sort_by: 'created_at',
-        sort_order: 'asc',
-      }),
+      // Page to completion so an overflow customer (#500+) still resolves its
+      // karute number + name here instead of falling back to #00000.
+      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // synqed-core is the authoritative karute store; the Supabase query above
       // is effectively empty. Union both so this customer's synqed-written
       // sessions appear in their history.
