@@ -47,6 +47,8 @@ import {
   Bell,
   Brain,
   Calendar,
+  CalendarPlus,
+  ChevronDown,
   CheckCheck,
   CreditCard,
   GraduationCap,
@@ -147,7 +149,12 @@ export function NotificationsPanel({
   const unreadIds = useUnreadIds()
   const hasUnread = unreadCount > 0
 
-  const { today, thisWeek, older } = groupByAge(items, now)
+  // Design 1 (digest): collapse the 新規予約 flood into ONE expandable card so
+  // the panel reads as a calm summary, not a wall of booking rows. Everything
+  // else (today's digest, the chase roll-up, drafts, sync-pending) is already a
+  // single standing item, rendered as a clean row.
+  const bookingItems = items.filter((n) => n.category === 'booking')
+  const standingItems = items.filter((n) => n.category !== 'booking')
 
   const handleItemClick = (item: NotificationItem) => {
     markRead(item.id)
@@ -198,53 +205,30 @@ export function NotificationsPanel({
           {items.length === 0 ? (
             <EmptyState t={t} />
           ) : (
-            <>
-              {today.length > 0 && (
-                <Section title={t('today')}>
-                  {today.map((n) => (
-                    <NotificationRow
-                      key={n.id}
-                      item={n}
-                      isUnread={unreadIds.has(n.id)}
-                      onClick={() => handleItemClick(n)}
-                      isEn={isEn}
-                      now={now}
-                      t={t}
-                    />
-                  ))}
-                </Section>
+            <div className="divide-y divide-black/5 dark:divide-white/10">
+              {bookingItems.length > 0 && (
+                <NewBookingsDigest
+                  items={bookingItems}
+                  unreadCount={unreadCount}
+                  unreadIds={unreadIds}
+                  onItemClick={handleItemClick}
+                  isEn={isEn}
+                  now={now}
+                  t={t}
+                />
               )}
-              {thisWeek.length > 0 && (
-                <Section title={t('thisWeek')}>
-                  {thisWeek.map((n) => (
-                    <NotificationRow
-                      key={n.id}
-                      item={n}
-                      isUnread={unreadIds.has(n.id)}
-                      onClick={() => handleItemClick(n)}
-                      isEn={isEn}
-                      now={now}
-                      t={t}
-                    />
-                  ))}
-                </Section>
-              )}
-              {older.length > 0 && (
-                <Section title={t('older')}>
-                  {older.map((n) => (
-                    <NotificationRow
-                      key={n.id}
-                      item={n}
-                      isUnread={unreadIds.has(n.id)}
-                      onClick={() => handleItemClick(n)}
-                      isEn={isEn}
-                      now={now}
-                      t={t}
-                    />
-                  ))}
-                </Section>
-              )}
-            </>
+              {standingItems.map((n) => (
+                <NotificationRow
+                  key={n.id}
+                  item={n}
+                  isUnread={unreadIds.has(n.id)}
+                  onClick={() => handleItemClick(n)}
+                  isEn={isEn}
+                  now={now}
+                  t={t}
+                />
+              ))}
+            </div>
           )}
         </div>
       </SheetContent>
@@ -253,24 +237,82 @@ export function NotificationsPanel({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Section header — sticky within the scroll container
+// 新規予約 digest (Design 1) — collapse the recent-booking flood into
+// ONE tappable card. Collapsed shows just the count; tapping reveals
+// each booking row. Keeps the panel a calm summary, not a wall of rows.
 // ─────────────────────────────────────────────────────────────
 
-function Section({
-  title,
-  children,
+function NewBookingsDigest({
+  items,
+  unreadCount,
+  unreadIds,
+  onItemClick,
+  isEn,
+  now,
+  t,
 }: {
-  title: string
-  children: React.ReactNode
+  items: NotificationItem[]
+  unreadCount: number
+  unreadIds: Set<string>
+  onItemClick: (item: NotificationItem) => void
+  isEn: boolean
+  now: number
+  t: ReturnType<typeof useTranslations>
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const count = items.length
   return (
     <div>
-      <div className="sticky top-0 z-10 bg-card/95 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-md supports-backdrop-filter:bg-card/80">
-        {title}
-      </div>
-      <div className="divide-y divide-black/5 dark:divide-white/10">
-        {children}
-      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 bg-blue-50/70 px-4 py-3.5 text-left transition-colors hover:bg-blue-50 active:bg-blue-100/50 dark:bg-blue-500/[0.08] dark:hover:bg-blue-500/[0.12]"
+      >
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-500/20">
+          <CalendarPlus
+            className="size-4 text-blue-700 dark:text-blue-300"
+            aria-hidden
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] font-semibold text-blue-900 dark:text-blue-100">
+              {isEn ? `${count} new bookings` : `新規予約 ${count}件`}
+            </span>
+            {unreadCount > 0 && (
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full bg-red-600"
+              />
+            )}
+          </div>
+          <div className="mt-0.5 text-[12px] text-blue-700/80 dark:text-blue-300/80">
+            {isEn ? 'Added since you last checked' : '前回確認後に入った予約'}
+          </div>
+        </div>
+        <ChevronDown
+          className={`size-4 shrink-0 text-blue-700/70 transition-transform dark:text-blue-300/70 ${
+            expanded ? 'rotate-180' : ''
+          }`}
+          aria-hidden
+        />
+      </button>
+      {expanded && (
+        <div className="divide-y divide-black/5 bg-blue-50/25 dark:divide-white/10 dark:bg-blue-500/[0.03]">
+          {items.map((n) => (
+            <NotificationRow
+              key={n.id}
+              item={n}
+              isUnread={unreadIds.has(n.id)}
+              onClick={() => onItemClick(n)}
+              isEn={isEn}
+              now={now}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -371,34 +413,8 @@ function EmptyState({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Grouping + relative-time — lifted from spike verbatim
+// Relative-time — lifted from spike verbatim
 // ─────────────────────────────────────────────────────────────
-
-function groupByAge(
-  items: NotificationItem[],
-  now: number,
-): {
-  today: NotificationItem[]
-  thisWeek: NotificationItem[]
-  older: NotificationItem[]
-} {
-  const DAY = 24 * 60 * 60 * 1000
-  const today: NotificationItem[] = []
-  const thisWeek: NotificationItem[] = []
-  const older: NotificationItem[] = []
-  // Strict newest-first (user's mental model is chronological).
-  const sorted = [...items].sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
-  for (const n of sorted) {
-    const age = now - new Date(n.createdAt).getTime()
-    if (age < DAY) today.push(n)
-    else if (age < 7 * DAY) thisWeek.push(n)
-    else older.push(n)
-  }
-  return { today, thisWeek, older }
-}
 
 function formatRelTime(
   iso: string,
