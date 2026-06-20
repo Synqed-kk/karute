@@ -20,7 +20,7 @@ import {
   enrichCustomers,
   resolveCustomerStatus,
 } from '@/lib/customers/list-enrich'
-import { getSynqedClient } from '@/lib/synqed/client'
+import { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
 import { getAppointmentsByDate } from '@/actions/appointments'
 import {
@@ -62,15 +62,15 @@ export async function buildNotificationFeed(
     karute: `${lp}/karute`,
   }
 
-  const synqed = await getSynqedClient().catch(() => null)
-
   // Fan out the four independent reads. Each is individually guarded so a
   // single failure degrades that ONE source to empty rather than the feed.
+  // All three SDK-backed sources are cached 60s/business (like loadChaseAndSync)
+  // so seeding the feed on every (app) page doesn't re-fetch per navigation.
   const [todayAppointments, recentBookings, drafts, chaseAndSync] =
     await Promise.all([
       loadTodayAppointments(),
-      loadRecentBookings(synqed, now),
-      loadDraftKarute(synqed),
+      loadRecentBookings(businessId),
+      loadDraftKarute(businessId),
       loadChaseAndSync(businessId),
     ])
 
@@ -95,14 +95,17 @@ export async function buildNotificationFeed(
  *  first-timer split, which rides on the QR `is_existing_customer` flag. */
 async function loadTodayAppointments(): Promise<FeedTodayAppointment[]> {
   try {
-    const rows = await getAppointmentsByDate(ymdInJst(now()))
-    return rows.map((r) => {
-      // is_existing_customer is an SDK-skew QR field; the agenda row doesn't
-      // surface it, so derive the first-timer signal from the cached list at
-      // the same boundary. Falls back to undefined (counted as existing).
-      const qr = r as typeof r & { is_existing_customer?: boolean }
-      return { isExistingCustomer: qr.is_existing_customer }
-    })
+    // is_existing_customer is a Customer field, NOT on the agenda row. Join the
+    // row's client_id to the cached customer list (already loaded for the feed)
+    // so the 新規/既存 split reflects real data instead of always "0 new".
+    const [rows, customers] = await Promise.all([
+      getAppointmentsByDate(ymdInJst(now())),
+      getCachedCustomerList(),
+    ])
+    const existingById = new Map(
+      customers.map((c) => [c.id, c.isExistingCustomer]),
+    )
+    return rows.map((r) => ({ isExistingCustomer: existingById.get(r.client_id) }))
   } catch {
     return []
   }
@@ -111,25 +114,26 @@ async function loadTodayAppointments(): Promise<FeedTodayAppointment[]> {
 /** 新規予約 (badge driver) — recent FUTURE bookings. We over-fetch the recent
  *  window then let the pure assembler apply the created-recently AND
  *  starts_at >= now rules (the future filter is the re-sync false-fire guard).
- *  Customer names come from the cached list (no per-row .get). */
-async function loadRecentBookings(
-  synqed: Awaited<ReturnType<typeof getSynqedClient>> | null,
-  now: Date,
-): Promise<FeedRecentBooking[]> {
-  if (!synqed) return []
-  try {
-    // Window the fetch to [now, now + reasonable horizon): only FUTURE
-    // bookings can pass the assembler's starts_at >= now filter, so there's no
-    // point pulling the past. A 60-day horizon covers normal salon lookahead.
+ *  Customer names come from the cached list (no per-row .get).
+ *
+ *  Cached 60s/business (businessId-explicit client + getCachedCustomerListFor —
+ *  no auth read inside) because the feed seeds on EVERY (app) page; without this
+ *  it re-fetched per navigation. Busted by the 'customers' tag. The window uses
+ *  the cache body's own clock; a ≤60s drift is harmless because the pure
+ *  assembler re-applies the precise starts_at >= now / recency rules with the
+ *  request's real now. */
+const getCachedRecentBookings = unstable_cache(
+  async (businessId: string): Promise<FeedRecentBooking[]> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return []
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
+    const now = new Date()
     const fromIso = new Date(now.getTime() - 60_000).toISOString() // tiny pad
     const toIso = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString()
     const [list, customers] = await Promise.all([
-      synqed.appointments.list({
-        from: fromIso,
-        to: toIso,
-        page_size: PAGE_SIZE,
-      }),
-      getCachedCustomerList(),
+      synqed.appointments.list({ from: fromIso, to: toIso, page_size: PAGE_SIZE }),
+      getCachedCustomerListFor(businessId),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
     const cutoff = now.getTime() - NEW_BOOKING_LOOKBACK_MS
@@ -145,6 +149,14 @@ async function loadRecentBookings(
         createdAt: a.created_at,
         startsAt: a.starts_at,
       }))
+  },
+  ['notif-recent-bookings-v1'],
+  { revalidate: 60, tags: ['customers'] },
+)
+
+async function loadRecentBookings(businessId: string): Promise<FeedRecentBooking[]> {
+  try {
+    return await getCachedRecentBookings(businessId)
   } catch {
     return []
   }
@@ -152,12 +164,18 @@ async function loadRecentBookings(
 
 /** 未保存カルテ — DRAFT karute records. The status filter is server-side; the
  *  dedupe-by-customer + > 1 day age gate run in the pure assembler (so they're
- *  unit-tested). Paginate to completion within the safety cap. */
-async function loadDraftKarute(
-  synqed: Awaited<ReturnType<typeof getSynqedClient>> | null,
-): Promise<FeedDraftRecord[]> {
-  if (!synqed) return []
-  try {
+ *  unit-tested). Paginate to completion within the safety cap.
+ *
+ *  Cached 60s/business (businessId-explicit client, no auth read inside) — this
+ *  is the heaviest source (up to 25 paginated reads), and the feed seeds on
+ *  every (app) page, so without the cache it re-paginated per navigation. Busted
+ *  by the 'customers' tag. */
+const getCachedDraftKarute = unstable_cache(
+  async (businessId: string): Promise<FeedDraftRecord[]> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return []
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
     const out: FeedDraftRecord[] = []
     const MAX_PAGES = 25 // 25 × 200 = 5,000 rows — runaway guard
     for (let page = 1; page <= MAX_PAGES; page++) {
@@ -172,6 +190,14 @@ async function loadDraftKarute(
       if (res.karute_records.length < PAGE_SIZE) break
     }
     return out
+  },
+  ['notif-draft-karute-v1'],
+  { revalidate: 60, tags: ['customers'] },
+)
+
+async function loadDraftKarute(businessId: string): Promise<FeedDraftRecord[]> {
+  try {
+    return await getCachedDraftKarute(businessId)
   } catch {
     return []
   }
