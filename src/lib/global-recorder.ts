@@ -11,6 +11,13 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
 
 type Listener = () => void
 
+export interface RecordingTarget {
+  customerId: string
+  customerName: string
+  karuteNumber: string | null
+  appointmentId: string | null // null = walk-in (no booking)
+}
+
 // ── Runaway-recording safety nets ────────────────────────────────────────────
 // Interim guard until segmented capture removes the length ceiling entirely.
 // Tied to the storage limit: at 48 kbps a recording is ~0.36 MB/min, and the
@@ -49,6 +56,10 @@ class GlobalRecorder {
   overrun = false
   /** True when the hard cap auto-stopped + saved the recording (UI informs staff). */
   autoStopped = false
+  /** Customer/appointment the recording is BOUND to, captured at start(). The
+   *  single source of truth for what the save attaches to — immune to nav drift.
+   *  Survives stop→complete; cleared only on discard(). */
+  target: RecordingTarget | null = null
 
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
@@ -101,13 +112,14 @@ class GlobalRecorder {
     }
   }
 
-  async start(opts?: { noiseSuppression?: boolean }) {
+  async start(opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) {
     this.error = null
     this.result = null
     this.chunks = []
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.target = opts?.target ?? null
 
     let micStream: MediaStream
     try {
@@ -204,6 +216,7 @@ class GlobalRecorder {
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.target = null
     this.state = 'idle'
     this.startedAt = null
     this.recorder = null
