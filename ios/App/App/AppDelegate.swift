@@ -74,7 +74,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             return
         }
 
-        NSLog("[CookieVC] restore: re-injecting \(saved.count) saved cookie(s) before first load")
+        NSLog("[CookieVC] restore: re-injecting \(saved.count): " + saved.map { "\($0.name)[len=\($0.value.count) dom=\($0.domain) path=\($0.path) secure=\($0.isSecure) exp=\(Int($0.expiresDate?.timeIntervalSinceNow ?? -1))s]" }.joined(separator: " "))
         // Re-inject saved cookies, THEN navigate. super.viewDidLoad() (which
         // triggers webView.load) is deferred until every async setCookie
         // completes, so the very first request to the site carries the session.
@@ -91,6 +91,13 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             NSLog("[CookieVC] restore: cookies set — loading web")
             super.viewDidLoad()
             self.startObservers()
+            // Verify the re-injected cookies actually landed in the store the
+            // first request will read from (setCookie can silently reject a
+            // cookie with a mismatched domain/attributes).
+            store.getAllCookies { all in
+                let sb = all.filter { $0.name.hasPrefix("sb-") }
+                NSLog("[CookieVC] restore-verify: store now has \(sb.count) sb-*: " + sb.map { "\($0.name)[len=\($0.value.count)]" }.joined(separator: " "))
+            }
         }
         group.notify(queue: .main, execute: proceed)
         // Watchdog: WKHTTPCookieStore.setCookie's completion handler is not
@@ -124,11 +131,10 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         guard let store = webView?.configuration.websiteDataStore.httpCookieStore else { return }
         store.getAllCookies { cookies in
             let session = cookies.filter { $0.name.hasPrefix("sb-") }
+            NSLog("[CookieVC] capture(\(reason)): \(cookies.count) total, \(session.count) sb-*: " + session.map { "\($0.name)[len=\($0.value.count)]" }.joined(separator: " "))
             if session.isEmpty {
-                NSLog("[CookieVC] capture(\(reason)): no sb-* cookies — clearing Keychain")
                 SessionCookieStore.clear()
             } else {
-                NSLog("[CookieVC] capture(\(reason)): saved \(session.count) sb-* cookie(s) to Keychain")
                 SessionCookieStore.save(session)
             }
         }
