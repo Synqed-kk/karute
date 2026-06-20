@@ -19,8 +19,18 @@ jest.mock('next/navigation', () => ({
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
+// The bell badge + panel now live in the shared NotificationBell, which reads
+// the full hooks surface. Mock all of it so MobileHeader renders the real bell
+// (the badge assertions below flow through it) without the context provider.
 jest.mock('@/lib/notifications/hooks', () => ({
   useUnreadCount: () => mockUnread,
+  formatUnreadBadge: (n: number) => (n > 9 ? '9+' : String(n)),
+  useNotificationMutations: () => ({
+    markRead: jest.fn(),
+    markAllRead: jest.fn(),
+    clearAll: jest.fn(),
+    setLastSeen: jest.fn(),
+  }),
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({ state: mockRecState }),

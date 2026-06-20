@@ -23,13 +23,11 @@
 //   center — page title looked up from pathname
 //   right — bell with notification count badge (hidden during recording)
 
-import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, ChevronLeft } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
-import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
-import { useUnreadCount } from '@/lib/notifications/hooks'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
 export function MobileHeader() {
@@ -37,8 +35,6 @@ export function MobileHeader() {
   const router = useRouter()
   const tSidebar = useTranslations('sidebar')
   const tCommon = useTranslations('common')
-  const unreadCount = useUnreadCount()
-  const [notificationsOpen, setNotificationsOpen] = useState(false)
   // Hide bell while recording — DiscreetRecordingIndicator (fixed
   // top-right, mounted at the (app) layout root) takes over the
   // corner. Staff aren't checking notifications mid-session anyway;
@@ -73,36 +69,16 @@ export function MobileHeader() {
           {title}
         </h1>
 
-        {/* Right — bell with unread badge. Hidden during recording so
-         *  DiscreetRecordingIndicator (layout-level fixed top-right)
-         *  can occupy the corner without overlapping. Spacer keeps
-         *  the title centered when the bell collapses. */}
+        {/* Right — shared NotificationBell (icon + unread badge + panel).
+         *  Hidden during recording so DiscreetRecordingIndicator (layout-level
+         *  fixed top-right) can occupy the corner without overlapping; the
+         *  spacer keeps the title centered when the bell collapses. */}
         {isRecording ? (
           <span aria-hidden className="size-11 shrink-0" />
         ) : (
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen(true)}
-            aria-label={tCommon('notifications')}
-            className="relative inline-flex size-11 items-center justify-center rounded-full text-gray-700 transition-colors active:bg-black/5 dark:text-gray-300"
-          >
-            <Bell className="size-5" />
-            {unreadCount > 0 && (
-              <span
-                aria-hidden
-                className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-white dark:ring-neutral-900"
-              >
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
+          <NotificationBell variant="mobile" />
         )}
       </div>
-
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
     </header>
   )
 }
