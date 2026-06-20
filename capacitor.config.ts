@@ -24,6 +24,14 @@ const config: CapacitorConfig = {
     scheme: 'capacitor',
     // Matches the app's light theme so the launch/status-bar area looks native.
     backgroundColor: '#ffffff',
+    // Force the WKWebView to commit to MOBILE content mode up front. The default
+    // ('recommended') lets WKWebView pick a desktop-ish layout width on a
+    // remote-URL shell and latch an initial scale before the live site's
+    // width=device-width / initial-scale=1 applies — so the app loads zoomed-in
+    // until you pinch. 'mobile' resolves the correct device-width fit on first
+    // paint. Native-only: does NOT touch the served viewport meta, so browser
+    // pinch-zoom / WCAG is unaffected (zoomEnabled, a separate knob, stays default).
+    preferredContentMode: 'mobile',
   },
 };
 
