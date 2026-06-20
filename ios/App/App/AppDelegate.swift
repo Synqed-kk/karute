@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import WebKit
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -46,4 +47,117 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+}
+
+// MARK: - Session cookie persistence
+//
+// Fixes the forced re-login on every cold launch. WKWebView evicts the
+// persistent Supabase sb-* auth cookies across app restarts (Capacitor #6809),
+// so the first request after relaunch is unauthenticated and the server gate
+// redirects to /login. We mirror the sb-* cookies into the Keychain on every
+// change and RE-INJECT them into the WebView BEFORE the first navigation, so the
+// session survives a true cold launch. The storyboard's root scene points at
+// this subclass (customClass="CookieVC"). Restore-only: covers cold launches
+// within the access-token TTL; a >1h-idle launch may still re-login (documented
+// tail — add a native pre-navigation refresh later only if it shows in testing).
+final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
+    private var didLoadOnce = false
+
+    override func viewDidLoad() {
+        guard
+            let store = webView?.configuration.websiteDataStore.httpCookieStore,
+            let saved = SessionCookieStore.load(), !saved.isEmpty
+        else {
+            // Nothing to restore (first launch / logged out) — load normally.
+            super.viewDidLoad()
+            startObservingCookies()
+            return
+        }
+
+        // Re-inject saved cookies, THEN navigate. super.viewDidLoad() (which
+        // triggers webView.load) is deferred until every async setCookie
+        // completes, so the very first request to the site carries the session.
+        let group = DispatchGroup()
+        for cookie in saved {
+            group.enter()
+            store.setCookie(cookie) { group.leave() }
+        }
+        // Implicit self capture (no capture list) — required so `super` is usable
+        // inside the closure.
+        let proceed: () -> Void = {
+            guard !self.didLoadOnce else { return }
+            self.didLoadOnce = true
+            super.viewDidLoad()
+            self.startObservingCookies()
+        }
+        group.notify(queue: .main, execute: proceed)
+        // Watchdog: WKHTTPCookieStore.setCookie's completion handler is not
+        // always called (documented). Never block the load forever, or a missed
+        // completion would leave a permanent white screen.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: proceed)
+    }
+
+    private func startObservingCookies() {
+        webView?.configuration.websiteDataStore.httpCookieStore.add(self)
+    }
+
+    // Persist the sb-* cookies to the Keychain whenever they change (login /
+    // token refresh); clear on logout (they disappear from the store).
+    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
+        cookieStore.getAllCookies { cookies in
+            let session = cookies.filter { $0.name.hasPrefix("sb-") }
+            if session.isEmpty {
+                SessionCookieStore.clear()
+            } else {
+                SessionCookieStore.save(session)
+            }
+        }
+    }
+}
+
+// Keychain-backed store for the session cookies (device-only, after-first-unlock
+// — appropriate for auth tokens / customer data; survives WKWebView eviction).
+enum SessionCookieStore {
+    private static let account = "jp.synqed.karute.session-cookies"
+
+    static func save(_ cookies: [HTTPCookie]) {
+        let props = cookies.compactMap { $0.properties }
+        guard
+            !props.isEmpty,
+            let data = try? NSKeyedArchiver.archivedData(withRootObject: props, requiringSecureCoding: false)
+        else { return }
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+        var add = query
+        add[kSecValueData as String] = data
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        SecItemAdd(add as CFDictionary, nil)
+    }
+
+    static func load() -> [HTTPCookie]? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+        var result: AnyObject?
+        guard
+            SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+            let data = result as? Data,
+            let props = (try? NSKeyedUnarchiver.unarchiveTopLevelObjectWithData(data)) as? [[HTTPCookiePropertyKey: Any]]
+        else { return nil }
+        return props.compactMap { HTTPCookie(properties: $0) }
+    }
+
+    static func clear() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrAccount as String: account,
+        ]
+        SecItemDelete(query as CFDictionary)
+    }
 }
