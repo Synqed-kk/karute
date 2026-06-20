@@ -68,12 +68,13 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             let store = webView?.configuration.websiteDataStore.httpCookieStore,
             let saved = SessionCookieStore.load(), !saved.isEmpty
         else {
-            // Nothing to restore (first launch / logged out) — load normally.
+            NSLog("[CookieVC] restore: nothing saved (first launch / logged out) — loading normally")
             super.viewDidLoad()
-            startObservingCookies()
+            startObservers()
             return
         }
 
+        NSLog("[CookieVC] restore: re-injecting \(saved.count) saved cookie(s) before first load")
         // Re-inject saved cookies, THEN navigate. super.viewDidLoad() (which
         // triggers webView.load) is deferred until every async setCookie
         // completes, so the very first request to the site carries the session.
@@ -87,8 +88,9 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         let proceed: () -> Void = {
             guard !self.didLoadOnce else { return }
             self.didLoadOnce = true
+            NSLog("[CookieVC] restore: cookies set — loading web")
             super.viewDidLoad()
-            self.startObservingCookies()
+            self.startObservers()
         }
         group.notify(queue: .main, execute: proceed)
         // Watchdog: WKHTTPCookieStore.setCookie's completion handler is not
@@ -97,18 +99,36 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: proceed)
     }
 
-    private func startObservingCookies() {
+    private func startObservers() {
+        // The WK observer fires for HTTP Set-Cookie (e.g. token refresh) but NOT
+        // for cookies written via JS document.cookie — which is exactly how
+        // @supabase/ssr writes the session on login. So the RELIABLE capture is on
+        // background/resign (which always precedes a cold-launch kill): snapshot
+        // the live store to the Keychain then.
         webView?.configuration.websiteDataStore.httpCookieStore.add(self)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(captureSessionCookies),
+            name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(captureSessionCookies),
+            name: UIApplication.willResignActiveNotification, object: nil)
     }
 
-    // Persist the sb-* cookies to the Keychain whenever they change (login /
-    // token refresh); clear on logout (they disappear from the store).
-    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) {
-        cookieStore.getAllCookies { cookies in
+    @objc private func captureSessionCookies() { capture(reason: "background") }
+
+    // HTTP Set-Cookie changes (e.g. token refresh) — may not fire for JS writes.
+    func cookiesDidChange(in cookieStore: WKHTTPCookieStore) { capture(reason: "observer") }
+
+    // Snapshot the sb-* session cookies to the Keychain; clear on logout.
+    private func capture(reason: String) {
+        guard let store = webView?.configuration.websiteDataStore.httpCookieStore else { return }
+        store.getAllCookies { cookies in
             let session = cookies.filter { $0.name.hasPrefix("sb-") }
             if session.isEmpty {
+                NSLog("[CookieVC] capture(\(reason)): no sb-* cookies — clearing Keychain")
                 SessionCookieStore.clear()
             } else {
+                NSLog("[CookieVC] capture(\(reason)): saved \(session.count) sb-* cookie(s) to Keychain")
                 SessionCookieStore.save(session)
             }
         }
