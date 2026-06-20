@@ -53,8 +53,12 @@ function setup(feed: NotificationItem[], staffId: string | null = 'staff-1') {
       ...useNotificationMutations(),
     }),
     {
+      // children must go in the props object: NotificationsProvider types it as
+      // a required prop, so createElement's 3rd-arg form fails type-check. This
+      // is a .ts file (no JSX), so the rule disable is the clean resolution.
       wrapper: ({ children }) =>
-        createElement(NotificationsProvider, { feed, staffId }, children),
+        // eslint-disable-next-line react/no-children-prop
+        createElement(NotificationsProvider, { feed, staffId, children }),
     },
   )
 }
