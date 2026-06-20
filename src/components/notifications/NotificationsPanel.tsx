@@ -55,6 +55,7 @@ import {
   Sparkles,
   Zap,
   ShieldCheck,
+  X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -166,18 +167,33 @@ export function NotificationsPanel({
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-[90%] flex-col gap-0 p-0 sm:max-w-sm"
+        showCloseButton={false}
+        className="flex w-[90%] flex-col gap-0 p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:max-w-sm"
       >
         <SheetHeader className="border-b border-black/5 px-4 pt-4 pb-3 dark:border-white/10">
-          <SheetTitle className="flex items-center gap-2">
-            <Bell className="size-4 text-foreground/80" aria-hidden />
-            {t('title')}
-            {hasUnread && (
-              <span className="inline-flex h-5 items-center rounded-full bg-red-600 px-2 text-[11px] font-semibold tabular-nums text-white">
-                {unreadCount}
-              </span>
-            )}
-          </SheetTitle>
+          <div className="flex items-center justify-between gap-2">
+            <SheetTitle className="flex items-center gap-2">
+              <Bell className="size-4 text-foreground/80" aria-hidden />
+              {t('title')}
+              {hasUnread && (
+                <span className="inline-flex h-5 items-center rounded-full bg-red-600 px-2 text-[11px] font-semibold tabular-nums text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </SheetTitle>
+            {/* In-flow close button — replaces shadcn's absolute top-3 ✕, which
+                jammed under the status bar / Dynamic Island once safe-area was
+                active. It lives inside the header, so the SheetContent's
+                pt-[env(safe-area-inset-top)] pushes it below the notch. */}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={isEn ? 'Close' : '閉じる'}
+              className="-mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-gray-100 hover:text-foreground dark:hover:bg-white/[0.05]"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
           <SheetDescription className="sr-only">
             {t('description')}
           </SheetDescription>
