@@ -54,7 +54,7 @@ function setup(feed: NotificationItem[], staffId: string | null = 'staff-1') {
     }),
     {
       wrapper: ({ children }) =>
-        createElement(NotificationsProvider, { feed, staffId, children }),
+        createElement(NotificationsProvider, { feed, staffId }, children),
     },
   )
 }
