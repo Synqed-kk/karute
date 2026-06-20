@@ -13,8 +13,11 @@ export default async function LandingPage({
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Top bar */}
-      <header className="flex items-center justify-between px-6 py-4 max-w-7xl mx-auto">
+      {/* Top bar — pt clears the iOS status bar / Dynamic Island once
+          viewport-fit=cover is active (env inset = 0 in normal browsers, so this
+          renders identically there). Without it the logo + login button jam
+          under the notch in the WKWebView shell. */}
+      <header className="flex items-center justify-between px-6 pb-4 pt-[calc(env(safe-area-inset-top)+1rem)] max-w-7xl mx-auto">
         <div className="flex items-center gap-2">
           <img src="/karute_logo.png" alt="Karute" className="h-10 object-contain dark:invert" />
         </div>
