@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useSyncExternalStore } from 'react'
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, type RecordingTarget } from '@/lib/global-recorder'
 
 export function useGlobalRecorder() {
   const subscribe = useCallback(
@@ -26,7 +26,9 @@ export function useGlobalRecorder() {
     overrun: globalRecorder.overrun,
     /** The hard cap auto-stopped + saved the recording (~2.5h). */
     autoStopped: globalRecorder.autoStopped,
-    startRecording: (opts?: { noiseSuppression?: boolean }) =>
+    /** Customer/appointment the live recording is bound to (null when idle). */
+    target: globalRecorder.target,
+    startRecording: (opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) =>
       globalRecorder.start(opts),
     stopRecording: () => globalRecorder.stop(),
     pauseRecording: () => globalRecorder.pause(),

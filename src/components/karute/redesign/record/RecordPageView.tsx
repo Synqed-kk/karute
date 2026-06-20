@@ -145,6 +145,7 @@ export function RecordPageView({
     startedAt,
     overrun,
     autoStopped,
+    target,
     startRecording,
     stopRecording,
     discardRecording,
@@ -154,6 +155,16 @@ export function RecordPageView({
   // singleton — survives navigation; the top-corner chip (ProcessingIndicator)
   // shows progress instead of a full-screen blocker.
   const pipeline = useGlobalPipeline()
+
+  const live = recState !== 'idle' || pipeline.state !== 'idle'
+  // Single source of truth for who the audio is bound to. `target` is captured
+  // at recording start and is null when idle, so this naturally yields the
+  // bound customer while recording and the next booking when idle — and can
+  // NEVER drift to a different customer on navigation the way nextAppointment does.
+  const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
+  const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
+  const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
+  const boundKaruteNumber = (live && target ? target.karuteNumber : nextAppointment?.karuteNumber) ?? null
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
   // recording runs unusually long, and tell them when the hard cap auto-saved it.
@@ -174,6 +185,9 @@ export function RecordPageView({
   const router = useRouter()
   const handleSwitchBooking = useCallback(
     (booking: RecordTargetBooking) => {
+      // Switching the target mid-recording would desync the bound customer from
+      // the booking shown — a no-op while live keeps the audio's binding intact.
+      if (live) return
       router.replace(
         {
           pathname: '/sessions',
@@ -181,7 +195,7 @@ export function RecordPageView({
         } as Parameters<typeof router.replace>[0],
       )
     },
-    [router],
+    [router, live],
   )
 
   type Phase = 'idle' | 'recording' | 'recorded'
@@ -202,7 +216,7 @@ export function RecordPageView({
   const [consentSubmitting, setConsentSubmitting] = useState(false)
   const [consentError, setConsentError] = useState<string | null>(null)
 
-  const customerIdForConsent = nextAppointment?.customerId ?? null
+  const customerIdForConsent = boundCustomerId ?? null
   const refreshConsent = useCallback(async () => {
     if (!customerIdForConsent) {
       setConsent(null)
@@ -264,11 +278,31 @@ export function RecordPageView({
       setShowNoBookingPrompt(true)
       return
     }
-    startRecording({ noiseSuppression })
+    startRecording({
+      noiseSuppression,
+      target: nextAppointment
+        ? {
+            customerId: nextAppointment.customerId,
+            customerName: nextAppointment.customerName,
+            karuteNumber: nextAppointment.karuteNumber ?? null,
+            appointmentId: nextAppointment.id || null,
+          }
+        : null,
+    })
   }
   function handleStartAnyway() {
     setShowNoBookingPrompt(false)
-    startRecording({ noiseSuppression })
+    startRecording({
+      noiseSuppression,
+      target: nextAppointment
+        ? {
+            customerId: nextAppointment.customerId,
+            customerName: nextAppointment.customerName,
+            karuteNumber: nextAppointment.karuteNumber ?? null,
+            appointmentId: nextAppointment.id || null,
+          }
+        : null,
+    })
   }
   function handleDiscard() {
     discardRecording()
@@ -284,10 +318,10 @@ export function RecordPageView({
     // `|| undefined`: a walk-in target (customer recorded with no booking)
     // carries id='' — coerce it so the save writes appointment_id null, not ''.
     const effectiveAppointmentId =
-      (recordingAppointmentId ?? nextAppointment?.id) || undefined
-    const effectiveCustomerId = recordingAppointmentId
+      (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
+    const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
       ? (recordingCustomerId ?? undefined)
-      : nextAppointment?.customerId
+      : nextAppointment?.customerId)
     globalPipeline.start(result.blob, {
       locale,
       customers,
@@ -330,13 +364,13 @@ export function RecordPageView({
   // coaching labels. Consume 1 session (undo-able toast) + autosave without an
   // outcome row.
   function handleAutoFlow() {
-    if (targetPack && nextAppointment?.customerId) {
+    if (targetPack && boundCustomerId) {
       const from = targetPack.remaining
       void redeemSessionAction({
         packId: targetPack.id,
-        customerId: nextAppointment.customerId,
+        customerId: boundCustomerId,
         // '' for walk-in targets → null (no booking to link)
-        appointmentId: nextAppointment.id || null,
+        appointmentId: boundAppointmentId ?? null,
       }).then((res) => {
         if (res.ok) {
           toast.success(
@@ -422,29 +456,45 @@ export function RecordPageView({
   // from the server (sessions/page.tsx derives it from now vs the
   // appointment window — keeps this client component pure for
   // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
-  const targetAppointment: RecordTargetAppointment | null = nextAppointment
-    ? {
-        id: nextAppointment.id,
-        customerName: nextAppointment.customerName,
-        initials: deriveInitials(nextAppointment.customerName),
-        karuteNumber: nextAppointment.karuteNumber ?? null,
-        service: nextAppointment.title ?? '—',
-        timeRange: (() => {
-          const start = new Date(nextAppointment.startTime)
-          const end = new Date(
-            start.getTime() + nextAppointment.durationMinutes * 60_000,
-          )
-          return `${formatHHMM(start)}–${formatHHMM(end)}`
-        })(),
-        // Real staffName threaded from sessions/page.tsx via the
-        // staff list lookup. Earlier the value was hardcoded '—'
-        // even though staff_profile_id was selected on the
-        // appointment row.
-        staffName: nextAppointment.staffName ?? '—',
-        statusKey: nextAppointment.statusKey ?? 'booked',
-        isNew: brief?.isFirstTimeVisit ?? false,
-      }
-    : null
+  const targetAppointment: RecordTargetAppointment | null =
+    live && target
+      ? {
+          // While a recording/pipeline is live, the card MUST show the customer
+          // the audio is BOUND to — never re-derive from nextAppointment, which
+          // can have drifted to today's first booking under the singleton.
+          id: target.appointmentId ?? '',
+          customerName: boundCustomerName ?? target.customerName,
+          initials: deriveInitials(target.customerName),
+          karuteNumber: boundKaruteNumber,
+          service: '—',
+          timeRange: '',
+          staffName: '—',
+          statusKey: 'booked',
+          isNew: false,
+        }
+      : nextAppointment
+        ? {
+            id: nextAppointment.id,
+            customerName: nextAppointment.customerName,
+            initials: deriveInitials(nextAppointment.customerName),
+            karuteNumber: nextAppointment.karuteNumber ?? null,
+            service: nextAppointment.title ?? '—',
+            timeRange: (() => {
+              const start = new Date(nextAppointment.startTime)
+              const end = new Date(
+                start.getTime() + nextAppointment.durationMinutes * 60_000,
+              )
+              return `${formatHHMM(start)}–${formatHHMM(end)}`
+            })(),
+            // Real staffName threaded from sessions/page.tsx via the
+            // staff list lookup. Earlier the value was hardcoded '—'
+            // even though staff_profile_id was selected on the
+            // appointment row.
+            staffName: nextAppointment.staffName ?? '—',
+            statusKey: nextAppointment.statusKey ?? 'booked',
+            isNew: brief?.isFirstTimeVisit ?? false,
+          }
+        : null
 
   const isRecording = phase === 'recording'
   // When there's no booking, the empty-state target card is a small banner —
@@ -483,7 +533,7 @@ export function RecordPageView({
     </section>
   ) : (
     <RecordButtonCard
-      customerName={nextAppointment?.customerName ?? null}
+      customerName={boundCustomerName}
       isRecording={isRecording}
       elapsedSeconds={elapsed}
       waveform={normalizedBars}
@@ -545,7 +595,7 @@ export function RecordPageView({
             <RecordingTargetCard
               appointment={targetAppointment}
               nearbyBookings={nearbyBookings}
-              onSwitchBooking={handleSwitchBooking}
+              onSwitchBooking={live ? undefined : handleSwitchBooking}
             />
             {otherStaffBanner}
             <RepurchaseCueBanner pack={targetPack} />
@@ -561,7 +611,7 @@ export function RecordPageView({
           <RecordingTargetCard
             appointment={targetAppointment}
             nearbyBookings={nearbyBookings}
-            onSwitchBooking={handleSwitchBooking}
+            onSwitchBooking={live ? undefined : handleSwitchBooking}
           />
           {otherStaffBanner}
           <RepurchaseCueBanner pack={targetPack} />
@@ -599,12 +649,12 @@ export function RecordPageView({
           // 成約/購入した with the inline picker filled → the pack is created
           // HERE, at the moment of sale (conservation law: the count-from-N
           // needs an input moment, not a profile errand).
-          if (newPack && nextAppointment?.customerId) {
+          if (newPack && boundCustomerId) {
             const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
               .toISOString()
               .slice(0, 10)
             void createPackAction({
-              customerId: nextAppointment.customerId,
+              customerId: boundCustomerId,
               kind: 'pack',
               packSize: newPack.size,
               unitPrice: newPack.unitPrice,
@@ -625,11 +675,11 @@ export function RecordPageView({
           // Redemption records the VISIT (which already happened), so it fires
           // immediately — independent of whether the transcription/save later
           // succeeds. Failure → toast; the profile pack card is the fallback.
-          if (redeemPack && targetPack && nextAppointment?.customerId) {
+          if (redeemPack && targetPack && boundCustomerId) {
             void redeemSessionAction({
               packId: targetPack.id,
-              customerId: nextAppointment.customerId,
-              appointmentId: nextAppointment.id || null,
+              customerId: boundCustomerId,
+              appointmentId: boundAppointmentId ?? null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
               else toast.error(tPacks('redeemFailed'))
@@ -641,9 +691,9 @@ export function RecordPageView({
           if (
             outcome.status === 'success' &&
             !newPack &&
-            nextAppointment?.customerId
+            boundCustomerId
           ) {
-            const customerId = nextAppointment.customerId
+            const customerId = boundCustomerId
             toast.success(t('registerNewPackPrompt'), {
               duration: 10_000,
               action: {
