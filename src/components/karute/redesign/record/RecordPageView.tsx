@@ -280,29 +280,20 @@ export function RecordPageView({
     }
     startRecording({
       noiseSuppression,
-      target: nextAppointment
-        ? {
-            customerId: nextAppointment.customerId,
-            customerName: nextAppointment.customerName,
-            karuteNumber: nextAppointment.karuteNumber ?? null,
-            appointmentId: nextAppointment.id || null,
-          }
-        : null,
+      // nextAppointment is guaranteed here (early-return above when it's null).
+      target: {
+        customerId: nextAppointment.customerId,
+        customerName: nextAppointment.customerName,
+        karuteNumber: nextAppointment.karuteNumber ?? null,
+        appointmentId: nextAppointment.id || null,
+      },
     })
   }
   function handleStartAnyway() {
     setShowNoBookingPrompt(false)
-    startRecording({
-      noiseSuppression,
-      target: nextAppointment
-        ? {
-            customerId: nextAppointment.customerId,
-            customerName: nextAppointment.customerName,
-            karuteNumber: nextAppointment.karuteNumber ?? null,
-            appointmentId: nextAppointment.id || null,
-          }
-        : null,
-    })
+    // Reached only via the no-booking prompt → nextAppointment is null, so there
+    // is no customer to bind (walk-in); the save will require picking one.
+    startRecording({ noiseSuppression, target: null })
   }
   function handleDiscard() {
     discardRecording()
@@ -636,7 +627,7 @@ export function RecordPageView({
           context to the save. */}
       <PostSessionResolutionDialog
         open={outcomeOpen}
-        customerName={nextAppointment?.customerName ?? ''}
+        customerName={boundCustomerName ?? ''}
         isFirstVisit={brief?.isFirstTimeVisit ?? false}
         mode={outcomeMode === 'repurchase' ? 'repurchase' : 'conversion'}
         pack={targetPack}
