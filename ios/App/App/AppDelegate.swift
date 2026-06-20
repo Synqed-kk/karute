@@ -88,22 +88,26 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         let proceed: () -> Void = {
             guard !self.didLoadOnce else { return }
             self.didLoadOnce = true
-            NSLog("[CookieVC] restore: cookies set — loading web")
+            NSLog("[CookieVC] restore: loading web")
             super.viewDidLoad()
             self.startObservers()
-            // Verify the re-injected cookies actually landed in the store the
-            // first request will read from (setCookie can silently reject a
-            // cookie with a mismatched domain/attributes).
+        }
+        // setCookie's completion means the cookie is IN THE STORE — but NOT that
+        // the WKWebView network process has it for the FIRST request. That sync
+        // lags, so the first request can fire WITHOUT the cookie even though
+        // restore-verify shows it present → the server gate redirects to /login
+        // (the exact symptom). A getAllCookies round-trip barrier + a short beat
+        // lets the network process pick it up before we navigate.
+        group.notify(queue: .main) {
             store.getAllCookies { all in
                 let sb = all.filter { $0.name.hasPrefix("sb-") }
-                NSLog("[CookieVC] restore-verify: store now has \(sb.count) sb-*: " + sb.map { "\($0.name)[len=\($0.value.count)]" }.joined(separator: " "))
+                NSLog("[CookieVC] restore-verify: store has \(sb.count) sb-* — loading after sync beat")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: proceed)
             }
         }
-        group.notify(queue: .main, execute: proceed)
-        // Watchdog: WKHTTPCookieStore.setCookie's completion handler is not
-        // always called (documented). Never block the load forever, or a missed
-        // completion would leave a permanent white screen.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5, execute: proceed)
+        // Watchdog: never block the load forever if a setCookie completion is
+        // dropped (documented) — a missed completion must not white-screen.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: proceed)
     }
 
     private func startObservers() {
