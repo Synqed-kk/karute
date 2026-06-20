@@ -173,7 +173,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
 
       // Accumulate QR staff (id → name) from this day's schedule so 指名
       // (nominated_staff_id) can resolve to a name without a roster call.
-      for (const r of reservations) qrStaffNameById.set(r.Staff.id, r.Staff.name)
+      for (const r of reservations) if (r.Staff) qrStaffNameById.set(r.Staff.id, r.Staff.name)
 
       // Existing appointments for this JST day, keyed by staff + start instant so
       // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
@@ -190,6 +190,12 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
 
       for (const qrRes of reservations) {
         if (qrRes.deleted) { skipped++; continue }
+        // Staff BLOCK/HOLD (休憩) and any variant-shape rows carry a Staff but no
+        // Customer — QR's by-date endpoint returns non-booking rows too. mapReservation
+        // reads r.Customer.id / r.Staff.id / r.TreatmentCourse.name unguarded, so skip
+        // rows missing any of the three rather than crashing the whole sync (the live
+        // 500: "Cannot read properties of undefined (reading 'id')" on a 休憩 row).
+        if (!qrRes.Customer || !qrRes.Staff || !qrRes.TreatmentCourse) { skipped++; continue }
 
         const mapped = mapReservation(qrRes)
 
