@@ -62,6 +62,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // tail — add a native pre-navigation refresh later only if it shows in testing).
 final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private var didLoadOnce = false
+    // One-shot guard + KVO handle for the cold-launch auth-redirect recovery.
+    private var didRetryAuth = false
+    private var urlObservation: NSKeyValueObservation?
 
     override func viewDidLoad() {
         guard
@@ -123,6 +126,34 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         NotificationCenter.default.addObserver(
             self, selector: #selector(captureSessionCookies),
             name: UIApplication.willResignActiveNotification, object: nil)
+
+        // Cold-launch auth-redirect recovery. setCookie's completion (and even a
+        // getAllCookies barrier) only proves the cookie is in the UI-process
+        // cookie store — NOT that the network process has it for the FIRST
+        // request. That sync lags unpredictably, so the first request can still
+        // fire cookie-less and the server gate 302s to /login. Rather than guess
+        // the sync delay, we self-correct: if we restored a session yet still
+        // land on /login, a full request round-trip has already elapsed (the
+        // network process now has the cookie), so reload the app root exactly
+        // once. Bounded to one retry — if the token were genuinely rejected we
+        // stay on /login (no worse than before, no loop).
+        urlObservation = webView?.observe(\.url, options: [.new]) { [weak self] webView, _ in
+            self?.recoverIfBouncedToLogin(webView.url)
+        }
+    }
+
+    private func recoverIfBouncedToLogin(_ url: URL?) {
+        guard
+            !didRetryAuth,
+            let url, url.path.hasSuffix("/login"),  // matches /login and locale-prefixed /ja/login
+            let saved = SessionCookieStore.load(), !saved.isEmpty,
+            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let scheme = comps.scheme, let host = comps.host,
+            let root = URL(string: "\(scheme)://\(host)/")
+        else { return }
+        didRetryAuth = true
+        NSLog("[CookieVC] auth-recover: bounced to /login with a restored session — reloading \(root) once (network-process cookie sync)")
+        webView?.load(URLRequest(url: root))
     }
 
     @objc private func captureSessionCookies() { capture(reason: "background") }
