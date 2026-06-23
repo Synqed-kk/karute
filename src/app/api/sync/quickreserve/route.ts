@@ -173,7 +173,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
 
       // Accumulate QR staff (id → name) from this day's schedule so 指名
       // (nominated_staff_id) can resolve to a name without a roster call.
-      for (const r of reservations) if (r.Staff) qrStaffNameById.set(r.Staff.id, r.Staff.name)
+      for (const r of reservations) if (r.staff) qrStaffNameById.set(r.staff.id, r.staff.name)
 
       // Existing appointments for this JST day, keyed by staff + start instant so
       // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
@@ -190,12 +190,13 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
 
       for (const qrRes of reservations) {
         if (qrRes.deleted) { skipped++; continue }
-        // Staff BLOCK/HOLD (休憩) and any variant-shape rows carry a Staff but no
-        // Customer — QR's by-date endpoint returns non-booking rows too. mapReservation
-        // reads r.Customer.id / r.Staff.id / r.TreatmentCourse.name unguarded, so skip
-        // rows missing any of the three rather than crashing the whole sync (the live
-        // 500: "Cannot read properties of undefined (reading 'id')" on a 休憩 row).
-        if (!qrRes.Customer || !qrRes.Staff || !qrRes.TreatmentCourse) { skipped++; continue }
+        // Staff BLOCK/HOLD (休憩) and any variant-shape rows carry staff but no
+        // customer/course — QR's by-date endpoint returns non-booking rows too.
+        // mapReservation reads staff.name / treatment_course.name / the resolved
+        // customer unguarded, so skip rows missing any of the three rather than
+        // crashing the sync. (Post-2026-06 QR shape: lowercase staff /
+        // treatment_course + resolvedCustomerId, not PascalCase objects.)
+        if (!qrRes.staff || !qrRes.treatment_course || qrRes.resolvedCustomerId == null) { skipped++; continue }
 
         const mapped = mapReservation(qrRes)
 
@@ -247,12 +248,16 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           // returns that customer) is indexed under the real row's fields.
           addToIndex(customerIndex, cust)
         } else if (!refreshedCustomerIds.has(customerId)) {
-          // Returning customer — refresh the visit count + status once per run.
+          // Returning customer — refresh status once per run. visits_number_cache
+          // is no longer in QR's reservation payload, so only write visit_count
+          // when we actually have a number: NEVER overwrite an existing
+          // customer's lifetime count to 0 just because QR stopped sending it.
           refreshedCustomerIds.add(customerId)
-          await synqed.customers.update(customerId, {
+          const refresh: { is_existing_customer: boolean; visit_count?: number } = {
             is_existing_customer: mapped.isExistingCustomer,
-            visit_count: mapped.customerVisits ?? 0,
-          })
+          }
+          if (mapped.customerVisits != null) refresh.visit_count = mapped.customerVisits
+          await synqed.customers.update(customerId, refresh)
         }
 
         const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
