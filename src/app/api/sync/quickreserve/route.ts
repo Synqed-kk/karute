@@ -153,6 +153,17 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
     // Counted + skipped instead of crashing the whole run mid-way.
     let overlapped = 0
     let total = 0
+    // Move/cancel propagation. A QUICKRESERVE-sourced appointment we created on a
+    // prior run but DON'T re-see in this run's feed has been cancelled or moved
+    // upstream → mark it CANCELLED (the agenda already hides CANCELLED rows).
+    // Guarded so a transient empty/failed feed can never cancel a live booking;
+    // a wrongly-cancelled row self-heals (the update path reactivates it if the
+    // reservation returns). Only ever touches source=QUICKRESERVE — manual
+    // appointments are never auto-cancelled.
+    let cancelled = 0
+    let cancellationSafe = true
+    const seenAppointmentIds = new Set<string>()
+    const qrManagedIds: string[] = [] // pre-existing source=QUICKRESERVE, non-cancelled, in window
     // Existing customers whose visit_count/is_existing_customer we've already
     // refreshed this run — keep returning customers' counts current without
     // re-updating them once per reservation.
@@ -164,8 +175,11 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         reservations = await qrGetReservations(session, storeSlug, storeId, dateStr)
       } catch (err) {
         // One bad day shouldn't sink the rest of the window; dedup makes a
-        // later re-sync of this day safe.
+        // later re-sync of this day safe. But a missing day means the seen-set is
+        // incomplete, so the cancellation pass must NOT run (it could cancel a
+        // live booking it simply didn't get to see this run).
         console.error(`[QR Sync] Reservation fetch error for ${dateStr}:`, err)
+        cancellationSafe = false
         continue
       }
       total += reservations.length
@@ -186,7 +200,17 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         page_size: 200,
       })
       const existingByKey = new Map<string, string>()
-      for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
+      const apptStatusById = new Map<string, string>()
+      for (const a of dayAppts) {
+        existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
+        apptStatusById.set(a.id, a.status)
+        // Cancellation candidates: only OUR QUICKRESERVE-sourced rows that are
+        // still active. Manual bookings and already-cancelled rows are never touched.
+        if (a.source === 'QUICKRESERVE' && a.status !== 'CANCELLED') qrManagedIds.push(a.id)
+      }
+      // A full page means this day may be truncated → the seen-set could miss a
+      // live appointment, so refuse cancellation rather than risk cancelling it.
+      if (dayAppts.length >= 200) cancellationSafe = false
 
       for (const qrRes of reservations) {
         if (qrRes.deleted) { skipped++; continue }
@@ -274,14 +298,25 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
         )
 
         if (existingId) {
-          await synqed.appointments.update(existingId, apptUpdate)
+          // Self-heal: if this slot was previously CANCELLED (e.g. a transient
+          // empty feed, or it was cancelled then re-booked), reactivate it now
+          // that the reservation is back. Don't disturb COMPLETED/IN_PROGRESS.
+          const reactivate = apptStatusById.get(existingId) === 'CANCELLED'
+          await synqed.appointments.update(
+            existingId,
+            reactivate ? { ...apptUpdate, status: 'SCHEDULED' as const } : apptUpdate,
+          )
+          seenAppointmentIds.add(existingId)
           updated++
           continue
         }
 
         try {
-          const appt = await synqed.appointments.create(apptCreate)
+          // Tag as QUICKRESERVE so the move/cancel pass can safely manage it
+          // (and never a manual booking).
+          const appt = await synqed.appointments.create({ ...apptCreate, source: 'QUICKRESERVE' as const })
           existingByKey.set(key, appt.id)
+          seenAppointmentIds.add(appt.id)
           created++
         } catch (err) {
           // synqed-core rejects a booking that overlaps an existing slot with a
@@ -297,6 +332,31 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
           throw err
         }
       }
+    }
+
+    // --- Move/cancel propagation: cancel QUICKRESERVE appointments in the window
+    //     that did NOT come back from QR this run (cancelled or moved upstream; a
+    //     move = the old slot disappears + the new slot was created/updated above).
+    //     Two guards make this safe-by-default:
+    //       • total > 0   — an empty/soft-failed feed must never cancel the window.
+    //       • cancellationSafe — a day fetch errored or hit the page cap, so the
+    //         seen-set is incomplete; don't risk cancelling a booking we didn't see.
+    //     CANCELLED is reversible and self-heals: a reservation that returns
+    //     reactivates its row (CANCELLED → SCHEDULED) on the next run. ---
+    if (cancellationSafe && total > 0) {
+      for (const id of qrManagedIds) {
+        if (seenAppointmentIds.has(id)) continue
+        await synqed.appointments.update(id, { status: 'CANCELLED' as const })
+        cancelled++
+      }
+    } else {
+      console.warn(
+        `[QR Sync] cancellation pass SKIPPED — ${
+          total === 0
+            ? 'QR returned zero reservations (refusing to cancel the window on a possibly empty/failed feed)'
+            : 'a day fetch errored or hit the page cap; seen-set incomplete'
+        }`,
+      )
     }
 
     // Update sync status (Supabase config row)
@@ -318,6 +378,7 @@ async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
       updated,
       skipped,
       overlapped,
+      cancelled,
     })
   } catch (error) {
     console.error('[QR Sync]', error)
