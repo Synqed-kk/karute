@@ -62,8 +62,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // tail — add a native pre-navigation refresh later only if it shows in testing).
 final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private var didLoadOnce = false
-    // One-shot guard + KVO handle for the cold-launch auth-redirect recovery.
-    private var didRetryAuth = false
+    // One-shot guards + KVO handle for the cold-launch entry redirect and the
+    // auth-redirect recovery (both scoped to the launch window only).
+    private var didAimAtApp = false   // redirected the restored session to the dashboard once
+    private var didRetryAuth = false  // reloaded the gated route once after a /login bounce
     private var urlObservation: NSKeyValueObservation?
 
     override func viewDidLoad() {
@@ -127,33 +129,77 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             self, selector: #selector(captureSessionCookies),
             name: UIApplication.willResignActiveNotification, object: nil)
 
-        // Cold-launch auth-redirect recovery. setCookie's completion (and even a
-        // getAllCookies barrier) only proves the cookie is in the UI-process
-        // cookie store — NOT that the network process has it for the FIRST
-        // request. That sync lags unpredictably, so the first request can still
-        // fire cookie-less and the server gate 302s to /login. Rather than guess
-        // the sync delay, we self-correct: if we restored a session yet still
-        // land on /login, a full request round-trip has already elapsed (the
-        // network process now has the cookie), so reload the app root exactly
-        // once. Bounded to one retry — if the token were genuinely rejected we
-        // stay on /login (no worse than before, no loop).
+        // Cold-launch entry + auth-redirect recovery, scoped to the launch window.
+        // The shell's server.url is the site ROOT, which resolves to the PUBLIC
+        // landing page — it never forwards a restored session to the dashboard, so
+        // a valid session would just sit unused on the marketing page. With a
+        // restored session we therefore (1) redirect the landing page to the
+        // dashboard (a gated route that actually consumes the session). If that
+        // gated load 302s to /login — setCookie's completion only proves the
+        // cookie is in the UI-process store, not that the network process has it
+        // for the FIRST request, and that sync lags — we (2) reload the dashboard
+        // exactly once; by then a full round-trip has elapsed so the network
+        // process has the cookie. Both actions are one-shot. A timeout then
+        // detaches the observer so a later logout or manual /login navigation can
+        // never re-trigger them.
         urlObservation = webView?.observe(\.url, options: [.new]) { [weak self] webView, _ in
-            self?.recoverIfBouncedToLogin(webView.url)
+            self?.handleLaunchNavigation(webView.url)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            guard let self, self.urlObservation != nil else { return }
+            NSLog("[CookieVC] launch window closed — detaching url observer")
+            self.urlObservation = nil
         }
     }
 
-    private func recoverIfBouncedToLogin(_ url: URL?) {
+    // Drives the launch window when a session was restored: redirect the public
+    // landing page to the dashboard, and recover once from a /login bounce. Inert
+    // without a restored session (logged-out launches are untouched) and after the
+    // observer has been detached.
+    private func handleLaunchNavigation(_ url: URL?) {
         guard
-            !didRetryAuth,
-            let url, url.path.hasSuffix("/login"),  // matches /login and locale-prefixed /ja/login
+            let url,
             let saved = SessionCookieStore.load(), !saved.isEmpty,
-            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-            let scheme = comps.scheme, let host = comps.host,
-            let root = URL(string: "\(scheme)://\(host)/")
+            let dashboard = dashboardURL(from: url)
         else { return }
-        didRetryAuth = true
-        NSLog("[CookieVC] auth-recover: bounced to /login with a restored session — reloading \(root) once (network-process cookie sync)")
-        webView?.load(URLRequest(url: root))
+        let path = url.path
+
+        // (2) Gated load bounced to /login — network-process cookie-sync lag, or a
+        // genuinely rejected token. Reload the gated route exactly once; if the
+        // token is truly dead the next /login simply stays put (no loop).
+        if path.hasSuffix("/login") {   // matches /login and locale-prefixed /ja/login
+            guard !didRetryAuth else { return }
+            didRetryAuth = true
+            NSLog("[CookieVC] auth-recover: /login bounce with a restored session — reloading \(dashboard) once (network-process cookie sync)")
+            webView?.load(URLRequest(url: dashboard))
+            return
+        }
+
+        // (1) Restored session sitting on the public landing page (root or a bare
+        // /<locale>) — send it to the dashboard so the session is actually used.
+        if !didAimAtApp, isLandingOrRoot(path) {
+            didAimAtApp = true
+            NSLog("[CookieVC] entry: restored session on landing \(path) — loading \(dashboard)")
+            webView?.load(URLRequest(url: dashboard))
+        }
+    }
+
+    // <scheme>://<host>/dashboard — no locale prefix; next-intl resolves /dashboard
+    // to the default-locale dashboard (/ja/dashboard). The origin is read from the
+    // live URL so nothing hardcodes the deploy host.
+    private func dashboardURL(from url: URL) -> URL? {
+        guard
+            let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+            let scheme = comps.scheme, let host = comps.host
+        else { return nil }
+        return URL(string: "\(scheme)://\(host)/dashboard")
+    }
+
+    // Root ("/") or a bare single locale segment ("/ja", "/en") — the public
+    // landing page. App routes carry a second segment (/ja/dashboard) and never
+    // match; /login is handled before this is consulted.
+    private func isLandingOrRoot(_ path: String) -> Bool {
+        return path.split(separator: "/").count <= 1
     }
 
     @objc private func captureSessionCookies() { capture(reason: "background") }
