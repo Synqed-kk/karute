@@ -1,13 +1,16 @@
 /**
- * Regression for the live QR-sync 500: "Cannot read properties of undefined
- * (reading 'id')". Quick Reserve's get-customer-reservations-by-date endpoint
- * also returns staff BLOCK/HOLD (休憩) and closed-slot rows, which carry a Staff
- * but NO Customer (and no TreatmentCourse). mapReservation reads r.Customer.id
- * unguarded, so on such a row the whole sync crashed with a 500.
+ * Regression for the QR-sync skip contract. Quick Reserve's
+ * get-customer-reservations-by-date endpoint also returns staff BLOCK/HOLD (休憩)
+ * and closed-slot rows, which carry a `staff` but NO resolved customer (and no
+ * `treatment_course`).
  *
- * The route now skips rows missing Customer/Staff/TreatmentCourse before calling
- * mapReservation. These tests pin (a) the happy-path mapping and (b) the crash
- * contract that necessitates the skip — so the guard can never be quietly dropped.
+ * Post-2026-06 QR changed the payload shape: the old PascalCase
+ * Customer/Staff/TreatmentCourse objects are gone, replaced by lowercase
+ * `staff` / `treatment_course` and `resolvedCustomerId` / `resolvedCustomerName`.
+ * The route skips rows missing staff/treatment_course/resolvedCustomerId before
+ * calling mapReservation. These tests pin (a) the happy-path mapping, (b) the
+ * skip contract, and (c) that mapReservation is now null-safe — so even if the
+ * guard is ever dropped, a non-booking row can no longer crash the whole sync.
  */
 import { mapReservation, type QRReservation } from '@/lib/quickreserve'
 
@@ -26,42 +29,42 @@ function fullReservation(overrides: Partial<QRReservation> = {}): QRReservation 
     rid: 'rid-1',
     is_new_customer_flag: false,
     nominated_staff_id: null,
-    Customer: {
-      id: 10,
-      name: '東 雅美',
-      name_kana: 'アズマ マサミ',
-      phone1: '',
-      mail1: '',
-      remarks1: '',
-      visits_number_cache: 4,
-      is_existing_customer: true,
-    },
-    Staff: { id: 3, name: '原田 かなみ', name_kana: 'ハラダ カナミ' },
-    TreatmentCourse: { id: 5, name: '10回券', duration: 3600000, price: 0, treatment_category_id: 1 },
+    resolvedCustomerId: 10,
+    resolvedCustomerName: '東 雅美',
+    staff: { id: 3, name: '原田 かなみ', name_kana: 'ハラダ カナミ' },
+    treatment_course: { id: 5, name: '10回券', duration: 3600000, price: 0 },
+    bill: null,
     ...overrides,
-  } as QRReservation
+  }
 }
 
-// The skip rule the route applies before mapReservation. Kept here as the
-// documented contract; a row failing it must never reach mapReservation.
-const isBookingRow = (r: QRReservation) => !!r.Customer && !!r.Staff && !!r.TreatmentCourse
+// The skip rule the route applies before mapReservation (post-2026-06 QR shape).
+// Kept here as the documented contract; a row failing it must never be synced.
+const isBookingRow = (r: QRReservation) =>
+  r.resolvedCustomerId != null && !!r.staff && !!r.treatment_course
 
 describe('QR by-date sync — skip non-booking rows', () => {
   it('maps a complete booking row', () => {
     const m = mapReservation(fullReservation())
     expect(m.qrCustomerId).toBe(10)
+    expect(m.customerName).toBe('東 雅美')
     expect(m.staffName).toBe('原田 かなみ')
     expect(m.treatmentName).toBe('10回券')
   })
 
-  it('flags a 休憩/block row (Staff, no Customer) as a non-booking row', () => {
-    const block = fullReservation({ Customer: undefined as unknown as QRReservation['Customer'] })
+  it('flags a 休憩/block row (staff, no customer/course) as a non-booking row', () => {
+    const block = fullReservation({ resolvedCustomerId: null, treatment_course: null })
     expect(isBookingRow(block)).toBe(false)
     expect(isBookingRow(fullReservation())).toBe(true)
   })
 
-  it('mapReservation throws on a Customer-less row — the live 500 the skip prevents', () => {
-    const block = fullReservation({ Customer: undefined as unknown as QRReservation['Customer'] })
-    expect(() => mapReservation(block)).toThrow(/Cannot read properties of undefined \(reading 'id'\)/)
+  it('mapReservation is null-safe on an incomplete row — no crash even if the guard is bypassed', () => {
+    const block = fullReservation({ staff: null, treatment_course: null, resolvedCustomerId: null })
+    expect(() => mapReservation(block)).not.toThrow()
+    const m = mapReservation(block)
+    // Falls back to the always-present scalar ids; no nested-object crash.
+    expect(m.qrCustomerId).toBe(10) // resolvedCustomerId null → customer_id
+    expect(m.staffName).toBe('')
+    expect(m.treatmentName).toBe('')
   })
 })

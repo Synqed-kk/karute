@@ -26,7 +26,10 @@ export interface QRReservation {
   // resolved id+name only (no phone/email/kana/visit-count on the reservation —
   // fetch those via the customer endpoints if enrichment is needed); staff and
   // treatment_course are lowercase nested objects.
-  resolvedCustomerId: number
+  // Nullable: QR's non-booking rows (休憩/block/closed-slot) carry staff but no
+  // resolved customer. The route's skip guard relies on this being honestly
+  // nullable so a future caller can't read it as always-present.
+  resolvedCustomerId: number | null
   resolvedCustomerName: string
   staff: {
     id: number
@@ -89,8 +92,10 @@ function qrHeaders(session: QRSession): Record<string, string> {
 }
 
 /**
- * Fetch reservations for a date. The endpoint returns full objects
- * with nested Customer, Staff, and TreatmentCourse.
+ * Fetch reservations for a date. Returns the post-2026-06 QR shape: lowercase
+ * `staff` / `treatment_course` nested objects and `resolvedCustomerId` /
+ * `resolvedCustomerName`, in place of the old PascalCase
+ * Customer / Staff / TreatmentCourse objects.
  */
 export async function qrGetReservations(
   session: QRSession,
@@ -100,9 +105,8 @@ export async function qrGetReservations(
 ): Promise<QRReservation[]> {
   const headers = qrHeaders(session)
 
-  // Convert date to unix ms for start/end of day in JST
+  // Convert date to unix ms for start of day in JST (the working fallback form).
   const dayStart = new Date(`${date}T00:00:00+09:00`).getTime()
-  const dayEnd = new Date(`${date}T23:59:59+09:00`).getTime()
 
   const url = `${QR_API_BASE}/${storeSlug}/${storeId}/get-customer-reservations-by-date`
 
