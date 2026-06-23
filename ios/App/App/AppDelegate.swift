@@ -62,11 +62,19 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // tail — add a native pre-navigation refresh later only if it shows in testing).
 final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private var didLoadOnce = false
+    // Captured once at launch so handleLaunchNavigation never does a synchronous
+    // Keychain read on the main thread per url-change event: did we cold-launch
+    // with a restored session?
+    private var hasRestoredSession = false
     // One-shot guards + KVO handle for the cold-launch entry redirect and the
     // auth-redirect recovery (both scoped to the launch window only).
     private var didAimAtApp = false   // redirected the restored session to the dashboard once
     private var didRetryAuth = false  // reloaded the gated route once after a /login bounce
     private var urlObservation: NSKeyValueObservation?
+
+    // Mirrors next-intl routing.locales — distinguishes a bare-locale landing
+    // path ("/ja") from a single-segment app route ("/dashboard").
+    private static let locales: Set<String> = ["ja", "en"]
 
     override func viewDidLoad() {
         guard
@@ -79,6 +87,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             return
         }
 
+        hasRestoredSession = true
         NSLog("[CookieVC] restore: re-injecting \(saved.count): " + saved.map { "\($0.name)[len=\($0.value.count) dom=\($0.domain) path=\($0.path) secure=\($0.isSecure) exp=\(Int($0.expiresDate?.timeIntervalSinceNow ?? -1))s]" }.joined(separator: " "))
         // Re-inject saved cookies, THEN navigate. super.viewDidLoad() (which
         // triggers webView.load) is deferred until every async setCookie
@@ -159,7 +168,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private func handleLaunchNavigation(_ url: URL?) {
         guard
             let url,
-            let saved = SessionCookieStore.load(), !saved.isEmpty,
+            hasRestoredSession,
             let dashboard = dashboardURL(from: url)
         else { return }
         let path = url.path
@@ -195,11 +204,14 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         return URL(string: "\(scheme)://\(host)/dashboard")
     }
 
-    // Root ("/") or a bare single locale segment ("/ja", "/en") — the public
-    // landing page. App routes carry a second segment (/ja/dashboard) and never
-    // match; /login is handled before this is consulted.
+    // Root ("/") or a bare locale segment ("/ja", "/en") — the public landing
+    // page. A single NON-locale segment ("/dashboard") is not landing, so match
+    // the locale explicitly rather than by segment count; app routes carry a
+    // locale + a second segment (/ja/dashboard) and never match. /login is
+    // handled before this is consulted.
     private func isLandingOrRoot(_ path: String) -> Bool {
-        return path.split(separator: "/").count <= 1
+        let segments = path.split(separator: "/")
+        return segments.isEmpty || (segments.count == 1 && Self.locales.contains(String(segments[0])))
     }
 
     @objc private func captureSessionCookies() { capture(reason: "background") }
