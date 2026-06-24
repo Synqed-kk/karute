@@ -48,14 +48,16 @@ export async function createAppointment(input: AppointmentInput) {
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
   try {
-    const synqed = await getSynqedClient()
-    const synqedStaffId = await resolveSynqedStaffId(input.staffProfileId)
-    // Stamp the booking with the active store — a server-side view label read
-    // from the cookie, never client-supplied. When no store is active (the
-    // "all stores" view) it stays unset → synqed-core records NULL exactly as
-    // today. The business scope (x-business-id) is untouched; store is only a
-    // view/default-booking label, never an isolation boundary.
-    const activeStore = await getActiveStoreId()
+    // All three are independent → resolve in parallel (resolveSynqedStaffId may
+    // hit the DB; getActiveStoreId is a cookie read). The active store is a
+    // server-side view label, never client-supplied; unset (all-stores view) →
+    // store_id omitted → synqed-core records NULL. Business scope (x-business-id)
+    // is untouched; store is only a view/default-booking label, never isolation.
+    const [synqed, synqedStaffId, activeStore] = await Promise.all([
+      getSynqedClient(),
+      resolveSynqedStaffId(input.staffProfileId),
+      getActiveStoreId(),
+    ])
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: synqedStaffId,
@@ -87,11 +89,14 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
   const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
 
   try {
-    const synqed = await getSynqedClient()
     // View filter: scope the agenda to the active store. null (no store picked)
     // → no store predicate = all stores. synqed-core always applies the business
     // scope regardless; this store filter is additive, never a replacement.
-    const activeStore = await getActiveStoreId()
+    // Independent reads → parallel.
+    const [synqed, activeStore] = await Promise.all([
+      getSynqedClient(),
+      getActiveStoreId(),
+    ])
     const list = await synqed.appointments.list({
       from: dayStartUTC.toISOString(),
       to: dayEndUTC.toISOString(),
@@ -210,10 +215,12 @@ export async function getAppointmentsInRange(
   toIso: string,
 ): Promise<Appointment[]> {
   try {
-    const synqed = await getSynqedClient()
     // Same active-store view filter as the day agenda, so week/month overview
-    // counts match the selected store. null = all stores.
-    const activeStore = await getActiveStoreId()
+    // counts match the selected store. null = all stores. Independent → parallel.
+    const [synqed, activeStore] = await Promise.all([
+      getSynqedClient(),
+      getActiveStoreId(),
+    ])
     const list = await synqed.appointments.list({
       from: fromIso,
       to: toIso,
