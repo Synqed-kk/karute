@@ -1,5 +1,6 @@
 import { getLocale, getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getActiveStoreId } from '@/actions/stores'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import type { CustomerListRow } from '@/components/customers/redesign/types'
@@ -34,6 +35,9 @@ export default async function CustomersPage({
 
   const t = startTiming(`customers q="${query}"`)
   const synqed = await getSynqedClient()
+  // Active store (a cookie view-filter); null = all stores. Scopes the list to
+  // customers with ≥1 event at the store — server-derived, business-wide identity.
+  const activeStoreId = await getActiveStoreId()
 
   // Locale + translated relative-time strings, pulled once at page level
   // and threaded into the (synchronous) formatters so JP users see
@@ -44,6 +48,7 @@ export default async function CustomersPage({
     t.phase('customers.list', () =>
       listAllCustomers(synqed, {
         search: query.trim() || undefined,
+        store_id: activeStoreId ?? undefined,
         sort_by: 'updated_at',
         sort_order: 'desc',
       }),

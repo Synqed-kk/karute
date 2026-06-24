@@ -3,6 +3,7 @@ import { paginateDedupe } from './paginate'
 
 type ListAllOpts = {
   search?: string
+  store_id?: string
   sort_by?: 'name' | 'created_at' | 'updated_at'
   sort_order?: 'asc' | 'desc'
 }
@@ -24,11 +25,11 @@ type ListAllOpts = {
  */
 export async function listAllCustomers(
   synqed: SynqedClient,
-  { search, sort_by = 'created_at', sort_order = 'asc' }: ListAllOpts = {},
+  { search, store_id, sort_by = 'created_at', sort_order = 'asc' }: ListAllOpts = {},
 ) {
   const customers = await paginateDedupe((page) =>
     synqed.customers
-      .list({ search, page, page_size: 500, sort_by, sort_order })
+      .list({ search, store_id, page, page_size: 500, sort_by, sort_order })
       .then((r) => ({ items: r.customers, total: r.total })),
   )
   const dir = sort_order === 'desc' ? -1 : 1
