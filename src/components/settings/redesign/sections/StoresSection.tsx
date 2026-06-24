@@ -149,8 +149,10 @@ export function StoresSection({
     await refresh()
   }
 
-  // Real plan gate. Default to allowed before the entitlement loads (and for
-  // dev/owner-unlimited accounts) so we never falsely block the add button.
+  // Plan gate. Defaults to allowed before the entitlement loads so the
+  // "limit reached" banner never flashes during the async fetch. (The add
+  // button itself is gated on multiStoreEnabled below, which requires the
+  // entitlement to be loaded — so this `?? true` no longer affects the button.)
   const canAdd = entitlement?.canAddStore ?? true
 
   // Per-business visibility gate — replaces the old global
