@@ -51,47 +51,47 @@ beforeEach(() => {
 describe('MobileHeader', () => {
   it('shows the dashboard title and no back arrow on a root tab', () => {
     mockPathname = '/ja'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByText('dashboard')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'back' })).not.toBeInTheDocument()
   })
 
   it('shows a back arrow and the mapped title on a sub-route', () => {
     mockPathname = '/ja/settings'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument()
     expect(screen.getByText('settings')).toBeInTheDocument()
   })
 
   it('maps locale-prefixed karute route to the karute title', () => {
     mockPathname = '/en/karute/abc123'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByText('karute')).toBeInTheDocument()
   })
 
   it('renders the bell with an unread badge when idle', () => {
     mockUnread = 3
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByRole('button', { name: 'notifications' })).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
   })
 
   it('caps the unread badge at 9+', () => {
     mockUnread = 25
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByText('9+')).toBeInTheDocument()
   })
 
   it('hides the bell while recording', () => {
     mockRecState = 'recording'
     mockUnread = 5
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.queryByRole('button', { name: 'notifications' })).not.toBeInTheDocument()
   })
 
   it('hides the bell while paused', () => {
     mockRecState = 'paused'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.queryByRole('button', { name: 'notifications' })).not.toBeInTheDocument()
   })
 })
