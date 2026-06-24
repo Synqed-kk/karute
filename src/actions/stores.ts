@@ -4,6 +4,7 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 
 import { createServiceClient } from '@/lib/supabase/service'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
 import { loadEntitlement } from '@/lib/entitlements'
@@ -113,6 +114,20 @@ export async function listStores(): Promise<StoreRow[]> {
     /* profile_stores table not present yet → counts stay 0 */
   }
 
+  // Real per-store customer counts from synqed-core (distinct customers with ≥1
+  // event at the store, derived server-side — customers stay business-wide).
+  // Resilient: a pre-1.1.0 core or transport error degrades to 0, never throws.
+  const customersByStore = new Map<string, number>()
+  try {
+    const synqed = await getSynqedClient()
+    const { counts } = await synqed.customers.countsByStore()
+    for (const [storeId, n] of Object.entries(counts)) {
+      customersByStore.set(storeId, n)
+    }
+  } catch {
+    /* core without counts-by-store → counts stay 0 */
+  }
+
   return (data ?? []).map(
     (s: {
       id: string
@@ -129,7 +144,7 @@ export async function listStores(): Promise<StoreRow[]> {
       isPrimary: s.is_primary,
       active: s.active,
       staffCount: staffByStore.get(s.id) ?? 0,
-      customerCount: 0, // synqed-core store_id (Anthony)
+      customerCount: customersByStore.get(s.id) ?? 0,
     }),
   )
 }
