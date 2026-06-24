@@ -33,6 +33,11 @@ jest.mock('next/cache', () => ({
   revalidateTag: jest.fn(),
   updateTag: jest.fn(),
 }))
+// getDashboardData now reads the active-store cookie via getActiveStoreId(); no
+// cookie set = all-stores view.
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({ get: () => undefined })),
+}))
 
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => BIZ),

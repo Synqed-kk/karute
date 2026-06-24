@@ -74,6 +74,12 @@ export default async function KaruteRecordsListPage() {
       getStaffList(),
       // Page to completion so カルテ rows + placeholder rows resolve for every
       // customer, not just the first 500 (server clamps page_size at 500).
+      // Business-wide (NOT store-scoped): karute records are business-wide, so
+      // this list backs record-name enrichment AND the New カルテ dialog's
+      // customer picker (which filters client-side) — scoping it would drop
+      // cross-store records' names and block creating a karute for another
+      // store's walk-in. Per-store roster scoping waits on the synqed-core
+      // karute store filter (synqed-core #18).
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       getCurrentUserStaffId(),
       // synqed-core is the authoritative karute store; the Supabase query above
