@@ -149,9 +149,19 @@ export function StoresSection({
     await refresh()
   }
 
-  // Real plan gate. Default to allowed before the entitlement loads (and for
-  // dev/owner-unlimited accounts) so we never falsely block the add button.
+  // Plan gate. Defaults to allowed before the entitlement loads so the
+  // "limit reached" banner never flashes during the async fetch. (The add
+  // button itself is gated on multiStoreEnabled below, which requires the
+  // entitlement to be loaded — so this `?? true` no longer affects the button.)
   const canAdd = entitlement?.canAddStore ?? true
+
+  // Per-business visibility gate — replaces the old global
+  // NEXT_PUBLIC_FEATURE_MULTI_STORE env flag, so enabling multi-store for one
+  // salon never exposes the add-store flow to every other salon. Scoped to
+  // is_unlimited (dev / owner / comp) for now; the paid 'unlimited' tiers open
+  // up in step 2, once switching the active store actually filters the app
+  // (today that switch is still render-only).
+  const multiStoreEnabled = !!entitlement && entitlement.isUnlimited
 
   return (
     <div className="space-y-4">
@@ -210,13 +220,12 @@ export function StoresSection({
             </p>
           )}
         </div>
-        {/* "+ 店舗を追加" hidden until multi-store ships. Today the
-         *  flow saves to local React useState only — owner adds Store
-         *  B, switches to it, but no other route filters by
-         *  active_store_id (the column doesn't exist yet either).
-         *  Same flag as subscription gating since the two land
-         *  together (additional seats → subscription change). */}
-        {isOwner && process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true' && (
+        {/* "+ 店舗を追加" — gated per-business via the entitlement (multiStoreEnabled),
+         *  not a global env flag, so enabling it for one salon never exposes the
+         *  flow to others. createStore persists to the real `stores` table and
+         *  re-enforces the plan cap server-side. NOTE: switching the active store
+         *  is still render-only — no route filters by it yet (step 2). */}
+        {isOwner && multiStoreEnabled && (
           <Button
             onClick={() => setSubscriptionStepOpen(true)}
             disabled={!canAdd}
