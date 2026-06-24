@@ -1717,6 +1717,7 @@
         "saved": "Saved"
       },
       "assignLabel": "Store / location",
+      "assignMultiHint": "Select any number. If none are selected, the staff appears in every store.",
       "unassigned": "Unassigned"
     },
     "coaching": {
