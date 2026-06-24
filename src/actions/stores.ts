@@ -170,6 +170,15 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
   return { ok: true }
 }
 
+/** Clear the active store → the 全店舗 (all-stores) cross-store view. Same
+ *  validation-free safety as reading: an absent cookie just means "all stores". */
+export async function clearActiveStore(): Promise<{ ok: true }> {
+  const jar = await cookies()
+  jar.delete(ACTIVE_STORE_COOKIE)
+  revalidatePath('/', 'layout')
+  return { ok: true }
+}
+
 export async function createStore(
   input: StoreInput,
 ): Promise<{ id: string } | { error: string }> {

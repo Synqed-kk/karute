@@ -28,9 +28,17 @@ import { ChevronLeft } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { StoreSwitcher } from '@/components/layout/StoreSwitcher'
+import type { StoreRow } from '@/actions/stores'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
-export function MobileHeader() {
+export function MobileHeader({
+  stores,
+  activeStoreId,
+}: {
+  stores: StoreRow[]
+  activeStoreId: string | null
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const tSidebar = useTranslations('sidebar')
@@ -73,11 +81,18 @@ export function MobileHeader() {
          *  Hidden during recording so DiscreetRecordingIndicator (layout-level
          *  fixed top-right) can occupy the corner without overlapping; the
          *  spacer keeps the title centered when the bell collapses. */}
-        {isRecording ? (
-          <span aria-hidden className="size-11 shrink-0" />
-        ) : (
-          <NotificationBell variant="mobile" />
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          {/* Store switcher (renders only for multi-store businesses, hidden
+           *  during recording so the DiscreetRecordingIndicator owns the corner). */}
+          {!isRecording && (
+            <StoreSwitcher stores={stores} activeStoreId={activeStoreId} variant="mobile" />
+          )}
+          {isRecording ? (
+            <span aria-hidden className="size-11 shrink-0" />
+          ) : (
+            <NotificationBell variant="mobile" />
+          )}
+        </div>
       </div>
     </header>
   )

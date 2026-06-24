@@ -18,6 +18,7 @@ import { NotificationsProvider } from '@/lib/notifications/context'
 import { buildNotificationFeed } from '@/lib/notifications/derive'
 
 import { createClient } from '@/lib/supabase/server'
+import { listStores, getActiveStoreId } from '@/actions/stores'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
@@ -30,7 +31,7 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getCurrentUserStaffId(),
@@ -47,6 +48,9 @@ export default async function DashboardLayout({
     getBusinessId()
       .then((businessId) => buildNotificationFeed(businessId, locale))
       .catch(() => []),
+    // Multi-store header switcher data (best-effort; [] / null → switcher hides).
+    listStores().catch(() => []),
+    getActiveStoreId().catch(() => null),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
@@ -95,7 +99,7 @@ export default async function DashboardLayout({
              *  view, giving every mobile screen a consistent
              *  app-chrome surface. md:hidden so the sidebar owns
              *  the chrome on desktop. */}
-            <MobileHeader />
+            <MobileHeader stores={stores} activeStoreId={activeStore} />
             {/* No horizontal padding here — matches the spike's
              *  (app) layout which provides ZERO padding. Each page
              *  component owns its own `px-4 md:px-6` (or whatever
