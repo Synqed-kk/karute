@@ -13,7 +13,15 @@ const back = jest.fn()
 
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
-  useRouter: () => ({ back }),
+  useRouter: () => ({ back, refresh: jest.fn() }),
+}))
+// StoreSwitcher (rendered by MobileHeader) imports the @/actions/stores server
+// action, which pulls in the supabase client at module load — that references
+// TextEncoder, absent from the jsdom global. Stub the server actions so the
+// real module never loads (the standard server-dep mock pattern here).
+jest.mock('@/actions/stores', () => ({
+  setActiveStore: jest.fn(async () => ({ ok: true })),
+  clearActiveStore: jest.fn(async () => ({ ok: true })),
 }))
 // useTranslations(ns) -> (key) => key, so titles/labels equal their key.
 jest.mock('next-intl', () => ({

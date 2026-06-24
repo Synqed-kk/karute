@@ -29,6 +29,7 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   const t = useTranslations('settings.stores')
   const router = useRouter()
   const [open, setOpen] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
   const [pending, startTransition] = useTransition()
   const ref = useRef<HTMLDivElement>(null)
 
@@ -37,8 +38,15 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
     const onDown = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
     }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('mousedown', onDown)
-    return () => document.removeEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   // The switcher only matters with 2+ stores — single-store salons get nothing.
@@ -48,10 +56,17 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   const label = active ? active.name : t('allStores')
 
   const choose = (id: string | null) => {
-    setOpen(false)
+    setErr(null)
     startTransition(async () => {
-      if (id) await setActiveStore(id)
-      else await clearActiveStore()
+      const res = id ? await setActiveStore(id) : await clearActiveStore()
+      // On failure (e.g. the store was deleted, or auth lapsed) keep the menu
+      // open and surface the error instead of closing + refreshing as if the
+      // switch took — otherwise the pill silently snaps back to the old store.
+      if ('error' in res) {
+        setErr(res.error)
+        return
+      }
+      setOpen(false)
       router.refresh()
     })
   }
@@ -83,6 +98,14 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
           <div className="border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10">
             {t('switcherTitle')}
           </div>
+          {err && (
+            <div
+              role="alert"
+              className="border-b border-red-200/60 bg-red-50 px-3 py-2 text-[11px] text-red-700 dark:border-red-500/20 dark:bg-red-500/10 dark:text-red-300"
+            >
+              {err}
+            </div>
+          )}
           <SwitcherRow
             icon={<Layers className="size-4" aria-hidden />}
             label={t('allStores')}
