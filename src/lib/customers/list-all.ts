@@ -5,6 +5,15 @@ type ListAllOpts = {
   search?: string
   sort_by?: 'name' | 'created_at' | 'updated_at'
   sort_order?: 'asc' | 'desc'
+  /**
+   * Active store — a VIEW filter on the LIST only. Derived server-side from
+   * events (a customer "belongs to" a store iff they have a visit/appointment
+   * there; customers have no store_id — identity is business-wide). null /
+   * undefined = all stores. Automatically DROPPED when `search` is present so
+   * name/phone search stays business-wide (a 代官山 walk-in must be findable at
+   * 銀座). Additive to the business scope; never replaces it.
+   */
+  store_id?: string | null
 }
 
 /**
@@ -24,11 +33,15 @@ type ListAllOpts = {
  */
 export async function listAllCustomers(
   synqed: SynqedClient,
-  { search, sort_by = 'created_at', sort_order = 'asc' }: ListAllOpts = {},
+  { search, sort_by = 'created_at', sort_order = 'asc', store_id }: ListAllOpts = {},
 ) {
+  // Search is always business-wide: drop the store lens whenever a term is
+  // present so a customer from any store is findable. With no search, the active
+  // store scopes the LIST (derived from events, server-side).
+  const storeFilter = search ? undefined : store_id ?? undefined
   const customers = await paginateDedupe((page) =>
     synqed.customers
-      .list({ search, page, page_size: 500, sort_by, sort_order })
+      .list({ search, store_id: storeFilter, page, page_size: 500, sort_by, sort_order })
       .then((r) => ({ items: r.customers, total: r.total })),
   )
   const dir = sort_order === 'desc' ? -1 : 1
