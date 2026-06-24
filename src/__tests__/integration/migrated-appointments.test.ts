@@ -15,6 +15,11 @@ jest.mock('next/cache', () => ({
   // inner function so it's called directly with no caching layer.
   unstable_cache: jest.fn((fn: (...args: unknown[]) => unknown) => fn),
 }))
+// createAppointment reads the active-store cookie via getActiveStoreId(); no
+// cookie set = all-stores view (store_id omitted from the create call).
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({ get: () => undefined })),
+}))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
