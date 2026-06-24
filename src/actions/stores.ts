@@ -94,21 +94,23 @@ export async function listStores(): Promise<StoreRow[]> {
     data = reread.data
   }
 
-  // Real staff counts per store: one read of the business's profiles, tallied by
-  // store_id in JS. Wrapped so a pre-migration DB (no store_id column) degrades
-  // to 0 rather than throwing. Customer counts still need synqed-core store_id.
+  // Real staff counts per store: one read of the business's profile_stores links,
+  // tallied by store_id in JS. A staff assigned to N stores counts in each of
+  // them. Unassigned staff (no link rows = "works everywhere") count toward no
+  // specific store — matching the old NULL behaviour. Wrapped so a pre-migration
+  // DB (no profile_stores table) degrades to 0 rather than throwing. Customer
+  // counts still need synqed-core store_id.
   const staffByStore = new Map<string, number>()
   try {
-    const { data: profs } = await service
-      .from('profiles')
+    const { data: links } = await service
+      .from('profile_stores')
       .select('store_id')
-      .eq('customer_id', businessId)
-      .not('store_id', 'is', null)
-    for (const p of profs ?? []) {
-      if (p.store_id) staffByStore.set(p.store_id, (staffByStore.get(p.store_id) ?? 0) + 1)
+      .eq('business_id', businessId)
+    for (const l of links ?? []) {
+      if (l.store_id) staffByStore.set(l.store_id, (staffByStore.get(l.store_id) ?? 0) + 1)
     }
   } catch {
-    /* store_id column not present yet → counts stay 0 */
+    /* profile_stores table not present yet → counts stay 0 */
   }
 
   return (data ?? []).map(
@@ -244,35 +246,36 @@ export async function updateStore(
   return { ok: true }
 }
 
-/** Which store a staff member is attached to (null = not pinned). Graceful
- *  pre-migration (no store_id column → null). */
-export async function getStaffStore(staffId: string): Promise<string | null> {
+/** The stores a staff member belongs to (empty = works in every store). Graceful
+ *  pre-migration (no profile_stores table → []). */
+export async function getStaffStores(staffId: string): Promise<string[]> {
   let businessId: string
   try {
     businessId = await getBusinessId()
   } catch {
-    return null
+    return []
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
   try {
     const { data } = await service
-      .from('profiles')
+      .from('profile_stores')
       .select('store_id')
-      .eq('id', staffId)
-      .eq('customer_id', businessId)
-      .maybeSingle()
-    return (data?.store_id as string | null) ?? null
+      .eq('business_id', businessId)
+      .eq('profile_id', staffId)
+    return (data ?? []).map((r: { store_id: string }) => r.store_id)
   } catch {
-    return null
+    return []
   }
 }
 
-/** Assign a staff member to a store (or null to unpin). Owner-only; validates
- *  the store is in the caller's business and the staff is too. */
-export async function setStaffStore(
+/** Set the stores a staff member belongs to (empty array = works in every store).
+ *  Owner-only; validates the staff and every store are in the caller's business,
+ *  then REPLACES the full assignment set. business-scoped at every step so a link
+ *  can never reference another tenant's staff or store. */
+export async function setStaffStores(
   staffId: string,
-  storeId: string | null,
+  storeIds: string[],
 ): Promise<{ ok: true } | { error: string }> {
   let businessId: string
   try {
@@ -283,22 +286,47 @@ export async function setStaffStore(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
-  if (storeId) {
-    const { data: store } = await service
-      .from('stores')
-      .select('id')
-      .eq('id', storeId)
-      .eq('business_id', businessId)
-      .maybeSingle()
-    if (!store) return { error: 'Store not found.' }
-  }
-
-  const { error } = await service
+  // Staff must belong to this business.
+  const { data: staff } = await service
     .from('profiles')
-    .update({ store_id: storeId })
+    .select('id')
     .eq('id', staffId)
     .eq('customer_id', businessId)
-  if (error) return { error: `Could not assign store: ${error.message}` }
+    .maybeSingle()
+  if (!staff) return { error: 'Staff member not found.' }
+
+  // Every requested store must belong to this business (so a link can never point
+  // at another tenant's store). De-dupe first.
+  const wanted = Array.from(new Set(storeIds))
+  if (wanted.length > 0) {
+    const { data: validStores } = await service
+      .from('stores')
+      .select('id')
+      .eq('business_id', businessId)
+      .in('id', wanted)
+    const validIds = new Set((validStores ?? []).map((s: { id: string }) => s.id))
+    if (wanted.some((id) => !validIds.has(id))) return { error: 'Store not found.' }
+  }
+
+  // Replace the full set: clear this staff's links (business-scoped), then insert
+  // the wanted ones. Empty `wanted` leaves zero rows = "works in every store".
+  const { error: delErr } = await service
+    .from('profile_stores')
+    .delete()
+    .eq('business_id', businessId)
+    .eq('profile_id', staffId)
+  if (delErr) return { error: `Could not update stores: ${delErr.message}` }
+
+  if (wanted.length > 0) {
+    const rows = wanted.map((store_id) => ({
+      business_id: businessId,
+      profile_id: staffId,
+      store_id,
+    }))
+    const { error: insErr } = await service.from('profile_stores').insert(rows)
+    if (insErr) return { error: `Could not update stores: ${insErr.message}` }
+  }
+
   updateTag('staff-list')
   revalidatePath('/settings')
   return { ok: true }

@@ -27,7 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
 import { getStaffPermissions, setStaffPermissions } from '@/actions/permissions'
-import { listStores, getStaffStore, setStaffStore, type StoreRow } from '@/actions/stores'
+import { listStores, getStaffStores, setStaffStores, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import {
   CAPABILITIES,
@@ -94,7 +94,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   // Store/location assignment (multi-store). Loads the business's stores + the
   // staff's current store on open; saved alongside identity on 保存.
   const [stores, setStores] = useState<StoreRow[]>([])
-  const [storeId, setStoreId] = useState<string>('')
+  const [storeIds, setStoreIds] = useState<string[]>([])
 
   const staffId = staff?.id
 
@@ -123,10 +123,10 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   useEffect(() => {
     if (!(STORES_ENABLED && mode === 'edit' && staffId)) return
     let cancelled = false
-    void Promise.all([listStores(), getStaffStore(staffId)]).then(([rows, current]) => {
+    void Promise.all([listStores(), getStaffStores(staffId)]).then(([rows, current]) => {
       if (cancelled) return
       setStores(rows)
-      setStoreId(current ?? '')
+      setStoreIds(current ?? [])
     })
     return () => {
       cancelled = true
@@ -161,7 +161,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
           }
         }
         if (STORES_ENABLED) {
-          const res = await setStaffStore(staff.id, storeId || null)
+          const res = await setStaffStores(staff.id, storeIds)
           if ('error' in res) {
             toast.error(res.error)
             return
@@ -215,25 +215,42 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
             )}
           </div>
 
-          {/* 店舗（所属） — which location this staff works at. Multi-store only. */}
+          {/* 所属店舗 — which stores this staff works at. Multi-store, many-to-many:
+           *  check any number; none = works in every store (owner / floating staff). */}
           {STORES_ENABLED && mode === 'edit' && (
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="staff-store" className="text-sm font-medium">
-                {tStore('assignLabel')}
-              </label>
-              <select
-                id="staff-store"
-                value={storeId}
-                onChange={(e) => setStoreId(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="">{tStore('unassigned')}</option>
-                {stores.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <label className="text-sm font-medium">{tStore('assignLabel')}</label>
+              <p className="text-xs text-muted-foreground">{tStore('assignMultiHint')}</p>
+              <div className="flex flex-col gap-1.5">
+                {stores.map((s) => {
+                  const checked = storeIds.includes(s.id)
+                  return (
+                    <label
+                      key={s.id}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setStoreIds((prev) =>
+                            e.target.checked
+                              ? [...new Set([...prev, s.id])]
+                              : prev.filter((x) => x !== s.id),
+                          )
+                        }
+                        className="size-4 accent-blue-600"
+                      />
+                      <span>{s.name}</span>
+                      {s.isPrimary && (
+                        <span className="ml-auto inline-flex h-5 items-center rounded-full bg-blue-50 px-1.5 text-[10px] font-medium text-blue-800 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/20">
+                          {tStore('primaryBadge')}
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
             </div>
           )}
 

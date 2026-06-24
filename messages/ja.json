@@ -1717,6 +1717,7 @@
         "saved": "保存しました"
       },
       "assignLabel": "店舗（所属）",
+      "assignMultiHint": "複数選択できます。未選択の場合は全店舗に表示されます。",
       "unassigned": "未割り当て"
     },
     "coaching": {
