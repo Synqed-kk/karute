@@ -308,24 +308,32 @@ export async function setStaffStores(
     if (wanted.some((id) => !validIds.has(id))) return { error: 'Store not found.' }
   }
 
-  // Replace the full set: clear this staff's links (business-scoped), then insert
-  // the wanted ones. Empty `wanted` leaves zero rows = "works in every store".
-  const { error: delErr } = await service
-    .from('profile_stores')
-    .delete()
-    .eq('business_id', businessId)
-    .eq('profile_id', staffId)
-  if (delErr) return { error: `Could not update stores: ${delErr.message}` }
-
+  // Reconcile the link set WITHOUT an unbounded delete-first window. Upsert the
+  // wanted links, THEN drop only the links no longer wanted. A partial failure can
+  // at worst over-assign (benign, self-corrects on re-save); it can never pass
+  // through a zero-row state and silently flip the staff to "works in every store"
+  // (the failure mode of delete-then-insert). Empty `wanted` = remove all =
+  // "works in every store" (the intended floating/owner semantic).
   if (wanted.length > 0) {
     const rows = wanted.map((store_id) => ({
       business_id: businessId,
       profile_id: staffId,
       store_id,
     }))
-    const { error: insErr } = await service.from('profile_stores').insert(rows)
-    if (insErr) return { error: `Could not update stores: ${insErr.message}` }
+    const { error: upErr } = await service
+      .from('profile_stores')
+      .upsert(rows, { onConflict: 'profile_id,store_id' })
+    if (upErr) return { error: `Could not update stores: ${upErr.message}` }
   }
+
+  let del = service
+    .from('profile_stores')
+    .delete()
+    .eq('business_id', businessId)
+    .eq('profile_id', staffId)
+  if (wanted.length > 0) del = del.not('store_id', 'in', `(${wanted.join(',')})`)
+  const { error: delErr } = await del
+  if (delErr) return { error: `Could not update stores: ${delErr.message}` }
 
   updateTag('staff-list')
   revalidatePath('/settings')
