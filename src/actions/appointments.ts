@@ -136,7 +136,8 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
       // it's removed/cancelled upstream ("just don't show it"). This feeds BOTH
       // the 予約 agenda AND the /sessions recording-target picker, so a cancelled
       // slot can never be auto-selected as a recording target. (The week-overview
-      // count uses getAppointmentsInRange, which stays unfiltered on purpose.)
+      // count uses getAppointmentsInRange, which applies the same store view
+      // filter but intentionally keeps CANCELLED rows in its totals.)
       .filter((a) => a.status !== 'CANCELLED')
       .map((a) => ({
         id: a.id,

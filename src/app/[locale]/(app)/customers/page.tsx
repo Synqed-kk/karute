@@ -34,10 +34,15 @@ export default async function CustomersPage({
   const query = rawQuery ?? ''
 
   const t = startTiming(`customers q="${query}"`)
-  const synqed = await getSynqedClient()
-  // Active store = the view lens for the 顧客 list. listAllCustomers drops it
-  // automatically when a search term is present, so search stays business-wide.
-  const activeStore = await getActiveStoreId()
+  // Both are independent — getSynqedClient hits the auth layer while
+  // getActiveStoreId is a cookie read; resolve in parallel to match the
+  // appointments.ts pattern. Active store = the view lens for the 顧客 list;
+  // listAllCustomers drops it when a search term is present, so search stays
+  // business-wide.
+  const [synqed, activeStore] = await Promise.all([
+    getSynqedClient(),
+    getActiveStoreId(),
+  ])
 
   // Locale + translated relative-time strings, pulled once at page level
   // and threaded into the (synchronous) formatters so JP users see
