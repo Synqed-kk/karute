@@ -77,7 +77,6 @@ export interface CustomerProfileData {
   preferredStaffName: string | null
   /** 担当 fallback from the customer's booking when there's no 指名. */
   bookingStaffName?: string | null
-  nextVisitPredicted: string
   status: CustomerStatusKey
   memoryCount: number
   sessionCount: number

@@ -292,7 +292,6 @@ export default async function CustomerProfilePage({
     bookingStaffName: bookingStaffId
       ? (staffNameById.get(bookingStaffId) ?? null)
       : null,
-    nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,
     visitPace,
     visitPaceLastVisitDate,
