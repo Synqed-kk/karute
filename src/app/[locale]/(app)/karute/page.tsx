@@ -7,7 +7,6 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { getActiveStoreId } from '@/actions/stores'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -44,9 +43,6 @@ export default async function KaruteRecordsListPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any
   const synqed = await getSynqedClient()
-  // Active store scopes the カルテ ROSTER (which customers appear) — same derived
-  // view filter as the 顧客 tab. Record CONTENT stays business-wide (Anthony).
-  const activeStore = await getActiveStoreId()
 
   // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
   // each appointment, but customer.assigned_staff_id (a separate "preferred
@@ -78,7 +74,13 @@ export default async function KaruteRecordsListPage() {
       getStaffList(),
       // Page to completion so カルテ rows + placeholder rows resolve for every
       // customer, not just the first 500 (server clamps page_size at 500).
-      listAllCustomers(synqed, { store_id: activeStore, sort_by: 'created_at', sort_order: 'asc' }),
+      // Business-wide (NOT store-scoped): karute records are business-wide, so
+      // this list backs record-name enrichment AND the New カルテ dialog's
+      // customer picker (which filters client-side) — scoping it would drop
+      // cross-store records' names and block creating a karute for another
+      // store's walk-in. Per-store roster scoping waits on the synqed-core
+      // karute store filter (synqed-core #18).
+      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       getCurrentUserStaffId(),
       // synqed-core is the authoritative karute store; the Supabase query above
       // is effectively empty. Union both so synqed-written karute appear here.

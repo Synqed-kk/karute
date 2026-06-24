@@ -159,7 +159,7 @@ const dashboardByDay = unstable_cache(
       recentKarute,
     }
   },
-  ['dashboard-v3'],
+  ['dashboard-v4'],
   { revalidate: 60, tags: ['dashboard'] },
 )
 
