@@ -99,7 +99,14 @@ export async function loadEntitlement(businessId: string): Promise<Entitlement> 
     /* stores table not present yet → 0 */
   }
 
-  const isUnlimited = rowUnlimited || envUnlimited(businessId)
+  // DEMO/PREVIEW ONLY: on Vercel preview deployments (private share links used to
+  // demo unmerged work) treat the business as unlimited, so the founder can
+  // exercise the full multi-store flow end-to-end without us touching production
+  // account data. Production (VERCEL_ENV === 'production') is unaffected — there
+  // the real per-business is_unlimited flag / env allowlist applies. This line
+  // lives only on the throwaway preview/multi-store-demo branch and never merges.
+  const isUnlimited =
+    rowUnlimited || envUnlimited(businessId) || process.env.VERCEL_ENV === 'preview'
   return {
     tier,
     storeLimit: storeLimitFor(tier),
