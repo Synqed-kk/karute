@@ -1,6 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
+import { getActiveStoreId } from '@/actions/stores'
 
 export interface DashboardTodayAppointment {
   id: string
@@ -41,6 +42,7 @@ const dashboardByDay = unstable_cache(
     todayDay: string,
     weekStartIso: string,
     monthStartIso: string,
+    activeStore: string | null,
   ): Promise<DashboardData> => {
     // All reads go through synqed-core (the source of truth). The client is
     // already business-scoped, so there's no tenant staff-id filter to build.
@@ -63,8 +65,11 @@ const dashboardByDay = unstable_cache(
         synqed?.karuteRecords
           .list({ from: monthStartIso, page_size: 1 })
           .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
+        // Dashboard "today" list scoped to the active store (a view filter;
+        // null = all stores). The weekly/monthly karute counts above stay
+        // business-wide until synqed-core can filter karute records by store.
         synqed?.appointments
-          .list({ from: todayStart, to: todayEnd, page_size: 200 })
+          .list({ from: todayStart, to: todayEnd, page_size: 200, store_id: activeStore ?? undefined })
           .catch(() => ({ appointments: [] })) ??
           Promise.resolve({ appointments: [] }),
         // Today's karute, to link each appointment to its recording (status).
@@ -170,10 +175,15 @@ export async function getDashboardData(): Promise<DashboardData> {
   // `todayDay` IS today (YYYY-MM-DD). The previous version derived it from
   // `now - 1 day`, so the "today's appointments" window targeted yesterday.
   const todayDay = now.toISOString().split('T')[0]
+  // Active store threads in as an extra positional arg so it becomes part of the
+  // cache key — a store-scoped dashboard is never served from another store's
+  // cache entry. Read in request scope (unstable_cache runs outside it).
+  const activeStore = await getActiveStoreId()
   return dashboardByDay(
     businessId,
     todayDay,
     startOfWeek.toISOString(),
     startOfMonth.toISOString(),
+    activeStore,
   )
 }
