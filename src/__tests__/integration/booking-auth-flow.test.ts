@@ -12,10 +12,9 @@
  *   - When the caller's staff_profile_id matches no staff row (the post-wipe
  *     stale-cookie scenario from prod), the synqed staff lookup fails and the
  *     action returns a clean error — never an FK violation, never a corrupt row
- *   - The whole booking path never reads next/headers cookies
- *
- * If a future change wires a cookie back in to derive the booking's staff, the
- * cookie-spy assertion will fire.
+ *   - The booking path reads ONLY the active-store view cookie
+ *     (karute_active_store), never an auth/staff cookie — staff still comes
+ *     from the supplied staff_profile_id, not from a cookie.
  */
 
 jest.mock('react', () => {
@@ -221,6 +220,9 @@ describe('createAppointment — auth-derived staff attribution', () => {
       durationMinutes: 60,
     })
 
-    expect(cookieGetSpy).not.toHaveBeenCalled()
+    // Multi-store: booking reads ONLY the active-store view cookie to stamp
+    // the booking's store_id — never an auth/staff cookie. Staff is still
+    // derived from the supplied staff_profile_id, not a cookie.
+    expect(cookieGetSpy).toHaveBeenCalledWith('karute_active_store')
   })
 })

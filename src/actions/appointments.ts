@@ -8,6 +8,7 @@ import {
   type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getActiveStoreId } from '@/actions/stores'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -47,8 +48,16 @@ export async function createAppointment(input: AppointmentInput) {
   const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
 
   try {
-    const synqed = await getSynqedClient()
-    const synqedStaffId = await resolveSynqedStaffId(input.staffProfileId)
+    // All three are independent → resolve in parallel (resolveSynqedStaffId may
+    // hit the DB; getActiveStoreId is a cookie read). The active store is a
+    // server-side view label, never client-supplied; unset (all-stores view) →
+    // store_id omitted → synqed-core records NULL. Business scope (x-business-id)
+    // is untouched; store is only a view/default-booking label, never isolation.
+    const [synqed, synqedStaffId, activeStore] = await Promise.all([
+      getSynqedClient(),
+      resolveSynqedStaffId(input.staffProfileId),
+      getActiveStoreId(),
+    ])
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: synqedStaffId,
@@ -57,6 +66,7 @@ export async function createAppointment(input: AppointmentInput) {
       duration_minutes: input.durationMinutes,
       title: input.title ?? null,
       notes: input.notes ?? null,
+      store_id: activeStore ?? undefined,
     })
     revalidatePath('/dashboard')
     updateTag('dashboard')
@@ -79,11 +89,19 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
   const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
 
   try {
-    const synqed = await getSynqedClient()
+    // View filter: scope the agenda to the active store. null (no store picked)
+    // → no store predicate = all stores. synqed-core always applies the business
+    // scope regardless; this store filter is additive, never a replacement.
+    // Independent reads → parallel.
+    const [synqed, activeStore] = await Promise.all([
+      getSynqedClient(),
+      getActiveStoreId(),
+    ])
     const list = await synqed.appointments.list({
       from: dayStartUTC.toISOString(),
       to: dayEndUTC.toISOString(),
       page_size: 200,
+      store_id: activeStore ?? undefined,
     })
 
     // Customer names come from the already-cached tenant customer list (60s
@@ -118,7 +136,8 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
       // it's removed/cancelled upstream ("just don't show it"). This feeds BOTH
       // the 予約 agenda AND the /sessions recording-target picker, so a cancelled
       // slot can never be auto-selected as a recording target. (The week-overview
-      // count uses getAppointmentsInRange, which stays unfiltered on purpose.)
+      // count uses getAppointmentsInRange, which applies the same store view
+      // filter but intentionally keeps CANCELLED rows in its totals.)
       .filter((a) => a.status !== 'CANCELLED')
       .map((a) => ({
         id: a.id,
@@ -197,11 +216,17 @@ export async function getAppointmentsInRange(
   toIso: string,
 ): Promise<Appointment[]> {
   try {
-    const synqed = await getSynqedClient()
+    // Same active-store view filter as the day agenda, so week/month overview
+    // counts match the selected store. null = all stores. Independent → parallel.
+    const [synqed, activeStore] = await Promise.all([
+      getSynqedClient(),
+      getActiveStoreId(),
+    ])
     const list = await synqed.appointments.list({
       from: fromIso,
       to: toIso,
       page_size: 500,
+      store_id: activeStore ?? undefined,
     })
     return list.appointments
   } catch {
