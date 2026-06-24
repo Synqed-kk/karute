@@ -8,6 +8,7 @@ import {
   type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getActiveStoreId } from '@/actions/stores'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -49,6 +50,12 @@ export async function createAppointment(input: AppointmentInput) {
   try {
     const synqed = await getSynqedClient()
     const synqedStaffId = await resolveSynqedStaffId(input.staffProfileId)
+    // Stamp the booking with the active store — a server-side view label read
+    // from the cookie, never client-supplied. When no store is active (the
+    // "all stores" view) it stays unset → synqed-core records NULL exactly as
+    // today. The business scope (x-business-id) is untouched; store is only a
+    // view/default-booking label, never an isolation boundary.
+    const activeStore = await getActiveStoreId()
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: synqedStaffId,
@@ -57,6 +64,7 @@ export async function createAppointment(input: AppointmentInput) {
       duration_minutes: input.durationMinutes,
       title: input.title ?? null,
       notes: input.notes ?? null,
+      store_id: activeStore ?? undefined,
     })
     revalidatePath('/dashboard')
     updateTag('dashboard')
@@ -80,10 +88,15 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
 
   try {
     const synqed = await getSynqedClient()
+    // View filter: scope the agenda to the active store. null (no store picked)
+    // → no store predicate = all stores. synqed-core always applies the business
+    // scope regardless; this store filter is additive, never a replacement.
+    const activeStore = await getActiveStoreId()
     const list = await synqed.appointments.list({
       from: dayStartUTC.toISOString(),
       to: dayEndUTC.toISOString(),
       page_size: 200,
+      store_id: activeStore ?? undefined,
     })
 
     // Customer names come from the already-cached tenant customer list (60s
@@ -198,10 +211,14 @@ export async function getAppointmentsInRange(
 ): Promise<Appointment[]> {
   try {
     const synqed = await getSynqedClient()
+    // Same active-store view filter as the day agenda, so week/month overview
+    // counts match the selected store. null = all stores.
+    const activeStore = await getActiveStoreId()
     const list = await synqed.appointments.list({
       from: fromIso,
       to: toIso,
       page_size: 500,
+      store_id: activeStore ?? undefined,
     })
     return list.appointments
   } catch {
