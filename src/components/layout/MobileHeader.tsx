@@ -58,7 +58,16 @@ export function MobileHeader({
       data-mobile-chrome="true"
       className="sticky top-0 z-30 border-b border-black/5 bg-white/80 pt-[env(safe-area-inset-top)] supports-backdrop-filter:bg-white/70 supports-backdrop-filter:backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-neutral-900/85 supports-backdrop-filter:dark:bg-neutral-900/70"
     >
-      <div className="flex h-14 items-center gap-1 px-2">
+      <div className="relative flex h-14 items-center justify-between gap-1 px-2">
+        {/* Center — title absolutely centred on the whole bar so it stays put
+         *  no matter how wide the left/right clusters are (a wide store pill no
+         *  longer shoves it off-centre). pointer-events-none so taps fall
+         *  through to the back arrow / switcher / bell underneath; truncates
+         *  rather than overlapping them on a very long title. */}
+        <h1 className="pointer-events-none absolute left-1/2 top-1/2 max-w-[55%] -translate-x-1/2 -translate-y-1/2 truncate text-center text-[17px] font-semibold tracking-tight">
+          {title}
+        </h1>
+
         {/* Left — back arrow on sub-routes, spacer on bottom-tab roots */}
         {showBack ? (
           <button
@@ -73,17 +82,11 @@ export function MobileHeader({
           <span aria-hidden className="size-11 shrink-0" />
         )}
 
-        <h1 className="flex-1 truncate px-1 text-center text-[17px] font-semibold tracking-tight">
-          {title}
-        </h1>
-
-        {/* Right — shared NotificationBell (icon + unread badge + panel).
-         *  Hidden during recording so DiscreetRecordingIndicator (layout-level
-         *  fixed top-right) can occupy the corner without overlapping; the
-         *  spacer keeps the title centered when the bell collapses. */}
+        {/* Right — store switcher + shared NotificationBell (icon + unread
+         *  badge + panel). Both hidden during recording so the layout-level
+         *  DiscreetRecordingIndicator (fixed top-right) owns the corner without
+         *  overlapping; the spacer holds the slot when the bell collapses. */}
         <div className="flex shrink-0 items-center gap-1">
-          {/* Store switcher (renders only for multi-store businesses, hidden
-           *  during recording so the DiscreetRecordingIndicator owns the corner). */}
           {!isRecording && (
             <StoreSwitcher stores={stores} activeStoreId={activeStoreId} variant="mobile" />
           )}
