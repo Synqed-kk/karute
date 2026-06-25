@@ -22,7 +22,7 @@
     "@sentry/nextjs": "^10.51.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.1",
-    "@synqed-kk/client": "^1.7.0",
+    "@synqed-kk/client": "^1.8.0",
     "@synqed-kk/ui": "^0.3.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
