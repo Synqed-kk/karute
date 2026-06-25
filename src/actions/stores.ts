@@ -92,21 +92,13 @@ export async function listStores(): Promise<StoreRow[]> {
   }
 
   // Per-store staff counts from the profile_stores link table. NOTE: this still
-  // lives in the karute DB — it moves to core next (needs profile→staff id
-  // remapping). Wrapped so a pre-migration DB degrades to 0 rather than throwing.
+  // comes from core (staff_stores). Resilient: a core error degrades to 0.
   const staffByStore = new Map<string, number>()
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = createServiceClient() as any
-    const { data: links } = await service
-      .from('profile_stores')
-      .select('store_id')
-      .eq('business_id', businessId)
-    for (const l of links ?? []) {
-      if (l.store_id) staffByStore.set(l.store_id, (staffByStore.get(l.store_id) ?? 0) + 1)
-    }
+    const { counts } = await synqed.staffStores.counts()
+    for (const [storeId, n] of Object.entries(counts)) staffByStore.set(storeId, n)
   } catch {
-    /* profile_stores table not present yet → counts stay 0 */
+    /* core unavailable → counts stay 0 */
   }
 
   // Real per-store customer counts from synqed-core (distinct customers with ≥1
@@ -250,21 +242,9 @@ export async function updateStore(
 /** The stores a staff member belongs to (empty = works in every store). Graceful
  *  pre-migration (no profile_stores table → []). */
 export async function getStaffStores(staffId: string): Promise<string[]> {
-  let businessId: string
   try {
-    businessId = await getBusinessId()
-  } catch {
-    return []
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  try {
-    const { data } = await service
-      .from('profile_stores')
-      .select('store_id')
-      .eq('business_id', businessId)
-      .eq('profile_id', staffId)
-    return (data ?? []).map((r: { store_id: string }) => r.store_id)
+    const synqed = await getSynqedClient()
+    return (await synqed.staffStores.get(staffId)).store_ids
   } catch {
     return []
   }
@@ -278,65 +258,21 @@ export async function setStaffStores(
   staffId: string,
   storeIds: string[],
 ): Promise<{ ok: true } | { error: string }> {
-  let businessId: string
+  // Owner-only gate.
   try {
-    businessId = await requireOwnerBusiness()
+    await requireOwnerBusiness()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-
-  // Staff must belong to this business.
-  const { data: staff } = await service
-    .from('profiles')
-    .select('id')
-    .eq('id', staffId)
-    .eq('customer_id', businessId)
-    .maybeSingle()
-  if (!staff) return { error: 'Staff member not found.' }
-
-  // Every requested store must belong to this business (so a link can never point
-  // at another tenant's store). De-dupe first.
-  const wanted = Array.from(new Set(storeIds))
-  if (wanted.length > 0) {
-    const { data: validStores } = await service
-      .from('stores')
-      .select('id')
-      .eq('business_id', businessId)
-      .in('id', wanted)
-    const validIds = new Set((validStores ?? []).map((s: { id: string }) => s.id))
-    if (wanted.some((id) => !validIds.has(id))) return { error: 'Store not found.' }
+  // staff_stores lives in core now; the reconcile (validate + atomic upsert/
+  // delete) happens server-side in one transaction.
+  const synqed = await getSynqedClient()
+  try {
+    await synqed.staffStores.set(staffId, storeIds)
+    updateTag('staff-list')
+    revalidatePath('/settings')
+    return { ok: true }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Could not update stores' }
   }
-
-  // Reconcile the link set WITHOUT an unbounded delete-first window. Upsert the
-  // wanted links, THEN drop only the links no longer wanted. A partial failure can
-  // at worst over-assign (benign, self-corrects on re-save); it can never pass
-  // through a zero-row state and silently flip the staff to "works in every store"
-  // (the failure mode of delete-then-insert). Empty `wanted` = remove all =
-  // "works in every store" (the intended floating/owner semantic).
-  if (wanted.length > 0) {
-    const rows = wanted.map((store_id) => ({
-      business_id: businessId,
-      profile_id: staffId,
-      store_id,
-    }))
-    const { error: upErr } = await service
-      .from('profile_stores')
-      .upsert(rows, { onConflict: 'profile_id,store_id' })
-    if (upErr) return { error: `Could not update stores: ${upErr.message}` }
-  }
-
-  let del = service
-    .from('profile_stores')
-    .delete()
-    .eq('business_id', businessId)
-    .eq('profile_id', staffId)
-  if (wanted.length > 0) del = del.not('store_id', 'in', `(${wanted.join(',')})`)
-  const { error: delErr } = await del
-  if (delErr) return { error: `Could not update stores: ${delErr.message}` }
-
-  updateTag('staff-list')
-  revalidatePath('/settings')
-  return { ok: true }
 }
