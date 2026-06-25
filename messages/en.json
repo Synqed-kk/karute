@@ -1683,7 +1683,7 @@
       "switchTo": "Switch",
       "edit": "Edit",
       "emptyState": "No stores yet. Tap Add to register one.",
-      "activeStoreScopeNote": "The Switch button is a UI preview today — filtering each tab's data by the active store lights up when the stores table lands.",
+      "activeStoreScopeNote": "Switching stores scopes the customer list, dashboard, and agenda to the selected store (per-store figures are derived from that store's events). Full karute-list scoping turns on once the synqed-core karute store filter ships.",
       "addStoreSubscription": {
         "freeAtLimitTitle": "Upgrade to add another store",
         "freeAtLimitBody": "The Free plan is limited to 1 store. Upgrade to Standard or Professional to add more.",
