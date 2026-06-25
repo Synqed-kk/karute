@@ -73,36 +73,31 @@ export async function listStores(): Promise<StoreRow[]> {
   } catch {
     return []
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
+  const synqed = await getSynqedClient()
 
-  const select = 'id, name, address, phone, is_primary, active'
-  const query = () =>
-    service
-      .from('stores')
-      .select(select)
-      .eq('business_id', businessId)
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: true })
-
-  let { data } = await query()
-
-  if (!data || data.length === 0) {
+  // Stores now live in synqed-core (the same DB as the events that key on
+  // store_id). Lazily create the 本店 primary store so every business has one;
+  // the unique index in core blocks a 2nd primary, so a race is harmless.
+  let stores = (await synqed.stores.list()).stores
+  if (stores.length === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = createServiceClient() as any
     const name = await primaryStoreName(service, businessId)
-    // Idempotent: the partial unique index blocks a 2nd primary; ignore a race.
-    await service.from('stores').insert({ business_id: businessId, name, is_primary: true })
-    const reread = await query()
-    data = reread.data
+    try {
+      await synqed.stores.create({ name, is_primary: true })
+    } catch {
+      /* race: another request created the primary — ignore */
+    }
+    stores = (await synqed.stores.list()).stores
   }
 
-  // Real staff counts per store: one read of the business's profile_stores links,
-  // tallied by store_id in JS. A staff assigned to N stores counts in each of
-  // them. Unassigned staff (no link rows = "works everywhere") count toward no
-  // specific store — matching the old NULL behaviour. Wrapped so a pre-migration
-  // DB (no profile_stores table) degrades to 0 rather than throwing. Customer
-  // counts still need synqed-core store_id.
+  // Per-store staff counts from the profile_stores link table. NOTE: this still
+  // lives in the karute DB — it moves to core next (needs profile→staff id
+  // remapping). Wrapped so a pre-migration DB degrades to 0 rather than throwing.
   const staffByStore = new Map<string, number>()
   try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = createServiceClient() as any
     const { data: links } = await service
       .from('profile_stores')
       .select('store_id')
@@ -116,10 +111,9 @@ export async function listStores(): Promise<StoreRow[]> {
 
   // Real per-store customer counts from synqed-core (distinct customers with ≥1
   // event at the store, derived server-side — customers stay business-wide).
-  // Resilient: a pre-1.1.0 core or transport error degrades to 0, never throws.
+  // Resilient: a core without counts-by-store degrades to 0, never throws.
   const customersByStore = new Map<string, number>()
   try {
-    const synqed = await getSynqedClient()
     const { counts } = await synqed.customers.countsByStore()
     for (const [storeId, n] of Object.entries(counts)) {
       customersByStore.set(storeId, n)
@@ -128,25 +122,16 @@ export async function listStores(): Promise<StoreRow[]> {
     /* core without counts-by-store → counts stay 0 */
   }
 
-  return (data ?? []).map(
-    (s: {
-      id: string
-      name: string
-      address: string | null
-      phone: string | null
-      is_primary: boolean
-      active: boolean
-    }) => ({
-      id: s.id,
-      name: s.name,
-      address: s.address,
-      phone: s.phone,
-      isPrimary: s.is_primary,
-      active: s.active,
-      staffCount: staffByStore.get(s.id) ?? 0,
-      customerCount: customersByStore.get(s.id) ?? 0,
-    }),
-  )
+  return stores.map((s) => ({
+    id: s.id,
+    name: s.name,
+    address: s.address,
+    phone: s.phone,
+    isPrimary: s.is_primary,
+    active: s.active,
+    staffCount: staffByStore.get(s.id) ?? 0,
+    customerCount: customersByStore.get(s.id) ?? 0,
+  }))
 }
 
 /** The viewer's active store (a cookie). Null when unset → "all / primary". */
@@ -158,21 +143,20 @@ export async function getActiveStoreId(): Promise<string | null> {
 /** Switch the active store. Validates the store is in the caller's business
  *  (so the cookie can never point at another tenant's store), then persists it. */
 export async function setActiveStore(storeId: string): Promise<{ ok: true } | { error: string }> {
-  let businessId: string
+  // getSynqedClient resolves the business from the session, so it doubles as the
+  // auth check. Validate the store belongs to the caller's business via core
+  // (the client is business-scoped, so a 404 means it's not this tenant's store).
+  let synqed
   try {
-    businessId = await getBusinessId()
+    synqed = await getSynqedClient()
   } catch {
     return { error: 'Not authenticated' }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { data } = await service
-    .from('stores')
-    .select('id')
-    .eq('id', storeId)
-    .eq('business_id', businessId)
-    .maybeSingle()
-  if (!data) return { error: 'Store not found.' }
+  try {
+    await synqed.stores.get(storeId)
+  } catch {
+    return { error: 'Store not found.' }
+  }
 
   const jar = await cookies()
   jar.set(ACTIVE_STORE_COOKIE, storeId, {
@@ -221,23 +205,18 @@ export async function createStore(
   const entitlement = await loadEntitlement(businessId)
   if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { data, error } = await service
-    .from('stores')
-    .insert({
-      business_id: businessId,
+  const synqed = await getSynqedClient()
+  try {
+    const store = await synqed.stores.create({
       name: parsed.data.name,
       address: parsed.data.address || null,
       phone: parsed.data.phone || null,
-      is_primary: false,
-      active: true,
     })
-    .select('id')
-    .maybeSingle()
-  if (error) return { error: `Could not create store: ${error.message}` }
-  revalidatePath('/settings')
-  return { id: data.id as string }
+    revalidatePath('/settings')
+    return { id: store.id }
+  } catch (e) {
+    return { error: `Could not create store: ${e instanceof Error ? e.message : 'unknown'}` }
+  }
 }
 
 export async function updateStore(
@@ -248,26 +227,24 @@ export async function updateStore(
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   }
-  let businessId: string
+  // Owner-only gate (throws if not the salon owner).
   try {
-    businessId = await requireOwnerBusiness()
+    await requireOwnerBusiness()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { error } = await service
-    .from('stores')
-    .update({
+  const synqed = await getSynqedClient()
+  try {
+    await synqed.stores.update(id, {
       name: parsed.data.name,
       address: parsed.data.address || null,
       phone: parsed.data.phone || null,
     })
-    .eq('id', id)
-    .eq('business_id', businessId)
-  if (error) return { error: `Could not update store: ${error.message}` }
-  revalidatePath('/settings')
-  return { ok: true }
+    revalidatePath('/settings')
+    return { ok: true }
+  } catch (e) {
+    return { error: `Could not update store: ${e instanceof Error ? e.message : 'unknown'}` }
+  }
 }
 
 /** The stores a staff member belongs to (empty = works in every store). Graceful
