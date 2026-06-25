@@ -7,6 +7,7 @@ import { SynqedClient } from '@synqed-kk/client'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
@@ -21,9 +22,11 @@ import {
 // Staff invites — owner creates a tokenized invite; invitee joins via /join.
 //
 // SECURITY MODEL
-//   - The `invites` table is service-role-only (no RLS policy). Every read/write
-//     here uses createServiceClient(), and owner-scoped queries always filter by
-//     getBusinessId() so one salon can't touch another's invites.
+//   - The `invites` table lives in synqed-core. Owner-scoped reads/writes go
+//     through the business-scoped SDK client (getSynqedClient → x-business-id),
+//     so one salon can't touch another's invites. The pre-auth /join lookups use
+//     the API-key-gated, business-optional `invites.getByToken` — the 32-byte
+//     token is the per-invite secret.
 //   - acceptInvite is the trust boundary: it derives the target business AND the
 //     account email from the SERVER-VALIDATED invite row — never from client
 //     input. The signup trigger was hardened (migration 20260603000000) to ignore
@@ -44,6 +47,17 @@ export interface InviteRow {
 async function requireInviteBusiness(): Promise<string> {
   await requireCapability('staff.invite')
   return getBusinessId()
+}
+
+/** A SynqedClient with NO business scope, for the pre-auth /join flows (the token
+ *  is the secret; core's by-token route is API-key-gated, business-optional). */
+function getPublicSynqedClient(): SynqedClient {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) {
+    throw new Error('Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY env vars')
+  }
+  return new SynqedClient({ baseUrl, apiKey, businessId: '' })
 }
 
 /** Owner action: create a pending invite, return its token (the dialog builds the
@@ -82,16 +96,18 @@ export async function createInvite(
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
   const invitedBy = await getCurrentUserStaffId().catch(() => null)
 
-  const { error } = await service.from('invites').insert({
-    business_id: businessId,
-    email,
-    role,
-    token,
-    status: 'pending',
-    invited_by: invitedBy,
-    expires_at: expiresAt,
-  })
-  if (error) return { error: `Could not create invite: ${error.message}` }
+  try {
+    const synqed = await getSynqedClient()
+    await synqed.invites.create({
+      email,
+      role,
+      token,
+      invited_by: invitedBy,
+      expires_at: expiresAt,
+    })
+  } catch (e) {
+    return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
+  }
 
   updateTag('staff-invites')
   return { token }
@@ -99,40 +115,45 @@ export async function createInvite(
 
 /** Owner action: list this business's pending invites. */
 export async function listInvites(): Promise<InviteRow[]> {
-  let businessId: string
   try {
-    businessId = await requireInviteBusiness()
+    await requireCapability('staff.invite')
   } catch {
     return []
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { data } = await service
-    .from('invites')
-    .select('id, email, role, status, created_at, expires_at')
-    .eq('business_id', businessId)
-    .eq('status', 'pending')
-    .order('created_at', { ascending: false })
-  return (data ?? []) as InviteRow[]
+  try {
+    const synqed = await getSynqedClient()
+    const { invites } = await synqed.invites.list()
+    // Core returns all statuses (createdAt desc); the UI only wants pending.
+    return invites
+      .filter((i) => i.status === 'pending')
+      .map((i) => ({
+        id: i.id,
+        email: i.email,
+        role: i.role as InviteRole,
+        status: i.status as InviteRow['status'],
+        created_at: i.created_at,
+        expires_at: i.expires_at ?? '',
+      }))
+  } catch {
+    return []
+  }
 }
 
 /** Owner action: revoke a pending invite (scoped to this business). */
 export async function revokeInvite(id: string): Promise<{ ok: true } | { error: string }> {
-  let businessId: string
   try {
-    businessId = await requireInviteBusiness()
+    await requireCapability('staff.invite')
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { error } = await service
-    .from('invites')
-    .update({ status: 'revoked' })
-    .eq('id', id)
-    .eq('business_id', businessId)
-    .eq('status', 'pending')
-  if (error) return { error: error.message }
+  try {
+    // updateStatus is business-scoped server-side (id + x-business-id), so a
+    // foreign invite id can't be revoked across tenants.
+    const synqed = await getSynqedClient()
+    await synqed.invites.updateStatus(id, 'revoked')
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Could not revoke invite.' }
+  }
   updateTag('staff-invites')
   return { ok: true }
 }
@@ -146,21 +167,26 @@ export async function getInviteByToken(
   | { valid: false; reason: 'missing' | 'not_found' | 'used' | 'revoked' | 'expired' }
 > {
   if (!token) return { valid: false, reason: 'missing' }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { data: invite } = await service
-    .from('invites')
-    .select('email, business_id, status, expires_at')
-    .eq('token', token)
-    .maybeSingle()
 
+  // Token lookup against core (API-key-gated, no business scope needed pre-auth).
+  let invite
+  try {
+    invite = await getPublicSynqedClient().invites.getByToken(token)
+  } catch {
+    return { valid: false, reason: 'not_found' }
+  }
   if (!invite) return { valid: false, reason: 'not_found' }
   if (invite.status === 'accepted') return { valid: false, reason: 'used' }
   if (invite.status === 'revoked') return { valid: false, reason: 'revoked' }
-  if (new Date(invite.expires_at).getTime() < Date.now()) return { valid: false, reason: 'expired' }
+  if (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now()) {
+    return { valid: false, reason: 'expired' }
+  }
 
   // Salon name = the owner's profile full_name (set to the salon name at signup);
-  // the owner is the first profile created in the business.
+  // the owner is the first profile created in the business. (profiles still live
+  // in Supabase until the auth cutover.)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
   const { data: owner } = await service
     .from('profiles')
     .select('full_name')
@@ -187,26 +213,27 @@ export async function acceptInvite(
   const name = fullName.trim()
   if (!name) return { error: 'Your name is required.' }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) return { error: 'Server is not configured.' }
 
-  // 1. Validate the token server-side.
-  const { data: invite } = await service
-    .from('invites')
-    .select('id, email, business_id, role, status, expires_at')
-    .eq('token', token)
-    .maybeSingle()
+  // 1. Validate the token server-side against core.
+  let invite
+  try {
+    invite = await getPublicSynqedClient().invites.getByToken(token)
+  } catch {
+    invite = null
+  }
   if (
     !invite ||
     invite.status !== 'pending' ||
-    new Date(invite.expires_at).getTime() < Date.now()
+    (invite.expires_at && new Date(invite.expires_at).getTime() < Date.now())
   ) {
     return { error: 'This invite link is invalid or has expired.' }
   }
 
-  const baseUrl = process.env.SYNQED_CORE_URL
-  const apiKey = process.env.SYNQED_CORE_API_KEY
-  if (!baseUrl || !apiKey) return { error: 'Server is not configured.' }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
 
   const email = invite.email as string // trusted: from the invite, not the client
   const role = invite.role as InviteRole
@@ -252,8 +279,8 @@ export async function acceptInvite(
   }
 
   // 4. Create / link the synqed-core staff record under the business.
+  const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id })
   try {
-    const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id as string })
     const { staff } = await synqed.staff.list({ page_size: 200 })
     const existing = staff.find(
       (s) => s.email && s.email.toLowerCase() === email.toLowerCase(),
@@ -269,8 +296,14 @@ export async function acceptInvite(
     console.error('[acceptInvite] synqed staff link failed:', err)
   }
 
-  // 5. Mark the invite used.
-  await service.from('invites').update({ status: 'accepted' }).eq('id', invite.id)
+  // 5. Mark the invite used (in core; business scope = the invite's business).
+  try {
+    await synqed.invites.updateStatus(invite.id, 'accepted')
+  } catch (err) {
+    // Non-fatal: the account is already created + attached. Worst case the invite
+    // still reads 'pending' but its token now resolves to an existing account.
+    console.error('[acceptInvite] mark-accepted failed:', err)
+  }
   updateTag('staff-list')
   updateTag('staff-invites')
 
