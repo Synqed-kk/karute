@@ -1,20 +1,19 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase/service'
+import { cleanupExpiredAiCache } from '@/lib/ai-cache'
 
 export const maxDuration = 30
 
 /**
  * Daily cleanup:
  * 1. Delete any orphaned recordings from storage (older than 1 hour)
- * 2. Delete expired AI cache entries
+ * 2. Delete expired AI cache entries (in synqed-core)
  *
- * Runs from cron (no user session), so it uses the service-role client — which
- * is also required now that ai_cache is RLS-locked (no anon policies).
+ * Runs from cron (no user session). Recordings still use the service-role
+ * Supabase client (Storage); the AI cache lives in synqed-core.
  */
 export async function GET() {
   const supabase = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
 
   let recordingsDeleted = 0
   let cacheDeleted = 0
@@ -36,17 +35,8 @@ export async function GET() {
     console.error('[cleanup] recordings error:', err)
   }
 
-  // 2. Clean up expired AI cache
-  try {
-    const { count } = await sb
-      .from('ai_cache')
-      .delete()
-      .lt('expires_at', new Date().toISOString())
-      .select('id', { count: 'exact', head: true })
-    cacheDeleted = count ?? 0
-  } catch (err) {
-    console.error('[cleanup] cache error:', err)
-  }
+  // 2. Clean up expired AI cache (synqed-core)
+  cacheDeleted = await cleanupExpiredAiCache()
 
   return NextResponse.json({
     recordingsDeleted,
