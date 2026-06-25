@@ -16,7 +16,7 @@
 //   2. KARUTE_UNLIMITED_BUSINESS_IDS env (comma-separated business_ids) — a
 //      zero-migration switch Anthony/Liam can flip on Vercel for the dev account.
 
-import { createServiceClient } from '@/lib/supabase/service'
+import { getSynqedClient } from '@/lib/synqed/client'
 import { TIER_FEATURES, type SubscriptionTier } from '@/lib/subscription/types'
 
 export interface Entitlement {
@@ -69,34 +69,26 @@ function envUnlimited(businessId: string): boolean {
  *  pre-migration DB without the table/column) degrades to 'free', so nothing
  *  throws on the preview before the migration is applied. */
 export async function loadEntitlement(businessId: string): Promise<Entitlement> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
+  // Tier + unlimited override and the live store count both come from synqed-core
+  // now (the entitlement + stores tables moved there). The client is business-
+  // scoped to the session, which is the businessId passed in.
+  const synqed = await getSynqedClient()
 
   let tier: SubscriptionTier = 'free'
   let rowUnlimited = false
   try {
-    const { data } = await service
-      .from('business_entitlements')
-      .select('tier, is_unlimited')
-      .eq('business_id', businessId)
-      .maybeSingle()
-    if (data) {
-      if (VALID_TIERS.includes(data.tier)) tier = data.tier as SubscriptionTier
-      rowUnlimited = !!data.is_unlimited
-    }
+    const ent = await synqed.entitlements.get()
+    if (VALID_TIERS.includes(ent.tier as SubscriptionTier)) tier = ent.tier as SubscriptionTier
+    rowUnlimited = !!ent.is_unlimited
   } catch {
-    /* table not present yet → treat as free */
+    /* core unavailable → treat as free */
   }
 
   let storeCount = 0
   try {
-    const { count } = await service
-      .from('stores')
-      .select('id', { count: 'exact', head: true })
-      .eq('business_id', businessId)
-    storeCount = count ?? 0
+    storeCount = (await synqed.stores.list()).stores.length
   } catch {
-    /* stores table not present yet → 0 */
+    /* core unavailable → 0 */
   }
 
   const isUnlimited = rowUnlimited || envUnlimited(businessId)
