@@ -1,4 +1,4 @@
-import { createServiceClient } from '@/lib/supabase/service'
+import { getSynqedClient } from '@/lib/synqed/client'
 import {
   withUsage,
   type CustomerLifecycle,
@@ -8,47 +8,33 @@ import {
 } from './types'
 
 /**
- * 回数券 data access — service-role client, server-only (the tables are
- * RLS-locked with no public policies; auth + tenant are enforced in the
- * server actions that call this).
+ * 回数券 data access — backed by synqed-core (business-scoped via the SDK's
+ * x-business-id). server-only; the server actions that call this enforce auth.
  *
- * GRACEFUL DEGRADATION (same contract as ai-cache): the tables ship in
- * supabase/migrations/20260610000000_ticket_packs.sql and don't exist on the
- * live DB until Anthony applies it. Every read returns a safe empty value and
- * every write reports { ok: false } instead of throwing, so the UI renders its
- * empty/error states rather than crashing.
+ * GRACEFUL DEGRADATION (same contract as ai-cache): every read returns a safe
+ * empty value and every write reports { ok: false } instead of throwing, so the
+ * UI renders its empty/error states rather than crashing if core is unreachable.
  */
 
-const warn = (fn: string, err: unknown) =>
-  console.warn(`[packs] ${fn} failed (table missing until migration applies?):`, err)
+const warn = (fn: string, err: unknown) => console.warn(`[packs] ${fn} failed:`, err)
 
 /** All of a customer's packs (newest first) with redemption counts folded in. */
 export async function listCustomerPacks(customerId: string): Promise<PackWithUsage[]> {
   if (!customerId) return []
   try {
-    const supabase = createServiceClient()
-    const [{ data: packs, error: pErr }, { data: reds, error: rErr }] = await Promise.all([
-      supabase
-        .from('ticket_packs')
-        .select('*')
-        .eq('customer_id', customerId)
-        .order('purchased_at', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('pack_redemptions')
-        .select('pack_id, redeemed_on')
-        .eq('customer_id', customerId),
+    const synqed = await getSynqedClient()
+    const [packs, reds] = await Promise.all([
+      synqed.packs.listPacks(customerId),
+      synqed.packs.listRedemptions(customerId),
     ])
-    if (pErr) throw pErr
-    if (rErr) throw rErr
     const countByPack = new Map<string, number>()
     const lastByPack = new Map<string, string>()
-    for (const r of (reds ?? []) as Array<{ pack_id: string; redeemed_on: string }>) {
+    for (const r of reds) {
       countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
       const cur = lastByPack.get(r.pack_id)
       if (!cur || r.redeemed_on > cur) lastByPack.set(r.pack_id, r.redeemed_on)
     }
-    return ((packs ?? []) as TicketPack[]).map((p) =>
+    return (packs as unknown as TicketPack[]).map((p) =>
       withUsage(p, countByPack.get(p.id) ?? 0, lastByPack.get(p.id) ?? null),
     )
   } catch (err) {
@@ -74,25 +60,20 @@ export async function createPack(
   input: CreatePackInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
-    const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('ticket_packs')
-      .insert({
-        customer_id: input.customerId,
-        kind: input.kind,
-        pack_size: input.packSize,
-        unit_price: input.unitPrice,
-        total_price: input.totalPrice ?? null,
-        purchase_round: input.purchaseRound ?? 0,
-        purchased_at: input.purchasedAt ?? null,
-        source: input.source ?? 'manual',
-        notes: input.notes ?? null,
-        created_by: input.createdBy ?? null,
-      })
-      .select('id')
-      .single()
-    if (error) throw error
-    return { ok: true, id: (data as { id: string }).id }
+    const synqed = await getSynqedClient()
+    const pack = await synqed.packs.createPack({
+      customer_id: input.customerId,
+      kind: input.kind,
+      pack_size: input.packSize,
+      unit_price: input.unitPrice,
+      total_price: input.totalPrice ?? null,
+      purchase_round: input.purchaseRound ?? 0,
+      purchased_at: input.purchasedAt ?? null,
+      source: input.source ?? 'manual',
+      notes: input.notes ?? null,
+      created_by: input.createdBy ?? null,
+    })
+    return { ok: true, id: pack.id }
   } catch (err) {
     warn('createPack', err)
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
@@ -104,13 +85,8 @@ export async function updatePackStatus(
   status: TicketPack['status'],
 ): Promise<{ ok: boolean }> {
   try {
-    const supabase = createServiceClient()
-    const { error } = await supabase
-      .from('ticket_packs')
-      .update({ status, updated_at: new Date().toISOString() })
-      .eq('id', packId)
-    if (error) throw error
-    return { ok: true }
+    const synqed = await getSynqedClient()
+    return await synqed.packs.updatePackStatus(packId, status)
   } catch (err) {
     warn('updatePackStatus', err)
     return { ok: false }
@@ -133,22 +109,17 @@ export async function addRedemption(
   input: AddRedemptionInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
-    const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('pack_redemptions')
-      .insert({
-        pack_id: input.packId,
-        customer_id: input.customerId,
-        redeemed_on: input.redeemedOn,
-        appointment_id: input.appointmentId ?? null,
-        karute_record_id: input.karuteRecordId ?? null,
-        source: input.source ?? 'manual',
-        created_by: input.createdBy ?? null,
-      })
-      .select('id')
-      .single()
-    if (error) throw error
-    return { ok: true, id: (data as { id: string }).id }
+    const synqed = await getSynqedClient()
+    const { id } = await synqed.packs.addRedemption({
+      pack_id: input.packId,
+      customer_id: input.customerId,
+      redeemed_on: input.redeemedOn,
+      appointment_id: input.appointmentId ?? null,
+      karute_record_id: input.karuteRecordId ?? null,
+      source: input.source ?? 'manual',
+      created_by: input.createdBy ?? null,
+    })
+    return { ok: true, id }
   } catch (err) {
     warn('addRedemption', err)
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
@@ -157,13 +128,8 @@ export async function addRedemption(
 
 export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {
   try {
-    const supabase = createServiceClient()
-    const { error } = await supabase
-      .from('pack_redemptions')
-      .delete()
-      .eq('id', redemptionId)
-    if (error) throw error
-    return { ok: true }
+    const synqed = await getSynqedClient()
+    return await synqed.packs.removeRedemption(redemptionId)
   } catch (err) {
     warn('removeRedemption', err)
     return { ok: false }
@@ -182,50 +148,19 @@ export interface CustomerPackUsage {
   firstPackId?: string | null
 }
 
-/** Bulk pack usage for the customer LIST page — two queries total (not per
- *  customer), grouped in memory. Map is empty until the migration applies. */
-/** Range-paginate past PostgREST's SILENT 1,000-row cap. Every bulk read in
- *  this store must go through this: the cap is invisible (no error, no
- *  warning) — an unpaginated redemption read showed 残3/3 on the list while
- *  the profile's per-customer read correctly said 残り2回, and inflated the
- *  strip's 未消化¥ and the alert engine's inputs. */
-async function pageAll<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
-): Promise<T[]> {
-  const out: T[] = []
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await build(from, from + 999)
-    if (error) throw error
-    const rows = (data ?? []) as T[]
-    out.push(...rows)
-    if (rows.length < 1000) return out
-  }
-}
-
+/** Bulk pack usage for the customer LIST page — two business-scoped reads,
+ *  grouped in memory. core returns active packs FIFO-ordered. */
 export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
   const map = new Map<string, CustomerPackUsage>()
   try {
-    const supabase = createServiceClient()
-    const [packs, reds] = await Promise.all([
-      pageAll<Pick<TicketPack, 'id' | 'customer_id' | 'kind' | 'pack_size' | 'unit_price'>>(
-        (from, to) =>
-          supabase
-            .from('ticket_packs')
-            .select('id, customer_id, kind, pack_size, unit_price')
-            .eq('status', 'active')
-            // FIFO: firstPackId (the この日に消化 target) must be the OLDEST
-            // pack with sessions left — same §7 rule as pickRedemptionTarget.
-            .order('purchased_at', { ascending: true, nullsFirst: false })
-            .order('id')
-            .range(from, to),
-      ),
-      pageAll<{ pack_id: string }>((from, to) =>
-        supabase.from('pack_redemptions').select('pack_id').order('id').range(from, to),
-      ),
+    const synqed = await getSynqedClient()
+    const [packs, redPackIds] = await Promise.all([
+      synqed.packs.listActivePacks(),
+      synqed.packs.listAllRedemptionPackIds(),
     ])
     const countByPack = new Map<string, number>()
-    for (const r of reds) {
-      countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
+    for (const pid of redPackIds) {
+      countByPack.set(pid, (countByPack.get(pid) ?? 0) + 1)
     }
     for (const p of packs) {
       if (p.kind !== 'pack') continue
@@ -252,19 +187,13 @@ export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>
 }
 
 /** Bulk lifecycle for the list page — graduated/lost customers are excluded
- *  from alerts. Empty map until the migration applies. */
+ *  from alerts. */
 export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle>> {
   const map = new Map<string, CustomerLifecycle>()
   try {
-    const supabase = createServiceClient()
-    const rows = await pageAll<CustomerLifecycle>((from, to) =>
-      supabase
-        .from('customer_lifecycle')
-        .select('customer_id, status, referral')
-        .order('customer_id')
-        .range(from, to),
-    )
-    for (const row of rows) map.set(row.customer_id, row)
+    const synqed = await getSynqedClient()
+    const rows = await synqed.packs.listLifecycles()
+    for (const row of rows) map.set(row.customer_id, row as CustomerLifecycle)
     return map
   } catch (err) {
     warn('listAllLifecycles', err)
@@ -274,19 +203,12 @@ export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle
 
 /** Customers with an ACTIVE alert dismissal (no expiry, or expiry in the
  *  future). The 要連絡 alert list excludes them — Kitano's rule: only a manager
- *  dismisses, with an audit trail. Empty until the migration applies. */
+ *  dismisses, with an audit trail. */
 export async function listActiveDismissals(): Promise<Set<string>> {
   const set = new Set<string>()
   try {
-    const supabase = createServiceClient()
-    const rows = await pageAll<{ customer_id: string; expires_at: string | null }>(
-      (from, to) =>
-        supabase
-          .from('pack_alert_dismissals')
-          .select('customer_id, expires_at')
-          .order('customer_id')
-          .range(from, to),
-    )
+    const synqed = await getSynqedClient()
+    const rows = await synqed.packs.listAlertDismissals()
     const now = Date.now()
     for (const row of rows) {
       if (row.expires_at === null || new Date(row.expires_at).getTime() > now) {
@@ -307,15 +229,13 @@ export async function addPackAlertDismissal(input: {
   expiresAt?: string | null
 }): Promise<{ ok: boolean }> {
   try {
-    const supabase = createServiceClient()
-    const { error } = await supabase.from('pack_alert_dismissals').insert({
+    const synqed = await getSynqedClient()
+    return await synqed.packs.addAlertDismissal({
       customer_id: input.customerId,
       dismissed_by: input.dismissedBy,
       reason: input.reason ?? null,
       expires_at: input.expiresAt ?? null,
     })
-    if (error) throw error
-    return { ok: true }
   } catch (err) {
     warn('addPackAlertDismissal', err)
     return { ok: false }
@@ -334,16 +254,14 @@ export async function addCustomerContact(input: {
   contactedBy: string
 }): Promise<{ ok: boolean }> {
   try {
-    const supabase = createServiceClient()
-    const { error } = await supabase.from('customer_contacts').insert({
+    const synqed = await getSynqedClient()
+    return await synqed.packs.addContact({
       customer_id: input.customerId,
       channel: input.channel,
       alert_kind: input.alertKind ?? null,
       note: input.note ?? null,
       contacted_by: input.contactedBy,
     })
-    if (error) throw error
-    return { ok: true }
   } catch (err) {
     warn('addCustomerContact', err)
     return { ok: false }
@@ -351,21 +269,14 @@ export async function addCustomerContact(input: {
 }
 
 /** Recent contact attempts (newest first) — feeds the 対応中 snooze on the
- *  alert card + the monthly 対応→再来店 metric. Empty until migration applies. */
+ *  alert card + the monthly 対応→再来店 metric. */
 export async function listRecentContacts(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; contacted_at: string }>> {
   try {
-    const supabase = createServiceClient()
+    const synqed = await getSynqedClient()
     const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString()
-    return await pageAll<{ customer_id: string; contacted_at: string }>((from, to) =>
-      supabase
-        .from('customer_contacts')
-        .select('customer_id, contacted_at')
-        .gte('contacted_at', since)
-        .order('contacted_at', { ascending: false })
-        .range(from, to),
-    )
+    return await synqed.packs.listRecentContacts(since)
   } catch (err) {
     warn('listRecentContacts', err)
     return []
@@ -373,27 +284,14 @@ export async function listRecentContacts(
 }
 
 /** Redemptions in the last N days — feeds the 未処理来店 reconciler's
- *  "was this visit ticked off?" check. Paginated; empty until data exists. */
+ *  "was this visit ticked off?" check. */
 export async function listRecentRedemptions(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> {
   try {
-    const supabase = createServiceClient()
-    const since = new Date(Date.now() - sinceDays * 86_400_000)
-      .toISOString()
-      .slice(0, 10)
-    return await pageAll<{
-      customer_id: string
-      appointment_id: string | null
-      redeemed_on: string
-    }>((from, to) =>
-      supabase
-        .from('pack_redemptions')
-        .select('customer_id, appointment_id, redeemed_on')
-        .gte('redeemed_on', since)
-        .order('redeemed_on')
-        .range(from, to),
-    )
+    const synqed = await getSynqedClient()
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString().slice(0, 10)
+    return await synqed.packs.listRecentRedemptions(since)
   } catch (err) {
     warn('listRecentRedemptions', err)
     return []
@@ -401,7 +299,7 @@ export async function listRecentRedemptions(
 }
 
 /** 来店なし answer for a flagged 未処理来店 — stops the reconcile row from
- *  re-surfacing. Any staff; audit-trailed. No-op until migration applies. */
+ *  re-surfacing. Any staff; audit-trailed. */
 export async function addVisitReconcileDismissal(input: {
   customerId: string
   appointmentId?: string | null
@@ -410,44 +308,28 @@ export async function addVisitReconcileDismissal(input: {
   reason?: string | null
 }): Promise<{ ok: boolean }> {
   try {
-    const supabase = createServiceClient()
-    const { error } = await supabase.from('visit_reconcile_dismissals').insert({
+    const synqed = await getSynqedClient()
+    return await synqed.packs.addVisitDismissal({
       customer_id: input.customerId,
       appointment_id: input.appointmentId ?? null,
       visit_day: input.visitDay,
       dismissed_by: input.dismissedBy,
       reason: input.reason ?? null,
     })
-    if (error) throw error
-    return { ok: true }
   } catch (err) {
     warn('addVisitReconcileDismissal', err)
     return { ok: false }
   }
 }
 
-/** Recent 来店なし dismissals — the reconcile detector excludes these visits.
- *  Empty until migration applies. */
+/** Recent 来店なし dismissals — the reconcile detector excludes these visits. */
 export async function listVisitReconcileDismissals(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; appointment_id: string | null; visit_day: string }>> {
   try {
-    const supabase = createServiceClient()
-    const since = new Date(Date.now() - sinceDays * 86_400_000)
-      .toISOString()
-      .slice(0, 10)
-    return await pageAll<{
-      customer_id: string
-      appointment_id: string | null
-      visit_day: string
-    }>((from, to) =>
-      supabase
-        .from('visit_reconcile_dismissals')
-        .select('customer_id, appointment_id, visit_day')
-        .gte('visit_day', since)
-        .order('visit_day')
-        .range(from, to),
-    )
+    const synqed = await getSynqedClient()
+    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString().slice(0, 10)
+    return await synqed.packs.listVisitDismissals(since)
   } catch (err) {
     warn('listVisitReconcileDismissals', err)
     return []
@@ -459,14 +341,8 @@ export async function getCustomerLifecycle(
 ): Promise<CustomerLifecycle | null> {
   if (!customerId) return null
   try {
-    const supabase = createServiceClient()
-    const { data, error } = await supabase
-      .from('customer_lifecycle')
-      .select('customer_id, status, referral')
-      .eq('customer_id', customerId)
-      .maybeSingle()
-    if (error) throw error
-    return (data as CustomerLifecycle | null) ?? null
+    const synqed = await getSynqedClient()
+    return (await synqed.packs.getLifecycle(customerId)) as CustomerLifecycle | null
   } catch (err) {
     warn('getCustomerLifecycle', err)
     return null
@@ -481,32 +357,16 @@ export async function setCustomerLifecycle(
   reason?: string | null,
 ): Promise<{ ok: boolean }> {
   try {
-    const supabase = createServiceClient()
-    // status_changed_at is the churn-model LABEL DATE — written only on an
-    // actual status transition (a blind upsert would overwrite it on every
-    // referral toggle and destroy the history).
-    const { data: existing } = await supabase
-      .from('customer_lifecycle')
-      .select('status')
-      .eq('customer_id', customerId)
-      .maybeSingle()
-    const statusChanged =
-      (existing as { status?: string } | null)?.status !== status
-    const { error } = await supabase.from('customer_lifecycle').upsert({
+    // status_changed_at (the churn-model LABEL DATE) is written server-side only
+    // on an actual status transition — core handles that in setLifecycle.
+    const synqed = await getSynqedClient()
+    return await synqed.packs.setLifecycle({
       customer_id: customerId,
       status,
       referral,
       updated_by: updatedBy ?? null,
-      updated_at: new Date().toISOString(),
-      ...(statusChanged
-        ? {
-            status_changed_at: new Date().toISOString(),
-            reason: reason ?? null,
-          }
-        : {}),
+      reason: reason ?? null,
     })
-    if (error) throw error
-    return { ok: true }
   } catch (err) {
     warn('setCustomerLifecycle', err)
     return { ok: false }
