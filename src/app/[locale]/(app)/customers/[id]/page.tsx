@@ -4,7 +4,6 @@ import { getCustomer } from '@/lib/customers/queries'
 import { computeAge, jpGender, isBirthdayMonth } from '@/lib/customers/demographics'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
-import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
@@ -61,11 +60,8 @@ export default async function CustomerProfilePage({
   if (!customer) notFound()
 
   // Fetch supporting data in parallel: contact (cached), staff list (cached),
-  // karute_records for the customer, and photos.
+  // karute sessions (from synqed-core), and photos.
   const businessId = await getBusinessId()
-  const service = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = service as any
 
   // Also fetch the full tenant customer list for the karute-number
   // helper (it prefers the persisted customers.karute_number and only
@@ -73,19 +69,10 @@ export default async function CustomerProfilePage({
   // consistent with the list page.
   const synqed = await getSynqedClient()
 
-  const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
+  const [contact, staffList, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
     await Promise.all([
       getCustomerContact(id),
       getStaffList(),
-      sb
-        .from('karute_records')
-        .select(
-          'id, session_date, created_at, summary, staff_profile_id, customer_id, client_id, entries(count)',
-        )
-        .eq('customer_id', businessId)
-        .eq('client_id', id)
-        .order('session_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false }),
       listCustomerPhotos(id).catch(() => ({
         photos: [] as Array<{
           id: string
@@ -97,9 +84,8 @@ export default async function CustomerProfilePage({
       // Page to completion so an overflow customer (#500+) still resolves its
       // karute number + name here instead of falling back to #00000.
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
-      // synqed-core is the authoritative karute store; the Supabase query above
-      // is effectively empty. Union both so this customer's synqed-written
-      // sessions appear in their history.
+      // synqed-core is the sole karute store (the Supabase karute_records table
+      // is empty and being dropped).
       listSynqedKaruteRows(synqed, { customerId: id }),
       // 担当 fallback: the booking's staff when this customer has no 指名
       // (assigned_staff_id) — QR-synced customers never do. Same source as the
@@ -117,10 +103,8 @@ export default async function CustomerProfilePage({
     service?: string | null
     duration_minutes?: number | null
   }
-  const karuteRecords = mergeKaruteRows<KaruteRow>(
-    (karuteRes.data ?? []) as KaruteRow[],
-    synqedKaruteRows,
-  )
+  // mergeKaruteRows still gives the sort + cap; no Supabase side to union now.
+  const karuteRecords = mergeKaruteRows<KaruteRow>([], synqedKaruteRows)
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )

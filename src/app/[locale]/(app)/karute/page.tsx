@@ -1,8 +1,4 @@
-import {
-  getBusinessId,
-  getCurrentUserStaffId,
-  getStaffList,
-} from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
@@ -38,10 +34,6 @@ import type {
  * salon-treatment context.
  */
 export default async function KaruteRecordsListPage() {
-  const supabase = await createClient()
-  const businessId = await getBusinessId()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
   const synqed = await getSynqedClient()
 
   // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
@@ -54,7 +46,6 @@ export default async function KaruteRecordsListPage() {
   const nowMs = new Date().getTime()
 
   const [
-    recordsRes,
     staffList,
     allCustomersList,
     currentStaffId,
@@ -62,15 +53,6 @@ export default async function KaruteRecordsListPage() {
     apptList,
     synqedStaff,
   ] = await Promise.all([
-      sb
-        .from('karute_records')
-        .select(
-          'id, session_date, created_at, summary, transcript, staff_profile_id, client_id, entries(count)',
-        )
-        .eq('customer_id', businessId)
-        .order('session_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(200),
       getStaffList(),
       // Page to completion so カルテ rows + placeholder rows resolve for every
       // customer, not just the first 500 (server clamps page_size at 500).
@@ -82,8 +64,8 @@ export default async function KaruteRecordsListPage() {
       // karute store filter (synqed-core #18).
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       getCurrentUserStaffId(),
-      // synqed-core is the authoritative karute store; the Supabase query above
-      // is effectively empty. Union both so synqed-written karute appear here.
+      // synqed-core is the sole karute store (the Supabase karute_records table
+      // is empty and being dropped).
       listSynqedKaruteRows(synqed),
       // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
       // staff roster — resolve each placeholder customer's 担当 from their
@@ -108,10 +90,9 @@ export default async function KaruteRecordsListPage() {
     duration_minutes?: number | null
   }
 
-  const records = mergeKaruteRows<RecordRow>(
-    (recordsRes.data ?? []) as RecordRow[],
-    synqedKaruteRows,
-  )
+  // mergeKaruteRows still gives us the sort (session_date ?? created_at desc) +
+  // 200-cap; there's no longer a Supabase side to union in.
+  const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows)
 
   // Build lookup maps
   const staffNameById = new Map(
@@ -303,7 +284,3 @@ export default async function KaruteRecordsListPage() {
     />
   )
 }
-
-// Local createClient import — avoids re-resolving via the top-level
-// import dance that depends on cookies()
-import { createClient } from '@/lib/supabase/server'
