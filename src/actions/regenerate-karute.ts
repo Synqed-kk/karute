@@ -50,12 +50,9 @@ export interface RegenerateResult {
  *   - Concurrency: two simultaneous runs (two tabs/devices) can each delete only
  *     their own snapshot and leave duplicates. A per-record lock / version check
  *     belongs in synqed-core.
- *   - Store split: entries are written to synqed-core. The detail page reads via
- *     getKaruteRecord, which is Supabase-primary and only falls back to synqed on
- *     PGRST116 (record absent from Supabase). Recording-flow records are
- *     synqed-only, so the refresh reflects the change; a legacy record that ALSO
- *     lives in Supabase would show stale entries after a "successful" regenerate.
- *     The durable fix is making entry reads synqed-authoritative.
+ *   - Entries are written to AND read from synqed-core — getKaruteRecord is
+ *     synqed-authoritative — so a successful regenerate always reflects the
+ *     change on the detail page.
  */
 export async function regenerateKaruteEntries(
   karuteRecordId: string,
