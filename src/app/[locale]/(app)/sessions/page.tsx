@@ -308,8 +308,11 @@ export default async function SessionsPage({
   // karute history + visit count produced here.
   // Karute history is fetched up to 10 so the pre-session brief can read the
   // customer's full arc (trajectory across sessions); the "recent recordings"
-  // card below slices 5. Each read keeps its own failure fallback so one
-  // hiccup never blanks the page (same posture as before the parallelisation).
+  // card below slices 5. Error posture is unchanged from before the
+  // parallelisation: getCustomer + getCustomerConsent keep their own
+  // .catch(() => null); getCustomerKaruteRecords + listCustomerPacks swallow
+  // errors internally and return [], so the Promise.all can't reject and a
+  // hiccup never blanks the page.
   const targetCustomerId = nextAppointment?.customerId ?? null
   const [customerKarute, targetCustomer, consentOnFile, targetPacks]: [
     KaruteRecord[],
