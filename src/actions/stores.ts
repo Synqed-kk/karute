@@ -8,6 +8,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
 import { loadEntitlement } from '@/lib/entitlements'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
 
 // Active-store view filter — which location the viewer is looking at. A cookie,
 // not a security boundary (RLS/business scope is the boundary); the owner switch
@@ -147,6 +148,19 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
     await synqed.stores.get(storeId)
   } catch {
     return { error: 'Store not found.' }
+  }
+
+  // RBAC clamp: a branch-restricted staff (no stores.viewAll) may only pin a
+  // store they're assigned to — otherwise the cookie would be a back door around
+  // the store-scoped reads (lib/auth/store-scope). Cross-store roles and floating
+  // staff (empty staff_stores = works everywhere) are unaffected.
+  const caps = await getMyCapabilities()
+  if (!caps.has('stores.viewAll')) {
+    const uid = await getCurrentUserStaffId()
+    const allowed = uid ? await getStaffStores(uid) : []
+    if (allowed.length > 0 && !allowed.includes(storeId)) {
+      return { error: 'You can only view a store you are assigned to.' }
+    }
   }
 
   const jar = await cookies()

@@ -44,6 +44,15 @@ describe('RBAC permission model', () => {
     expect(ROLE_PRESETS.custom).toEqual([])
   })
 
+  it('cross-store visibility (stores.viewAll): owner/manager/SV yes, regular staff no', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('stores.viewAll')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('stores.viewAll')).toBe(true)
+    expect(new Set(ROLE_PRESETS.senior).has('stores.viewAll')).toBe(true)
+    // Branch-restricted by default — they get clamped to their staff_stores.
+    expect(new Set(ROLE_PRESETS.practitioner).has('stores.viewAll')).toBe(false)
+    expect(new Set(ROLE_PRESETS.frontdesk).has('stores.viewAll')).toBe(false)
+  })
+
   it('an explicit override replaces the preset (the toggle mechanism)', () => {
     const caps = effectiveCapabilities('frontdesk', ['billing.manage'])
     expect(can(caps, 'billing.manage')).toBe(true) // granted explicitly

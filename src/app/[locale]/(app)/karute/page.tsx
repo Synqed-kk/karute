@@ -3,7 +3,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -35,13 +35,17 @@ import type {
  * salon-treatment context.
  */
 export default async function KaruteRecordsListPage() {
-  // Active store = the view lens for the カルテ list (same cookie the 顧客 list
-  // reads). getActiveStoreId is a cookie read; resolve alongside the client.
-  // null = all/primary stores → no scoping.
-  const [synqed, activeStore] = await Promise.all([
+  // Store scope = the view lens for the カルテ list. A cross-store viewer gets
+  // their pinned store (null = all); a branch-restricted staff is clamped to
+  // their own store (RBAC). `clamped` = the viewer may see ONLY their store, so
+  // the customer name-map + picker are scoped too (no cross-store name leak);
+  // cross-store viewers keep them business-wide for walk-in karute creation.
+  const [synqed, scope] = await Promise.all([
     getSynqedClient(),
-    getActiveStoreId(),
+    resolveStoreScope(),
   ])
+  const activeStore = scope.storeId
+  const clamped = scope.allowedStoreIds != null
 
   // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
   // each appointment, but customer.assigned_staff_id (a separate "preferred
@@ -63,19 +67,25 @@ export default async function KaruteRecordsListPage() {
   ] = await Promise.all([
       getStaffList(),
       // Page to completion so カルテ rows + placeholder rows resolve for every
-      // customer, not just the first 500 (server clamps page_size at 500).
-      // Business-wide (NOT store-scoped) ON PURPOSE: it backs record-name
-      // enrichment AND the New カルテ dialog's customer picker (client-side
-      // filter) — scoping it would blank cross-store records' names and block
-      // creating a karute for another store's walk-in. The store lens is
-      // applied to the RECORDS (storeId below) and to the placeholder roster
-      // (storeCustomerList), not to this list.
-      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      // customer, not just the first 500 (server clamps page_size at 500). This
+      // backs record-name enrichment AND the New カルテ dialog's customer picker.
+      // Cross-store viewers load it BUSINESS-WIDE (so names resolve + a karute
+      // can be created for another store's walk-in); a branch-restricted staff
+      // loads it SCOPED to their store (no cross-store names/customers leak).
+      clamped
+        ? listAllCustomers(synqed, {
+            store_id: activeStore,
+            enforceStore: true,
+            sort_by: 'created_at',
+            sort_order: 'asc',
+          })
+        : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
       // Store-scoped customer roster — ONLY to scope the "新規のお客様"
-      // placeholder section to the active branch (a customer "belongs to" a
-      // store via events; see listAllCustomers). null when no store is active
-      // (all/primary view) → placeholders stay business-wide.
-      activeStore
+      // placeholder section to the active branch for a CROSS-STORE viewer who
+      // has pinned a store (a customer "belongs to" a store via events; see
+      // listAllCustomers). null when unpinned, or when clamped (the list above
+      // is already store-scoped, so its customers ARE the placeholder roster).
+      !clamped && activeStore
         ? listAllCustomers(synqed, {
             store_id: activeStore,
             sort_by: 'created_at',
@@ -228,10 +238,10 @@ export default async function KaruteRecordsListPage() {
   // place. (Previously /karute/customer/[id], a near-duplicate of the hub that
   // the spike never had — removed for a predictable 2-page nav.)
   // Sorted newest-customer-first so the most recent signups bubble up.
-  // When a store is active, restrict the placeholder roster to customers who
-  // belong to that branch (store-scoped list above) so the "新規のお客様"
-  // section follows the same lens as the records. null = no store active →
-  // every recordless customer is a placeholder (unchanged business-wide view).
+  // Restrict the placeholder roster to the active branch so "新規のお客様"
+  // follows the same lens as the records. For a cross-store viewer with a pinned
+  // store, storeCustomerList carries that branch's members; null otherwise (no
+  // pin → business-wide, OR clamped → allCustomersList is already store-scoped).
   const storeCustomerIds = storeCustomerList
     ? new Set(storeCustomerList.customers.map((c) => c.id))
     : null
