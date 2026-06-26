@@ -30,6 +30,14 @@ jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn(() => ({ karuteRecords, appointments, staff })),
 }))
 
+// enrichCustomers now wraps its three source reads in unstable_cache (keyed by
+// businessId). Pass it through so every case re-reads the per-test `scenario`
+// fresh — without this the shared 'biz-1' key would serve the first case's rows
+// to all the rest. Mirrors the sibling cache tests (dashboard-cached, booking-flow…).
+jest.mock('next/cache', () => ({
+  unstable_cache: (fn: (...args: unknown[]) => unknown) => fn,
+}))
+
 import {
   enrichCustomers,
   deriveStatus,
