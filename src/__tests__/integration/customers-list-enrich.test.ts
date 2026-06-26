@@ -11,23 +11,27 @@
 process.env.SYNQED_CORE_URL = 'http://synqed.test'
 process.env.SYNQED_CORE_API_KEY = 'test-key'
 
-// Staged synqed rows, read lazily inside the mocked client so individual
-// tests can set them. Shapes mirror @synqed-kk/client (customer_id, etc.).
-const scenario: {
-  karute: Array<{ customer_id: string; created_at: string }>
-  appts: Array<{ customer_id: string; starts_at: string; title?: string | null }>
-} = { karute: [], appts: [] }
-
-const karuteRecords = { list: jest.fn(async () => ({ karute_records: scenario.karute })) }
-const appointments = { list: jest.fn(async () => ({ appointments: scenario.appts })) }
-// list-enrich resolves the booking's 担当 via staff.list (added in 90f60ad);
-// these tests don't assert staff names, so an empty roster is sufficient.
-const staff = {
-  list: jest.fn(async () => ({ staff: [] as Array<{ id: string; user_id: string | null }> })),
+// Staged enrichment rows, read lazily inside the mocked customers.enrichment()
+// so individual tests can set them. Shape mirrors @synqed-kk/client's
+// CustomerEnrichment (snake_case). The per-customer aggregation logic itself
+// (last visit, visit counts, 担当, past/future split) now lives in synqed-core's
+// GET /v1/customers/enrichment SQL — enrichCustomers just maps + defaults here.
+type EnrichRow = {
+  customer_id: string
+  total_karute: number
+  last_visit: string | null
+  first_visit: string | null
+  past_appointment_count: number
+  last_visit_service: string | null
+  booking_staff_id: string | null
+  next_appointment: string | null
+  dated_visit_count: number
 }
+let enrichmentRows: EnrichRow[] = []
+const customers = { enrichment: jest.fn(async () => enrichmentRows) }
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn(() => ({ karuteRecords, appointments, staff })),
+  SynqedClient: jest.fn(() => ({ customers })),
 }))
 
 // enrichCustomers now wraps its three source reads in unstable_cache (keyed by
@@ -52,43 +56,48 @@ import {
 } from '@/lib/customers/list-enrich'
 
 beforeEach(() => {
-  scenario.karute = []
-  scenario.appts = []
+  enrichmentRows = []
+  customers.enrichment.mockClear()
 })
 
 const DAY = 86_400_000
 
 describe('enrichCustomers', () => {
-  it('returns an empty map without querying when no customer ids are given', async () => {
+  it('returns an empty map without calling core when no ids are given', async () => {
     const map = await enrichCustomers('biz-1', [])
     expect(map.size).toBe(0)
+    expect(customers.enrichment).not.toHaveBeenCalled()
   })
 
-  it('counts karute per customer and uses the latest created_at as last visit', async () => {
-    scenario.karute = [
-      { customer_id: 'a', created_at: '2026-01-02T00:00:00Z' },
-      { customer_id: 'a', created_at: '2026-03-02T00:00:00Z' },
-      { customer_id: 'b', created_at: '2026-02-02T00:00:00Z' },
-    ]
-    const map = await enrichCustomers('biz-1', ['a', 'b'])
-    expect(map.get('a')).toMatchObject({
-      totalKarute: 2,
-      lastVisitIso: '2026-03-02T00:00:00Z',
-    })
-    expect(map.get('b')).toMatchObject({ totalKarute: 1, lastVisitIso: '2026-02-02T00:00:00Z' })
-  })
-
-  it('only buckets karute whose customer_id is in the requested set', async () => {
-    scenario.karute = [
-      { customer_id: 'a', created_at: '2026-04-01T00:00:00Z' },
-      { customer_id: 'z', created_at: '2026-05-01T00:00:00Z' }, // not requested
+  it('maps the aggregated rows (snake_case → camelCase) for requested ids', async () => {
+    enrichmentRows = [
+      {
+        customer_id: 'a',
+        total_karute: 2,
+        last_visit: '2026-03-02T00:00:00Z',
+        first_visit: '2026-01-02T00:00:00Z',
+        past_appointment_count: 3,
+        last_visit_service: 'カット+カラー',
+        booking_staff_id: 'staff-1',
+        next_appointment: '2026-07-01T00:00:00Z',
+        dated_visit_count: 5,
+      },
     ]
     const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.totalKarute).toBe(1)
-    expect(map.has('z')).toBe(false)
+    expect(map.get('a')).toEqual({
+      totalKarute: 2,
+      lastVisitIso: '2026-03-02T00:00:00Z',
+      firstVisitIso: '2026-01-02T00:00:00Z',
+      pastAppointmentCount: 3,
+      lastVisitService: 'カット+カラー',
+      bookingStaffId: 'staff-1',
+      nextAppointmentIso: '2026-07-01T00:00:00Z',
+      datedVisitCount: 5,
+    })
   })
 
-  it('produces a zeroed entry for every requested id even with no records', async () => {
+  it('returns a zeroed entry for every requested id with no core data', async () => {
+    enrichmentRows = []
     const map = await enrichCustomers('biz-1', ['a', 'b'])
     expect(map.size).toBe(2)
     expect(map.get('a')).toEqual({
@@ -103,81 +112,18 @@ describe('enrichCustomers', () => {
     })
   })
 
-  it('falls back to appointment starts_at for last visit when there is no karute', async () => {
-    const past = new Date(Date.now() - 5 * DAY).toISOString()
-    const older = new Date(Date.now() - 50 * DAY).toISOString()
-    scenario.appts = [
-      { customer_id: 'a', starts_at: older },
-      { customer_id: 'a', starts_at: past },
+  it('includes only requested ids — a core row for another customer is ignored', async () => {
+    const base = {
+      total_karute: 0, last_visit: null, first_visit: null, past_appointment_count: 0,
+      last_visit_service: null, booking_staff_id: null, next_appointment: null, dated_visit_count: 0,
+    }
+    enrichmentRows = [
+      { ...base, customer_id: 'a', total_karute: 1, dated_visit_count: 1 },
+      { ...base, customer_id: 'z', total_karute: 9, dated_visit_count: 9 },
     ]
     const map = await enrichCustomers('biz-1', ['a'])
-    // Latest of the two appointment times.
-    expect(map.get('a')?.lastVisitIso).toBe(past)
-  })
-
-  it('reconciles firstVisitIso (earliest dated) + datedVisitCount across karute and past appointments', async () => {
-    const future = new Date(Date.now() + 3 * DAY).toISOString()
-    scenario.karute = [{ customer_id: 'a', created_at: '2025-03-10T00:00:00Z' }]
-    scenario.appts = [
-      { customer_id: 'a', starts_at: '2024-11-02T00:00:00Z' }, // earliest dated visit
-      { customer_id: 'a', starts_at: '2025-06-01T00:00:00Z' },
-      { customer_id: 'a', starts_at: future }, // future → not a dated past visit
-    ]
-    const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.firstVisitIso).toBe('2024-11-02T00:00:00Z')
-    // 1 karute + 2 PAST appointments (the future one is excluded).
-    expect(map.get('a')?.datedVisitCount).toBe(3)
-  })
-
-  it('prefers karute over appointments for last-visit even when an appointment is newer', async () => {
-    const newerAppt = new Date(Date.now() + 10 * DAY).toISOString()
-    scenario.karute = [{ customer_id: 'a', created_at: '2026-01-01T00:00:00Z' }]
-    scenario.appts = [{ customer_id: 'a', starts_at: newerAppt }]
-    const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.lastVisitIso).toBe('2026-01-01T00:00:00Z')
-  })
-
-  it('counts only appointments that started before now as past appointments', async () => {
-    const past1 = new Date(Date.now() - 2 * DAY).toISOString()
-    const past2 = new Date(Date.now() - 1 * DAY).toISOString()
-    const future = new Date(Date.now() + 2 * DAY).toISOString()
-    scenario.appts = [
-      { customer_id: 'a', starts_at: past1 },
-      { customer_id: 'a', starts_at: past2 },
-      { customer_id: 'a', starts_at: future },
-    ]
-    const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.pastAppointmentCount).toBe(2)
-  })
-
-  it('reports zero past appointments for a genuinely first-time customer (future booking only)', async () => {
-    const future = new Date(Date.now() + 3 * DAY).toISOString()
-    scenario.appts = [{ customer_id: 'a', starts_at: future }]
-    const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.pastAppointmentCount).toBe(0)
-    expect(map.get('a')?.totalKarute).toBe(0)
-  })
-
-  it('captures the latest PAST appointment title as the last-visit service, ignoring future', async () => {
-    const past1 = new Date(Date.now() - 10 * DAY).toISOString()
-    const past2 = new Date(Date.now() - 2 * DAY).toISOString()
-    const future = new Date(Date.now() + 5 * DAY).toISOString()
-    scenario.appts = [
-      { customer_id: 'a', starts_at: past1, title: 'カット' },
-      { customer_id: 'a', starts_at: past2, title: 'カット+カラー' },
-      { customer_id: 'a', starts_at: future, title: '未来の予約' },
-    ]
-    const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.lastVisitService).toBe('カット+カラー')
-    // The future booking is never treated as the last visit (前回).
-    expect(map.get('a')?.lastVisitIso).toBe(past2)
-  })
-
-  it('last-visit service is null when the only appointment is in the future', async () => {
-    const future = new Date(Date.now() + 3 * DAY).toISOString()
-    scenario.appts = [{ customer_id: 'a', starts_at: future, title: 'カット' }]
-    const map = await enrichCustomers('biz-1', ['a'])
-    expect(map.get('a')?.lastVisitService).toBeNull()
+    expect(map.get('a')?.totalKarute).toBe(1)
+    expect(map.has('z')).toBe(false)
   })
 })
 
