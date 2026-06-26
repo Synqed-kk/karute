@@ -47,76 +47,56 @@ export interface CustomerEnrichment {
   datedVisitCount: number
 }
 
-// ─── Cached enrichment source ────────────────────────────────────────────────
-// The three whole-tenant reads here (karute records + appointments + staff) are
-// the ENTIRE wall-clock cost of enrichCustomers — each paginates the tenant to
-// completion (synqed caps page_size at 200; up to 5,000 rows). They depend ONLY
-// on businessId (no per-customer filter), so they're cached per tenant and shared
-// across every surface that enriches a customer list (顧客 list, 顧客 profile, 予約
-// agenda, pack alerts, the notification feed). The per-customer bucketing AND the
-// now()-based past/future split stay OUTSIDE this cache (in enrichCustomers
-// below), so caching can never freeze "now".
+// ─── Cached enrichment (one aggregate call) ──────────────────────────────────
+// The per-customer list badges are now computed by a SINGLE server-side SQL
+// aggregation in synqed-core (GET /v1/customers/enrichment): last visit, visit
+// counts, next booking, 担当 — grouped by customer for the whole business. This
+// replaces the old whole-tenant crawl (downloading karute + appointments + staff
+// page by page, up to 5,000 rows each, then bucketing in JS), which was the
+// wall-clock floor on the customer list / profile / 予約 / dashboard / notifs.
 //
-// 60s TTL + the tags the mutations ACTUALLY fire: 'dashboard' (booking + karute
-// create/update/cancel — actions/appointments.ts + actions/karute.ts) and
-// 'staff-list' (staff changes). A CUSTOMER create deliberately does NOT bust this:
-// a brand-new customer has no karute/appointment rows in these reads, and the
-// bucketing below already yields an empty enrichment for any id it doesn't find.
-// Returns null on missing SYNQED env so enrichCustomers degrades to an empty map,
-// exactly as the inline reads did before.
-const enrichmentSourceByBusiness = unstable_cache(
-  async (businessId: string) => {
+// Cached per tenant (60s) + the same tags the mutations fire ('dashboard',
+// 'staff-list'); a CUSTOMER create doesn't bust it (a new customer has no rows,
+// and missing ids default to EMPTY below). Empty map on missing SYNQED env,
+// exactly as before. Note: the now()-based past/future split is now computed
+// server-side per fetch and shares the 60s cache window — a negligible boundary
+// staleness (bookings are hours/days apart), same TTL the source data had.
+const enrichmentByBusiness = unstable_cache(
+  async (businessId: string): Promise<Map<string, CustomerEnrichment>> => {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) return null
+    const map = new Map<string, CustomerEnrichment>()
+    if (!baseUrl || !apiKey) return map
     const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
-
-    // One paginator for all three lists. Loops until a short page; if it ever
-    // hits MAX_PAGES it WARNS instead of silently truncating (so a future giant
-    // tenant surfaces the limit rather than quietly undercounting — the very bug
-    // this enrichment was added to fix). Staff is paginated too: an unpaginated
-    // 200-cap there would leave profileByStaffId incomplete and mis-map names.
-    const PAGE_SIZE = 200
-    const MAX_PAGES = 25 // safety guard: 25 × 200 = 5,000 rows/tenant
-    async function fetchAllPages<T>(
-      label: string,
-      pick: (res: unknown) => T[],
-      fetchPage: (page: number) => Promise<unknown>,
-    ): Promise<T[]> {
-      const out: T[] = []
-      for (let page = 1; page <= MAX_PAGES; page++) {
-        const batch = pick(await fetchPage(page))
-        out.push(...batch)
-        if (batch.length < PAGE_SIZE) return out
-      }
-      console.warn(
-        `[enrichCustomers] ${label}: hit MAX_PAGES (${MAX_PAGES}) — results may be truncated for a very large tenant; raise the cap or add a server-side filter.`,
-      )
-      return out
+    const rows = await synqed.customers.enrichment()
+    for (const r of rows) {
+      map.set(r.customer_id, {
+        totalKarute: r.total_karute,
+        lastVisitIso: r.last_visit,
+        pastAppointmentCount: r.past_appointment_count,
+        lastVisitService: r.last_visit_service,
+        bookingStaffId: r.booking_staff_id,
+        nextAppointmentIso: r.next_appointment,
+        firstVisitIso: r.first_visit,
+        datedVisitCount: r.dated_visit_count,
+      })
     }
-
-    const [karuteRecordsAll, appointmentsAll, staffAll] = await Promise.all([
-      fetchAllPages(
-        'karute',
-        (r) => (r as Awaited<ReturnType<typeof synqed.karuteRecords.list>>).karute_records,
-        (page) => synqed.karuteRecords.list({ page, page_size: PAGE_SIZE }),
-      ),
-      fetchAllPages(
-        'appointments',
-        (r) => (r as Awaited<ReturnType<typeof synqed.appointments.list>>).appointments,
-        (page) => synqed.appointments.list({ page, page_size: PAGE_SIZE }),
-      ),
-      fetchAllPages(
-        'staff',
-        (r) => (r as Awaited<ReturnType<typeof synqed.staff.list>>).staff,
-        (page) => synqed.staff.list({ page, page_size: PAGE_SIZE }),
-      ),
-    ])
-    return { karuteRecordsAll, appointmentsAll, staffAll }
+    return map
   },
-  ['customer-enrichment-source-v1'],
+  ['customer-enrichment-v2'],
   { revalidate: 60, tags: ['dashboard', 'staff-list'] },
 )
+
+const EMPTY_ENRICHMENT: CustomerEnrichment = {
+  totalKarute: 0,
+  lastVisitIso: null,
+  pastAppointmentCount: 0,
+  lastVisitService: null,
+  bookingStaffId: null,
+  nextAppointmentIso: null,
+  firstVisitIso: null,
+  datedVisitCount: 0,
+}
 
 export async function enrichCustomers(
   businessId: string,
@@ -125,117 +105,12 @@ export async function enrichCustomers(
   const map = new Map<string, CustomerEnrichment>()
   if (customerIds.length === 0) return map
 
-  // Whole-tenant karute + appointments + staff, cached per tenant (see
-  // enrichmentSourceByBusiness above). Bucketed by the person (synqed
-  // `customer_id`); the legacy Supabase karute_records table is empty
-  // post-migration, which is why the list previously showed 0 karute for
-  // everyone. null only when SYNQED env is missing → empty map, exactly as the
-  // inline reads degraded before.
-  const source = await enrichmentSourceByBusiness(businessId)
-  if (!source) return map
-  const { karuteRecordsAll, appointmentsAll, staffAll } = source
-
-  const idSet = new Set(customerIds)
-
-  // synqed staff id → profile id (= staff.user_id). Appointments are keyed by
-  // the synqed staff id, but the rest of the app keys staff off the profile id,
-  // so translate at the boundary (mirrors getAppointmentsByDate). Profile-less
-  // synqed staff fall back to their synqed id — same as getStaffList ids them.
-  const profileByStaffId = new Map(
-    staffAll
-      .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
-      .map((s) => [s.id, s.user_id]),
-  )
-
-  type KaruteRow = { client_id: string; session_date: string | null; created_at: string }
-  type ApptRow = { client_id: string; start_time: string; title: string | null; staff_id: string | null }
-
-  const karuteByClient = new Map<string, KaruteRow[]>()
-  for (const r of karuteRecordsAll) {
-    if (!r.customer_id || !idSet.has(r.customer_id)) continue
-    const arr = karuteByClient.get(r.customer_id) ?? []
-    arr.push({ client_id: r.customer_id, session_date: r.created_at, created_at: r.created_at })
-    karuteByClient.set(r.customer_id, arr)
-  }
-
-  const apptByClient = new Map<string, ApptRow[]>()
-  for (const a of appointmentsAll) {
-    if (!a.customer_id || !idSet.has(a.customer_id)) continue
-    // A CANCELLED booking is not a visit: exclude it so it can't inflate the
-    // visit count, shrink the average interval, or fake a 次回予約あり. The QR
-    // sync newly produces CANCELLED rows, which this count never saw before.
-    if (a.status === 'CANCELLED') continue
-    const arr = apptByClient.get(a.customer_id) ?? []
-    arr.push({ client_id: a.customer_id, start_time: a.starts_at, title: a.title ?? null, staff_id: a.staff_id ?? null })
-    apptByClient.set(a.customer_id, arr)
-  }
-
-  const nowIso = new Date().toISOString()
+  // One cached aggregate read for the whole business (see enrichmentByBusiness).
+  // Every requested id gets an entry — EMPTY for customers with no karute /
+  // appointment history — matching the old per-id bucketing's behaviour.
+  const all = await enrichmentByBusiness(businessId)
   for (const id of customerIds) {
-    const karute = karuteByClient.get(id) ?? []
-    const appts = apptByClient.get(id) ?? []
-    let lastVisitIso: string | null = null
-    // EARLIEST dated visit + how many dated visits we have — the reconciled
-    // bounds the 来店ペース interval is computed from. Karute records all carry
-    // a date, so each counts.
-    let firstVisitIso: string | null = null
-    let datedVisitCount = 0
-    for (const k of karute) {
-      const dt = k.session_date ?? k.created_at
-      if (!lastVisitIso || dt > lastVisitIso) lastVisitIso = dt
-      if (!firstVisitIso || dt < firstVisitIso) firstVisitIso = dt
-      datedVisitCount += 1
-    }
-    // Walk PAST appointments (started before now): count them ("they've been
-    // here before") and track the most recent one — its title is the last
-    // treatment they had. Future bookings are excluded so the QR sync's
-    // lookahead window can't mislabel an upcoming booking as 前回.
-    let lastApptIso: string | null = null
-    let lastVisitService: string | null = null
-    let pastAppointmentCount = 0
-    let firstApptIso: string | null = null
-    for (const a of appts) {
-      if (a.start_time >= nowIso) continue
-      pastAppointmentCount += 1
-      datedVisitCount += 1
-      if (!lastApptIso || a.start_time > lastApptIso) {
-        lastApptIso = a.start_time
-        lastVisitService = a.title
-      }
-      if (!firstApptIso || a.start_time < firstApptIso) firstApptIso = a.start_time
-    }
-    // Fall back to the past appointments when there's no karute yet (each side
-    // already walked its own series, so combine the extremes).
-    if (!lastVisitIso) lastVisitIso = lastApptIso
-    if (firstApptIso && (!firstVisitIso || firstApptIso < firstVisitIso)) {
-      firstVisitIso = firstApptIso
-    }
-    // 担当 = staff on the customer's most relevant booking: nearest upcoming,
-    // else most recent past. The QR sync never sets assigned_staff_id, so the
-    // booking is the only source of who's handling this customer. Translate the
-    // synqed staff id → profile id (the id the app's color/name maps key on).
-    let bookingStaffId: string | null = null
-    let nextAppointmentIso: string | null = null
-    {
-      const sorted = [...appts].sort((x, y) =>
-        x.start_time < y.start_time ? -1 : 1,
-      )
-      const upcoming = sorted.find((a) => a.start_time >= nowIso)
-      nextAppointmentIso = upcoming?.start_time ?? null
-      const chosen = upcoming ?? sorted[sorted.length - 1]
-      if (chosen?.staff_id)
-        bookingStaffId = profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id
-    }
-    map.set(id, {
-      totalKarute: karute.length,
-      lastVisitIso,
-      pastAppointmentCount,
-      lastVisitService,
-      bookingStaffId,
-      nextAppointmentIso,
-      firstVisitIso,
-      datedVisitCount,
-    })
+    map.set(id, all.get(id) ?? EMPTY_ENRICHMENT)
   }
 
   return map
