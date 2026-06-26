@@ -16,7 +16,7 @@ import {
   type AppointmentRow,
 } from '@/actions/appointments'
 import { getCustomerKaruteRecords } from '@/actions/karute'
-import { getAiPreSessionBrief } from '@/lib/karute/ai-brief'
+import { getAiPreSessionBrief, type PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
@@ -407,6 +407,13 @@ export default async function SessionsPage({
   // — never blocks the page. Both paths get targetVisitCount so a returning
   // customer with no synqed karute isn't flagged 新規.
   let brief: PreSessionBrief | null = null
+  // AI brief, streamed to the client and unwrapped with use() inside the brief
+  // card's Suspense boundary — so the page paints on the mechanical brief
+  // instantly instead of blocking on the gpt-4o call. .catch keeps a model/
+  // timeout failure from rejecting the streamed prop (it resolves to null and
+  // the card stays on the mechanical brief). Defaults to a resolved-null for the
+  // no-target path so the prop is always defined.
+  let aiBriefPromise: Promise<PreSessionBriefResult | null> = Promise.resolve(null)
   // The target's active 回数券 — drives the one-tap 消化 row in the post-session
   // outcome dialog (design #1). null when no pack / no sessions left.
   let targetPack: { id: string; remaining: number; size: number } | null = null
@@ -443,25 +450,29 @@ export default async function SessionsPage({
       hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
       karuteCount: customerKarute.length,
     })
-    // AI brief (richer, business-type-aware) with the mechanical fallback — the
-    // fallback now gets the unified returning signal so its 新規 framing agrees.
-    brief =
-      (await getAiPreSessionBrief({
-        customerId: nextAppointment.customerId,
-        customerName: targetCustomerName,
-        visitCount: targetVisitCount,
-        records: customerKarute,
-        reservationMemo: nextAppointment.notes,
-        locale,
-        now,
-      })) ??
-      buildPreSessionBriefFor(
-        customerKarute,
-        nextAppointment.notes,
-        now,
-        locale,
-        targetReturning,
-      )
+    // Mechanical brief — pure + instant. Drives the FIRST paint and every
+    // cross-cutting 新規 flag (the recording-target badge + the post-session
+    // dialog), so those are correct on frame one and never flip.
+    brief = buildPreSessionBriefFor(
+      customerKarute,
+      nextAppointment.notes,
+      now,
+      locale,
+      targetReturning,
+    )
+    // AI brief (richer, business-type-aware) — fired WITHOUT await. gpt-4o writes
+    // the memo analysis 兆候/期待/トーン/注意点 underneath while the page is already
+    // interactive; the brief card upgrades in place when it resolves. Resolves to
+    // null on no-signal/failure → the card simply stays on the mechanical brief.
+    aiBriefPromise = getAiPreSessionBrief({
+      customerId: nextAppointment.customerId,
+      customerName: targetCustomerName,
+      visitCount: targetVisitCount,
+      records: customerKarute,
+      reservationMemo: nextAppointment.notes,
+      locale,
+      now,
+    }).catch(() => null)
   }
 
   return (
@@ -471,6 +482,7 @@ export default async function SessionsPage({
       nextAppointment={nextAppointment}
       nearbyBookings={nearbyBookings}
       brief={brief}
+      aiBriefPromise={aiBriefPromise}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
       targetPack={targetPack}

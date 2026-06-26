@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { Suspense, use, useCallback, useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { toast } from 'sonner'
@@ -29,6 +29,9 @@ import {
   PreSessionBriefCard,
   type PreSessionBrief,
 } from './PreSessionBriefCard'
+// type-only: erased at compile time, so ai-brief.ts's `server-only` guard never
+// runs in this client module.
+import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
 import { ConsentPill } from './ConsentPill'
@@ -82,6 +85,10 @@ export interface RecordPageViewProps {
   nextAppointment: RecordPageNextAppointment | null
   nearbyBookings: RecordTargetBooking[]
   brief: PreSessionBrief | null
+  /** Un-awaited AI brief — streamed in; the brief card upgrades when it
+   *  resolves. Resolves to null when there's no target / the AI had no signal /
+   *  the AI call failed (the card then stays on the mechanical `brief`). */
+  aiBriefPromise: Promise<PreSessionBriefResult | null>
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
@@ -122,6 +129,7 @@ export function RecordPageView({
   nextAppointment,
   nearbyBookings,
   brief,
+  aiBriefPromise,
   recentRecordings,
   consentDate,
   targetPack = null,
@@ -590,10 +598,21 @@ export function RecordPageView({
             />
             {otherStaffBanner}
             <RepurchaseCueBanner pack={targetPack} />
-            <PreSessionBriefCard
-              brief={brief}
-              customerName={nextAppointment?.customerName ?? null}
-            />
+            <Suspense
+              key={nextAppointment?.customerId ?? 'none'}
+              fallback={
+                <PreSessionBriefCard
+                  brief={brief}
+                  customerName={nextAppointment?.customerName ?? null}
+                />
+              }
+            >
+              <StreamingBriefCard
+                aiBriefPromise={aiBriefPromise}
+                fallbackBrief={brief}
+                customerName={nextAppointment?.customerName ?? null}
+              />
+            </Suspense>
           </div>
           <div className="self-start">{recorderColumn}</div>
         </div>
@@ -606,10 +625,21 @@ export function RecordPageView({
           />
           {otherStaffBanner}
           <RepurchaseCueBanner pack={targetPack} />
-          <PreSessionBriefCard
-            brief={brief}
-            customerName={nextAppointment?.customerName ?? null}
-          />
+          <Suspense
+            key={nextAppointment?.customerId ?? 'none'}
+            fallback={
+              <PreSessionBriefCard
+                brief={brief}
+                customerName={nextAppointment?.customerName ?? null}
+              />
+            }
+          >
+            <StreamingBriefCard
+              aiBriefPromise={aiBriefPromise}
+              fallbackBrief={brief}
+              customerName={nextAppointment?.customerName ?? null}
+            />
+          </Suspense>
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>
       )}
@@ -798,4 +828,27 @@ function useElapsed(recState: string, startedAt: number | null): number {
 
 function pad2(n: number): string {
   return String(n).padStart(2, '0')
+}
+
+// Leaf that unwraps the streamed AI brief. use() suspends ONLY this child, so
+// the Suspense fallback (the mechanical card) shows while gpt-4o writes; when it
+// resolves the card swaps in the AI brief. It must stay a separate leaf — using
+// use() in RecordPageView's body would suspend the whole screen and unmount the
+// recorder/mic/elapsed timer mid-session. isFirstTimeVisit is pinned to the
+// mechanical value so the card's 新規-vs-returning framing can't flip a beat
+// after paint (the same signal the target badge + post-session dialog use).
+function StreamingBriefCard({
+  aiBriefPromise,
+  fallbackBrief,
+  customerName,
+}: {
+  aiBriefPromise: Promise<PreSessionBriefResult | null>
+  fallbackBrief: PreSessionBrief | null
+  customerName: string | null
+}) {
+  const ai = use(aiBriefPromise)
+  const merged: PreSessionBrief | null = ai
+    ? { ...ai, isFirstTimeVisit: fallbackBrief?.isFirstTimeVisit ?? ai.isFirstTimeVisit }
+    : fallbackBrief
+  return <PreSessionBriefCard brief={merged} customerName={customerName} />
 }
