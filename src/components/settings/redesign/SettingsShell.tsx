@@ -19,6 +19,7 @@ import {
   Ticket,
 } from 'lucide-react'
 import type { OrgSettings } from '@/actions/org-settings'
+import type { StoreRow } from '@/actions/stores'
 import type { StaffMember } from '@/lib/staff'
 import { OrganizationSection } from './sections/OrganizationSection'
 import { StoresSection } from './sections/StoresSection'
@@ -163,6 +164,10 @@ interface SettingsShellProps {
   activeStaffId: string | null
   locale: string
   isOwner: boolean
+  /** Stores fetched on the server, passed straight to StoresSection so its
+   *  list renders complete on first paint instead of fetching on mount. */
+  initialStores: StoreRow[]
+  initialActiveStoreId: string | null
 }
 
 export function SettingsShell({
@@ -171,6 +176,8 @@ export function SettingsShell({
   activeStaffId,
   locale,
   isOwner,
+  initialStores,
+  initialActiveStoreId,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
   // null = mobile list view (no section drilled into).
@@ -190,7 +197,14 @@ export function SettingsShell({
       case 'organization':
         return <OrganizationSection orgSettings={orgSettings} locale={locale} />
       case 'stores':
-        return <StoresSection orgSettings={orgSettings} isOwner={isOwner} />
+        return (
+          <StoresSection
+            orgSettings={orgSettings}
+            isOwner={isOwner}
+            initialStores={initialStores}
+            initialActiveStoreId={initialActiveStoreId}
+          />
+        )
       case 'theme':
         return <ThemeSection orgSettings={orgSettings} locale={locale} />
       case 'ai':
