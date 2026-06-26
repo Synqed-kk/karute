@@ -11,8 +11,8 @@
 // primary store when the cookie hasn't pinned one yet.
 //
 // Mobile: compact pill (store icon + branch name) beside the bell, 44px tap
-// target. The brand prefix shared by every store is dropped so the pill leads
-// with the BRANCH (代官山, not "La Estro 代官山"); full rows live in the dropdown.
+// target. The brand prefix shared by every store is dropped so BOTH the pill
+// and the dropdown rows lead with the BRANCH (代官山, not "La Estro 代官山").
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
