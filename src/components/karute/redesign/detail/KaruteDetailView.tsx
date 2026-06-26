@@ -41,6 +41,9 @@ export interface KaruteDetailViewProps {
   transcript: string | null
   consentOnFile: boolean
   transcriptDurationLabel: string | null
+  /** A transcript exists but is withheld from this viewer (not the recording
+   *  staff). The shared summary/entries still render. */
+  transcriptRestricted?: boolean
   // photosSlot is streamed in via Suspense from the server page so the shell can
   // paint before the photo HTTP fetch resolves.
   photosSlot: ReactNode
@@ -60,6 +63,7 @@ export function KaruteDetailView({
   transcript,
   consentOnFile,
   transcriptDurationLabel,
+  transcriptRestricted,
   photosSlot,
   memory,
   bodyPrediction,
@@ -141,6 +145,7 @@ export function KaruteDetailView({
             transcript={transcript}
             consentOnFile={consentOnFile}
             durationLabel={transcriptDurationLabel}
+            restricted={transcriptRestricted}
           />
           {/* Layer 1 staff-private coaching panel — renders null
            *  for owners (role gate inside the component). Currently

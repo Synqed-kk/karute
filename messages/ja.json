@@ -355,7 +355,9 @@
       "title": "録音 ・ 文字起こし",
       "consentOnFile": "同意確認済",
       "duration": "再生時間 {duration}",
-      "noTranscript": "文字起こしはまだありません"
+      "noTranscript": "文字起こしはまだありません",
+      "restrictedTitle": "録音 ・ 文字起こし",
+      "restricted": "この文字起こしは録音を担当したスタッフのみ閲覧できます。上の要約は共有されます。"
     }
   },
   "recording": {
@@ -2573,7 +2575,9 @@
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_write": "録音・カルテ編集",
+    "cap_recordings_viewAll": "全スタッフの録音を閲覧",
     "cap_analytics_viewAll": "全店舗の分析",
+    "cap_stores_viewAll": "全店舗の閲覧",
     "cap_customers_view": "顧客の閲覧",
     "cap_bookings_manage": "予約の管理"
   },

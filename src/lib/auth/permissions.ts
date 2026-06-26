@@ -21,6 +21,10 @@ export const CAPABILITIES = [
   'data.export',       // export / import customer + karute data
   'records.delete',    // delete customers / karute (destructive)
   'records.write',     // record sessions, create / edit karute
+  'recordings.viewAll',// read EVERY staff's raw transcript/recording (vs. only
+                       // your OWN). Owner + manager (supervisory) by default; a
+                       // practitioner sees only the karute THEY recorded. The AI
+                       // summary + entries stay shared regardless.
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
   'stores.viewAll',    // see EVERY store's karute + customers (vs. own store only).
                        // Without it, a staff member is clamped to their
