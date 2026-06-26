@@ -75,10 +75,32 @@ export async function listStores(): Promise<StoreRow[]> {
   }
   const synqed = await getSynqedClient()
 
-  // Stores now live in synqed-core (the same DB as the events that key on
-  // store_id). Lazily create the 本店 primary store so every business has one;
-  // the unique index in core blocks a 2nd primary, so a race is harmless.
-  let stores = (await synqed.stores.list()).stores
+  // Fetch the store list AND both per-store count maps in one parallel batch —
+  // they're independent reads, so there's no reason to await them in series
+  // (3 back-to-back round-trips → 1; the settings 店舗 list felt this as a
+  // visible lag before the second store appeared). Each count map stays
+  // resilient: a core that can't serve it degrades to an empty map (→ 0)
+  // instead of throwing.
+  //   - staff counts: core's staff_stores link table.
+  //   - customer counts: distinct customers with >=1 event at the store, derived
+  //     server-side (customers stay business-wide). The heaviest of the three.
+  const [storesRes, staffByStore, customersByStore] = await Promise.all([
+    synqed.stores.list(),
+    synqed.staffStores
+      .counts()
+      .then((r) => new Map<string, number>(Object.entries(r.counts)))
+      .catch(() => new Map<string, number>()),
+    synqed.customers
+      .countsByStore()
+      .then((r) => new Map<string, number>(Object.entries(r.counts)))
+      .catch(() => new Map<string, number>()),
+  ])
+
+  // Lazily create the 本店 primary store so every business always has one. Only
+  // hit on a brand-new business (no stores yet) — its counts are empty anyway,
+  // so the parallel fetch above isn't wasted. The unique index in core blocks a
+  // 2nd primary, so a race is harmless.
+  let stores = storesRes.stores
   if (stores.length === 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const service = createServiceClient() as any
@@ -89,29 +111,6 @@ export async function listStores(): Promise<StoreRow[]> {
       /* race: another request created the primary — ignore */
     }
     stores = (await synqed.stores.list()).stores
-  }
-
-  // Per-store staff counts from the profile_stores link table. NOTE: this still
-  // comes from core (staff_stores). Resilient: a core error degrades to 0.
-  const staffByStore = new Map<string, number>()
-  try {
-    const { counts } = await synqed.staffStores.counts()
-    for (const [storeId, n] of Object.entries(counts)) staffByStore.set(storeId, n)
-  } catch {
-    /* core unavailable → counts stay 0 */
-  }
-
-  // Real per-store customer counts from synqed-core (distinct customers with ≥1
-  // event at the store, derived server-side — customers stay business-wide).
-  // Resilient: a core without counts-by-store degrades to 0, never throws.
-  const customersByStore = new Map<string, number>()
-  try {
-    const { counts } = await synqed.customers.countsByStore()
-    for (const [storeId, n] of Object.entries(counts)) {
-      customersByStore.set(storeId, n)
-    }
-  } catch {
-    /* core without counts-by-store → counts stay 0 */
   }
 
   return stores.map((s) => ({
