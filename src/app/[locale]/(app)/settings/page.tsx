@@ -23,7 +23,7 @@ export default async function SettingsPage({
       // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
       // degrade to [] and let StoresSection fall back to its client fetch.
       listStores().catch(() => []),
-      getActiveStoreId(),
+      getActiveStoreId().catch(() => null),
     ])
 
   const isOwner = staffList.some(
