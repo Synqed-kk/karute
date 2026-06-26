@@ -5,19 +5,21 @@
 // ─────────────────────────────────────────────────────────────
 // Renders ONLY for multi-store businesses (>= 2 stores) so single-store
 // salons keep a clean header. The active store is a VIEW filter (cookie via
-// setActiveStore / clearActiveStore) — never a security boundary. Picking a
-// store scopes the store-filtered surfaces (顧客 list, agenda, カルテ roster,
-// dashboard today-list); 全店舗 clears it for the cross-store owner view.
+// setActiveStore) — never a security boundary. Picking a store scopes the
+// store-filtered surfaces (顧客 list, agenda, カルテ roster, dashboard
+// today-list). There is no "all stores" view: it defaults to the business's
+// primary store when the cookie hasn't pinned one yet.
 //
-// Mobile: compact pill (icon + truncated name) beside the bell, 44px tap
-// target, full names live in the dropdown. Desktop: same pill, more room.
+// Mobile: compact pill (store icon + branch name) beside the bell, 44px tap
+// target. The brand prefix shared by every store is dropped so BOTH the pill
+// and the dropdown rows lead with the BRANCH (代官山, not "La Estro 代官山").
 
 import { useEffect, useRef, useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { Building2, Check, ChevronDown, Layers } from 'lucide-react'
+import { Building2, Check, ChevronDown } from 'lucide-react'
 
-import { setActiveStore, clearActiveStore, type StoreRow } from '@/actions/stores'
+import { setActiveStore, type StoreRow } from '@/actions/stores'
 
 interface StoreSwitcherProps {
   stores: StoreRow[]
@@ -52,13 +54,20 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   // The switcher only matters with 2+ stores — single-store salons get nothing.
   if (stores.length < 2) return null
 
-  const active = activeStoreId ? (stores.find((s) => s.id === activeStoreId) ?? null) : null
-  const label = active ? active.name : t('allStores')
+  // No "all stores" view → there is always an active store. Fall back to the
+  // primary store (then the first) when the cookie hasn't pinned one yet.
+  const active =
+    stores.find((s) => s.id === activeStoreId) ??
+    stores.find((s) => s.isPrimary) ??
+    stores[0]
+  if (!active) return null
 
-  const choose = (id: string | null) => {
+  const names = stores.map((s) => s.name)
+
+  const choose = (id: string) => {
     setErr(null)
     startTransition(async () => {
-      const res = id ? await setActiveStore(id) : await clearActiveStore()
+      const res = await setActiveStore(id)
       // On failure (e.g. the store was deleted, or auth lapsed) keep the menu
       // open and surface the error instead of closing + refreshing as if the
       // switch took — otherwise the pill silently snaps back to the old store.
@@ -81,12 +90,8 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
         aria-expanded={open}
         className={`inline-flex h-9 items-center gap-1 rounded-full bg-blue-50 px-2.5 text-[13px] font-medium text-blue-800 ring-1 ring-blue-200/70 transition active:bg-blue-100 disabled:opacity-60 dark:bg-blue-500/10 dark:text-blue-200 dark:ring-blue-500/20 ${variant === 'mobile' ? 'max-w-[112px]' : 'max-w-[200px]'}`}
       >
-        {active ? (
-          <Building2 className="size-3.5 shrink-0" aria-hidden />
-        ) : (
-          <Layers className="size-3.5 shrink-0" aria-hidden />
-        )}
-        <span className="truncate">{label}</span>
+        <Building2 className="size-3.5 shrink-0" aria-hidden />
+        <span className="truncate">{branchLabel(active.name, names)}</span>
         <ChevronDown className="size-3.5 shrink-0 opacity-70" aria-hidden />
       </button>
 
@@ -106,20 +111,13 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
               {err}
             </div>
           )}
-          <SwitcherRow
-            icon={<Layers className="size-4" aria-hidden />}
-            label={t('allStores')}
-            sub={t('allStoresSub')}
-            selected={!active}
-            onClick={() => choose(null)}
-          />
           {stores.map((s) => (
             <SwitcherRow
               key={s.id}
               icon={<Building2 className="size-4" aria-hidden />}
-              label={s.name}
+              label={branchLabel(s.name, names)}
               badge={s.isPrimary ? t('primaryBadge') : undefined}
-              selected={active?.id === s.id}
+              selected={active.id === s.id}
               onClick={() => choose(s.id)}
             />
           ))}
@@ -129,17 +127,35 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   )
 }
 
+// Drop the brand prefix that every store name shares so labels lead with the
+// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Strips only the
+// whole leading words common to ALL stores, and never a store's last word — so
+// a shared location word (代官山 in 代官山一丁目 / 代官山二丁目) survives and a
+// label never renders blank. No shared prefix (or a single store) → full name.
+function branchLabel(name: string, allNames: string[]): string {
+  if (allNames.length < 2) return name
+  const words = name.split(' ')
+  let common = words.length
+  for (const other of allNames) {
+    const otherWords = other.split(' ')
+    let i = 0
+    while (i < common && i < otherWords.length && otherWords[i] === words[i]) i++
+    common = i
+  }
+  // Never strip every word (would render blank); keep at least the last one.
+  common = Math.min(common, words.length - 1)
+  return words.slice(common).join(' ')
+}
+
 function SwitcherRow({
   icon,
   label,
-  sub,
   badge,
   selected,
   onClick,
 }: {
   icon: React.ReactNode
   label: string
-  sub?: string
   badge?: string
   selected: boolean
   onClick: () => void
@@ -159,16 +175,13 @@ function SwitcherRow({
       <span className={selected ? 'text-blue-700 dark:text-blue-300' : 'text-muted-foreground'}>
         {icon}
       </span>
-      <span className="flex min-w-0 flex-col">
-        <span className="flex items-center gap-1.5">
-          <span className="truncate">{label}</span>
-          {badge && (
-            <span className="rounded-md bg-black/5 px-1.5 text-[10px] text-muted-foreground dark:bg-white/10">
-              {badge}
-            </span>
-          )}
-        </span>
-        {sub && <span className="text-[11px] text-muted-foreground">{sub}</span>}
+      <span className="flex min-w-0 items-center gap-1.5">
+        <span className="truncate">{label}</span>
+        {badge && (
+          <span className="rounded-md bg-black/5 px-1.5 text-[10px] text-muted-foreground dark:bg-white/10">
+            {badge}
+          </span>
+        )}
       </span>
       {selected && <Check className="ml-auto size-4 shrink-0" aria-hidden />}
     </button>
