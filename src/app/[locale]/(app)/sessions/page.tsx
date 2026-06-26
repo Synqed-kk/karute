@@ -3,10 +3,11 @@ import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { isReturningCustomer } from '@/lib/customers/list-enrich'
-import { getCustomer } from '@/lib/customers/queries'
+import { getCustomer, type CustomerWithStaff } from '@/lib/customers/queries'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
 import { listCustomerPacks } from '@/lib/packs/store'
+import type { PackWithUsage } from '@/lib/packs/types'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
@@ -59,15 +60,6 @@ export default async function SessionsPage({
   const { appointmentId: requestedAppointmentId, customerId: requestedCustomerId } =
     await searchParams
 
-  const activeStaffId = await getCurrentUserStaffId()
-  const staffList = await getStaffList()
-  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
-  // DISTINCT staff colors over the FULL roster — same map on every surface,
-  // no per-id hash collisions. Feeds the recording-picker avatar via
-  // staffColorKey on each booking below.
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
-  const tStatus = await getTranslations('reservation.status')
-
   const now = new Date()
 
   // Bookings for the record target + picker come from synqed-core (the source
@@ -81,10 +73,29 @@ export default async function SessionsPage({
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
-  const [customers, todayAppts] = await Promise.all([
-    getCachedCustomerList(),
-    getAppointmentsByDate(todayStr),
-  ])
+  // Wave 1 — every read that needs nothing but the request itself, fired
+  // together instead of one-after-another. These previously ran single-file
+  // (staff id → staff list → translations → [customers, bookings]), and
+  // orgSettings was awaited dead-last behind the AI brief even though it
+  // depends on nothing — so on a cold load the page made ~half a dozen
+  // back-to-back round-trips before it could even resolve the recording
+  // target. They share no inputs, so they parallelise cleanly; orgSettings is
+  // hoisted up from the end of the function (it only feeds the pack-preset
+  // panel in the return).
+  const [activeStaffId, staffList, tStatus, customers, todayAppts, orgSettings] =
+    await Promise.all([
+      getCurrentUserStaffId(),
+      getStaffList(),
+      getTranslations('reservation.status'),
+      getCachedCustomerList(),
+      getAppointmentsByDate(todayStr),
+      getOrgSettings(),
+    ])
+  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  // DISTINCT staff colors over the FULL roster — same map on every surface,
+  // no per-id hash collisions. Feeds the recording-picker avatar via
+  // staffColorKey on each booking below.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
 
   // Sequential karute number per customer — same deterministic helper + same
   // cached list (now carrying created_at) the 顧客 page + 予約 agenda use, so
@@ -289,26 +300,44 @@ export default async function SessionsPage({
     }
   })
 
-  // THIS customer's karute history from synqed-core (the Supabase mirror is
-  // empty post-migration). Fetched once + reused below for the first-visit
-  // brief. Scoped to the recording TARGET so the "recent recordings" card shows
-  // the selected customer's own sessions, not a salon-wide list.
-  // Fetch up to 10 so the pre-session brief can read the customer's full arc
-  // (trajectory across sessions); the "recent recordings" card below slices 5.
-  const customerKarute: KaruteRecord[] = nextAppointment?.customerId
-    ? await getCustomerKaruteRecords(nextAppointment.customerId, 10)
-    : []
+  // Wave 2 — everything keyed off the recording TARGET's customer, fired
+  // together. These four reads (karute history, the customer record, consent,
+  // 回数券 ledger) share only the customerId, so before this they ran needlessly
+  // single-file (karute → customer → consent → packs = four serial round-trips
+  // ahead of the AI brief). The AI brief still runs AFTER, since it reads the
+  // karute history + visit count produced here.
+  // Karute history is fetched up to 10 so the pre-session brief can read the
+  // customer's full arc (trajectory across sessions); the "recent recordings"
+  // card below slices 5. Error posture is unchanged from before the
+  // parallelisation: getCustomer + getCustomerConsent keep their own
+  // .catch(() => null); getCustomerKaruteRecords + listCustomerPacks swallow
+  // errors internally and return [], so the Promise.all can't reject and a
+  // hiccup never blanks the page.
+  const targetCustomerId = nextAppointment?.customerId ?? null
+  const [customerKarute, targetCustomer, consentOnFile, targetPacks]: [
+    KaruteRecord[],
+    CustomerWithStaff | null,
+    Awaited<ReturnType<typeof getCustomerConsent>>['consent'],
+    PackWithUsage[],
+  ] = targetCustomerId
+    ? await Promise.all([
+        getCustomerKaruteRecords(targetCustomerId, 10),
+        getCustomer(targetCustomerId).catch(() => null),
+        getCustomerConsent(targetCustomerId)
+          .then((r) => r.consent)
+          .catch(() => null),
+        listCustomerPacks(targetCustomerId),
+      ])
+    : [[], null, null, []]
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
   const targetKaruteNumber = nextAppointment?.customerId
     ? (karuteNumberByClientId.get(nextAppointment.customerId) ?? null)
     : null
 
-  // The target customer's visit_count (from QuickReserve) — so a returning
-  // customer with a package (e.g. 50回券) but 0 synqed karute is NOT flagged 新規.
-  const targetCustomer = nextAppointment?.customerId
-    ? await getCustomer(nextAppointment.customerId).catch(() => null)
-    : null
+  // The target customer's visit_count (from QuickReserve, fetched in wave 2) —
+  // so a returning customer with a package (e.g. 50回券) but 0 synqed karute is
+  // NOT flagged 新規.
   const targetVisitCount = targetCustomer?.visit_count ?? 0
 
   const recentRecordings: RecentRecording[] = customerKarute.slice(0, 5).map((r) => {
@@ -343,20 +372,14 @@ export default async function SessionsPage({
     }
   })
 
-  // Consent on file (pretty date) — for the consent pill
+  // Consent on file (pretty date) — for the consent pill. consentOnFile comes
+  // from wave 2 (already null on a fetch failure, so the pill simply hides).
   let consentDate: string | null = null
-  if (nextAppointment?.customerId) {
-    try {
-      const { consent } = await getCustomerConsent(nextAppointment.customerId)
-      if (consent?.granted_at) {
-        consentDate = new Date(consent.granted_at).toLocaleDateString(
-          locale === 'ja' ? 'ja-JP' : 'en-US',
-          { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'short', day: 'numeric' },
-        )
-      }
-    } catch {
-      // ignore — pill simply doesn't render
-    }
+  if (consentOnFile?.granted_at) {
+    consentDate = new Date(consentOnFile.granted_at).toLocaleDateString(
+      locale === 'ja' ? 'ja-JP' : 'en-US',
+      { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'short', day: 'numeric' },
+    )
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -395,10 +418,9 @@ export default async function SessionsPage({
     // cached list — same fields the 顧客 list + profile use, so the recording
     // target's 新規 flag matches the customer's badge everywhere.
     const cc = customers.find((c) => c.id === nextAppointment.customerId)
-    // Real ticket_packs ledger for the target (graceful empty pre-migration) —
-    // a manually-registered pack holder is returning here too, matching the
-    // list/profile/agenda exactly.
-    const targetPacks = await listCustomerPacks(nextAppointment.customerId)
+    // Real ticket_packs ledger for the target (fetched in wave 2; graceful
+    // empty pre-migration) — a manually-registered pack holder is returning
+    // here too, matching the list/profile/agenda exactly.
     const targetHasActivePack = targetPacks.some(
       (p) => p.status === 'active' && p.kind === 'pack',
     )
@@ -441,9 +463,6 @@ export default async function SessionsPage({
         targetReturning,
       )
   }
-
-  // Owner pack presets + staff permission for the 新しい回数券 panel (cached).
-  const orgSettings = await getOrgSettings()
 
   return (
     <RecordPageView
