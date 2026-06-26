@@ -148,7 +148,7 @@ export function StoresSection({
     if (initialStores && initialStores.length > 0) {
       void getEntitlement()
         .then(setEntitlement)
-        .catch(() => {})
+        .catch((e) => console.error('Failed to load store entitlement', e))
     } else {
       void refresh()
     }

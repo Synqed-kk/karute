@@ -20,7 +20,9 @@ export default async function SettingsPage({
       getOrgSettings(),
       // Server-fetch the store list (+ active store) so the 店舗 settings section
       // paints complete — no placeholder-then-pop-in when the second store loads.
-      listStores(),
+      // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
+      // degrade to [] and let StoresSection fall back to its client fetch.
+      listStores().catch(() => []),
       getActiveStoreId(),
     ])
 
