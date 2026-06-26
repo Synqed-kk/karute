@@ -6,6 +6,7 @@
 //   - aiPredict.{label,when} — needs the rebooking-window model
 //   - status enum — we derive a best-guess from cadence (see derive)
 
+import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { jstDaysBetween } from '@/lib/date/jst'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
@@ -46,6 +47,77 @@ export interface CustomerEnrichment {
   datedVisitCount: number
 }
 
+// ─── Cached enrichment source ────────────────────────────────────────────────
+// The three whole-tenant reads here (karute records + appointments + staff) are
+// the ENTIRE wall-clock cost of enrichCustomers — each paginates the tenant to
+// completion (synqed caps page_size at 200; up to 5,000 rows). They depend ONLY
+// on businessId (no per-customer filter), so they're cached per tenant and shared
+// across every surface that enriches a customer list (顧客 list, 顧客 profile, 予約
+// agenda, pack alerts, the notification feed). The per-customer bucketing AND the
+// now()-based past/future split stay OUTSIDE this cache (in enrichCustomers
+// below), so caching can never freeze "now".
+//
+// 60s TTL + the tags the mutations ACTUALLY fire: 'dashboard' (booking + karute
+// create/update/cancel — actions/appointments.ts + actions/karute.ts) and
+// 'staff-list' (staff changes). A CUSTOMER create deliberately does NOT bust this:
+// a brand-new customer has no karute/appointment rows in these reads, and the
+// bucketing below already yields an empty enrichment for any id it doesn't find.
+// Returns null on missing SYNQED env so enrichCustomers degrades to an empty map,
+// exactly as the inline reads did before.
+const enrichmentSourceByBusiness = unstable_cache(
+  async (businessId: string) => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return null
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
+
+    // One paginator for all three lists. Loops until a short page; if it ever
+    // hits MAX_PAGES it WARNS instead of silently truncating (so a future giant
+    // tenant surfaces the limit rather than quietly undercounting — the very bug
+    // this enrichment was added to fix). Staff is paginated too: an unpaginated
+    // 200-cap there would leave profileByStaffId incomplete and mis-map names.
+    const PAGE_SIZE = 200
+    const MAX_PAGES = 25 // safety guard: 25 × 200 = 5,000 rows/tenant
+    async function fetchAllPages<T>(
+      label: string,
+      pick: (res: unknown) => T[],
+      fetchPage: (page: number) => Promise<unknown>,
+    ): Promise<T[]> {
+      const out: T[] = []
+      for (let page = 1; page <= MAX_PAGES; page++) {
+        const batch = pick(await fetchPage(page))
+        out.push(...batch)
+        if (batch.length < PAGE_SIZE) return out
+      }
+      console.warn(
+        `[enrichCustomers] ${label}: hit MAX_PAGES (${MAX_PAGES}) — results may be truncated for a very large tenant; raise the cap or add a server-side filter.`,
+      )
+      return out
+    }
+
+    const [karuteRecordsAll, appointmentsAll, staffAll] = await Promise.all([
+      fetchAllPages(
+        'karute',
+        (r) => (r as Awaited<ReturnType<typeof synqed.karuteRecords.list>>).karute_records,
+        (page) => synqed.karuteRecords.list({ page, page_size: PAGE_SIZE }),
+      ),
+      fetchAllPages(
+        'appointments',
+        (r) => (r as Awaited<ReturnType<typeof synqed.appointments.list>>).appointments,
+        (page) => synqed.appointments.list({ page, page_size: PAGE_SIZE }),
+      ),
+      fetchAllPages(
+        'staff',
+        (r) => (r as Awaited<ReturnType<typeof synqed.staff.list>>).staff,
+        (page) => synqed.staff.list({ page, page_size: PAGE_SIZE }),
+      ),
+    ])
+    return { karuteRecordsAll, appointmentsAll, staffAll }
+  },
+  ['customer-enrichment-source-v1'],
+  { revalidate: 60, tags: ['dashboard', 'staff-list'] },
+)
+
 export async function enrichCustomers(
   businessId: string,
   customerIds: string[],
@@ -53,68 +125,17 @@ export async function enrichCustomers(
   const map = new Map<string, CustomerEnrichment>()
   if (customerIds.length === 0) return map
 
-  // Both karute and appointments come from synqed-core (the source of truth),
-  // bucketed by the person (synqed `customer_id`). The legacy Supabase
-  // karute_records table is empty post-migration, which is why the list
-  // previously showed 0 karute for everyone.
-  //
-  // NOTE: synqed caps list page_size at 200. For a single tenant's recent
-  // activity that's enough to surface last-visit + the new-customer signal;
-  // a very large tenant would need a multi-customer filter or pagination on
-  // the synqed list endpoints.
-  const baseUrl = process.env.SYNQED_CORE_URL
-  const apiKey = process.env.SYNQED_CORE_API_KEY
-  if (!baseUrl || !apiKey) return map
-  const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
+  // Whole-tenant karute + appointments + staff, cached per tenant (see
+  // enrichmentSourceByBusiness above). Bucketed by the person (synqed
+  // `customer_id`); the legacy Supabase karute_records table is empty
+  // post-migration, which is why the list previously showed 0 karute for
+  // everyone. null only when SYNQED env is missing → empty map, exactly as the
+  // inline reads degraded before.
+  const source = await enrichmentSourceByBusiness(businessId)
+  if (!source) return map
+  const { karuteRecordsAll, appointmentsAll, staffAll } = source
 
   const idSet = new Set(customerIds)
-  // Paginate karute + appointments FULLY. synqed caps page_size at 200, so a
-  // single call undercounts any customer whose records fall outside the first
-  // page — the ROOT CAUSE of the list-vs-profile badge divergence: the list saw
-  // 0 karute for a customer the profile's per-customer read counts correctly, so
-  // the list badged them 新規 while the profile said 継続中. (Appointments alone
-  // already exceed 200, so the cap was provably hit.) Bounded by MAX_PAGES as a
-  // runaway guard (25 × 200 = 5,000 rows/tenant).
-  // One paginator for all three lists. Loops until a short page; if it ever hits
-  // MAX_PAGES it WARNS instead of silently truncating (so a future giant tenant
-  // surfaces the limit rather than quietly undercounting again — the very bug
-  // this function is fixing). Staff is paginated too: an unpaginated 200-cap
-  // there would leave profileByStaffId incomplete and mis-map staff names.
-  const PAGE_SIZE = 200
-  const MAX_PAGES = 25 // safety guard: 25 × 200 = 5,000 rows/tenant
-  async function fetchAllPages<T>(
-    label: string,
-    pick: (res: unknown) => T[],
-    fetchPage: (page: number) => Promise<unknown>,
-  ): Promise<T[]> {
-    const out: T[] = []
-    for (let page = 1; page <= MAX_PAGES; page++) {
-      const batch = pick(await fetchPage(page))
-      out.push(...batch)
-      if (batch.length < PAGE_SIZE) return out
-    }
-    console.warn(
-      `[enrichCustomers] ${label}: hit MAX_PAGES (${MAX_PAGES}) — results may be truncated for a very large tenant; raise the cap or add a server-side filter.`,
-    )
-    return out
-  }
-  const [karuteRecordsAll, appointmentsAll, staffAll] = await Promise.all([
-    fetchAllPages(
-      'karute',
-      (r) => (r as Awaited<ReturnType<typeof synqed.karuteRecords.list>>).karute_records,
-      (page) => synqed.karuteRecords.list({ page, page_size: PAGE_SIZE }),
-    ),
-    fetchAllPages(
-      'appointments',
-      (r) => (r as Awaited<ReturnType<typeof synqed.appointments.list>>).appointments,
-      (page) => synqed.appointments.list({ page, page_size: PAGE_SIZE }),
-    ),
-    fetchAllPages(
-      'staff',
-      (r) => (r as Awaited<ReturnType<typeof synqed.staff.list>>).staff,
-      (page) => synqed.staff.list({ page, page_size: PAGE_SIZE }),
-    ),
-  ])
 
   // synqed staff id → profile id (= staff.user_id). Appointments are keyed by
   // the synqed staff id, but the rest of the app keys staff off the profile id,
