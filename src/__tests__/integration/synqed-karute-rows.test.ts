@@ -51,6 +51,22 @@ describe('listSynqedKaruteRows', () => {
     )
   })
 
+  it('forwards the storeId filter to the synqed list call', async () => {
+    const list = jest.fn(async () => ({ karute_records: [] }))
+    await listSynqedKaruteRows(asClient(list), { storeId: 'store-1' })
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ store_id: 'store-1', page_size: 200 }),
+    )
+  })
+
+  it('omits store_id when storeId is null (all-stores view)', async () => {
+    const list = jest.fn(async () => ({ karute_records: [] }))
+    await listSynqedKaruteRows(asClient(list), { storeId: null })
+    expect(list).toHaveBeenCalledWith(
+      expect.not.objectContaining({ store_id: expect.anything() }),
+    )
+  })
+
   it('degrades to [] when synqed-core throws', async () => {
     const rows = await listSynqedKaruteRows(
       asClient(async () => {

@@ -38,11 +38,16 @@ export interface KaruteListRow {
  */
 export async function listSynqedKaruteRows(
   synqed: SynqedClient,
-  opts?: { customerId?: string },
+  opts?: { customerId?: string; storeId?: string | null },
 ): Promise<KaruteListRow[]> {
   try {
     const res = await synqed.karuteRecords.list({
       ...(opts?.customerId ? { customer_id: opts.customerId } : {}),
+      // Active-store lens for the karute LIST: scope records to the current
+      // branch so 代官山 karute don't surface under 銀座. The customer PROFILE
+      // passes NO storeId (full cross-store history). null/undefined = all
+      // stores. Core honors store_id (karute.service.ts); SDK 1.9.0 types it.
+      ...(opts?.storeId ? { store_id: opts.storeId } : {}),
       page_size: 200,
     })
     return (res.karute_records ?? []).map((r) => {
