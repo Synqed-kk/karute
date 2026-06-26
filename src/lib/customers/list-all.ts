@@ -14,6 +14,13 @@ type ListAllOpts = {
    * 銀座). Additive to the business scope; never replaces it.
    */
   store_id?: string | null
+  /**
+   * RBAC clamp: when true, the store filter is KEPT even while searching, so a
+   * regular staff member restricted to their branch can't pull another store's
+   * customers via search. Cross-store viewers (owner/manager/SV) leave this
+   * false → the documented business-wide search. See lib/auth/store-scope.
+   */
+  enforceStore?: boolean
 }
 
 /**
@@ -33,12 +40,14 @@ type ListAllOpts = {
  */
 export async function listAllCustomers(
   synqed: SynqedClient,
-  { search, sort_by = 'created_at', sort_order = 'asc', store_id }: ListAllOpts = {},
+  { search, sort_by = 'created_at', sort_order = 'asc', store_id, enforceStore }: ListAllOpts = {},
 ) {
-  // Search is always business-wide: drop the store lens whenever a term is
+  // Search is business-wide by default: drop the store lens whenever a term is
   // present so a customer from any store is findable. With no search, the active
-  // store scopes the LIST (derived from events, server-side).
-  const storeFilter = search ? undefined : store_id ?? undefined
+  // store scopes the LIST (derived from events, server-side). enforceStore (RBAC
+  // clamp) overrides this — a branch-restricted staff keeps the store filter
+  // even while searching, so search can't leak another store's customers.
+  const storeFilter = search && !enforceStore ? undefined : store_id ?? undefined
   const customers = await paginateDedupe((page) =>
     synqed.customers
       .list({ search, store_id: storeFilter, page, page_size: 500, sort_by, sort_order })

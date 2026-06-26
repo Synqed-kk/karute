@@ -355,7 +355,9 @@
       "title": "Recording · transcript",
       "consentOnFile": "Consent on file",
       "duration": "Duration {duration}",
-      "noTranscript": "No transcript yet"
+      "noTranscript": "No transcript yet",
+      "restrictedTitle": "Recording · transcript",
+      "restricted": "Only the staff who recorded this session can view the transcript. The summary above is shared."
     }
   },
   "recording": {
@@ -2573,7 +2575,9 @@
     "cap_data_export": "Export / import data",
     "cap_records_delete": "Delete records",
     "cap_records_write": "Record sessions & edit karute",
+    "cap_recordings_viewAll": "View every staff's recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",
+    "cap_stores_viewAll": "View all stores",
     "cap_customers_view": "View customers",
     "cap_bookings_manage": "Manage bookings"
   },

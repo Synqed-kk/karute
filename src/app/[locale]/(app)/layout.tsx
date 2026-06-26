@@ -19,6 +19,7 @@ import { buildNotificationFeed } from '@/lib/notifications/derive'
 
 import { createClient } from '@/lib/supabase/server'
 import { listStores, getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
@@ -31,7 +32,7 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore, storeScope] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getCurrentUserStaffId(),
@@ -51,10 +52,21 @@ export default async function DashboardLayout({
     // Multi-store header switcher data (best-effort; [] / null → switcher hides).
     listStores().catch(() => []),
     getActiveStoreId().catch(() => null),
+    // RBAC store scope — drives which stores the switcher offers (a
+    // branch-restricted staff only sees their own) + which is active.
+    resolveStoreScope().catch(() => null),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
   }
+
+  // A branch-restricted staff (storeScope.allowedStoreIds set) only sees their
+  // own store(s) in the switcher; the clamp also picks the active store. Cross-
+  // store viewers (or a failed scope resolve) keep the full list + raw cookie.
+  const visibleStores = storeScope?.allowedStoreIds
+    ? stores.filter((s) => storeScope.allowedStoreIds!.includes(s.id))
+    : stores
+  const switcherActiveStore = storeScope ? storeScope.storeId : activeStore
 
   const staffItems = staffList.map((s) => ({
     id: s.id,
@@ -99,7 +111,7 @@ export default async function DashboardLayout({
              *  view, giving every mobile screen a consistent
              *  app-chrome surface. md:hidden so the sidebar owns
              *  the chrome on desktop. */}
-            <MobileHeader stores={stores} activeStoreId={activeStore} />
+            <MobileHeader stores={visibleStores} activeStoreId={switcherActiveStore} />
             {/* No horizontal padding here — matches the spike's
              *  (app) layout which provides ZERO padding. Each page
              *  component owns its own `px-4 md:px-6` (or whatever

@@ -3,6 +3,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -34,7 +35,17 @@ import type {
  * salon-treatment context.
  */
 export default async function KaruteRecordsListPage() {
-  const synqed = await getSynqedClient()
+  // Store scope = the view lens for the カルテ list. A cross-store viewer gets
+  // their pinned store (null = all); a branch-restricted staff is clamped to
+  // their own store (RBAC). `clamped` = the viewer may see ONLY their store, so
+  // the customer name-map + picker are scoped too (no cross-store name leak);
+  // cross-store viewers keep them business-wide for walk-in karute creation.
+  const [synqed, scope] = await Promise.all([
+    getSynqedClient(),
+    resolveStoreScope(),
+  ])
+  const activeStore = scope.storeId
+  const clamped = scope.allowedStoreIds != null
 
   // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
   // each appointment, but customer.assigned_staff_id (a separate "preferred
@@ -48,6 +59,7 @@ export default async function KaruteRecordsListPage() {
   const [
     staffList,
     allCustomersList,
+    storeCustomerList,
     currentStaffId,
     synqedKaruteRows,
     apptList,
@@ -55,18 +67,36 @@ export default async function KaruteRecordsListPage() {
   ] = await Promise.all([
       getStaffList(),
       // Page to completion so カルテ rows + placeholder rows resolve for every
-      // customer, not just the first 500 (server clamps page_size at 500).
-      // Business-wide (NOT store-scoped): karute records are business-wide, so
-      // this list backs record-name enrichment AND the New カルテ dialog's
-      // customer picker (which filters client-side) — scoping it would drop
-      // cross-store records' names and block creating a karute for another
-      // store's walk-in. Per-store roster scoping waits on the synqed-core
-      // karute store filter (synqed-core #18).
-      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      // customer, not just the first 500 (server clamps page_size at 500). This
+      // backs record-name enrichment AND the New カルテ dialog's customer picker.
+      // Cross-store viewers load it BUSINESS-WIDE (so names resolve + a karute
+      // can be created for another store's walk-in); a branch-restricted staff
+      // loads it SCOPED to their store (no cross-store names/customers leak).
+      clamped
+        ? listAllCustomers(synqed, {
+            store_id: activeStore,
+            enforceStore: true,
+            sort_by: 'created_at',
+            sort_order: 'asc',
+          })
+        : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      // Store-scoped customer roster — ONLY to scope the "新規のお客様"
+      // placeholder section to the active branch for a CROSS-STORE viewer who
+      // has pinned a store (a customer "belongs to" a store via events; see
+      // listAllCustomers). null when unpinned, or when clamped (the list above
+      // is already store-scoped, so its customers ARE the placeholder roster).
+      !clamped && activeStore
+        ? listAllCustomers(synqed, {
+            store_id: activeStore,
+            sort_by: 'created_at',
+            sort_order: 'asc',
+          })
+        : Promise.resolve(null),
       getCurrentUserStaffId(),
       // synqed-core is the sole karute store (the Supabase karute_records table
-      // is empty and being dropped).
-      listSynqedKaruteRows(synqed),
+      // is empty and being dropped). Scoped to the active branch so 代官山
+      // karute don't surface under 銀座; the customer PROFILE stays unscoped.
+      listSynqedKaruteRows(synqed, { storeId: activeStore }),
       // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
       // staff roster — resolve each placeholder customer's 担当 from their
       // booking, translating the synqed staff id into the profile id the
@@ -208,8 +238,19 @@ export default async function KaruteRecordsListPage() {
   // place. (Previously /karute/customer/[id], a near-duplicate of the hub that
   // the spike never had — removed for a predictable 2-page nav.)
   // Sorted newest-customer-first so the most recent signups bubble up.
+  // Restrict the placeholder roster to the active branch so "新規のお客様"
+  // follows the same lens as the records. For a cross-store viewer with a pinned
+  // store, storeCustomerList carries that branch's members; null otherwise (no
+  // pin → business-wide, OR clamped → allCustomersList is already store-scoped).
+  const storeCustomerIds = storeCustomerList
+    ? new Set(storeCustomerList.customers.map((c) => c.id))
+    : null
   const placeholders: KaruteListItem[] = allCustomersList.customers
-    .filter((c) => !recordedCustomerIds.has(c.id))
+    .filter(
+      (c) =>
+        !recordedCustomerIds.has(c.id) &&
+        (!storeCustomerIds || storeCustomerIds.has(c.id)),
+    )
     .sort((a, b) =>
       (b.created_at ?? '').localeCompare(a.created_at ?? ''),
     )

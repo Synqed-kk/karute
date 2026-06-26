@@ -19,7 +19,7 @@ import {
   deriveFamilyInitials,
 } from '@/lib/customers/identity'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
 import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
@@ -35,14 +35,15 @@ export default async function CustomersPage({
 
   const t = startTiming(`customers q="${query}"`)
   // Both are independent — getSynqedClient hits the auth layer while
-  // getActiveStoreId is a cookie read; resolve in parallel to match the
-  // appointments.ts pattern. Active store = the view lens for the 顧客 list;
-  // listAllCustomers drops it when a search term is present, so search stays
-  // business-wide.
-  const [synqed, activeStore] = await Promise.all([
+  // resolveStoreScope reads capabilities + the active-store cookie; resolve in
+  // parallel. The scope is the view lens for the 顧客 list: a cross-store viewer
+  // gets their pinned store (null = all), a branch-restricted staff is clamped
+  // to their own store (and search stays scoped via enforceStore).
+  const [synqed, scope] = await Promise.all([
     getSynqedClient(),
-    getActiveStoreId(),
+    resolveStoreScope(),
   ])
+  const enforceStore = scope.allowedStoreIds != null
 
   // Locale + translated relative-time strings, pulled once at page level
   // and threaded into the (synchronous) formatters so JP users see
@@ -53,7 +54,8 @@ export default async function CustomersPage({
     t.phase('customers.list', () =>
       listAllCustomers(synqed, {
         search: query.trim() || undefined,
-        store_id: activeStore,
+        store_id: scope.storeId,
+        enforceStore,
         sort_by: 'updated_at',
         sort_order: 'desc',
       }),

@@ -18,6 +18,9 @@ import {
   getCachedCustomerConsent,
 } from '@/lib/customers/customer-detail-cached'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getCurrentUserStaffId } from '@/lib/staff'
+import { can } from '@/lib/auth/require-permission'
+import { canViewTranscript } from '@/lib/auth/recording-acl'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
@@ -36,12 +39,18 @@ export default async function KaruteDetailPage({
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
   const synqed = await getSynqedClient()
-  const [karute, allCustomers, outcome] = await Promise.all([
-    getKaruteRecord(id),
-    // Page to completion so the karute number resolves for an overflow customer.
-    listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
-    getKaruteOutcome(id),
-  ])
+  const [karute, allCustomers, outcome, viewerStaffId, canViewAllRecordings] =
+    await Promise.all([
+      getKaruteRecord(id),
+      // Page to completion so the karute number resolves for an overflow customer.
+      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      getKaruteOutcome(id),
+      // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
+      // may read every staff's raw recordings (owner/manager). Both independent
+      // of the karute, so fan them out in the same wave.
+      getCurrentUserStaffId(),
+      can('recordings.viewAll'),
+    ])
   if (!karute) notFound()
 
   const customerId =
@@ -51,6 +60,22 @@ export default async function KaruteDetailPage({
   const summaryBullets = karuteSummaryToBullets(karute)
   const transcript =
     (karute as unknown as { transcript?: string | null }).transcript ?? null
+  // Recording privacy (#4): the raw transcript is private to the staff who
+  // recorded the session — only they (or a recordings.viewAll role) see the
+  // text. The AI summary + entries below stay shared with everyone. A record
+  // with no owner (legacy/manual) is treated as shared. Withholding the
+  // transcript also hides the "regenerate entries from transcript" action,
+  // which reads the same raw text.
+  const ownerStaffId =
+    (karute as unknown as { staff_profile_id?: string | null })
+      .staff_profile_id ?? null
+  const canSeeTranscript = canViewTranscript({
+    ownerStaffId,
+    viewerStaffId,
+    canViewAll: canViewAllRecordings,
+  })
+  const visibleTranscript = canSeeTranscript ? transcript : null
+  const transcriptRestricted = !canSeeTranscript && Boolean(transcript)
   // Sequential per-tenant number from the shared customer list — matches the
   // karute list and customer profile (#00007). Replaces deriveKaruteNumber(id),
   // which hex-sliced the karute UUID into an alphanumeric #427C2 that disagreed
@@ -118,9 +143,10 @@ export default async function KaruteDetailPage({
       sessionDateLong={header.sessionDateLong}
       entries={sessionEntries}
       summaryBullets={summaryBullets}
-      transcript={transcript}
+      transcript={visibleTranscript}
       consentOnFile={consentOnFile}
       transcriptDurationLabel={null}
+      transcriptRestricted={transcriptRestricted}
       photosSlot={
         customerId ? (
           <Suspense fallback={<PhotoRecordsSkeleton />}>
