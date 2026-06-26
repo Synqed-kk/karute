@@ -38,7 +38,7 @@ import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-rea
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
-import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId } from '@/actions/stores'
+import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
 
@@ -55,11 +55,32 @@ interface StoresSectionProps {
   /** Whether the viewer is an owner. Add/edit affordances are
    *  owner-only; staff get the read-only list. */
   isOwner?: boolean
+  /** Real stores fetched on the server. When present the list renders complete
+   *  on first paint (no placeholder-then-pop-in) and only the entitlement is
+   *  fetched on mount. Absent → fall back to the old full client fetch. */
+  initialStores?: StoreRow[]
+  initialActiveStoreId?: string | null
+}
+
+// StoreRow (synqed-core shape) → the Store the UI renders.
+function mapStoreRows(rows: StoreRow[]): Store[] {
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    address: r.address ?? '',
+    phone: r.phone ?? '',
+    staffCount: r.staffCount,
+    customerCount: r.customerCount,
+    active: r.active,
+    isPrimary: r.isPrimary,
+  }))
 }
 
 export function StoresSection({
   orgSettings,
   isOwner = false,
+  initialStores,
+  initialActiveStoreId,
 }: StoresSectionProps) {
   const t = useTranslations('settings.stores')
 
@@ -82,14 +103,25 @@ export function StoresSection({
     ]
   }, [orgSettings, t])
 
-  // Seeded primary renders instantly; refresh() replaces it with the real rows
-  // from the `stores` table (lazily creating the 本店 on first load).
-  const [stores, setStores] = useState<Store[]>(seededStores)
+  // Server-provided rows render the real list on first paint (no pop-in). Fall
+  // back to the synthesized primary only when the server didn't supply them.
+  const initialMapped = useMemo<Store[]>(
+    () =>
+      initialStores && initialStores.length > 0
+        ? mapStoreRows(initialStores)
+        : seededStores,
+    [initialStores, seededStores],
+  )
+
+  const [stores, setStores] = useState<Store[]>(initialMapped)
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
   const [entitlement, setEntitlement] = useState<Entitlement | null>(null)
   const [activeStoreId, setActiveStoreId] = useState<string>(
-    seededStores[0]?.id ?? 'primary',
+    initialActiveStoreId ??
+      initialMapped.find((s) => s.isPrimary)?.id ??
+      initialMapped[0]?.id ??
+      'primary',
   )
 
   const refresh = useCallback(async () => {
@@ -100,16 +132,7 @@ export function StoresSection({
     ])
     setEntitlement(ent)
     if (rows.length === 0) return
-    const mapped: Store[] = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      address: r.address ?? '',
-      phone: r.phone ?? '',
-      staffCount: r.staffCount,
-      customerCount: r.customerCount,
-      active: r.active,
-      isPrimary: r.isPrimary,
-    }))
+    const mapped = mapStoreRows(rows)
     setStores(mapped)
     setActiveStoreId((cur) => {
       if (persisted && mapped.some((s) => s.id === persisted)) return persisted
@@ -118,8 +141,18 @@ export function StoresSection({
   }, [])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    // With server-seeded stores the list is already complete on first paint, so
+    // only the entitlement (add-store gating) needs a client fetch — skip the
+    // store re-list that caused the placeholder-then-pop-in. Without server
+    // data, fall back to the full client refresh.
+    if (initialStores && initialStores.length > 0) {
+      void getEntitlement()
+        .then(setEntitlement)
+        .catch((e) => console.error('Failed to load store entitlement', e))
+    } else {
+      void refresh()
+    }
+  }, [refresh, initialStores])
 
   // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
   const handleSwitch = async (storeId: string) => {
