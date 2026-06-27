@@ -4,8 +4,7 @@ import { Phone } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
-import { cn } from '@/lib/utils'
-import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
+import { type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
 import { STATUS_STYLES } from '../types'
 import { AiStatusChipRow } from './AiStatusChipRow'
@@ -50,14 +49,12 @@ interface CustomerCardMobileProps {
  */
 export function CustomerCardMobile({
   c,
-  staffColorKey,
   karuteContext = false,
   hrefBase = '/customers',
 }: CustomerCardMobileProps) {
   const t = useTranslations('customers.list')
   const status = STATUS_STYLES[c.status]
   const honorific = t('row.honorific')
-  const staff = getStaffColorByKey(staffColorKey)
   return (
     <Link
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
@@ -65,21 +62,6 @@ export function CustomerCardMobile({
         karuteContext ? 'px-4 py-2.5' : 'px-4 py-3'
       }`}
     >
-      {/* Staff color stripe on left edge — same idiom as the spike.
-       *  Falls back to a subtle muted bar (instead of transparent) when
-       *  the customer has no preferred staff so the row still reads as
-       *  "list item with consistent left-edge accent" rather than
-       *  visually collapsing. The bar is intentionally inset 12px from
-       *  top/bottom so the row's border-b can pass through cleanly,
-       *  giving the cut-into-sections look from the spike. */}
-      <span
-        aria-hidden
-        className={cn(
-          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
-          staffColorKey ? staff.stripe : 'bg-border',
-        )}
-      />
-
       {/* Avatar — smaller in karute context (size-8 / 32px) to match
        *  the spike's tighter karute-tab density; full size (size-10 /
        *  40px) on the 顧客 tab where the CRM card has more breathing

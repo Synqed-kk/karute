@@ -43,17 +43,6 @@ export function CustomerRowDesktop({
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
       className="relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 last:border-b-0"
     >
-      {/* Staff color stripe on left edge — gray fallback when no staff
-       *  is assigned so the accent stays visually present (matches
-       *  spike behavior). Inset from top/bottom lets the row's border-b
-       *  pass through, giving the cut-into-sections look. */}
-      <span
-        aria-hidden
-        className={cn(
-          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
-          staffColorKey ? staff.stripe : 'bg-border',
-        )}
-      />
 
       {/* Customer */}
       <div className="flex items-center gap-3">
