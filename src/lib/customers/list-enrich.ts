@@ -61,16 +61,20 @@ export interface CustomerEnrichment {
 // exactly as before. Note: the now()-based past/future split is now computed
 // server-side per fetch and shares the 60s cache window — a negligible boundary
 // staleness (bookings are hours/days apart), same TTL the source data had.
+// Returns ENTRIES (not a Map): unstable_cache JSON-serializes its value, and a
+// Map round-trips to {} on a cache HIT — so `all.get` would throw
+// "d.get is not a function" and 500 the 顧客 list. An array of [id, value]
+// survives serialization; enrichCustomers rebuilds the Map below.
 const enrichmentByBusiness = unstable_cache(
-  async (businessId: string): Promise<Map<string, CustomerEnrichment>> => {
+  async (businessId: string): Promise<Array<[string, CustomerEnrichment]>> => {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
-    const map = new Map<string, CustomerEnrichment>()
-    if (!baseUrl || !apiKey) return map
+    if (!baseUrl || !apiKey) return []
     const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
     const rows = await synqed.customers.enrichment()
-    for (const r of rows) {
-      map.set(r.customer_id, {
+    return rows.map((r) => [
+      r.customer_id,
+      {
         totalKarute: r.total_karute,
         lastVisitIso: r.last_visit,
         pastAppointmentCount: r.past_appointment_count,
@@ -79,11 +83,10 @@ const enrichmentByBusiness = unstable_cache(
         nextAppointmentIso: r.next_appointment,
         firstVisitIso: r.first_visit,
         datedVisitCount: r.dated_visit_count,
-      })
-    }
-    return map
+      },
+    ])
   },
-  ['customer-enrichment-v2'],
+  ['customer-enrichment-v3'],
   { revalidate: 60, tags: ['dashboard', 'staff-list'] },
 )
 
@@ -108,7 +111,9 @@ export async function enrichCustomers(
   // One cached aggregate read for the whole business (see enrichmentByBusiness).
   // Every requested id gets an entry — EMPTY for customers with no karute /
   // appointment history — matching the old per-id bucketing's behaviour.
-  const all = await enrichmentByBusiness(businessId)
+  // Rebuild the Map from cached entries (the cache stores a serializable array;
+  // see enrichmentByBusiness).
+  const all = new Map(await enrichmentByBusiness(businessId))
   for (const id of customerIds) {
     map.set(id, all.get(id) ?? EMPTY_ENRICHMENT)
   }
