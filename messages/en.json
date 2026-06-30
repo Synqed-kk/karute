@@ -2554,7 +2554,9 @@
     "copy": "Copy",
     "copied": "Copied",
     "pendingInvites": "Pending invites",
-    "revoke": "Revoke"
+    "revoke": "Revoke",
+    "inviteExistingLabel": "Invite an existing team member (optional)",
+    "inviteExistingNone": "New hire (email only)"
   },
   "permissions": {
     "roleLabel": "Role & permissions",

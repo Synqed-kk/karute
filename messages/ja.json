@@ -2554,7 +2554,9 @@
     "copy": "コピー",
     "copied": "コピーしました",
     "pendingInvites": "保留中の招待",
-    "revoke": "取り消す"
+    "revoke": "取り消す",
+    "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
+    "inviteExistingNone": "新しいスタッフ（メールのみ）"
   },
   "permissions": {
     "roleLabel": "権限",

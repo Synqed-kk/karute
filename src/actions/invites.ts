@@ -9,6 +9,7 @@ import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
@@ -77,7 +78,7 @@ export async function createInvite(
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
-  const { email, role } = parsed.data
+  const { email, role, staffId } = parsed.data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
@@ -103,6 +104,7 @@ export async function createInvite(
       role,
       token,
       invited_by: invitedBy,
+      invited_staff_id: staffId ?? null,
       expires_at: expiresAt,
     })
   } catch (e) {
@@ -278,15 +280,17 @@ export async function acceptInvite(
     return { error: `Could not join the salon: ${attachErr.message}` }
   }
 
-  // 4. Create / link the synqed-core staff record under the business.
+  // 4. Link the synqed-core staff record under the business. Prefer the staff row
+  //    the invite was launched from (invited_staff_id) so re-inviting an existing
+  //    person — at a new email, or with no email on file — ATTACHES to their
+  //    record (and its history) instead of minting a duplicate. Falls back to an
+  //    email match, then creates a new row for a brand-new hire.
   const synqed = new SynqedClient({ baseUrl, apiKey, businessId: invite.business_id })
   try {
     const { staff } = await synqed.staff.list({ page_size: 200 })
-    const existing = staff.find(
-      (s) => s.email && s.email.toLowerCase() === email.toLowerCase(),
-    )
-    if (existing) {
-      await synqed.staff.update(existing.id, { user_id: userId, role })
+    const linkId = chooseStaffToLink(invite.invited_staff_id, email, staff)
+    if (linkId) {
+      await synqed.staff.update(linkId, { user_id: userId, role })
     } else {
       await synqed.staff.create({ name, email, user_id: userId, role })
     }
