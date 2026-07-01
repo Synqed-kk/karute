@@ -42,7 +42,9 @@ export function StaffSection({
           so a teammate logs into THIS salon instead of creating their own. */}
       {isOwner && process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true' && (
         <div className="flex justify-end">
-          <InviteStaffDialog />
+          <InviteStaffDialog
+            staff={staffList.map((s) => ({ id: s.id, full_name: s.full_name, email: s.email }))}
+          />
         </div>
       )}
 

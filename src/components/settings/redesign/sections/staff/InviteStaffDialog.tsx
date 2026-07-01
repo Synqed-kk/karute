@@ -19,11 +19,18 @@ import { createInvite, listInvites, revokeInvite, type InviteRow } from '@/actio
 const inputCls =
   'w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
 
-export function InviteStaffDialog() {
+interface InviteStaffDialogProps {
+  /** Existing staff rows the owner can invite to log in. Choosing one carries its
+   *  id so acceptInvite LINKS that record instead of minting a duplicate. */
+  staff?: { id: string; full_name: string | null; email?: string | null }[]
+}
+
+export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
   const t = useTranslations('invite')
   const locale = useLocale()
   const [open, setOpen] = useState(false)
   const [email, setEmail] = useState('')
+  const [staffId, setStaffId] = useState('')
   const [role, setRole] = useState<InviteRole>('STYLIST')
   const [link, setLink] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -41,8 +48,17 @@ export function InviteStaffDialog() {
       setLink(null)
       setError(null)
       setEmail('')
+      setStaffId('')
       void refresh()
     }
+  }
+
+  // Picking an existing staff member carries their id (the link) and prefills
+  // their email when we have one — the owner can still edit/supply the login email.
+  function onSelectStaff(id: string) {
+    setStaffId(id)
+    const s = staff.find((x) => x.id === id)
+    if (s?.email) setEmail(s.email)
   }
 
   async function handleCreate(e: React.FormEvent<HTMLFormElement>) {
@@ -50,7 +66,7 @@ export function InviteStaffDialog() {
     setLoading(true)
     setError(null)
     setLink(null)
-    const res = await createInvite({ email, role })
+    const res = await createInvite({ email, role, staffId: staffId || undefined })
     setLoading(false)
     if ('error' in res) {
       setError(res.error)
@@ -93,6 +109,26 @@ export function InviteStaffDialog() {
         </DialogHeader>
 
         <form onSubmit={handleCreate} className="space-y-3">
+          {staff.length > 0 && (
+            <div>
+              <label htmlFor="invite-staff" className="block text-xs font-medium mb-1">
+                {t('inviteExistingLabel')}
+              </label>
+              <select
+                id="invite-staff"
+                value={staffId}
+                onChange={(e) => onSelectStaff(e.target.value)}
+                className={inputCls}
+              >
+                <option value="">{t('inviteExistingNone')}</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.full_name ?? '—'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label htmlFor="invite-email" className="block text-xs font-medium mb-1">
               {t('inviteEmailLabel')}
