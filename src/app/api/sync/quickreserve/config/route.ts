@@ -1,37 +1,30 @@
 import { NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SB = any
+// QuickReserve connection settings live in synqed-core (sync_configs; the
+// credentials are AES-encrypted server-side and never leave core). This route
+// is a thin proxy over the SDK's sync namespace. getBusinessId() is the auth
+// gate — it throws when there's no authenticated session.
 
-// sync_config holds the QuickReserve login (incl. password_encrypted). It's now
-// RLS-locked with no anon policies, so it's reachable only via the service-role
-// client below. getBusinessId() throws when there's no authenticated session,
-// so it doubles as the auth gate this route previously lacked.
 export async function GET() {
   try {
     await getBusinessId()
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const supabase = createServiceClient() as SB
 
-  const { data } = await supabase
-    .from('sync_config')
-    .select('username, enabled, last_sync_at, last_sync_status, last_sync_error')
-    .eq('provider', 'quickreserve')
-    .single()
-
-  if (!data) {
+  const synqed = await getSynqedClient()
+  const config = await synqed.sync.getConfig('QUICKRESERVE')
+  if (!config) {
     return NextResponse.json({ username: '', enabled: false, lastStatus: null })
   }
 
   return NextResponse.json({
-    username: data.username,
-    enabled: data.enabled,
-    lastStatus: data.last_sync_status
-      ? `${data.last_sync_status}${data.last_sync_error ? ': ' + data.last_sync_error : ''} (${data.last_sync_at ? new Date(data.last_sync_at).toLocaleString() : 'never'})`
+    username: config.username ?? '',
+    enabled: config.enabled,
+    lastStatus: config.last_run_status
+      ? `${config.last_run_status}${config.last_run_error ? ': ' + config.last_run_error : ''} (${config.last_run_at ? new Date(config.last_run_at).toLocaleString() : 'never'})`
       : null,
   })
 }
@@ -42,41 +35,29 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
   const { username, password, enabled } = await request.json()
-  const supabase = createServiceClient() as SB
+  const synqed = await getSynqedClient()
 
-  // Check if config exists
-  const { data: existing } = await supabase
-    .from('sync_config')
-    .select('id')
-    .eq('provider', 'quickreserve')
-    .single()
-
-  if (existing) {
-    // Update
-    const updateData: Record<string, unknown> = {
+  try {
+    await synqed.sync.upsertConfig('QUICKRESERVE', {
       username,
+      // Only send the password when the owner typed one — core keeps the stored
+      // credential otherwise (the field renders blank on load by design).
+      ...(password ? { password } : {}),
       enabled,
-      updated_at: new Date().toISOString(),
-    }
-    // Only update password if provided (don't overwrite with empty)
-    if (password) updateData.password_encrypted = password
-
-    await supabase
-      .from('sync_config')
-      .update(updateData)
-      .eq('id', existing.id)
-  } else {
-    // Create
-    await supabase
-      .from('sync_config')
-      .insert({
-        provider: 'quickreserve',
-        base_url: 'la-estro',
-        username,
-        password_encrypted: password || '',
-        enabled,
-      })
+      // QuickReserve store identifiers. Hardcoded for La Estro (the only QR
+      // tenant today); parameterize when multi-store onboarding lands.
+      store_slug: 'la-estro',
+      store_id: 222,
+    })
+  } catch (e) {
+    // The old route never checked the write and always returned success — the
+    // "Config saved" false positive. Surface the real failure now.
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : 'Could not save QuickReserve settings' },
+      { status: 502 },
+    )
   }
 
   return NextResponse.json({ success: true })
