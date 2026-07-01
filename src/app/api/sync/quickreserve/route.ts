@@ -31,9 +31,15 @@ export async function POST() {
       skipped: result.skipped_no_staff + result.skipped_deleted,
     })
   } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : 'Sync failed' },
-      { status: 502 },
-    )
+    const message = e instanceof Error ? e.message : 'Sync failed'
+    // Not-yet-configured is an expected state (owner hasn't saved their QR login),
+    // not a failure — return a friendly message so the panel doesn't show a red
+    // error, matching the pre-delegation behavior.
+    if (/config not found|no credentials/i.test(message)) {
+      return NextResponse.json({
+        message: 'QR sync not configured — save your Quick Reserve login first.',
+      })
+    }
+    return NextResponse.json({ error: message }, { status: 502 })
   }
 }
