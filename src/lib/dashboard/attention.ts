@@ -26,8 +26,9 @@ export interface AttentionItem extends AttentionCandidate {
 const BADGE_PRIORITY: AttentionBadge[] = ['lastOne', 'packDone', 'first', 'comeback', 'memo']
 
 function badgeFor(c: AttentionCandidate, comebackDays: number): AttentionBadge | null {
-  if (c.remaining !== null && c.remaining <= 1) return 'lastOne'
-  if (c.hadPack && c.remaining === null) return 'packDone'
+  if (c.remaining === 1) return 'lastOne'
+  // 券終了 = used the pack up (remaining 0) or once held one with none active.
+  if (c.remaining === 0 || (c.hadPack && c.remaining === null)) return 'packDone'
   if (c.firstTime) return 'first'
   if (c.daysSinceLastVisit !== null && c.daysSinceLastVisit >= comebackDays) return 'comeback'
   if (c.memo) return 'memo'
