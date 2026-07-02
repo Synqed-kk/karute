@@ -39,9 +39,19 @@ export function PipelineContainer({
     setCurrentStep('transcribing')
 
     try {
-      const pipelineResult = await runAIPipeline(audioBlob, locale, (step) => {
-        setCurrentStep(step)
-      })
+      const pipelineResult = await runAIPipeline(
+        audioBlob,
+        locale,
+        (step) => {
+          setCurrentStep(step)
+        },
+        {
+          customerName:
+            customers.find((c) => c.id === appointmentCustomerId)?.name ?? null,
+          // Live recording — the session is today (JST).
+          sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+        },
+      )
       setResult(pipelineResult)
       setPhase('review')
     } catch (err) {
@@ -52,7 +62,7 @@ export function PipelineContainer({
           : 'An unexpected error occurred. Please try again.',
       )
     }
-  }, [audioBlob, locale])
+  }, [audioBlob, locale, customers, appointmentCustomerId])
 
   useEffect(() => {
     runPipeline()

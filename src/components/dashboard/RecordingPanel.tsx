@@ -216,16 +216,25 @@ export function RecordingPanel({ activeStaffId, customers: initialCustomers, loc
     setPipelineStep('transcribing')
 
     try {
-      const pResult = await runAIPipeline(result.blob, locale, (step) => {
-        setPipelineStep(step)
-      })
+      const pResult = await runAIPipeline(
+        result.blob,
+        locale,
+        (step) => {
+          setPipelineStep(step)
+        },
+        {
+          customerName: activeAppointment?.customerName ?? null,
+          // Live recording — the session is today (JST).
+          sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+        },
+      )
       setPipelineResult(pResult)
       setPhase('review')
     } catch (err) {
       setPipelineStep('error')
       setPipelineError(err instanceof Error ? err.message : 'An unexpected error occurred.')
     }
-  }, [result, barId, setBarType, locale])
+  }, [result, barId, setBarType, locale, activeAppointment])
 
   // Retry pipeline after error
   const handleRetry = useCallback(() => {

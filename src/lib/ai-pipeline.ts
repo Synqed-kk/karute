@@ -64,10 +64,19 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
  * Calls onProgress at each stage so UI can show step-by-step progress.
  * Auto-retries each API call once on failure; throws on second failure.
  */
+/** Optional prompt context — anchors the AI to THIS customer (rejects other
+ *  customers' names from phone calls etc.) and to the session date (converts
+ *  「来週」-style relative dates to absolute). Both degrade gracefully. */
+export type PipelineContext = {
+  customerName?: string | null
+  sessionDate?: string | null
+}
+
 export async function runAIPipeline(
   audioBlob: Blob,
   locale: string,
   onProgress: (step: PipelineStep) => void,
+  ctx: PipelineContext = {},
 ): Promise<PipelineResult> {
   // Step 1: Transcription
   onProgress('transcribing')
@@ -141,7 +150,12 @@ export async function runAIPipeline(
       fetch('/api/ai/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: aiTranscript, locale }),
+        body: JSON.stringify({
+          transcript: aiTranscript,
+          locale,
+          customerName: ctx.customerName ?? null,
+          sessionDate: ctx.sessionDate ?? null,
+        }),
       }),
     ).catch((err) => {
       throw new Error(`Extraction failed: ${err instanceof Error ? err.message : String(err)}`)
@@ -150,7 +164,12 @@ export async function runAIPipeline(
       fetch('/api/ai/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: aiTranscript, locale }),
+        body: JSON.stringify({
+          transcript: aiTranscript,
+          locale,
+          customerName: ctx.customerName ?? null,
+          sessionDate: ctx.sessionDate ?? null,
+        }),
       }),
     ).catch((err) => {
       throw new Error(`Summary generation failed: ${err instanceof Error ? err.message : String(err)}`)

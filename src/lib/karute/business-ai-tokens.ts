@@ -10,6 +10,12 @@
 
 export type ClinicalPosture = 'clinical' | 'wellness' | 'service'
 
+/** One labeled section of the AI session summary (「・主訴：…」). */
+export interface SummaryLabel {
+  label: string
+  def: string
+}
+
 export interface BusinessAiPersona {
   roleJa: string
   roleEn: string
@@ -21,6 +27,19 @@ export interface BusinessAiPersona {
   clinicalPosture: ClinicalPosture
   typicalConcernsJa: string[]
   typicalConcernsEn: string[]
+  /** The extraction "hunt list": what the AI must actively listen for at this
+   *  business (会話に出た場合のみ — never a padding mandate). Optional: types
+   *  without an authored list fall back to GENERIC_CHECKLIST_JA/EN. */
+  captureChecklistJa?: string[]
+  captureChecklistEn?: string[]
+  /** The summary's labeled sections, in skim order (safety second). Optional:
+   *  falls back to GENERIC_SUMMARY_LABELS_JA/EN. */
+  summaryLabelsJa?: SummaryLabel[]
+  summaryLabelsEn?: SummaryLabel[]
+  /** 1-2 business-flavored good-title examples for the extraction prompt.
+   *  MUST be synthetic facts that appear in no real session (echo risk). */
+  goodExamplesJa?: string[]
+  goodExamplesEn?: string[]
 }
 
 const PERSONAS: Record<string, BusinessAiPersona> = {
@@ -86,6 +105,52 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     seasonalRelevance: 'medium', clinicalPosture: 'wellness',
     typicalConcernsJa: ['顔の左右差の追跡', 'シルエットに表れる骨盤のゆがみ', '維持を阻む姿勢習慣'],
     typicalConcernsEn: ['facial asymmetry tracking', 'pelvic misalignment visible in silhouette', 'posture habits that block maintenance'],
+    captureChecklistJa: [
+      '主訴・訴え：どこが・いつから・きっかけ・どんな時に痛むか。期間（「半年」→「約6ヶ月」のように）も数字に直して必ず含める',
+      '既往歴・外傷・手術歴・服薬：過去のケガ・手術・体内の金属（プレート等）・可動制限・服用中の薬・アレルギー — 施術の安全に直結するため最優先',
+      '圧・刺激の好みと注意点：強め/弱めの好み、痛がった箇所・響いた箇所、もみ返しの傾向、過去の施術での悪化経験・施術への不安',
+      'セルフケア指導：教えたストレッチ・エクササイズ、フォームの要点（秒数・回数・姿勢）、お客様の自己流の誤りを正した内容',
+      '生活習慣：仕事時間・睡眠・運動習慣・食事・飲酒など体に影響するもの',
+      '美容面の目標・個人メモ：姿勢美・小顔・骨盤などの関心と期限のある目標、家族・趣味・予定の話題、呼ばれたい名前・会話量・快適さの好み',
+      '次回・プラン：予約日時、推奨来店頻度、次回確認すること、施術者がお客様に約束した内容、回数券・コースの残回数（category は product）と継続の意向（category は next_visit）',
+    ],
+    captureChecklistEn: [
+      "Chief complaints: where, since when, what triggered it, when it hurts. Convert durations to figures (\"half a year\" → \"~6 months\") and always include them",
+      'History & safety: past injuries, surgeries, implanted metal (plates etc.), movement restrictions, current medication, allergies — top priority, directly affects treatment safety',
+      'Pressure preferences & cautions: strong/gentle preference, spots that hurt or rang, tendency to post-massage soreness, bad past-treatment experiences or fear of adjustments',
+      "Self-care coaching: stretches/exercises taught, form key points (seconds, reps, posture), corrections made to the customer's own routine",
+      'Lifestyle: work hours, sleep, exercise habits, diet, alcohol — anything that affects the body',
+      "Aesthetic goals & personal notes: posture/facial/pelvic goals with deadlines, family/hobby/plans topics, preferred name, conversation-volume and comfort preferences",
+      'Next & plan: booking date/time, recommended cadence, things to check next time, promises the practitioner made, ticket/course balance (category: product) and renewal intent (category: next_visit)',
+    ],
+    summaryLabelsJa: [
+      { label: '主訴', def: 'お客様の訴え・悩み・目標（部位・いつから・きっかけ。目標に期限がある場合は期限も）' },
+      { label: '注意', def: '安全・接客上の注意（既往歴・手術歴・体内金属・アレルギー・服用中の薬・痛がった箇所・圧の注意・もみ返しの傾向・施術への不安）' },
+      { label: '状態', def: '本日の体の状態、施術者の所見と原因の見立て。前回からの変化が会話から分かる場合に限り、改善／悪化／不変を明記する（分からない場合は変化について何も書かない）' },
+      { label: '施術', def: '本日実施した施術と、それへのお客様の反応。施術前後で変化を確認した場合はその結果も明記（「いつもの」等の指定はその表現のまま書く）' },
+      { label: 'セルフケア', def: '指導した自宅ケア（内容・フォームの要点・秒数/回数・正した誤り）' },
+      { label: '生活', def: '生活習慣や、家族・趣味・予定など次回の会話に活きる話題' },
+      { label: '次回', def: '予約があれば日時、なければ「予約なし」と書く。加えて、本日の会話に根拠があるものだけを書く：施術者またはお客様が次回に向けて口にした・宿題にした「次回確認すること」（セルフケアの実施状況・経過を見る症状など）／施術者がお客様に約束した内容（重点部位の変更・期限延長など）／保留になった提案／継続・更新に関わるお客様の意向や事情／回数券の残回数／推奨来店頻度。情報が多ければ行を分ける' },
+      { label: 'メモ', def: '上記のどのラベルにも当てはまらないが次回の担当者に重要な事実（該当がある場合のみ。なければこの行自体を出力しない）' },
+    ],
+    summaryLabelsEn: [
+      { label: 'Concerns', def: "the customer's complaints, worries, and goals (area, since when, trigger; include deadlines on goals)" },
+      { label: 'Cautions', def: 'safety and service cautions (injury/surgery history, implanted metal, allergies, medication, spots that hurt, pressure cautions, soreness tendency, treatment anxiety)' },
+      { label: 'Condition', def: "today's body state and the practitioner's findings and assessment; state improved/worse/unchanged ONLY when the conversation shows the change vs last time" },
+      { label: 'Treatment', def: "what was done today and how the customer responded; include before/after re-test results when checked (keep 'the usual'-style requests verbatim)" },
+      { label: 'Self-care', def: 'homework taught (content, form key points, seconds/reps, corrected mistakes)' },
+      { label: 'Life', def: 'lifestyle and personal topics (family, hobbies, plans) useful next visit' },
+      { label: 'Next', def: 'booking date/time, or "no booking". Then, ONLY what the conversation supports: things to check next time (homework follow-up, symptoms to track) / promises the practitioner made / deferred proposals / renewal intent or attendance constraints / ticket balance / recommended cadence. Split lines when rich' },
+      { label: 'Note', def: 'important facts that fit no label above (only when present — otherwise omit this line entirely)' },
+    ],
+    goodExamplesJa: [
+      '（symptom）左肩：3ヶ月前から挙上時に痛み、デスクワーク後に悪化',
+      '（treatment）セルフケア指導：入浴後に肩甲骨回し10回×2セット、反動をつけない',
+    ],
+    goodExamplesEn: [
+      '(symptom) Left shoulder: pain on raising since ~3 months ago, worse after desk work',
+      '(treatment) Self-care coaching: shoulder-blade circles 10 reps × 2 sets after bathing, no bouncing',
+    ],
   },
   acupuncture: {
     roleJa: '鍼灸師', roleEn: 'acupuncturist',
@@ -292,6 +357,92 @@ export function resolvePersonaTokens(
     seasonalRelevance: persona.seasonalRelevance,
     typicalConcerns: concerns.join(ja ? '、' : ', '),
   }
+}
+
+// ---------------------------------------------------------------------------
+// Capture tokens (v3.1 prompt system) — per-business hunt list, summary label
+// set, and title exemplars. Authored types define their own; everything else
+// runs on these generic fallbacks (real definitions, not empty slots) until
+// authored to the same standard.
+// ---------------------------------------------------------------------------
+
+const GENERIC_CHECKLIST_JA: string[] = [
+  '相談内容・要望：何を求めて来店したか、いつから・きっかけ。期間や数値は数字に直して必ず含める',
+  '安全に関わる情報：アレルギー・過去のトラブル・体質・服用中の薬など、対応の安全に関わる履歴 — 最優先',
+  '好みと注意点：強さ・仕上がり・接客の好み、嫌がったこと・過去の悪い経験',
+  'すすめたケア・宿題：教えたセルフケアや使い方の要点（回数・頻度・手順）、正した誤り',
+  '生活習慣：仕事・睡眠・生活リズムなど、状態や来店周期に影響するもの',
+  '個人メモ：家族・趣味・予定の話題、呼ばれたい名前・会話量の好みなど次回の会話に活きるもの',
+  '次回・プラン：予約日時、推奨来店周期、次回確認すること、スタッフがお客様に約束した内容、回数券・コースの残回数と継続の意向',
+  '継続のサイン：満足・不満・迷い・他店との比較など、また来てもらえるかに関わるお客様の気持ち',
+]
+
+const GENERIC_CHECKLIST_EN: string[] = [
+  'Requests & concerns: what the customer came for, since when, what triggered it. Convert durations/amounts to figures',
+  'Safety-relevant history: allergies, past reactions or trouble, constitution, current medication — top priority',
+  'Preferences & cautions: intensity/finish/service preferences, things they disliked, bad past experiences',
+  'Care advice & homework: self-care or usage taught (reps, frequency, steps), corrected mistakes',
+  'Lifestyle: work, sleep, routine — anything affecting their condition or visit cadence',
+  'Personal notes: family/hobby/plans topics, preferred name, conversation-volume preference — anything useful next visit',
+  'Next & plan: booking, recommended cadence, things to check next time, promises staff made, ticket/course balance and renewal intent',
+  "Retention signals: satisfaction, dissatisfaction, hesitation, competitor comparisons — the customer's feelings about coming back",
+]
+
+const GENERIC_SUMMARY_LABELS_JA: SummaryLabel[] = [
+  { label: '相談内容', def: 'お客様の要望・悩み・目標（いつから・きっかけ。期限がある場合は期限も）' },
+  { label: '注意', def: '安全・接客上の注意（アレルギー・過去のトラブル・服用中の薬・嫌がったこと）' },
+  { label: '状態', def: '本日の状態と担当者の所見・見立て。前回からの変化が会話から分かる場合に限り明記' },
+  { label: '本日の内容', def: '本日実施した内容と、それへのお客様の反応（「いつもの」等の指定はその表現のまま書く）' },
+  { label: 'アドバイス', def: 'すすめたケア・製品・宿題（内容・回数・手順。お客様の反応も）' },
+  { label: '生活・会話', def: '生活習慣や、家族・趣味・予定など次回の会話に活きる話題' },
+  { label: '次回', def: '予約があれば日時、なければ「予約なし」と書く。加えて、本日の会話に根拠があるものだけを書く：次回確認すること／スタッフがお客様に約束した内容／保留になった提案／継続・更新に関わるお客様の意向／回数券の残回数／推奨来店周期。情報が多ければ行を分ける' },
+  { label: 'メモ', def: '上記のどのラベルにも当てはまらないが次回の担当者に重要な事実（該当がある場合のみ。なければこの行自体を出力しない）' },
+]
+
+const GENERIC_SUMMARY_LABELS_EN: SummaryLabel[] = [
+  { label: 'Requests', def: "the customer's requests, concerns, and goals (since when, trigger; include deadlines)" },
+  { label: 'Cautions', def: 'safety and service cautions (allergies, past trouble, medication, things they disliked)' },
+  { label: 'Condition', def: "today's condition and the staff member's observations; state change vs last time ONLY when the conversation shows it" },
+  { label: "Today's session", def: "what was done today and the customer's reaction (keep 'the usual'-style requests verbatim)" },
+  { label: 'Advice', def: 'care, products, or homework recommended (content, reps, steps; include the customer\'s reaction)' },
+  { label: 'Life & conversation', def: 'lifestyle and personal topics (family, hobbies, plans) useful next visit' },
+  { label: 'Next', def: 'booking date/time, or "no booking". Then, ONLY what the conversation supports: things to check next time / promises staff made / deferred proposals / renewal intent / ticket balance / recommended cadence. Split lines when rich' },
+  { label: 'Note', def: 'important facts that fit no label above (only when present — otherwise omit this line entirely)' },
+]
+
+export interface CaptureTokens {
+  checklist: string[]
+  summaryLabels: SummaryLabel[]
+  goodExamples: string[]
+}
+
+/** Max checklist items fed to the prompt — protects the model's instruction
+ *  budget from future per-org additions (overrides layer). */
+const CHECKLIST_BUDGET = 10
+
+/**
+ * Resolve the capture tokens for a business type + locale, falling back to the
+ * generic set. `overrides` is the future per-org/per-store tuning layer
+ * (org_settings JSON) — merged here as data so owner customization never
+ * requires a prompt rewrite. Unused today (always undefined).
+ */
+export function resolveCaptureTokens(
+  businessType: string | null | undefined,
+  locale: string,
+  overrides?: { checklistExtra?: string[] },
+): CaptureTokens {
+  const persona = getBusinessAiPersona(businessType)
+  const ja = locale === 'ja'
+  const checklist = [
+    ...((ja ? persona.captureChecklistJa : persona.captureChecklistEn) ??
+      (ja ? GENERIC_CHECKLIST_JA : GENERIC_CHECKLIST_EN)),
+    ...(overrides?.checklistExtra ?? []),
+  ].slice(0, CHECKLIST_BUDGET)
+  const summaryLabels =
+    (ja ? persona.summaryLabelsJa : persona.summaryLabelsEn) ??
+    (ja ? GENERIC_SUMMARY_LABELS_JA : GENERIC_SUMMARY_LABELS_EN)
+  const goodExamples = (ja ? persona.goodExamplesJa : persona.goodExamplesEn) ?? []
+  return { checklist, summaryLabels, goodExamples }
 }
 
 /**

@@ -554,8 +554,14 @@ function buildPreSessionBriefFor(
     .map((e) => ({ title: e.content, body: null as string | null }))
 
   // Last concerns = symptom + treatment entries (clinical recap).
+  // Safety-critical facts extract as SYMPTOM and are ordered first by the
+  // prompt; sort symptom-before-treatment so the 3-slot cap can't push a
+  // contraindication out in favor of treatment notes.
   const concerns = entries
     .filter((e) => e.category === 'SYMPTOM' || e.category === 'TREATMENT')
+    .sort((a, b) =>
+      a.category === b.category ? 0 : a.category === 'SYMPTOM' ? -1 : 1,
+    )
     .slice(0, 3)
     .map((e) => e.content)
 
@@ -568,7 +574,10 @@ function buildPreSessionBriefFor(
   // Recommended focus = first next-visit entry (what the customer
   // said they wanted next time, or what staff flagged for follow-up).
   const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
-  const recommendedFocus = nextEntry?.content ?? last.ai_summary ?? null
+  // Fallback: only the summary's FIRST line — v3.1 summaries run 10+ labeled
+  // lines, and dumping the whole block into the focus slot drowns the card.
+  const recommendedFocus =
+    nextEntry?.content ?? last.ai_summary?.split(/\r?\n/)[0]?.trim() ?? null
 
   // Format the last visit date + relative "X日前".
   const lastDt = new Date(last.created_at)
