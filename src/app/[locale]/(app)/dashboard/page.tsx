@@ -54,7 +54,6 @@ export default async function DashboardPage() {
     reconcile,
     canDismissAlerts,
     packUsage,
-    recentRedemptions,
     businessId,
   ] = await Promise.all([
     t.phase('staffList', () => getStaffList()),
@@ -70,8 +69,6 @@ export default async function DashboardPage() {
     can('alerts.manage').catch(() => false),
     // Per-customer 残回数 — the ticket chips on hero + day flow.
     t.phase('packUsage', () => listAllPackUsage()),
-    // 7-day burn count for the owner pulse (degrades to []).
-    t.phase('redemptions7d', () => listRecentRedemptions(7)),
     getBusinessId().catch(() => null),
   ])
 
@@ -97,12 +94,59 @@ export default async function DashboardPage() {
       ),
     ),
   ]
-  const enrichment =
+  // Owner detection up front — it gates the owner-only redemptions fetch.
+  const activeStaff = staffList.find((s) => s.id === activeStaffId)
+  const isOwner =
+    (activeStaff as { display_role?: string | null } | null)?.display_role ===
+    'owner'
+
+  // ── stage 2: three independent reads, in PARALLEL (no waterfall) ──
+  const slides = pickHeroSlides(dashboard.todayAppointments, now)
+  const emptyKaruteMap = () =>
+    new Map<string, { text: string; dateLabel: string; href: string }>()
+  const [enrichment, lastKarute, recentRedemptions] = await Promise.all([
+    // Enrichment (karute/past-appointment counts) — same signals as agenda.
     businessId && dayClientIds.length
-      ? await enrichCustomers(businessId, dayClientIds).catch(
+      ? enrichCustomers(businessId, dayClientIds).catch(
           () => new Map<string, CustomerEnrichment>(),
         )
-      : new Map<string, CustomerEnrichment>()
+      : Promise.resolve(new Map<string, CustomerEnrichment>()),
+    // Last AI karute line per hero customer (≤3 lookups).
+    t.phase('heroKarute', async () => {
+      if (slides.length === 0) return emptyKaruteMap()
+      try {
+        const synqed = await getSynqedClient()
+        const results = await Promise.all(
+          slides.map((s) =>
+            synqed.karuteRecords
+              .list({ customer_id: s.appointment.client_id, page_size: 1 })
+              .then((r) => r.karute_records[0] ?? null)
+              .catch(() => null),
+          ),
+        )
+        const map = emptyKaruteMap()
+        results.forEach((rec, i) => {
+          const text = summaryLine(rec?.ai_summary ?? null)
+          if (rec && text) {
+            map.set(slides[i].appointment.client_id, {
+              text,
+              dateLabel: compactDayLabel(new Date(rec.created_at), locale),
+              href: `/karute/${rec.id}`,
+            })
+          }
+        })
+        return map
+      } catch {
+        return emptyKaruteMap()
+      }
+    }),
+    // 7-day burn count — only the owner band consumes it; staff skip the call.
+    isOwner
+      ? t.phase('redemptions7d', () => listRecentRedemptions(7))
+      : Promise.resolve(
+          [] as Awaited<ReturnType<typeof listRecentRedemptions>>,
+        ),
+  ])
 
   const isFirstTime = (clientId: string): boolean => {
     const c = customerById.get(clientId)
@@ -121,38 +165,6 @@ export default async function DashboardPage() {
     const u = packUsage.get(clientId)
     return u?.hasActivePack ? { remaining: u.remaining, size: u.size } : null
   }
-
-  // ── hero: next customers + their last AI karute line ─────────────
-  const slides = pickHeroSlides(dashboard.todayAppointments, now)
-  const lastKarute = await t.phase('heroKarute', async () => {
-    if (slides.length === 0) return new Map<string, { text: string; dateLabel: string; href: string }>()
-    try {
-      const synqed = await getSynqedClient()
-      const results = await Promise.all(
-        slides.map((s) =>
-          synqed.karuteRecords
-            .list({ customer_id: s.appointment.client_id, page_size: 1 })
-            .then((r) => r.karute_records[0] ?? null)
-            .catch(() => null),
-        ),
-      )
-      const map = new Map<string, { text: string; dateLabel: string; href: string }>()
-      results.forEach((rec, i) => {
-        const text = summaryLine(rec?.ai_summary ?? null)
-        if (rec && text) {
-          map.set(slides[i].appointment.client_id, {
-            text,
-            dateLabel: compactDayLabel(new Date(rec.created_at), locale),
-            href: `/karute/${rec.id}`,
-          })
-        }
-      })
-      return map
-    } catch {
-      return new Map<string, { text: string; dateLabel: string; href: string }>()
-    }
-  })
-  t.end()
 
   const toHeroView = (s: (typeof slides)[number]): HeroSlideView => {
     const a = s.appointment
@@ -238,10 +250,9 @@ export default async function DashboardPage() {
         }
       : null
 
-  // ── owner ─────────────────────────────────────────────────────────
-  const activeStaff = staffList.find((s) => s.id === activeStaffId)
-  const isOwner =
-    (activeStaff as { display_role?: string | null } | null)?.display_role === 'owner'
+  // Timing closes after the derivations too, so the metric reports the real
+  // server cost of the page, not just the fetch fan-out.
+  t.end()
 
   return (
     <DashboardPageView
