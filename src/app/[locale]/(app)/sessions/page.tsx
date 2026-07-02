@@ -577,7 +577,7 @@ function buildPreSessionBriefFor(
   // Fallback: only the summary's FIRST line — v3.1 summaries run 10+ labeled
   // lines, and dumping the whole block into the focus slot drowns the card.
   const recommendedFocus =
-    nextEntry?.content ?? last.ai_summary?.split(/\r?\n/)[0]?.trim() ?? null
+    nextEntry?.content ?? (last.ai_summary?.split(/\r?\n/)[0]?.trim() || null)
 
   // Format the last visit date + relative "X日前".
   const lastDt = new Date(last.created_at)

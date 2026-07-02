@@ -27,21 +27,33 @@ export interface PromptContext {
   sessionDate?: string | null
 }
 
+/** Both anchors reach us from request bodies / call sites — treat as DATA.
+ *  Names are clamped and stripped of newlines/control chars so a hostile
+ *  value can't smuggle instructions into the system prompt; dates must be
+ *  literal YYYY-MM-DD or they're omitted. */
+function cleanNameToken(v: string): string {
+  return v
+    .replace(/[\r\n\u0000-\u001f<>{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40)
+}
+
 /** 「このカルテのお客様：◯◯様。セッション日：YYYY-MM-DD。」 — omitted gracefully
  *  when the caller doesn't have the data (older call sites, EN locales). */
 export function anchorLines(locale: string, ctx?: PromptContext): string {
-  if (!ctx?.customerName && !ctx?.sessionDate) return ''
+  const name = ctx?.customerName ? cleanNameToken(ctx.customerName) : ''
+  const dm = ctx?.sessionDate?.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  const date =
+    dm && +dm[2] >= 1 && +dm[2] <= 12 && +dm[3] >= 1 && +dm[3] <= 31 ? dm[0] : ''
+  if (!name && !date) return ''
   const ja = locale === 'ja'
   const parts: string[] = []
-  if (ctx.customerName) {
-    parts.push(
-      ja
-        ? `このカルテのお客様：${ctx.customerName}様。`
-        : `This chart's customer: ${ctx.customerName}.`,
-    )
+  if (name) {
+    parts.push(ja ? `このカルテのお客様：${name}様。` : `This chart's customer: ${name}.`)
   }
-  if (ctx.sessionDate) {
-    parts.push(ja ? `セッション日：${ctx.sessionDate}。` : `Session date: ${ctx.sessionDate}.`)
+  if (date) {
+    parts.push(ja ? `セッション日：${date}。` : `Session date: ${date}.`)
   }
   return parts.join(' ')
 }
@@ -53,7 +65,8 @@ export function anchorLines(locale: string, ctx?: PromptContext): string {
  * the abstain rule, and the connected-test ambient rule.
  */
 export function whoRuleExtractionJa(ctx?: PromptContext): string {
-  const name = ctx?.customerName ? `${ctx.customerName}様` : 'このお客様'
+  const cleaned = ctx?.customerName ? cleanNameToken(ctx.customerName) : ''
+  const name = cleaned ? `${cleaned}様` : 'このお客様'
   return `【最重要：誰の事実か】
 - 判断基準は「発言者が誰か」ではなく「その事実が誰の体・生活についてか」。施術者の発言でも、お客様の体の状態・所見・原因の見立て・指導内容（例：「かなり緊張が強い」「ここまで可動域を出したい」）は必ず記録する。
 - お客様本人以外（スタッフ自身・同僚・他のお客様・知人）の体・生活・経歴・売上・事情は、誰が話していても記録しない。ただし、お客様の家族・ペット・同伴者・知人が「お客様の生活の出来事・症状の原因・来店の背景」として登場する場合（孫の入学式、子供の抱っこが腰痛のきっかけ、妻の紹介で来店、家族の出産で寝不足、知人の店と比べて継続を迷っている等）は、お客様の事実の一部として記録する。除外するのは、お客様の生活と関わらない第三者自身の症状・数字・事情のみ。
@@ -68,7 +81,8 @@ export function whoRuleExtractionJa(ctx?: PromptContext): string {
 
 /** The WHO block for the karute SUMMARY prompt (JA) — compressed 3-bullet form. */
 export function whoRuleSummaryJa(ctx?: PromptContext): string {
-  const name = ctx?.customerName ? `${ctx.customerName}様` : 'お客様本人'
+  const cleaned = ctx?.customerName ? cleanNameToken(ctx.customerName) : ''
+  const name = cleaned ? `${cleaned}様` : 'お客様本人'
   return `【最重要：誰の事実か】
 - 要約するのは「お客様」に関する内容のみ。判断基準は発言者ではなく「その事実が誰の体・生活についてか」— 施術者がお客様について述べた所見・見立て・指導は必ず含める。お客様自身の回数券・契約・支払いの話もお客様の事実として含める。
 - スタッフ自身の話（生活習慣・売上・同僚・店の事情）と、お客様の生活と関わらない第三者の話は含めない。ただし、お客様の家族・ペット・同伴者の出来事や、それがお客様の生活・症状・来店に関わる話（子供の行事、家族の出産で寝不足、妻の紹介で来店など）は「生活」に含める。電話対応・業務連絡など本人との会話でないやり取り（他のお客様の予約変更など）は含めない。誰のことか、手がかり（一人称・質問→回答の流れ・誰が知り得る情報か）を当てはめても判断できない内容は書かない。

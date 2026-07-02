@@ -144,12 +144,12 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       { label: 'Note', def: 'important facts that fit no label above (only when present — otherwise omit this line entirely)' },
     ],
     goodExamplesJa: [
-      '（symptom）左肩：3ヶ月前から挙上時に痛み、デスクワーク後に悪化',
-      '（treatment）セルフケア指導：入浴後に肩甲骨回し10回×2セット、反動をつけない',
+      '（symptom）：「左肩：3ヶ月前から挙上時に痛み、デスクワーク後に悪化」',
+      '（treatment）：「セルフケア指導：入浴後に肩甲骨回し10回×2セット、反動をつけない」',
     ],
     goodExamplesEn: [
-      '(symptom) Left shoulder: pain on raising since ~3 months ago, worse after desk work',
-      '(treatment) Self-care coaching: shoulder-blade circles 10 reps × 2 sets after bathing, no bouncing',
+      '(symptom): "Left shoulder: pain on raising since ~3 months ago, worse after desk work"',
+      '(treatment): "Self-care coaching: shoulder-blade circles 10 reps × 2 sets after bathing, no bouncing"',
     ],
   },
   acupuncture: {
