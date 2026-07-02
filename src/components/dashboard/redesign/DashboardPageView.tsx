@@ -1,77 +1,88 @@
-import type { BusinessProfile } from '@/lib/welcome/business-types'
+// Dashboard composition (Liam-approved redesign, 2026-07-02). Reading order =
+// a practitioner's phone moments: who's next (hero) → what did I forget
+// (todos) → my whole day (flow) → tomorrow → owner money (toggle-gated, last).
+// Laws: every number is real data; empty sections render nothing; no stat
+// tiles, no feeds, no placeholder boxes.
+
+import { getTranslations } from 'next-intl/server'
 import type { PackAlerts } from '@/lib/packs/alerts'
-import { AIActionsHero } from './AIActionsHero'
-import { DashboardHeader } from './DashboardHeader'
-import { OnboardingBanner } from './OnboardingBanner'
-import { PackAlertsCard } from './PackAlertsCard'
-import { ReconcileStrip } from './ReconcileStrip'
 import type { ReconcileData } from '@/lib/packs/reconcile'
+import { OnboardingBanner } from './OnboardingBanner'
 import {
-  RecentKaruteCard,
-  type DashboardRecentKarute,
-} from './RecentKaruteCard'
-import { StatStrip, type StatStripData } from './StatStrip'
-import {
-  TodaysAppointmentsCard,
-  type DashboardAppointment,
-} from './TodaysAppointmentsCard'
+  NextCustomerHero,
+  type HeroSlideView,
+  type TomorrowFirstView,
+} from './NextCustomerHero'
+import { TodoCard, type KaruteTodoView } from './TodoCard'
+import { DayFlow, type DayFlowRow } from './DayFlow'
+import { TomorrowStrip, type TomorrowStripData } from './TomorrowStrip'
+import { OwnerBand } from './OwnerBand'
 
 interface DashboardPageViewProps {
-  staffName: string
+  dateLabel: string
   isOwner: boolean
-  dateFormatted: string
   onboardingComplete: boolean
-  businessProfile: BusinessProfile | null
-  stats: StatStripData
-  appointments: DashboardAppointment[]
-  recentKarute: DashboardRecentKarute[]
-  /** 離客/upsell alerts — card renders nothing when both lists are empty. */
+  heroSlides: HeroSlideView[]
+  heroTomorrow: TomorrowFirstView | null
+  doneCount: number
+  karuteTodos: KaruteTodoView[]
+  redeemTodos: ReconcileData['entries']
+  dayRows: DayFlowRow[]
+  tomorrow: TomorrowStripData | null
   packAlerts: PackAlerts
   reconcile: ReconcileData
-  /** alerts.manage capability (manager+) — shows the dismiss buttons. */
   canDismissAlerts: boolean
+  pulse: { redemptions: number; karute: number }
 }
 
-export function DashboardPageView({
-  staffName,
+export async function DashboardPageView({
+  dateLabel,
   isOwner,
-  dateFormatted,
   onboardingComplete,
-  businessProfile,
-  stats,
-  appointments,
-  recentKarute,
+  heroSlides,
+  heroTomorrow,
+  doneCount,
+  karuteTodos,
+  redeemTodos,
+  dayRows,
+  tomorrow,
   packAlerts,
   reconcile,
   canDismissAlerts,
+  pulse,
 }: DashboardPageViewProps) {
+  const t = await getTranslations('dashboard.flow')
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 p-4 md:p-6">
-      <DashboardHeader
-        name={staffName}
-        isOwner={isOwner}
-        dateFormatted={dateFormatted}
-        onboardingComplete={onboardingComplete}
-      />
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4 md:p-6">
+      {/* Chrome, not content: one slim row. The store pill lives in the app
+       *  header above; greeting paragraphs don't survive the 5-second skim. */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-[13px] text-muted-foreground">{dateLabel}</span>
+        {isOwner && (
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-muted-foreground">
+            {t('ownerChip')}
+          </span>
+        )}
+      </div>
 
       {!onboardingComplete && <OnboardingBanner />}
 
-      {/* 離客アラート — ABOVE everything else (Kitano: a prominent, always-
-       *  visible place so staff can't forget to bring pack holders back). */}
-      <PackAlertsCard alerts={packAlerts} canDismiss={canDismissAlerts} />
+      <NextCustomerHero slides={heroSlides} tomorrow={heroTomorrow} doneCount={doneCount} />
 
-      {/* 未処理来店 — housekeeping below the red action block; renders null
-       *  when there's nothing to fix. */}
-      <ReconcileStrip data={reconcile} />
+      <TodoCard karuteTodos={karuteTodos} redeemTodos={redeemTodos} />
 
-      <AIActionsHero businessProfile={businessProfile} />
+      <DayFlow rows={dayRows} />
 
-      <StatStrip stats={stats} />
+      <TomorrowStrip data={tomorrow} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <TodaysAppointmentsCard appointments={appointments} />
-        <RecentKaruteCard items={recentKarute} />
-      </div>
+      {isOwner && (
+        <OwnerBand
+          alerts={packAlerts}
+          reconcile={reconcile}
+          canDismissAlerts={canDismissAlerts}
+          pulse={pulse}
+        />
+      )}
     </div>
   )
 }
