@@ -185,6 +185,7 @@
     "grid": {
       "blockOwner": "予約を受け付けていません（オーナー業務）",
       "staffMeta": "{role} ・ {count}件の予約",
+      "staffMetaNoRole": "{count}件の予約",
       "staffColumnLabel": "STAFF"
     },
     "totals": {

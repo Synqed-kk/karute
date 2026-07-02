@@ -53,7 +53,9 @@ export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, t
           <div className="truncate text-sm font-medium">{staff.name}</div>
           <div className="truncate text-xs text-muted-foreground">
             {staff.takesBookings
-              ? t('grid.staffMeta', { role: staff.role, count: reservations.length })
+              ? staff.role
+                ? t('grid.staffMeta', { role: staff.role, count: reservations.length })
+                : t('grid.staffMetaNoRole', { count: reservations.length })
               : staff.role}
           </div>
         </div>

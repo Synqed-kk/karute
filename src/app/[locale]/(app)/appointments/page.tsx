@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { staffRoleLabel } from '@/lib/staff/role-label'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsByDate, getAppointmentsInRange } from '@/actions/appointments'
@@ -139,7 +140,9 @@ export default async function AppointmentsPage({
   const reservationStaff: ReservationStaff[] = staffList.map((s) => ({
     id: s.id,
     name: s.full_name ?? 'Unknown',
-    role: s.display_role ?? s.position ?? '',
+    // The person's own 役職 first; else the authority code mapped to Japanese
+    // (never the raw enum — the grid was leaking "STYLIST" under every name).
+    role: s.position ?? staffRoleLabel(s.display_role),
     // TODO(phase-1.5): wire synqed-core role to derive takesBookings
     takesBookings: true,
     initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
