@@ -4,7 +4,6 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData, type DashboardTodayAppointment } from '@/lib/dashboard/cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
-import { assignStaffColors } from '@/lib/staff-colors'
 import { startTiming } from '@/lib/perf/timing'
 import { getPackAlerts } from '@/lib/packs/alerts'
 import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
@@ -16,7 +15,8 @@ import {
   isReturningCustomer,
   type CustomerEnrichment,
 } from '@/lib/customers/list-enrich'
-import { hmInJst, ymdInJst, nowUtc } from '@/lib/date/jst'
+import { hmInJst, ymdInJst, nowUtc, jstDaysBetween } from '@/lib/date/jst'
+import { getActiveStoreId } from '@/actions/stores'
 import {
   pickHeroSlides,
   pickKaruteTodos,
@@ -24,8 +24,22 @@ import {
   summaryLine,
   visitRound,
 } from '@/lib/dashboard/flow'
+import {
+  pickAttention,
+  cycleDays,
+  rebookSuggestions,
+  fallbackLine,
+  type AttentionCandidate,
+  type RebookRow,
+} from '@/lib/dashboard/attention'
+import { getDailyAttentionLines } from '@/lib/dashboard/daily-attention-ai'
 import type { HeroSlideView, TomorrowFirstView } from '@/components/dashboard/redesign/NextCustomerHero'
-import type { DayFlowRow } from '@/components/dashboard/redesign/DayFlow'
+import type { AttentionCardView } from '@/components/dashboard/redesign/AttentionCards'
+import type {
+  RenewalView,
+  RebookView,
+  WinbackView,
+} from '@/components/dashboard/redesign/ActionCards'
 import type { TomorrowStripData } from '@/components/dashboard/redesign/TomorrowStrip'
 
 /** 7/3(金) — compact JST date label, locale-aware. */
@@ -77,7 +91,6 @@ export default async function DashboardPage() {
 
   // ── shared lookups ────────────────────────────────────────────────
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
   const customerById = new Map(customerList.map((c) => [c.id, c] as const))
 
   // The cached dashboard fetch resolves names from a single 500-row page;
@@ -85,14 +98,17 @@ export default async function DashboardPage() {
   const nameFor = (a: DashboardTodayAppointment): string =>
     a.customers?.name ?? customerById.get(a.client_id)?.name ?? 'Unknown'
 
-  // Enrichment (karute count / past-appointment count) — the SAME first-time
-  // signals the agenda uses, so the hero never tags a manual regular 初回.
+  // Enrichment (karute count / past-appointment count / visit dates) — the
+  // SAME first-time signals the agenda uses, plus all pack holders for the
+  // rebook-rhythm math. One cached business-wide aggregate underneath, so the
+  // wider id set costs nothing extra.
   const dayClientIds = [
-    ...new Set(
-      [...dashboard.todayAppointments, ...dashboard.tomorrowAppointments].map(
+    ...new Set([
+      ...[...dashboard.todayAppointments, ...dashboard.tomorrowAppointments].map(
         (a) => a.client_id,
       ),
-    ),
+      ...packUsage.keys(),
+    ]),
   ]
   // Owner detection up front — it gates the owner-only redemptions fetch.
   const activeStaff = staffList.find((s) => s.id === activeStaffId)
@@ -187,28 +203,135 @@ export default async function DashboardPage() {
   }
   const heroSlides = slides.map(toHeroView)
 
-  // ── day flow rows (whole day, done rows collapse client-side) ────
-  const rowState = (a: DashboardTodayAppointment): { done: boolean } => {
-    const ended = new Date(a.start_time).getTime() + a.duration_minutes * 60_000 <= now.getTime()
-    return { done: Boolean(a.karute_record_id) || ended }
-  }
-  const nextId = heroSlides[0]?.appointmentId ?? null
-  const dayRows: DayFlowRow[] = [...dashboard.todayAppointments]
-    .sort((a, b) => a.start_time.localeCompare(b.start_time))
-    .map((a) => ({
-      id: a.id,
+  const doneCount = dashboard.todayAppointments.filter((a) => {
+    const ended =
+      new Date(a.start_time).getTime() + a.duration_minutes * 60_000 <= now.getTime()
+    return Boolean(a.karute_record_id) || ended
+  }).length
+
+  // ── 要注目: today's noteworthy customers + one-line AI prep notes ──
+  const candidates: AttentionCandidate[] = dashboard.todayAppointments.map((a) => {
+    const u = packUsage.get(a.client_id)
+    const e = enrichment.get(a.client_id)
+    return {
+      appointmentId: a.id,
       clientId: a.client_id,
-      timeHm: hmInJst(new Date(a.start_time)),
-      customerName: nameFor(a),
-      course: a.title,
-      staffInitial: (staffNameById.get(a.staff_profile_id) ?? '?').trim().slice(0, 1) || '?',
-      staffColorKey: staffColors.get(a.staff_profile_id)?.key ?? null,
-      ticket: ticketFor(a.client_id),
+      startIso: a.start_time,
       firstTime: isFirstTime(a.client_id),
-      done: rowState(a).done,
-      isNext: a.id === nextId,
+      remaining: u?.hasActivePack ? u.remaining : null,
+      size: u?.hasActivePack ? u.size : null,
+      hadPack: customerById.get(a.client_id)?.hasTicketPack ?? false,
+      daysSinceLastVisit: e?.lastVisitIso ? jstDaysBetween(e.lastVisitIso, now) : null,
+      memo: cleanRequestNote(a.notes),
+    }
+  })
+  const attention = pickAttention(candidates)
+
+  // Last-visit summaries for attention customers the hero fetch didn't cover,
+  // then ONE cached AI call for all the prep lines (deterministic fallback).
+  const attentionInputs = await t.phase('attentionSummaries', async () => {
+    const missing = attention.filter((i) => !lastKarute.has(i.clientId))
+    const extra = new Map<string, string>()
+    if (missing.length > 0) {
+      try {
+        const synqed = await getSynqedClient()
+        const recs = await Promise.all(
+          missing.map((i) =>
+            synqed.karuteRecords
+              .list({ customer_id: i.clientId, page_size: 1 })
+              .then((r) => r.karute_records[0] ?? null)
+              .catch(() => null),
+          ),
+        )
+        recs.forEach((rec, idx) => {
+          const text = summaryLine(rec?.ai_summary ?? null)
+          if (text) extra.set(missing[idx].clientId, text)
+        })
+      } catch {
+        /* summaries are optional context — lines fall back without them */
+      }
+    }
+    return attention.map((i) => ({
+      ...i,
+      name:
+        dashboard.todayAppointments.find((a) => a.client_id === i.clientId)?.customers
+          ?.name ??
+        customerById.get(i.clientId)?.name ??
+        'Unknown',
+      lastSummary: lastKarute.get(i.clientId)?.text ?? extra.get(i.clientId) ?? null,
     }))
-  const doneCount = dayRows.filter((r) => r.done).length
+  })
+  const activeStoreId = await getActiveStoreId().catch(() => null)
+  const attentionLines = await t.phase('attentionAI', () =>
+    getDailyAttentionLines({
+      items: attentionInputs,
+      businessType: orgSettings?.business_type,
+      storeId: activeStoreId,
+      dateYmd: todayYmd,
+      locale,
+    }).catch(() => new Map(attentionInputs.map((i) => [i.clientId, fallbackLine(i)]))),
+  )
+  const attentionItems: AttentionCardView[] = attentionInputs.map((i) => ({
+    clientId: i.clientId,
+    timeHm: hmInJst(new Date(i.startIso)),
+    name: i.name,
+    badge: i.badge,
+    badgeDays: i.daysSinceLastVisit ?? undefined,
+    line: attentionLines.get(i.clientId) ?? fallbackLine(i),
+  }))
+
+  // ── 推奨アクション: renewal moment, rebook rhythm, win-back ────────
+  const renewals: RenewalView[] = attentionInputs
+    .filter((i) => i.badge === 'lastOne')
+    .map((i) => {
+      const e = enrichment.get(i.clientId)
+      return {
+        clientId: i.clientId,
+        name: i.name,
+        timeHm: hmInJst(new Date(i.startIso)),
+        cycle: cycleDays(
+          e?.firstVisitIso ?? null,
+          e?.lastVisitIso ?? null,
+          e?.datedVisitCount ?? 0,
+        ),
+      }
+    })
+  const rebookRows: RebookRow[] = [...packUsage.entries()]
+    .filter(([, u]) => u.hasActivePack && u.remaining > 0)
+    .flatMap(([clientId, u]) => {
+      const name = customerById.get(clientId)?.name
+      const e = enrichment.get(clientId)
+      if (!name || !e) return []
+      return [
+        {
+          clientId,
+          name,
+          remaining: u.remaining,
+          firstVisitIso: e.firstVisitIso,
+          lastVisitIso: e.lastVisitIso,
+          datedVisitCount: e.datedVisitCount,
+          nextAppointmentIso: e.nextAppointmentIso,
+        },
+      ]
+    })
+  const rebooks: RebookView[] = rebookSuggestions(rebookRows, { todayYmd }).map((s) => {
+    const d = new Date(`${s.dueYmd}T00:00:00Z`)
+    return {
+      clientId: s.clientId,
+      name: s.name,
+      remaining: s.remaining,
+      dueLabel: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+    }
+  })
+  const winbacks: WinbackView[] = [...packAlerts.contact]
+    .sort((a, b) => (b.daysSinceLastVisit ?? 0) - (a.daysSinceLastVisit ?? 0))
+    .slice(0, 3)
+    .map((c) => ({
+      clientId: c.customerId,
+      name: c.name,
+      remaining: c.remaining,
+      days: c.daysSinceLastVisit ?? 0,
+    }))
 
   // ── todos: today-only misses, capped at 3 ────────────────────────
   // Recording covers the burn too (the record dialog has the 消化 toggle),
@@ -264,7 +387,11 @@ export default async function DashboardPage() {
       doneCount={doneCount}
       karuteTodos={cappedKarute}
       redeemTodos={cappedRedeem}
-      dayRows={dayRows}
+      attentionItems={attentionItems}
+      totalToday={dashboard.todayAppointments.length}
+      renewals={renewals}
+      rebooks={rebooks}
+      winbacks={winbacks}
       tomorrow={tomorrowStrip}
       packAlerts={packAlerts}
       // Today's unredeemed rows live in やること — the owner backlog shows

@@ -1,6 +1,8 @@
-// Dashboard composition (Liam-approved redesign, 2026-07-02). Reading order =
-// a practitioner's phone moments: who's next (hero) → what did I forget
-// (todos) → my whole day (flow) → tomorrow → owner money (toggle-gated, last).
+// Dashboard composition (Liam-approved redesign, 2026-07-02/03). Reading
+// order = a practitioner's phone moments: who's next (hero) → what did I
+// forget (todos) → who matters today + suggested moves (AI sections) →
+// tomorrow → owner money (toggle-gated, last). The full schedule lives in
+// the 予約 tab — the dashboard must add insight, never duplicate it (Liam).
 // Laws: every number is real data; empty sections render nothing; no stat
 // tiles, no feeds, no placeholder boxes.
 
@@ -14,7 +16,13 @@ import {
   type TomorrowFirstView,
 } from './NextCustomerHero'
 import { TodoCard, type KaruteTodoView } from './TodoCard'
-import { DayFlow, type DayFlowRow } from './DayFlow'
+import { AttentionCards, type AttentionCardView } from './AttentionCards'
+import {
+  ActionCards,
+  type RenewalView,
+  type RebookView,
+  type WinbackView,
+} from './ActionCards'
 import { TomorrowStrip, type TomorrowStripData } from './TomorrowStrip'
 import { OwnerBand } from './OwnerBand'
 
@@ -27,7 +35,11 @@ interface DashboardPageViewProps {
   doneCount: number
   karuteTodos: KaruteTodoView[]
   redeemTodos: ReconcileData['entries']
-  dayRows: DayFlowRow[]
+  attentionItems: AttentionCardView[]
+  totalToday: number
+  renewals: RenewalView[]
+  rebooks: RebookView[]
+  winbacks: WinbackView[]
   tomorrow: TomorrowStripData | null
   packAlerts: PackAlerts
   reconcile: ReconcileData
@@ -44,7 +56,11 @@ export async function DashboardPageView({
   doneCount,
   karuteTodos,
   redeemTodos,
-  dayRows,
+  attentionItems,
+  totalToday,
+  renewals,
+  rebooks,
+  winbacks,
   tomorrow,
   packAlerts,
   reconcile,
@@ -71,7 +87,9 @@ export async function DashboardPageView({
 
       <TodoCard karuteTodos={karuteTodos} redeemTodos={redeemTodos} />
 
-      <DayFlow rows={dayRows} />
+      <AttentionCards items={attentionItems} totalToday={totalToday} />
+
+      <ActionCards renewals={renewals} rebooks={rebooks} winbacks={winbacks} />
 
       <TomorrowStrip data={tomorrow} />
 
