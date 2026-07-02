@@ -70,6 +70,20 @@ describe('findUnprocessedVisits', () => {
     expect(visits).toHaveLength(1)
     expect(visits[0]).toMatchObject({ visitDay: TODAY, kind: 'unredeemed' })
   })
+  it("TODAY's rows survive the cap (a 60-item backlog must not hide today's miss)", () => {
+    const { visits, truncated } = findUnprocessedVisits(
+      base({
+        cap: 1,
+        appointments: [
+          appt({ id: 'p1', visitDayJst: '2026-06-08' }),
+          appt({ id: 'p2', visitDayJst: '2026-06-09' }),
+          appt({ id: 'td', visitDayJst: TODAY, hasKarute: true }),
+        ],
+      }),
+    )
+    expect(visits.map((v) => v.appointmentId)).toEqual(['p1', 'td'])
+    expect(truncated).toBe(1)
+  })
   it('outside the 7-day lookback → ignored (the strip is housekeeping, not archaeology)', () => {
     const { visits } = findUnprocessedVisits(base({ appointments: [appt({ visitDayJst: '2026-06-03' })] }))
     expect(visits).toHaveLength(0)

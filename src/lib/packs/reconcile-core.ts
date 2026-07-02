@@ -100,7 +100,17 @@ export function findUnprocessedVisits(i: FindUnprocessedInput): ReconcileResult 
   // Oldest first — the longest-unprocessed visit is the most urgent to fix
   // before memories fade.
   out.sort((x, y) => x.visitDay.localeCompare(y.visitDay))
-  return { visits: out.slice(0, cap), truncated: Math.max(0, out.length - cap) }
+  // TODAY's rows always survive the cap: they feed the dashboard's same-day
+  // やること, and being the newest they'd be the first ones a cap cuts — with
+  // a big backlog (La Estro: 60) today's misses would silently vanish. The
+  // cap exists to keep the BACKLOG short, so it applies to past days only;
+  // truncated counts past-day overflow.
+  const today = out.filter((v) => v.visitDay === i.todayJst)
+  const past = out.filter((v) => v.visitDay !== i.todayJst)
+  return {
+    visits: [...past.slice(0, cap), ...today],
+    truncated: Math.max(0, past.length - cap),
+  }
 }
 
 /** yyyy-mm-dd ± days, pure string/UTC math (no TZ surprises). */
