@@ -59,9 +59,16 @@ describe('findUnprocessedVisits', () => {
     const { visits } = findUnprocessedVisits(base({ appointments: [appt({ isCancelled: true })] }))
     expect(visits).toHaveLength(0)
   })
-  it("TODAY's visits get same-day grace (staff may be mid-flow)", () => {
+  it("TODAY's unrecorded visits get same-day grace (staff may be mid-flow)", () => {
     const { visits } = findUnprocessedVisits(base({ appointments: [appt({ visitDayJst: TODAY })] }))
     expect(visits).toHaveLength(0)
+  })
+  it("TODAY's recorded-but-unredeemed visit flags immediately (dashboard やること)", () => {
+    const { visits } = findUnprocessedVisits(
+      base({ appointments: [appt({ visitDayJst: TODAY, hasKarute: true })] }),
+    )
+    expect(visits).toHaveLength(1)
+    expect(visits[0]).toMatchObject({ visitDay: TODAY, kind: 'unredeemed' })
   })
   it('outside the 7-day lookback → ignored (the strip is housekeeping, not archaeology)', () => {
     const { visits } = findUnprocessedVisits(base({ appointments: [appt({ visitDayJst: '2026-06-03' })] }))

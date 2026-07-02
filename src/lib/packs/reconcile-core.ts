@@ -75,7 +75,12 @@ export function findUnprocessedVisits(i: FindUnprocessedInput): ReconcileResult 
   const out: UnprocessedVisit[] = []
   for (const a of i.appointments) {
     if (a.isCancelled || a.isImport) continue
-    if (a.visitDayJst < floor || a.visitDayJst >= i.todayJst) continue
+    if (a.visitDayJst < floor || a.visitDayJst > i.todayJst) continue
+    // Same-day grace applies ONLY to full misses (no karute yet — staff may be
+    // mid-flow). A visit recorded today with no burn is a finished flow whose
+    // 消化 toggle was skipped → flag it now so the dashboard's やること catches
+    // it the same day instead of tomorrow.
+    if (a.visitDayJst === i.todayJst && !a.hasKarute) continue
     const holder = i.holders.get(a.customerId)
     if (!holder || holder.remaining <= 0) continue
     const lc = i.lifecycles.get(a.customerId)?.status
