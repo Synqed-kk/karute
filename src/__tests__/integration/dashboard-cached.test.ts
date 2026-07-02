@@ -2,13 +2,14 @@
  * Coverage for getDashboardData / dashboardByDay (src/lib/dashboard/cached.ts).
  *
  * All reads now go through synqed-core (the source of truth), so the
- * SynqedClient constructor is mocked. dashboardByDay fans out seven calls in
- * declared order: weekly count, monthly count, today's appointments, today's
- * karute (for the appointment→recording link), recent karute, the tenant
- * customer list (for name resolution), and the staff list (synqed staff.id →
- * profile id translation, PR #179). It shapes them into DashboardData with
- * count + empty-array fallbacks. The synqed client is business-scoped, so there
- * is no longer a profiles→staff-id filter step.
+ * SynqedClient constructor is mocked. dashboardByDay fans out nine calls in
+ * declared order: weekly count, monthly count, rolling-7-day count, today's
+ * appointments, tomorrow's appointments, today's karute (for the
+ * appointment→recording link), recent karute, the tenant customer list (for
+ * name resolution), and the staff list (synqed staff.id → profile id
+ * translation, PR #179). It shapes them into DashboardData with count +
+ * empty-array fallbacks. The synqed client is business-scoped, so there is no
+ * longer a profiles→staff-id filter step.
  *
  * unstable_cache is mocked to a passthrough so the inner fn runs directly;
  * getBusinessId is stubbed.
@@ -46,16 +47,19 @@ jest.mock('@/lib/staff', () => ({
 import { getDashboardData } from '@/lib/dashboard/cached'
 
 // karuteRecords.list is invoked in this order inside the Promise.all:
-// weekly (count) → monthly (count) → today's karute → recent. Stage each.
+// weekly (count) → monthly (count) → rolling 7d (count) → today's karute →
+// recent. Stage each.
 function stageKarute(opts: {
   weekly?: { total: number } | Record<string, never>
   monthly?: { total: number } | Record<string, never>
+  weekly7?: { total: number } | Record<string, never>
   todayKarute?: unknown[]
   recent?: unknown[]
 }) {
   karuteRecords.list
     .mockResolvedValueOnce(opts.weekly ?? { total: 0 })
     .mockResolvedValueOnce(opts.monthly ?? { total: 0 })
+    .mockResolvedValueOnce(opts.weekly7 ?? { total: 0 })
     .mockResolvedValueOnce({ karute_records: opts.todayKarute ?? [] })
     .mockResolvedValueOnce({ karute_records: opts.recent ?? [] })
 }
@@ -72,6 +76,7 @@ describe('getDashboardData', () => {
     stageKarute({
       weekly: { total: 7 },
       monthly: { total: 23 },
+      weekly7: { total: 5 },
       todayKarute: [{ id: 'k9', appointment_id: 'a1' }],
       recent: [
         {
@@ -106,6 +111,10 @@ describe('getDashboardData', () => {
 
     expect(result.weeklyKaruteCount).toBe(7)
     expect(result.monthlyKaruteCount).toBe(23)
+    expect(result.weekKaruteCount).toBe(5)
+    // appointments.list is shared by the today + tomorrow fetches in this
+    // staging, so tomorrow mirrors today — shape is what matters here.
+    expect(result.tomorrowAppointments).toHaveLength(1)
     expect(result.todayAppointments).toHaveLength(1)
     expect(result.todayAppointments[0]).toMatchObject({
       id: 'a1',
@@ -142,6 +151,7 @@ describe('getDashboardData', () => {
     const result = await getDashboardData()
 
     expect(result.todayAppointments).toEqual([])
+    expect(result.tomorrowAppointments).toEqual([])
     expect(result.recentKarute).toEqual([])
   })
 

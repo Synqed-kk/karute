@@ -1,4 +1,5 @@
 import { getSynqedClient } from '@/lib/synqed/client'
+import { ymdInJst } from '@/lib/date/jst'
 import {
   withUsage,
   type CustomerLifecycle,
@@ -283,14 +284,17 @@ export async function listRecentContacts(
   }
 }
 
-/** Redemptions in the last N days — feeds the 未処理来店 reconciler's
- *  "was this visit ticked off?" check. */
+/** Redemptions in the last N JST calendar days INCLUDING today — feeds the
+ *  未処理来店 reconciler's "was this visit ticked off?" check and the owner
+ *  pulse. redeemed_on is a JST business date, so the cutoff must be JST too —
+ *  the previous UTC cutoff made "7 days" span 8-9 JST days depending on the
+ *  time of day. */
 export async function listRecentRedemptions(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> {
   try {
     const synqed = await getSynqedClient()
-    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString().slice(0, 10)
+    const since = ymdInJst(new Date(Date.now() - (sinceDays - 1) * 86_400_000))
     return await synqed.packs.listRecentRedemptions(since)
   } catch (err) {
     warn('listRecentRedemptions', err)
