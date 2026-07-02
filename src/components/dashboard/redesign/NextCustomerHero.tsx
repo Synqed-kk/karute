@@ -54,6 +54,9 @@ function Countdown({ startIso }: { startIso: string }) {
       const diffMs = new Date(startIso).getTime() - Date.now()
       if (diffMs <= 0) {
         setLabel(t('inSession'))
+        // Terminal state — stop ticking instead of re-setting the same
+        // string every 30s for the life of the component.
+        clearInterval(id)
         return
       }
       const mins = Math.round(diffMs / 60_000)
@@ -63,8 +66,8 @@ function Countdown({ startIso }: { startIso: string }) {
           : t('minsLeft', { n: mins }),
       )
     }
-    tick()
     const id = setInterval(tick, 30_000)
+    tick()
     return () => clearInterval(id)
   }, [startIso, t])
   if (!label) return null

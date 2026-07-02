@@ -90,7 +90,8 @@ export function DayFlow({ rows }: { rows: DayFlowRow[] }) {
   const done = rows.filter((r) => r.done)
   const upcoming = rows.filter((r) => !r.done)
   const firstTimers = rows.filter((r) => r.firstTime).length
-  const pct = rows.length > 0 ? Math.round((done.length / rows.length) * 100) : 0
+  // rows.length > 0 is guaranteed by the early return above.
+  const pct = Math.round((done.length / rows.length) * 100)
 
   return (
     <section className="rounded-2xl border bg-card p-4">

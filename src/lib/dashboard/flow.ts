@@ -67,7 +67,10 @@ export function summaryLine(raw: string | null): string | null {
   if (s.startsWith('{')) {
     try {
       const parsed = JSON.parse(s) as { summary?: unknown }
-      if (typeof parsed.summary === 'string') s = parsed.summary
+      // Valid JSON but no usable summary string → show nothing rather than
+      // leaking the raw blob (e.g. {"summary":null}) into the hero card.
+      if (typeof parsed.summary !== 'string') return null
+      s = parsed.summary
     } catch {
       /* not JSON after all — keep raw */
     }
