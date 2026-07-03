@@ -34,3 +34,22 @@ export function stripQrPrefix(notes: string | null | undefined): string {
   if (!notes) return ''
   return notes.replace(QR_NOTES_PREFIX_RE, '').trim()
 }
+
+/** A bare QR back-reference with NO memo behind it: `QR #123`, `QR #123 |`,
+ *  `QR #123 | ` — the sync writes this when the QuickReserve reservation had
+ *  no memo. Distinct from QR_NOTES_PREFIX_RE, which requires the pipe. */
+const QR_BARE_TAG_RE = /^\s*QR\s*#\d+\s*\|?\s*$/
+
+/**
+ * The HUMAN memo content of a notes field, or null when there is none.
+ * The QR back-reference is sync plumbing — it must never be shown as
+ * 「ご予約時のメモ」 nor fed to the AI as the customer's booking words
+ * (production bug: the brief displayed "QR #328091" as the memo while the
+ * customer's real QuickReserve intake memo sat unused on customer.notes).
+ */
+export function memoContent(notes: string | null | undefined): string | null {
+  if (!notes) return null
+  if (QR_BARE_TAG_RE.test(notes)) return null
+  const stripped = stripQrPrefix(notes)
+  return stripped || null
+}
