@@ -68,3 +68,31 @@ describe('stripQrPrefix', () => {
     expect(stripQrPrefix(undefined)).toBe('')
   })
 })
+
+// ── memoContent (2026-07-03): the brief must never show the QR back-reference
+// as 「ご予約時のメモ」 (Liam's bug report: brief displayed "QR #328091" while
+// the customer's real intake memo existed on customer.notes). ──
+import { memoContent } from '@/lib/sync/qr-notes'
+
+describe('memoContent', () => {
+  it('bare QR tag (no pipe) is plumbing → null', () => {
+    expect(memoContent('QR #328091')).toBeNull()
+  })
+  it('QR tag with empty memo after the pipe → null', () => {
+    expect(memoContent('QR #328091 | ')).toBeNull()
+    expect(memoContent('QR #328091 |')).toBeNull()
+  })
+  it('QR-prefixed real memo → the memo without the tag', () => {
+    expect(memoContent('QR #328091 | 口コミOK お尻硬い')).toBe('口コミOK お尻硬い')
+  })
+  it('plain hand-typed memo passes through', () => {
+    expect(memoContent('腰が痛いので優しめでお願いします')).toBe('腰が痛いので優しめでお願いします')
+  })
+  it('a memo that merely mentions QR mid-string is kept whole', () => {
+    expect(memoContent('前回はQR #99の件で来店')).toBe('前回はQR #99の件で来店')
+  })
+  it('null/empty → null', () => {
+    expect(memoContent(null)).toBeNull()
+    expect(memoContent('   ')).toBeNull()
+  })
+})

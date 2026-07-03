@@ -9,6 +9,7 @@ import { getCustomerConsent } from '@/actions/customers'
 import { listCustomerPacks } from '@/lib/packs/store'
 import type { PackWithUsage } from '@/lib/packs/types'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { memoContent } from '@/lib/sync/qr-notes'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   getAppointmentsByDate,
@@ -453,9 +454,16 @@ export default async function SessionsPage({
     // Mechanical brief — pure + instant. Drives the FIRST paint and every
     // cross-cutting 新規 flag (the recording-target badge + the post-session
     // dialog), so those are correct on frame one and never flip.
+    // The memo staff see (and the AI analyzes): the appointment note's HUMAN
+    // content when it has any — the QR back-reference tag alone is plumbing —
+    // otherwise the customer's QuickReserve intake memo (customer.notes, the
+    // staff-typed 問診 the profile page shows). targetCustomer is already
+    // fetched above; no extra call.
+    const briefMemo =
+      memoContent(nextAppointment.notes) ?? memoContent(targetCustomer?.notes)
     brief = buildPreSessionBriefFor(
       customerKarute,
-      nextAppointment.notes,
+      briefMemo,
       now,
       locale,
       targetReturning,
@@ -469,7 +477,7 @@ export default async function SessionsPage({
       customerName: targetCustomerName,
       visitCount: targetVisitCount,
       records: customerKarute,
-      reservationMemo: nextAppointment.notes,
+      reservationMemo: briefMemo,
       locale,
       now,
     }).catch(() => null)
