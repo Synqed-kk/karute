@@ -5,8 +5,11 @@
  * synqed.staff.delete's keyspace is the synqed staff.id. Passing a profiles.id
  * straight through 404'd ("Staff not found") and rethrew into a Server
  * Components crash on /settings. This suite proves deleteStaff now:
- *   - resolves a profiles.id → synqed staff.id (via the shared resolver) before
- *     deleting,
+ *   - translates a profiles.id → synqed staff.id via the staff-map's PURE
+ *     lookup (not resolveSynqedStaffId, whose create-on-miss leg is for the
+ *     booking flow) before deleting,
+ *   - treats a null lookup (profile with no synqed record) as already-gone:
+ *     no delete call, no create, clean success,
  *   - passes a synqed-only id (no matching profile row) through unchanged,
  *   - preserves the 400 guard (last-member / attributed-records) as a thrown
  *     message the client toasts,
@@ -16,7 +19,7 @@
  *
  * Collaborators are mocked directly (mirrors save-flow-staff-attribution's
  * "mock the deps, drive the action" style) so the test pins deleteStaff's own
- * branching rather than the resolver internals (covered by synqed-staff-map).
+ * branching rather than the lookup internals (covered by synqed-staff-map).
  */
 // @synqed-kk/client ships as ESM and jest doesn't transform node_modules, so
 // (like every other suite that touches it) we mock the specifier. A minimal
@@ -47,9 +50,11 @@ jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
 }))
 
-const resolveSynqedStaffId = jest.fn(async (_id: string) => 'synqed-resolved')
+const lookupSynqedStaffId = jest.fn(
+  async (_id: string): Promise<string | null> => 'synqed-resolved',
+)
 jest.mock('@/lib/synqed/staff-map', () => ({
-  resolveSynqedStaffId: (id: string) => resolveSynqedStaffId(id),
+  lookupSynqedStaffId: (id: string) => lookupSynqedStaffId(id),
 }))
 
 const staffDelete = jest.fn(async (_id: string) => {})
@@ -82,23 +87,34 @@ beforeEach(() => {
   jest.clearAllMocks()
   profileRow = null
   requireCapability.mockImplementation(async () => {})
-  resolveSynqedStaffId.mockImplementation(async () => 'synqed-resolved')
+  lookupSynqedStaffId.mockImplementation(async () => 'synqed-resolved')
   staffDelete.mockImplementation(async () => {})
 })
 
 describe('deleteStaff — id resolution', () => {
-  it('resolves a profiles.id to the synqed staff id before deleting', async () => {
+  it('translates a profiles.id to the synqed staff id before deleting', async () => {
     profileRow = { id: 'profile-1' }
     await deleteStaff('profile-1')
-    expect(resolveSynqedStaffId).toHaveBeenCalledWith('profile-1')
+    expect(lookupSynqedStaffId).toHaveBeenCalledWith('profile-1')
     expect(staffDelete).toHaveBeenCalledWith('synqed-resolved')
   })
 
   it('passes a synqed-only id (no profile row) straight through', async () => {
     profileRow = null
     await deleteStaff('synqed-abc')
-    expect(resolveSynqedStaffId).not.toHaveBeenCalled()
+    expect(lookupSynqedStaffId).not.toHaveBeenCalled()
     expect(staffDelete).toHaveBeenCalledWith('synqed-abc')
+  })
+
+  it('treats a null lookup (profile with no synqed record) as already-gone: no delete, no crash', async () => {
+    const { revalidatePath, updateTag } = jest.requireMock('next/cache')
+    profileRow = { id: 'profile-unlinked' }
+    lookupSynqedStaffId.mockResolvedValue(null)
+    await expect(deleteStaff('profile-unlinked')).resolves.toBeUndefined()
+    expect(staffDelete).not.toHaveBeenCalled()
+    expect(revalidatePath).toHaveBeenCalledWith('/settings')
+    expect(revalidatePath).toHaveBeenCalledWith('/', 'layout')
+    expect(updateTag).toHaveBeenCalledWith('staff-list')
   })
 })
 
@@ -117,6 +133,7 @@ describe('deleteStaff — error handling', () => {
     staffDelete.mockRejectedValue(new SynqedError(404, 'Staff not found'))
     await expect(deleteStaff('synqed-abc')).resolves.toBeUndefined()
     expect(revalidatePath).toHaveBeenCalledWith('/settings')
+    expect(revalidatePath).toHaveBeenCalledWith('/', 'layout')
     expect(updateTag).toHaveBeenCalledWith('staff-list')
   })
 
