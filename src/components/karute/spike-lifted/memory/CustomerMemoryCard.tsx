@@ -475,7 +475,12 @@ function MemoryTrustBadge({
   const relearn = () => {
     setConfirming(false)
     startTransition(async () => {
-      await relearnCustomerMemoryAction(customerId)
+      const res = await relearnCustomerMemoryAction(customerId)
+      if (!res.ok) {
+        toast.error(t('relearnFailed'))
+        return
+      }
+      toast.success(t('relearnDone', { n: res.items }))
       router.refresh()
     })
   }
@@ -501,6 +506,19 @@ function MemoryTrustBadge({
   // CURRENT prompt. Two-tap confirm — it discards the AI's unpinned items
   // (staff-added / pinned / staff-edited always survive).
   if (pastSessionCount > 0) {
+    // Scaffold shells pass customerId='' — render the plain trust chip; the
+    // relearn trigger only exists for a real customer.
+    if (!customerId) {
+      return (
+        <span
+          className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15"
+          title={t('sessionsBadgeTooltip')}
+        >
+          <History className="size-2.5" aria-hidden />
+          {t('sessionsBadge', { n: pastSessionCount })}
+        </span>
+      )
+    }
     if (pending) {
       return (
         <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15">
