@@ -460,9 +460,7 @@ export default async function SessionsPage({
     // staff-typed 問診 the profile page shows). targetCustomer is already
     // fetched above; no extra call.
     const briefMemo =
-      memoContent(nextAppointment.notes) ??
-      memoContent(targetCustomer?.notes) ??
-      null
+      memoContent(nextAppointment.notes) ?? memoContent(targetCustomer?.notes)
     brief = buildPreSessionBriefFor(
       customerKarute,
       briefMemo,
