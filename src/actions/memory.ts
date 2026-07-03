@@ -148,6 +148,18 @@ export async function upsertPassportFieldAction(input: {
 }): Promise<{ ok: boolean }> {
   const value = input.value?.trim()
   if (!input.customerId || !input.fieldKey || !value) return { ok: false }
+  // Only known passport field keys are storable — an arbitrary string would
+  // create orphan rows no UI ever renders. Keys are locale-invariant, so the
+  // JA definition set is the canonical allowlist.
+  const [{ resolvePassportFields }, { getOrgSettings }] = await Promise.all([
+    import('@/lib/karute/business-ai-tokens'),
+    import('@/actions/org-settings'),
+  ])
+  const orgSettings = await getOrgSettings().catch(() => null)
+  const allowedKeys = new Set(
+    resolvePassportFields(orgSettings?.business_type, 'ja').map((f) => f.key),
+  )
+  if (!allowedKeys.has(input.fieldKey)) return { ok: false }
   const businessId = await getBusinessId().catch(() => null)
   const result = await upsertPassportField({
     customerId: input.customerId,
