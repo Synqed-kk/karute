@@ -61,6 +61,12 @@ export async function applyMemoryDelta(params: {
     const sb = createServiceClient() as any
     const nowIso = new Date().toISOString()
     for (const op of ops) {
+      // Confidence floor enforced at the store too (belt and braces with the
+      // extractor's post-parse filter): an add with missing/low confidence is
+      // dropped, never defaulted — defaulting waved the shakiest items through.
+      if (op.action === 'add' && (op.confidence == null || op.confidence < 0.7)) {
+        continue
+      }
       if (op.action === 'add' && op.label && op.category) {
         await sb.from(TABLE).insert({
           customer_id: customerId,
@@ -68,7 +74,7 @@ export async function applyMemoryDelta(params: {
           category: op.category,
           label: op.label,
           detail: op.detail ?? null,
-          confidence: op.confidence ?? 0.8,
+          confidence: op.confidence,
           suggest_talking_point: op.suggestTalkingPoint ?? false,
           source: 'ai_extraction',
         })
