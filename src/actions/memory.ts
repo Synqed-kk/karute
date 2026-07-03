@@ -97,6 +97,10 @@ export async function relearnCustomerMemoryAction(
   customerId: string,
 ): Promise<{ ok: boolean; items: number }> {
   if (!customerId) return { ok: false, items: 0 }
+  // Tracked outside the try so the catch can restore too — ANY throw after a
+  // successful wipe (locale lookup, import, network) must not leave the
+  // customer's memory empty.
+  let wipedIds: string[] = []
   try {
     const [{ getSynqedClient }, { listSynqedKaruteRows }, { backfillMemoryFromTranscripts }] =
       await Promise.all([
@@ -111,6 +115,7 @@ export async function relearnCustomerMemoryAction(
 
     const wiped = await softDeleteAiExtractionItems(customerId)
     if (!wiped.ok) return { ok: false, items: 0 }
+    wipedIds = wiped.ids
 
     const businessId = await getBusinessId().catch(() => null)
     const locale = await getLocale()
@@ -128,8 +133,8 @@ export async function relearnCustomerMemoryAction(
     // failure), so an empty result after a non-empty wipe means the re-learn
     // FAILED — restore the wiped items instead of leaving the memory empty.
     // (Checked BEFORE the passport spends tokens on a failed run.)
-    if (items.length === 0 && wiped.ids.length > 0) {
-      await restoreMemoryItems(wiped.ids)
+    if (items.length === 0 && wipedIds.length > 0) {
+      await restoreMemoryItems(wipedIds)
       return { ok: false, items: 0 }
     }
     const { memoContent } = await import('@/lib/sync/qr-notes')
@@ -144,6 +149,7 @@ export async function relearnCustomerMemoryAction(
     return { ok: true, items: items.length }
   } catch (err) {
     console.error('[relearnCustomerMemoryAction] failed:', err)
+    if (wipedIds.length > 0) await restoreMemoryItems(wipedIds).catch(() => {})
     return { ok: false, items: 0 }
   }
 }
