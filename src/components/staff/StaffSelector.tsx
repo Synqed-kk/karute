@@ -8,7 +8,7 @@
 // 自分/全スタッフ segment stays OUTSIDE this component so both dominant
 // actions remain one-tap.
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import {
@@ -39,6 +39,10 @@ export function StaffSelector({
   const t = useTranslations('staffSelector')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  // Stable ids wire the a11y triad: trigger aria-controls → listbox, and the
+  // listbox takes its accessible name from the visible header row.
+  const listboxId = useId()
+  const labelId = useId()
 
   // Same close behavior as the StoreSwitcher: outside tap or Escape.
   useEffect(() => {
@@ -82,6 +86,7 @@ export function StaffSelector({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls={open ? listboxId : undefined}
         className={cn(
           'inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
           active && 'pr-2',
@@ -123,10 +128,15 @@ export function StaffSelector({
 
       {open && (
         <div
+          id={listboxId}
           role="listbox"
+          aria-labelledby={labelId}
           className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900"
         >
-          <div className="border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10">
+          <div
+            id={labelId}
+            className="border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10"
+          >
             {t('title')}
           </div>
           {/* Internal scroll keeps the panel usable at any roster size —
