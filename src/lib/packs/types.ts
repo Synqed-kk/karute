@@ -54,7 +54,11 @@ export interface CustomerLifecycle {
  *  has 1 row), so COUNT-based numbering relabels regulars 初回. The stored
  *  purchase_round carries the truth the sheet loaded. */
 export function nextPurchaseRound(packs: ReadonlyArray<Pick<TicketPack, 'kind' | 'purchase_round'>>): number {
-  const rounds = packs.filter((p) => p.kind === 'pack').map((p) => p.purchase_round)
+  const rounds = packs
+    .filter((p) => p.kind === 'pack')
+    // Legacy app-created packs stored 0-based rounds — read 0 as round 1 so
+    // the follow-up purchase becomes 2, not a second 初回.
+    .map((p) => Math.max(p.purchase_round, 1))
   return rounds.length === 0 ? 1 : Math.max(...rounds) + 1
 }
 
