@@ -12,6 +12,7 @@ import { getLocale } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import {
   addStaffMemoryItem,
+  restoreMemoryItems,
   setMemoryItemPinned,
   softDeleteAiExtractionItems,
   softDeleteMemoryItem,
@@ -117,6 +118,13 @@ export async function relearnCustomerMemoryAction(
       transcripts,
       locale: await getLocale(),
     })
+    // Wipe→backfill isn't atomic. backfill is best-effort ([] on any internal
+    // failure), so an empty result after a non-empty wipe means the re-learn
+    // FAILED — restore the wiped items instead of leaving the memory empty.
+    if (items.length === 0 && wiped.ids.length > 0) {
+      await restoreMemoryItems(wiped.ids)
+      return { ok: false, items: 0 }
+    }
     revalidateProfile()
     return { ok: true, items: items.length }
   } catch (err) {
