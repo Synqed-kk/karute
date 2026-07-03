@@ -15,21 +15,9 @@ import {
   CustomerMemoryCard,
   type CustomerMemorySnapshot,
 } from './CustomerMemoryCard'
-import {
-  AIBodyPredictionCard,
-  type BodyPrediction,
-} from './AIBodyPredictionCard'
-import {
-  AISuggestedMessageCard,
-  type SuggestedMessage,
-} from './AISuggestedMessageCard'
 import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
 import { OutcomeCard } from './OutcomeCard'
 import type { KaruteOutcomeRow } from '@/lib/karute/outcome'
-import {
-  AIBodyPredictionPreview,
-  AIOutreachPreview,
-} from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 
 export interface KaruteDetailViewProps {
   karuteId: string
@@ -50,8 +38,10 @@ export interface KaruteDetailViewProps {
   // paint before the photo HTTP fetch resolves.
   photosSlot: ReactNode
   memory: CustomerMemorySnapshot | null
-  bodyPrediction: BodyPrediction | null
-  suggestedMessage: SuggestedMessage | null
+  /** Server-streamed via Suspense (photosSlot pattern) so the page shell never
+   *  waits on an AI call — the fallback is the 対応予定 preview. */
+  bodyPredictionSlot: ReactNode
+  suggestedMessageSlot: ReactNode
   outcome: KaruteOutcomeRow | null
 }
 
@@ -69,8 +59,8 @@ export function KaruteDetailView({
   transcriptRestricted,
   photosSlot,
   memory,
-  bodyPrediction,
-  suggestedMessage,
+  bodyPredictionSlot,
+  suggestedMessageSlot,
   outcome,
 }: KaruteDetailViewProps) {
   return (
@@ -110,15 +100,7 @@ export function KaruteDetailView({
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
-          {/* Show the 対応予定 scaffold when there's no prediction yet, so the
-           *  section stays visible as a reminder instead of vanishing (the card
-           *  itself returns null when empty). Lights up when Anthony's pipeline
-           *  passes a real prediction. */}
-          {bodyPrediction ? (
-            <AIBodyPredictionCard prediction={bodyPrediction} />
-          ) : (
-            <AIBodyPredictionPreview />
-          )}
+          {bodyPredictionSlot}
           <CurrentSessionCard
             sessionDate={sessionDateLong}
             entries={entries}
@@ -135,16 +117,7 @@ export function KaruteDetailView({
           />
         </div>
         <div className="flex flex-col gap-4">
-          {/* Same pattern — 対応予定 scaffold when there's no draft yet. */}
-          {suggestedMessage ? (
-            <AISuggestedMessageCard
-              customerName={header.customerName}
-              customerId={customerId}
-              draft={suggestedMessage}
-            />
-          ) : (
-            <AIOutreachPreview />
-          )}
+          {suggestedMessageSlot}
           <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
           <RecordingTranscriptCard
             transcript={transcript}

@@ -31,7 +31,7 @@ export interface PromptContext {
  *  Names are clamped and stripped of newlines/control chars so a hostile
  *  value can't smuggle instructions into the system prompt; dates must be
  *  literal YYYY-MM-DD or they're omitted. */
-function cleanNameToken(v: string): string {
+export function cleanNameToken(v: string): string {
   return v
     .replace(/[\r\n\u0000-\u001f<>{}]/g, ' ')
     .replace(/\s+/g, ' ')

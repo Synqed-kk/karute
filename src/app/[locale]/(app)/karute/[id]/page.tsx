@@ -17,6 +17,14 @@ import {
   getCustomerContact,
   getCachedCustomerConsent,
 } from '@/lib/customers/customer-detail-cached'
+import {
+  AIBodyPredictionSlot,
+  AISuggestedMessageSlot,
+} from '@/components/karute/redesign/detail/AiInsightSlots'
+import {
+  AIBodyPredictionPreview,
+  AIOutreachPreview,
+} from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
@@ -159,8 +167,26 @@ export default async function KaruteDetailPage({
         ) : null
       }
       memory={null}
-      bodyPrediction={null}
-      suggestedMessage={null}
+      bodyPredictionSlot={
+        customerId ? (
+          <Suspense fallback={<AIBodyPredictionPreview />}>
+            <AIBodyPredictionSlot customerId={customerId} locale={locale} />
+          </Suspense>
+        ) : (
+          <AIBodyPredictionPreview />
+        )
+      }
+      suggestedMessageSlot={
+        <Suspense fallback={<AIOutreachPreview />}>
+          <AISuggestedMessageSlot
+            karuteId={id}
+            customerId={customerId}
+            customerName={header.customerName}
+            summary={(karute as unknown as { summary?: string | null }).summary ?? null}
+            locale={locale}
+          />
+        </Suspense>
+      }
     />
   )
 }
