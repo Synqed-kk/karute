@@ -35,7 +35,7 @@ const AiBriefSchema = z.object({
   concerns: z
     .array(z.string())
     .describe(
-      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
+      "FIRST item: if the latest session's 次回 line carries homework / a staff promise / a deferred proposal, lead with it as an action (前回の宿題／前回の約束). Then the customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
     ),
   lastProduct: z
     .object({ name: z.string(), reaction: z.string().nullable() })
@@ -148,11 +148,12 @@ export async function getAiPreSessionBrief(params: {
 
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
-      // invalidated immediately instead of serving the old wording. v5: purge
+      // invalidated immediately instead of serving the old wording. v6: re-entry
+      // ledger (surface last session's promises/homework first). v5: purge
       // briefs poisoned by the QR-sync customer mis-link (a corrected
       // appointment.customer_id must not keep serving a fused brief built from
       // another customer's reservation memo).
-      v: 5,
+      v: 6,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -189,6 +190,7 @@ Rules:
     (b) change/contradiction — a symptom newly raised, dropped, or resurfacing vs the karute, or a want-vs-chief-complaint mismatch.
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
+- RE-ENTRY (highest value): the most recent session's summary may carry a 次回 line — homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. When present, these MUST surface: put the single most important one as the FIRST concerns item, phrased as an action (e.g. 「前回の宿題：ハムのストレッチ — 実施状況を確認」「前回の約束：腰を重点的に」), and open recommendedFocus by honoring it. A promise the staff forgets is trust lost; one they keep is the "this place remembers me" moment. Only what the records actually say — never invent.
 - concerns: the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
     • CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say "姿勢由来の首・肩・腰の張り" not four rows). DROP vague catch-alls (体全体の不調).
@@ -214,7 +216,7 @@ ${defensivePreamble(locale)}`
           ? `Durable memory about this customer (accumulated across visits — 'personal' items feed hooks, 'body' items inform concerns; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
           : 'Durable memory: (none yet)',
         records.length > 0
-          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records))}`
+          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), 30_000)}`
           : 'Past karute: (none recorded in the system yet)',
       ]
 
