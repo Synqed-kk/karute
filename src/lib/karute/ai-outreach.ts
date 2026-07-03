@@ -10,7 +10,7 @@ import {
   clinicalGuardrail,
 } from '@/lib/karute/business-ai-tokens'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
-import { KARUTE_PROMPT_VERSION } from '@/lib/karute/prompt-fragments'
+import { KARUTE_PROMPT_VERSION, cleanNameToken } from '@/lib/karute/prompt-fragments'
 import type { SuggestedMessage } from '@/components/karute/redesign/detail/AISuggestedMessageCard'
 
 const OutreachSchema = z.object({
@@ -35,8 +35,11 @@ export async function getSuggestedFollowUp(params: {
   summary: string | null
   locale: string
 }): Promise<SuggestedMessage | null> {
-  const { karuteId, customerName, summary, locale } = params
+  const { karuteId, summary, locale } = params
   if (!summary?.trim()) return null
+  // Same treatment as every other prompt anchor: the name is DATA — clamp and
+  // strip control chars before it touches a system prompt.
+  const customerName = cleanNameToken(params.customerName) || 'お客様'
 
   try {
     if (!process.env.OPENAI_API_KEY) return null
@@ -47,7 +50,9 @@ export async function getSuggestedFollowUp(params: {
     const cacheInput = {
       v: KARUTE_PROMPT_VERSION,
       k: karuteId,
-      s: summary.slice(0, 2000),
+      // Full summary — the cache layer hashes the whole input, so a regenerated
+      // summary always misses the old draft (a 2000-char slice could collide).
+      s: summary,
       bt: orgSettings?.business_type ?? null,
       locale,
     }
