@@ -24,7 +24,14 @@ export async function getCustomerMemory(
       .eq('customer_id', customerId)
       .is('deleted_at', null)
       .order('updated_at', { ascending: false })
-    if (error || !data) return []
+    // NEVER swallow PostgREST errors silently — a missing table GRANT hid every
+    // memory read/write for a week behind empty results (customer page showed
+    // メモリー 0 while 7 rows existed; brief hooks died). Log loudly.
+    if (error) {
+      console.error('[getCustomerMemory] postgrest error:', error.message ?? error)
+      return []
+    }
+    if (!data) return []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (data as any[]).map((r) => ({
       id: r.id,
@@ -68,7 +75,7 @@ export async function applyMemoryDelta(params: {
         continue
       }
       if (op.action === 'add' && op.label && op.category) {
-        await sb.from(TABLE).insert({
+        const { error } = await sb.from(TABLE).insert({
           customer_id: customerId,
           business_id: businessId ?? null,
           category: op.category,
@@ -78,6 +85,7 @@ export async function applyMemoryDelta(params: {
           suggest_talking_point: op.suggestTalkingPoint ?? false,
           source: 'ai_extraction',
         })
+        if (error) console.error('[applyMemoryDelta] insert failed:', error.message ?? error)
       } else if (op.action === 'update' && op.id) {
         await sb
           .from(TABLE)
