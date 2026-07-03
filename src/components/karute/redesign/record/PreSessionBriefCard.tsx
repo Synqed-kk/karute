@@ -85,11 +85,11 @@ export interface PreSessionBrief {
   /** ONE spoken first line to open with (from durable personal memory).
    *  Null/absent = no genuine material; the AI never forces one. */
   opener?: string | null
-  /** The customer's own 『』-quoted words from the latest session, verbatim. */
+  /** The customer's own quoted words (『』/「」) from the latest session, verbatim. */
   lastWords?: string | null
   /** Must-know-before-touching cautions (history, metal, meds, pressure). */
   cautions?: string[]
-  /** 2-3 imperative actions for today; first = homework/promise re-entry. */
+  /** Up to 3 imperative actions for today; first = homework/promise re-entry. */
   todayActions?: string[]
   /** Pure date math — days since last visit + the usual gap (median). */
   rhythm?: { daysSince: number; usualGapDays: number | null } | null
@@ -136,6 +136,23 @@ export function PreSessionBriefCard({
   const cautions = effectiveBrief.cautions ?? []
   const todayActions = effectiveBrief.todayActions ?? []
   const hasThirtySecondLayer = hasOpener || cautions.length > 0 || todayActions.length > 0
+  // Layer-contract seat belt: the prompt forbids a hook from repeating the
+  // opener's topic, but a slipped generation (or a stale cache) must still
+  // never show the same line twice — drop a hook whose title is inside the
+  // opener, or whose body is the opener restated. Length floors keep short
+  // strings from matching incidentally (Japanese has no word boundaries:
+  // 海 is inside 北海道, 運動 inside 運動会).
+  const openerNorm = normalizeForDedup(effectiveBrief.opener ?? '')
+  const visibleHooks = openerNorm
+    ? effectiveBrief.hooks.filter((h) => {
+        const title = normalizeForDedup(h.title)
+        if (title.length >= 3 && openerNorm.includes(title)) return false
+        const body = normalizeForDedup(h.body ?? '')
+        if (body.length >= 5 && openerNorm.length >= 5 && (openerNorm.includes(body) || body.includes(openerNorm)))
+          return false
+        return true
+      })
+    : effectiveBrief.hooks
   const rhythm = effectiveBrief.rhythm ?? null
   const rhythmLabel = rhythm
     ? rhythm.usualGapDays && rhythm.usualGapDays > 0
@@ -334,109 +351,136 @@ export function PreSessionBriefCard({
         </button>
       )}
 
-      {(!hasThirtySecondLayer || detailOpen) && (
-      <div>
-      {/* Conversation hooks — most actionable, surface near top */}
-      {effectiveBrief.hooks.length > 0 ? (
-        <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
-          <ul className="space-y-1">
-            {effectiveBrief.hooks.map((h, i) => (
-              <li
-                key={i}
-                className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
-              >
-                <span className="mt-0.5 shrink-0 text-blue-400">•</span>
-                <span>
-                  <span className="font-medium">{h.title}</span>
-                  {h.body && <span className="text-muted-foreground"> — {h.body}</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
-        </BriefSection>
-      ) : null}
+      {(!hasThirtySecondLayer || detailOpen) && (() => {
+        // The four detail sections. With the 30-second layer the detail is
+        // pure HISTORY & CONTEXT, so it leads with the clinical trajectory
+        // (経過 → 理由 → 前回の提案 → その他の話題). Without it (mechanical
+        // fallback, pre-v8 caches) the classic hooks-first order renders
+        // exactly as before. The top rule between sections comes from
+        // BriefSection's own first:-variant styling, so whichever section
+        // happens to render first (in either order) stays ruleless.
+        const hooksSection =
+          visibleHooks.length > 0 ? (
+            <BriefSection
+              icon={<PawPrint className="size-3" />}
+              title={t('hooks')}
+            >
+              <ul className="space-y-1">
+                {visibleHooks.map((h, i) => (
+                  <li
+                    key={i}
+                    className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
+                  >
+                    <span className="mt-0.5 shrink-0 text-blue-400">•</span>
+                    <span>
+                      <span className="font-medium">{h.title}</span>
+                      {h.body && <span className="text-muted-foreground"> — {h.body}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<PawPrint className="size-3" />}
+              title={t('hooks')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
+            </BriefSection>
+          ) : null
 
-      {/* Last concerns — clinical recap */}
-      {effectiveBrief.concerns.length > 0 ? (
-        <BriefSection
-          icon={<Clock className="size-3" />}
-          title={t('concerns')}
-          divider
-        >
-          <ul className="space-y-1">
-            {effectiveBrief.concerns.map((c, i) => (
-              <li
-                key={i}
-                className="flex gap-2 text-[13px] leading-relaxed text-foreground/85"
-              >
-                <span className="mt-1 shrink-0 text-muted-foreground/60">•</span>
-                <span>{c}</span>
-              </li>
-            ))}
-          </ul>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection
-          icon={<Clock className="size-3" />}
-          title={t('concerns')}
-          divider
-        >
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
-        </BriefSection>
-      ) : null}
+        const concernsSection =
+          effectiveBrief.concerns.length > 0 ? (
+            <BriefSection
+              icon={<Clock className="size-3" />}
+              title={t('concerns')}
+            >
+              <ul className="space-y-1">
+                {effectiveBrief.concerns.map((c, i) => (
+                  <li
+                    key={i}
+                    className="flex gap-2 text-[13px] leading-relaxed text-foreground/85"
+                  >
+                    <span className="mt-1 shrink-0 text-muted-foreground/60">•</span>
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<Clock className="size-3" />}
+              title={t('concerns')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
+            </BriefSection>
+          ) : null
 
-      {/* Last product + reaction */}
-      {effectiveBrief.lastProduct ? (
-        <BriefSection
-          icon={<Gift className="size-3" />}
-          title={t('lastProduct')}
-          divider
-        >
-          <div className="text-[13px] leading-relaxed text-foreground/90">
-            <span className="font-medium">{effectiveBrief.lastProduct.name}</span>
-            {effectiveBrief.lastProduct.reaction && (
-              <span className="text-muted-foreground"> — {effectiveBrief.lastProduct.reaction}</span>
-            )}
+        const productSection =
+          effectiveBrief.lastProduct ? (
+            <BriefSection
+              icon={<Gift className="size-3" />}
+              title={t('lastProduct')}
+            >
+              <div className="text-[13px] leading-relaxed text-foreground/90">
+                <span className="font-medium">{effectiveBrief.lastProduct.name}</span>
+                {effectiveBrief.lastProduct.reaction && (
+                  <span className="text-muted-foreground"> — {effectiveBrief.lastProduct.reaction}</span>
+                )}
+              </div>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<Gift className="size-3" />}
+              title={t('lastProduct')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
+            </BriefSection>
+          ) : null
+
+        const focusSection =
+          effectiveBrief.recommendedFocus ? (
+            <BriefSection
+              icon={<Target className="size-3" />}
+              title={t('recommendedFocus')}
+            >
+              <p className="text-[13px] leading-relaxed text-foreground/85">
+                {effectiveBrief.recommendedFocus}
+              </p>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<Target className="size-3" />}
+              title={t('recommendedFocus')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
+            </BriefSection>
+          ) : null
+
+        return hasThirtySecondLayer ? (
+          <div>
+            {concernsSection}
+            {focusSection}
+            {productSection}
+            {hooksSection}
           </div>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection
-          icon={<Gift className="size-3" />}
-          title={t('lastProduct')}
-          divider
-        >
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
-        </BriefSection>
-      ) : null}
-
-      {/* AI-suggested focus for this session */}
-      {effectiveBrief.recommendedFocus ? (
-        <BriefSection
-          icon={<Target className="size-3" />}
-          title={t('recommendedFocus')}
-          divider
-        >
-          <p className="text-[13px] leading-relaxed text-foreground/85">
-            {effectiveBrief.recommendedFocus}
-          </p>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection
-          icon={<Target className="size-3" />}
-          title={t('recommendedFocus')}
-          divider
-        >
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
-        </BriefSection>
-      ) : null}
-      </div>
-      )}
+        ) : (
+          <div>
+            {hooksSection}
+            {concernsSection}
+            {productSection}
+            {focusSection}
+          </div>
+        )
+      })()}
     </section>
   )
+}
+
+// Strip whitespace + punctuation so "restated with different punctuation"
+// still registers as a duplicate (筋トレ再開したそうですね。 vs 筋トレ再開).
+function normalizeForDedup(s: string): string {
+  return s.replace(/[\s　、。・．，,.!?！?？「」『』()（）〜~ー–—:：]/g, '')
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -447,15 +491,13 @@ function BriefSection({
   icon,
   title,
   children,
-  divider,
 }: {
   icon: React.ReactNode
   title: string
   children: React.ReactNode
-  divider?: boolean
 }) {
   return (
-    <div className={divider ? 'mb-4 border-t border-blue-100/80 pt-3 dark:border-blue-500/15 last:mb-0' : 'mb-4 last:mb-0'}>
+    <div className="mb-4 border-t border-blue-100/80 pt-3 first:border-t-0 first:pt-0 dark:border-blue-500/15 last:mb-0">
       <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {icon}
         {title}
