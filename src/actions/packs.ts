@@ -16,7 +16,12 @@ import {
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
-import type { LifecycleStatus, PackKind, PackStatus } from '@/lib/packs/types'
+import {
+  nextPurchaseRound,
+  type LifecycleStatus,
+  type PackKind,
+  type PackStatus,
+} from '@/lib/packs/types'
 
 // 回数券 server actions — the ONLY write path to the pack tables (they're
 // RLS-locked; browser clients can't reach them). Each action stamps the acting
@@ -42,14 +47,12 @@ export async function createPackAction(input: {
     return { ok: false, error: 'unitPrice must be >= 0' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   // SERVER-derived 購入回数 when the caller doesn't supply one (the stop-dialog
-  // picker doesn't): round = count of the customer's existing counted packs —
-  // identical to TicketPackCard's nextRound, business-wide, store-blind. A
-  // 銀座 re-subscribe is 2枚目, never a fresh 初回 (§7.4 — the first-timer
-  // nightmare in money clothing).
+  // picker doesn't): highest STORED round + 1, never a row count — the imports
+  // collapsed history to one row per customer, so counting relabels a round-4
+  // regular as 初回 (§7.4 — the first-timer nightmare in money clothing).
+  // Identical to TicketPackCard's nextRound; business-wide, store-blind.
   const purchaseRound =
-    input.purchaseRound ??
-    (await listCustomerPacks(input.customerId)).filter((p) => p.kind === 'pack')
-      .length
+    input.purchaseRound ?? nextPurchaseRound(await listCustomerPacks(input.customerId))
   const result = await createPack({
     ...(input as CreatePackInput),
     purchaseRound,

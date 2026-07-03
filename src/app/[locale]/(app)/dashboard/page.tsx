@@ -15,6 +15,7 @@ import {
   isReturningCustomer,
   type CustomerEnrichment,
 } from '@/lib/customers/list-enrich'
+import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { hmInJst, ymdInJst, nowUtc, jstDaysBetween } from '@/lib/date/jst'
 import { getActiveStoreId } from '@/actions/stores'
 import {
@@ -181,6 +182,11 @@ export default async function DashboardPage() {
     const u = packUsage.get(clientId)
     return u?.hasActivePack ? { remaining: u.remaining, size: u.size } : null
   }
+  // The reservation system outranks inference (Liam's rule): a 新規-course
+  // booking IS a first visit; any other named course means returning. Only
+  // titleless bookings fall back to history-based inference.
+  const firstVisitFor = (a: DashboardTodayAppointment): boolean =>
+    firstVisitFromBooking(a.title) ?? isFirstTime(a.client_id)
 
   const toHeroView = (s: (typeof slides)[number]): HeroSlideView => {
     const a = s.appointment
@@ -193,7 +199,7 @@ export default async function DashboardPage() {
       timeHm: hmInJst(new Date(a.start_time)),
       durationMinutes: a.duration_minutes,
       inProgress: s.inProgress,
-      round: visitRound(c?.visitCount ?? 0, !isFirstTime(a.client_id)),
+      round: visitRound(c?.visitCount ?? 0, !firstVisitFor(a)),
       course: a.title,
       staffName: staffNameById.get(a.staff_profile_id) ?? 'Unknown',
       ticket: ticketFor(a.client_id),
@@ -217,7 +223,7 @@ export default async function DashboardPage() {
       appointmentId: a.id,
       clientId: a.client_id,
       startIso: a.start_time,
-      firstTime: isFirstTime(a.client_id),
+      firstTime: firstVisitFor(a),
       remaining: u?.hasActivePack ? u.remaining : null,
       size: u?.hasActivePack ? u.size : null,
       hadPack: customerById.get(a.client_id)?.hasTicketPack ?? false,
@@ -358,7 +364,7 @@ export default async function DashboardPage() {
         dateLabel: compactDayLabel(tomorrowDate!, locale),
         ymd: ymdInJst(tomorrowDate!),
         count: tomorrowAppts.length,
-        firstTimers: tomorrowAppts.filter((a) => isFirstTime(a.client_id)).length,
+        firstTimers: tomorrowAppts.filter((a) => firstVisitFor(a)).length,
         firstTimeHm: hmInJst(tomorrowDate!),
         firstName: nameFor(first),
       }
