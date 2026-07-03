@@ -61,6 +61,47 @@ describe('PreSessionBriefCard (30-second layer)', () => {
     expect(screen.queryByText('opener')).not.toBeInTheDocument()
   })
 
+  it('drops a hook that restates the opener (layer-contract seat belt)', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{
+          ...base,
+          opener: '筋トレ再開したそうですね。調子はいかがですか？',
+          todayActions: ['宿題のハムストレッチの実施状況を確認'],
+          hooks: [
+            {
+              title: '筋トレ再開',
+              body: '数ヶ月ぶりに筋トレを再開したそうですね。調子はいかがですか？',
+            },
+            { title: '愛犬パグ', body: '最近飼い始めた' },
+          ],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByText('detailShow'))
+    // The opener consumed 筋トレ再開 — only the unconsumed topic survives.
+    expect(screen.queryByText('筋トレ再開')).not.toBeInTheDocument()
+    expect(screen.getByText('愛犬パグ')).toBeInTheDocument()
+  })
+
+  it('orders the expanded detail history-first when the 30-second layer exists', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{
+          ...base,
+          opener: '最近いかがですか？',
+          todayActions: ['姿勢のアライメント調整'],
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByText('detailShow'))
+    const concern = screen.getByText('姿勢由来の首・肩・腰の張り')
+    const hook = screen.getByText('愛犬パグ')
+    expect(concern.compareDocumentPosition(hook) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  })
+
   it('shows the rhythm badge only on a clear deviation', () => {
     const { rerender } = render(
       <PreSessionBriefCard

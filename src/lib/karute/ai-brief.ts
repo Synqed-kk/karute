@@ -25,47 +25,47 @@ const AiBriefSchema = z.object({
   memoAnalysis: z
     .array(z.string())
     .describe(
-      "The AI's READ of the booking memo — NOT a restatement (staff already see the raw memo directly above this). Surface only what a quick skim misses: (a) cautions for today (注意点), ESPECIALLY by cross-referencing a stated symptom against a requested treatment; (b) changes/contradictions — a symptom they stopped or started mentioning, or a want-vs-need mismatch; (c) expectation + communication tone (期待/トーン) ONLY if it changes how staff should act. Each bullet must add insight, never paraphrase. Max 3. Empty array if there is no memo OR the memo is purely operational (e.g. ticket renewal).",
+      "The AI's READ of the booking memo — NOT a restatement (staff already see the raw memo directly above this). Surface only what a quick skim misses: (a) cautions for today (注意点), ESPECIALLY by cross-referencing a stated symptom against a requested treatment; (b) changes/contradictions — a symptom they stopped or started mentioning, or a want-vs-need mismatch; (c) expectation + communication tone (期待/トーン) ONLY if it changes how staff should act. A plain SAFETY fact (surgery, metal, meds, allergy, pressure) belongs in cautions even when the memo states it — here carry only the synthesis on top, never the fact restated. Each bullet must add insight, never paraphrase. Max 3. Empty array if there is no memo OR the memo is purely operational (e.g. ticket renewal).",
     ),
   hooks: z
     .array(z.object({ title: z.string(), body: z.string().nullable() }))
     .describe(
-      'Genuine personal rapport openers ONLY (pets/family/hobbies/travel/life events). Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks — exclude them. A family word alone is not a hook (only when it is about that person’s life/event). Empty if no real small-talk material; never fabricate.',
+      'ADDITIONAL personal rapport topics beyond the one the opener already uses — the opener’s topic must NOT reappear here (if the opener consumed the only topic, return []). Genuine personal material ONLY (pets/family/hobbies/travel/life events); each body is a compact FACT, never a spoken line. Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks. A family word alone is not a hook (only when it is about that person’s life/event). Empty if no real small-talk material; never fabricate.',
     ),
   concerns: z
     .array(z.string())
     .describe(
-      "FIRST item: if the latest session's 次回 line carries homework / a staff promise / a deferred proposal, lead with it as an action (前回の宿題／前回の約束). Then the customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
+      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest) — HISTORY, never actions: no imperative phrasing, and never restate a todayActions item (the homework/promise re-check lives in todayActions ONLY; here describe the underlying concern's state instead). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
     ),
   lastProduct: z
     .object({ name: z.string(), reaction: z.string().nullable() })
     .nullable()
-    .describe('The most recent product/service offered + the customer reaction, if any. Null if none.'),
+    .describe('The most recent product/service offered + the customer reaction, if any. The reaction must not repeat the lastWords quote — if the reaction IS that quote, set reaction null. Null if none.'),
   recommendedFocus: z
     .string()
     .nullable()
-    .describe('1-2 sentences: today’s focus, grounded in the concern trajectory + memo, in the business vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.'),
+    .describe('The WHY behind todayActions: 1-2 sentences of rationale/approach (which finding links the actions, what to prioritise and why), in the business vocabulary. Must ADD reasoning the action list cannot carry — NEVER restate, list, or paraphrase todayActions items. It may NAME a concern as an anchor, but must not restate the state/trajectory concerns already carries — bring only the link and the approach. Null when there is nothing beyond the actions.'),
   opener: z
     .string()
     .nullable()
     .describe(
-      "ONE natural spoken first line for the staff to open with — built from the durable-memory personal/talking-point items or the newest personal event in the records (e.g. 「パグちゃん、その後どうですか？」). Warm, short, a question. Null when there is no real personal material — NEVER invent or force one.",
+      "ONE natural spoken first line for the staff to open with — built from the durable-memory personal/talking-point items or the newest personal event in the records (e.g. 「パグちゃん、その後どうですか？」). Warm, short, a question. The topic this line uses is CONSUMED — it must not reappear in hooks. Null when there is no real personal material — NEVER invent or force one.",
     ),
   lastWords: z
     .string()
     .nullable()
     .describe(
-      "The customer's OWN memorable words from the LATEST session, ONLY if the latest summary/entries carry a verbatim quote in 『』 (e.g. 『人生で一番効いてる』). Copy it exactly, with the 『』. Null otherwise — never paraphrase into a fake quote.",
+      "The customer's OWN memorable words from the LATEST session, ONLY if the latest summary/entries carry a verbatim quote in 『』 or 「」 (e.g. 『人生で一番効いてる』). Copy it exactly, brackets included. Null otherwise — never paraphrase into a fake quote. Null also when the quote is about the opener's topic — the opener owns that moment.",
     ),
   cautions: z
     .array(z.string())
     .describe(
-      'Safety/service cautions the staff must know BEFORE touching the customer, stated in the records: injury/surgery history, implanted metal, medication, allergies, pressure cautions (spots that hurt/rang), treatment anxiety. Max 3, most critical first, compact (≤40 chars each). Empty when the records state none — never infer.',
+      'Safety/service cautions the staff must know BEFORE touching the customer, stated ANYWHERE in the memo or the karute: injury/surgery history, implanted metal, medication, allergies, pressure cautions (spots that hurt/rang), service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
     ),
   todayActions: z
     .array(z.string())
     .describe(
-      "2-3 imperative actions for TODAY, each ≤30 chars. FIRST action = the re-entry item when the latest 次回 line carries homework/a promise (e.g. 「宿題のハムストレッチの実施状況を確認」). Then today's focus, then a pressure/pace caution if the records support one. Grounded only; empty if the records give nothing actionable.",
+      "Up to 3 imperative actions for TODAY, each ≤30 chars — one grounded action is a complete answer; NEVER pad to fill slots. FIRST action = the re-entry item when the latest 次回 line carries homework/a promise (e.g. 「宿題のハムストレッチの実施状況を確認」) — todayActions is the ONLY field that carries the re-entry action; concerns and recommendedFocus must not repeat it. Then today's focus. A pressure/pace adjustment ONLY when it changes today's plan beyond what cautions already states — an adjustment that merely rephrases a cautions item is a duplicate, drop it. Grounded only; empty if the records give nothing actionable.",
     ),
 })
 
@@ -200,13 +200,15 @@ export async function getAiPreSessionBrief(params: {
 
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
-      // invalidated immediately instead of serving the old wording. v7: 30-second
-      // brief fields (opener/lastWords/cautions/todayActions). v6: re-entry
+      // invalidated immediately instead of serving the old wording. v8: layer
+      // contract — skim (opener/cautions/todayActions) owns today, detail
+      // (hooks/concerns/lastProduct/recommendedFocus) owns history; no fact
+      // appears in two fields. v7: 30-second brief fields. v6: re-entry
       // ledger (surface last session's promises/homework first). v5: purge
       // briefs poisoned by the QR-sync customer mis-link (a corrected
       // appointment.customer_id must not keep serving a fused brief built from
       // another customer's reservation memo).
-      v: 7,
+      v: 8,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -222,9 +224,9 @@ export async function getAiPreSessionBrief(params: {
       lastVisitDate: lastVisit.date,
       lastVisitAgo: lastVisit.ago,
       reservationMemo: memo,
-      memoAnalysis: ai.memoAnalysis ?? [],
+      memoAnalysis: (ai.memoAnalysis ?? []).slice(0, 3),
       hooks: ai.hooks ?? [],
-      concerns: ai.concerns ?? [],
+      concerns: (ai.concerns ?? []).slice(0, 4),
       lastProduct: ai.lastProduct ?? null,
       recommendedFocus: ai.recommendedFocus ?? null,
       opener: ai.opener ?? null,
@@ -245,26 +247,27 @@ Before a session you read the customer's booking memo and their past karute (ses
 
 Rules:
 - GROUNDING: every item must be backed by the memo or the karute. NEVER invent. An empty array / null is the CORRECT answer when there is nothing real — a fabricated item is harmful.
-- NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses.
+- NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses. EXCEPTION: a safety fact stated in the memo still goes to cautions — safety is the one thing worth restating.
+- LAYER CONTRACT (no fact appears twice): the card renders two layers. SKIM layer (always visible) = opener + lastWords + cautions + todayActions + memoAnalysis — owns TODAY. DETAIL layer (folded behind a 経過 toggle) = hooks + concerns + lastProduct + recommendedFocus — owns HISTORY & CONTEXT. Ownership when two fields could claim the same fact: a SAFETY fact belongs to cautions ONLY (wherever it was stated); ACTIONS belong to todayActions ONLY; the opener's personal topic may not reappear in hooks or lastWords. TOPIC overlap is NOT duplication — concerns may describe the state of a concern that todayActions checks today, and recommendedFocus may use the opener's topic as clinical rationale; only the same claim in the same framing is a repeat. Before returning, re-read your own output and delete any item in ANY field that restates another field's item.
 - memoAnalysis: the ${tok.role}'s READ of the memo — include only the applicable of these, never forced to fill all:
-    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated symptom against a requested treatment and flag a risk/adjustment (e.g. memo has 胃の不調 + 内臓調整希望 → "内臓調整は強度を弱めから様子を見る"). This is the highest-value bullet — produce it whenever two memo facts interact.
+    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated symptom against a requested treatment and flag a risk/adjustment (e.g. memo has 胃の不調 + 内臓調整希望 → "内臓調整は強度を弱めにして様子を見る"). This is the highest-value bullet — produce it whenever two memo facts interact. A plain safety fact goes to cautions, not here — here only the synthesis on top.
     (b) change/contradiction — a symptom newly raised, dropped, or resurfacing vs the karute, or a want-vs-chief-complaint mismatch.
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
-- RE-ENTRY (highest value): the most recent session's summary may carry a 次回 line — homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. When present, these MUST surface: put the single most important one as the FIRST concerns item, phrased as an action (e.g. 「前回の宿題：ハムのストレッチ — 実施状況を確認」「前回の約束：腰を重点的に」), and open recommendedFocus by honoring it. A promise the staff forgets is trust lost; one they keep is the "this place remembers me" moment. Only what the records actually say — never invent.
-- opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. Null when no genuine material exists — a forced opener is worse than none.
-- lastWords: ONLY a verbatim 『』-quoted customer line already present in the latest session's summary/entries, copied exactly. Never manufacture a quote.
-- cautions: what staff must know BEFORE touching the customer, from the records: 既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所や圧の注意・施術への不安. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
-- todayActions: 2-3 imperative actions (≤30 chars each) the staff executes today. FIRST = the re-entry item (homework/promise from the latest 次回 line) when present; then today's focus; then a pressure/pace adjustment if grounded. These are the skim-layer — recommendedFocus stays the fuller sentence version.
-- concerns: the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). Keep it USEFUL, not exhaustive:
+- RE-ENTRY (highest value): the most recent session's summary may carry a 次回 line — homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. When present, the single most important one MUST surface as the FIRST todayActions item, phrased as an action (e.g. 「宿題のハムストレッチの実施状況を確認」「約束どおり腰を重点的に」) — and ONLY there: concerns and recommendedFocus must not repeat it. A promise the staff forgets is trust lost; one they keep is the "this place remembers me" moment. Only what the records actually say — never invent.
+- opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. The topic it uses is CONSUMED as rapport material — it must not reappear in hooks or lastWords (it MAY still inform recommendedFocus as clinical rationale). Null when no genuine material exists — a forced opener is worse than none.
+- lastWords: ONLY a verbatim customer line already quoted in 『』 or 「」 in the latest session's summary/entries, copied exactly, brackets included. Never manufacture a quote. Null when the quote is about the opener's topic — the opener owns that moment.
+- cautions: what staff must know BEFORE touching the customer, stated ANYWHERE in the memo or the karute: 既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所や圧の注意・サービスへの不安. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
+- todayActions: up to 3 imperative actions (≤30 chars each) the staff executes today — ONE grounded action is a complete answer; never pad to fill slots. FIRST = the re-entry item (homework/promise from the latest 次回 line) when present; then today's focus; then a pressure/pace adjustment ONLY if it changes today's plan beyond what cautions already states (an adjustment that merely rephrases a caution is a duplicate — drop it). This is the ONLY field that carries actions — no other field may restate them.
+- concerns: HISTORY, never actions — the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). No imperative phrasing; never restate a todayActions item (when homework/a promise re-checks a concern, describe the concern's STATE here — e.g. 「ハムストリングスの張り：前回セルフケア指導」 — while the check itself stays in todayActions). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
     • CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say "姿勢由来の首・肩・腰の張り" not four rows). DROP vague catch-alls (体全体の不調).
     • LEAD with what CHANGED — 改善 / 悪化 / 新規 are the actionable signal. Tag a direction ONLY when two dated sessions clearly show it.
     • Do NOT put (継続) on every item. A simply-ongoing concern is listed plainly (no tag) — the (継続) tag is only worth showing to contrast with something that changed; an all-(継続) list is noise.
   Most relevant first. Judge only within the sessions shown; never extrapolate. Empty if none.
-- hooks: genuine personal rapport material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
+- hooks: ADDITIONAL personal rapport topics BEYOND the opener — the opener's topic must not reappear here; if the opener consumed the only personal topic, return []. Each body is a compact FACT (「数ヶ月ぶりに再開」), never a spoken line — the opener is the spoken line. Genuine personal material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
 - lastProduct: the most recent product/service offered + the customer's reaction, if present. Null otherwise.
-- recommendedFocus: 1-2 sentences on today's focus, grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.
+- recommendedFocus: the WHY behind todayActions — 1-2 sentences of rationale/approach (which finding links today's actions, what to prioritise and why), grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. It must ADD reasoning the action list cannot carry; NEVER restate, list, or paraphrase todayActions items. It may NAME a concern as an anchor, but the state/trajectory stays in concerns — bring only the link and the approach. Null when there is nothing beyond the actions.
 - VOCABULARY: use only this ${tok.businessNoun}'s vocabulary (e.g. ${tok.primaryFocus}); do not borrow another industry's terms (e.g. do not say 施術/"treatment" for a gym). If no domain term fits, use the customer's own words.
 ${tok.typicalConcerns ? `Common concerns at this kind of business: ${tok.typicalConcerns}.` : ''}
 ${clinicalGuardrail(tok.clinicalPosture, locale)}
@@ -278,7 +281,7 @@ ${defensivePreamble(locale)}`
           ? `Booking memo (the customer's / front-desk's own words):\n${wrapUntrustedContent('reservation_memo', memo)}`
           : 'Booking memo: (none)',
         memory.length > 0
-          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed hooks, 'body' items inform concerns; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
+          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body' items inform concerns AND cautions, but a safety-relevant body item (metal, surgery, allergy) belongs in cautions only; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
           : 'Durable memory: (none yet)',
         records.length > 0
           ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), MAX_HISTORY_CHARS)}`
