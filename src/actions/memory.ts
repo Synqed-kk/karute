@@ -8,10 +8,12 @@
 // path stays scoped to source='ai_extraction' and never touches these rows.
 
 import { revalidatePath } from 'next/cache'
+import { getLocale } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import {
   addStaffMemoryItem,
   setMemoryItemPinned,
+  softDeleteAiExtractionItems,
   softDeleteMemoryItem,
   updateMemoryItem,
 } from '@/lib/karute/customer-memory'
@@ -79,4 +81,46 @@ export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean 
   const result = await softDeleteMemoryItem(id)
   if (result.ok) revalidateProfile()
   return result
+}
+
+
+/**
+ * 再学習 — rebuild this customer's AI memory from their transcripts with the
+ * CURRENT prompt. Wipes only the AI's own unpinned items (staff-added, pinned,
+ * and staff-edited items survive), then re-runs the same backfill the profile
+ * page bootstraps with. Existing customers get today's extraction quality on
+ * demand instead of waiting for their next session.
+ */
+export async function relearnCustomerMemoryAction(
+  customerId: string,
+): Promise<{ ok: boolean; items: number }> {
+  if (!customerId) return { ok: false, items: 0 }
+  try {
+    const [{ getSynqedClient }, { listSynqedKaruteRows }, { backfillMemoryFromTranscripts }] =
+      await Promise.all([
+        import('@/lib/synqed/client'),
+        import('@/lib/karute/synqed-records'),
+        import('@/lib/karute/memory-ingest'),
+      ])
+    const synqed = await getSynqedClient()
+    const rows = await listSynqedKaruteRows(synqed, { customerId })
+    const transcripts = rows.map((r) => r.transcript ?? '').filter((t) => t.trim())
+    if (transcripts.length === 0) return { ok: false, items: 0 }
+
+    const wiped = await softDeleteAiExtractionItems(customerId)
+    if (!wiped.ok) return { ok: false, items: 0 }
+
+    const businessId = await getBusinessId().catch(() => null)
+    const items = await backfillMemoryFromTranscripts({
+      customerId,
+      businessId,
+      transcripts,
+      locale: await getLocale(),
+    })
+    revalidateProfile()
+    return { ok: true, items: items.length }
+  } catch (err) {
+    console.error('[relearnCustomerMemoryAction] failed:', err)
+    return { ok: false, items: 0 }
+  }
 }

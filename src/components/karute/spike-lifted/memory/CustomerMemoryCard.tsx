@@ -26,7 +26,7 @@
 //   4. Replace the Coming-Soon dialog with the lifted MemoryItemDialog
 //      (separate lift task, ~150 lines)
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
 import {
   Activity,
   Brain,
@@ -36,10 +36,12 @@ import {
   Heart,
   History,
   Leaf,
+  Loader2,
   MessageCircle,
   Pencil,
   Pin,
   Plus,
+  RefreshCw,
   Sparkles,
   Target,
   X,
@@ -61,6 +63,7 @@ import {
   deleteMemoryItemAction,
   toggleMemoryPinAction,
   updateMemoryItemAction,
+  relearnCustomerMemoryAction,
 } from '@/actions/memory'
 import {
   EMPTY_MEMORY,
@@ -276,6 +279,7 @@ export function CustomerMemoryCard({
           <MemoryTrustBadge
             updatedThisVisit={memory.updatedThisVisit}
             pastSessionCount={pastSessionCount}
+            customerId={memory.customerId}
           />
         </div>
 
@@ -457,11 +461,23 @@ export function CustomerMemoryCard({
 function MemoryTrustBadge({
   updatedThisVisit,
   pastSessionCount,
+  customerId,
 }: {
   updatedThisVisit: number
   pastSessionCount: number
+  customerId: string
 }) {
   const t = useTranslations('karute.memorySection')
+  const router = useRouter()
+  const [confirming, setConfirming] = useState(false)
+  const [pending, startTransition] = useTransition()
+  const relearn = () => {
+    setConfirming(false)
+    startTransition(async () => {
+      await relearnCustomerMemoryAction(customerId)
+      router.refresh()
+    })
+  }
 
   // State 1 — post-session: items were just added in today's session.
   // Brightest signal (saturated blue + Sparkles) because this is the
@@ -479,15 +495,40 @@ function MemoryTrustBadge({
   // sessions. Helps staff calibrate how much to trust the items
   // before acting on them. Muted blue (≠ post-session bright blue)
   // so staff can distinguish "fresh from today" vs "long-standing".
+  // State 2 doubles as the 再学習 trigger (Liam, 2026-07-03): the trust chip
+  // names the data source, so tapping it re-learns from that source with the
+  // CURRENT prompt. Two-tap confirm — it discards the AI's unpinned items
+  // (staff-added / pinned / staff-edited always survive).
   if (pastSessionCount > 0) {
+    if (pending) {
+      return (
+        <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15">
+          <Loader2 className="size-2.5 animate-spin" aria-hidden />
+          {t('relearnRunning')}
+        </span>
+      )
+    }
     return (
-      <span
-        className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15"
-        title={t('sessionsBadgeTooltip')}
+      <button
+        type="button"
+        onClick={() => (confirming ? relearn() : setConfirming(true))}
+        onBlur={() => setConfirming(false)}
+        title={confirming ? t('relearnConfirmTooltip') : t('sessionsBadgeTooltip')}
+        className={
+          confirming
+            ? 'inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 text-[10px] font-semibold tabular-nums text-amber-800 ring-1 ring-amber-300/70 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25'
+            : 'inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 transition-colors hover:bg-blue-100/70 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15'
+        }
       >
-        <History className="size-2.5" aria-hidden />
-        {t('sessionsBadge', { n: pastSessionCount })}
-      </span>
+        {confirming ? (
+          <RefreshCw className="size-2.5" aria-hidden />
+        ) : (
+          <History className="size-2.5" aria-hidden />
+        )}
+        {confirming
+          ? t('relearnConfirm')
+          : t('sessionsBadge', { n: pastSessionCount })}
+      </button>
     )
   }
 

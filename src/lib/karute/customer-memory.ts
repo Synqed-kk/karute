@@ -160,11 +160,44 @@ export async function updateMemoryItem(
     const sb = createServiceClient()
     const { error } = await sb
       .from(TABLE)
-      .update({ ...patch, updated_at: new Date().toISOString() })
+      // A human edit makes the item HUMAN-OWNED: source flips to 'staff' so
+      // the AI delta path and the 再学習 wipe (both scoped to ai_extraction)
+      // can never overwrite or discard what a person corrected.
+      .update({ ...patch, source: 'staff', updated_at: new Date().toISOString() })
       .eq('id', id)
     if (error) throw error
     return { ok: true }
   } catch {
+    return { ok: false }
+  }
+}
+
+/**
+ * 再学習 wipe: soft-delete the AI's own unpinned items so a fresh backfill can
+ * re-learn from the transcripts with the CURRENT prompt. Pinned items and
+ * anything human-owned (source='staff'/'intake_form' — including AI items a
+ * staff member edited, which flip to 'staff') always survive.
+ */
+export async function softDeleteAiExtractionItems(
+  customerId: string,
+): Promise<{ ok: boolean }> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = createServiceClient() as any
+    const { error } = await sb
+      .from(TABLE)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('customer_id', customerId)
+      .eq('source', 'ai_extraction')
+      .eq('pinned', false)
+      .is('deleted_at', null)
+    if (error) {
+      console.error('[softDeleteAiExtractionItems] postgrest error:', error.message ?? error)
+      return { ok: false }
+    }
+    return { ok: true }
+  } catch (err) {
+    console.error('[softDeleteAiExtractionItems] failed:', err)
     return { ok: false }
   }
 }
