@@ -1005,7 +1005,7 @@
       "addManually": "Add manually",
       "lastUpdated": "Last updated: {date}",
       "sectionEmpty": "Coming soon — nothing here yet",
-      "comingSoonPill": "Coming soon",
+      "comingSoonPill": "Not yet learned",
       "intakeEmpty": "Intake info will appear here once the first intake form is completed.",
       "intakeFields": {
         "firstVisit": "First visit",
@@ -1031,7 +1031,12 @@
       "deleted": "Deleted",
       "actionFailed": "Action failed",
       "pinnedToast": "Pinned",
-      "unpinned": "Unpinned"
+      "unpinned": "Unpinned",
+      "relearnConfirm": "Tap again to re-learn",
+      "relearnConfirmTooltip": "Rebuilds the AI-extracted items. Pinned, staff-added, and staff-edited items are kept.",
+      "relearnRunning": "Re-learning…",
+      "relearnFailed": "Re-learn failed (no transcripts found, or an error occurred)",
+      "relearnDone": "Re-learned {n} items"
     },
     "tabHeading": "Karute",
     "recordList": {

@@ -1005,7 +1005,7 @@
       "addManually": "手動で追加",
       "lastUpdated": "最終更新: {date}",
       "sectionEmpty": "対応予定 — このカテゴリーにはまだ情報がありません",
-      "comingSoonPill": "対応予定",
+      "comingSoonPill": "未学習",
       "intakeEmpty": "初診情報は初回の問診票が完了すると、ここに表示されます。",
       "intakeFields": {
         "firstVisit": "初診",
@@ -1031,7 +1031,12 @@
       "deleted": "削除しました",
       "actionFailed": "操作に失敗しました",
       "pinnedToast": "ピン留めしました",
-      "unpinned": "ピン留めを解除しました"
+      "unpinned": "ピン留めを解除しました",
+      "relearnConfirm": "タップで再学習を実行",
+      "relearnConfirmTooltip": "AIが抽出した項目を作り直します。ピン留め・スタッフ追加・編集済みの項目はそのまま残ります。",
+      "relearnRunning": "再学習中…",
+      "relearnFailed": "再学習できませんでした（録音の文字起こしが見つからないか、エラーが発生しました）",
+      "relearnDone": "再学習が完了しました（{n}件）"
     },
     "tabHeading": "カルテ",
     "recordList": {

@@ -160,11 +160,66 @@ export async function updateMemoryItem(
     const sb = createServiceClient()
     const { error } = await sb
       .from(TABLE)
-      .update({ ...patch, updated_at: new Date().toISOString() })
+      // A human edit makes the item HUMAN-OWNED: source flips to 'staff' so
+      // the AI delta path and the 再学習 wipe (both scoped to ai_extraction)
+      // can never overwrite or discard what a person corrected.
+      .update({ ...patch, source: 'staff', updated_at: new Date().toISOString() })
       .eq('id', id)
     if (error) throw error
     return { ok: true }
   } catch {
+    return { ok: false }
+  }
+}
+
+/**
+ * 再学習 wipe: soft-delete the AI's own unpinned items so a fresh backfill can
+ * re-learn from the transcripts with the CURRENT prompt. Pinned items and
+ * anything human-owned (source='staff'/'intake_form' — including AI items a
+ * staff member edited, which flip to 'staff') always survive.
+ */
+export async function softDeleteAiExtractionItems(
+  customerId: string,
+): Promise<{ ok: boolean; ids: string[] }> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = createServiceClient() as any
+    const { data, error } = await sb
+      .from(TABLE)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('customer_id', customerId)
+      .eq('source', 'ai_extraction')
+      .eq('pinned', false)
+      .is('deleted_at', null)
+      .select('id')
+    if (error) {
+      console.error('[softDeleteAiExtractionItems] postgrest error:', error.message ?? error)
+      return { ok: false, ids: [] }
+    }
+    // The wiped ids let the caller RESTORE if the follow-up backfill fails —
+    // wipe→backfill isn't atomic, and a failed backfill must not leave the
+    // customer's memory empty.
+    return { ok: true, ids: (data ?? []).map((r: { id: string }) => r.id) }
+  } catch (err) {
+    console.error('[softDeleteAiExtractionItems] failed:', err)
+    return { ok: false, ids: [] }
+  }
+}
+
+/** Undo a 再学習 wipe: bring soft-deleted rows back (deleted_at=null). */
+export async function restoreMemoryItems(ids: string[]): Promise<{ ok: boolean }> {
+  if (ids.length === 0) return { ok: true }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = createServiceClient() as any
+    const { error } = await sb
+      .from(TABLE)
+      .update({ deleted_at: null })
+      .in('id', ids)
+    if (error) throw error
+    return { ok: true }
+  } catch (err) {
+    console.error('[restoreMemoryItems] failed:', err)
     return { ok: false }
   }
 }

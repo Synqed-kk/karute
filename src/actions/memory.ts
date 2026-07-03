@@ -8,10 +8,13 @@
 // path stays scoped to source='ai_extraction' and never touches these rows.
 
 import { revalidatePath } from 'next/cache'
+import { getLocale } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import {
   addStaffMemoryItem,
+  restoreMemoryItems,
   setMemoryItemPinned,
+  softDeleteAiExtractionItems,
   softDeleteMemoryItem,
   updateMemoryItem,
 } from '@/lib/karute/customer-memory'
@@ -79,4 +82,59 @@ export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean 
   const result = await softDeleteMemoryItem(id)
   if (result.ok) revalidateProfile()
   return result
+}
+
+
+/**
+ * 再学習 — rebuild this customer's AI memory from their transcripts with the
+ * CURRENT prompt. Wipes only the AI's own unpinned items (staff-added, pinned,
+ * and staff-edited items survive), then re-runs the same backfill the profile
+ * page bootstraps with. Existing customers get today's extraction quality on
+ * demand instead of waiting for their next session.
+ */
+export async function relearnCustomerMemoryAction(
+  customerId: string,
+): Promise<{ ok: boolean; items: number }> {
+  if (!customerId) return { ok: false, items: 0 }
+  // Tracked outside the try so the catch can restore too — ANY throw after a
+  // successful wipe (locale lookup, import, network) must not leave the
+  // customer's memory empty.
+  let wipedIds: string[] = []
+  try {
+    const [{ getSynqedClient }, { listSynqedKaruteRows }, { backfillMemoryFromTranscripts }] =
+      await Promise.all([
+        import('@/lib/synqed/client'),
+        import('@/lib/karute/synqed-records'),
+        import('@/lib/karute/memory-ingest'),
+      ])
+    const synqed = await getSynqedClient()
+    const rows = await listSynqedKaruteRows(synqed, { customerId })
+    const transcripts = rows.map((r) => r.transcript ?? '').filter((t) => t.trim())
+    if (transcripts.length === 0) return { ok: false, items: 0 }
+
+    const wiped = await softDeleteAiExtractionItems(customerId)
+    if (!wiped.ok) return { ok: false, items: 0 }
+    wipedIds = wiped.ids
+
+    const businessId = await getBusinessId().catch(() => null)
+    const items = await backfillMemoryFromTranscripts({
+      customerId,
+      businessId,
+      transcripts,
+      locale: await getLocale(),
+    })
+    // Wipe→backfill isn't atomic. backfill is best-effort ([] on any internal
+    // failure), so an empty result after a non-empty wipe means the re-learn
+    // FAILED — restore the wiped items instead of leaving the memory empty.
+    if (items.length === 0 && wipedIds.length > 0) {
+      await restoreMemoryItems(wipedIds)
+      return { ok: false, items: 0 }
+    }
+    revalidateProfile()
+    return { ok: true, items: items.length }
+  } catch (err) {
+    console.error('[relearnCustomerMemoryAction] failed:', err)
+    if (wipedIds.length > 0) await restoreMemoryItems(wipedIds).catch(() => {})
+    return { ok: false, items: 0 }
+  }
 }
