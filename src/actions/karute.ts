@@ -115,6 +115,8 @@ export async function saveKaruteRecord(
       customerId: input.customerId,
       transcript: input.transcript,
       locale: await getLocale(),
+      // Live-recording save — the session is today (JST).
+      sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
     })
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
@@ -178,6 +180,8 @@ export async function saveKaruteRecordInline(
       customerId: input.customerId,
       transcript: input.transcript,
       locale: await getLocale(),
+      // Live-recording save — the session is today (JST).
+      sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
     })
 
     revalidatePath(`/customers/${input.customerId}`)

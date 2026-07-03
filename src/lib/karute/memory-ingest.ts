@@ -13,8 +13,11 @@ export async function ingestSessionMemory(params: {
   businessId?: string | null
   transcript: string | null
   locale: string
+  /** Prompt anchors (v3.1) — optional, degrade gracefully. */
+  customerName?: string | null
+  sessionDate?: string | null
 }): Promise<void> {
-  const { customerId, businessId, transcript, locale } = params
+  const { customerId, businessId, transcript, locale, customerName, sessionDate } = params
   if (!transcript || !transcript.trim()) return
   try {
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
@@ -34,6 +37,8 @@ export async function ingestSessionMemory(params: {
       existing,
       persona,
       locale,
+      customerName,
+      sessionDate,
     })
     await store.applyMemoryDelta({ customerId, businessId, ops })
   } catch (err) {
