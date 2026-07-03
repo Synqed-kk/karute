@@ -512,7 +512,15 @@
       "aiHintHooks": "From past karute + conversation history, AI will surface natural small-talk hooks — pets, family, hobbies, recent events — to help staff open the session warmly.",
       "aiHintConcerns": "AI will pull the main complaints, treatments delivered, and follow-up notes from prior karute entries into a chronological recap of what to verify today.",
       "aiHintLastProduct": "AI will pull the last product or service proposed and how the customer responded (purchased / considering / declined-phrasing) to inform today's recommendation strategy.",
-      "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction."
+      "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction.",
+      "opener": "Opening line",
+      "lastWords": "Their words last time",
+      "cautions": "Cautions (before treating)",
+      "today": "Today",
+      "detailShow": "Show history",
+      "detailHide": "Hide history",
+      "rhythmEarly": "{days}d since last — earlier than usual",
+      "rhythmLate": "{days}d since last — longer than usual"
     },
     "source": {
       "phoneMic": "Phone mic",
