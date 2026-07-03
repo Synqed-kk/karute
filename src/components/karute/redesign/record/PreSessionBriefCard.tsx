@@ -146,7 +146,11 @@ export function PreSessionBriefCard({
   const visibleHooks = openerNorm
     ? effectiveBrief.hooks.filter((h) => {
         const title = normalizeForDedup(h.title)
-        if (title.length >= 3 && openerNorm.includes(title)) return false
+        if (
+          title.length >= 3 &&
+          (openerNorm.includes(title) || (openerNorm.length >= 5 && title.includes(openerNorm)))
+        )
+          return false
         const body = normalizeForDedup(h.body ?? '')
         if (body.length >= 5 && openerNorm.length >= 5 && (openerNorm.includes(body) || body.includes(openerNorm)))
           return false
@@ -480,7 +484,7 @@ export function PreSessionBriefCard({
 // Strip whitespace + punctuation so "restated with different punctuation"
 // still registers as a duplicate (筋トレ再開したそうですね。 vs 筋トレ再開).
 function normalizeForDedup(s: string): string {
-  return s.replace(/[\s　、。・．，,.!?！?？「」『』()（）〜~ー–—:：]/g, '')
+  return s.replace(/[\s　、。・．，,.!！?？「」『』()（）〜~ー–—:：]/g, '')
 }
 
 // ─────────────────────────────────────────────────────────────
