@@ -66,7 +66,6 @@ export function KaruteDetailView({
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <DetailBreadcrumb
-        karuteId={karuteId}
         customerId={customerId}
         customerName={header.customerName}
         karuteNumber={header.karuteNumber}

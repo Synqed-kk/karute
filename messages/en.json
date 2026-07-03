@@ -275,7 +275,6 @@
       "karute": "Karute {date}"
     },
     "actions": {
-      "exportPdf": "Export PDF",
       "share": "Share",
       "edit": "Edit"
     },
@@ -929,8 +928,6 @@
     "staff": "Staff",
     "date": "Date",
     "customer": "Customer",
-    "exportPdf": "Export PDF",
-    "exportText": "Export Text",
     "noKarute": "No karute records yet",
     "saveKarute": "Save karute",
     "saving": "Saving...",
