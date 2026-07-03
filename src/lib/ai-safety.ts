@@ -20,6 +20,10 @@ const MAX_FIELD_CHARS = 8000
  *  — short fields (names, memos) keep the 8k default. */
 export const MAX_TRANSCRIPT_CHARS = 60_000
 
+/** Cap for multi-session HISTORY blocks (summaries + entries joined across
+ *  visits) — bigger than a field, smaller than a raw transcript. */
+export const MAX_HISTORY_CHARS = 30_000
+
 /** Wrap untrusted content so the LLM can structurally distinguish it from instructions. */
 export function wrapUntrustedContent(label: string, value: string, max?: number): string {
   const clipped = clipForSafety(value, max)

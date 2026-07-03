@@ -13,7 +13,7 @@ import {
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import type { MemoryItem } from '@/lib/karute/memory-types'
-import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { defensivePreamble, wrapUntrustedContent, MAX_HISTORY_CHARS } from '@/lib/ai-safety'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 
 // The AI generates these fields; the dates / memo / first-visit flag are computed
@@ -216,7 +216,7 @@ ${defensivePreamble(locale)}`
           ? `Durable memory about this customer (accumulated across visits — 'personal' items feed hooks, 'body' items inform concerns; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
           : 'Durable memory: (none yet)',
         records.length > 0
-          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), 30_000)}`
+          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), MAX_HISTORY_CHARS)}`
           : 'Past karute: (none recorded in the system yet)',
       ]
 
