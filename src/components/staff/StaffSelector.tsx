@@ -1,22 +1,16 @@
 'use client'
 
-// 担当トリガー (Liam-approved option D): the per-staff pill rows collapse into
-// ONE chip that names the current selection; tapping opens a bottom-sheet
-// roster. Constant one-line footprint from 9 staff to 200 — the multi-store
-// future never re-breaks the chrome. Shared by 顧客 / カルテ / 予約 (one
-// pattern everywhere, per Liam's universality rule); the 自分/全スタッフ
-// segment stays OUTSIDE this component so both dominant actions remain
-// one-tap.
+// 担当トリガー — one chip that names the current selection; tapping opens an
+// anchored DROPDOWN (2026-07-03, Liam: mirror the StoreSwitcher pattern — the
+// previous bottom-sheet roster felt heavier than the store pill's menu).
+// Constant one-line footprint from 9 staff to 200: the panel scrolls
+// internally. Shared by 顧客 / カルテ / 予約 (one pattern everywhere); the
+// 自分/全スタッフ segment stays OUTSIDE this component so both dominant
+// actions remain one-tap.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet'
 import {
   assignStaffColors,
   getStaffColorByKey,
@@ -44,6 +38,25 @@ export function StaffSelector({
 }) {
   const t = useTranslations('staffSelector')
   const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  // Same close behavior as the StoreSwitcher: outside tap or Escape.
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   // Same DISTINCT color mapping as the card stripes/old pills — a stylist's
   // color is identical everywhere they appear.
   const staffColors = useMemo(
@@ -63,11 +76,11 @@ export function StaffSelector({
   }
 
   return (
-    <>
+    <div ref={ref} className="relative inline-block">
       <button
         type="button"
-        onClick={() => setOpen(true)}
-        aria-haspopup="dialog"
+        onClick={() => setOpen((o) => !o)}
+        aria-haspopup="listbox"
         aria-expanded={open}
         className={cn(
           'inline-flex h-9 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-xs font-medium text-foreground transition-colors hover:bg-muted',
@@ -98,41 +111,50 @@ export function StaffSelector({
             <span>{t('trigger')}</span>
           </>
         )}
-        <ChevronDown size={13} className="shrink-0 text-muted-foreground" aria-hidden />
+        <ChevronDown
+          size={13}
+          className={cn(
+            'shrink-0 text-muted-foreground transition-transform',
+            open && 'rotate-180',
+          )}
+          aria-hidden
+        />
       </button>
 
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="max-h-[70vh] overflow-y-auto rounded-t-2xl">
-          <SheetHeader>
-            <SheetTitle className="text-left text-sm">{t('title')}</SheetTitle>
-          </SheetHeader>
-          <ul className="mt-2 divide-y divide-border/60">
-            <li>
-              <button
-                type="button"
-                onClick={() => pick('all')}
-                className="flex h-12 w-full items-center gap-3 px-1 text-left text-[13px] text-foreground"
-              >
-                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground" aria-hidden>
-                  <Users size={14} />
+      {open && (
+        <div
+          role="listbox"
+          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900"
+        >
+          <div className="border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10">
+            {t('title')}
+          </div>
+          {/* Internal scroll keeps the panel usable at any roster size —
+           *  the page never scrolls behind a giant menu. */}
+          <div className="max-h-[55vh] overflow-y-auto overscroll-contain">
+            <StaffRow
+              avatar={
+                <span
+                  className="flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
+                  aria-hidden
+                >
+                  <Users size={13} />
                 </span>
-                <span className="min-w-0 flex-1 truncate">{t('all')}</span>
-                {!active && <Check size={15} className="shrink-0 text-foreground" aria-hidden />}
-              </button>
-            </li>
+              }
+              label={t('all')}
+              selected={!active}
+              onClick={() => pick('all')}
+            />
             {staffList.map((s) => {
               const color = getStaffColorByKey(staffColors.get(s.id)?.key)
               const isActive = selected === s.id
               return (
-                <li key={s.id}>
-                  <button
-                    type="button"
-                    onClick={() => pick(isActive ? 'all' : s.id)}
-                    className="flex h-12 w-full items-center gap-3 px-1 text-left text-[13px] text-foreground"
-                  >
+                <StaffRow
+                  key={s.id}
+                  avatar={
                     <span
                       className={cn(
-                        'flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold',
+                        'flex size-7 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold',
                         color.bg,
                         color.text,
                       )}
@@ -140,15 +162,47 @@ export function StaffSelector({
                     >
                       {s.initials}
                     </span>
-                    <span className="min-w-0 flex-1 truncate">{s.name}</span>
-                    {isActive && <Check size={15} className="shrink-0 text-foreground" aria-hidden />}
-                  </button>
-                </li>
+                  }
+                  label={s.name}
+                  selected={isActive}
+                  onClick={() => pick(isActive ? 'all' : s.id)}
+                />
               )
             })}
-          </ul>
-        </SheetContent>
-      </Sheet>
-    </>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function StaffRow({
+  avatar,
+  label,
+  selected,
+  onClick,
+}: {
+  avatar: React.ReactNode
+  label: string
+  selected: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={onClick}
+      className={cn(
+        'flex min-h-[44px] w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] transition-colors',
+        selected
+          ? 'bg-blue-50 text-blue-800 dark:bg-blue-500/10 dark:text-blue-200'
+          : 'text-foreground active:bg-black/[0.03] dark:active:bg-white/[0.04]',
+      )}
+    >
+      {avatar}
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      {selected && <Check className="ml-auto size-4 shrink-0" aria-hidden />}
+    </button>
   )
 }
