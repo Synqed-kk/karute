@@ -16,6 +16,7 @@ import {
   softDeleteAiExtractionItems,
   softDeleteMemoryItem,
   updateMemoryItem,
+  upsertPassportField,
 } from '@/lib/karute/customer-memory'
 import type { MemoryItem } from '@/lib/karute/memory-types'
 
@@ -111,16 +112,49 @@ export async function relearnCustomerMemoryAction(
     if (!wiped.ok) return { ok: false, items: 0 }
 
     const businessId = await getBusinessId().catch(() => null)
-    const items = await backfillMemoryFromTranscripts({
+    const locale = await getLocale()
+    // Passport (これまで box) regenerates alongside the memory items — same
+    // sources, same tap. Best-effort: a passport failure never fails 再学習.
+    const [{ generateCustomerPassport }, { getCustomer }] = await Promise.all([
+      import('@/lib/karute/ai-passport'),
+      import('@/lib/customers/queries'),
+    ])
+    const [items, customer] = await Promise.all([
+      backfillMemoryFromTranscripts({ customerId, businessId, transcripts, locale }),
+      getCustomer(customerId).catch(() => null),
+    ])
+    const { memoContent } = await import('@/lib/sync/qr-notes')
+    await generateCustomerPassport({
       customerId,
-      businessId,
+      customerName: customer?.name ?? '',
       transcripts,
-      locale: await getLocale(),
-    })
+      intakeMemo: memoContent(customer?.notes),
+      locale,
+    }).catch(() => null)
     revalidateProfile()
     return { ok: true, items: items.length }
   } catch (err) {
     console.error('[relearnCustomerMemoryAction] failed:', err)
     return { ok: false, items: 0 }
   }
+}
+
+/** Staff edit of a passport field — durable human truth (source='staff',
+ *  pinned). The AI passport renders underneath but never overrides it. */
+export async function upsertPassportFieldAction(input: {
+  customerId: string
+  fieldKey: string
+  value: string
+}): Promise<{ ok: boolean }> {
+  const value = input.value?.trim()
+  if (!input.customerId || !input.fieldKey || !value) return { ok: false }
+  const businessId = await getBusinessId().catch(() => null)
+  const result = await upsertPassportField({
+    customerId: input.customerId,
+    businessId,
+    fieldKey: input.fieldKey,
+    value,
+  })
+  if (result.ok) revalidateProfile()
+  return { ok: result.ok }
 }

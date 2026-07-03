@@ -40,6 +40,19 @@ export interface BusinessAiPersona {
    *  MUST be synthetic facts that appear in no real session (echo risk). */
   goodExamplesJa?: string[]
   goodExamplesEn?: string[]
+  /** Customer-passport fields (the profile's これまで box): the identity facts
+   *  a practitioner at THIS business wants pinned at the top of the profile.
+   *  key is the stable machine id (staff overrides store against it); label is
+   *  what renders; hint steers the extractor. Optional — falls back to
+   *  GENERIC_PASSPORT_FIELDS. */
+  passportFieldsJa?: PassportFieldDef[]
+  passportFieldsEn?: PassportFieldDef[]
+}
+
+export interface PassportFieldDef {
+  key: string
+  label: string
+  hint?: string
 }
 
 const PERSONAS: Record<string, BusinessAiPersona> = {
@@ -150,6 +163,18 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Left shoulder: pain on raising since ~3 months ago, worse after desk work"',
       '(treatment): "Self-care coaching: shoulder-blade circles 10 reps × 2 sets after bathing, no bouncing"',
+    ],
+    passportFieldsJa: [
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態・体への影響（デスクワーク・立ち仕事など）' },
+      { key: 'referral_source', label: '来店きっかけ', hint: '紹介・検索・看板・SNSなど、最初に来店した理由' },
+      { key: 'maintenance_pref', label: 'メンテナンス希望', hint: '本人が話した希望来店ペース（週1・月1など）' },
+      { key: 'chief_concern', label: '主な悩み', hint: '慢性的・繰り返し話題になる悩みや体質（今日だけの症状ではない）' },
+    ],
+    passportFieldsEn: [
+      { key: 'occupation', label: 'Occupation', hint: 'work and how it affects the body (desk work, standing, etc.)' },
+      { key: 'referral_source', label: 'How they found us', hint: 'referral, search, signage, SNS — why they first came' },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want' },
+      { key: 'chief_concern', label: 'Chief concern', hint: 'chronic, recurring concerns — not just today\'s symptom' },
     ],
   },
   acupuncture: {
@@ -409,6 +434,34 @@ const GENERIC_SUMMARY_LABELS_EN: SummaryLabel[] = [
   { label: 'Next', def: 'booking date/time, or "no booking". Then, ONLY what the conversation supports: things to check next time / promises staff made / deferred proposals / renewal intent / ticket balance / recommended cadence. Split lines when rich' },
   { label: 'Note', def: 'important facts that fit no label above (only when present — otherwise omit this line entirely)' },
 ]
+
+const GENERIC_PASSPORT_FIELDS_JA: PassportFieldDef[] = [
+  { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態' },
+  { key: 'referral_source', label: '来店きっかけ', hint: '紹介・検索・SNSなど、最初に来た理由' },
+  { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望ペース' },
+  { key: 'chief_concern', label: '主な要望', hint: '継続的・繰り返し出てくる要望や悩み' },
+]
+
+const GENERIC_PASSPORT_FIELDS_EN: PassportFieldDef[] = [
+  { key: 'occupation', label: 'Occupation', hint: 'work and routine' },
+  { key: 'referral_source', label: 'How they found us', hint: 'referral, search, SNS — why they first came' },
+  { key: 'maintenance_pref', label: 'Visit cadence preference', hint: 'the cadence they said they want' },
+  { key: 'chief_concern', label: 'Main request', hint: 'recurring requests or concerns' },
+]
+
+/** Passport field definitions for a business type + locale (generic fallback
+ *  for unauthored types — real definitions, never empty slots). */
+export function resolvePassportFields(
+  businessType: string | null | undefined,
+  locale: string,
+): PassportFieldDef[] {
+  const persona = getBusinessAiPersona(businessType)
+  const ja = locale === 'ja'
+  return (
+    (ja ? persona.passportFieldsJa : persona.passportFieldsEn) ??
+    (ja ? GENERIC_PASSPORT_FIELDS_JA : GENERIC_PASSPORT_FIELDS_EN)
+  )
+}
 
 export interface CaptureTokens {
   checklist: string[]

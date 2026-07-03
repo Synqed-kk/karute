@@ -64,6 +64,7 @@ import {
   toggleMemoryPinAction,
   updateMemoryItemAction,
   relearnCustomerMemoryAction,
+  upsertPassportFieldAction,
 } from '@/actions/memory'
 import {
   EMPTY_MEMORY,
@@ -289,7 +290,7 @@ export function CustomerMemoryCard({
          *  day-one. ANTHONY: these fields come from the intake form
          *  (a future flow — see docs/SPIKE_ROADMAP.md). For now they
          *  fall back to whatever's stored on `memory.intake`. */}
-        <IntakeBlock intake={memory.intake} />
+        <IntakeBlock intake={memory.intake} customerId={memory.customerId} />
 
         {/* Talking points block — ALWAYS renders. When AI hasn't
          *  extracted any points yet, shows an inline placeholder
@@ -553,11 +554,33 @@ function MemoryTrustBadge({
 // ─────────────────────────────────────────────────────────────
 function IntakeBlock({
   intake,
+  customerId,
 }: {
   intake: CustomerIntake | null
+  customerId: string
 }) {
   const t = useTranslations('karute.memorySection.intakeFields')
   const tCard = useTranslations('karute.memorySection')
+
+  // Token-driven passport (2026-07-03): business-type field list, grounded
+  // values with tap-to-see-the-quote, inline staff edit (human overrides are
+  // locked truth). Falls back to the legacy fixed grid for pre-passport data.
+  if (intake?.fields?.length) {
+    return (
+      <div className="mt-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+        <div className="grid grid-cols-1 gap-1.5 text-[11px]">
+          <IntakeField label={t('firstVisit')} value={intake.firstVisitAt} />
+          {intake.fields.map((f) => (
+            <PassportFieldRow key={f.key} field={f} customerId={customerId} />
+          ))}
+        </div>
+        <p className="mt-2 text-[10px] italic text-muted-foreground/70">
+          {tCard('passportHint')}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-2 rounded-lg border border-border/40 bg-muted/20 p-3">
       <div className="grid grid-cols-1 gap-1.5 text-[11px] sm:grid-cols-2">
@@ -569,6 +592,110 @@ function IntakeBlock({
       {!intake && (
         <p className="mt-2 text-[10px] italic text-muted-foreground/70">
           {tCard('intakeEmpty')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// One passport row: label / value (or honest dash) / quote toggle when the AI
+// grounded it / inline pencil edit writing a staff override (locked truth).
+function PassportFieldRow({
+  field,
+  customerId,
+}: {
+  field: NonNullable<CustomerIntake['fields']>[number]
+  customerId: string
+}) {
+  const t = useTranslations('karute.memorySection')
+  const router = useRouter()
+  const [showQuote, setShowQuote] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(field.value ?? '')
+  const [pending, startTransition] = useTransition()
+
+  const save = () => {
+    const value = draft.trim()
+    if (!value) {
+      setEditing(false)
+      return
+    }
+    startTransition(async () => {
+      const res = await upsertPassportFieldAction({
+        customerId,
+        fieldKey: field.key,
+        value,
+      })
+      setEditing(false)
+      if (res.ok) router.refresh()
+      else toast.error(t('passportSaveFailed'))
+    })
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="shrink-0 text-muted-foreground">{field.label}</span>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={60}
+          autoFocus
+          className="min-w-0 flex-1 rounded border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending}
+          className="shrink-0 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background disabled:opacity-50"
+        >
+          {pending ? '…' : t('passportSave')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="shrink-0 text-[10px] text-muted-foreground"
+        >
+          {t('passportCancel')}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        <span className="shrink-0 text-muted-foreground">{field.label}</span>
+        {field.value ? (
+          <button
+            type="button"
+            onClick={() => field.quote && setShowQuote((v) => !v)}
+            className={`min-w-0 truncate text-left text-foreground/90 ${field.quote ? 'underline decoration-dotted underline-offset-2' : ''}`}
+            title={field.quote ? t('passportQuoteHint') : undefined}
+          >
+            {field.value}
+          </button>
+        ) : (
+          <span className="text-muted-foreground/60">—</span>
+        )}
+        {field.source === 'staff' && (
+          <Pin className="size-2.5 shrink-0 text-amber-500" aria-hidden />
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(field.value ?? '')
+            setEditing(true)
+          }}
+          aria-label={t('passportEdit', { field: field.label })}
+          className="ml-auto shrink-0 text-muted-foreground/60 transition-colors hover:text-foreground"
+        >
+          <Pencil className="size-3" aria-hidden />
+        </button>
+      </div>
+      {showQuote && field.quote && (
+        <p className="mt-0.5 pl-1 text-[10px] text-muted-foreground">
+          「{field.quote}」
         </p>
       )}
     </div>
