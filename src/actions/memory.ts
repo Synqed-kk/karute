@@ -12,6 +12,7 @@ import { getLocale } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import {
   addStaffMemoryItem,
+  restoreMemoryItems,
   setMemoryItemPinned,
   softDeleteAiExtractionItems,
   softDeleteMemoryItem,
@@ -123,6 +124,14 @@ export async function relearnCustomerMemoryAction(
       backfillMemoryFromTranscripts({ customerId, businessId, transcripts, locale }),
       getCustomer(customerId).catch(() => null),
     ])
+    // Wipe→backfill isn't atomic. backfill is best-effort ([] on any internal
+    // failure), so an empty result after a non-empty wipe means the re-learn
+    // FAILED — restore the wiped items instead of leaving the memory empty.
+    // (Checked BEFORE the passport spends tokens on a failed run.)
+    if (items.length === 0 && wiped.ids.length > 0) {
+      await restoreMemoryItems(wiped.ids)
+      return { ok: false, items: 0 }
+    }
     const { memoContent } = await import('@/lib/sync/qr-notes')
     await generateCustomerPassport({
       customerId,
