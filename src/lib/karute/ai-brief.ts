@@ -45,6 +45,28 @@ const AiBriefSchema = z.object({
     .string()
     .nullable()
     .describe('1-2 sentences: today’s focus, grounded in the concern trajectory + memo, in the business vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.'),
+  opener: z
+    .string()
+    .nullable()
+    .describe(
+      "ONE natural spoken first line for the staff to open with — built from the durable-memory personal/talking-point items or the newest personal event in the records (e.g. 「パグちゃん、その後どうですか？」). Warm, short, a question. Null when there is no real personal material — NEVER invent or force one.",
+    ),
+  lastWords: z
+    .string()
+    .nullable()
+    .describe(
+      "The customer's OWN memorable words from the LATEST session, ONLY if the latest summary/entries carry a verbatim quote in 『』 (e.g. 『人生で一番効いてる』). Copy it exactly, with the 『』. Null otherwise — never paraphrase into a fake quote.",
+    ),
+  cautions: z
+    .array(z.string())
+    .describe(
+      'Safety/service cautions the staff must know BEFORE touching the customer, stated in the records: injury/surgery history, implanted metal, medication, allergies, pressure cautions (spots that hurt/rang), treatment anxiety. Max 3, most critical first, compact (≤40 chars each). Empty when the records state none — never infer.',
+    ),
+  todayActions: z
+    .array(z.string())
+    .describe(
+      "2-3 imperative actions for TODAY, each ≤30 chars. FIRST action = the re-entry item when the latest 次回 line carries homework/a promise (e.g. 「宿題のハムストレッチの実施状況を確認」). Then today's focus, then a pressure/pace caution if the records support one. Grounded only; empty if the records give nothing actionable.",
+    ),
 })
 
 type AiBrief = z.infer<typeof AiBriefSchema>
@@ -89,6 +111,33 @@ function formatMemory(items: MemoryItem[]): string {
         `[${m.category}${m.suggestTalkingPoint ? '/talking-point' : ''}] ${m.label}${m.detail ? ` — ${m.detail}` : ''}`,
     )
     .join('\n')
+}
+
+/** Visit rhythm — pure date math (no AI): days since the last session and the
+ *  customer's usual gap (median of consecutive-session gaps; needs ≥3 dated
+ *  sessions for a meaningful median, else null). Lets the card show
+ *  「3日ぶり・通常週1より早め」 so staff sense an unusual visit before a word
+ *  is spoken. */
+function computeRhythm(
+  records: KaruteRecord[],
+  now: Date,
+): { daysSince: number; usualGapDays: number | null } | null {
+  const dates = records
+    .map((r) => new Date(r.created_at).getTime())
+    .filter((t) => Number.isFinite(t))
+    .sort((a, b) => b - a)
+  if (dates.length === 0) return null
+  const daysSince = Math.max(0, Math.round((now.getTime() - dates[0]) / 86_400_000))
+  let usualGapDays: number | null = null
+  if (dates.length >= 3) {
+    const gaps = dates
+      .slice(0, -1)
+      .map((t, i) => Math.round((t - dates[i + 1]) / 86_400_000))
+      .filter((g) => g >= 0)
+      .sort((a, b) => a - b)
+    if (gaps.length > 0) usualGapDays = gaps[Math.floor(gaps.length / 2)]
+  }
+  return { daysSince, usualGapDays }
 }
 
 export interface PreSessionBriefResult extends PreSessionBrief {
@@ -148,12 +197,13 @@ export async function getAiPreSessionBrief(params: {
 
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
-      // invalidated immediately instead of serving the old wording. v6: re-entry
+      // invalidated immediately instead of serving the old wording. v7: 30-second
+      // brief fields (opener/lastWords/cautions/todayActions). v6: re-entry
       // ledger (surface last session's promises/homework first). v5: purge
       // briefs poisoned by the QR-sync customer mis-link (a corrected
       // appointment.customer_id must not keep serving a fused brief built from
       // another customer's reservation memo).
-      v: 6,
+      v: 7,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -174,6 +224,11 @@ export async function getAiPreSessionBrief(params: {
       concerns: ai.concerns ?? [],
       lastProduct: ai.lastProduct ?? null,
       recommendedFocus: ai.recommendedFocus ?? null,
+      opener: ai.opener ?? null,
+      lastWords: ai.lastWords ?? null,
+      cautions: ai.cautions ?? [],
+      todayActions: ai.todayActions ?? [],
+      rhythm: computeRhythm(records, now),
     }
 
     async function generate(): Promise<AiBrief> {
@@ -191,6 +246,10 @@ Rules:
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
 - RE-ENTRY (highest value): the most recent session's summary may carry a 次回 line — homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. When present, these MUST surface: put the single most important one as the FIRST concerns item, phrased as an action (e.g. 「前回の宿題：ハムのストレッチ — 実施状況を確認」「前回の約束：腰を重点的に」), and open recommendedFocus by honoring it. A promise the staff forgets is trust lost; one they keep is the "this place remembers me" moment. Only what the records actually say — never invent.
+- opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. Null when no genuine material exists — a forced opener is worse than none.
+- lastWords: ONLY a verbatim 『』-quoted customer line already present in the latest session's summary/entries, copied exactly. Never manufacture a quote.
+- cautions: what staff must know BEFORE touching the customer, from the records: 既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所や圧の注意・施術への不安. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
+- todayActions: 2-3 imperative actions (≤30 chars each) the staff executes today. FIRST = the re-entry item (homework/promise from the latest 次回 line) when present; then today's focus; then a pressure/pace adjustment if grounded. These are the skim-layer — recommendedFocus stays the fuller sentence version.
 - concerns: the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
     • CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say "姿勢由来の首・肩・腰の張り" not four rows). DROP vague catch-alls (体全体の不調).
@@ -236,6 +295,10 @@ ${defensivePreamble(locale)}`
         concerns: [],
         lastProduct: null,
         recommendedFocus: null,
+        opener: null,
+        lastWords: null,
+        cautions: [],
+        todayActions: [],
       }
       await setCachedAI('presession_brief', cacheInput, result, 1).catch(() => {})
       return result

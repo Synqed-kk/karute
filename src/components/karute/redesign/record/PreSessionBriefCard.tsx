@@ -39,8 +39,20 @@
 //   karute list. ANTHONY: enforce the cross-staff visibility check
 //   server-side when wiring the real `pre_session_briefs` read.
 
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Clock, Gift, PawPrint, Quote, Sparkles, Target, Wand2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  ChevronDown,
+  Clock,
+  Gift,
+  MessageCircle,
+  PawPrint,
+  Quote,
+  Sparkles,
+  Target,
+  Wand2,
+} from 'lucide-react'
 
 export interface PreSessionBrief {
   /** True = first-ever visit for this customer → render the warm-
@@ -68,6 +80,19 @@ export interface PreSessionBrief {
    *  (期待), tone (トーン), points to watch (注意点). Rendered under the verbatim
    *  memo. Empty/undefined when there's no memo or no AI analysis. */
   memoAnalysis?: string[]
+  // ── 30-second layer (2026-07-03 redesign) — all optional so the mechanical
+  // fallback + pre-v7 cached briefs render the classic layout unchanged. ──
+  /** ONE spoken first line to open with (from durable personal memory).
+   *  Null/absent = no genuine material; the AI never forces one. */
+  opener?: string | null
+  /** The customer's own 『』-quoted words from the latest session, verbatim. */
+  lastWords?: string | null
+  /** Must-know-before-touching cautions (history, metal, meds, pressure). */
+  cautions?: string[]
+  /** 2-3 imperative actions for today; first = homework/promise re-entry. */
+  todayActions?: string[]
+  /** Pure date math — days since last visit + the usual gap (median). */
+  rhythm?: { daysSince: number; usualGapDays: number | null } | null
 }
 
 interface PreSessionBriefCardProps {
@@ -97,11 +122,30 @@ export function PreSessionBriefCard({
   customerName,
 }: PreSessionBriefCardProps) {
   const t = useTranslations('recording.brief')
+  const [detailOpen, setDetailOpen] = useState(false)
   // Always render — when `brief` is null we fall back to the
   // scaffolding shell above so staff sees every AI-capability hint.
   const isScaffoldOnly = !brief
   const effectiveBrief = brief ?? EMPTY_BRIEF_SCAFFOLD
   const hasMemoAnalysis = (effectiveBrief.memoAnalysis?.length ?? 0) > 0
+  // 30-second layer (v7 AI briefs). When ANY of it exists the card leads with
+  // opener → cautions → today's actions and folds the classic recap sections
+  // into a 詳しい経過 toggle. Pre-v7 caches / the mechanical fallback have none
+  // of these fields → classic layout renders exactly as before.
+  const hasOpener = !!(effectiveBrief.opener || effectiveBrief.lastWords)
+  const cautions = effectiveBrief.cautions ?? []
+  const todayActions = effectiveBrief.todayActions ?? []
+  const hasThirtySecondLayer = hasOpener || cautions.length > 0 || todayActions.length > 0
+  const rhythm = effectiveBrief.rhythm ?? null
+  const rhythmLabel = rhythm
+    ? rhythm.usualGapDays && rhythm.usualGapDays > 0
+      ? rhythm.daysSince <= rhythm.usualGapDays * 0.6
+        ? t('rhythmEarly', { days: rhythm.daysSince })
+        : rhythm.daysSince >= rhythm.usualGapDays * 1.7
+          ? t('rhythmLate', { days: rhythm.daysSince })
+          : null
+      : null
+    : null
 
   // FIRST-VISIT FRAMING — gradient blue card with warm intro copy.
   // Matches the spike's first-visit branch (no recap sections; just
@@ -171,6 +215,14 @@ export function PreSessionBriefCard({
             </div>
           )}
         </div>
+        {/* Rhythm badge — pure date math; only shown when today's gap clearly
+         *  deviates from the customer's usual cadence (an early return or a
+         *  long absence is signal BEFORE the customer says a word). */}
+        {rhythmLabel && (
+          <span className="shrink-0 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-300">
+            {rhythmLabel}
+          </span>
+        )}
       </header>
 
       {/* Reservation memo — surface FIRST when present (it's literal
@@ -199,6 +251,91 @@ export function PreSessionBriefCard({
         />
       ) : null}
 
+      {/* ① 会話の第一声 — the opener + the customer's own words from last
+       *  time. THE first thing staff read: how to start the conversation. */}
+      {hasOpener && (
+        <div className="mb-3 rounded-lg border border-blue-200/70 bg-card/70 p-3 dark:border-blue-500/20">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-blue-700 dark:text-blue-300">
+            <MessageCircle className="size-3" aria-hidden />
+            {t('opener')}
+          </div>
+          {effectiveBrief.opener && (
+            <p className="text-[14px] font-medium leading-relaxed text-foreground/95">
+              {effectiveBrief.opener}
+            </p>
+          )}
+          {effectiveBrief.lastWords && (
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+              {t('lastWords')}：{effectiveBrief.lastWords}
+            </p>
+          )}
+        </div>
+      )}
+
+      {/* ② 注意 — must-know-before-touching. Amber, always visible when the
+       *  records carry safety/service cautions. */}
+      {cautions.length > 0 && (
+        <div className="mb-3 rounded-lg bg-amber-50/80 p-3 ring-1 ring-amber-300/60 dark:bg-amber-500/[0.1] dark:ring-amber-500/30">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="size-3" aria-hidden />
+            {t('cautions')}
+          </div>
+          <ul className="space-y-1">
+            {cautions.map((c, i) => (
+              <li
+                key={i}
+                className="flex gap-2 text-[13px] leading-relaxed text-amber-900 dark:text-amber-100/90"
+              >
+                <span className="mt-0.5 shrink-0">•</span>
+                <span>{c}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ③ 今日やること — 2-3 numbered actions; the skim replaces the prose. */}
+      {todayActions.length > 0 && (
+        <div className="mb-3 rounded-lg border border-blue-100/80 bg-card/70 p-3 dark:border-blue-500/15">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <Target className="size-3" aria-hidden />
+            {t('today')}
+          </div>
+          <ol className="space-y-1">
+            {todayActions.map((a, i) => (
+              <li
+                key={i}
+                className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
+              >
+                <span className="shrink-0 font-semibold tabular-nums text-blue-500">
+                  {i + 1}.
+                </span>
+                <span>{a}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
+      {/* Detail toggle — the classic recap sections (hooks/concerns/product/
+       *  focus) fold away when the 30-second layer is present. Without it
+       *  (mechanical fallback, pre-v7 caches) they render as before. */}
+      {hasThirtySecondLayer && (
+        <button
+          type="button"
+          onClick={() => setDetailOpen((v) => !v)}
+          className="mb-2 flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ChevronDown
+            className={`size-3.5 transition-transform ${detailOpen ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+          {detailOpen ? t('detailHide') : t('detailShow')}
+        </button>
+      )}
+
+      {(!hasThirtySecondLayer || detailOpen) && (
+      <div>
       {/* Conversation hooks — most actionable, surface near top */}
       {effectiveBrief.hooks.length > 0 ? (
         <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
@@ -296,6 +433,8 @@ export function PreSessionBriefCard({
           <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
         </BriefSection>
       ) : null}
+      </div>
+      )}
     </section>
   )
 }
