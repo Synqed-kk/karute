@@ -316,7 +316,12 @@
       "confidence": "信頼度",
       "vsLast": "前回比",
       "recommended": "次回推奨",
-      "rationale": "AI判断根拠"
+      "rationale": "AI判断根拠",
+      "delta": {
+        "improving": "改善傾向",
+        "worsening": "悪化傾向",
+        "stable": "横ばい"
+      }
     },
     "suggestedMessage": {
       "title": "AI提案メッセージ",

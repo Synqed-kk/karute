@@ -316,7 +316,12 @@
       "confidence": "Confidence",
       "vsLast": "vs last",
       "recommended": "Recommended",
-      "rationale": "AI rationale"
+      "rationale": "AI rationale",
+      "delta": {
+        "improving": "Improving",
+        "worsening": "Worsening",
+        "stable": "Stable"
+      }
     },
     "suggestedMessage": {
       "title": "AI SUGGESTED MESSAGE",
