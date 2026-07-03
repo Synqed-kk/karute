@@ -333,7 +333,9 @@
         "condition": "部位",
         "lifestyle": "ライフスタイル",
         "product": "製品",
-        "next": "次回"
+        "next": "次回",
+        "preference": "好み",
+        "note": "メモ"
       }
     },
     "regenerate": {
