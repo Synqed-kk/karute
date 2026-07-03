@@ -14,6 +14,11 @@ interface RegenerateEntriesButtonProps {
   karuteRecordId: string
   /** The record's stored transcript — re-extraction runs on this. */
   transcript: string
+  /** Prompt anchors (v3.1): the customer's name (rejects other customers'
+   *  names from in-session phone calls) and the session date (anchors 来週-style
+   *  relative dates). Optional — the prompts degrade gracefully without them. */
+  customerName?: string | null
+  sessionDate?: string | null
 }
 
 /**
@@ -24,6 +29,8 @@ interface RegenerateEntriesButtonProps {
 export function RegenerateEntriesButton({
   karuteRecordId,
   transcript,
+  customerName,
+  sessionDate,
 }: RegenerateEntriesButtonProps) {
   const t = useTranslations('karuteDetail.regenerate')
   const locale = useLocale()
@@ -48,12 +55,22 @@ export function RegenerateEntriesButton({
         fetch('/api/ai/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript, locale }),
+          body: JSON.stringify({
+            transcript,
+            locale,
+            customerName: customerName ?? null,
+            sessionDate: sessionDate ?? null,
+          }),
         }),
         fetch('/api/ai/summarize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript, locale }),
+          body: JSON.stringify({
+            transcript,
+            locale,
+            customerName: customerName ?? null,
+            sessionDate: sessionDate ?? null,
+          }),
         }),
       ])
 

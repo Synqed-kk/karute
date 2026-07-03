@@ -36,6 +36,8 @@ export interface KaruteDetailViewProps {
   customerId: string | null
   header: Omit<CustomerHeaderProps, 'onEdit'>
   sessionDateLong: string
+  /** Raw session date (YYYY-MM-DD) — prompt anchor for AIで再生成. */
+  sessionDateIso?: string | null
   entries: SessionEntry[]
   summaryBullets: string[]
   transcript: string | null
@@ -58,6 +60,7 @@ export function KaruteDetailView({
   customerId,
   header,
   sessionDateLong,
+  sessionDateIso,
   entries,
   summaryBullets,
   transcript,
@@ -124,6 +127,8 @@ export function KaruteDetailView({
                 <RegenerateEntriesButton
                   karuteRecordId={karuteId}
                   transcript={transcript}
+                  customerName={header.customerName}
+                  sessionDate={sessionDateIso}
                 />
               ) : null
             }

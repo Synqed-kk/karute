@@ -169,10 +169,15 @@ export function karuteRecordsToSessionItems(
 
     const conversionStatus: SessionHistoryConversion = 'active'
 
+    // v3.1 summaries are newline-delimited labeled bullets (・ラベル：内容) with no
+    // sentence periods — split on lines (stripping bullet markers) like
+    // karuteSummaryToBullets, falling back to sentence-split for legacy prose.
     const takeaways = record.summary
-      ? record.summary
-          .split(/[.。]\s*/)
-          .map((s) => s.trim())
+      ? (/\r?\n/.test(record.summary)
+          ? record.summary.split(/\r?\n+/)
+          : record.summary.split(/[.。]\s*/)
+        )
+          .map((s) => s.replace(/^[\s・*•▪◦\-–—]+/, '').trim())
           .filter(Boolean)
           .slice(0, 3)
       : []

@@ -141,6 +141,10 @@ export default async function KaruteDetailPage({
         lastVisitDate: headerExtras.lastVisitDate,
       }}
       sessionDateLong={header.sessionDateLong}
+      sessionDateIso={
+        ((karute as unknown as { session_date?: string | null }).session_date ??
+          (karute as unknown as { created_at?: string | null }).created_at)?.slice(0, 10) ?? null
+      }
       entries={sessionEntries}
       summaryBullets={summaryBullets}
       transcript={visibleTranscript}
