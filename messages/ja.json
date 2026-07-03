@@ -1034,7 +1034,9 @@
       "unpinned": "ピン留めを解除しました",
       "relearnConfirm": "タップで再学習を実行",
       "relearnConfirmTooltip": "AIが抽出した項目を作り直します。ピン留め・スタッフ追加・編集済みの項目はそのまま残ります。",
-      "relearnRunning": "再学習中…"
+      "relearnRunning": "再学習中…",
+      "relearnFailed": "再学習できませんでした（録音の文字起こしが見つからないか、エラーが発生しました）",
+      "relearnDone": "再学習が完了しました（{n}件）"
     },
     "tabHeading": "カルテ",
     "recordList": {
