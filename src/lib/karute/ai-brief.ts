@@ -123,8 +123,11 @@ function computeRhythm(
   now: Date,
 ): { daysSince: number; usualGapDays: number | null } | null {
   const dates = records
+    // Guard falsy created_at BEFORE Date(): new Date(null) is the 1970 epoch,
+    // which passes isFinite and would blow up daysSince / the gap median.
+    .filter((r) => !!r.created_at)
     .map((r) => new Date(r.created_at).getTime())
-    .filter((t) => Number.isFinite(t))
+    .filter((t) => Number.isFinite(t) && t > 0)
     .sort((a, b) => b - a)
   if (dates.length === 0) return null
   const daysSince = Math.max(0, Math.round((now.getTime() - dates[0]) / 86_400_000))
@@ -226,8 +229,11 @@ export async function getAiPreSessionBrief(params: {
       recommendedFocus: ai.recommendedFocus ?? null,
       opener: ai.opener ?? null,
       lastWords: ai.lastWords ?? null,
-      cautions: ai.cautions ?? [],
-      todayActions: ai.todayActions ?? [],
+      // Bounds live in the .describe() strings the model reads — enforce them
+      // here too so an over-eager generation can't flood the card (clamp, not
+      // zod .max: a hard schema max would reject the whole parse).
+      cautions: (ai.cautions ?? []).slice(0, 3),
+      todayActions: (ai.todayActions ?? []).slice(0, 3),
       rhythm: computeRhythm(records, now),
     }
 
