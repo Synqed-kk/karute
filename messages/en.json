@@ -1036,7 +1036,13 @@
       "relearnConfirmTooltip": "Rebuilds the AI-extracted items. Pinned, staff-added, and staff-edited items are kept.",
       "relearnRunning": "Re-learning…",
       "relearnFailed": "Re-learn failed (no transcripts found, or an error occurred)",
-      "relearnDone": "Re-learned {n} items"
+      "relearnDone": "Re-learned {n} items",
+      "passportHint": "Dotted values: tap to see the source quote. Pencil to correct — corrections are never overwritten by AI.",
+      "passportQuoteHint": "Tap to see the source quote",
+      "passportEdit": "Edit {field}",
+      "passportSave": "Save",
+      "passportCancel": "Cancel",
+      "passportSaveFailed": "Could not save"
     },
     "tabHeading": "Karute",
     "recordList": {

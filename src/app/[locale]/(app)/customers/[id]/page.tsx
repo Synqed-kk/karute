@@ -11,6 +11,9 @@ import { listCustomerPhotos } from '@/actions/customers'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import { buildCustomerMemory } from '@/lib/karute/memory-adapter'
+import { getCachedPassport } from '@/lib/karute/ai-passport'
+import { resolvePassportFields } from '@/lib/karute/business-ai-tokens'
+import { getOrgSettings } from '@/actions/org-settings'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
@@ -140,7 +143,31 @@ export default async function CustomerProfilePage({
       }
     }
   }
-  const customerMemory = buildCustomerMemory(memoryItems, id)
+  // Passport (これまで box): pure cache read — generation happens only inside
+  // 再学習, so an LLM call can never block this page. Field labels come from
+  // the business tokens; staff-override rows merge in buildCustomerMemory.
+  const [aiPassport, orgSettingsForPassport] = await Promise.all([
+    getCachedPassport(id),
+    getOrgSettings().catch(() => null),
+  ])
+  const passportFieldDefs = resolvePassportFields(
+    orgSettingsForPassport?.business_type,
+    locale,
+  )
+  // 初回来店 is mechanical truth — earliest recorded session, else the
+  // customer's registration date. Never asked of the AI.
+  const firstVisitAt =
+    synqedKaruteRows
+      .map((r) => r.session_date ?? r.created_at)
+      .filter((d): d is string => !!d)
+      .sort()[0] ??
+    customer.created_at ??
+    null
+  const customerMemory = buildCustomerMemory(memoryItems, id, {
+    fieldDefs: passportFieldDefs,
+    ai: aiPassport,
+    firstVisitAt: firstVisitAt ? firstVisitAt.slice(0, 10) : null,
+  })
 
   // 回数券 + lifecycle (卒業/離客/口コミ) — best-effort: empty card / no chips
   // until the ticket_packs migration is applied (store degrades gracefully).
@@ -280,7 +307,7 @@ export default async function CustomerProfilePage({
     visitPace,
     visitPaceLastVisitDate,
     visitPaceLastService: enr?.lastVisitService ?? null,
-    memoryCount: memoryItems.length,
+    memoryCount: customerMemory.items.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,
   }

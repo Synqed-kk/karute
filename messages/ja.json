@@ -1036,7 +1036,13 @@
       "relearnConfirmTooltip": "AIが抽出した項目を作り直します。ピン留め・スタッフ追加・編集済みの項目はそのまま残ります。",
       "relearnRunning": "再学習中…",
       "relearnFailed": "再学習できませんでした（録音の文字起こしが見つからないか、エラーが発生しました）",
-      "relearnDone": "再学習が完了しました（{n}件）"
+      "relearnDone": "再学習が完了しました（{n}件）",
+      "passportHint": "点線の値はタップで根拠の発言を表示。鉛筆で修正でき、修正した値はAIが上書きしません。",
+      "passportQuoteHint": "タップで根拠の発言を表示",
+      "passportEdit": "{field}を編集",
+      "passportSave": "保存",
+      "passportCancel": "キャンセル",
+      "passportSaveFailed": "保存できませんでした"
     },
     "tabHeading": "カルテ",
     "recordList": {
