@@ -53,6 +53,12 @@ import {
   Target,
   Wand2,
 } from 'lucide-react'
+import { parseQrMemo, QR_MEMO_LABELS } from '@/lib/sync/qr-notes'
+
+// Approximate width at which the free-text 備考(参考) value overflows the 2-line
+// clamp (~40 chars/line at this size). Below it, the value fits and the
+// すべて表示 toggle is suppressed so staff never see a control that does nothing.
+const NOTES_CLAMP_MIN_CHARS = 80
 
 export interface PreSessionBrief {
   /** True = first-ever visit for this customer → render the warm-
@@ -515,6 +521,14 @@ function BriefSection({
 // Rendered verbatim (not AI-rewritten) so staff sees EXACTLY what the
 // customer chose to say. Amber tint distinguishes it from AI-synthesized
 // sections.
+//
+// When the memo carries QuickReserve's ▶key:value structure it's rendered as
+// skimmable labeled rows (same parse as the カルテ customer tab, via parseQrMemo)
+// so staff can scan 症状 / ゴール / セルフ / 回数 at a glance before the session.
+// Two briefing-only differences from the customer tab: empty-value keys are
+// OMITTED (a bare "quick:" would just be noise here), and the long free-text
+// 備考(参考) row collapses to a 2-line clamp with a すべて表示 / 閉じる toggle.
+// A memo with no ▶ structure falls back to the verbatim single-paragraph render.
 function MemoBlock({
   memo,
   label,
@@ -524,6 +538,15 @@ function MemoBlock({
   label: string
   className?: string
 }) {
+  const t = useTranslations('recording.brief')
+  const [memoExpanded, setMemoExpanded] = useState(false)
+  // Drop empty-value segments (e.g. "▶quick:" with nothing after it) — in the
+  // customer tab those render as "—", but in the pre-session skim they're noise.
+  const rows = parseQrMemo(memo)?.filter((r) => r.value) ?? null
+  // The free-text 備考(参考) row is the one long value staff shouldn't have to
+  // scroll past; clamp it to 2 lines behind a toggle. Everything else is short.
+  const notesLabel = QR_MEMO_LABELS['参考']
+
   return (
     <div
       className={`rounded-lg bg-amber-50/70 p-3 ring-1 ring-amber-200/70 dark:bg-amber-500/[0.08] dark:ring-amber-500/20 ${className ?? ''}`}
@@ -532,9 +555,52 @@ function MemoBlock({
         <Quote className="size-3" aria-hidden />
         {label}
       </div>
-      <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
-        {memo}
-      </p>
+      {rows && rows.length > 0 ? (
+        <dl className="space-y-1.5">
+          {rows.map((r, i) => {
+            // Only the 備考(参考) row clamps, and only when it's actually long
+            // enough for a 2-line clamp to bite — CSS line-clamp can't report
+            // overflow to React, so approximate with length/newlines. A one-line
+            // 備考 renders plain, without a toggle that would do nothing.
+            const clampable =
+              r.label === notesLabel &&
+              (r.value.length >= NOTES_CLAMP_MIN_CHARS || r.value.includes('\n'))
+            return (
+              <div
+                key={i}
+                className="grid grid-cols-[4.5rem_1fr] gap-2.5 text-[13px] leading-relaxed"
+              >
+                <dt className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-amber-800/80 dark:text-amber-300/80">
+                  {r.label || '—'}
+                </dt>
+                <dd className="min-w-0 text-foreground/90">
+                  <p
+                    className={`whitespace-pre-wrap ${
+                      clampable && !memoExpanded ? 'line-clamp-2' : ''
+                    }`}
+                  >
+                    {r.value}
+                  </p>
+                  {clampable && (
+                    <button
+                      type="button"
+                      aria-expanded={memoExpanded}
+                      onClick={() => setMemoExpanded((v) => !v)}
+                      className="mt-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200"
+                    >
+                      {memoExpanded ? t('memoCollapse') : t('memoShowAll')}
+                    </button>
+                  )}
+                </dd>
+              </div>
+            )
+          })}
+        </dl>
+      ) : (
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
+          {memo}
+        </p>
+      )}
     </div>
   )
 }
@@ -567,7 +633,9 @@ function MemoAnalysisBlock({
               className="flex gap-1.5 text-[12px] leading-relaxed text-foreground/85"
             >
               <span className="mt-0.5 shrink-0 text-blue-400">•</span>
-              <span>{p}</span>
+              {/* The model occasionally emits a stray leading colon (":猫背改善中→…").
+               *  Strip it at render — a lone bullet+colon reads as broken. */}
+              <span>{p.replace(/^[:：]\s*/, '')}</span>
             </li>
           ))}
         </ul>
