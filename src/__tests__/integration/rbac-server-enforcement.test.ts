@@ -228,6 +228,12 @@ describe('RBAC — records.write actions', () => {
     expect(karuteRecords.deleteEntry).not.toHaveBeenCalled()
   })
 
+  it('deleteEntry with records.write removes the entry', async () => {
+    const result = await deleteEntry('entry-1', 'k-1')
+    expect(result).toEqual({})
+    expect(karuteRecords.deleteEntry).toHaveBeenCalledWith('k-1', 'entry-1')
+  })
+
   it('regenerateKaruteEntries requires records.write; denial returns { error } and does not mutate', async () => {
     deny('records.write')
     const result = await regenerateKaruteEntries('k-1', [
