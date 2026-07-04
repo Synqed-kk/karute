@@ -13,43 +13,11 @@
 // retire (or become the raw-source toggle).
 
 import { ClipboardList } from 'lucide-react'
-import { stripQrPrefix } from '@/lib/sync/qr-notes'
-
-// QR memo keys → display labels. Unknown keys fall back to the raw key.
-const LABELS: Record<string, string> = {
-  回数: '回数券',
-  症状: '症状・お悩み',
-  既往: '既往歴',
-  ゴール: 'ゴール',
-  セルフ: 'セルフケア',
-  参考: '備考',
-}
-
-interface Row {
-  label: string
-  value: string
-}
-
-/** Parse "▶key:value▶key:value" (optionally prefixed "QR #id | "). Returns null
- *  when there's no ▶ structure so the caller can render the raw text instead. */
-function parseMemo(raw: string): Row[] | null {
-  const body = stripQrPrefix(raw)
-  if (!body.includes('▶')) return null
-  return body
-    .split('▶')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((seg) => {
-      const m = seg.match(/^([^:：]+)[:：]\s*([\s\S]*)$/)
-      if (!m) return { label: '', value: seg }
-      const key = m[1].trim()
-      return { label: LABELS[key] ?? key, value: m[2].trim() }
-    })
-}
+import { parseQrMemo } from '@/lib/sync/qr-notes'
 
 export function BookingMemoCard({ memo }: { memo: string | null | undefined }) {
   if (!memo || !memo.trim()) return null
-  const rows = parseMemo(memo)
+  const rows = parseQrMemo(memo)
 
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">

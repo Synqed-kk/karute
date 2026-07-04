@@ -120,3 +120,74 @@ describe('PreSessionBriefCard (30-second layer)', () => {
     expect(screen.queryByText(/rhythm/)).not.toBeInTheDocument()
   })
 })
+
+describe('PreSessionBriefCard — reservation memo rendering', () => {
+  it('renders a ▶-structured memo as labeled rows, omitting empty-value keys', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{
+          ...base,
+          reservationMemo: 'QR #328091 | ▶症状:肩こり▶ゴール:楽になりたい▶quick:',
+        }}
+      />,
+    )
+    // Mapped labels + values are shown as skimmable rows…
+    expect(screen.getByText('症状・お悩み')).toBeInTheDocument()
+    expect(screen.getByText('肩こり')).toBeInTheDocument()
+    expect(screen.getByText('ゴール')).toBeInTheDocument()
+    expect(screen.getByText('楽になりたい')).toBeInTheDocument()
+    // …and the empty-value key ("quick:" with nothing after it) is omitted here.
+    expect(screen.queryByText('quick')).not.toBeInTheDocument()
+    // The raw memo blob is NOT rendered verbatim.
+    expect(screen.queryByText(/▶症状:肩こり▶ゴール/)).not.toBeInTheDocument()
+  })
+
+  it('clamps the long 備考(参考) row behind a すべて表示 / 閉じる toggle', () => {
+    const longNote = 'とても長い自由記述の備考テキストがここに入ります。'.repeat(4)
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{ ...base, reservationMemo: `▶症状:肩こり▶参考:${longNote}` }}
+      />,
+    )
+    // The free-text value is present but clamped (line-clamp-2) until expanded.
+    const value = screen.getByText(longNote)
+    expect(value).toHaveClass('line-clamp-2')
+    // Toggling removes the clamp; label flips show → collapse.
+    fireEvent.click(screen.getByText('memoShowAll'))
+    expect(screen.getByText(longNote)).not.toHaveClass('line-clamp-2')
+    fireEvent.click(screen.getByText('memoCollapse'))
+    expect(screen.getByText(longNote)).toHaveClass('line-clamp-2')
+  })
+
+  it('falls back to the verbatim single-paragraph render when there is no ▶ structure', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{ ...base, reservationMemo: '腰が痛いので優しめでお願いします' }}
+      />,
+    )
+    // No labeled rows — the raw text renders exactly as the customer wrote it.
+    expect(screen.getByText('腰が痛いので優しめでお願いします')).toBeInTheDocument()
+    expect(screen.queryByText('memoShowAll')).not.toBeInTheDocument()
+  })
+
+  it('strips a stray leading colon from AI memo-analysis bullets', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{
+          ...base,
+          reservationMemo: '腰が痛い',
+          memoAnalysis: ['：猫背改善中→反り腰に注意', '通常トーン'],
+        }}
+      />,
+    )
+    // The leading full-width colon is removed at render time…
+    expect(screen.getByText('猫背改善中→反り腰に注意')).toBeInTheDocument()
+    expect(screen.queryByText('：猫背改善中→反り腰に注意')).not.toBeInTheDocument()
+    // …and a colon-free bullet is untouched.
+    expect(screen.getByText('通常トーン')).toBeInTheDocument()
+  })
+})
