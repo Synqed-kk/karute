@@ -782,6 +782,12 @@
       "ageValue": "{age}歳",
       "visitCountSuffix": " 回",
       "staffPrefix": "担当",
+      "bookingMemo": {
+        "edit": "メモを編集",
+        "hint": "▶項目名: の形を保つと整理表示されます。保存後は予約システムからの上書きはありません。",
+        "save": "保存",
+        "cancel": "キャンセル"
+      },
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
