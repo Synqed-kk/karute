@@ -185,6 +185,7 @@
     "grid": {
       "blockOwner": "Not taking bookings (owner)",
       "staffMeta": "{role} · {count} appts",
+      "staffMetaNoRole": "{count} appts",
       "staffColumnLabel": "STAFF"
     },
     "totals": {

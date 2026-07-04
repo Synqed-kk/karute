@@ -53,7 +53,9 @@ export function StaffRow({ staff, staffColorKey, reservations, startHour, ppm, t
           <div className="truncate text-sm font-medium">{staff.name}</div>
           <div className="truncate text-xs text-muted-foreground">
             {staff.takesBookings
-              ? t('grid.staffMeta', { role: staff.role, count: reservations.length })
+              ? // Count only — Liam reviewed the role label live and called it
+                // noise (every row on the grid is a practitioner anyway).
+                t('grid.staffMetaNoRole', { count: reservations.length })
               : staff.role}
           </div>
         </div>
