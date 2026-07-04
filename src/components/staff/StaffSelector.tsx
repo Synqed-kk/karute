@@ -8,7 +8,7 @@
 // 自分/全スタッフ segment stays OUTSIDE this component so both dominant
 // actions remain one-tap.
 
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Check, ChevronDown, Users } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import {
@@ -21,6 +21,17 @@ export interface StaffSelectorEntry {
   id: string
   name: string
   initials: string
+}
+
+// Japanese names are family-name-first, whitespace-separated
+// (原田 かなみ → 原田, 牧之瀬 拓海 → 牧之瀬). The compact chip shows just the
+// family name so the whole filter row fits one line at 440px. Splits on both
+// ASCII and full-width (　) spaces; single-token names (江間, 浜野, Liam, or a
+// space-less full-width name) pass through untouched and lean on the chip's
+// max-width truncation as the backstop.
+function familyName(full: string): string {
+  const first = full.trim().split(/[\s　]+/)[0]
+  return first || full
 }
 
 export function StaffSelector({
@@ -39,6 +50,14 @@ export function StaffSelector({
   const t = useTranslations('staffSelector')
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  // The panel anchors `right-0` by default (opens leftward from the chip's
+  // right edge, matching the StoreSwitcher). If the chip ever wraps to the
+  // left edge of the viewport, right-anchoring pushes the 256px panel
+  // off-screen left. This flag flips it to `left-0` in that case so the menu
+  // is always fully on-screen — a backstop that costs nothing when the chip
+  // sits where it should (on the right of its row).
+  const [alignLeft, setAlignLeft] = useState(false)
   // Stable ids wire the a11y triad: trigger aria-controls → listbox, and the
   // listbox takes its accessible name from the visible header row.
   const listboxId = useId()
@@ -59,6 +78,21 @@ export function StaffSelector({
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
     }
+  }, [open])
+
+  // Clamp the panel on-screen: after it opens (right-anchored), if its left
+  // edge falls off the left of the viewport, flip to left-anchoring. Reset on
+  // close so each open re-measures against the chip's current position.
+  useLayoutEffect(() => {
+    if (!open) {
+      setAlignLeft(false)
+      return
+    }
+    const el = panelRef.current
+    if (!el) return
+    const MARGIN = 8
+    const rect = el.getBoundingClientRect()
+    if (rect.left < MARGIN) setAlignLeft(true)
   }, [open])
 
   // Same DISTINCT color mapping as the card stripes/old pills — a stylist's
@@ -105,9 +139,12 @@ export function StaffSelector({
               {active.initials}
             </span>
             {/* avatar + name only — the 担当: prefix read as clutter once a
-             *  staff is picked (Liam); the unselected state keeps 「担当」. */}
+             *  staff is picked (Liam); the unselected state keeps 「担当」.
+             *  The compact chip (予約 row) shows just the family name so the
+             *  whole filter row stays one line at 440px; a max-width truncate
+             *  is the backstop for extreme space-less single-token names. */}
             <span className={cn('truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
-              {active.name}
+              {compact ? familyName(active.name) : active.name}
             </span>
           </>
         ) : (
@@ -128,20 +165,20 @@ export function StaffSelector({
 
       {open && (
         <div
+          ref={panelRef}
           id={listboxId}
           role="listbox"
           aria-labelledby={labelId}
           // right-0 opens the 256px panel leftward from the chip's right edge
-          // — same as the StoreSwitcher. Safe because the chip sits on the
-          // RIGHT of its filter row (last item after the 自分/全スタッフ
-          // segment), so the panel has room to its left. The old breakage —
-          // a blank panel pinned to the viewport's left edge — happened only
-          // when the chip wrapped alone onto a second row and landed at the
-          // LEFT edge; then right-0 pushed the panel ~174px off-screen left.
-          // That wrap is gone now (the Day/Week/Month toggle no longer shares
-          // this row), so the chip never sits far-left and right-0 stays on
-          // screen at 393px.
-          className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900"
+          // — same as the StoreSwitcher — which is correct when the chip sits
+          // on the RIGHT of its filter row. If the chip ever wraps to the left
+          // edge (narrow phone), right-0 would push the panel off-screen left;
+          // the useLayoutEffect above detects that and flips to left-0 so the
+          // menu is always fully on-screen.
+          className={cn(
+            'absolute top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
+            alignLeft ? 'left-0' : 'right-0',
+          )}
         >
           <div
             id={labelId}

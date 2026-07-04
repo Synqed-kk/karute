@@ -32,14 +32,11 @@ interface Props {
   selfStaffId: string | null
   /** Active filter key from the URL — 'all' | 'self' | <staffId>. */
   selected: string
-  /** Optional content rendered BEFORE the Self/All + 担当 filter group.
-   *  Used by the reservation page for the Day/Week/Month toggle. On desktop
-   *  it sits inline on the same line as the filter group; on mobile it drops
-   *  to its own line ABOVE the group. This keeps the scope segment and the
-   *  担当 chip together on one line at 393px — previously the toggle +
-   *  segment filled the first mobile row and pushed the 担当 chip alone onto
-   *  a wrapped second row (an orphan pill), which also mis-anchored its
-   *  dropdown off-screen. */
+  /** Optional content rendered BEFORE the Self/All segmented toggle in the
+   *  same flex row. Used by the reservation page to place the
+   *  Day/Week/Month toggle compact and inline on the same line as the scope
+   *  toggle and the 担当 chip. The 担当 chip shows only the family name once a
+   *  staff is picked, so the whole row fits on one line at Liam's 440px. */
   prependSlot?: React.ReactNode
 }
 
@@ -68,16 +65,15 @@ export function ReservationStaffFilter({
   if (staffList.length === 0 && !selfStaffId) return null
 
   return (
-    <div
-      className={`flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center ${isPending ? 'opacity-60' : ''}`}
-    >
-      {/* Day/Week/Month toggle (in practice). On mobile it owns its own line
-       *  above the filter group; on desktop `md:flex-row` pulls it inline. */}
-      {prependSlot}
-      {/* Scope segment + 担当 chip — kept together as ONE group so they stay
-       *  on a single line at 393px. The chip is the last item (right side of
-       *  the row), so its dropdown opens leftward and on-screen. */}
+    <div className={`flex flex-col gap-2 ${isPending ? 'opacity-60' : ''}`}>
+      {/* One row: Day/Week/Month toggle (prependSlot) + Self/All segmented
+       *  toggle + 担当 chip, all inline. The 担当 chip shows just the family
+       *  name once a staff is picked, so all three fit on one line at 440px.
+       *  flex-wrap is a graceful backstop on the narrowest phones; the
+       *  dropdown clamps itself on-screen (StaffSelector) if the chip ever
+       *  wraps far-left. */}
       <div className="flex flex-wrap items-center gap-2">
+        {prependSlot}
         <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
           {selfStaffId && (
             <SegmentButton
@@ -94,8 +90,8 @@ export function ReservationStaffFilter({
             label={t('all')}
           />
         </div>
-        {/* 担当 chip — names the current selection inline (avatar + name),
-         *  and tapping it opens the shared dropdown. */}
+        {/* 担当 chip — names the current selection inline (avatar + family
+         *  name), and tapping it opens the shared dropdown. */}
         <StaffSelector
           staffList={staffList}
           selected={selected}

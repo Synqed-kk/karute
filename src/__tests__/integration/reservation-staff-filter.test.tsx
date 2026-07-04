@@ -2,12 +2,14 @@
  * @jest-environment jsdom
  *
  * Render + layout contract for ReservationStaffFilter (予約 tab), covering the
- * 2026-07-04 fix: the 担当 chip names the current selection INLINE and stays
- * grouped with the 自分/全スタッフ segment — there is no separate selected-staff
- * pill on its own row. The prependSlot (Day/Week/Month toggle) is a SIBLING of
- * that filter group (own line on mobile), never inside it. Tapping the chip
- * opens the shared dropdown; picking 全スタッフ returns the chip to the plain
- * 担当 label. Uses the real ja.json strings so the assertions track the UI.
+ * 2026-07-04 fix (v2): the Day/Week/Month toggle (prependSlot) is compact and
+ * INLINE in the same flex row as the 自分/全スタッフ segment and the 担当 chip —
+ * it is NOT hoisted onto its own full-width row. Once a staff is picked the 担当
+ * chip names the selection inline, showing only the FAMILY NAME (Japanese names
+ * are family-name-first, whitespace-separated) so the whole row fits one line at
+ * 440px. Tapping the chip opens the shared dropdown; picking 全スタッフ returns the
+ * chip to the plain 担当 label. Uses the real ja.json strings so the assertions
+ * track the UI.
  */
 import { render, screen, fireEvent, within } from '@testing-library/react'
 
@@ -65,7 +67,7 @@ describe('ReservationStaffFilter (予約 chrome)', () => {
 
   it('staff selected: the chip NAMES the staff inline (no orphan pill row)', () => {
     render(<ReservationStaffFilter staffList={STAFF} selfStaffId="s1" selected="s2" />)
-    // The selection shows in the chip itself…
+    // The selection shows in the chip itself (単一トークン名 → as-is)…
     expect(screen.getByText('浜野')).toBeInTheDocument()
     // …and the generic 担当 label is gone (chip took the name).
     expect(screen.queryByText('担当')).toBeNull()
@@ -74,7 +76,27 @@ describe('ReservationStaffFilter (予約 chrome)', () => {
     expect(screen.getAllByText('浜野')).toHaveLength(1)
   })
 
-  it('the Day/Week/Month prependSlot is a SIBLING of the filter group, not inside it', () => {
+  it('staff selected: the chip shows only the FAMILY NAME for a spaced name', () => {
+    // 原田 かなみ (family-first, whitespace-separated) → chip shows 原田 only.
+    render(<ReservationStaffFilter staffList={STAFF} selfStaffId="s1" selected="s1" />)
+    // Family name is on the chip…
+    expect(screen.getByText('原田')).toBeInTheDocument()
+    // …and the full "原田 かなみ" is NOT rendered on the (closed) row.
+    expect(screen.queryByText('原田 かなみ')).toBeNull()
+    // Generic 担当 label is gone once a staff is picked.
+    expect(screen.queryByText('担当')).toBeNull()
+  })
+
+  it('a full-width space (　) also splits to the family name', () => {
+    const fullWidth = [{ id: 'fw', name: 'コヴァリチュク　クリスティナ', initials: 'コ' }]
+    render(<ReservationStaffFilter staffList={fullWidth} selfStaffId={null} selected="fw" />)
+    // Splits on the full-width space → family token only (still truncated by
+    // the chip's max-width as a backstop, but the text node is the family name).
+    expect(screen.getByText('コヴァリチュク')).toBeInTheDocument()
+    expect(screen.queryByText('コヴァリチュク　クリスティナ')).toBeNull()
+  })
+
+  it('the Day/Week/Month prependSlot is INLINE in the same row as the segment + chip', () => {
     render(
       <ReservationStaffFilter
         staffList={STAFF}
@@ -84,11 +106,15 @@ describe('ReservationStaffFilter (予約 chrome)', () => {
       />,
     )
     const dwm = screen.getByTestId('dwm')
-    // The scope segment's group must NOT contain the DWM toggle — they live on
-    // separate rows (mobile) so the segment + 担当 chip fit one line at 393px.
-    const segmentGroup = screen.getByText('全スタッフ').closest('div')?.parentElement
-    expect(segmentGroup).not.toBeNull()
-    expect(segmentGroup!.contains(dwm)).toBe(false)
+    // Restored layout: the DWM toggle, the 自分/全スタッフ segment and the 担当
+    // chip all share ONE flex-wrap row (DWM compact and inline, NOT hoisted to
+    // its own full-width row). The segment's row wrapper must contain the DWM
+    // toggle as a sibling of the segment.
+    const row = screen.getByText('全スタッフ').closest('div')?.parentElement
+    expect(row).not.toBeNull()
+    expect(row!.contains(dwm)).toBe(true)
+    // And the 担当 chip lives in that same row.
+    expect(row!.contains(screen.getByText('担当'))).toBe(true)
   })
 
   it('tapping the chip opens the dropdown; picking a staff pushes ?staff=', () => {
