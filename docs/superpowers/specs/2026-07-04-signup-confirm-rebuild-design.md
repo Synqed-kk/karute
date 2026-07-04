@@ -111,12 +111,18 @@ no business, no OWNER staff) and stay logged out.
 
 ## Dashboard values (user applies)
 
-- **Site URL** → `${PROD_DOMAIN}` — *user to confirm exact prod domain*
-  (candidate: `app.synqed.jp` / `karute.synqed.jp`).
-- **Additional Redirect URLs** → `${PROD_DOMAIN}/*/auth/callback`
+Prod domain confirmed via Vercel: **`https://karute-omega.vercel.app`** (stable
+production alias; no custom domain yet).
+
+- **Site URL** → `https://karute-omega.vercel.app`
+- **Additional Redirect URLs** (one per line):
+  - `https://karute-omega.vercel.app/*/auth/callback`
+  - `https://karute-*-synqed-kk.vercel.app/*/auth/callback` (preview deploys)
+  - `http://localhost:3000/*/auth/callback` (local dev)
 - **Confirm-email template** → Japanese branded HTML (supplied at implementation
   time).
-- **Env** → add `NEXT_PUBLIC_SITE_URL=${PROD_DOMAIN}` to Vercel + `.env`.
+- **Env** → add `NEXT_PUBLIC_SITE_URL=https://karute-omega.vercel.app` to Vercel
+  (Production) and `.env` (local uses `http://localhost:3000`).
 
 ## Testing (TDD)
 
