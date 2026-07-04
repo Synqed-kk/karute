@@ -8,6 +8,7 @@ import {
   type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
@@ -62,6 +63,15 @@ async function defaultBookingStore(
 }
 
 export async function createAppointment(input: AppointmentInput) {
+  // Server-side gate: booking = bookings.manage (every staff preset holds it;
+  // only a custom role with nothing toggled lacks it). Checked with can() — not
+  // requireCapability() — because this action returns the house { error } shape
+  // and its callers (NewBookingDialog, AppointmentPopout) await it WITHOUT a
+  // try/catch, so a thrown error would surface as an unhandled rejection.
+  if (!(await can('bookings.manage'))) {
+    return { error: 'You do not have permission to manage bookings.' }
+  }
+
   const orgSettings = await getOrgSettings()
   const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
   if (hoursError) return { error: hoursError }
@@ -263,6 +273,10 @@ export async function getAppointmentsInRange(
 
 export async function deleteAppointment(appointmentId: string) {
   try {
+    // Cancelling / deleting a booking = bookings.manage. Thrown here → caught
+    // below → house { error } shape the caller already toasts.
+    await requireCapability('bookings.manage')
+
     const synqed = await getSynqedClient()
     await synqed.appointments.delete(appointmentId)
     revalidatePath('/dashboard')
@@ -278,6 +292,10 @@ export async function updateAppointment(
   updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
 ) {
   try {
+    // Rescheduling / reassigning a booking = bookings.manage. Thrown here →
+    // caught below → house { error } shape the caller already toasts.
+    await requireCapability('bookings.manage')
+
     const synqed = await getSynqedClient()
     const patch: {
       staff_id?: string

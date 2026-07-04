@@ -26,6 +26,14 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => TEST_STAFF_PROFILE_ID),
 }))
 
+// RBAC gate neutralized — this flow test isolates the synqed-client delegation,
+// not permissions. Capability enforcement is covered in
+// rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
+}))
+
 // --- @synqed-kk/client mock ---
 // Track every call so we can assert shape + args.
 const customers = {

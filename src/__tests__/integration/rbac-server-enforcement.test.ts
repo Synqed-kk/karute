@@ -1,0 +1,350 @@
+/**
+ * Server-side RBAC enforcement (security audit gap #4).
+ *
+ * The UI hides privileged buttons per capability, but before this the record /
+ * booking / export server actions enforced NOTHING — a crafted request (or a
+ * role whose UI was stale) could reach them directly. These tests pin the gate:
+ * every mutating action now calls requireCapability()/can() with the SAME
+ * capability the UI uses, and denies cleanly in that action's own error
+ * contract (never a raw crash).
+ *
+ * The capability layer itself (@/lib/auth/require-permission) is mocked so each
+ * test drives "granted" vs "denied" directly; resolution from presets/overrides
+ * is covered by the permissions unit tests. What matters here is that the ACTION
+ * consults the gate for the RIGHT capability and handles the denial correctly.
+ *
+ * CAPABILITY ↔ ACTION (must match src/lib/auth/permissions.ts presets):
+ *   records.write   → saveKaruteRecord(Inline), createManualKaruteRecord,
+ *                     addManualEntry, deleteEntry, regenerateKaruteEntries,
+ *                     updateKaruteSummary   (owner/manager/senior/practitioner)
+ *   records.delete  → deleteKaruteRecord    (owner/manager/senior)
+ *                     + cross-staff assign on createManualKaruteRecord
+ *   bookings.manage → createAppointment, updateAppointment, deleteAppointment
+ *                     (every preset except empty custom)
+ */
+
+jest.mock('react', () => {
+  const actual = jest.requireActual('react')
+  return { ...actual, cache: (fn: (...a: unknown[]) => unknown) => fn }
+})
+jest.mock('next/cache', () => ({
+  unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
+  revalidatePath: jest.fn(),
+  updateTag: jest.fn(),
+}))
+jest.mock('next/navigation', () => ({ redirect: jest.fn() }))
+jest.mock('next-intl/server', () => ({
+  getLocale: async () => 'en',
+  getTranslations: async () => (key: string) => key,
+}))
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({ get: () => undefined })),
+}))
+
+// getOrgSettings feeds createAppointment's hours validation — permissive so the
+// only thing that can block a booking here is the capability gate.
+jest.mock('@/actions/org-settings', () => ({
+  getOrgSettings: jest.fn(async () => ({ operating_hours: null })),
+}))
+jest.mock('@/actions/stores', () => ({
+  getActiveStoreId: jest.fn(async () => null),
+}))
+jest.mock('@/lib/synqed/staff-map', () => ({
+  resolveSynqedStaffId: jest.fn(async (id: string) => id),
+}))
+
+// Signed-in user's own staff id — the "self" for the createManualKaruteRecord
+// spoof check.
+const SELF_STAFF_ID = 'staff-self'
+jest.mock('@/lib/staff', () => ({
+  getBusinessId: jest.fn(async () => 'biz-1'),
+  getCurrentUserStaffId: jest.fn(async () => SELF_STAFF_ID),
+}))
+
+// Best-effort side-effects of saveKaruteRecord — no-op so the test focuses on
+// the gate, never on outcome/memory writes.
+jest.mock('@/lib/karute/outcome', () => ({ setKaruteOutcome: jest.fn(async () => {}) }))
+jest.mock('@/lib/karute/memory-ingest', () => ({ ingestSessionMemory: jest.fn(async () => {}) }))
+
+// Define every spy INSIDE its jest.mock factory (const decls aren't hoisted, so
+// an outer variable would hit the TDZ "cannot access before initialization").
+// References are pulled back out via the mocked modules after the imports.
+
+// @synqed-kk/client ships ESM jest can't parse; appointments.ts imports
+// SynqedError from it. Stub it (only SynqedError is referenced at module load).
+jest.mock('@synqed-kk/client', () => {
+  class SynqedError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.name = 'SynqedError'
+      this.status = status
+    }
+  }
+  return { SynqedError }
+})
+
+// --- The gate under test: driven per-test via grant()/deny(). ---
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
+}))
+
+// --- synqed client: every mutation is a spy so we can assert "never reached". ---
+jest.mock('@/lib/synqed/client', () => {
+  const karuteRecords = {
+    create: jest.fn(async () => ({ id: 'karute-1' })),
+    delete: jest.fn(async () => ({})),
+    addEntry: jest.fn(async () => ({ id: 'entry-1' })),
+    deleteEntry: jest.fn(async () => ({})),
+    get: jest.fn(async () => ({ entries: [] })),
+    update: jest.fn(async () => ({})),
+    list: jest.fn(async () => ({ karute_records: [] })),
+  }
+  const appointments = {
+    create: jest.fn(async () => ({ id: 'appt-1' })),
+    update: jest.fn(async () => ({})),
+    delete: jest.fn(async () => ({})),
+    get: jest.fn(async () => null),
+  }
+  const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
+  const stores = { list: jest.fn(async () => ({ stores: [] })) }
+  const client = { karuteRecords, appointments, staffStores, stores }
+  return { getSynqedClient: jest.fn(async () => client) }
+})
+
+import {
+  saveKaruteRecord,
+  saveKaruteRecordInline,
+  deleteKaruteRecord,
+  createManualKaruteRecord,
+} from '@/actions/karute'
+import { addManualEntry, deleteEntry } from '@/actions/entries'
+import {
+  regenerateKaruteEntries,
+  updateKaruteSummary,
+} from '@/actions/regenerate-karute'
+import {
+  createAppointment,
+  updateAppointment,
+  deleteAppointment,
+} from '@/actions/appointments'
+
+// Pull the spies back out of the mocked modules (defined inside their
+// factories above) for readable, typed access in the test bodies.
+import { requireCapability as requireCapabilityImport, can as canImport } from '@/lib/auth/require-permission'
+import { getSynqedClient } from '@/lib/synqed/client'
+
+const requireCapability = requireCapabilityImport as jest.Mock
+const can = canImport as jest.Mock
+// Resolve the client once — the factory returns the same object every call.
+let karuteRecords: {
+  create: jest.Mock; delete: jest.Mock; addEntry: jest.Mock; deleteEntry: jest.Mock;
+  get: jest.Mock; update: jest.Mock; list: jest.Mock
+}
+let appointments: { create: jest.Mock; update: jest.Mock; delete: jest.Mock; get: jest.Mock }
+beforeAll(async () => {
+  const client = await getSynqedClient()
+  karuteRecords = client.karuteRecords as unknown as typeof karuteRecords
+  appointments = client.appointments as unknown as typeof appointments
+})
+
+const DENIAL = 'You do not have permission to perform this action.'
+
+/** Make requireCapability throw and can() return false for a given capability. */
+function deny(capability: string) {
+  requireCapability.mockImplementation(async (cap: string) => {
+    if (cap === capability) throw new Error(DENIAL)
+  })
+  can.mockImplementation(async (cap: string) => cap !== capability)
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  requireCapability.mockImplementation(async () => {})
+  can.mockImplementation(async () => true)
+})
+
+const baseSave = {
+  customerId: 'cust-1',
+  transcript: 't',
+  summary: 's',
+  entries: [] as [],
+}
+
+describe('RBAC — records.write actions', () => {
+  it('saveKaruteRecord requires records.write; denial returns { error } and never writes', async () => {
+    deny('records.write')
+    const result = await saveKaruteRecord({ ...baseSave })
+    expect(requireCapability).toHaveBeenCalledWith('records.write')
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it('saveKaruteRecord with records.write reaches the synqed create', async () => {
+    // redirect() throws NEXT_REDIRECT on success — swallow it; the create call
+    // is the observable "went through" signal.
+    await saveKaruteRecord({ ...baseSave }).catch(() => {})
+    expect(karuteRecords.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('saveKaruteRecordInline requires records.write; denial returns { error }', async () => {
+    deny('records.write')
+    const result = await saveKaruteRecordInline({ ...baseSave })
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it('saveKaruteRecordInline with records.write returns the new id', async () => {
+    const result = await saveKaruteRecordInline({ ...baseSave })
+    expect(result).toEqual({ id: 'karute-1' })
+  })
+
+  it('addManualEntry requires records.write; denial returns { error }', async () => {
+    deny('records.write')
+    const result = await addManualEntry({
+      karuteRecordId: 'k-1',
+      category: 'symptom',
+      content: 'x',
+    })
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.addEntry).not.toHaveBeenCalled()
+  })
+
+  it('addManualEntry with records.write writes the entry', async () => {
+    const result = await addManualEntry({
+      karuteRecordId: 'k-1',
+      category: 'symptom',
+      content: 'x',
+    })
+    expect(result).toEqual({})
+    expect(karuteRecords.addEntry).toHaveBeenCalledTimes(1)
+  })
+
+  it('deleteEntry requires records.write (editing, not destructive); denial blocks', async () => {
+    deny('records.write')
+    const result = await deleteEntry('entry-1', 'k-1')
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.deleteEntry).not.toHaveBeenCalled()
+  })
+
+  it('regenerateKaruteEntries requires records.write; denial returns { error } and does not mutate', async () => {
+    deny('records.write')
+    const result = await regenerateKaruteEntries('k-1', [
+      { category: 'symptom', title: 'x', confidence_score: 0.9, source_quote: '' },
+    ])
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.addEntry).not.toHaveBeenCalled()
+    expect(karuteRecords.deleteEntry).not.toHaveBeenCalled()
+  })
+
+  it('updateKaruteSummary requires records.write; denial returns { error }', async () => {
+    deny('records.write')
+    const result = await updateKaruteSummary('k-1', 'new summary')
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('RBAC — records.delete', () => {
+  it('deleteKaruteRecord requires records.delete; denial returns { error } and never deletes', async () => {
+    deny('records.delete')
+    const result = await deleteKaruteRecord('k-1')
+    expect(requireCapability).toHaveBeenCalledWith('records.delete')
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.delete).not.toHaveBeenCalled()
+  })
+
+  it('deleteKaruteRecord with records.delete deletes', async () => {
+    const result = await deleteKaruteRecord('k-1')
+    expect(result).toEqual({ success: true })
+    expect(karuteRecords.delete).toHaveBeenCalledWith('k-1')
+  })
+})
+
+describe('RBAC — createManualKaruteRecord (records.write + staffId spoof guard)', () => {
+  const base = {
+    customerId: 'cust-1',
+    sessionDate: '2026-07-01',
+    durationMinutes: 60,
+    service: 'cut',
+  }
+
+  it('requires records.write; denial returns { error } and never creates', async () => {
+    deny('records.write')
+    const result = await createManualKaruteRecord({ ...base, staffId: SELF_STAFF_ID })
+    expect(result).toEqual({ error: DENIAL })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it('assigning a record to YOURSELF needs only records.write', async () => {
+    await createManualKaruteRecord({ ...base, staffId: SELF_STAFF_ID }).catch(() => {})
+    expect(karuteRecords.create).toHaveBeenCalledTimes(1)
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: SELF_STAFF_ID }),
+    )
+  })
+
+  it('assigning to ANOTHER staff is rejected without records.delete (spoof guard)', async () => {
+    // Has records.write, lacks records.delete → cross-staff assignment blocked.
+    can.mockImplementation(async (cap: string) => cap !== 'records.delete')
+    const result = await createManualKaruteRecord({ ...base, staffId: 'someone-else' })
+    expect(result).toEqual({
+      error: 'You do not have permission to record a session for another staff member.',
+    })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it('a supervisor (records.delete) MAY backdate a record for another staff', async () => {
+    // requireCapability passes (has records.write) and can('records.delete')=true.
+    await createManualKaruteRecord({ ...base, staffId: 'someone-else' }).catch(() => {})
+    expect(karuteRecords.create).toHaveBeenCalledTimes(1)
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ staff_id: 'someone-else' }),
+    )
+  })
+})
+
+describe('RBAC — bookings.manage actions', () => {
+  const bookingInput = {
+    staffProfileId: 'staff-self',
+    clientId: 'cust-1',
+    startTime: new Date('2026-07-01T02:00:00.000Z').toISOString(),
+    durationMinutes: 60,
+    tzOffsetMinutes: -540,
+  }
+
+  it('createAppointment requires bookings.manage; denial returns { error } and never books', async () => {
+    can.mockImplementation(async (cap: string) => cap !== 'bookings.manage')
+    const result = await createAppointment(bookingInput)
+    expect(can).toHaveBeenCalledWith('bookings.manage')
+    expect(result).toEqual({ error: 'You do not have permission to manage bookings.' })
+    expect(appointments.create).not.toHaveBeenCalled()
+  })
+
+  it('createAppointment with bookings.manage books', async () => {
+    const result = await createAppointment(bookingInput)
+    expect(result).toEqual({ id: 'appt-1' })
+    expect(appointments.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('updateAppointment requires bookings.manage; denial returns { error }', async () => {
+    deny('bookings.manage')
+    const result = await updateAppointment('appt-1', { durationMinutes: 45 })
+    expect(result).toEqual({ error: DENIAL })
+    expect(appointments.update).not.toHaveBeenCalled()
+  })
+
+  it('deleteAppointment requires bookings.manage; denial returns { error }', async () => {
+    deny('bookings.manage')
+    const result = await deleteAppointment('appt-1')
+    expect(result).toEqual({ error: DENIAL })
+    expect(appointments.delete).not.toHaveBeenCalled()
+  })
+
+  it('deleteAppointment with bookings.manage deletes', async () => {
+    const result = await deleteAppointment('appt-1')
+    expect(result).toEqual({ success: true })
+    expect(appointments.delete).toHaveBeenCalledWith('appt-1')
+  })
+})
