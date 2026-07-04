@@ -782,6 +782,12 @@
       "ageValue": "{age} y/o",
       "visitCountSuffix": " visits",
       "staffPrefix": "Staff",
+      "bookingMemo": {
+        "edit": "Edit memo",
+        "hint": "Keep the \"▶Label:\" format for the structured view. Once saved, the booking system will never overwrite it.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."

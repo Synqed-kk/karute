@@ -160,7 +160,7 @@ export function CustomerProfileView({
       <div>
         {tab === 'memory' && (
           <div className="space-y-4 md:space-y-5">
-            <BookingMemoCard memo={customer.bookingMemo} />
+            <BookingMemoCard customerId={customer.id} memo={customer.bookingMemo} />
             <CustomerMemoryCard
               customerName={customer.name}
               customerId={customer.id}
