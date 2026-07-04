@@ -25,10 +25,13 @@ export function chooseStaffToLink(
   staff: { id: string; user_id?: string | null; email?: string | null }[],
 ): string | null {
   if (invitedStaffId) {
-    const byIdentity = staff.find(
-      (s) => s.id === invitedStaffId || s.user_id === invitedStaffId,
-    )
-    if (byIdentity) return byIdentity.id
+    // Two prioritised lookups, row id first: keeps the match deterministic
+    // even in the (astronomically unlikely) case a row id collides with a
+    // different person's user_id across the two UUID spaces. (Greptile, #377.)
+    const byRowId = staff.find((s) => s.id === invitedStaffId)
+    if (byRowId) return byRowId.id
+    const byUserId = staff.find((s) => s.user_id === invitedStaffId)
+    if (byUserId) return byUserId.id
   }
   const target = email.toLowerCase()
   const byEmail = staff.find((s) => s.email && s.email.toLowerCase() === target)

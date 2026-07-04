@@ -66,5 +66,16 @@ describe('chooseStaffToLink', () => {
       // 'user-ccc' is staff-3's login; must not resolve to staff-1.
       expect(chooseStaffToLink('user-ccc', 'brand-new@example.com', linkedStaff)).toBe('staff-3')
     })
+
+    it('row id wins over user_id when one value could match both (deterministic precedence)', () => {
+      // Pathological cross-space collision: one staff's row id equals another
+      // staff's user_id. The row id (primary key) must win, and array order
+      // must not decide. (Greptile, #377.)
+      const colliding = [
+        { id: 'staff-y', user_id: 'shared-id', email: null },
+        { id: 'shared-id', user_id: 'user-x', email: null },
+      ]
+      expect(chooseStaffToLink('shared-id', 'new@example.com', colliding)).toBe('shared-id')
+    })
   })
 })
