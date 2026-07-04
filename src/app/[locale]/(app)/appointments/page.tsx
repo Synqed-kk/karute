@@ -10,6 +10,7 @@ import {
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { enrichCustomers, isReturningCustomer } from '@/lib/customers/list-enrich'
+import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
@@ -186,6 +187,14 @@ export default async function AppointmentsPage({
         pastAppointmentCount: e.pastAppointmentCount,
       }),
     )
+  }
+  // The reservation system outranks inference (Liam's rule): a booking on a
+  // 新規 course IS a first visit; a booking on any other named course means
+  // returning — our own missing history proves nothing. Titleless bookings
+  // keep the inferred value set above.
+  for (const a of dayAppointments) {
+    const fromBooking = firstVisitFromBooking(a.title)
+    if (fromBooking !== null) isFirstTimeByClient.set(a.client_id, fromBooking)
   }
 
   // Sequential salon karute number per customer — same helper + same cached

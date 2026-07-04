@@ -26,11 +26,12 @@ import {
   redeemSessionAction,
   setLifecycleAction,
 } from '@/actions/packs'
-import type {
-  CustomerLifecycle,
-  LifecycleStatus,
-  PackKind,
-  PackWithUsage,
+import {
+  nextPurchaseRound,
+  type CustomerLifecycle,
+  type LifecycleStatus,
+  type PackKind,
+  type PackWithUsage,
 } from '@/lib/packs/types'
 import { DEFAULT_CONTACT_THRESHOLD_DAYS } from '@/lib/packs/resolve'
 import { jstDaysBetween } from '@/lib/date/jst'
@@ -62,8 +63,9 @@ export function TicketPackCard({
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
   const inactive = packs.filter((p) => p.status !== 'active')
-  // 追加数: the next pack's round = how many counted packs exist already.
-  const nextRound = packs.filter((p) => p.kind === 'pack').length
+  // 追加数: highest stored round + 1 (imports collapsed history to one row,
+  // so counting rows relabels a round-4 regular as 初回).
+  const nextRound = nextPurchaseRound(packs)
 
   return (
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
@@ -134,7 +136,9 @@ function packLabel(p: PackWithUsage, t: ReturnType<typeof useTranslations>): str
 }
 
 function roundLabel(round: number, t: ReturnType<typeof useTranslations>): string {
-  return round === 0 ? t('roundFirst') : t('roundN', { n: round })
+  // Rounds are 1-based (sheet + June import convention: 初回 = 1). Legacy
+  // app-created packs stored 0 — still read as 初回.
+  return round <= 1 ? t('roundFirst') : t('roundN', { n: round })
 }
 
 function PackRow({
