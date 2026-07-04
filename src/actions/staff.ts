@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { lookupSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { requireCapability } from '@/lib/auth/require-permission'
@@ -101,20 +102,62 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
 }
 
 /**
- * Deletes a staff profile. Server enforces guards (last member, attributed
+ * Deletes a staff member. Server enforces guards (last member, attributed
  * records) and returns 400 with a human message when either triggers.
+ *
+ * The roster surfaces profile-backed staff keyed by profiles.id, but
+ * synqed.staff.delete's keyspace is the synqed staff.id — so a profiles.id
+ * handed straight through 404s ("Staff not found") and, before this, rethrew
+ * into a Server Components crash on /settings. Mirror updateStaff: translate a
+ * profiles.id to its synqed staff.id first via the staff-map's pure lookup
+ * (NOT resolveSynqedStaffId — its create-on-miss leg is for the booking flow
+ * and would mint a record just to delete it); synqed-only ids pass through
+ * as-is. No match, or a 404 from the delete, means the synqed record is
+ * already gone — treat as success rather than crash.
+ *
+ * NOTE (Anthony): this deletes the synqed-core staff record only. For
+ * profile-backed staff the Supabase `profiles` row remains, so the roster
+ * (which reads profiles first) still lists them. profiles.id === auth.users.id,
+ * so removing that row is an auth-project / transactional operation owned by the
+ * backend — updateStaff already treats profile rows as auth-owned (it won't even
+ * change the email). Deactivating/removing the profile is out of scope here.
  */
 export async function deleteStaff(id: string): Promise<void> {
   await requireCapability('staff.manage') // owner + manager only (per the matrix)
-  const synqed = await getSynqedClient()
 
-  try {
-    await synqed.staff.delete(id)
-  } catch (err) {
-    if (err instanceof SynqedError && err.status === 400) {
-      throw new Error(err.message)
+  // Resolve the roster id (profiles.id) to the synqed staff id, exactly as
+  // updateStaff does. Only ids with no profile row in this business are already
+  // synqed staff ids and pass through unchanged.
+  const service = createServiceClient()
+  const businessId = await getBusinessId()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: profile } = await (service as any)
+    .from('profiles')
+    .select('id')
+    .eq('id', id)
+    .eq('customer_id', businessId)
+    .maybeSingle()
+
+  // Pure lookup — null means the profile has no synqed record, i.e. nothing
+  // to delete on the synqed side: skip the delete and just refresh the roster,
+  // the same treatment as the 404 below.
+  const synqedStaffId = profile ? await lookupSynqedStaffId(id) : id
+
+  if (synqedStaffId) {
+    const synqed = await getSynqedClient()
+    try {
+      await synqed.staff.delete(synqedStaffId)
+    } catch (err) {
+      if (err instanceof SynqedError && err.status === 400) {
+        throw new Error(err.message) // last-member / attributed-records guard
+      }
+      // A 404 means the synqed record is already gone — not an error to the
+      // user; fall through to the same revalidation as a successful delete.
+      // Anything else is unexpected and rethrows.
+      if (!(err instanceof SynqedError && err.status === 404)) {
+        throw err
+      }
     }
-    throw err
   }
 
   revalidatePath('/settings')

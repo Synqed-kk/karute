@@ -48,6 +48,15 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ staff })),
 }))
 
+// deleteStaff now imports the profiles.id → synqed staff.id pure lookup. Stub
+// it so the real staff-map module (which calls unstable_cache at load, unmocked
+// here) isn't pulled into this suite's graph. These tests use profile-less ids,
+// so the action never actually calls it — the lookup's own coverage lives in
+// synqed-staff-map.test.ts.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  lookupSynqedStaffId: jest.fn(async (id: string) => id),
+}))
+
 // Configurable Supabase service-client mock. updateStaff now branches on
 // whether the id is a profile-backed staff (→ Supabase profiles update) or a
 // synqed-only staff (→ synqed client). Tests set these to drive each branch.
