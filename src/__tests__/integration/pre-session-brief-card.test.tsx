@@ -161,6 +161,19 @@ describe('PreSessionBriefCard — reservation memo rendering', () => {
     expect(screen.getByText(longNote)).toHaveClass('line-clamp-2')
   })
 
+  it('does not show the clamp toggle for a short 備考 value that fits', () => {
+    render(
+      <PreSessionBriefCard
+        customerName="test"
+        brief={{ ...base, reservationMemo: '▶症状:肩こり▶参考:口コミOK' }}
+      />,
+    )
+    // Short free-text renders plain — a toggle here would do nothing.
+    expect(screen.getByText('口コミOK')).toBeInTheDocument()
+    expect(screen.getByText('口コミOK')).not.toHaveClass('line-clamp-2')
+    expect(screen.queryByText('memoShowAll')).not.toBeInTheDocument()
+  })
+
   it('falls back to the verbatim single-paragraph render when there is no ▶ structure', () => {
     render(
       <PreSessionBriefCard

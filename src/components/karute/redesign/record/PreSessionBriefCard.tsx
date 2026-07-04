@@ -55,6 +55,11 @@ import {
 } from 'lucide-react'
 import { parseQrMemo, QR_MEMO_LABELS } from '@/lib/sync/qr-notes'
 
+// Approximate width at which the free-text 備考(参考) value overflows the 2-line
+// clamp (~40 chars/line at this size). Below it, the value fits and the
+// すべて表示 toggle is suppressed so staff never see a control that does nothing.
+const NOTES_CLAMP_MIN_CHARS = 80
+
 export interface PreSessionBrief {
   /** True = first-ever visit for this customer → render the warm-
    *  intro framing instead of the recap. */
@@ -553,7 +558,13 @@ function MemoBlock({
       {rows && rows.length > 0 ? (
         <dl className="space-y-1.5">
           {rows.map((r, i) => {
-            const isNotes = r.label === notesLabel
+            // Only the 備考(参考) row clamps, and only when it's actually long
+            // enough for a 2-line clamp to bite — CSS line-clamp can't report
+            // overflow to React, so approximate with length/newlines. A one-line
+            // 備考 renders plain, without a toggle that would do nothing.
+            const clampable =
+              r.label === notesLabel &&
+              (r.value.length >= NOTES_CLAMP_MIN_CHARS || r.value.includes('\n'))
             return (
               <div
                 key={i}
@@ -565,14 +576,15 @@ function MemoBlock({
                 <dd className="min-w-0 text-foreground/90">
                   <p
                     className={`whitespace-pre-wrap ${
-                      isNotes && !memoExpanded ? 'line-clamp-2' : ''
+                      clampable && !memoExpanded ? 'line-clamp-2' : ''
                     }`}
                   >
                     {r.value}
                   </p>
-                  {isNotes && (
+                  {clampable && (
                     <button
                       type="button"
+                      aria-expanded={memoExpanded}
                       onClick={() => setMemoExpanded((v) => !v)}
                       className="mt-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200"
                     >
