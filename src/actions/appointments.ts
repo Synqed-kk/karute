@@ -39,6 +39,28 @@ export interface AppointmentRow {
   source: AppointmentSource
 }
 
+/** Store for a booking made from the all-stores view: the booked staff member's
+ *  own store when they belong to exactly one, else the business's primary store
+ *  (every business has one — listStores lazily creates it). Both lookups degrade
+ *  to undefined so a store hiccup can never block taking a booking. */
+async function defaultBookingStore(
+  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
+  synqedStaffId: string,
+): Promise<string | undefined> {
+  try {
+    const assigned = (await synqed.staffStores.get(synqedStaffId)).store_ids
+    if (assigned.length === 1) return assigned[0]
+  } catch {
+    /* fall through to primary store */
+  }
+  try {
+    const { stores } = await synqed.stores.list()
+    return stores.find((s) => s.is_primary)?.id ?? stores[0]?.id
+  } catch {
+    return undefined
+  }
+}
+
 export async function createAppointment(input: AppointmentInput) {
   const orgSettings = await getOrgSettings()
   const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
@@ -50,14 +72,19 @@ export async function createAppointment(input: AppointmentInput) {
   try {
     // All three are independent → resolve in parallel (resolveSynqedStaffId may
     // hit the DB; getActiveStoreId is a cookie read). The active store is a
-    // server-side view label, never client-supplied; unset (all-stores view) →
-    // store_id omitted → synqed-core records NULL. Business scope (x-business-id)
+    // server-side view label, never client-supplied. Business scope (x-business-id)
     // is untouched; store is only a view/default-booking label, never isolation.
     const [synqed, synqedStaffId, activeStore] = await Promise.all([
       getSynqedClient(),
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
     ])
+    // A booking always lands at a real store. The all-stores view (the default)
+    // would save store_id NULL here — same hole the June core-side import hit
+    // (28 QR-origin rows landed storeless and fell out of every per-store
+    // calendar). Closing it app-side before staff get the app; the extra
+    // lookups only run in that view, so a pinned-store booking costs nothing.
+    const storeId = activeStore ?? (await defaultBookingStore(synqed, synqedStaffId))
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: synqedStaffId,
@@ -66,7 +93,7 @@ export async function createAppointment(input: AppointmentInput) {
       duration_minutes: input.durationMinutes,
       title: input.title ?? null,
       notes: input.notes ?? null,
-      store_id: activeStore ?? undefined,
+      store_id: storeId ?? undefined,
     })
     revalidatePath('/dashboard')
     updateTag('dashboard')
