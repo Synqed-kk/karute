@@ -61,6 +61,22 @@ describe('BookingMemoCard — inline edit', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
+  it('renders nothing for a bare QR back-reference (no human content)', () => {
+    // Greptile P1 regression: after a staff clear the note can be `QR #42 |`
+    // (bare plumbing). It's non-empty and has no ▶ structure — the card must
+    // still hide it, not surface the raw `QR #42 |` as text.
+    const { container } = render(
+      <BookingMemoCard customerId="c1" memo="QR #42 |" />,
+    )
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('shows only the human content (QR prefix stripped) for an unstructured memo', () => {
+    render(<BookingMemoCard customerId="c1" memo="QR #5 | 肩こりが強い" />)
+    expect(screen.getByText('肩こりが強い')).toBeInTheDocument()
+    expect(screen.queryByText(/QR #/)).not.toBeInTheDocument()
+  })
+
   it('shows the pencil and structured rows for an existing memo', () => {
     render(
       <BookingMemoCard

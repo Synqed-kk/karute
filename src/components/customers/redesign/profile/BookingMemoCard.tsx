@@ -45,12 +45,15 @@ export function BookingMemoCard({
   // the editable text but preserve it byte-for-byte to re-prepend on save.
   const prefixMatch = memo?.match(QR_NOTES_PREFIX_RE)
   const prefix = prefixMatch ? prefixMatch[0] : ''
+  // The HUMAN memo (bare `QR #<id>` plumbing → null via qr-notes' QR_BARE_TAG_RE).
   const content = memoContent(memo) ?? ''
   const [draft, setDraft] = useState(content)
 
-  // Nothing on file AND not editing → keep the card hidden (unchanged behavior).
-  // In edit mode we always render so staff can author the first memo.
-  if (!editing && (!memo || !memo.trim())) return null
+  // No human memo AND not editing → keep the card hidden. Keyed on memoContent,
+  // NOT raw memo, so a note that's ONLY a bare QR back-reference (e.g. after a
+  // staff clear leaves `QR #42 |`) stays hidden instead of surfacing the raw
+  // plumbing as text. In edit mode we always render so staff can author a memo.
+  if (!editing && !content) return null
 
   const rows = memo ? parseQrMemo(memo) : null
 
@@ -108,6 +111,7 @@ export function BookingMemoCard({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             autoFocus
+            aria-label={t('edit')}
             className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50"
             rows={7}
           />
@@ -144,7 +148,11 @@ export function BookingMemoCard({
           ))}
         </dl>
       ) : (
-        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{memo}</p>
+        // Unstructured memo → render the human content only (memoContent strips
+        // any `QR #<id> | ` prefix), never the raw sync plumbing. `content` is
+        // guaranteed non-empty here in display mode (the guard above returned
+        // null otherwise); in edit mode this branch isn't reached.
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">{content}</p>
       )}
 
       {!editing && (
