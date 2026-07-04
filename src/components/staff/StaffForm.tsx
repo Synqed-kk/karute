@@ -36,14 +36,11 @@ import {
   type Capability,
   type PermissionRole,
 } from '@/lib/auth/permissions'
+import { getOrgSettings } from '@/actions/org-settings'
+import { getJobTitles } from '@/lib/staff/job-titles'
 
 // Store/location assignment shows only when multi-store is enabled + editing.
 const STORES_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
-
-const POSITION_OPTIONS = [
-  'Stylist', 'Manager', 'Assistant', 'Therapist', 'Esthetician',
-  'Nail Technician', 'Receptionist', 'Teacher', 'Trainer', 'Doctor', 'Nurse', 'Other',
-]
 
 // Roles assignable here — never 'owner' (that's the account owner / ownership transfer).
 const ASSIGNABLE_ROLES = PERMISSION_ROLES.filter((r) => r !== 'owner')
@@ -96,6 +93,11 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   const [stores, setStores] = useState<StoreRow[]>([])
   const [storeIds, setStoreIds] = useState<string[]>([])
 
+  // 役職 options adapt to the salon's business type (a 美容整体 shows 整体師, a
+  // hair salon スタイリスト). Fetched from org-settings on open; the default list
+  // shows until it resolves.
+  const [titles, setTitles] = useState<string[]>(() => getJobTitles())
+
   const staffId = staff?.id
 
   useEffect(() => {
@@ -132,6 +134,16 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
       cancelled = true
     }
   }, [mode, staffId])
+
+  useEffect(() => {
+    let cancelled = false
+    void getOrgSettings().then((s) => {
+      if (!cancelled && s?.business_type) setTitles(getJobTitles(s.business_type))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function onRoleChange(next: PermissionRole) {
     setRole(next)
@@ -257,7 +269,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
           {/* 役職 (job-title label) */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="staff-position" className="text-sm font-medium">{ts('position')}</label>
-            <PositionSelect register={register} defaultValue={mode === 'edit' ? staff?.position ?? '' : ''} />
+            <PositionSelect register={register} defaultValue={mode === 'edit' ? staff?.position ?? '' : ''} titles={titles} />
           </div>
 
           {/* Authority — role preset + capability toggles (what they can DO) */}
@@ -329,13 +341,15 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 function PositionSelect({
   register,
   defaultValue,
+  titles,
 }: {
   register: UseFormRegister<StaffProfileInput>
   defaultValue: string
+  titles: string[]
 }) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
-  const isCustom = defaultValue && !POSITION_OPTIONS.includes(defaultValue)
+  const isCustom = defaultValue && !titles.includes(defaultValue)
   const [showCustom, setShowCustom] = useState(isCustom)
 
   if (showCustom) {
@@ -357,7 +371,7 @@ function PositionSelect({
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
       >
         <option value="">{ts('selectPosition')}</option>
-        {POSITION_OPTIONS.map((p) => (
+        {titles.map((p) => (
           <option key={p} value={p}>{p}</option>
         ))}
       </select>
