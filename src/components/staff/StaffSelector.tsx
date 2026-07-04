@@ -131,6 +131,16 @@ export function StaffSelector({
           id={listboxId}
           role="listbox"
           aria-labelledby={labelId}
+          // right-0 opens the 256px panel leftward from the chip's right edge
+          // — same as the StoreSwitcher. Safe because the chip sits on the
+          // RIGHT of its filter row (last item after the 自分/全スタッフ
+          // segment), so the panel has room to its left. The old breakage —
+          // a blank panel pinned to the viewport's left edge — happened only
+          // when the chip wrapped alone onto a second row and landed at the
+          // LEFT edge; then right-0 pushed the panel ~174px off-screen left.
+          // That wrap is gone now (the Day/Week/Month toggle no longer shares
+          // this row), so the chip never sits far-left and right-0 stays on
+          // screen at 393px.
           className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900"
         >
           <div

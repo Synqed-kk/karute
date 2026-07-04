@@ -32,11 +32,14 @@ interface Props {
   selfStaffId: string | null
   /** Active filter key from the URL — 'all' | 'self' | <staffId>. */
   selected: string
-  /** Optional content rendered BEFORE the Self/All segmented toggle in the
-   *  same flex row. Used by the reservation page to place the
-   *  Day/Week/Month toggle on the same line as the scope toggle, mirroring
-   *  the spike's `ViewModeSelector` `prependSlot` pattern. Wraps with the
-   *  toggle on narrow viewports. */
+  /** Optional content rendered BEFORE the Self/All + 担当 filter group.
+   *  Used by the reservation page for the Day/Week/Month toggle. On desktop
+   *  it sits inline on the same line as the filter group; on mobile it drops
+   *  to its own line ABOVE the group. This keeps the scope segment and the
+   *  担当 chip together on one line at 393px — previously the toggle +
+   *  segment filled the first mobile row and pushed the 担当 chip alone onto
+   *  a wrapped second row (an orphan pill), which also mis-anchored its
+   *  dropdown off-screen. */
   prependSlot?: React.ReactNode
 }
 
@@ -65,12 +68,16 @@ export function ReservationStaffFilter({
   if (staffList.length === 0 && !selfStaffId) return null
 
   return (
-    <div className={`flex flex-col gap-2 ${isPending ? 'opacity-60' : ''}`}>
-      {/* Row 1: prepend slot (Day/Week/Month toggle in practice) +
-       *  Self/All segmented toggle. Same row so the chrome above the
-       *  agenda is one line on most viewports. */}
+    <div
+      className={`flex flex-col gap-2 md:flex-row md:flex-wrap md:items-center ${isPending ? 'opacity-60' : ''}`}
+    >
+      {/* Day/Week/Month toggle (in practice). On mobile it owns its own line
+       *  above the filter group; on desktop `md:flex-row` pulls it inline. */}
+      {prependSlot}
+      {/* Scope segment + 担当 chip — kept together as ONE group so they stay
+       *  on a single line at 393px. The chip is the last item (right side of
+       *  the row), so its dropdown opens leftward and on-screen. */}
       <div className="flex flex-wrap items-center gap-2">
-        {prependSlot}
         <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
           {selfStaffId && (
             <SegmentButton
@@ -87,8 +94,8 @@ export function ReservationStaffFilter({
             label={t('all')}
           />
         </div>
-        {/* 担当 trigger (option D, compact) — the pill rows are gone; the
-         *  roster lives in the shared bottom sheet. */}
+        {/* 担当 chip — names the current selection inline (avatar + name),
+         *  and tapping it opens the shared dropdown. */}
         <StaffSelector
           staffList={staffList}
           selected={selected}
@@ -96,7 +103,6 @@ export function ReservationStaffFilter({
           compact
         />
       </div>
-
     </div>
   )
 }
