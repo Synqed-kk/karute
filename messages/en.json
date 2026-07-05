@@ -2174,7 +2174,9 @@
     "nextTreatment": "Next Treatment",
     "followUp": "Follow Up",
     "talkingPoint": "Talking Point",
-    "general": "General"
+    "general": "General",
+    "loadFailed": "Couldn't load recommended actions.",
+    "retry": "Retry"
   },
   "dataImport": {
     "title": "Data Import",
@@ -2482,7 +2484,10 @@
     "noAiHistoryYet": "No AI history yet",
     "aiSummariesAppearAfterSessions": "AI summaries will appear here after recording sessions",
     "aiSummary": "AI Summary",
-    "noAdviceGenerated": "No advice generated"
+    "noAdviceGenerated": "No advice generated",
+    "adviceLoadFailed": "Couldn't load advice.",
+    "notesSaveFailed": "Couldn't save the notes. Please try again.",
+    "retry": "Retry"
   },
   "localeToggle": {
     "switchToJapanese": "Switch to Japanese",

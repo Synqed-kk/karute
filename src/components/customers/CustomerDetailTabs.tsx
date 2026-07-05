@@ -401,6 +401,7 @@ function AdviceCard({
   const [advice, setAdvice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [fetched, setFetched] = useState(false)
+  const [failed, setFailed] = useState(false)
 
   const latestRecord = karuteRecords[0]
 
@@ -438,6 +439,7 @@ function AdviceCard({
       // ignore
     }
 
+    setFailed(false)
     try {
       const res = await fetch('/api/ai/advice', {
         method: 'POST',
@@ -448,6 +450,7 @@ function AdviceCard({
           locale,
         }),
       })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const a = data.advice || null
       setAdvice(a)
@@ -463,7 +466,10 @@ function AdviceCard({
         }
       }
     } catch {
+      // Keep failure distinct from "no advice yet" — the italic empty-state
+      // used to absorb errors, so staff never knew generation was down.
       setAdvice(null)
+      setFailed(true)
     } finally {
       setLoading(false)
       setFetched(true)
@@ -489,6 +495,21 @@ function AdviceCard({
         <p className="text-sm text-muted-foreground leading-relaxed">
           {advice}
         </p>
+      ) : failed ? (
+        <div>
+          <p className="text-sm text-muted-foreground">{t('adviceLoadFailed')}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setLoading(true)
+              setFetched(false)
+              fetchAdvice()
+            }}
+            className="mt-2 inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+          >
+            {t('retry')}
+          </button>
+        </div>
       ) : (
         <p className="text-sm text-muted-foreground italic">
           {t('noAdviceYet')}
@@ -1005,6 +1026,7 @@ function DetailsTab({
   const [staffNotes, setStaffNotes] = useState(customer.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [saveError, setSaveError] = useState(false)
 
   // Gather all entries for insights
   const allEntries = karuteRecords.flatMap((r) => r.entries)
@@ -1037,13 +1059,16 @@ function DetailsTab({
   async function handleSaveNotes() {
     setSaving(true)
     setSaved(false)
+    setSaveError(false)
     try {
       const { updateCustomer } = await import('@/actions/customers')
       await updateCustomer(customer.id, { notes: staffNotes })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
     } catch {
-      // silent
+      // A failed save must be visible — the memo the staff member just typed
+      // is NOT stored, and silently dropping it loses customer data.
+      setSaveError(true)
     } finally {
       setSaving(false)
     }
@@ -1105,6 +1130,9 @@ function DetailsTab({
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring/50 resize-y min-h-[100px]"
           rows={4}
         />
+        {saveError && (
+          <p className="text-sm text-red-400 mt-2">{t('notesSaveFailed')}</p>
+        )}
       </div>
 
       {/* Customer Insights */}
@@ -1276,6 +1304,7 @@ function AIHistoryCard({
   const t = useTranslations('customerDetail')
   const [advice, setAdvice] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
 
   // Fetch advice for this record
   useState(() => {
@@ -1312,6 +1341,7 @@ function AIHistoryCard({
             locale,
           }),
         })
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
         const data = await res.json()
         const a = data.advice || null
         setAdvice(a)
@@ -1327,7 +1357,11 @@ function AIHistoryCard({
           }
         }
       } catch {
+        // Distinguish failure from "no advice was generated" (see the same
+        // pattern in the latest-advice card above). No retry here — this
+        // run-once card is for a past record; a reload refetches.
         setAdvice(null)
+        setFailed(true)
       } finally {
         setLoading(false)
       }
@@ -1372,6 +1406,8 @@ function AIHistoryCard({
           <p className="text-sm text-muted-foreground leading-relaxed">
             {advice}
           </p>
+        ) : failed ? (
+          <p className="text-sm text-muted-foreground">{t('adviceLoadFailed')}</p>
         ) : (
           <p className="text-sm text-muted-foreground italic">
             {t('noAdviceGenerated')}
