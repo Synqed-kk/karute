@@ -94,6 +94,41 @@ export async function updatePackStatus(
   }
 }
 
+/** The customer's appointment on `dateYmd` (JST calendar day) to link a
+ *  redemption to when the caller didn't supply one — same customer_id +
+ *  JST-day window as getAppointmentsByDate/reconcile.ts, but scoped to the one
+ *  customer server-side so it's a single small page and immune to the agenda's
+ *  active-store view filter (a profile burn isn't store-scoped). Cancelled
+ *  bookings never match — mirrors getAppointmentsByDate. Multiple same-day
+ *  bookings: pick the one closest to now (the next upcoming), else — if every
+ *  booking that day has already passed — the day's first. null when there's no
+ *  booking that day — a valid walk-in, not an error. */
+export async function findCustomerAppointmentForDate(
+  customerId: string,
+  dateYmd: string,
+): Promise<string | null> {
+  try {
+    const synqed = await getSynqedClient()
+    const dayStartUTC = new Date(`${dateYmd}T00:00:00+09:00`)
+    const dayEndUTC = new Date(`${dateYmd}T23:59:59.999+09:00`)
+    const { appointments } = await synqed.appointments.list({
+      customer_id: customerId,
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 200,
+    })
+    const candidates = appointments
+      .filter((a) => a.status !== 'CANCELLED')
+      .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
+    if (candidates.length === 0) return null
+    const nowIso = new Date().toISOString()
+    return (candidates.find((a) => a.starts_at >= nowIso) ?? candidates[0]).id
+  } catch (err) {
+    warn('findCustomerAppointmentForDate', err)
+    return null
+  }
+}
+
 export interface AddRedemptionInput {
   packId: string
   customerId: string
@@ -123,8 +158,29 @@ export async function addRedemption(
     return { ok: true, id }
   } catch (err) {
     warn('addRedemption', err)
+    // Stable discriminator, NOT a user-facing string: every burn caller toasts
+    // an i18n key (never res.error, which carries English internals), so it
+    // branches on this to show the 残回数ゼロ message vs the generic failure.
+    if (isBelowZeroGuardError(err)) {
+      return { ok: false, error: 'below_zero' }
+    }
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
   }
+}
+
+/** trg_pack_below_zero (assert_pack_not_over_redeemed in the prod DB) raises
+ *  `pack % over-redeemed: % burned > pack_size %` with SQLSTATE 23514. It
+ *  reaches us as a SynqedError whose message is whatever core's onError relayed
+ *  from Prisma — no structured code survives this HTTP boundary. 'over-redeemed'
+ *  is the trigger's own raise text and the only part guaranteed present; the
+ *  code/trigger-name matches cover Prisma formats that embed them. */
+function isBelowZeroGuardError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    message.includes('over-redeemed') ||
+    message.includes('trg_pack_below_zero') ||
+    message.includes('23514')
+  )
 }
 
 export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {

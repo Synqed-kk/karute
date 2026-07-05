@@ -10,6 +10,7 @@ import {
   addPackAlertDismissal,
   addRedemption,
   createPack,
+  findCustomerAppointmentForDate,
   removeRedemption,
   setCustomerLifecycle,
   updatePackStatus,
@@ -88,11 +89,21 @@ export async function redeemSessionAction(input: {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const redeemedOn = input.redeemedOn ?? jstToday
+  // The customer-profile burn button never sends an appointmentId, so those
+  // redemptions landed appointment_id NULL even when the customer actually had
+  // a booking that day. Only fill in when the caller left it unset — never
+  // override an explicit id (e.g. the reconcile strip's specific booking).
+  // No match (walk-in / no booking that day) is expected, not an error.
+  const appointmentId =
+    input.appointmentId !== undefined
+      ? input.appointmentId
+      : await findCustomerAppointmentForDate(input.customerId, redeemedOn)
   const result = await addRedemption({
     packId: input.packId,
     customerId: input.customerId,
-    redeemedOn: input.redeemedOn ?? jstToday,
-    appointmentId: input.appointmentId ?? null,
+    redeemedOn,
+    appointmentId,
     karuteRecordId: input.karuteRecordId ?? null,
     source: input.source ?? 'manual',
     createdBy: staffId,
