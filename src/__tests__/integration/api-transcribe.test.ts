@@ -19,6 +19,8 @@ const originalFetch = global.fetch
 beforeAll(() => {
   global.fetch = fetchMock as unknown as typeof global.fetch
   process.env.DEEPGRAM_API_KEY = 'test-key'
+  // Pin the SSRF allowlist host so the audioUrl guard is deterministic here.
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test-dummy.supabase.co'
 })
 afterAll(() => {
   global.fetch = originalFetch
@@ -172,7 +174,7 @@ describe('POST /api/ai/transcribe', () => {
   it('passes a Supabase signed URL straight through to Deepgram', async () => {
     fetchMock.mockResolvedValue(deepgramResponse('hello world'))
 
-    const audioUrl = 'https://example.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
+    const audioUrl = 'https://test-dummy.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
 
     await testApiHandler({
       appHandler,
@@ -196,6 +198,26 @@ describe('POST /api/ai/transcribe', () => {
           'Content-Type': 'application/json',
         })
         expect((init as RequestInit).body).toBe(JSON.stringify({ url: audioUrl }))
+      },
+    })
+  })
+
+  it('rejects an audioUrl on a foreign host (SSRF guard) without fetching', async () => {
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioUrl: 'https://evil.example.com/internal/metadata',
+            locale: 'ja',
+          }),
+        })
+
+        expect(response.status).toBe(400)
+        // Never fetched — not the foreign host, not Deepgram.
+        expect(fetchMock).not.toHaveBeenCalled()
       },
     })
   })
