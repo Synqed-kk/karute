@@ -4,6 +4,7 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
+import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
@@ -62,6 +63,12 @@ export async function saveKaruteRecord(
   let recordId: string
 
   try {
+    // Server-side gate: recording a session = records.write (owner / manager /
+    // senior / practitioner — NOT frontdesk). The UI hid the recording flow from
+    // frontdesk; this makes the server refuse it too. Thrown here so the existing
+    // catch below returns the house { error } shape the client already toasts.
+    await requireCapability('records.write')
+
     const synqed = await getSynqedClient()
 
     // Attribute the record to whoever RECORDED it — the signed-in staff — NOT
@@ -140,6 +147,10 @@ export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
 ): Promise<{ id: string } | { error: string }> {
   try {
+    // Recording a session = records.write (see saveKaruteRecord). Caught below →
+    // returned as the house { error } shape the RecordingPanel already toasts.
+    await requireCapability('records.write')
+
     const synqed = await getSynqedClient()
 
     const staffId = await getCurrentUserStaffId()
@@ -194,6 +205,10 @@ export async function saveKaruteRecordInline(
 
 export async function deleteKaruteRecord(karuteId: string): Promise<{ success: true } | { error: string }> {
   try {
+    // Destructive: deleting a karute = records.delete (owner / manager / senior —
+    // NOT practitioner / frontdesk). Caught below → house { error } shape.
+    await requireCapability('records.delete')
+
     const synqed = await getSynqedClient()
     await synqed.karuteRecords.delete(karuteId)
     revalidatePath('/dashboard')
@@ -230,6 +245,25 @@ export async function createManualKaruteRecord(input: {
   let recordId: string
 
   try {
+    // Creating a karute = records.write (owner / manager / senior / practitioner
+    // — NOT frontdesk). The "+ 新規カルテ" dialog is otherwise ungated in the UI.
+    // Thrown → caught below → house { error } shape (the dialog runs this inside
+    // startTransition with NO try/catch, so a raw throw would surface as an
+    // unhandled rejection — it must be returned, never thrown, to this caller).
+    await requireCapability('records.write')
+
+    // Never trust the client-supplied staffId. The dialog defaults the staff
+    // dropdown to the signed-in user, but it can be changed to ANY staff. Saving
+    // a record UNDER ANOTHER staff (backdating on their behalf) is a supervisory
+    // act, so it needs records.delete — the marker the presets give owner /
+    // manager / senior only (practitioner + frontdesk lack it). Assigning to
+    // YOURSELF is always fine. This mirrors saveKaruteRecord, which never accepts
+    // a client staff id at all.
+    const ownStaffId = await getCurrentUserStaffId()
+    if (input.staffId !== ownStaffId && !(await can('records.delete'))) {
+      return { error: 'You do not have permission to record a session for another staff member.' }
+    }
+
     const synqed = await getSynqedClient()
 
     const record = await synqed.karuteRecords.create({

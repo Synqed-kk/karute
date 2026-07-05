@@ -24,6 +24,13 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => currentStaffId),
 }))
 
+// RBAC gate is neutralized here — these tests isolate staff attribution, not
+// permissions. Dedicated capability tests live in rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
+}))
+
 const karuteRecords = { create: jest.fn() }
 const appointments = { get: jest.fn() }
 jest.mock('@/lib/synqed/client', () => ({
