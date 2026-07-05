@@ -428,10 +428,18 @@ export function RecordPageView({
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
         onSaved={() => {
+          // Save persisted the record → drop the recovery draft (storage +
+          // in-memory), so no stale banner reoffers a finished session.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
         }}
         onDiscard={() => {
+          // Deliberate discard → drop the draft too, or it reappears as a
+          // recovery offer for a session the user intentionally threw away.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
         }}
