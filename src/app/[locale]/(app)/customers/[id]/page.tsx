@@ -171,8 +171,11 @@ export default async function CustomerProfilePage({
 
   // 回数券 + lifecycle (卒業/離客/口コミ) — best-effort: empty card / no chips
   // until the ticket_packs migration is applied (store degrades gracefully).
+  // Tickets off (org setting) → skip the pack fetch entirely; lifecycle is
+  // customer-state, not a ticket feature, so it always loads.
+  const ticketsEnabled = orgSettingsForPassport?.ticket_packs_enabled ?? true
   const [packs, lifecycle] = await Promise.all([
-    listCustomerPacks(id),
+    ticketsEnabled ? listCustomerPacks(id) : Promise.resolve([]),
     getCustomerLifecycle(id),
   ])
   // Real ledger signal: any active counted pack → 回数券 holder, regardless of
@@ -321,6 +324,7 @@ export default async function CustomerProfilePage({
       packs={packs}
       lifecycle={lifecycle}
       hasNextBooking={!!enrichment.get(id)?.nextAppointmentIso}
+      ticketsEnabled={ticketsEnabled}
     />
   )
 }

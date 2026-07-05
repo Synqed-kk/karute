@@ -1,5 +1,6 @@
 import { getLocale, getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getOrgSettings } from '@/actions/org-settings'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import type { CustomerListRow } from '@/components/customers/redesign/types'
@@ -83,12 +84,20 @@ export default async function CustomersPage({
   const customerIds = list.customers.map((c) => c.id)
   // Pack usage + lifecycle load in parallel with the enrichment — both come
   // back as empty maps until the ticket_packs migration applies (graceful).
-  const [enrichment, packUsage, lifecycles] = await Promise.all([
+  const [enrichment, packUsageRaw, lifecycles, orgSettings] = await Promise.all([
     t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
     listAllPackUsage(),
     listAllLifecycles(),
+    getOrgSettings(),
   ])
   t.end()
+  // 回数券 off (org setting): blank the usage map so the per-row ticket line,
+  // 残N chip and pack alert all disappear (wave stays parallel; the QR
+  // has_ticket_pack flag still feeds status resolution unchanged).
+  const packUsage =
+    (orgSettings?.ticket_packs_enabled ?? true)
+      ? packUsageRaw
+      : (new Map() as typeof packUsageRaw)
 
   // Sequential per-tenant karute numbers — sorted by created_at so the
   // oldest customer gets #00001, etc. Computed in-memory until Anthony

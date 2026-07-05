@@ -45,6 +45,9 @@ interface DashboardPageViewProps {
   reconcile: ReconcileData
   canDismissAlerts: boolean
   pulse: { redemptions: number; karute: number }
+  /** Org-level 回数券 master switch. Off → the owner band hides entirely
+   *  (risk/liability/contact/reconcile/burn-pulse are all pack economics). */
+  ticketsEnabled?: boolean
 }
 
 export async function DashboardPageView({
@@ -66,6 +69,7 @@ export async function DashboardPageView({
   reconcile,
   canDismissAlerts,
   pulse,
+  ticketsEnabled = true,
 }: DashboardPageViewProps) {
   const t = await getTranslations('dashboard.flow')
   return (
@@ -93,7 +97,7 @@ export async function DashboardPageView({
 
       <TomorrowStrip data={tomorrow} />
 
-      {isOwner && (
+      {isOwner && ticketsEnabled && (
         <OwnerBand
           alerts={packAlerts}
           reconcile={reconcile}
