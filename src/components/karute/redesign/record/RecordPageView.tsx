@@ -233,7 +233,16 @@ export function RecordPageView({
   const [recoveredDraft, setRecoveredDraft] = useState<KaruteDraft | null>(null)
   const [restoring, setRestoring] = useState(false)
   useEffect(() => {
-    setRecoveredDraft(loadDraft())
+    // loadDraft is async now — it returns the draft ONLY to the staff member who
+    // saved it (privacy on a shared device). Guard against a late resolve after
+    // unmount.
+    let cancelled = false
+    void loadDraft().then((d) => {
+      if (!cancelled) setRecoveredDraft(d)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const [consent, setConsent] = useState<{ granted: boolean; grantedAt: string | null } | null>(null)

@@ -37,12 +37,19 @@ export function SaveKaruteFlow({ customers, appointmentCustomerId, directDraft }
   const [customerList, setCustomerList] = useState<CustomerOption[]>(customers)
   const [isSaving, setIsSaving] = useState(false)
 
-  // Load draft from sessionStorage as fallback (client-side only)
+  // Load draft from sessionStorage as fallback (client-side only). loadDraft is
+  // async + owner-gated now (only the staff who saved it gets it back).
   useEffect(() => {
+    let cancelled = false
     if (!directDraft) {
-      setSessionDraft(loadDraft())
+      void loadDraft().then((d) => {
+        if (!cancelled) setSessionDraft(d)
+      })
     }
     setHasMounted(true)
+    return () => {
+      cancelled = true
+    }
   }, [directDraft])
 
   // Use direct props if available, otherwise fall back to sessionStorage
