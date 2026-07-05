@@ -83,8 +83,11 @@ interface StaffListProps {
   activeStaffId: string | null
   /** The currently logged-in user's staff profile ID */
   currentUserId?: string | null
-  /** Whether the current user is the account owner */
-  isOwner?: boolean
+  /** staff.manage capability — gates add / edit-any / delete. Was `isOwner`;
+   *  widened to the capability so an SV/manager the owner granted staff.manage
+   *  gets the same controls the server already lets them use. A staff member can
+   *  still edit/set-PIN on THEMSELVES regardless (self === currentUserId). */
+  canManageStaff?: boolean
   /** Server-persisted enrollments (org-settings voice_enrollments, status
    *  'saved'): staff profile id → consent_at ISO. */
   voiceEnrollments?: Record<string, string | null>
@@ -112,7 +115,7 @@ export function StaffList({
   staffList,
   activeStaffId,
   currentUserId,
-  isOwner = false,
+  canManageStaff = false,
   voiceEnrollments,
 }: StaffListProps) {
   const ts = useTranslations('settings')
@@ -160,7 +163,7 @@ export function StaffList({
           {ts('staffCountSuffix', { n: staffList.length })}
         </p>
       </div>
-      {isOwner && (
+      {canManageStaff && (
         <Button
           size="sm"
           onClick={() => setShowCreateForm(true)}
@@ -214,9 +217,14 @@ export function StaffList({
                 key={staff.id}
                 staff={staff}
                 isActive={staff.id === activeStaffId}
-                canEdit={isOwner || staff.id === currentUserId}
-                canDelete={isOwner && staff.display_role !== 'owner'}
-                canSetPin={isOwner || staff.id === currentUserId}
+                // Edit is a MANAGE surface (updateStaff requires staff.manage).
+                // Self-service name/position editing belongs on /profile, not
+                // here — including self led straight to updateStaff's rejection.
+                canEdit={canManageStaff}
+                canDelete={canManageStaff && staff.display_role !== 'owner'}
+                // PIN + voice stay self-service: setStaffPin returns a clean
+                // error contract (no throw) and a staff member manages their own.
+                canSetPin={canManageStaff || staff.id === currentUserId}
                 onEdit={() => setEditingStaff(staff)}
                 onSetPin={() => setPinSetupStaff(staff)}
                 onDelete={() => handleDelete(staff)}
