@@ -76,12 +76,19 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
     const clean = presets.filter((p) => p.size > 0 && p.unitPrice >= 0)
     setSaving(true)
     try {
-      await upsertOrgSettings({
-        pack_presets: clean,
-        staff_can_customize_packs: staffCustom,
-        ticket_packs_enabled: enabled,
-      })
-      setPresets(clean)
+      // Off → write ONLY the switch. The preset/staff fields are hidden then,
+      // and sending this browser's in-memory copies would silently overwrite a
+      // concurrent admin's edits (Greptile, #383).
+      await upsertOrgSettings(
+        enabled
+          ? {
+              pack_presets: clean,
+              staff_can_customize_packs: staffCustom,
+              ticket_packs_enabled: true,
+            }
+          : { ticket_packs_enabled: false },
+      )
+      if (enabled) setPresets(clean)
       toast.success(t('saved'))
     } catch {
       toast.error(t('saveFailed'))
