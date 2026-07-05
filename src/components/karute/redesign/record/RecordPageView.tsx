@@ -105,6 +105,11 @@ export interface RecordPageViewProps {
   /** Signed-in staff display name — shown in the 別のスタッフの予約 banner so
    *  staff see the record will save under THEM. */
   currentStaffName?: string | null
+  /** Org-level 回数券 master switch. Off → the stop flow neither burns a
+   *  session nor opens the outcome dialog (成約/回数券 questions are ticket
+   *  economics) — it saves the record exactly like the mid-pack auto path,
+   *  minus the redemption. */
+  ticketsEnabled?: boolean
 }
 
 function deriveInitials(name: string): string {
@@ -138,6 +143,7 @@ export function RecordPageView({
   previousPack = null,
   noiseSuppression = true,
   currentStaffName = null,
+  ticketsEnabled = true,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -523,7 +529,12 @@ export function RecordPageView({
           size="md"
           className="flex-1"
           onClick={() =>
-            outcomeMode === 'auto' ? handleAutoFlow() : setOutcomeOpen(true)
+            // Tickets off: straight save — no burn, no 成約/回数券 dialog.
+            !ticketsEnabled
+              ? handleUseRecording(undefined, true)
+              : outcomeMode === 'auto'
+                ? handleAutoFlow()
+                : setOutcomeOpen(true)
           }
         >
           {t('useRecording')}
@@ -654,7 +665,9 @@ export function RecordPageView({
 
       {/* Outcome — chosen at stop, BEFORE transcription, so staff aren't stuck
           waiting for the AI. Centered pop-up; the choice rides the pipeline
-          context to the save. */}
+          context to the save. Never mounts with tickets off — the stop button
+          saves directly and outcomeOpen can't turn true. */}
+      {ticketsEnabled && (
       <PostSessionResolutionDialog
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
@@ -729,6 +742,7 @@ export function RecordPageView({
           handleUseRecording(outcome)
         }}
       />
+      )}
 
       {/* Consent dialog */}
       {showConsentDialog && nextAppointment && (

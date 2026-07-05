@@ -315,6 +315,9 @@ export default async function SessionsPage({
   // errors internally and return [], so the Promise.all can't reject and a
   // hiccup never blanks the page.
   const targetCustomerId = nextAppointment?.customerId ?? null
+  // 回数券 off (org setting, wave 1) → skip the pack read; targetPack stays
+  // null and the whole burn/outcome flow below never engages.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
   const [customerKarute, targetCustomer, consentOnFile, targetPacks]: [
     KaruteRecord[],
     CustomerWithStaff | null,
@@ -327,7 +330,9 @@ export default async function SessionsPage({
         getCustomerConsent(targetCustomerId)
           .then((r) => r.consent)
           .catch(() => null),
-        listCustomerPacks(targetCustomerId),
+        ticketsEnabled
+          ? listCustomerPacks(targetCustomerId)
+          : Promise.resolve([] as PackWithUsage[]),
       ])
     : [[], null, null, []]
 
@@ -497,6 +502,7 @@ export default async function SessionsPage({
       packPresets={orgSettings?.pack_presets ?? []}
       staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
       previousPack={previousPack}
+      ticketsEnabled={ticketsEnabled}
       noiseSuppression={orgSettings?.noise_suppression !== false}
       currentStaffName={
         activeStaffId ? (staffNameById.get(activeStaffId) ?? null) : null

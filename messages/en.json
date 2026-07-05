@@ -2144,6 +2144,8 @@
     "packsDescription": "Pack presets and staff permissions",
     "packs": {
       "label": "Ticket packs",
+      "enableTitle": "Use ticket packs",
+      "enableHint": "When off, every pack surface hides — the profile pack card, dashboard reconcile/alerts, and the post-recording redeem/outcome dialog. No data is deleted.",
       "presetsTitle": "Pack presets",
       "presetsHint": "The size/price options shown in the post-recording New Pack panel. A customer's previous pack takes priority as the prefill.",
       "sizeLabel": "Sessions",
