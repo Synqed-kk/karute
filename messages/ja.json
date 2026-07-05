@@ -25,6 +25,7 @@
     "email": "メールアドレス",
     "phone": "電話番号",
     "somethingWentWrong": "エラーが発生しました。",
+    "noPermission": "この操作を行う権限がありません。",
     "saved": "保存済み",
     "notifications": "通知"
   },

@@ -25,6 +25,7 @@
     "email": "Email",
     "phone": "Phone",
     "somethingWentWrong": "Something went wrong.",
+    "noPermission": "You do not have permission to perform this action.",
     "saved": "Saved",
     "notifications": "Notifications"
   },
