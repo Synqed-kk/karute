@@ -87,7 +87,19 @@ describe('findCustomerAppointmentForDate (CHANGE 1 resolver)', () => {
 })
 
 describe('addRedemption below-zero mapping (CHANGE 2)', () => {
-  it('maps the 23514 trg_pack_below_zero guard to the below_zero discriminator', async () => {
+  it("maps the guard's real raise text (verified against the prod trigger) to below_zero", async () => {
+    // assert_pack_not_over_redeemed raises exactly this shape — no SQLSTATE, no
+    // trigger name in the text. The matcher must fire on the raise text alone.
+    packs.addRedemption.mockRejectedValue(
+      new Error('pack 3f2a1c9e over-redeemed: 11 burned > pack_size 10'),
+    )
+
+    const res = await addRedemption({ packId: 'p1', customerId: 'c1', redeemedOn: '2026-07-05' })
+
+    expect(res).toEqual({ ok: false, error: 'below_zero' })
+  })
+
+  it('also fires on Prisma-formatted relays that embed the SQLSTATE or trigger name', async () => {
     packs.addRedemption.mockRejectedValue(
       new Error('new row for relation "pack_redemptions" violates check constraint "trg_pack_below_zero" (23514)'),
     )

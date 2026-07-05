@@ -88,6 +88,18 @@ describe('redeemSessionAction appointment precedence', () => {
     expect(lastForwardedAppointmentId()).toBeNull()
   })
 
+  it('respects an explicit null (RecordPageView walk-in signal) — resolver never runs', async () => {
+    await redeemSessionAction({
+      packId: 'p1',
+      customerId: 'cust-1',
+      redeemedOn: '2026-07-05',
+      appointmentId: null,
+    })
+
+    expect(mockFindCustomerAppointmentForDate).not.toHaveBeenCalled()
+    expect(lastForwardedAppointmentId()).toBeNull()
+  })
+
   it('surfaces the below_zero discriminator from the store unchanged', async () => {
     mockAddRedemption.mockResolvedValueOnce({ ok: false, error: 'below_zero' })
 

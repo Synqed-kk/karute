@@ -168,14 +168,19 @@ export async function addRedemption(
   }
 }
 
-/** trg_pack_below_zero (Postgres check_violation, SQLSTATE 23514) fires when a
- *  redemption would take a pack below zero remaining sessions. core surfaces it
- *  as a SynqedError whose message carries the raw Postgres text — there's no
- *  structured error code on this HTTP boundary, so match on the code/constraint
- *  name in the message instead. */
+/** trg_pack_below_zero (assert_pack_not_over_redeemed in the prod DB) raises
+ *  `pack % over-redeemed: % burned > pack_size %` with SQLSTATE 23514. It
+ *  reaches us as a SynqedError whose message is whatever core's onError relayed
+ *  from Prisma — no structured code survives this HTTP boundary. 'over-redeemed'
+ *  is the trigger's own raise text and the only part guaranteed present; the
+ *  code/trigger-name matches cover Prisma formats that embed them. */
 function isBelowZeroGuardError(err: unknown): boolean {
   const message = err instanceof Error ? err.message : String(err)
-  return message.includes('23514') || message.includes('trg_pack_below_zero')
+  return (
+    message.includes('over-redeemed') ||
+    message.includes('trg_pack_below_zero') ||
+    message.includes('23514')
+  )
 }
 
 export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {
