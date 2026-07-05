@@ -9,6 +9,8 @@ import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { ReviewScreen } from '@/components/review/ReviewScreen'
+import type { Entry } from '@/types/ai'
+import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -225,6 +227,15 @@ export function RecordPageView({
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
 
+  // Crash recovery: a draft persisted by ReviewScreen from a session that was
+  // never saved (WebView killed, tab reloaded). Loaded after mount (client-only,
+  // so no SSR hydration mismatch). `restoring` = the staffer chose to reopen it.
+  const [recoveredDraft, setRecoveredDraft] = useState<KaruteDraft | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  useEffect(() => {
+    setRecoveredDraft(loadDraft())
+  }, [])
+
   const [consent, setConsent] = useState<{ granted: boolean; grantedAt: string | null } | null>(null)
   const [showConsentDialog, setShowConsentDialog] = useState(false)
   const [consentSubmitting, setConsentSubmitting] = useState(false)
@@ -417,12 +428,56 @@ export function RecordPageView({
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
         onSaved={() => {
+          // Save persisted the record → drop the recovery draft (storage +
+          // in-memory), so no stale banner reoffers a finished session.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
         }}
         onDiscard={() => {
+          // Deliberate discard → drop the draft too, or it reappears as a
+          // recovery offer for a session the user intentionally threw away.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
+        }}
+      />
+    )
+  }
+
+  // Crash recovery: the staffer chose to reopen an unsaved draft (offered by the
+  // banner below). Re-mount ReviewScreen seeded from sessionStorage. Entry shape
+  // is mapped back from the draft's storage shape. No outcome is carried (it's
+  // not persisted) — the karute saves; any pack side-effect is handled manually.
+  if (restoring && recoveredDraft) {
+    return (
+      <ReviewScreen
+        transcript={recoveredDraft.transcript}
+        entries={recoveredDraft.entries.map(
+          (e): Entry => ({
+            category: e.category as Entry['category'],
+            title: e.content,
+            source_quote: e.sourceQuote ?? '',
+            confidence_score: e.confidenceScore,
+          }),
+        )}
+        summary={recoveredDraft.summary}
+        customers={customers}
+        duration={recoveredDraft.duration}
+        appointmentId={recoveredDraft.appointmentId}
+        appointmentCustomerId={recoveredDraft.appointmentCustomerId}
+        onSaved={() => {
+          clearDraft()
+          setRecoveredDraft(null)
+          setRestoring(false)
+          handleNewSession()
+        }}
+        onDiscard={() => {
+          clearDraft()
+          setRecoveredDraft(null)
+          setRestoring(false)
         }}
       />
     )
@@ -585,6 +640,34 @@ export function RecordPageView({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
+
+      {/* Crash-recovery offer — a session that reached the AI review but was
+       *  never saved. Shown only when fully idle so it never competes with a
+       *  live recording; non-hijacking (explicit 復元/破棄). */}
+      {recoveredDraft && !restoring && !live && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <span className="flex-1 text-amber-900 dark:text-amber-200">
+            {t('recoverTitle')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setRestoring(true)}
+            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
+          >
+            {t('recoverAction')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearDraft()
+              setRecoveredDraft(null)
+            }}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
+          >
+            {t('recoverDiscard')}
+          </button>
+        </div>
+      )}
 
       {micError && (
         <div

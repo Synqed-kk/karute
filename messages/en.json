@@ -568,7 +568,10 @@
       "body": "Talk about the next pack during the session. You'll record the result after stopping.",
       "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
     },
-    "otherStaffBooking": "Booked under {staff} · this record saves under {you}"
+    "otherStaffBooking": "Booked under {staff} · this record saves under {you}",
+    "recoverTitle": "You have an unsaved recording.",
+    "recoverAction": "Restore",
+    "recoverDiscard": "Discard"
   },
   "customers": {
     "title": "Customers",

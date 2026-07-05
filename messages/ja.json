@@ -568,7 +568,10 @@
       "body": "セッション中に次の回数券のお話を。録音終了後に結果（購入した／案内した）を記録できます。",
       "bodyLast": "本日が最後の1回です。セッション中に必ず次の回数券のご案内を — 録音終了後に結果を記録できます。"
     },
-    "otherStaffBooking": "{staff}さんの予約のお客様 — この記録は {you} さんの担当として保存されます"
+    "otherStaffBooking": "{staff}さんの予約のお客様 — この記録は {you} さんの担当として保存されます",
+    "recoverTitle": "保存されていない録音があります。",
+    "recoverAction": "復元する",
+    "recoverDiscard": "破棄"
   },
   "customers": {
     "title": "顧客",
