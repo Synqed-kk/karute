@@ -47,9 +47,14 @@ function Toggle({
         checked ? 'bg-emerald-500' : 'bg-muted-foreground/30'
       }`}
     >
+      {/* Knob is ANCHORED (left/right), not translated from its static
+       *  position — an un-anchored absolute child starts from the button's
+       *  centered text position on iOS WebKit, which pushed the knob half
+       *  outside the pill (Liam's phone, 2026-07-05). Same pattern as the
+       *  PostSessionResolutionDialog switch. */}
       <span
-        className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-          checked ? 'translate-x-[22px]' : 'translate-x-0.5'
+        className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${
+          checked ? 'right-0.5' : 'left-0.5'
         }`}
       />
     </button>
