@@ -94,6 +94,41 @@ export async function updatePackStatus(
   }
 }
 
+/** The customer's appointment on `dateYmd` (JST calendar day) to link a
+ *  redemption to when the caller didn't supply one — same customer_id +
+ *  JST-day window as getAppointmentsByDate/reconcile.ts, but scoped to the one
+ *  customer server-side so it's a single small page and immune to the agenda's
+ *  active-store view filter (a profile burn isn't store-scoped). Cancelled
+ *  bookings never match — mirrors getAppointmentsByDate. Multiple same-day
+ *  bookings: pick the one closest to now (the next upcoming), else — if every
+ *  booking that day has already passed — the day's first. null when there's no
+ *  booking that day — a valid walk-in, not an error. */
+export async function findCustomerAppointmentForDate(
+  customerId: string,
+  dateYmd: string,
+): Promise<string | null> {
+  try {
+    const synqed = await getSynqedClient()
+    const dayStartUTC = new Date(`${dateYmd}T00:00:00+09:00`)
+    const dayEndUTC = new Date(`${dateYmd}T23:59:59.999+09:00`)
+    const { appointments } = await synqed.appointments.list({
+      customer_id: customerId,
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 200,
+    })
+    const candidates = appointments
+      .filter((a) => a.status !== 'CANCELLED')
+      .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
+    if (candidates.length === 0) return null
+    const nowIso = new Date().toISOString()
+    return (candidates.find((a) => a.starts_at >= nowIso) ?? candidates[0]).id
+  } catch (err) {
+    warn('findCustomerAppointmentForDate', err)
+    return null
+  }
+}
+
 export interface AddRedemptionInput {
   packId: string
   customerId: string
@@ -123,8 +158,24 @@ export async function addRedemption(
     return { ok: true, id }
   } catch (err) {
     warn('addRedemption', err)
+    // Stable discriminator, NOT a user-facing string: every burn caller toasts
+    // an i18n key (never res.error, which carries English internals), so it
+    // branches on this to show the 残回数ゼロ message vs the generic failure.
+    if (isBelowZeroGuardError(err)) {
+      return { ok: false, error: 'below_zero' }
+    }
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
   }
+}
+
+/** trg_pack_below_zero (Postgres check_violation, SQLSTATE 23514) fires when a
+ *  redemption would take a pack below zero remaining sessions. core surfaces it
+ *  as a SynqedError whose message carries the raw Postgres text — there's no
+ *  structured error code on this HTTP boundary, so match on the code/constraint
+ *  name in the message instead. */
+function isBelowZeroGuardError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return message.includes('23514') || message.includes('trg_pack_below_zero')
 }
 
 export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {

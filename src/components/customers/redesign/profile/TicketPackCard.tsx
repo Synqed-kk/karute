@@ -192,7 +192,7 @@ function PackRow({
       toast.success(t('redeemDone'))
       router.refresh()
     } else {
-      toast.error(t('redeemFailed'))
+      toast.error(t(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
     }
   }
 

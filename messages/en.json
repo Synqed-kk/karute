@@ -748,6 +748,7 @@
         "redeemConfirm": "Record",
         "redeemDone": "Session recorded",
         "redeemFailed": "Could not record",
+        "redeemNoSessionsLeft": "No sessions left to redeem",
         "cancel": "Cancel",
         "lowRemaining": "Almost out — bring up the next pack at their next visit",
         "lifecycleLabel": "Status",
@@ -1690,6 +1691,7 @@
       "redeemed": "Redeemed for {date}",
       "undo": "Undo",
       "redeemFailed": "Could not redeem",
+      "redeemNoSessionsLeft": "No sessions left to redeem",
       "dismissed": "Recorded as no-visit",
       "dismissFailed": "Could not record",
       "more": "{n} more (shown as these are processed)"

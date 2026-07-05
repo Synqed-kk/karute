@@ -748,6 +748,7 @@
         "redeemConfirm": "記録する",
         "redeemDone": "消化を記録しました",
         "redeemFailed": "記録できませんでした",
+        "redeemNoSessionsLeft": "残回数がないため消化できません",
         "cancel": "キャンセル",
         "lowRemaining": "残りわずか — 次回ご来店時に次の回数券のご案内を",
         "lifecycleLabel": "ステータス",
@@ -1690,6 +1691,7 @@
       "redeemed": "{date}の分を消化しました",
       "undo": "取り消す",
       "redeemFailed": "消化できませんでした",
+      "redeemNoSessionsLeft": "残回数がないため消化できません",
       "dismissed": "来店なしとして記録しました",
       "dismissFailed": "記録できませんでした",
       "more": "他{n}件（処理すると順に表示されます）"

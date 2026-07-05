@@ -389,7 +389,7 @@ export function RecordPageView({
               : undefined,
           )
         } else {
-          toast.error(tPacks('redeemFailed'))
+          toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
         }
       })
     }
@@ -703,7 +703,7 @@ export function RecordPageView({
               appointmentId: boundAppointmentId ?? null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
-              else toast.error(tPacks('redeemFailed'))
+              else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
             })
           }
           // 購入した → close the loop: the NEW pack must be registered, or the
