@@ -29,6 +29,9 @@ export type KaruteDraft = {
   entries: KaruteDraftEntry[]
   duration?: number
   appointmentId?: string
+  /** The booked customer, when the session was tied to an appointment — lets a
+   *  recovered draft skip re-selecting the customer. Absent for walk-ins. */
+  appointmentCustomerId?: string
   /** Unix timestamp (ms) when the draft was saved */
   savedAt: number
 }

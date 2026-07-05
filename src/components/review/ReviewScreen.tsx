@@ -10,6 +10,7 @@ import { Entry, EntrySchema, ENTRY_CATEGORIES } from '@/types/ai'
 import { EntryCard } from './EntryCard'
 import { ReviewHeader } from './ReviewHeader'
 import { saveKaruteRecord } from '@/actions/karute'
+import { saveDraft, clearDraft } from '@/lib/karute/draft'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -56,6 +57,28 @@ export function ReviewScreen({
   )
   const [suggestions, setSuggestions] = useState<{ text: string; type: string }[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+
+  // Persist a recovery draft the moment the AI result is on screen. The audio is
+  // already deleted by now, so this transcript is the ONLY copy — if the WebView
+  // backgrounds and is killed, or the tab reloads, the in-memory pipeline is gone
+  // and this sessionStorage draft is what RecordPageView restores from. Cleared on
+  // successful save. Keyed on transcript so it re-saves if the take changes.
+  useEffect(() => {
+    if (!transcript) return
+    saveDraft({
+      transcript,
+      summary,
+      entries: entries.map((e) => ({
+        category: e.category,
+        content: e.title,
+        sourceQuote: e.source_quote,
+        confidenceScore: e.confidence_score,
+      })),
+      duration,
+      appointmentId,
+      appointmentCustomerId,
+    })
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
@@ -134,9 +157,11 @@ export function ReviewScreen({
       // On success, saveKaruteRecord redirects
     } catch (err) {
       if (err instanceof Error && err.message.includes('NEXT_REDIRECT')) {
-        // Success: saveKaruteRecord redirects by throwing NEXT_REDIRECT. Clear
-        // the background pipeline first so the top-corner chip doesn't linger
-        // after we navigate to the saved karute, then re-throw to let Next route.
+        // Success: saveKaruteRecord redirects by throwing NEXT_REDIRECT. The
+        // record is now persisted, so drop the recovery draft, clear the
+        // background pipeline (so the top-corner chip doesn't linger after we
+        // navigate to the saved karute), then re-throw to let Next route.
+        clearDraft()
         onSaved()
         throw err
       }
