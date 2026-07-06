@@ -167,10 +167,19 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
               role="button"
               aria-label={t('holdLabel')}
             >
-              <div
-                className="absolute inset-y-0 left-1/2 -translate-x-1/2 bg-red-500"
-                style={{ width: `${progress * 100}%` }}
-              />
+              {/* The fill is itself a rounded CAPSULE growing from the center
+               *  (Liam's progression spec) — fully rounded ends, no glow, not a
+               *  hard-edged wipe. min-width from the first frame so it emerges
+               *  as a dot-capsule, never a sliver. */}
+              {progress > 0 && (
+                <div
+                  className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-red-500"
+                  style={{
+                    width: `max(${progress * 100}%, 44px)`,
+                    height: 44,
+                  }}
+                />
+              )}
               <div
                 className={cn(
                   'pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm font-semibold',
