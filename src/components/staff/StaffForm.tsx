@@ -161,10 +161,18 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   async function onSubmit(data: StaffProfileInput) {
     try {
       if (mode === 'create') {
-        await createStaff(data)
+        const res = await createStaff(data)
+        if (res?.error) {
+          toast.error(res.error)
+          return
+        }
         toast.success(ts('staffAdded'))
       } else if (mode === 'edit' && staff) {
-        await updateStaff(staff.id, data)
+        const res = await updateStaff(staff.id, data)
+        if (res?.error) {
+          toast.error(res.error) // clean, translated message (never the prod digest)
+          return
+        }
         if (permsState === 'ready') {
           const res = await setStaffPermissions(staff.id, role, [...caps])
           if ('error' in res) {

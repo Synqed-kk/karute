@@ -11,11 +11,12 @@
  *   - treats a null lookup (profile with no synqed record) as already-gone:
  *     no delete call, no create, clean success,
  *   - passes a synqed-only id (no matching profile row) through unchanged,
- *   - preserves the 400 guard (last-member / attributed-records) as a thrown
- *     message the client toasts,
+ *   - preserves the 400 guard (last-member / attributed-records) as a RETURNED
+ *     { error } message the client toasts (no longer thrown — a thrown Server
+ *     Action message is stripped to a digest in production),
  *   - treats a 404 as already-gone (revalidate + resolve, never crash),
- *   - rethrows other SDK errors untouched,
- *   - still enforces requireCapability('staff.manage').
+ *   - turns other SDK errors into the generic translated fallback (never raw),
+ *   - denies without staff.manage as a clean { error }, never touching core.
  *
  * Collaborators are mocked directly (mirrors save-flow-staff-attribution's
  * "mock the deps, drive the action" style) so the test pins deleteStaff's own
@@ -45,9 +46,17 @@ jest.mock('next/cache', () => ({
   updateTag: jest.fn(),
 }))
 
+// Action error strings are translated via getTranslations; the mock echoes the
+// key so assertions read 'noPermission' / 'somethingWentWrong'.
+jest.mock('next-intl/server', () => ({
+  getTranslations: async () => (key: string) => key,
+}))
+
 const requireCapability = jest.fn(async (_cap: string) => {})
+const can = jest.fn(async (_cap: string) => true)
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: (cap: string) => requireCapability(cap),
+  can: (cap: string) => can(cap),
 }))
 
 const lookupSynqedStaffId = jest.fn(
@@ -87,6 +96,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   profileRow = null
   requireCapability.mockImplementation(async () => {})
+  can.mockImplementation(async () => true)
   lookupSynqedStaffId.mockImplementation(async () => 'synqed-resolved')
   staffDelete.mockImplementation(async () => {})
 })
@@ -119,16 +129,16 @@ describe('deleteStaff — id resolution', () => {
 })
 
 describe('deleteStaff — error handling', () => {
-  it('rethrows a 400 guard as a plain Error message the client toasts', async () => {
+  it('RETURNS a 400 guard message (last-member / attributed-records) for the toast', async () => {
     staffDelete.mockRejectedValue(
       new SynqedError(400, 'Cannot delete the last staff member.'),
     )
-    await expect(deleteStaff('synqed-abc')).rejects.toThrow(
-      'Cannot delete the last staff member.',
-    )
+    await expect(deleteStaff('synqed-abc')).resolves.toEqual({
+      error: 'Cannot delete the last staff member.',
+    })
   })
 
-  it('treats a 404 as already-gone: no throw, roster revalidated', async () => {
+  it('treats a 404 as already-gone: clean success, roster revalidated', async () => {
     const { revalidatePath, updateTag } = jest.requireMock('next/cache')
     staffDelete.mockRejectedValue(new SynqedError(404, 'Staff not found'))
     await expect(deleteStaff('synqed-abc')).resolves.toBeUndefined()
@@ -137,19 +147,20 @@ describe('deleteStaff — error handling', () => {
     expect(updateTag).toHaveBeenCalledWith('staff-list')
   })
 
-  it('rethrows other SDK errors (e.g. 500) untouched', async () => {
-    const boom = new SynqedError(500, 'Internal error')
-    staffDelete.mockRejectedValue(boom)
-    await expect(deleteStaff('synqed-abc')).rejects.toBe(boom)
+  it('turns other SDK errors (e.g. 500) into the generic translated fallback — never raw', async () => {
+    staffDelete.mockRejectedValue(new SynqedError(500, 'Internal error'))
+    await expect(deleteStaff('synqed-abc')).resolves.toEqual({
+      error: 'somethingWentWrong',
+    })
   })
 })
 
 describe('deleteStaff — authorization', () => {
-  it('enforces the staff.manage capability and never deletes when it throws', async () => {
-    requireCapability.mockRejectedValue(
-      new Error('You do not have permission to perform this action.'),
-    )
-    await expect(deleteStaff('synqed-abc')).rejects.toThrow(/permission/)
+  it('denies without staff.manage as a clean { error }, never touching core', async () => {
+    can.mockResolvedValue(false)
+    await expect(deleteStaff('synqed-abc')).resolves.toEqual({
+      error: 'noPermission',
+    })
     expect(staffDelete).not.toHaveBeenCalled()
   })
 })

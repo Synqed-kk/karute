@@ -144,8 +144,11 @@ export function StaffList({
     )
     if (!confirmed) return
     try {
-      await deleteStaff(staff.id)
+      const res = await deleteStaff(staff.id)
+      if (res?.error) toast.error(res.error) // translated (permission / last-member guard)
     } catch (err) {
+      // deleteStaff no longer throws for user-facing failures; this catches a
+      // transport-level rejection only.
       toast.error(err instanceof Error ? err.message : tStaff('failedToDelete'))
     }
   }
