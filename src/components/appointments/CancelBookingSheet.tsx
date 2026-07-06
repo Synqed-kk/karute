@@ -154,9 +154,12 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
             <p className="mb-1 mt-3 text-sm font-medium">{t('title')}</p>
             <p className="mb-4 text-xs leading-relaxed text-muted-foreground">{t('ticketNote')}</p>
 
+            {/* 案C (Liam, 2026-07-06): soft red tint — solid enough to read as
+             *  a button on the white sheet, calm enough not to shout; the
+             *  bright fill keeps maximum contrast against it. */}
             <div
               className={cn(
-                'relative h-13 select-none overflow-hidden rounded-full border border-red-200 bg-red-50 transition-all dark:border-red-500/30 dark:bg-red-500/10',
+                'relative h-13 select-none overflow-hidden rounded-full border border-red-300 bg-red-100 transition-all dark:border-red-500/40 dark:bg-red-500/15',
                 burst && 'scale-[0.15] opacity-0 duration-300 ease-in',
               )}
               style={{ height: 52, touchAction: 'none' }}
@@ -181,7 +184,7 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
               <div
                 className={cn(
                   'pointer-events-none absolute inset-0 flex items-center justify-center gap-2 text-sm font-semibold',
-                  progress > 0.45 ? 'text-white' : 'text-red-600 dark:text-red-300',
+                  progress > 0.45 ? 'text-white' : 'text-red-700 dark:text-red-300',
                 )}
               >
                 <Ban className="size-4" />
