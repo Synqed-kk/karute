@@ -2195,7 +2195,9 @@
     "nextTreatment": "次回施術",
     "followUp": "フォローアップ",
     "talkingPoint": "話題",
-    "general": "一般"
+    "general": "一般",
+    "loadFailed": "おすすめアクションを読み込めませんでした。",
+    "retry": "再試行"
   },
   "dataImport": {
     "title": "データインポート",
@@ -2503,7 +2505,10 @@
     "noAiHistoryYet": "AI履歴がまだありません",
     "aiSummariesAppearAfterSessions": "セッション録音後にAIサマリーがここに表示されます",
     "aiSummary": "AIサマリー",
-    "noAdviceGenerated": "アドバイスは生成されていません"
+    "noAdviceGenerated": "アドバイスは生成されていません",
+    "adviceLoadFailed": "アドバイスを読み込めませんでした。",
+    "notesSaveFailed": "メモを保存できませんでした。もう一度お試しください。",
+    "retry": "再試行"
   },
   "localeToggle": {
     "switchToJapanese": "日本語に切り替え",

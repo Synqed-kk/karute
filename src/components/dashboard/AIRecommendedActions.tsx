@@ -35,6 +35,7 @@ export function AIRecommendedActions({ locale }: { locale: string }) {
 
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(false)
+  const [failed, setFailed] = useState(false)
   const [dismissed, setDismissed] = useState<Set<number>>(new Set())
 
   const cacheKey = `ai_insights_${locale}`
@@ -54,12 +55,14 @@ export function AIRecommendedActions({ locale }: { locale: string }) {
     } catch {}
 
     setLoading(true)
+    setFailed(false)
     try {
       const res = await fetch('/api/ai/insights', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ locale }),
       })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const data = await res.json()
       const newInsights = data.insights ?? []
       setInsights(newInsights)
@@ -73,7 +76,9 @@ export function AIRecommendedActions({ locale }: { locale: string }) {
         try { localStorage.removeItem(cacheKey) } catch {}
       }
     } catch {
-      // silent
+      // Failure must stay distinguishable from "no recommendations today" —
+      // otherwise the card vanishes and staff can't tell the AI is down.
+      setFailed(true)
     } finally {
       setLoading(false)
     }
@@ -99,6 +104,26 @@ export function AIRecommendedActions({ locale }: { locale: string }) {
     )
   }
 
+  if (!loading && failed && insights.length === 0) {
+    return (
+      <div className="rounded-2xl border border-border/30 bg-card/50 p-6">
+        <div className="flex items-center gap-2 mb-2">
+          <Lightbulb className="h-4 w-4 text-amber-500" />
+          <h3 className="text-sm font-semibold">{t('title')}</h3>
+        </div>
+        <p className="text-sm text-muted-foreground">{t('loadFailed')}</p>
+        <button
+          type="button"
+          onClick={() => fetchInsights()}
+          className="mt-3 inline-flex h-8 items-center justify-center rounded-lg border border-border bg-background px-3 text-xs font-semibold text-foreground transition-colors hover:bg-muted"
+        >
+          {t('retry')}
+        </button>
+      </div>
+    )
+  }
+
+  // Success with zero insights stays hidden on purpose — an empty card is noise.
   if (!loading && insights.length === 0) return null
 
   return (

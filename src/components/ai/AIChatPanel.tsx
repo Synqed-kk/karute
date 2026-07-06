@@ -44,6 +44,9 @@ export function AIChatPanel({ locale, onClose }: AIChatPanelProps) {
         body: JSON.stringify({ message: userMsg.content, locale, history: messages }),
       })
       const data = await res.json()
+      // A non-ok status or missing reply used to render an EMPTY bubble —
+      // route both through the visible error message instead.
+      if (!res.ok || typeof data.reply !== 'string') throw new Error(`HTTP ${res.status}`)
       setMessages((prev) => [...prev, { role: 'assistant', content: data.reply }])
     } catch {
       setMessages((prev) => [...prev, { role: 'assistant', content: t('error') }])
