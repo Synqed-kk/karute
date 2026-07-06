@@ -65,7 +65,9 @@ export function ReviewScreen({
   // successful save. Keyed on transcript so it re-saves if the take changes.
   useEffect(() => {
     if (!transcript) return
-    saveDraft({
+    // Fire-and-forget: saveDraft is async now (it stamps the signed-in user id
+    // so only that staff member can recover the draft — see lib/karute/draft).
+    void saveDraft({
       transcript,
       summary,
       entries: entries.map((e) => ({

@@ -41,6 +41,7 @@ import {
 } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
+import { clearDraft } from '@/lib/karute/draft'
 
 export interface ProfilePageProfile {
   name: string
@@ -83,6 +84,8 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
   async function handleSignOut() {
     setSigningOut(true)
     try {
+      // Wipe the recovery vault first — shared-device privacy (see sidebar).
+      clearDraft()
       const supabase = createClient()
       await supabase.auth.signOut()
       // Locale-prefixed: this page uses next/navigation's router (the language
