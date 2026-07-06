@@ -10,6 +10,7 @@ import {
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -126,19 +127,22 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
   const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
 
   try {
-    // View filter: scope the agenda to the active store. null (no store picked)
-    // → no store predicate = all stores. synqed-core always applies the business
-    // scope regardless; this store filter is additive, never a replacement.
-    // Independent reads → parallel.
-    const [synqed, activeStore] = await Promise.all([
+    // Store filter: resolveStoreScope, NOT the raw active-store cookie. For a
+    // branch-restricted staff (no stores.viewAll) scope.storeId is ALWAYS one of
+    // their assigned stores — the raw cookie is absent on a fresh login, and
+    // `store_id: undefined` meant "every store's bookings", which is exactly the
+    // cross-store leak the Apple-review account exposed. For cross-store viewers
+    // scope.storeId IS the cookie, so their behavior is unchanged. synqed-core
+    // always applies the business scope regardless; this filter is additive.
+    const [synqed, scope] = await Promise.all([
       getSynqedClient(),
-      getActiveStoreId(),
+      resolveStoreScope(),
     ])
     const list = await synqed.appointments.list({
       from: dayStartUTC.toISOString(),
       to: dayEndUTC.toISOString(),
       page_size: 200,
-      store_id: activeStore ?? undefined,
+      store_id: scope.storeId ?? undefined,
     })
 
     // Customer names come from the already-cached tenant customer list (60s
@@ -210,12 +214,20 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
  */
 export async function getAppointmentById(id: string): Promise<AppointmentRow | null> {
   try {
-    const synqed = await getSynqedClient()
+    const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
     const a = await synqed.appointments.get(id)
     if (!a) return null
     // A cancelled booking must never resolve as a recording target (the record
     // page falls back to the next candidate instead). Mirrors the by-date hide.
     if (a.status === 'CANCELLED') return null
+    // Store clamp: the list reads are store-filtered, but this per-id read would
+    // otherwise let a branch-restricted staff resolve ANY booking by deep link.
+    // Fail closed on a storeless row (a handful of pre-repair imports have no
+    // store) — hidden for clamped staff, still visible in cross-store views.
+    if (scope.allowedStoreIds) {
+      const rowStore = (a as { store_id?: string | null }).store_id ?? null
+      if (!rowStore || !scope.allowedStoreIds.includes(rowStore)) return null
+    }
 
     const [cachedCustomers, staffList] = await Promise.all([
       getCachedCustomerList(),
@@ -253,17 +265,18 @@ export async function getAppointmentsInRange(
   toIso: string,
 ): Promise<Appointment[]> {
   try {
-    // Same active-store view filter as the day agenda, so week/month overview
-    // counts match the selected store. null = all stores. Independent → parallel.
-    const [synqed, activeStore] = await Promise.all([
+    // Same store scoping as the day agenda (see getAppointmentsByDate): the
+    // RBAC-resolved store, not the raw cookie, so week/month overview counts
+    // can never include another branch for a store-restricted staff.
+    const [synqed, scope] = await Promise.all([
       getSynqedClient(),
-      getActiveStoreId(),
+      resolveStoreScope(),
     ])
     const list = await synqed.appointments.list({
       from: fromIso,
       to: toIso,
       page_size: 500,
-      store_id: activeStore ?? undefined,
+      store_id: scope.storeId ?? undefined,
     })
     return list.appointments
   } catch {
