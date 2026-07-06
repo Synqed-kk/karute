@@ -42,7 +42,7 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ appointments: { update: apptUpdate } })),
 }))
 
-import { cancelAppointment } from '@/actions/appointments'
+import { cancelAppointment, restoreAppointment } from '@/actions/appointments'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -69,5 +69,21 @@ describe('cancelAppointment', () => {
     const res = await cancelAppointment('appt-1')
     expect(apptUpdate).not.toHaveBeenCalled()
     expect(res).toEqual({ error: 'You do not have permission to manage bookings.' })
+  })
+})
+
+describe('restoreAppointment (undo)', () => {
+  it('requires bookings.manage and sets status back to SCHEDULED', async () => {
+    const res = await restoreAppointment('appt-1')
+    expect(requireCapability).toHaveBeenCalledWith('bookings.manage')
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', { status: 'SCHEDULED' })
+    expect(res).toEqual({ success: true })
+  })
+
+  it('denies cleanly without touching the booking', async () => {
+    requireCapability.mockRejectedValueOnce(new Error('Not allowed'))
+    const res = await restoreAppointment('appt-1')
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(res).toEqual({ error: 'Not allowed' })
   })
 })

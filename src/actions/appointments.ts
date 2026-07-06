@@ -117,7 +117,18 @@ export async function createAppointment(input: AppointmentInput) {
   }
 }
 
-export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: number = 540): Promise<AppointmentRow[]> {
+export async function getAppointmentsByDate(
+  dateStr: string,
+  _tzOffsetMinutes: number = 540,
+  opts?: {
+    /** Include CANCELLED rows (rendered greyed on the 予約 agenda). Default
+     *  false ON PURPOSE: every other consumer — the /sessions recording-target
+     *  picker, dashboard today-list, notifications, pack reconcile — relies on
+     *  cancelled bookings being invisible so one can never become a recording
+     *  target or a reconcile candidate. Only the agenda opts in. */
+    includeCancelled?: boolean
+  },
+): Promise<AppointmentRow[]> {
   // dateStr is a JST calendar day (YYYY-MM-DD). Frame the fetch window as
   // JST midnight → next-day JST midnight by appending the +09:00 offset
   // directly; the runtime then converts to the correct UTC instants for
@@ -173,13 +184,13 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
     )
 
     return list.appointments
-      // Hide cancelled bookings — the QR sync marks a reservation CANCELLED when
-      // it's removed/cancelled upstream ("just don't show it"). This feeds BOTH
-      // the 予約 agenda AND the /sessions recording-target picker, so a cancelled
-      // slot can never be auto-selected as a recording target. (The week-overview
-      // count uses getAppointmentsInRange, which applies the same store view
-      // filter but intentionally keeps CANCELLED rows in its totals.)
-      .filter((a) => a.status !== 'CANCELLED')
+      // Cancelled bookings are hidden by DEFAULT — the QR sync marks a
+      // reservation CANCELLED when it vanishes upstream, and this list feeds
+      // the /sessions recording-target picker, so a cancelled slot must never
+      // be auto-selected as a recording target. The 予約 agenda alone passes
+      // includeCancelled to render them as thin greyed キャンセル済み rows in
+      // their original time slot (the freed slot stays visible to staff).
+      .filter((a) => (opts?.includeCancelled ? true : a.status !== 'CANCELLED'))
       .map((a) => ({
         id: a.id,
         staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
@@ -359,6 +370,29 @@ export async function cancelAppointment(
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
     await synqed.appointments.update(appointmentId, { status: 'CANCELLED' })
+    revalidatePath('/appointments')
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Un-cancels a booking (status → SCHEDULED) — the one-tap exit for a staff
+ * mis-cancel, offered from the greyed キャンセル済み row's sheet. Safe by
+ * construction: ticket-neutral both ways, and restoring a booking the customer
+ * REALLY cancelled upstream self-heals — the next QR crawl marks it CANCELLED
+ * again (markOrphanedCancelled), so a wrong undo survives at most one sync.
+ */
+export async function restoreAppointment(
+  appointmentId: string,
+): Promise<{ success: true } | { error: string }> {
+  try {
+    await requireCapability('bookings.manage')
+    const synqed = await getSynqedClient()
+    await synqed.appointments.update(appointmentId, { status: 'SCHEDULED' })
     revalidatePath('/appointments')
     revalidatePath('/dashboard')
     updateTag('dashboard')
