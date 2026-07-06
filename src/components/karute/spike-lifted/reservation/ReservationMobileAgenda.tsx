@@ -28,6 +28,7 @@ import { useTranslations } from 'next-intl'
 import { useEffect, useState } from 'react'
 import { Radio } from 'lucide-react'
 import { PackPill } from '@/components/reservation/AppointmentCard'
+import { useLongPress } from '@/hooks/use-long-press'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
 import { getStaffColorByKey } from '@/lib/staff-colors'
@@ -42,6 +43,15 @@ const SHOW_MIDDAY_BAR = false
 interface Props {
   reservations: ReservationView[]
   onSelect?: (view: ReservationView) => void
+  /** Long-press (450ms) on an ACTIVE row — opens the staff cancel sheet. A
+   *  gesture rather than an action-sheet row because the shared
+   *  BookingActionSheet (@synqed-kk/ui) has no extra-action slot yet; a menu
+   *  entry joins once it does. */
+  onLongPress?: (view: ReservationView) => void
+  /** Tap on a greyed キャンセル済み row — opens the cancelled sheet (details +
+   *  元に戻す). Separate from onSelect so a cancelled slot can never open the
+   *  record/karute action sheet. */
+  onSelectCancelled?: (view: ReservationView) => void
   /** JST yyyy-mm-dd of the day being viewed — the timeline's live elements
    *  (now-line/次/sticky bar) render only when it equals the client's today. */
   selectedDateYmd?: string
@@ -90,6 +100,8 @@ const STATUS_VISUALS: Record<DisplayStatus, StatusVisuals> = {
 export function ReservationMobileAgenda({
   reservations,
   onSelect,
+  onLongPress,
+  onSelectCancelled,
   selectedDateYmd,
 }: Props) {
   const t = useTranslations('reservation')
@@ -162,6 +174,8 @@ export function ReservationMobileAgenda({
               <AgendaRow
                 reservation={r}
                 onSelect={onSelect}
+                onLongPress={onLongPress}
+                onSelectCancelled={onSelectCancelled}
                 isNext={next?.id === r.id}
               />
             </div>
@@ -201,10 +215,14 @@ export function ReservationMobileAgenda({
 function AgendaRow({
   reservation: r,
   onSelect,
+  onLongPress,
+  onSelectCancelled,
   isNext = false,
 }: {
   reservation: ReservationView
   onSelect?: (view: ReservationView) => void
+  onLongPress?: (view: ReservationView) => void
+  onSelectCancelled?: (view: ReservationView) => void
   isNext?: boolean
 }) {
   const t = useTranslations('reservation.card')
@@ -215,10 +233,50 @@ function AgendaRow({
   const honorific = t('customerSuffix')
   const interactive = !!onSelect
   const staff = getStaffColorByKey(r.staffColorKey)
+  // Press-and-hold on an ACTIVE row = cancel. The hook separates hold from
+  // tap, so a regular tap still opens the action sheet; hooks run
+  // unconditionally, gating happens where the handlers are spread.
+  const holdHandlers = useLongPress({
+    onLongPress: () => onLongPress?.(r),
+    onShortTap: () => onSelect?.(r),
+  })
   // Past rows collapse to a single line (timeline density) — first tap
   // expands to the full card; the expanded card's tap opens the action sheet
   // as before. Liam's keeps: the stripe AND the avatar survive even here.
   const [expanded, setExpanded] = useState(false)
+
+  if (r.isCancelled) {
+    // キャンセル済み tombstone — thin, greyed, strikethrough, in its original
+    // slot so staff see the opening. Same rendering whether QuickReserve
+    // auto-cancelled it or staff hold-cancelled it (one rule). Tap opens the
+    // cancelled sheet (details + 元に戻す) — never the record action sheet.
+    return (
+      <button
+        type="button"
+        onClick={() => onSelectCancelled?.(r)}
+        disabled={!onSelectCancelled}
+        className="relative flex w-full items-center gap-2.5 px-4 py-2 text-left opacity-55 transition-opacity active:opacity-80"
+      >
+        <span
+          className="w-12 shrink-0 text-[13px] font-semibold tabular-nums text-muted-foreground line-through"
+        >
+          {r.startTimeHm}
+        </span>
+        <span className="min-w-0 truncate text-[13px] text-muted-foreground line-through">
+          {r.customerName}
+          {honorific && <span className="ml-0.5 text-[11px]">{honorific}</span>}
+        </span>
+        {r.karuteNumber && (
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground/80">
+            {r.karuteNumber}
+          </span>
+        )}
+        <span className="ml-auto inline-flex h-5 shrink-0 items-center rounded-full border border-border/70 px-2 text-[10px] font-medium text-muted-foreground">
+          {t('cancelled')}
+        </span>
+      </button>
+    )
+  }
 
   if (isCompleted && !expanded) {
     const showUnrecorded = !r.isCancelled && !r.karuteRecordId
@@ -402,8 +460,17 @@ function AgendaRow({
   }`
 
   if (interactive) {
+    // No onClick: the hold hook's onShortTap carries the tap (and swallows the
+    // click that trails a completed hold). touch-action pan-y keeps vertical
+    // scrolling native — a scroll fires pointercancel and aborts the hold.
     return (
-      <button type="button" onClick={() => onSelect?.(r)} className={`${rowClass} w-full`}>
+      <button
+        type="button"
+        {...holdHandlers}
+        onContextMenu={(e) => e.preventDefault()}
+        style={{ touchAction: 'pan-y' }}
+        className={`${rowClass} w-full`}
+      >
         {content}
       </button>
     )

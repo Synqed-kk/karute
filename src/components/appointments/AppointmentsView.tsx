@@ -31,6 +31,7 @@ import {
 import { ReservationTotals } from '@/components/reservation/ReservationTotals'
 import { NewBookingDialog } from '@/components/appointments/NewBookingDialog'
 import { BookingActionSheetWrapper } from '@/components/appointments/BookingActionSheetWrapper'
+import { CancelBookingSheet } from '@/components/appointments/CancelBookingSheet'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
@@ -87,6 +88,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
   const [isPending, startTransition] = useTransition()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [selected, setSelected] = useState<ReservationView | null>(null)
+  // Staff cancel flow: long-press an active row → confirm (hold-pill) sheet;
+  // tap a greyed キャンセル済み row → cancelled sheet with 元に戻す.
+  const [cancelTarget, setCancelTarget] = useState<{
+    view: ReservationView
+    mode: 'confirm' | 'cancelled'
+  } | null>(null)
   const [notificationsOpen, setNotificationsOpen] = useState(false)
   const unreadCount = useUnreadCount()
   // Hide the bell while recording (same posture as RecordPageHeader)
@@ -382,9 +389,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         {view === 'day' ? (
           <>
             <div className="hidden md:block">
+              {/* Desktop grid keeps cancelled rows hidden for now — a greyed
+               *  grid-block treatment is a follow-up; phones are the staff
+               *  device. The mobile agenda below renders them as tombstones. */}
               <ReservationGrid
                 staff={props.reservationStaff}
-                reservations={props.reservationViews}
+                reservations={props.reservationViews.filter((r) => !r.isCancelled)}
                 businessHours={props.businessHours}
                 onSelect={setSelected}
               />
@@ -394,9 +404,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 selectedDateYmd={ymdInJst(selectedDate)}
                 reservations={props.reservationViews}
                 onSelect={setSelected}
+                onLongPress={(v) => setCancelTarget({ view: v, mode: 'confirm' })}
+                onSelectCancelled={(v) => setCancelTarget({ view: v, mode: 'cancelled' })}
               />
             </div>
-            <ReservationTotals reservations={props.reservationViews} />
+            <ReservationTotals
+              reservations={props.reservationViews.filter((r) => !r.isCancelled)}
+            />
           </>
         ) : view === 'week' && props.weekData && props.weekStartIso ? (
           <WeekGridSection
@@ -438,6 +452,12 @@ export function AppointmentsView(props: AppointmentsViewProps) {
       <BookingActionSheetWrapper
         selected={selected}
         onClose={() => setSelected(null)}
+      />
+
+      <CancelBookingSheet
+        booking={cancelTarget?.view ?? null}
+        mode={cancelTarget?.mode ?? 'confirm'}
+        onClose={() => setCancelTarget(null)}
       />
 
       <NotificationsPanel
