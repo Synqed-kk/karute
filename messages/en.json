@@ -51,7 +51,10 @@
     "hasAccount": "Already have an account?",
     "signinLink": "Sign in",
     "signupNoUser": "Signup did not return a user. Try again.",
-    "emailAlreadyRegistered": "This email is already registered. Please sign in instead."
+    "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+    "error_generic": "Something went wrong. Please try again.",
+    "checkEmail": "Confirmation email sent. Open the link in it to finish signing up.",
+    "confirmError": "That confirmation link is invalid or expired. Please sign up again."
   },
   "welcome": {
     "title": "Set up your store",
