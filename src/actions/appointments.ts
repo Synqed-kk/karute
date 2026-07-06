@@ -337,3 +337,33 @@ export async function updateAppointment(
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
+
+/**
+ * Cancels a booking (status → CANCELLED). Burns NO tickets — a cancellation is
+ * ticket-neutral by design; a no-show penalty burn is a separate, explicit
+ * staff choice made through the pack-redemption flow, and rides the NO_SHOW
+ * status once core adds it.
+ *
+ * Durability: for a QUICKRESERVE booking still live upstream, the 15-min crawl
+ * re-forces SCHEDULED, so a staff cancel only sticks permanently once core lets
+ * a staff-set terminal status win the sync. It DOES stick today for import /
+ * MANUAL rows that carry no reservationId — the crawl can't see them, which is
+ * exactly the class of orphaned bookings this unblocks first.
+ */
+export async function cancelAppointment(
+  appointmentId: string,
+): Promise<{ success: true } | { error: string }> {
+  try {
+    // Cancelling a booking = bookings.manage. can()-style contract: callers
+    // await without a try/catch and toast the { error } shape.
+    await requireCapability('bookings.manage')
+    const synqed = await getSynqedClient()
+    await synqed.appointments.update(appointmentId, { status: 'CANCELLED' })
+    revalidatePath('/appointments')
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
