@@ -175,7 +175,8 @@ describe('Migrated staff actions', () => {
 
       const setResult = await setStaffPin('staff-1', '4321')
       expect(setResult).toEqual({})
-      expect(staff.setPin).toHaveBeenCalledWith('staff-1', '4321')
+      // Third arg = acting staff id (#395) — the mocked caller is staff-1.
+      expect(staff.setPin).toHaveBeenCalledWith('staff-1', '4321', 'staff-1')
 
       expect(await hasStaffPin('staff-1')).toBe(true)
 
