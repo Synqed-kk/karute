@@ -112,6 +112,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Upper arms: puffiness and loss of firmness bothering her for about 6 months, worse with less exercise"',
       '(treatment): "Homecare coaching: apply moisturizing cream morning and night after bathing, 2 pumps; reapply sunscreen every 2 hours"',
     ],
+    passportFieldsJa: [
+      { key: 'skin_type', label: '肌質', hint: '普段の肌質（乾燥・脂性・混合・敏感など）。今日の肌の状態ではなく、継続的な体質として当てはまるもの' },
+      { key: 'allergy_reaction', label: 'アレルギー', hint: '特定の成分・薬剤へのアレルギーや肌トラブルの既往（パッチテスト結果・過去の赤み・かぶれなど）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態と肌への影響（外回り・デスクワーク・マスク着用など）' },
+      { key: 'chief_concern', label: '主な悩み', hint: '慢性的・繰り返し話題になる肌の悩みや目標（今日だけの症状ではない）' },
+      { key: 'maintenance_pref', label: 'メンテナンス希望', hint: '本人が話した希望来店ペース（月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'skin_type', label: 'Skin type', hint: "their everyday skin type (dry, oily, combination, sensitive) — constitution, not just today's condition" },
+      { key: 'allergy_reaction', label: 'Allergies', hint: 'known allergies or reactions to specific ingredients/products (patch-test results, past redness or breakouts)' },
+      { key: 'occupation', label: 'Occupation', hint: 'work and how it affects the skin (outdoor exposure, desk work, mask-wearing, etc.)' },
+      { key: 'chief_concern', label: 'Chief concern', hint: "chronic, recurring skin concerns or goals — not just today's symptom" },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want' },
+    ],
   },
   hair_salon: {
     roleJa: 'スタイリスト', roleEn: 'stylist',
@@ -168,6 +182,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(preference): "Parts hair 7:3, has been self-conscious about root volume for a few years, only irons the fringe in the morning"',
       '(treatment): "Color formula: level 8 ash brown, 3% developer, 25-min processing, root retouch only"',
+    ],
+    passportFieldsJa: [
+      { key: 'style_pref', label: 'スタイル・カラー', hint: '本人が普段指定するカット・カラー・パーマの好み（レングス・色味・仕上がりイメージ、「いつもの」の内容）' },
+      { key: 'allergy_reaction', label: 'アレルギー', hint: 'カラー剤・パーマ剤など施術で使う薬剤へのアレルギーやかぶれの既往（パッチテスト結果を含む）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態と、髪型・カラーへの制約（規定のある職場・汗をかく環境など）' },
+      { key: 'chief_concern', label: '髪・頭皮の悩み', hint: '慢性的・繰り返し話題になる髪や頭皮の悩み（今日だけの症状ではない）' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店周期（リタッチ・カットの間隔など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'style_pref', label: 'Style & color', hint: 'their usual cut/color/perm request (length, tone, finish) — what "the usual" means for them' },
+      { key: 'allergy_reaction', label: 'Allergies', hint: 'allergies or reactions to dye, perm solution, or other chemicals used in service (patch-test results)' },
+      { key: 'occupation', label: 'Occupation', hint: 'work and any style/color restrictions it creates (workplace dress code, sweat-heavy environment, etc.)' },
+      { key: 'chief_concern', label: 'Hair & scalp concern', hint: "chronic hair or scalp concerns — not just today's symptom" },
+      { key: 'maintenance_pref', label: 'Visit cadence', hint: 'the rebooking rhythm they said they want (retouch/cut interval)' },
     ],
   },
   nail_salon: {
@@ -226,6 +254,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(preference): "Wants 1mm shorter next time, prefers one-color over gradient"',
       '(treatment): "Soaked off old gel, applied base, shaped to almond, finished with mirror powder"',
     ],
+    passportFieldsJa: [
+      { key: 'style_pref', label: 'デザインの好み', hint: '本人が普段指定するデザイン・形・長さ・色の好み（「いつもの」の内容）' },
+      { key: 'allergy_reaction', label: 'アレルギー', hint: 'ジェル・アクリル・除光液など施術で使う薬剤へのアレルギーやかぶれの既往' },
+      { key: 'occupation', label: '職業', hint: '仕事内容と爪への影響（PC作業・水仕事・力仕事など、持ちや強度に関わるもの）' },
+      { key: 'chief_concern', label: '爪の悩み', hint: '慢性的な爪の悩みや体質（割れやすい・薄い・甘皮トラブルなど。今日だけの状態ではない）' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店周期（3週間ごとなど）' },
+    ],
+    passportFieldsEn: [
+      { key: 'style_pref', label: 'Design preference', hint: 'their usual shape, length, and color/design request — what "the usual" means for them' },
+      { key: 'allergy_reaction', label: 'Allergies', hint: 'allergies or reactions to gel, acrylic, remover, or other products used in service' },
+      { key: 'occupation', label: 'Occupation', hint: 'work and how it affects the nails (typing, wet work, manual labor) — anything affecting durability' },
+      { key: 'chief_concern', label: 'Nail concern', hint: "chronic nail issues or traits (brittle, thin, cuticle trouble) — not just today's condition" },
+      { key: 'maintenance_pref', label: 'Visit cadence', hint: 'the rebooking rhythm they said they want (e.g., every 3 weeks)' },
+    ],
   },
   eyelash_salon: {
     roleJa: 'アイリスト', roleEn: 'eyelash technician',
@@ -282,6 +324,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(preference): "Self-conscious about downward-pointing lashes, wants C curl at 9mm"',
       '(treatment): "Applied 120 extensions, C curl, 0.15mm thickness, used low-irritation glue"',
+    ],
+    passportFieldsJa: [
+      { key: 'style_pref', label: 'デザインの好み', hint: '本人が普段指定するカール・ボリューム・長さの好み（「いつもの」の内容）' },
+      { key: 'allergy_reaction', label: 'アレルギー', hint: 'グルー（接着剤）など施術で使う薬剤へのアレルギー・かぶれの既往（施術可否に関わる最優先事項）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容や生活スタイルとまつげへの影響（水仕事・汗をかく環境・メイクの濃さなど）' },
+      { key: 'chief_concern', label: 'まつげの悩み', hint: '自まつげの慢性的な状態（弱り・抜けやすさ）や持ちに関する悩み（今日だけの状態ではない）' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店周期（3週間ごとなど）' },
+    ],
+    passportFieldsEn: [
+      { key: 'style_pref', label: 'Design preference', hint: 'their usual curl, volume, and length request — what "the usual" means for them' },
+      { key: 'allergy_reaction', label: 'Allergies', hint: 'allergy or sensitivity to lash glue or other products used in service — top priority, affects whether service can proceed' },
+      { key: 'occupation', label: 'Occupation', hint: 'work or lifestyle factors affecting the lashes (wet environments, sweating, heavy makeup)' },
+      { key: 'chief_concern', label: 'Lash concern', hint: "chronic natural-lash condition (thinning, shedding) or retention issues — not just today's state" },
+      { key: 'maintenance_pref', label: 'Visit cadence', hint: 'the rebooking rhythm they said they want (e.g., every 3 weeks)' },
     ],
   },
   massage: {
@@ -340,6 +396,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Around the right shoulder blade: tightness for ~2 months, worse after long drives"',
       '(treatment): "Self-care coaching: shoulder-blade stretch 20 seconds x 3 reps, morning and night after bathing"',
     ],
+    passportFieldsJa: [
+      { key: 'pressure_pref', label: '圧・部位の好み', hint: '本人が話した圧の強さの好み（強め・弱めなど）と、重点的に施術してほしい部位' },
+      { key: 'body_caution', label: '注意事項', hint: '過去のケガ・手術・妊娠・体調など、圧のかけ方や避けるべき部位に関わる情報（継続的に配慮が必要なもの）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態と、それによる体への負担（デスクワーク・立ち仕事など）' },
+      { key: 'chief_concern', label: '主な悩み', hint: '慢性的・繰り返し話題になる体の張りや悩み（今日だけの症状ではない）' },
+      { key: 'maintenance_pref', label: 'メンテナンス希望', hint: '本人が話した希望来店ペース（月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'pressure_pref', label: 'Pressure preference', hint: 'the pressure strength they said they like (firm, gentle, etc.) and which areas they want focused on' },
+      { key: 'body_caution', label: 'Body cautions', hint: "past injuries, surgery, pregnancy, or conditions affecting pressure or areas to avoid — ongoing, not just today's state" },
+      { key: 'occupation', label: 'Occupation', hint: 'work and the physical strain it causes (desk work, standing, etc.)' },
+      { key: 'chief_concern', label: 'Chief concern', hint: "chronic tension or concerns that come up repeatedly — not just today's symptom" },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want' },
+    ],
   },
   chiropractic: {
     roleJa: 'カイロプラクター', roleEn: 'chiropractor',
@@ -394,6 +464,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Right lower back: pain on forward bending since ~2 months ago, worse after long drives"',
       '(treatment): "Self-care coaching: pelvic-tilt stretch, 3x/day × 30 seconds, no bouncing"',
+    ],
+    passportFieldsJa: [
+      { key: 'contraindications', label: '既往歴・注意', hint: '外傷・手術歴・体内の金属・可動制限・服薬・アレルギーなど施術安全に関わるお客様本人の情報' },
+      { key: 'chief_concern', label: '主な悩み', hint: '慢性的・繰り返し話題になる悩み（今日だけの症状ではない）' },
+      { key: 'constitution', label: '姿勢の癖', hint: '繰り返し確認される姿勢・骨格の傾向（猫背・反り腰・デスクワークによる張りなど）' },
+      { key: 'intensity_pref', label: '強さの好み', hint: '施術の強め/弱めの好み、痛がった・響いた部位、もみ返しの傾向' },
+      { key: 'maintenance_pref', label: 'メンテナンス希望', hint: '本人が話した希望来店ペース（週1・月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'contraindications', label: 'History & cautions', hint: "injuries, surgeries, implanted metal, movement limits, medication, allergies — the customer's own facts, never staff talk" },
+      { key: 'chief_concern', label: 'Chief concern', hint: "chronic, recurring concerns — not just today's symptom" },
+      { key: 'constitution', label: 'Postural tendency', hint: 'recurring postural or structural pattern (rounded back, pelvic tilt, desk-work tension) seen across visits' },
+      { key: 'intensity_pref', label: 'Pressure preference', hint: 'strong/gentle adjustment preference, spots that hurt or responded, tendency toward soreness after' },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want' },
     ],
   },
   beauty_chiropractic: {
@@ -517,6 +601,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Chronic headaches: 2–3x/week for ~3 months, worse when cold"',
       '(treatment): "Needled Baihui and Hegu for 15 min, added 3 moxa cones at Zusanli, no heaviness afterward"',
     ],
+    passportFieldsJa: [
+      { key: 'contraindications', label: '既往歴・禁忌', hint: '出血傾向・ペースメーカー・妊娠・金属アレルギー・服薬など施術安全に関わる患者様本人の情報' },
+      { key: 'chief_concern', label: '主な症状', hint: '慢性的・繰り返し出現する症状のパターン（今日だけの症状ではない）' },
+      { key: 'constitution', label: '体質', hint: '東洋医学的な体質傾向（冷え性・のぼせ・気虚など）、繰り返し確認されるもの' },
+      { key: 'intensity_pref', label: '刺激の好み', hint: '鍼の強さ・響きへの好み、苦手な部位、過去の副反応' },
+      { key: 'maintenance_pref', label: '通院ペース希望', hint: '本人が話した希望通院ペース（週1・月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'contraindications', label: 'History & contraindications', hint: "bleeding disorders, pacemaker, pregnancy, metal allergy, medication — the patient's own facts, never staff talk" },
+      { key: 'chief_concern', label: 'Chief concern', hint: "chronic, recurring symptom pattern — not just today's presentation" },
+      { key: 'constitution', label: 'Constitution', hint: 'TCM constitutional pattern (cold-type, heat-prone, qi-deficient, etc.) confirmed across visits' },
+      { key: 'intensity_pref', label: 'Stimulation preference', hint: 'preferred needle intensity/sensation, spots to avoid, past adverse reactions' },
+      { key: 'maintenance_pref', label: 'Visit cadence preference', hint: 'the visit cadence they said they want' },
+    ],
   },
   osteopathy: {
     roleJa: '柔道整復師', roleEn: 'osteopath (judo therapist)',
@@ -569,6 +667,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Right ankle: sprained playing basketball 3 days ago, swelling and tenderness present"',
       '(treatment): "Applied taping, instructed icing 15 min × 3/day"',
+    ],
+    passportFieldsJa: [
+      { key: 'contraindications', label: '既往歴・注意', hint: '骨折歴・手術歴・体内の金属・可動制限・服薬など施術安全に関わる患者様本人の情報' },
+      { key: 'chief_concern', label: '主な症状', hint: '慢性的に繰り返す患部や代償動作のパターン（今回の急性症状も含む）' },
+      { key: 'constitution', label: '代償の癖', hint: '繰り返し確認される代償動作・可動域の傾向（特定の関節を庇う癖など）' },
+      { key: 'intensity_pref', label: '強さの好み', hint: '手技・可動域訓練の強め/弱めの好み、痛がった部位、施術後の反応' },
+      { key: 'maintenance_pref', label: '通院ペース希望', hint: '本人が話した希望通院ペース（週1・月2など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'contraindications', label: 'History & cautions', hint: "fracture/surgery history, implanted hardware, movement limits, medication — the patient's own facts, never staff talk" },
+      { key: 'chief_concern', label: 'Chief concern', hint: "chronic recurring problem area or compensation pattern, including this episode's acute injury" },
+      { key: 'constitution', label: 'Compensation pattern', hint: 'recurring compensation movement or ROM tendency (favoring a joint, etc.) seen across visits' },
+      { key: 'intensity_pref', label: 'Pressure preference', hint: 'preferred manual-therapy/mobilization intensity, spots that hurt, typical post-treatment response' },
+      { key: 'maintenance_pref', label: 'Visit cadence preference', hint: 'the visit cadence they said they want' },
     ],
   },
   yoga_studio: {
@@ -625,6 +737,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Hamstrings: tightness in forward folds for about 3 months, worse after desk work"',
       '(treatment): "Breath coaching: ujjayi breath, 6 breaths × 3 sets, exhale longer than inhale"',
     ],
+    passportFieldsJa: [
+      { key: 'injury_accommodation', label: 'ケガ・制限', hint: '既往のケガ・手術・持病でポーズ調整が必要なもの（ヘルニア・妊娠・膝の手術歴など）。今日だけの筋肉痛は含めない' },
+      { key: 'practice_goal', label: '練習目標', hint: '本人が話した練習の目標。数字にできる場合は数字で（開脚180度、瞑想の習慣化など）。その日のストレッチ目標ではない' },
+      { key: 'practice_level', label: '経験レベル', hint: 'ヨガの経験レベル（初心者・中級・上級）と継続期間' },
+      { key: 'practice_constraint', label: '練習の制約', hint: '好みのクラス形式・時間帯・環境、ケガ以外の理由で避けたいポーズ（例：逆転系への不安）など継続的な希望' },
+      { key: 'occupation', label: '職業', hint: '柔軟性や姿勢に影響する仕事内容（デスクワーク・立ち仕事など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'injury_accommodation', label: 'Injury or restriction', hint: 'chronic injury, surgery, or condition needing pose modification (e.g., disc herniation, pregnancy, knee surgery) — not a same-day ache' },
+      { key: 'practice_goal', label: 'Practice goal', hint: 'the practice goal they stated, with a number when possible (e.g., full split, daily meditation habit) — a durable goal, not a one-time stretch target' },
+      { key: 'practice_level', label: 'Experience level', hint: 'overall yoga experience (beginner, intermediate, advanced) and how long they have practiced' },
+      { key: 'practice_constraint', label: 'Practice constraints', hint: 'standing preferences on class style, time slot, or environment — including poses avoided for reasons other than injury (e.g., inversion anxiety)' },
+      { key: 'occupation', label: 'Occupation', hint: 'work that affects flexibility or posture (desk work, standing work, etc.)' },
+    ],
   },
   pilates_studio: {
     roleJa: 'ピラティスインストラクター', roleEn: 'pilates instructor',
@@ -680,6 +806,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Lower back: tightness from anterior pelvic tilt since giving birth about 3 months ago, worse after carrying the baby"',
       '(treatment): "Exercise coaching: reformer footwork, 2 springs × 10 reps × 3 sets, cueing to keep the pelvis still"',
     ],
+    passportFieldsJa: [
+      { key: 'injury_accommodation', label: 'ケガ・制限', hint: '手術歴・産後・慢性的な症状など種目調整が必要な既往（産後の腹直筋離開、膝靭帯再建術後など）。当日だけの筋肉痛は含めない' },
+      { key: 'practice_goal', label: '練習目標', hint: '本人が話した継続的な目標。数字や期限がある場合は含める（◯ヶ月後に競技復帰、姿勢改善など）' },
+      { key: 'practice_level', label: '経験レベル', hint: 'マシン（リフォーマー等）とマットそれぞれの経験・慣れ具合' },
+      { key: 'practice_constraint', label: '練習の制約', hint: '器具の好み（リフォーマー・マット等）やクラス形式・時間帯など継続的な希望' },
+      { key: 'referral_source', label: '紹介元', hint: '医師・理学療法士からの紹介の場合はその理由（産後・術後リハビリなど）。通常の紹介・検索も含む' },
+    ],
+    passportFieldsEn: [
+      { key: 'injury_accommodation', label: 'Injury or restriction', hint: 'post-surgical status, postpartum condition, or chronic issue needing exercise modification (e.g., diastasis recti postpartum, ACL reconstruction) — not a same-day ache' },
+      { key: 'practice_goal', label: 'Practice goal', hint: 'the durable goal they stated, with a number or deadline when given (e.g., return to sport in 3 months, posture correction)' },
+      { key: 'practice_level', label: 'Experience level', hint: 'comfort and experience with apparatus (reformer, etc.) versus mat work' },
+      { key: 'practice_constraint', label: 'Practice constraints', hint: 'standing preferences on equipment (reformer versus mat), class style, or time slot' },
+      { key: 'referral_source', label: 'Referral source', hint: 'physician or physical-therapist referral and the reason (postpartum, post-surgical rehab, etc.), or the usual referral or search source' },
+    ],
   },
   personal_gym: {
     roleJa: 'パーソナルトレーナー', roleEn: 'personal trainer',
@@ -734,6 +874,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Right knee: discomfort since resuming squats about 2 months ago, hurts on deep flexion"',
       '(treatment): "Training: squat 70kg × 8 reps × 3 sets, depth capped at knee height"',
+    ],
+    passportFieldsJa: [
+      { key: 'injury_accommodation', label: 'ケガ・制限', hint: '既往のケガ・手術や可動域の慢性的な制限（肩腱板断裂、腰椎ヘルニア、肩の可動域制限など）。当日の筋肉痛・張りは含めない' },
+      { key: 'training_goal', label: 'トレーニング目標', hint: '本人が話した数値目標（体重-◯kg、スクワット◯kg、体脂肪率◯%など）。期限があれば期限も' },
+      { key: 'training_level', label: 'レベル', hint: 'トレーニング歴と現在のレベル（種目の重量・回数など分かる場合はその基準値）' },
+      { key: 'training_constraint', label: '制約', hint: '器具の好みや、ケガ以外の理由で避けたいトレーニング内容など継続的な制約' },
+      { key: 'diet_constraint', label: '食事の傾向', hint: '体組成目標に関わる食事の傾向・制約（ベジタリアン、断食時間帯、アレルギーなど）' },
+    ],
+    passportFieldsEn: [
+      { key: 'injury_accommodation', label: 'Injury or restriction', hint: 'chronic injury, surgery, or a lasting mobility restriction (e.g., rotator cuff tear, lumbar disc herniation, limited shoulder overhead mobility) — not same-day soreness' },
+      { key: 'training_goal', label: 'Training goal', hint: 'the numeric goal they stated (e.g., -10kg, squat 100kg, 20% body fat), including the deadline when given' },
+      { key: 'training_level', label: 'Level', hint: 'training age and current level — benchmark weights or reps when stated' },
+      { key: 'training_constraint', label: 'Constraints', hint: 'standing preferences on equipment, or training elements they prefer to skip for non-injury reasons' },
+      { key: 'diet_constraint', label: 'Diet pattern', hint: 'dietary pattern or constraint relevant to body-composition goals (vegetarian, fasting window, allergies)' },
     ],
   },
   dental_clinic: {
@@ -792,6 +946,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Lower right 6: sensitive to cold for ~3 weeks, mild pain on biting"',
       '(treatment): "Composite filling on lower right 6 without anesthesia; advised no eating/drinking for 2 hours after"',
     ],
+    passportFieldsJa: [
+      { key: 'allergies_meds', label: 'アレルギー・薬', hint: '麻酔・薬剤・ラテックスへのアレルギーと服用中の薬（抗凝固薬など）' },
+      { key: 'medical_history', label: '既往歴', hint: '糖尿病・高血圧・妊娠など治療に関わる持病・手術歴' },
+      { key: 'treatment_stage', label: '治療計画', hint: '現在進行中の治療の段階（次回の予定処置・保険/自費の選択など）' },
+      { key: 'chief_concern', label: '主な悩み', hint: '特定の歯に繰り返し起こるう蝕・歯ぎしりの傾向（今日だけの症状ではない）' },
+      { key: 'anxiety_notes', label: '不安・苦手', hint: '音・振動・注射など苦手なものと、配慮してほしい点' },
+    ],
+    passportFieldsEn: [
+      { key: 'allergies_meds', label: 'Allergies & meds', hint: 'anesthetic, drug, or latex allergies, and current medications (e.g. blood thinners)' },
+      { key: 'medical_history', label: 'Medical history', hint: 'standing conditions affecting treatment — diabetes, hypertension, pregnancy, past surgeries' },
+      { key: 'treatment_stage', label: 'Treatment plan', hint: 'where they are in an active treatment plan (next step, insurance vs. private choice)' },
+      { key: 'chief_concern', label: 'Chief concern', hint: "a recurring dental issue — decay-prone teeth, bruxism — not just today's symptom" },
+      { key: 'anxiety_notes', label: 'Anxiety triggers', hint: 'what they find hard to handle (drill sound, needles) and how to help' },
+    ],
   },
   medical_clinic: {
     roleJa: '医師', roleEn: 'physician',
@@ -844,6 +1012,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Fever 38.2°C for 3 days, with cough, worse at night"',
       '(treatment): "Prescribed amoxicillin 500mg × 3/day for 5 days"',
+    ],
+    passportFieldsJa: [
+      { key: 'allergies_meds', label: 'アレルギー・薬', hint: '薬剤アレルギーと服用中の薬（薬剤名・用量）。変更があれば最新のもの' },
+      { key: 'medical_history', label: '既往歴', hint: '既往症・手術歴・家族歴など、現在の症状ではなく継続的な病歴' },
+      { key: 'treatment_stage', label: '治療方針', hint: '慢性疾患の管理方針と経過観察の段階（例：降圧薬を調整中）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態（夜勤・デスクワークなど疾患管理に関わるもの）' },
+      { key: 'anxiety_notes', label: '不安・理解度', hint: '治療方針への不安・質問の傾向、説明時に配慮したい点' },
+    ],
+    passportFieldsEn: [
+      { key: 'allergies_meds', label: 'Allergies & meds', hint: 'drug allergies and current medications (name, dose) — keep the latest if changed' },
+      { key: 'medical_history', label: 'Medical history', hint: "past conditions, surgeries, family history — standing history, not today's symptom" },
+      { key: 'treatment_stage', label: 'Care plan', hint: 'the direction of ongoing chronic-condition management (e.g. titrating blood-pressure meds)' },
+      { key: 'occupation', label: 'Occupation', hint: 'work and schedule (shift work, desk job) that bears on managing their condition' },
+      { key: 'anxiety_notes', label: 'Anxiety & understanding', hint: 'their tendency to worry or ask questions about care — how to explain things well' },
     ],
   },
   dermatology: {
@@ -902,6 +1084,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Cheeks: redness and itching for ~2 weeks, worse with sweating"',
       '(treatment): "Prescribed medium-potency topical steroid, applied twice daily to the cheeks"',
     ],
+    passportFieldsJa: [
+      { key: 'allergies_meds', label: 'アレルギー・薬', hint: '薬剤・化粧品へのかぶれ歴と、現在服用中の薬' },
+      { key: 'medical_history', label: '既往歴', hint: 'アトピー素因の有無と過去に受けた皮膚治療歴（他院を含む）' },
+      { key: 'chief_concern', label: '主な悩み', hint: '季節・汗・化粧品など繰り返し悪化を招く要因（今日限りの症状ではない）' },
+      { key: 'treatment_stage', label: '治療経過', hint: '現在の外用薬治療の段階（ステロイドのランク・漸減の目安など）' },
+      { key: 'anxiety_notes', label: '心理的配慮', hint: '見た目の悩みへの繊細さや、注射・液体窒素など苦手な処置' },
+    ],
+    passportFieldsEn: [
+      { key: 'allergies_meds', label: 'Allergies & meds', hint: 'reactions to drugs or cosmetics, and current medications' },
+      { key: 'medical_history', label: 'Medical history', hint: 'atopic predisposition and past skin treatments (including other clinics)' },
+      { key: 'chief_concern', label: 'Chief concern', hint: "recurring flare triggers — season, sweat, cosmetics — not just today's flare" },
+      { key: 'treatment_stage', label: 'Treatment course', hint: 'current topical/systemic treatment stage (steroid potency, tapering plan)' },
+      { key: 'anxiety_notes', label: 'Sensitivities', hint: 'sensitivity about their appearance, or dislike of specific procedures (injections, cryotherapy)' },
+    ],
   },
   cosmetic_surgery: {
     roleJa: '美容外科医', roleEn: 'cosmetic surgeon',
@@ -959,6 +1155,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Nasolabial folds: bothering her for ~6 months, consulting ahead of a photo shoot"',
       '(treatment): "1cc hyaluronic acid filler injected into the nasolabial folds, using topical anesthetic cream"',
     ],
+    passportFieldsJa: [
+      { key: 'allergies_meds', label: 'アレルギー・薬', hint: '麻酔・薬剤アレルギーと服用中の薬。喫煙・妊娠など施術可否に関わる情報' },
+      { key: 'medical_history', label: '既往歴・施術歴', hint: '過去の美容施術歴（他院含む・製剤名や時期）とケロイド体質' },
+      { key: 'treatment_goal', label: '希望・目標', hint: 'どこをどう変えたいか、理想のイメージ、期限のあるイベント（日付で記録）' },
+      { key: 'treatment_stage', label: '施術計画', hint: '施術計画の進捗（次の施術予定、シリーズ物の残り回数など）' },
+      { key: 'anxiety_notes', label: '不安・体質', hint: '麻酔や注射への不安、気分不良（迷走神経反射）の傾向' },
+    ],
+    passportFieldsEn: [
+      { key: 'allergies_meds', label: 'Allergies & meds', hint: 'anesthetic/drug allergies, current meds, smoking or pregnancy — gates what can be done' },
+      { key: 'medical_history', label: 'Medical & procedure history', hint: 'past cosmetic procedures anywhere (product, volume, date) and keloid tendency' },
+      { key: 'treatment_goal', label: 'Goals & motivation', hint: 'what they want changed, the look they want, and any deadline event (record the date)' },
+      { key: 'treatment_stage', label: 'Procedure plan', hint: 'progress through a procedure plan (next step, sessions remaining in a series)' },
+      { key: 'anxiety_notes', label: 'Anxiety & sensitivity', hint: 'anxiety around anesthesia/needles, or a tendency toward faintness (vasovagal)' },
+    ],
   },
   physical_therapy: {
     roleJa: '理学療法士', roleEn: 'physical therapist',
@@ -1014,6 +1224,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Left knee: 6 weeks post-op, pain going down stairs (4/10)"',
       '(treatment): "Home exercise: chair squats, 10 reps × 3 sets, twice daily"',
     ],
+    passportFieldsJa: [
+      { key: 'contraindications', label: '既往歴・注意', hint: '手術歴（人工関節等）・体内の金属・骨折歴・服薬・禁忌動作など施術安全に関わる患者様本人の情報' },
+      { key: 'chief_concern', label: '主な症状', hint: '慢性的に繰り返す痛みや機能制限のパターン（リハビリの発端となった症状を含む）' },
+      { key: 'constitution', label: '動きの癖', hint: '繰り返し確認される可動域・筋力の傾向（特定方向の硬さ・弱さなど）' },
+      { key: 'intensity_pref', label: '負荷の好み', hint: '運動負荷・徒手療法の強め/弱めの好み、痛みが出る動き、無理をしやすい傾向' },
+      { key: 'maintenance_pref', label: '通院ペース希望', hint: '本人が話した希望通院ペース（週1・月2など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'contraindications', label: 'History & cautions', hint: "surgical history (joint replacement, etc.), implanted hardware, fracture history, medication, movement precautions — the patient's own facts, never staff talk" },
+      { key: 'chief_concern', label: 'Chief concern', hint: 'chronic pain or functional-limitation pattern, including the condition that started this course of rehab' },
+      { key: 'constitution', label: 'Movement tendency', hint: 'recurring range-of-motion or strength tendency (stiffness/weakness in a specific direction) seen across visits' },
+      { key: 'intensity_pref', label: 'Load preference', hint: 'preferred exercise/manual-therapy intensity, movements that trigger pain, tendency to overdo it' },
+      { key: 'maintenance_pref', label: 'Visit cadence preference', hint: 'the visit cadence they said they want' },
+    ],
   },
   foot_care: {
     roleJa: 'フットケアセラピスト', roleEn: 'foot care therapist',
@@ -1068,6 +1292,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Right sole: callus pain after standing work, for ~3 months"',
       '(treatment): "Removed heel callus and did a square nail cut, advised moisturizer nightly"',
+    ],
+    passportFieldsJa: [
+      { key: 'contraindications', label: '既往歴・注意', hint: '糖尿病・血流障害・水虫等の皮膚疾患・服薬（血液をサラサラにする薬等）など施術安全に関わるお客様本人の情報' },
+      { key: 'chief_concern', label: '主な悩み', hint: '慢性的・繰り返し話題になる足のトラブル（巻き爪・タコ・魚の目・外反母趾など）' },
+      { key: 'constitution', label: '足の特徴', hint: '繰り返し確認される足の特徴（扁平足・甲高・立ち仕事による足裏疲労など）' },
+      { key: 'intensity_pref', label: '強さの好み', hint: 'リフレクソロジーの強め/弱めの好み、痛がった部位、くすぐったがりなどの反応' },
+      { key: 'maintenance_pref', label: 'メンテナンス希望', hint: '本人が話した希望来店ペース（月1・隔月など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'contraindications', label: 'History & cautions', hint: "diabetes, circulation issues, skin conditions (athlete's foot, etc.), medication (blood thinners, etc.) — the customer's own facts, never staff talk" },
+      { key: 'chief_concern', label: 'Chief concern', hint: "chronic, recurring foot trouble (ingrown nails, calluses, corns, bunions, etc.) — not just today's symptom" },
+      { key: 'constitution', label: 'Foot tendency', hint: 'recurring foot characteristic or strain pattern (flat feet, high arch, plantar fatigue from standing work, etc.)' },
+      { key: 'intensity_pref', label: 'Pressure preference', hint: 'strong/gentle reflexology preference, spots that hurt, ticklishness or other reaction tendency' },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want' },
     ],
   },
   relaxation: {
@@ -1126,6 +1364,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Neck/shoulders: tightness worse after desk work for the past 2 weeks, head feels heavy by evening"',
       '(treatment): "Self-care coaching: neck stretch 10 sec each side × 3 reps after bathing, 1L warm water daily"',
     ],
+    passportFieldsJa: [
+      { key: 'pressure_pref', label: '圧の強さ', hint: '本人が話した圧の強さの好み（強め/弱め）と苦手な部位。その日だけの体調ではなく普段からの好み' },
+      { key: 'session_style_pref', label: '施術中の希望', hint: '会話量・音楽・室温など、本人が話した施術中の環境の好み（毎回変わらないもの）' },
+      { key: 'chief_concern', label: 'ストレス傾向', hint: '仕事・生活面で繰り返し話題になるストレスの原因や、慢性的に張りやすい部位（一時的な疲れではなく継続的な傾向）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態と、それが体に与える影響（デスクワーク・立ち仕事など）' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店ペース（週1・月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'pressure_pref', label: 'Pressure preference', hint: "the customer's standing pressure preference (firm/light) and areas to avoid — a usual preference, not just today's request" },
+      { key: 'session_style_pref', label: 'Session style', hint: "conversation level, music, room temperature — the customer's stated preference for the session atmosphere, not a one-off request" },
+      { key: 'chief_concern', label: 'Stress pattern', hint: "recurring stress sources or chronically tense areas the customer mentions repeatedly — a standing pattern, not one day's fatigue" },
+      { key: 'occupation', label: 'Occupation', hint: 'work and how it affects the body (desk work, standing, shift work, etc.)' },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want (e.g., weekly, monthly)' },
+    ],
   },
   aroma: {
     roleJa: 'アロマセラピスト', roleEn: 'aromatherapist',
@@ -1182,6 +1434,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Cold sensitivity: worse since giving birth 2 years ago, cold feet especially, disturbs sleep"',
       '(treatment): "Lavender × sweet orange in jojoba carrier, 3% dilution, 60-min full body, firmer pressure on legs"',
+    ],
+    passportFieldsJa: [
+      { key: 'scent_pref', label: '香りの好み', hint: '本人が好む香りの系統（柑橘系・フローラル系など）と苦手な香りや肌反応。気分ではなく普段からの好み' },
+      { key: 'session_style_pref', label: '施術中の希望', hint: '会話量・音楽・部屋の明るさなど、本人が話した施術中の環境の好み（毎回変わらないもの）' },
+      { key: 'chief_concern', label: '心身の不調', hint: '繰り返し話題になる心身の不調やストレスの原因（一時的な体調ではなく継続的な傾向）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態と、それが心身に与える影響' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店ペース（週1・月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'scent_pref', label: 'Scent preference', hint: "scent families the customer prefers (citrus, floral, woody, etc.) and any disliked scents or skin reactions — a standing preference, not today's mood" },
+      { key: 'session_style_pref', label: 'Session style', hint: "conversation level, music, lighting — the customer's stated preference for the session atmosphere, not a one-off request" },
+      { key: 'chief_concern', label: 'Wellness concern', hint: 'the recurring physical or emotional concern the customer mentions repeatedly — a standing pattern, not a one-off complaint' },
+      { key: 'occupation', label: 'Occupation', hint: "work and how it affects the customer's stress or wellbeing" },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence they said they want (e.g., weekly, monthly)' },
     ],
   },
   wellness_clinic: {
@@ -1240,6 +1506,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Weight: up 3kg over the past 6 months, nighttime snacking has become a habit"',
       '(treatment): "Recommended swapping breakfast for a high-protein option and 8,000 steps/day walking, reassess in 4 weeks"',
     ],
+    passportFieldsJa: [
+      { key: 'wellness_goal', label: 'ウェルネス目標', hint: '本人が話した目標を具体的な数値で（目標体重○kg、達成時期、睡眠時間○時間など）。世間話ではなく本人が定めた目標に限る' },
+      { key: 'protocol_stage', label: 'プログラム段階', hint: '現在取り組んでいるプログラム・プロトコルの段階（例:「腸活プログラム3週目」「メンテナンス期」）。最新のセッションの内容で更新する' },
+      { key: 'chief_concern', label: '根本の不調', hint: 'プログラムのきっかけとなった、繰り返し話題になる不調や体質（今日だけの症状ではない）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態と、それが生活リズムや疲労に与える影響' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店・確認ペース（週1・月1など）' },
+    ],
+    passportFieldsEn: [
+      { key: 'wellness_goal', label: 'Wellness goal', hint: "the customer's stated goal in concrete figures where mentioned (target weight in kg, target date, sleep-hours goal, etc.) — a goal they set, not small talk" },
+      { key: 'protocol_stage', label: 'Protocol stage', hint: 'which stage or phase of their wellness protocol/program they are in now (e.g., "week 3 of gut-reset program," "maintenance phase") — use the most recent session' },
+      { key: 'chief_concern', label: 'Underlying concern', hint: 'the recurring health concern or constitutional pattern that motivated the program — chronic, not a one-day symptom' },
+      { key: 'occupation', label: 'Occupation', hint: "work and how it affects the customer's routine or fatigue pattern" },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit or check-in cadence they said they want' },
+    ],
   },
   mental_health: {
     roleJa: 'カウンセラー', roleEn: 'counselor',
@@ -1296,6 +1576,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Insomnia: worsening for ~2 weeks, coinciding with a work project deadline"',
       '(treatment): "Assigned 4-7-8 breathing practice, 3 sets before bed, as homework"',
+    ],
+    passportFieldsJa: [
+      { key: 'care_team', label: '服薬・通院先', hint: '並行して通院中の医療機関と服薬状況（薬名・処方医）。診断名は書かない' },
+      { key: 'chief_concern', label: '取り組みテーマ', hint: '複数回のセッションで繰り返し出るテーマ（診断名ではなく本人の言葉で）' },
+      { key: 'stressors', label: 'ストレス要因', hint: '繰り返し語られる負荷の背景（仕事・家庭・人間関係など）' },
+      { key: 'supports', label: '支え・つながり', hint: '本人を支える人・活動・居場所（継続的な支えのみ）' },
+      { key: 'coping_pattern', label: '有効な対処法', hint: 'これまで効果があった・なかった対処法やアプローチ' },
+    ],
+    passportFieldsEn: [
+      { key: 'care_team', label: 'Care team & meds', hint: 'other providers seen concurrently and medication status (name, prescriber) — never a diagnosis' },
+      { key: 'chief_concern', label: 'Focus area', hint: 'the theme that keeps coming up across sessions, in their own words — not a diagnostic label' },
+      { key: 'stressors', label: 'Stressors', hint: 'recurring situations behind their distress (work, family, relationships)' },
+      { key: 'supports', label: 'Supports', hint: 'the people, activities, or places that hold them up — ongoing ones only' },
+      { key: 'coping_pattern', label: 'Coping patterns', hint: 'which coping strategies have worked or not worked for them over time' },
     ],
   },
   veterinary: {
@@ -1354,6 +1648,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Weight 4.2kg, vomiting 2x/day for the past 3 days, poor appetite"',
       '(treatment): "Prescribed cephalexin 250mg twice daily for 5 days"',
     ],
+    passportFieldsJa: [
+      { key: 'species_breed', label: '種類・品種', hint: 'ペットの種類と品種（例:「犬・トイプードル」）。飼い主ではなく動物本体の情報' },
+      { key: 'age_weight', label: '年齢・体重', hint: 'ペットの年齢（歳・ヶ月を数字で）と体重（kg）。会話に出た最新の数値を採用' },
+      { key: 'temperament', label: '性格・注意点', hint: 'ペットの性格や取扱い上の注意（人見知り・噛み癖・保定の工夫など）。その日だけの様子ではなく普段の傾向' },
+      { key: 'chief_concern', label: '持病・体質', hint: 'ペットの慢性的な持病や体質（今日だけの症状ではなく継続している既往）' },
+      { key: 'maintenance_pref', label: '通院ペース', hint: '飼い主が話した通院・ワクチン接種の希望ペース' },
+    ],
+    passportFieldsEn: [
+      { key: 'species_breed', label: 'Species / breed', hint: "the pet's species and breed (e.g., \"dog, toy poodle\") — about the animal, never the owner" },
+      { key: 'age_weight', label: 'Age / weight', hint: "the pet's age (years/months, as digits) and weight (kg) — use the most recently stated figures" },
+      { key: 'temperament', label: 'Temperament', hint: "the pet's temperament and handling notes (nervous around strangers, biting tendency, restraint tips) — a standing trait, not just today's mood" },
+      { key: 'chief_concern', label: 'Chronic condition', hint: "the pet's chronic condition or constitutional tendency — ongoing, not today's symptom" },
+      { key: 'maintenance_pref', label: 'Checkup cadence', hint: 'the checkup or vaccination cadence the owner has stated they want' },
+    ],
   },
   pet_grooming: {
     roleJa: 'トリマー', roleEn: 'pet groomer',
@@ -1411,6 +1719,22 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Right ear: redness and itching for the past 2 weeks, scratching more with the hind paw"',
       '(treatment): "Carefully worked out heavy matting around the hind legs with a slicker brush before a 3mm clipper cut"',
     ],
+    passportFieldsJa: [
+      { key: 'species_breed', label: '種類・品種', hint: 'ペットの種類と品種（例:「犬・トイプードル」）。飼い主ではなく動物本体の情報' },
+      { key: 'temperament', label: '性格・注意点', hint: 'ペットの性格や、バリカン・ドライヤーなど特定の道具への慣れ具合。その日だけの様子ではなく普段の傾向' },
+      { key: 'chief_concern', label: '肌・毛の注意', hint: 'ペットの、特定のシャンプーや製品による皮膚トラブル、繰り返す毛玉など継続的な注意点（今日だけの症状ではない）' },
+      { key: 'coat_type', label: '被毛タイプ', hint: 'ペットの被毛の質・タイプ（巻き毛・ダブルコートなど）。カットのたびに変わらない性質' },
+      { key: 'style_pref', label: '希望スタイル', hint: '飼い主が話した希望のカット・長さ・スタイル（「いつもの」等はその表現のまま）' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '飼い主が話した希望来店ペース（例: 6週間ごと）' },
+    ],
+    passportFieldsEn: [
+      { key: 'species_breed', label: 'Species / breed', hint: "the pet's species and breed (e.g., \"dog, toy poodle\") — about the animal, never the owner" },
+      { key: 'temperament', label: 'Temperament', hint: "the pet's temperament and comfort with specific tools (clippers, dryer, nail trim) — a standing trait, not just today's mood" },
+      { key: 'chief_concern', label: 'Skin / coat caution', hint: "the pet's standing skin/coat cautions (irritation from a specific shampoo, recurring matting, etc.) — not a one-time issue" },
+      { key: 'coat_type', label: 'Coat type', hint: "the pet's coat texture/type (curly, double coat, wire-haired, etc.) — a fixed trait, not this visit's length" },
+      { key: 'style_pref', label: 'Style preference', hint: "the owner's standing preference for cut, length, or style (keep \"the usual\"-style requests verbatim)" },
+      { key: 'maintenance_pref', label: 'Maintenance preference', hint: 'the visit cadence the owner said they want (e.g., every 6 weeks)' },
+    ],
   },
   training_school: {
     roleJa: '講師', roleEn: 'instructor',
@@ -1466,6 +1790,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
       '(symptom): "Eiken Grade 3 reading comprehension: not finishing within the time limit for about 2 months, growing more discouraged with each practice test"',
       '(treatment): "Homework: grammar drill pages 32-35, 3× a week, 15 min each, plus reading aloud"',
     ],
+    passportFieldsJa: [
+      { key: 'student_level', label: 'レベル', hint: '現在の習熟度（検定級・学年・経験年数など具体的な基準で）' },
+      { key: 'learning_goal', label: '学習目標', hint: '本人（または保護者）が話した目標。期限や数字があれば含める（検定合格・大会出場など）' },
+      { key: 'guardian_context', label: '保護者との関わり', hint: '未成年の場合、保護者が学習面について伝えてきた意向や関わり方。保護者自身の近況ではなく生徒の学びに関する内容に限る' },
+      { key: 'learning_style', label: '学び方の特徴', hint: '本人に合う教え方の傾向（集中が続く時間、得意な学び方、配慮が必要な点など）' },
+      { key: 'practice_habit', label: '自主練習の傾向', hint: '授業外での練習・復習への取り組み方や継続性' },
+    ],
+    passportFieldsEn: [
+      { key: 'student_level', label: 'Level', hint: 'current proficiency stated concretely (exam grade, school year, years of experience)' },
+      { key: 'learning_goal', label: 'Learning goal', hint: 'the goal the student or guardian stated, with a deadline or number when given (an exam, a competition, a specific skill)' },
+      { key: 'guardian_context', label: 'Guardian context', hint: 'for minors: what the guardian said about their own involvement or preferences in how the student learns — never news about the guardian, only the student' },
+      { key: 'learning_style', label: 'Learning style', hint: 'how this student learns best or needs to be taught (attention span, explanation style, standing accommodations)' },
+      { key: 'practice_habit', label: 'Practice habit', hint: 'how consistently the student practices or reviews outside class' },
+    ],
   },
   other: {
     roleJa: '担当者', roleEn: 'specialist',
@@ -1520,6 +1858,20 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     goodExamplesEn: [
       '(symptom): "Dissatisfaction with results: feeling underwhelmed for about 2 months, comparing notes with a competitor at each visit"',
       '(treatment): "Advice: suggested trying the home-care product twice a week in small amounts, to check the effect next visit"',
+    ],
+    passportFieldsJa: [
+      { key: 'chief_concern', label: '主な要望', hint: '継続的・繰り返し話題になる要望や悩み（今日だけの依頼ではない）' },
+      { key: 'service_preference', label: '対応の希望', hint: '接客・進行方法についての継続的な希望や注意点（伝え方・環境・避けてほしいことなど）' },
+      { key: 'occupation', label: '職業', hint: '仕事内容・勤務形態。利用目的に関わる場合はその関連も' },
+      { key: 'maintenance_pref', label: '来店ペース希望', hint: '本人が話した希望来店ペース（週1・月1など）' },
+      { key: 'referral_source', label: '来店きっかけ', hint: '紹介・検索・看板・SNSなど、最初に来店した理由' },
+    ],
+    passportFieldsEn: [
+      { key: 'chief_concern', label: 'Chief concern', hint: 'recurring or chronic concerns — never a one-off, today-only request' },
+      { key: 'service_preference', label: 'Service preferences', hint: 'standing preferences on how they like to be served — communication style, environment, things to avoid' },
+      { key: 'occupation', label: 'Occupation', hint: 'work and schedule — include how it relates to why or when they use this business, if mentioned' },
+      { key: 'maintenance_pref', label: 'Visit cadence preference', hint: 'the visit cadence they said they want' },
+      { key: 'referral_source', label: 'How they found us', hint: 'referral, search, signage, SNS — why they first came' },
     ],
   },
 }
