@@ -221,6 +221,9 @@ export async function createStore(
   const entitlement = await loadEntitlement(businessId)
   if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
 
+  // New stores must declare their vertical (edits stay tolerant — see schema).
+  if (!parsed.data.business_type) return { error: 'Business type is required' }
+
   const synqed = await getSynqedClient()
   try {
     // business_type persists in core (stores.business_type — Anthony's column,

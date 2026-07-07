@@ -10,9 +10,12 @@ export const storeSchema = z.object({
   phone: z.string().trim().max(40).optional().or(z.literal('')),
   /** Which of the 26 verticals this location is — drives the per-store AI
    *  persona (business-ai-tokens) and store-scoped defaults. Must be one of
-   *  the canonical BUSINESS_TYPES values. */
+   *  the canonical BUSINESS_TYPES values. Optional at the schema so EDITS to
+   *  pre-column stores never block (Greptile, #397) — createStore enforces
+   *  presence for new stores. */
   business_type: z
     .string()
-    .refine((v) => BUSINESS_TYPE_VALUES.includes(v), 'Unknown business type'),
+    .refine((v) => BUSINESS_TYPE_VALUES.includes(v), 'Unknown business type')
+    .optional(),
 })
 export type StoreInput = z.infer<typeof storeSchema>

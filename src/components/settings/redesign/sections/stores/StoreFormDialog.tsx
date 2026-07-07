@@ -109,7 +109,10 @@ function StoreFormDialogBody({
   )
   const [saved, setSaved] = useState(false)
 
-  const canSave = name.trim().length > 0 && businessType.length > 0 && !saved
+  // Adding requires a vertical; editing tolerates a legacy store whose type was
+  // never set (org onboarded pre-business_type) so a phone fix is never blocked.
+  const canSave =
+    name.trim().length > 0 && (isEdit || businessType.length > 0) && !saved
 
   const handleSave = () => {
     onSave({ name, address, phone, businessType })

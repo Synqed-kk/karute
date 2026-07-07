@@ -174,7 +174,8 @@ export function StoresSection({
       name: values.name,
       address: values.address,
       phone: values.phone,
-      business_type: values.businessType,
+      // '' (legacy edit, type never chosen) → omit, so validation stays clean.
+      business_type: values.businessType || undefined,
     }
     if (formMode?.kind === 'add') {
       const res = await createStore(payload)
