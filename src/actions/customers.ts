@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 // ---------------------------------------------------------------------------
@@ -248,6 +249,11 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
 
 export async function deleteCustomer(id: string): Promise<ActionResult> {
   try {
+    // Destructive: deleting a customer (+ cascading their appointments) is
+    // records.delete — owner / manager / senior only, never practitioner /
+    // frontdesk. Mirrors deleteKaruteRecord.
+    await requireCapability('records.delete')
+
     const synqed = await getSynqedClient()
 
     // Block deletion if customer has linked karute records
