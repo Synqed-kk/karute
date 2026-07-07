@@ -24,6 +24,11 @@ export type SubscriptionStatus =
   | 'canceled'
   | 'free'
 
+/** One-time setup fee (初期費用) charged per ADDITIONAL store. 0 = disabled;
+ *  the add-store dialog renders the fee row automatically once Liam/Anthony fix
+ *  the amount here. Single source of truth — nothing else hardcodes it. */
+export const STORE_SETUP_FEE_JPY = 0
+
 /** Per-tier price in JPY per store per month. Single source of
  *  truth for every price the UI renders. */
 export const TIER_PRICE_JPY: Record<SubscriptionTier, number> = {

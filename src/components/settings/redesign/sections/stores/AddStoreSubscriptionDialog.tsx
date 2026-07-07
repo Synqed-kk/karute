@@ -42,6 +42,7 @@ import {
   useSubscription,
   useSubscriptionMutations,
 } from '@/lib/subscription/hooks'
+import { STORE_SETUP_FEE_JPY } from '@/lib/subscription/types'
 
 const YEN = new Intl.NumberFormat('ja-JP', {
   style: 'currency',
@@ -230,6 +231,13 @@ export function AddStoreSubscriptionDialog({
                 value={YEN.format(nextTotal)}
                 emphasized
               />
+              {/* 初期費用 — renders only once the fee amount is set (types.ts). */}
+              {STORE_SETUP_FEE_JPY > 0 && (
+                <Row
+                  label={t('rowSetupFee')}
+                  value={YEN.format(STORE_SETUP_FEE_JPY)}
+                />
+              )}
               <div className="border-t border-border/40 pt-2 text-[11px] text-muted-foreground">
                 {t('prorationNote')}
               </div>

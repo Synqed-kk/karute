@@ -38,6 +38,16 @@ export interface StoreRow {
   active: boolean
   staffCount: number
   customerCount: number
+  /** This location's vertical (BUSINESS_TYPES value). Null until core's
+   *  stores.business_type column exists / backfills (brief 2026-07-08). */
+  businessType: string | null
+}
+
+/** Read business_type off a core store row tolerantly — the SDK types gain the
+ *  field with Anthony's core change; until then it's simply absent. */
+function coreBusinessType(row: unknown): string | null {
+  const v = (row as { business_type?: unknown }).business_type
+  return typeof v === 'string' && v.length > 0 ? v : null
 }
 
 async function requireOwnerBusiness(): Promise<string> {
@@ -123,6 +133,7 @@ export async function listStores(): Promise<StoreRow[]> {
     active: s.active,
     staffCount: staffByStore.get(s.id) ?? 0,
     customerCount: customersByStore.get(s.id) ?? 0,
+    businessType: coreBusinessType(s),
   }))
 }
 
@@ -212,11 +223,19 @@ export async function createStore(
 
   const synqed = await getSynqedClient()
   try {
-    const store = await synqed.stores.create({
+    // business_type persists in core (stores.business_type — Anthony's column,
+    // brief 2026-07-08). Until the column + SDK field land, core's parser strips
+    // the key; it starts persisting the moment the column exists. Deliberately
+    // NO Karute-side shadow copy — core stays the single source of truth.
+    const payload: Parameters<typeof synqed.stores.create>[0] & {
+      business_type?: string
+    } = {
       name: parsed.data.name,
       address: parsed.data.address || null,
       phone: parsed.data.phone || null,
-    })
+      business_type: parsed.data.business_type,
+    }
+    const store = await synqed.stores.create(payload)
     revalidatePath('/settings')
     return { id: store.id }
   } catch (e) {
@@ -240,11 +259,16 @@ export async function updateStore(
   }
   const synqed = await getSynqedClient()
   try {
-    await synqed.stores.update(id, {
+    // Same passthrough as createStore — see the note there.
+    const payload: Parameters<typeof synqed.stores.update>[1] & {
+      business_type?: string
+    } = {
       name: parsed.data.name,
       address: parsed.data.address || null,
       phone: parsed.data.phone || null,
-    })
+      business_type: parsed.data.business_type,
+    }
+    await synqed.stores.update(id, payload)
     revalidatePath('/settings')
     return { ok: true }
   } catch (e) {

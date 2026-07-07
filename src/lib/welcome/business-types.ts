@@ -238,6 +238,56 @@ export function getBusinessProfile(value: string | null): BusinessProfile {
   return BUSINESS_TYPE_PROFILES[value] ?? DEFAULT_PROFILE
 }
 
+/** Localized picker options — the ONE list every business-type <select> renders
+ *  (org settings, per-store add/edit dialog). Values match BUSINESS_TYPES above
+ *  and the persona tokens in src/lib/karute/business-ai-tokens.ts. Ordered like
+ *  the design spike's picker. */
+export interface BusinessTypeOption {
+  value: string
+  labelEn: string
+  labelJa: string
+}
+
+export const BUSINESS_TYPE_OPTIONS: BusinessTypeOption[] = [
+  { value: 'esthetic_salon', labelEn: '💆 Esthetic Salon', labelJa: '💆 エステサロン' },
+  { value: 'hair_salon', labelEn: '✂️ Hair Salon', labelJa: '✂️ ヘアサロン / 美容室' },
+  { value: 'nail_salon', labelEn: '💅 Nail Salon', labelJa: '💅 ネイルサロン' },
+  { value: 'eyelash_salon', labelEn: '👁️ Eyelash Salon', labelJa: '👁️ まつげサロン' },
+  { value: 'massage', labelEn: '🤲 Massage', labelJa: '🤲 マッサージ' },
+  { value: 'chiropractic', labelEn: '💪 Chiropractic', labelJa: '💪 整体 / カイロプラクティック' },
+  { value: 'beauty_chiropractic', labelEn: '✨ Beauty Chiropractic', labelJa: '✨ 美容整体' },
+  { value: 'acupuncture', labelEn: '🪡 Acupuncture', labelJa: '🪡 鍼灸院' },
+  { value: 'osteopathy', labelEn: '🦴 Osteopathy', labelJa: '🦴 整骨院 / 接骨院' },
+  { value: 'yoga_studio', labelEn: '🧘 Yoga Studio', labelJa: '🧘 ヨガスタジオ' },
+  { value: 'pilates_studio', labelEn: '🤸 Pilates Studio', labelJa: '🤸 ピラティススタジオ' },
+  { value: 'personal_gym', labelEn: '🏋️ Personal Gym', labelJa: '🏋️ パーソナルジム' },
+  { value: 'dental_clinic', labelEn: '🦷 Dental', labelJa: '🦷 歯科医院' },
+  { value: 'medical_clinic', labelEn: '🏥 Medical Clinic', labelJa: '🏥 医療クリニック' },
+  { value: 'dermatology', labelEn: '🧴 Dermatology', labelJa: '🧴 皮膚科' },
+  { value: 'cosmetic_surgery', labelEn: '💉 Cosmetic Surgery', labelJa: '💉 美容外科 / 美容皮膚科' },
+  { value: 'physical_therapy', labelEn: '🦿 Physical Therapy', labelJa: '🦿 理学療法 / リハビリ' },
+  { value: 'foot_care', labelEn: '🦶 Foot Care', labelJa: '🦶 フットケア / リフレクソロジー' },
+  { value: 'relaxation', labelEn: '🛀 Relaxation Salon', labelJa: '🛀 リラクゼーションサロン' },
+  { value: 'aroma', labelEn: '🌿 Aromatherapy', labelJa: '🌿 アロマテラピーサロン' },
+  { value: 'wellness_clinic', labelEn: '🌱 Wellness Clinic', labelJa: '🌱 ウェルネスクリニック' },
+  { value: 'mental_health', labelEn: '🧠 Mental Health', labelJa: '🧠 メンタルヘルス / カウンセリング' },
+  { value: 'veterinary', labelEn: '🐾 Veterinary', labelJa: '🐾 動物病院' },
+  { value: 'pet_grooming', labelEn: '🐩 Pet Grooming', labelJa: '🐩 ペットグルーミング' },
+  { value: 'training_school', labelEn: '🎓 School / Lessons', labelJa: '🎓 スクール / レッスン業' },
+  { value: 'other', labelEn: '🏢 Other', labelJa: '🏢 その他' },
+]
+
+/** Display label for a business-type value in the given locale (null when the
+ *  value is unknown/unset — callers hide the badge instead of guessing). */
+export function businessTypeLabel(
+  value: string | null | undefined,
+  locale: string,
+): string | null {
+  const opt = BUSINESS_TYPE_OPTIONS.find((o) => o.value === value)
+  if (!opt) return null
+  return locale === 'ja' ? opt.labelJa : opt.labelEn
+}
+
 export interface DisclosureMode {
   mode: 'A' | 'B' | 'C'
   label: string
