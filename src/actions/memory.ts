@@ -12,6 +12,7 @@ import { getLocale } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import {
   addStaffMemoryItem,
+  getMemoryItemCustomerId,
   restoreMemoryItems,
   setMemoryItemPinned,
   softDeleteAiExtractionItems,
@@ -23,6 +24,30 @@ import type { MemoryItem } from '@/lib/karute/memory-types'
 
 const revalidateProfile = () =>
   revalidatePath('/[locale]/(app)/customers/[id]', 'page')
+
+// ── Tenant guard (customer-data isolation) ──────────────────────────────────
+// The memory mutations below run on the RLS-bypassing service client, keyed
+// only by a client-supplied id/customerId. Without an app-level ownership check
+// a staff member at business A could edit/pin/delete a memory item (or write to
+// a customer) at business B by supplying its id. getCustomer() resolves through
+// the business-scoped core client, so it rejects any customer outside the
+// caller's business — making it the ownership oracle for both cases.
+
+/** True when the caller's business owns the customer this memory item belongs
+ *  to. False when the item is missing or belongs to another business. */
+async function callerOwnsMemoryItem(id: string): Promise<boolean> {
+  const customerId = await getMemoryItemCustomerId(id)
+  if (!customerId) return false
+  return callerOwnsCustomer(customerId)
+}
+
+/** True when the caller's business owns this customer (business-scoped lookup
+ *  rejects a cross-tenant id). Used for the customerId-addressed writes. */
+async function callerOwnsCustomer(customerId: string): Promise<boolean> {
+  const { getCustomer } = await import('@/lib/customers/queries')
+  const customer = await getCustomer(customerId).catch(() => null)
+  return !!customer
+}
 
 const CATEGORIES: MemoryItem['category'][] = [
   'personal',
@@ -41,6 +66,7 @@ export async function addMemoryItemAction(input: {
   const label = input.label?.trim()
   if (!input.customerId || !label) return { ok: false }
   if (!CATEGORIES.includes(input.category)) return { ok: false }
+  if (!(await callerOwnsCustomer(input.customerId))) return { ok: false }
   const businessId = await getBusinessId().catch(() => null)
   const result = await addStaffMemoryItem({
     customerId: input.customerId,
@@ -60,6 +86,7 @@ export async function updateMemoryItemAction(input: {
 }): Promise<{ ok: boolean }> {
   const label = input.label?.trim()
   if (!input.id || !label) return { ok: false }
+  if (!(await callerOwnsMemoryItem(input.id))) return { ok: false }
   const result = await updateMemoryItem(input.id, {
     label,
     detail: input.detail?.trim() || null,
@@ -73,6 +100,7 @@ export async function toggleMemoryPinAction(
   pinned: boolean,
 ): Promise<{ ok: boolean }> {
   if (!id) return { ok: false }
+  if (!(await callerOwnsMemoryItem(id))) return { ok: false }
   const result = await setMemoryItemPinned(id, pinned)
   if (result.ok) revalidateProfile()
   return result
@@ -80,6 +108,7 @@ export async function toggleMemoryPinAction(
 
 export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean }> {
   if (!id) return { ok: false }
+  if (!(await callerOwnsMemoryItem(id))) return { ok: false }
   const result = await softDeleteMemoryItem(id)
   if (result.ok) revalidateProfile()
   return result
@@ -163,6 +192,7 @@ export async function upsertPassportFieldAction(input: {
 }): Promise<{ ok: boolean }> {
   const value = input.value?.trim()
   if (!input.customerId || !input.fieldKey || !value) return { ok: false }
+  if (!(await callerOwnsCustomer(input.customerId))) return { ok: false }
   // Only known passport field keys are storable — an arbitrary string would
   // create orphan rows no UI ever renders. Keys are locale-invariant, so the
   // JA definition set is the canonical allowlist.

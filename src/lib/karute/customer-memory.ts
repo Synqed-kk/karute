@@ -152,6 +152,33 @@ export async function addStaffMemoryItem(input: {
   }
 }
 
+/** The customer a memory item belongs to — null when the id doesn't exist (or
+ *  is already soft-deleted / errored). The id-addressed mutations below run on
+ *  the RLS-BYPASSING service client and filter only by `id`, so the action
+ *  layer MUST resolve the owning customer and confirm the caller's business
+ *  owns it before mutating (see callerOwnsMemoryItem in actions/memory.ts).
+ *  Without that, a raw item id from another business is editable cross-tenant. */
+export async function getMemoryItemCustomerId(id: string): Promise<string | null> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = createServiceClient() as any
+    const { data, error } = await sb
+      .from(TABLE)
+      .select('customer_id')
+      .eq('id', id)
+      .is('deleted_at', null)
+      .maybeSingle()
+    if (error) {
+      console.error('[getMemoryItemCustomerId] postgrest error:', error.message ?? error)
+      return null
+    }
+    return data?.customer_id ?? null
+  } catch (err) {
+    console.error('[getMemoryItemCustomerId] failed:', err)
+    return null
+  }
+}
+
 export async function updateMemoryItem(
   id: string,
   patch: { label?: string; detail?: string | null },
