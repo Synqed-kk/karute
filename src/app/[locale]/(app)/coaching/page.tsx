@@ -13,9 +13,9 @@
 //
 // ANTHONY: the role check here is UI-only. Backend MUST enforce
 // the same staff-vs-owner distinction at the RLS + API layer
-// before the real data hooks come online. The spike's privacy
-// posture (Layer 1 / 2 / 3) is preserved in each scaffold card's
-// `privacyLayer` prop so you don't have to re-derive it.
+// before the real data hooks come online. The privacy posture
+// (staff-self vs owner-aggregate) is encoded in contract.ts's
+// scoped view types.
 
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { loadEntitlement } from '@/lib/entitlements'
