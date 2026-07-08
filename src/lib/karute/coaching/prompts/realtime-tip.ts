@@ -57,7 +57,7 @@ export interface RealtimeTipInput {
 
 function rules(businessType: string | null | undefined, locale: string): string {
   const cats = resolveCoachingCategories(businessType, locale)
-  const catList = cats.map((c) => c.label).join(' / ')
+  const catList = cats.map((c) => `${c.key} (${c.label})`).join(' / ')
   return `
 You are watching ONE live session in progress, for this staff member alone. Layer 1,
 staff-private — nobody else ever sees this, not the owner, not a manager, not even a
@@ -105,9 +105,10 @@ member). Refer to the customer as "she"/"he"/"the customer", and to any third pa
 generically ("a coworker", "a family member"). A short quoted phrase is fine as an
 anchor ONLY if it contains no name.
 
-CATEGORY — name the coaching skill in ${locale}, from this business's taxonomy so it
-reads consistently everywhere: ${catList}. A safety/care catch is category 注意
-(cautions) regardless — the word this product's karute summaries already use.
+CATEGORY — output the STABLE category KEY (the identifier before the parenthesis),
+never the localized label, so a live tip joins the same countable bucket as every
+other coaching surface: ${catList}. A safety/care catch is category "cautions"
+regardless of business type (the app renders it as 注意).
 
 STYLE: suggestion is either a specific line to say (「〜と伺ってみましょう」) or a short
 behavioral nudge (「あと1つ質問を挟んでから提案に入りましょう」) — whichever fits. context is
