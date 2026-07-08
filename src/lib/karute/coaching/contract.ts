@@ -16,11 +16,21 @@
 //   OwnerTriageView     (L2, aggregate)       → triage bands + help actions only.
 //
 // A raw staff number, a transcript moment, or a named finding simply DOES NOT
-// EXIST on the owner/manager types — so a mis-wired component can't leak one,
-// because there is no field to read it from. The privacy guarantee is a
-// compile-time fact, not a runtime hope. RLS enforces the same wall server-side
-// (defence in depth); this contract makes the client incapable of asking for
-// more than the viewer's scope.
+// EXIST on the owner/manager types — so a component built against THESE types
+// can't leak one, because there is no field to read it from. For that path the
+// guarantee is a compile-time fact; RLS enforces the same wall server-side
+// (defence in depth).
+//
+// ⚠ KNOWN OPEN EXCEPTION (audit, 2026-07-08) — this guarantee is NOT yet universal.
+// The live owner dashboard still renders the PRE-wall types in owner-types.ts
+// (StaffPerformanceTable, TopPerformersCard, and GapAnalysisList's raw
+// `gapFromTopPerformerPct`) with per-staff numbers + names, and consumes them, not
+// these types. DataDrivenStaffView / DataDrivenOwnerRoi use this contract; the old
+// dashboard cards do not yet. So do NOT read this header as "already enforced
+// everywhere": those cards MUST be migrated onto these banded types (and the
+// deterministic name/number leak-guard the prompt headers assume actually built)
+// BEFORE any real owner data hook is wired, or the leak this file calls impossible
+// fires for real on a live owner page. Tracked as a blocking pre-wire migration.
 //
 // DATA-DRIVEN BACKBONE (coaching-design-principle, "not gamified"): the spine is
 // real business metrics — closing rate, rebooking rate, satisfaction, revenue,
