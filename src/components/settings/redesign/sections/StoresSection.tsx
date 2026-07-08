@@ -60,6 +60,9 @@ interface StoresSectionProps {
    *  fetched on mount. Absent → fall back to the old full client fetch. */
   initialStores?: StoreRow[]
   initialActiveStoreId?: string | null
+  /** Entitlement fetched on the server — the plan row + add-store gate paint
+   *  with the page (no pop-in). Null/absent → client fetch fallback. */
+  initialEntitlement?: Entitlement | null
 }
 
 // StoreRow (synqed-core shape) → the Store the UI renders.
@@ -81,6 +84,7 @@ export function StoresSection({
   isOwner = false,
   initialStores,
   initialActiveStoreId,
+  initialEntitlement,
 }: StoresSectionProps) {
   const t = useTranslations('settings.stores')
   const tPlan = useTranslations('settings.stores.plan')
@@ -119,7 +123,7 @@ export function StoresSection({
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
   const [planDialogOpen, setPlanDialogOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
-  const [entitlement, setEntitlement] = useState<Entitlement | null>(null)
+  const [entitlement, setEntitlement] = useState<Entitlement | null>(initialEntitlement ?? null)
   const [activeStoreId, setActiveStoreId] = useState<string>(
     initialActiveStoreId ??
       initialMapped.find((s) => s.isPrimary)?.id ??
@@ -149,13 +153,17 @@ export function StoresSection({
     // store re-list that caused the placeholder-then-pop-in. Without server
     // data, fall back to the full client refresh.
     if (initialStores && initialStores.length > 0) {
-      void getEntitlement()
-        .then(setEntitlement)
-        .catch((e) => console.error('Failed to load store entitlement', e))
+      // Server-seeded entitlement → nothing to fetch; the whole section painted
+      // complete with the page. Only fetch when the server pass failed.
+      if (!initialEntitlement) {
+        void getEntitlement()
+          .then(setEntitlement)
+          .catch((e) => console.error('Failed to load store entitlement', e))
+      }
     } else {
       void refresh()
     }
-  }, [refresh, initialStores])
+  }, [refresh, initialStores, initialEntitlement])
 
   // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
   const handleSwitch = async (storeId: string) => {

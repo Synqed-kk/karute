@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StoreRow } from '@/actions/stores'
+import type { Entitlement } from '@/lib/entitlements'
 import type { StaffMember } from '@/lib/staff'
 import { visibleSettingsTabs, visibleStaffRoster } from '@/lib/auth/settings-visibility'
 import { OrganizationSection } from './sections/OrganizationSection'
@@ -159,6 +160,10 @@ interface SettingsShellProps {
    *  list renders complete on first paint instead of fetching on mount. */
   initialStores: StoreRow[]
   initialActiveStoreId: string | null
+  /** Entitlement fetched on the server — plan row + add-store gate paint with
+   *  the page. Null on fetch failure → StoresSection falls back to its client
+   *  fetch. */
+  initialEntitlement: Entitlement | null
 }
 
 export function SettingsShell({
@@ -172,6 +177,7 @@ export function SettingsShell({
   canInviteStaff,
   initialStores,
   initialActiveStoreId,
+  initialEntitlement,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
   // null = mobile list view (no section drilled into).
@@ -203,6 +209,7 @@ export function SettingsShell({
             isOwner={isOwner}
             initialStores={initialStores}
             initialActiveStoreId={initialActiveStoreId}
+            initialEntitlement={initialEntitlement}
           />
         ) : null
       case 'theme':
