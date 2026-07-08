@@ -9,12 +9,46 @@
 // and the raw audio is deleted — every voice saved now starts working in
 // transcription automatically at that moment.
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getBusinessId } from '@/lib/staff'
-import { getOrgSettings, upsertOrgSettings } from './org-settings'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { can } from '@/lib/auth/require-permission'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getOrgSettings, type VoiceEnrollment } from './org-settings'
 
 const MAX_SAMPLE_BYTES = 3 * 1024 * 1024 // ~15s of opus is well under this
+
+/** Authorization for a voice-enrollment write. A staff member may manage their
+ *  OWN voice; owner/manager (staff.manage) may manage anyone's in the business.
+ *  Blocks a practitioner touching a colleague's enrollment (the enroll/revoke
+ *  actions take a client-supplied staffId). */
+async function callerMayManageVoice(staffId: string): Promise<boolean> {
+  const me = await getCurrentUserStaffId()
+  if (me && me === staffId) return true
+  return can('staff.manage')
+}
+
+/** Narrow write for the per-staff voice-enrollment map — the ONE part of the
+ *  org-settings blob that is self-service, so it does NOT go through
+ *  upsertOrgSettings (settings.manage). Private (never a server action), so it
+ *  can't be called directly to clobber the map; only the authorized enroll /
+ *  revoke actions below reach it. Writes voice_enrollments and nothing else. */
+async function writeVoiceEnrollments(
+  next: Record<string, VoiceEnrollment>,
+): Promise<boolean> {
+  try {
+    const synqed = await getSynqedClient()
+    const existing = await synqed.orgSettings.get()
+    const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
+    await synqed.orgSettings.upsert({
+      settings: { ...existingSettings, voice_enrollments: next },
+    })
+    updateTag('org-settings')
+    return true
+  } catch {
+    return false
+  }
+}
 
 export async function enrollVoiceAction(
   staffId: string,
@@ -25,6 +59,7 @@ export async function enrollVoiceAction(
     if (!staffId || !(audio instanceof File)) return { ok: false }
     if (audio.size === 0 || audio.size > MAX_SAMPLE_BYTES) return { ok: false }
     if (audio.type && !audio.type.startsWith('audio/')) return { ok: false }
+    if (!(await callerMayManageVoice(staffId))) return { ok: false }
 
     const businessId = await getBusinessId()
     if (!businessId) return { ok: false }
@@ -60,7 +95,7 @@ export async function enrollVoiceAction(
         revoked_at: null,
       },
     }
-    const saved = await upsertOrgSettings({ voice_enrollments: next })
+    const saved = await writeVoiceEnrollments(next)
     if (!saved) return { ok: false }
     revalidatePath('/[locale]/(app)/settings', 'page')
     return { ok: true, enrolledAt }
@@ -74,6 +109,7 @@ export async function enrollVoiceAction(
 export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean }> {
   try {
     if (!staffId) return { ok: false }
+    if (!(await callerMayManageVoice(staffId))) return { ok: false }
     const settings = await getOrgSettings()
     const current = settings?.voice_enrollments?.[staffId]
     if (!current) return { ok: false }
@@ -95,7 +131,7 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
         revoked_at: new Date().toISOString(),
       },
     }
-    const saved = await upsertOrgSettings({ voice_enrollments: next })
+    const saved = await writeVoiceEnrollments(next)
     if (!saved) return { ok: false }
     revalidatePath('/[locale]/(app)/settings', 'page')
     return { ok: true }

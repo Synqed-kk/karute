@@ -3,6 +3,7 @@
 import { revalidatePath, updateTag, unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { requireCapability } from '@/lib/auth/require-permission'
 import { getBusinessId } from '@/lib/staff'
 import {
   type OperatingHours,
@@ -196,6 +197,18 @@ export async function completeOnboarding(input: {
 }
 
 export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
+  // Org-wide config (recording-consent mode, legal disclosure, theme, AI, packs,
+  // hours, webhook) is settings.manage — owner / manager only. The settings tabs
+  // are hidden for other roles in the UI; this is the server-side boundary.
+  // Voice enrollment used to ride through here; it now has its own self-scoped
+  // write in actions/voice.ts, so staff can manage their own voice without this
+  // capability.
+  try {
+    await requireCapability('settings.manage')
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Not allowed' }
+  }
+
   const nextSettings: Partial<OrgSettings> = { ...settings }
 
   if (settings.operating_hours) {
