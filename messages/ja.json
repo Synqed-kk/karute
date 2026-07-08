@@ -1295,6 +1295,22 @@
         "durationMin": "{n}分",
         "assignedBy": "{name}から",
         "emptyHint": "オーナーから割り当てられた学習モジュールと進捗状況をここに表示します。Anthonyがモジュール割り当ての取得を実装後に有効化されます。"
+      },
+      "dataView": {
+        "title": "あなたの成績",
+        "emptyHint": "セッションが分析されると、成約率・再来率などの成績と、根拠のある具体的な気づきがここに表示されます。Anthonyが useStaffCoachingData() を実装後に有効化されます。",
+        "closingRate": "成約率",
+        "rebookingRate": "再来率",
+        "satisfaction": "満足度",
+        "avgRevenue": "平均客単価",
+        "basedOn": "{n}回のセッションから",
+        "findingsTitle": "今月の気づき",
+        "sevPriority": "重点",
+        "sevWatch": "注目",
+        "sevStrength": "強み",
+        "doThis": "次の一手",
+        "categoriesTitle": "会話スキル（トップ層との比較）",
+        "top": "トップ"
       }
     },
     "owner": {

@@ -1295,6 +1295,22 @@
         "durationMin": "{n} min",
         "assignedBy": "from {name}",
         "emptyHint": "Modules assigned by your owner — with progress — surface here. Lights up when Anthony wires the module-assignment retrieval."
+      },
+      "dataView": {
+        "title": "Your performance",
+        "emptyHint": "Once your sessions are analyzed, your closing rate, rebooking rate and specific, evidenced findings surface here. Lights up when Anthony wires useStaffCoachingData().",
+        "closingRate": "Closing rate",
+        "rebookingRate": "Rebooking rate",
+        "satisfaction": "Satisfaction",
+        "avgRevenue": "Avg. spend",
+        "basedOn": "From {n} sessions",
+        "findingsTitle": "This period’s findings",
+        "sevPriority": "Priority",
+        "sevWatch": "Watch",
+        "sevStrength": "Strength",
+        "doThis": "Do this",
+        "categoriesTitle": "Conversation skills (vs top performers)",
+        "top": "top"
       }
     },
     "owner": {
