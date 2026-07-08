@@ -1,22 +1,34 @@
 /**
- * Middleware refreshes the Supabase session on every matched request and guards
- * (app) routes: an unauthenticated request to an app route is bounced to the
- * locale login page; login / signup / join / auth / marketing root stay public;
- * an authenticated request passes through untouched.
+ * The proxy (Next 16 middleware convention) refreshes the Supabase session on
+ * every matched request and guards (app) routes: an unauthenticated request to
+ * an app route is bounced to the locale login page; login / signup / join /
+ * auth / marketing root stay public; an authenticated request passes through
+ * untouched.
  */
+// next-intl/middleware is ESM-only (jest can't transform it) and its locale
+// routing is not what's under test — stub it as a pass-through.
+jest.mock('next-intl/middleware', () => ({
+  __esModule: true,
+  default: () => () => {
+    const { NextResponse } = jest.requireActual('next/server')
+    return NextResponse.next()
+  },
+}))
+jest.mock('@/i18n/routing', () => ({ routing: {} }))
+
 jest.mock('@supabase/ssr', () => {
-  const getUser = jest.fn()
+  const getClaims = jest.fn()
   return {
-    __getUser: getUser,
-    createServerClient: jest.fn(() => ({ auth: { getUser } })),
+    __getClaims: getClaims,
+    createServerClient: jest.fn(() => ({ auth: { getClaims } })),
   }
 })
 
-import { middleware } from '@/middleware'
+import { proxy } from '@/proxy'
 import { NextRequest } from 'next/server'
 import * as ssr from '@supabase/ssr'
 
-const getUser = (ssr as unknown as { __getUser: jest.Mock }).__getUser
+const getClaims = (ssr as unknown as { __getClaims: jest.Mock }).__getClaims
 
 function reqFor(path: string) {
   return new NextRequest(new URL(`http://localhost:3000${path}`))
@@ -27,34 +39,37 @@ beforeEach(() => {
 })
 
 function asUnauth() {
-  getUser.mockResolvedValue({ data: { user: null }, error: null })
+  getClaims.mockResolvedValue({ data: null, error: null })
 }
 function asAuthed() {
-  getUser.mockResolvedValue({ data: { user: { id: 'u1' } }, error: null })
+  getClaims.mockResolvedValue({
+    data: { claims: { sub: 'u1' } },
+    error: null,
+  })
 }
 
-describe('middleware — session guard', () => {
+describe('proxy — session guard', () => {
   it('redirects an unauthenticated app-route request to /{locale}/login', async () => {
     asUnauth()
-    const res = await middleware(reqFor('/ja/dashboard'))
+    const res = await proxy(reqFor('/ja/dashboard'))
     expect(res.headers.get('location')).toMatch(/\/ja\/login$/)
   })
 
   it('lets an unauthenticated request to the login page pass', async () => {
     asUnauth()
-    const res = await middleware(reqFor('/ja/login'))
+    const res = await proxy(reqFor('/ja/login'))
     expect(res.headers.get('location')).toBeNull()
   })
 
   it('lets an unauthenticated request to the auth callback pass', async () => {
     asUnauth()
-    const res = await middleware(reqFor('/ja/auth/callback?code=abc'))
+    const res = await proxy(reqFor('/ja/auth/callback?code=abc'))
     expect(res.headers.get('location')).toBeNull()
   })
 
   it('lets an authenticated request to an app route pass', async () => {
     asAuthed()
-    const res = await middleware(reqFor('/ja/dashboard'))
+    const res = await proxy(reqFor('/ja/dashboard'))
     expect(res.headers.get('location')).toBeNull()
   })
 })

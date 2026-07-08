@@ -5,6 +5,10 @@ import { routing } from './i18n/routing'
 
 const intlMiddleware = createMiddleware(routing)
 
+// Path segments that stay public (no auth required). Everything else under a
+// locale is an (app) route and requires a session.
+const PUBLIC_SEGMENTS = ['login', 'signup', 'join', 'auth']
+
 export async function proxy(request: NextRequest) {
   // Run next-intl middleware first (handles locale redirects, prefix routing)
   const intlResponse = intlMiddleware(request)
@@ -38,7 +42,20 @@ export async function proxy(request: NextRequest) {
   )
 
   // Refresh auth token — getClaims() is JWT-local (fast), not a network call
-  await supabase.auth.getClaims()
+  const { data } = await supabase.auth.getClaims()
+
+  const segments = request.nextUrl.pathname.split('/').filter(Boolean)
+  const locale = segments[0]
+  const section = segments[1]
+  // Public: marketing root (/{locale}) and the login/signup/join/auth routes.
+  const isPublic = !section || PUBLIC_SEGMENTS.includes(section)
+
+  if (!data?.claims && !isPublic) {
+    const url = request.nextUrl.clone()
+    url.pathname = `/${locale}/login`
+    url.search = ''
+    return NextResponse.redirect(url)
+  }
 
   return response
 }
