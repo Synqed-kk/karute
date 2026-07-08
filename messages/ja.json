@@ -1763,6 +1763,13 @@
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
     "stores": {
+      "plan": {
+        "label": "現在のプラン",
+        "unlimitedLabel": "無制限（開発）",
+        "viewCta": "プランを見る・変更",
+        "dialogTitle": "料金プラン",
+        "dialogDesc": "店舗ごとの月額プランです。プランによって使える機能が変わります。"
+      },
       "title": "店舗一覧",
       "unnamedStore": "未設定の店舗",
       "ownerView": "オーナー権限",
@@ -2051,7 +2058,11 @@
         "actionUpgrade": "{tier}にアップグレード",
         "downgradeConfirm": "Freeプランにダウングレードしますか？\n\n店舗数は1店舗に制限され、AIカルテ生成・メモリー抽出などの機能は使えなくなります。過去のデータは引き続き閲覧できます。",
         "mostPopular": "人気",
-        "currentPill": "現プラン"
+        "currentPill": "現プラン",
+        "unlimitedBannerTitle": "無制限アカウント",
+        "unlimitedBannerBody": "開発・コンプ用アカウントです。すべてのプラン機能をご利用いただけます。",
+        "actionContact": "お問い合わせ",
+        "actionUnlimited": "利用可能"
       },
       "cancel": {
         "dialogTitle": "本当に解約しますか？",

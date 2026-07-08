@@ -1763,6 +1763,13 @@
     "bookingSync": "Booking Sync",
     "bookingSyncDescription": "Sync with Quick Reserve etc.",
     "stores": {
+      "plan": {
+        "label": "Current plan",
+        "unlimitedLabel": "Unlimited (dev)",
+        "viewCta": "View / change plan",
+        "dialogTitle": "Plans",
+        "dialogDesc": "Your monthly plan per store. Available features vary by plan."
+      },
       "title": "Stores",
       "unnamedStore": "Unnamed store",
       "ownerView": "Owner permissions",
@@ -2051,7 +2058,11 @@
         "actionUpgrade": "Upgrade to {tier}",
         "downgradeConfirm": "Downgrade to Free?\n\nYour store count drops to 1 and AI features (karute generation, memory extraction, outreach drafts) will no longer be available. Past data stays viewable.",
         "mostPopular": "Popular",
-        "currentPill": "Current"
+        "currentPill": "Current",
+        "unlimitedBannerTitle": "Unlimited account",
+        "unlimitedBannerBody": "Dev / comped account — every plan feature is available to you.",
+        "actionContact": "Contact us",
+        "actionUnlimited": "Available"
       },
       "cancel": {
         "dialogTitle": "Cancel your subscription?",

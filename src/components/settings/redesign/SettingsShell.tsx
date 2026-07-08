@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Building2,
   ChevronRight,
-  CreditCard,
   GraduationCap,
   Mic,
   Palette,
@@ -30,7 +29,6 @@ import { RecordingSection } from './sections/RecordingSection'
 import { StaffSection } from './sections/StaffSection'
 import { SyncSection } from './sections/SyncSection'
 import { PacksSection } from './sections/PacksSection'
-import { SubscriptionSection } from './sections/SubscriptionSection'
 import { AuditLogSection } from './sections/AuditLogSection'
 
 export type SettingsTabId =
@@ -43,7 +41,6 @@ export type SettingsTabId =
   | 'staff'
   | 'sync'
   | 'packs'
-  | 'subscription'
   | 'audit'
 
 interface TabDef {
@@ -57,15 +54,14 @@ interface TabDef {
   ownerOnly?: boolean
 }
 
-// Tab label keys: 3 of these (`theme`, `subscription`, `auditLog`) collide
-// with nested i18n blocks of the same name that hold section content
-// (e.g. settings.theme.bar.*, settings.subscription.plan.*). next-intl
+// Tab label keys: some of these (`theme`, `coaching`, `packs`, `auditLog`)
+// collide with nested i18n blocks of the same name that hold section
+// content (e.g. settings.theme.bar.*, settings.auditLog.*). next-intl
 // can't return a nested object from a `t(key)` string call, so those
-// tabs were rendering as raw "settings.theme" / "settings.subscription"
-// / "settings.auditLog" — exactly the bug Liam called out. Fix:
-// reach into the `.label` sub-key on the colliding ones, while keeping
-// the non-colliding tabs (organization, stores, aiSettings, etc.) on
-// their existing flat string keys.
+// tabs were rendering as raw "settings.theme" / "settings.auditLog" —
+// the bug Liam called out. Fix: reach into the `.label` sub-key on the
+// colliding ones, while keeping the non-colliding tabs (organization,
+// stores, aiSettings, etc.) on their existing flat string keys.
 const TABS: TabDef[] = [
   {
     id: 'organization',
@@ -131,24 +127,12 @@ const TABS: TabDef[] = [
     icon: Ticket,
     ownerOnly: true,
   },
-  // Subscription tab is gated behind NEXT_PUBLIC_FEATURE_SUBSCRIPTION.
-  // The underlying SubscriptionSection renders subscriptionMockSeed
-  // (`tier: 'trial'`, `trialEndsAt: '2026-06-15'`) — a fake countdown
-  // banner that would mislead salon owners into thinking we're charging
-  // them. Tab + SubscriptionSummaryCard (mounted inside StoresSection)
-  // both hide until Stripe wiring lands. ANTHONY: when subscriptions
-  // are real, set NEXT_PUBLIC_FEATURE_SUBSCRIPTION=true.
-  ...(process.env.NEXT_PUBLIC_FEATURE_SUBSCRIPTION === 'true'
-    ? [
-        {
-          id: 'subscription' as const,
-          labelKey: 'subscription.label',
-          descriptionKey: 'subscriptionDescription',
-          icon: CreditCard,
-          ownerOnly: true,
-        },
-      ]
-    : []),
+  // No standalone subscription / 契約 tab — the plan & paywall live inside
+  // 店舗 (StoresSection → PlanComparisonDialog), per Liam's IA, gated
+  // per-account off the real entitlement. The old tab rendered the
+  // misleading trial-countdown mock (tier: 'trial', ended 2026-06-15);
+  // retired here. Payment method / invoices land in 店舗 too once Stripe
+  // (task #14) is wired — SubscriptionSection stays on disk as scaffold.
   {
     id: 'audit',
     labelKey: 'auditLog.label',
@@ -230,8 +214,6 @@ export function SettingsShell({
         return <SyncSection />
       case 'packs':
         return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
-      case 'subscription':
-        return isOwner ? <SubscriptionSection /> : null
       case 'audit':
         return isOwner ? <AuditLogSection /> : null
       default:

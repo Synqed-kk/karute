@@ -29,15 +29,43 @@ const YEN = new Intl.NumberFormat('ja-JP', {
   maximumFractionDigits: 0,
 })
 
-export function PlanComparisonGrid() {
+const SALES_MAILTO = 'mailto:sales@synqed.jp?subject=Karute%20plan%20change'
+
+interface PlanComparisonGridProps {
+  /** Real per-account tier from the live entitlement. When provided the
+   *  grid runs in "real mode": the current-plan badge reflects this
+   *  (not the localStorage mock) and — since self-serve checkout isn't
+   *  wired yet (Stripe = Anthony, task #14) — every plan-change CTA
+   *  routes to sales instead of faking a purchase. Omitted only by the
+   *  retired SubscriptionSection scaffold, which still uses the mock. */
+  currentTier?: SubscriptionTier
+  /** Unlimited / comped account (Liam). Shows an all-unlocked banner and
+   *  drops the per-tier "current" highlight — tier is orthogonal to the
+   *  unlimited override, so a comped account can sit on any tier. */
+  isUnlimited?: boolean
+}
+
+export function PlanComparisonGrid({
+  currentTier: currentTierProp,
+  isUnlimited = false,
+}: PlanComparisonGridProps = {}) {
   const t = useTranslations('settings.subscription.plans')
   const subscription = useSubscription()
   const { upgradeTo, startTrial, cancelSubscription } =
     useSubscriptionMutations()
 
-  const currentTier = subscription.tier
+  // Real mode = mounted with the live entitlement (the Stores plan
+  // dialog). Falls back to the localStorage mock only for the retired
+  // SubscriptionSection scaffold, which passes no props.
+  const realMode = currentTierProp !== undefined || isUnlimited
+  const currentTier = currentTierProp ?? subscription.tier
+  // When unlimited, no single tier is "current" (a comped account can
+  // sit on 'free'), so nothing gets the current highlight.
+  const highlightTier: SubscriptionTier | null = isUnlimited
+    ? null
+    : currentTier
   const trialAvailable =
-    currentTier === 'free' && subscription.status !== 'canceled'
+    !realMode && currentTier === 'free' && subscription.status !== 'canceled'
 
   const handleAction = (targetTier: SubscriptionTier) => {
     if (targetTier === 'enterprise') {
@@ -45,6 +73,12 @@ export function PlanComparisonGrid() {
         window.location.href =
           'mailto:sales@synqed.jp?subject=Enterprise%20plan%20inquiry'
       }
+      return
+    }
+    // No self-serve checkout yet — route real plan changes to sales
+    // rather than mutating the fake localStorage subscription.
+    if (realMode) {
+      if (typeof window !== 'undefined') window.location.href = SALES_MAILTO
       return
     }
     if (targetTier === 'free') {
@@ -63,13 +97,32 @@ export function PlanComparisonGrid() {
   }
 
   const actionLabelFor = (target: SubscriptionTier): string => {
-    if (currentTier === target) return t('actionCurrent')
+    if (isUnlimited) return t('actionUnlimited')
+    if (highlightTier === target) return t('actionCurrent')
+    if (realMode) return t('actionContact')
     if (target === 'free') return t('actionDowngradeFree')
     return t('actionUpgrade', { tier: tierLabelFor(target) })
   }
 
   return (
     <div className="space-y-4">
+      {isUnlimited && (
+        <div className="flex items-start gap-3 rounded-xl bg-amber-50/70 p-4 ring-1 ring-amber-200/70 dark:bg-amber-500/[0.08] dark:ring-amber-500/25">
+          <Crown
+            className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-300"
+            aria-hidden
+          />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+              {t('unlimitedBannerTitle')}
+            </div>
+            <p className="mt-0.5 text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-300/85">
+              {t('unlimitedBannerBody')}
+            </p>
+          </div>
+        </div>
+      )}
+
       {trialAvailable && (
         <div className="flex items-start gap-3 rounded-xl bg-blue-50/70 p-4 ring-1 ring-blue-200/70 dark:bg-blue-500/[0.08] dark:ring-blue-500/25">
           <Sparkles
@@ -109,7 +162,8 @@ export function PlanComparisonGrid() {
             t('freeFeature6'),
             t('freeFeature7'),
           ]}
-          currentTier={currentTier}
+          currentTier={highlightTier}
+          forceDisabled={isUnlimited}
           actionLabel={actionLabelFor('free')}
           onAction={handleAction}
           currentPill={t('currentPill')}
@@ -132,7 +186,8 @@ export function PlanComparisonGrid() {
             t('standardFeature8'),
             t('standardFeature9'),
           ]}
-          currentTier={currentTier}
+          currentTier={highlightTier}
+          forceDisabled={isUnlimited}
           actionLabel={actionLabelFor('standard')}
           onAction={handleAction}
           currentPill={t('currentPill')}
@@ -152,7 +207,8 @@ export function PlanComparisonGrid() {
             t('professionalFeature5'),
             t('professionalFeature6'),
           ]}
-          currentTier={currentTier}
+          currentTier={highlightTier}
+          forceDisabled={isUnlimited}
           actionLabel={actionLabelFor('professional')}
           onAction={handleAction}
           highlight
@@ -192,12 +248,14 @@ interface PlanCardProps {
   price: string
   pitch: string
   features: string[]
-  currentTier: SubscriptionTier
+  currentTier: SubscriptionTier | null
   onAction: (t: SubscriptionTier) => void
   actionLabel: string
   highlight?: boolean
   mostPopular?: string
   currentPill: string
+  /** Unlimited account — every tier CTA is inert (nothing to change). */
+  forceDisabled?: boolean
 }
 
 function PlanCard({
@@ -212,6 +270,7 @@ function PlanCard({
   highlight,
   mostPopular,
   currentPill,
+  forceDisabled,
 }: PlanCardProps) {
   const isCurrent = tier === currentTier
 
@@ -281,9 +340,9 @@ function PlanCard({
       <button
         type="button"
         onClick={() => onAction(tier)}
-        disabled={isCurrent}
+        disabled={isCurrent || forceDisabled}
         className={`mt-4 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-[13px] font-medium transition-colors ${
-          isCurrent
+          isCurrent || forceDisabled
             ? 'cursor-not-allowed bg-gray-100 text-muted-foreground dark:bg-white/[0.06]'
             : highlight
               ? 'bg-blue-600 text-white hover:bg-blue-700'
