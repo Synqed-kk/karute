@@ -30,7 +30,7 @@ const AiBriefSchema = z.object({
   hooks: z
     .array(z.object({ title: z.string(), body: z.string().nullable() }))
     .describe(
-      'ADDITIONAL personal rapport topics beyond the one the opener already uses — the opener’s topic must NOT reappear here (if the opener consumed the only topic, return []). Genuine personal material ONLY (pets/family/hobbies/travel/life events); each body is a compact FACT, never a spoken line. Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks. A family word alone is not a hook (only when it is about that person’s life/event). Empty if no real small-talk material; never fabricate.',
+      'ADDITIONAL personal rapport topics beyond the one the opener already uses — the opener’s topic must NOT reappear here (if the opener consumed the only topic, return []). Genuine personal material ONLY (pets/family/hobbies/travel/life events); each body is a compact FACT, never a spoken line. Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks. A family word alone is not a hook (only when it is about that person’s life/event). The booking memo is NOT a source (no durable memory + no past records ⇒ []). body must add detail beyond the title, else null. Empty if no real small-talk material; never fabricate.',
     ),
   concerns: z
     .array(z.string())
@@ -208,8 +208,9 @@ export async function getAiPreSessionBrief(params: {
       // briefs poisoned by the QR-sync customer mis-link (a corrected
       // appointment.customer_id must not keep serving a fused brief built from
       // another customer's reservation memo).
+      // v10: hooks may not source from the memo + body must add beyond title.
       // v9: de-bodywork — per-type caution taxonomy + neutral examples.
-      v: 9,
+      v: 10,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -278,7 +279,7 @@ Rules:
     • LEAD with what CHANGED — 改善 / 悪化 / 新規 are the actionable signal. Tag a direction ONLY when two dated sessions clearly show it.
     • Do NOT put (継続) on every item. A simply-ongoing concern is listed plainly (no tag) — the (継続) tag is only worth showing to contrast with something that changed; an all-(継続) list is noise.
   Most relevant first. Judge only within the sessions shown; never extrapolate. Empty if none.
-- hooks: ADDITIONAL personal rapport topics BEYOND the opener — the opener's topic must not reappear here; if the opener consumed the only personal topic, return []. Each body is a compact FACT (「数ヶ月ぶりに再開」), never a spoken line — the opener is the spoken line. Genuine personal material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
+- hooks: ADDITIONAL personal rapport topics BEYOND the opener — the opener's topic must not reappear here; if the opener consumed the only personal topic, return []. Each body is a compact FACT (「数ヶ月ぶりに再開」), never a spoken line — the opener is the spoken line. Genuine personal material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. The booking memo is NEVER a hooks source — its facts sit in the memo box the staff already read; when there is no durable memory AND no past records, hooks MUST be []. Each body must ADD detail beyond its title (context, timing, why it matters) — when there is nothing to add, set body to null; never restate the title in other words. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
 - lastProduct: the most recent product/service offered + the customer's reaction, if present. Null otherwise.
 - recommendedFocus: the WHY behind todayActions — 1-2 sentences of rationale/approach (which finding links today's actions, what to prioritise and why), grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. It must ADD reasoning the action list cannot carry; NEVER restate, list, or paraphrase todayActions items. It may NAME a concern as an anchor, but the state/trajectory stays in concerns — bring only the link and the approach. Null when there is nothing beyond the actions.
 - VOCABULARY: use only this ${tok.businessNoun}'s vocabulary (e.g. ${tok.primaryFocus}); do not borrow another industry's terms (e.g. do not say 施術/"treatment" for a gym). If no domain term fits, use the customer's own words.
