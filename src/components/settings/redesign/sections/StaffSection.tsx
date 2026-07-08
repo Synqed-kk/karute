@@ -10,14 +10,19 @@ interface StaffSectionProps {
   staffList: StaffMember[]
   voiceEnrollments?: Record<string, string | null>
   activeStaffId: string | null
-  isOwner: boolean
+  /** staff.manage capability — add/edit/delete rows (owner + manager, or
+   *  anyone the owner toggled it onto, e.g. an SV). */
+  canManageStaff: boolean
+  /** staff.invite capability — generate /join links. */
+  canInviteStaff: boolean
 }
 
 export function StaffSection({
   staffList,
   voiceEnrollments,
   activeStaffId,
-  isOwner,
+  canManageStaff,
+  canInviteStaff,
 }: StaffSectionProps) {
   const t = useTranslations('settings')
 
@@ -34,13 +39,15 @@ export function StaffSection({
         voiceEnrollments={voiceEnrollments}
         activeStaffId={activeStaffId}
         currentUserId={activeStaffId}
-        isOwner={isOwner}
+        canManageStaff={canManageStaff}
       />
 
-      {/* Invite staff — owner-only, behind the staff-invites flag (off until the
-          tenant-isolation migration lands). Lets the owner generate a /join link
-          so a teammate logs into THIS salon instead of creating their own. */}
-      {isOwner && process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true' && (
+      {/* Invite staff — capability-gated (staff.invite: owner + manager + any
+          custom role the owner toggles it onto), behind the staff-invites flag.
+          Generates a /join link so a teammate logs into THIS salon instead of
+          creating their own. Was owner-only; the UI now matches the server gate
+          (createInvite enforces the same capability). */}
+      {canInviteStaff && process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true' && (
         <div className="flex justify-end">
           <InviteStaffDialog
             staff={staffList.map((s) => ({ id: s.id, full_name: s.full_name, email: s.email }))}

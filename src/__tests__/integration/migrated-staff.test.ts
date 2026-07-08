@@ -8,16 +8,26 @@
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 
+// staff actions translate user-facing errors via getTranslations now; echo the
+// key so assertions can read it — and so importing the action doesn't pull the
+// real ESM next-intl/server into jest's graph ("Unexpected token 'export'").
+jest.mock('next-intl/server', () => ({
+  getTranslations: async () => (key: string) => key,
+}))
+
 const getCurrentUserStaffId = jest.fn(async () => 'staff-1')
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: () => getCurrentUserStaffId(),
 }))
 
-// Permission enforcement is unit-tested in permissions.test.ts; here we mock it
-// to a no-op so these tests exercise the staff-action logic itself.
+// Permission enforcement is unit-tested in permissions.test.ts; here we grant it
+// (can → true) so these tests exercise the staff-action logic itself. staff
+// actions now gate on can() (returned {error}) rather than throwing
+// requireCapability, so both are mocked.
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
 }))
 
 jest.mock('@synqed-kk/client', () => {
@@ -46,6 +56,15 @@ const staff = {
 
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ staff })),
+}))
+
+// deleteStaff now imports the profiles.id → synqed staff.id pure lookup. Stub
+// it so the real staff-map module (which calls unstable_cache at load, unmocked
+// here) isn't pulled into this suite's graph. These tests use profile-less ids,
+// so the action never actually calls it — the lookup's own coverage lives in
+// synqed-staff-map.test.ts.
+jest.mock('@/lib/synqed/staff-map', () => ({
+  lookupSynqedStaffId: jest.fn(async (id: string) => id),
 }))
 
 // Configurable Supabase service-client mock. updateStaff now branches on
@@ -128,7 +147,11 @@ describe('Migrated staff actions', () => {
   it('deleteStaff surfaces server 400 messages as user errors', async () => {
     staff.delete.mockRejectedValue(new SynqedError(400, 'Cannot delete the last staff member.'))
 
-    await expect(deleteStaff('staff-1')).rejects.toThrow('Cannot delete the last staff member.')
+    // Contract change (#392): user-facing failures are RETURNED as { error },
+    // never thrown — a thrown Server Action message is stripped in production.
+    await expect(deleteStaff('staff-1')).resolves.toEqual({
+      error: 'Cannot delete the last staff member.',
+    })
   })
 
   it('uploadStaffAvatar forwards the File and returns the url', async () => {

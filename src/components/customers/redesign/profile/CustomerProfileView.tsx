@@ -76,6 +76,9 @@ interface CustomerProfileViewProps {
    *  Empty until the ticket_packs migration is applied (graceful). */
   packs?: PackWithUsage[]
   lifecycle?: CustomerLifecycle | null
+  /** Org-level 回数券 master switch. Off → the pack card shows only the
+   *  lifecycle row (卒業/離客/口コミ stays — it's customer state, not tickets). */
+  ticketsEnabled?: boolean
 }
 
 export function CustomerProfileView({
@@ -86,6 +89,7 @@ export function CustomerProfileView({
   packs = [],
   lifecycle = null,
   hasNextBooking = false,
+  ticketsEnabled = true,
 }: CustomerProfileViewProps) {
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
@@ -139,6 +143,7 @@ export function CustomerProfileView({
         lifecycle={lifecycle}
         hasNextBooking={hasNextBooking}
         avgIntervalDays={customer.visitPace?.avgIntervalDays ?? null}
+        ticketsEnabled={ticketsEnabled}
       />
 
       {/* 3c. AI re-engagement card — sits ABOVE tabs so staff catch
@@ -160,7 +165,7 @@ export function CustomerProfileView({
       <div>
         {tab === 'memory' && (
           <div className="space-y-4 md:space-y-5">
-            <BookingMemoCard memo={customer.bookingMemo} />
+            <BookingMemoCard customerId={customer.id} memo={customer.bookingMemo} />
             <CustomerMemoryCard
               customerName={customer.name}
               customerId={customer.id}

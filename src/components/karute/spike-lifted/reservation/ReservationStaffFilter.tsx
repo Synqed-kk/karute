@@ -34,9 +34,9 @@ interface Props {
   selected: string
   /** Optional content rendered BEFORE the Self/All segmented toggle in the
    *  same flex row. Used by the reservation page to place the
-   *  Day/Week/Month toggle on the same line as the scope toggle, mirroring
-   *  the spike's `ViewModeSelector` `prependSlot` pattern. Wraps with the
-   *  toggle on narrow viewports. */
+   *  Day/Week/Month toggle compact and inline on the same line as the scope
+   *  toggle and the 担当 chip. The 担当 chip shows only the family name once a
+   *  staff is picked, so the whole row fits on one line at Liam's 440px. */
   prependSlot?: React.ReactNode
 }
 
@@ -65,38 +65,39 @@ export function ReservationStaffFilter({
   if (staffList.length === 0 && !selfStaffId) return null
 
   return (
-    <div className={`flex flex-col gap-2 ${isPending ? 'opacity-60' : ''}`}>
-      {/* Row 1: prepend slot (Day/Week/Month toggle in practice) +
-       *  Self/All segmented toggle. Same row so the chrome above the
-       *  agenda is one line on most viewports. */}
-      <div className="flex flex-wrap items-center gap-2">
-        {prependSlot}
-        <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
-          {selfStaffId && (
-            <SegmentButton
-              active={selected === 'self'}
-              onClick={() => setStaff('self')}
-              icon={<User size={13} />}
-              label={t('self')}
-            />
-          )}
+    // One row: Day/Week/Month toggle (prependSlot) + Self/All segmented toggle
+    // + 担当 chip, all inline. The 担当 chip shows just the family name once a
+    // staff is picked, so all three fit on one line at 440px. flex-wrap is a
+    // graceful backstop on the narrowest phones; the dropdown clamps itself
+    // on-screen (StaffSelector) if the chip ever wraps far-left.
+    <div
+      className={`flex flex-wrap items-center gap-2 ${isPending ? 'opacity-60' : ''}`}
+    >
+      {prependSlot}
+      <div className="inline-flex h-9 w-fit items-stretch rounded-full border border-border bg-muted/50 p-0.5 text-xs font-medium">
+        {selfStaffId && (
           <SegmentButton
-            active={selected === 'all'}
-            onClick={() => setStaff('all')}
-            icon={<Users size={13} />}
-            label={t('all')}
+            active={selected === 'self'}
+            onClick={() => setStaff('self')}
+            icon={<User size={13} />}
+            label={t('self')}
           />
-        </div>
-        {/* 担当 trigger (option D, compact) — the pill rows are gone; the
-         *  roster lives in the shared bottom sheet. */}
-        <StaffSelector
-          staffList={staffList}
-          selected={selected}
-          onChange={(next) => setStaff(next)}
-          compact
+        )}
+        <SegmentButton
+          active={selected === 'all'}
+          onClick={() => setStaff('all')}
+          icon={<Users size={13} />}
+          label={t('all')}
         />
       </div>
-
+      {/* 担当 chip — names the current selection inline (avatar + family
+       *  name), and tapping it opens the shared dropdown. */}
+      <StaffSelector
+        staffList={staffList}
+        selected={selected}
+        onChange={(next) => setStaff(next)}
+        compact
+      />
     </div>
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useTranslations } from 'next-intl'
 import type { BusinessProfile, ConsultationQuestion } from '@/lib/welcome/business-types'
 import { AIPageHeader, type DataScopeItem } from './AIPageHeader'
 import { BusinessProfileHint } from './BusinessProfileHint'
@@ -30,6 +31,7 @@ export function AIAssistantView({
   userInitials,
   locale,
 }: AIAssistantViewProps) {
+  const t = useTranslations('askAi')
   const [input, setInput] = useState('')
   const [messages, setMessages] = useState<AIMessage[]>([])
   const [loading, setLoading] = useState(false)
@@ -67,12 +69,16 @@ export function AIAssistantView({
         }),
       })
       const data = (await res.json()) as { reply?: string }
+      // Non-ok responses and missing replies fall through to the (translated)
+      // error bubble — previously they rendered hardcoded English filler.
+      const reply = data.reply
+      if (!res.ok || typeof reply !== 'string') throw new Error(`HTTP ${res.status}`)
       setMessages((prev) => [
         ...prev,
         {
           id: `a-${Date.now()}`,
           role: 'ai',
-          text: data.reply ?? 'Sorry, no reply.',
+          text: reply,
           timestamp: nowHHMM(),
           // Citations are stubbed — the current /api/ai/chat doesn't return
           // grounded-row citations. Will populate when RAG retrieval lands.
@@ -84,7 +90,7 @@ export function AIAssistantView({
         {
           id: `e-${Date.now()}`,
           role: 'ai',
-          text: 'Sorry, something went wrong reaching the model.',
+          text: t('error'),
           timestamp: nowHHMM(),
         },
       ])

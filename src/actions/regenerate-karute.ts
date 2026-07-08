@@ -2,6 +2,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { requireCapability } from '@/lib/auth/require-permission'
 import type { Entry } from '@/types/ai'
 
 type SynqedCategory =
@@ -65,6 +66,10 @@ export async function regenerateKaruteEntries(
   }
 
   try {
+    // Re-writing a record's AI entries = records.write. Thrown → caught below →
+    // house { error } shape the RegenerateEntriesButton already surfaces.
+    await requireCapability('records.write')
+
     const synqed = await getSynqedClient()
 
     // 1. Snapshot existing entry ids BEFORE mutating (authoritative server read,
@@ -167,6 +172,10 @@ export async function updateKaruteSummary(
     return { error: 'No new summary to write — keeping the existing one.' }
   }
   try {
+    // Replacing a record's AI summary = records.write. Thrown → caught below →
+    // house { error } shape.
+    await requireCapability('records.write')
+
     const synqed = await getSynqedClient()
     await synqed.karuteRecords.update(karuteRecordId, { ai_summary: summary })
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')

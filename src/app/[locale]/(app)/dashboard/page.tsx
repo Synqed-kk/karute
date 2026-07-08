@@ -15,6 +15,7 @@ import {
   isReturningCustomer,
   type CustomerEnrichment,
 } from '@/lib/customers/list-enrich'
+import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { hmInJst, ymdInJst, nowUtc, jstDaysBetween } from '@/lib/date/jst'
 import { getActiveStoreId } from '@/actions/stores'
 import {
@@ -89,6 +90,24 @@ export default async function DashboardPage() {
   const now = nowUtc()
   const todayYmd = ymdInJst(now)
 
+  // 回数券 off (org setting): the fetch wave above stays fully parallel
+  // (orgSettings is inside it), so the three pack reads still run — cheap,
+  // cached, and harmless — and their RESULTS are blanked here instead. Every
+  // downstream chip/list/total then naturally disappears, and the two pack
+  // cards are hidden outright via ticketsEnabled.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
+  const packUsageView = ticketsEnabled ? packUsage : (new Map() as typeof packUsage)
+  const packAlertsView = ticketsEnabled
+    ? packAlerts
+    : {
+        contact: [],
+        low: [],
+        inProgress: [],
+        totals: { atRiskValue: 0, unconsumedTotal: 0, holderCount: 0 },
+        monthly: { contacted: 0, rebooked: 0 },
+      }
+  const reconcileView = ticketsEnabled ? reconcile : { entries: [], truncated: 0 }
+
   // ── shared lookups ────────────────────────────────────────────────
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
   const customerById = new Map(customerList.map((c) => [c.id, c] as const))
@@ -107,7 +126,7 @@ export default async function DashboardPage() {
       ...[...dashboard.todayAppointments, ...dashboard.tomorrowAppointments].map(
         (a) => a.client_id,
       ),
-      ...packUsage.keys(),
+      ...packUsageView.keys(),
     ]),
   ]
   // Owner detection up front — it gates the owner-only redemptions fetch.
@@ -174,13 +193,18 @@ export default async function DashboardPage() {
       visitCount: c?.visitCount,
       karuteCount: e?.totalKarute,
       pastAppointmentCount: e?.pastAppointmentCount,
-      hasTicketPack: (c?.hasTicketPack ?? false) || packUsage.has(clientId),
+      hasTicketPack: (c?.hasTicketPack ?? false) || packUsageView.has(clientId),
     })
   }
   const ticketFor = (clientId: string): { remaining: number; size: number } | null => {
-    const u = packUsage.get(clientId)
+    const u = packUsageView.get(clientId)
     return u?.hasActivePack ? { remaining: u.remaining, size: u.size } : null
   }
+  // The reservation system outranks inference (Liam's rule): a 新規-course
+  // booking IS a first visit; any other named course means returning. Only
+  // titleless bookings fall back to history-based inference.
+  const firstVisitFor = (a: DashboardTodayAppointment): boolean =>
+    firstVisitFromBooking(a.title) ?? isFirstTime(a.client_id)
 
   const toHeroView = (s: (typeof slides)[number]): HeroSlideView => {
     const a = s.appointment
@@ -193,7 +217,7 @@ export default async function DashboardPage() {
       timeHm: hmInJst(new Date(a.start_time)),
       durationMinutes: a.duration_minutes,
       inProgress: s.inProgress,
-      round: visitRound(c?.visitCount ?? 0, !isFirstTime(a.client_id)),
+      round: visitRound(c?.visitCount ?? 0, !firstVisitFor(a)),
       course: a.title,
       staffName: staffNameById.get(a.staff_profile_id) ?? 'Unknown',
       ticket: ticketFor(a.client_id),
@@ -211,13 +235,13 @@ export default async function DashboardPage() {
 
   // ── 要注目: today's noteworthy customers + one-line AI prep notes ──
   const candidates: AttentionCandidate[] = dashboard.todayAppointments.map((a) => {
-    const u = packUsage.get(a.client_id)
+    const u = packUsageView.get(a.client_id)
     const e = enrichment.get(a.client_id)
     return {
       appointmentId: a.id,
       clientId: a.client_id,
       startIso: a.start_time,
-      firstTime: isFirstTime(a.client_id),
+      firstTime: firstVisitFor(a),
       remaining: u?.hasActivePack ? u.remaining : null,
       size: u?.hasActivePack ? u.size : null,
       hadPack: customerById.get(a.client_id)?.hasTicketPack ?? false,
@@ -296,7 +320,7 @@ export default async function DashboardPage() {
         ),
       }
     })
-  const rebookRows: RebookRow[] = [...packUsage.entries()]
+  const rebookRows: RebookRow[] = [...packUsageView.entries()]
     .filter(([, u]) => u.hasActivePack && u.remaining > 0)
     .flatMap(([clientId, u]) => {
       const name = customerById.get(clientId)?.name
@@ -323,7 +347,7 @@ export default async function DashboardPage() {
       dueLabel: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
     }
   })
-  const winbacks: WinbackView[] = [...packAlerts.contact]
+  const winbacks: WinbackView[] = [...packAlertsView.contact]
     .sort((a, b) => (b.daysSinceLastVisit ?? 0) - (a.daysSinceLastVisit ?? 0))
     .slice(0, 3)
     .map((c) => ({
@@ -341,7 +365,7 @@ export default async function DashboardPage() {
     customerName: nameFor(a),
     timeHm: hmInJst(new Date(a.start_time)),
   }))
-  const redeemTodosToday = reconcile.entries.filter(
+  const redeemTodosToday = reconcileView.entries.filter(
     (e) => e.visitDay === todayYmd && e.kind !== 'unrecorded',
   )
   const cappedKarute = karuteTodos.slice(0, 3)
@@ -358,7 +382,7 @@ export default async function DashboardPage() {
         dateLabel: compactDayLabel(tomorrowDate!, locale),
         ymd: ymdInJst(tomorrowDate!),
         count: tomorrowAppts.length,
-        firstTimers: tomorrowAppts.filter((a) => isFirstTime(a.client_id)).length,
+        firstTimers: tomorrowAppts.filter((a) => firstVisitFor(a)).length,
         firstTimeHm: hmInJst(tomorrowDate!),
         firstName: nameFor(first),
       }
@@ -393,15 +417,16 @@ export default async function DashboardPage() {
       rebooks={rebooks}
       winbacks={winbacks}
       tomorrow={tomorrowStrip}
-      packAlerts={packAlerts}
+      packAlerts={packAlertsView}
       // Today's unredeemed rows live in やること — the owner backlog shows
       // strictly-past days so the same visit never appears twice.
       reconcile={{
-        entries: reconcile.entries.filter((e) => e.visitDay !== todayYmd),
-        truncated: reconcile.truncated,
+        entries: reconcileView.entries.filter((e) => e.visitDay !== todayYmd),
+        truncated: reconcileView.truncated,
       }}
       canDismissAlerts={canDismissAlerts}
       pulse={{ redemptions: recentRedemptions.length, karute: dashboard.weekKaruteCount }}
+      ticketsEnabled={ticketsEnabled}
     />
   )
 }

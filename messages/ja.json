@@ -25,6 +25,7 @@
     "email": "メールアドレス",
     "phone": "電話番号",
     "somethingWentWrong": "エラーが発生しました。",
+    "noPermission": "この操作を行う権限がありません。",
     "saved": "保存済み",
     "notifications": "通知"
   },
@@ -51,7 +52,27 @@
     "hasAccount": "アカウントをお持ちの方",
     "signinLink": "サインイン",
     "signupNoUser": "ユーザーが取得できませんでした。もう一度お試しください。",
-    "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。"
+    "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。",
+    "forgotPassword": "パスワードをお忘れですか？",
+    "resetTitle": "パスワード再設定",
+    "resetSubtitle": "登録済みのメールアドレスを入力してください。再設定用のリンクをお送りします。",
+    "resetSubmit": "再設定リンクを送信",
+    "resetSubmitting": "送信中...",
+    "resetSentTitle": "メールを送信しました",
+    "resetSentBody": "アカウントが存在する場合、パスワード再設定用のリンクをお送りしました。届かない場合は迷惑メールフォルダもご確認ください。",
+    "resetErrorGeneric": "送信に失敗しました。しばらくしてからもう一度お試しください。",
+    "backToLogin": "サインインに戻る",
+    "newPasswordTitle": "新しいパスワードを設定",
+    "newPasswordSubtitle": "新しいパスワードを入力してください。",
+    "newPassword": "新しいパスワード",
+    "newPasswordConfirm": "新しいパスワード（確認）",
+    "newPasswordSubmit": "パスワードを変更",
+    "newPasswordSubmitting": "変更中...",
+    "resetLinkChecking": "リンクを確認しています...",
+    "resetLinkInvalidTitle": "リンクが無効です",
+    "resetLinkInvalidBody": "このリンクは無効か、有効期限が切れています。お手数ですが、パスワード再設定をもう一度やり直してください。",
+    "resetRequestAgain": "再設定をやり直す",
+    "resetUpdateError": "パスワードを変更できませんでした。もう一度お試しください。"
   },
   "welcome": {
     "title": "店舗の初期設定",
@@ -185,6 +206,7 @@
     "grid": {
       "blockOwner": "予約を受け付けていません（オーナー業務）",
       "staffMeta": "{role} ・ {count}件の予約",
+      "staffMetaNoRole": "{count}件の予約",
       "staffColumnLabel": "STAFF"
     },
     "totals": {
@@ -275,7 +297,6 @@
       "karute": "カルテ {date}"
     },
     "actions": {
-      "exportPdf": "PDFエクスポート",
       "share": "共有",
       "edit": "編集"
     },
@@ -502,6 +523,8 @@
       "lastProduct": "前回の商品提案",
       "recommendedFocus": "本日のおすすめフォーカス",
       "reservationMemo": "ご予約時のメモ",
+      "memoShowAll": "すべて表示",
+      "memoCollapse": "閉じる",
       "memoAnalysisLabel": "AIによる事前読み取り",
       "firstTimeHeader": "初めてのお客様",
       "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
@@ -566,7 +589,10 @@
       "body": "セッション中に次の回数券のお話を。録音終了後に結果（購入した／案内した）を記録できます。",
       "bodyLast": "本日が最後の1回です。セッション中に必ず次の回数券のご案内を — 録音終了後に結果を記録できます。"
     },
-    "otherStaffBooking": "{staff}さんの予約のお客様 — この記録は {you} さんの担当として保存されます"
+    "otherStaffBooking": "{staff}さんの予約のお客様 — この記録は {you} さんの担当として保存されます",
+    "recoverTitle": "保存されていない録音があります。",
+    "recoverAction": "復元する",
+    "recoverDiscard": "破棄"
   },
   "customers": {
     "title": "顧客",
@@ -745,6 +771,7 @@
         "redeemConfirm": "記録する",
         "redeemDone": "消化を記録しました",
         "redeemFailed": "記録できませんでした",
+        "redeemNoSessionsLeft": "残回数がないため消化できません",
         "cancel": "キャンセル",
         "lowRemaining": "残りわずか — 次回ご来店時に次の回数券のご案内を",
         "lifecycleLabel": "ステータス",
@@ -779,6 +806,12 @@
       "ageValue": "{age}歳",
       "visitCountSuffix": " 回",
       "staffPrefix": "担当",
+      "bookingMemo": {
+        "edit": "メモを編集",
+        "hint": "▶項目名: の形を保つと整理表示されます。保存後は予約システムからの上書きはありません。",
+        "save": "保存",
+        "cancel": "キャンセル"
+      },
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
@@ -929,8 +962,6 @@
     "staff": "スタッフ",
     "date": "日付",
     "customer": "顧客",
-    "exportPdf": "PDF出力",
-    "exportText": "テキスト出力",
     "noKarute": "カルテがまだありません",
     "saveKarute": "カルテを保存",
     "saving": "保存中...",
@@ -1688,6 +1719,7 @@
       "redeemed": "{date}の分を消化しました",
       "undo": "取り消す",
       "redeemFailed": "消化できませんでした",
+      "redeemNoSessionsLeft": "残回数がないため消化できません",
       "dismissed": "来店なしとして記録しました",
       "dismissFailed": "記録できませんでした",
       "more": "他{n}件（処理すると順に表示されます）"
@@ -2153,6 +2185,8 @@
     "packsDescription": "回数券のプリセットとスタッフ権限",
     "packs": {
       "label": "回数券",
+      "enableTitle": "回数券機能を使う",
+      "enableHint": "オフにすると、回数券に関する表示（顧客プロフィールの回数券カード、ダッシュボードの未消化・要連絡、録音後の消化・成約ダイアログ）がすべて非表示になります。データは削除されません。",
       "presetsTitle": "回数券プリセット",
       "presetsHint": "録音停止後の「新しい回数券」パネルに表示される回数・単価の選択肢です。前回購入がある顧客はその内容が優先で自動入力されます。",
       "sizeLabel": "回数",
@@ -2179,7 +2213,9 @@
     "nextTreatment": "次回施術",
     "followUp": "フォローアップ",
     "talkingPoint": "話題",
-    "general": "一般"
+    "general": "一般",
+    "loadFailed": "おすすめアクションを読み込めませんでした。",
+    "retry": "再試行"
   },
   "dataImport": {
     "title": "データインポート",
@@ -2487,7 +2523,10 @@
     "noAiHistoryYet": "AI履歴がまだありません",
     "aiSummariesAppearAfterSessions": "セッション録音後にAIサマリーがここに表示されます",
     "aiSummary": "AIサマリー",
-    "noAdviceGenerated": "アドバイスは生成されていません"
+    "noAdviceGenerated": "アドバイスは生成されていません",
+    "adviceLoadFailed": "アドバイスを読み込めませんでした。",
+    "notesSaveFailed": "メモを保存できませんでした。もう一度お試しください。",
+    "retry": "再試行"
   },
   "localeToggle": {
     "switchToJapanese": "日本語に切り替え",
@@ -2652,9 +2691,12 @@
     "inviteDescription": "スタッフにこのサロンへの参加リンクを送ります。各自のログインが作成され、スタッフ一覧に表示されます。",
     "inviteEmailLabel": "スタッフのメールアドレス",
     "inviteRoleLabel": "役割",
-    "role_ADMIN": "管理者",
-    "role_STYLIST": "スタイリスト",
-    "role_ASSISTANT": "アシスタント",
+    "role_ADMIN": "マネージャー",
+    "role_STYLIST": "スタッフ",
+    "role_ASSISTANT": "受付",
+    "role_ADMIN_desc": "サロン全体を管理（設定・スタッフ・データ）",
+    "role_STYLIST_desc": "カルテ記録・顧客・予約（担当店舗）",
+    "role_ASSISTANT_desc": "予約と顧客の閲覧のみ",
     "inviteCreate": "招待リンクを作成",
     "inviteCreating": "作成しています…",
     "inviteLinkReady": "招待リンクができました。スタッフに共有してください：",

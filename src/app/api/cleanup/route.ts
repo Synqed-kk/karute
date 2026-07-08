@@ -9,10 +9,20 @@ export const maxDuration = 30
  * 1. Delete any orphaned recordings from storage (older than 1 hour)
  * 2. Delete expired AI cache entries (in synqed-core)
  *
- * Runs from cron (no user session). Recordings still use the service-role
- * Supabase client (Storage); the AI cache lives in synqed-core.
+ * Runs from Vercel Cron (no user session) — which sends
+ * `Authorization: Bearer ${CRON_SECRET}` when CRON_SECRET is configured. This
+ * endpoint deletes storage + purges cache with the service-role client, so it
+ * must NOT be publicly callable. Fail CLOSED: if CRON_SECRET is unset, or the
+ * header doesn't match, reject. (Set CRON_SECRET on Vercel prod+preview before
+ * deploy, or the scheduled cleanup 401s until it's present.)
  */
-export async function GET() {
+export async function GET(request: Request) {
+  const secret = process.env.CRON_SECRET
+  const auth = request.headers.get('authorization')
+  if (!secret || auth !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const supabase = createServiceClient()
 
   let recordingsDeleted = 0

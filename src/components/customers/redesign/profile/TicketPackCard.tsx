@@ -26,11 +26,12 @@ import {
   redeemSessionAction,
   setLifecycleAction,
 } from '@/actions/packs'
-import type {
-  CustomerLifecycle,
-  LifecycleStatus,
-  PackKind,
-  PackWithUsage,
+import {
+  nextPurchaseRound,
+  type CustomerLifecycle,
+  type LifecycleStatus,
+  type PackKind,
+  type PackWithUsage,
 } from '@/lib/packs/types'
 import { DEFAULT_CONTACT_THRESHOLD_DAYS } from '@/lib/packs/resolve'
 import { jstDaysBetween } from '@/lib/date/jst'
@@ -50,6 +51,9 @@ interface TicketPackCardProps {
    *  how long it lasts at their cadence ("いまのペースで約N分"). null when no solid
    *  cadence. This is the ONE home for the span (it was duplicated in the pace card). */
   avgIntervalDays?: number | null
+  /** Org-level 回数券 master switch. Off → only the lifecycle row renders
+   *  (卒業/離客/口コミ is customer state, not a ticket feature). */
+  ticketsEnabled?: boolean
 }
 
 export function TicketPackCard({
@@ -58,12 +62,22 @@ export function TicketPackCard({
   lifecycle,
   hasNextBooking = false,
   avgIntervalDays = null,
+  ticketsEnabled = true,
 }: TicketPackCardProps) {
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
   const inactive = packs.filter((p) => p.status !== 'active')
-  // 追加数: the next pack's round = how many counted packs exist already.
-  const nextRound = packs.filter((p) => p.kind === 'pack').length
+  // 追加数: highest stored round + 1 (imports collapsed history to one row,
+  // so counting rows relabels a round-4 regular as 初回).
+  const nextRound = nextPurchaseRound(packs)
+
+  if (!ticketsEnabled) {
+    return (
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
+        <LifecycleRow customerId={customerId} lifecycle={lifecycle} bare />
+      </section>
+    )
+  }
 
   return (
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
@@ -134,7 +148,9 @@ function packLabel(p: PackWithUsage, t: ReturnType<typeof useTranslations>): str
 }
 
 function roundLabel(round: number, t: ReturnType<typeof useTranslations>): string {
-  return round === 0 ? t('roundFirst') : t('roundN', { n: round })
+  // Rounds are 1-based (sheet + June import convention: 初回 = 1). Legacy
+  // app-created packs stored 0 — still read as 初回.
+  return round <= 1 ? t('roundFirst') : t('roundN', { n: round })
 }
 
 function PackRow({
@@ -188,7 +204,7 @@ function PackRow({
       toast.success(t('redeemDone'))
       router.refresh()
     } else {
-      toast.error(t('redeemFailed'))
+      toast.error(t(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
     }
   }
 
@@ -335,9 +351,12 @@ function PackRow({
 function LifecycleRow({
   customerId,
   lifecycle,
+  bare = false,
 }: {
   customerId: string
   lifecycle: CustomerLifecycle | null
+  /** Rendered as the card's only content (tickets off) — no divider above. */
+  bare?: boolean
 }) {
   const t = useTranslations('customers.profile.packs')
   const router = useRouter()
@@ -365,7 +384,13 @@ function LifecycleRow({
     }`
 
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3.5">
+    <div
+      className={
+        bare
+          ? 'flex flex-wrap items-center gap-1.5'
+          : 'mt-4 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3.5'
+      }
+    >
       <span className="mr-1 text-[11px] text-muted-foreground">{t('lifecycleLabel')}</span>
       {(['active', 'graduated', 'lost'] as const).map((s) => (
         <button

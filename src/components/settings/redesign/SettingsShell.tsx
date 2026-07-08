@@ -20,6 +20,7 @@ import {
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StoreRow } from '@/actions/stores'
 import type { StaffMember } from '@/lib/staff'
+import { visibleSettingsTabs, visibleStaffRoster } from '@/lib/auth/settings-visibility'
 import { OrganizationSection } from './sections/OrganizationSection'
 import { StoresSection } from './sections/StoresSection'
 import { ThemeSection } from './sections/ThemeSection'
@@ -148,6 +149,12 @@ interface SettingsShellProps {
   activeStaffId: string | null
   locale: string
   isOwner: boolean
+  /** Capability flags resolved server-side (settings/page.tsx). These gate
+   *  what the settings UI OFFERS; the server actions enforce the same
+   *  capabilities regardless. */
+  canViewAllStores: boolean
+  canManageStaff: boolean
+  canInviteStaff: boolean
   /** Stores fetched on the server, passed straight to StoresSection so its
    *  list renders complete on first paint instead of fetching on mount. */
   initialStores: StoreRow[]
@@ -160,6 +167,9 @@ export function SettingsShell({
   activeStaffId,
   locale,
   isOwner,
+  canViewAllStores,
+  canManageStaff,
+  canInviteStaff,
   initialStores,
   initialActiveStoreId,
 }: SettingsShellProps) {
@@ -169,7 +179,11 @@ export function SettingsShell({
   // strip always has something selected.
   const [activeTab, setActiveTab] = useState<SettingsTabId | null>(null)
 
-  const visibleTabs = TABS.filter((tab) => !tab.ownerOnly || isOwner)
+  // 店舗 hidden from branch-restricted staff; staff roster clamped to self for
+  // non-managers. Pure, unit-tested rules (see lib/auth/settings-visibility) —
+  // this is UI exposure reduction; server actions enforce the real boundary.
+  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores })
+  const visibleStaff = visibleStaffRoster(staffList, activeStaffId, canManageStaff)
 
   const desktopActiveTab = activeTab ?? visibleTabs[0]?.id ?? null
   const drilledTab = activeTab
@@ -181,14 +195,16 @@ export function SettingsShell({
       case 'organization':
         return <OrganizationSection orgSettings={orgSettings} locale={locale} />
       case 'stores':
-        return (
+        // Defense in depth alongside the tab filter above (same idiom as the
+        // ownerOnly sections below).
+        return canViewAllStores ? (
           <StoresSection
             orgSettings={orgSettings}
             isOwner={isOwner}
             initialStores={initialStores}
             initialActiveStoreId={initialActiveStoreId}
           />
-        )
+        ) : null
       case 'theme':
         return <ThemeSection orgSettings={orgSettings} locale={locale} />
       case 'ai':
@@ -200,9 +216,10 @@ export function SettingsShell({
       case 'staff':
         return (
           <StaffSection
-            staffList={staffList}
+            staffList={visibleStaff}
             activeStaffId={activeStaffId}
-            isOwner={isOwner}
+            canManageStaff={canManageStaff}
+            canInviteStaff={canInviteStaff}
             voiceEnrollments={Object.fromEntries(
               Object.entries(orgSettings?.voice_enrollments ?? {}).map(
                 ([id, v]) => [id, v.status === 'saved' ? v.consent_at : null],

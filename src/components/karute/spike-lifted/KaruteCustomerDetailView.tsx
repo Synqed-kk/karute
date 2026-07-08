@@ -85,7 +85,7 @@ export function KaruteCustomerDetailView({
        *  richest first-touch info, surfaced read-only until AI extraction
        *  fills the structured memory boxes below. Renders nothing when empty. */}
       <div className="md:px-6 md:pt-5">
-        <BookingMemoCard memo={customer.bookingMemo} />
+        <BookingMemoCard customerId={customer.id} memo={customer.bookingMemo} />
       </div>
 
       {/* 3. Customer memory — lifted spike CustomerMemoryCard (visual

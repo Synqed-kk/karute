@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { ChevronRight, FileText, Share2 } from 'lucide-react'
+import { ChevronRight, Share2 } from 'lucide-react'
 
 import { Link } from '@/i18n/navigation'
 
@@ -20,7 +20,6 @@ interface DetailBreadcrumbProps {
   customerName: string
   karuteNumber: string
   sessionDateLong: string
-  karuteId: string
 }
 
 export function DetailBreadcrumb({
@@ -28,7 +27,6 @@ export function DetailBreadcrumb({
   customerName,
   karuteNumber,
   sessionDateLong,
-  karuteId,
 }: DetailBreadcrumbProps) {
   const t = useTranslations('karuteDetail')
   return (
@@ -65,18 +63,6 @@ export function DetailBreadcrumb({
         </span>
       </nav>
       <div className="flex items-center gap-2">
-        {/* PDF export is a DOWNLOAD hitting an API route — a plain <a download>,
-         *  NOT the i18n <Link>. The i18n Link locale-prefixed the href to
-         *  /ja/api/karute/.../export/pdf (no such route → 404) AND prefetched it,
-         *  spamming the console with 404s. The route lives at /api/... (no locale).*/}
-        <a
-          href={`/api/karute/${karuteId}/export/pdf`}
-          download
-          className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-xs font-medium text-foreground hover:bg-muted"
-        >
-          <FileText size={14} />
-          <span>{t('actions.exportPdf')}</span>
-        </a>
         {FEATURE_KARUTE_SHARE && (
           <button
             type="button"

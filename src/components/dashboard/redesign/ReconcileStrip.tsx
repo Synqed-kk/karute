@@ -87,7 +87,7 @@ function ReconcileRow({ entry: e }: { entry: ReconcileEntry }) {
       })
       router.refresh()
     } else {
-      toast.error(t('redeemFailed'))
+      toast.error(t(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
     }
   }
 

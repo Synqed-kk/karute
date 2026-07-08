@@ -9,6 +9,8 @@ import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { ReviewScreen } from '@/components/review/ReviewScreen'
+import type { Entry } from '@/types/ai'
+import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -105,6 +107,11 @@ export interface RecordPageViewProps {
   /** Signed-in staff display name — shown in the 別のスタッフの予約 banner so
    *  staff see the record will save under THEM. */
   currentStaffName?: string | null
+  /** Org-level 回数券 master switch. Off → the stop flow neither burns a
+   *  session nor opens the outcome dialog (成約/回数券 questions are ticket
+   *  economics) — it saves the record exactly like the mid-pack auto path,
+   *  minus the redemption. */
+  ticketsEnabled?: boolean
 }
 
 function deriveInitials(name: string): string {
@@ -138,6 +145,7 @@ export function RecordPageView({
   previousPack = null,
   noiseSuppression = true,
   currentStaffName = null,
+  ticketsEnabled = true,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -218,6 +226,24 @@ export function RecordPageView({
   // before transcription — so they decide once, up front, then the AI runs in
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
+
+  // Crash recovery: a draft persisted by ReviewScreen from a session that was
+  // never saved (WebView killed, tab reloaded). Loaded after mount (client-only,
+  // so no SSR hydration mismatch). `restoring` = the staffer chose to reopen it.
+  const [recoveredDraft, setRecoveredDraft] = useState<KaruteDraft | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  useEffect(() => {
+    // loadDraft is async now — it returns the draft ONLY to the staff member who
+    // saved it (privacy on a shared device). Guard against a late resolve after
+    // unmount.
+    let cancelled = false
+    void loadDraft().then((d) => {
+      if (!cancelled) setRecoveredDraft(d)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const [consent, setConsent] = useState<{ granted: boolean; grantedAt: string | null } | null>(null)
   const [showConsentDialog, setShowConsentDialog] = useState(false)
@@ -389,7 +415,7 @@ export function RecordPageView({
               : undefined,
           )
         } else {
-          toast.error(tPacks('redeemFailed'))
+          toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
         }
       })
     }
@@ -411,12 +437,56 @@ export function RecordPageView({
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
         onSaved={() => {
+          // Save persisted the record → drop the recovery draft (storage +
+          // in-memory), so no stale banner reoffers a finished session.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
         }}
         onDiscard={() => {
+          // Deliberate discard → drop the draft too, or it reappears as a
+          // recovery offer for a session the user intentionally threw away.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
+        }}
+      />
+    )
+  }
+
+  // Crash recovery: the staffer chose to reopen an unsaved draft (offered by the
+  // banner below). Re-mount ReviewScreen seeded from sessionStorage. Entry shape
+  // is mapped back from the draft's storage shape. No outcome is carried (it's
+  // not persisted) — the karute saves; any pack side-effect is handled manually.
+  if (restoring && recoveredDraft) {
+    return (
+      <ReviewScreen
+        transcript={recoveredDraft.transcript}
+        entries={recoveredDraft.entries.map(
+          (e): Entry => ({
+            category: e.category as Entry['category'],
+            title: e.content,
+            source_quote: e.sourceQuote ?? '',
+            confidence_score: e.confidenceScore,
+          }),
+        )}
+        summary={recoveredDraft.summary}
+        customers={customers}
+        duration={recoveredDraft.duration}
+        appointmentId={recoveredDraft.appointmentId}
+        appointmentCustomerId={recoveredDraft.appointmentCustomerId}
+        onSaved={() => {
+          clearDraft()
+          setRecoveredDraft(null)
+          setRestoring(false)
+          handleNewSession()
+        }}
+        onDiscard={() => {
+          clearDraft()
+          setRecoveredDraft(null)
+          setRestoring(false)
         }}
       />
     )
@@ -523,7 +593,12 @@ export function RecordPageView({
           size="md"
           className="flex-1"
           onClick={() =>
-            outcomeMode === 'auto' ? handleAutoFlow() : setOutcomeOpen(true)
+            // Tickets off: straight save — no burn, no 成約/回数券 dialog.
+            !ticketsEnabled
+              ? handleUseRecording(undefined, true)
+              : outcomeMode === 'auto'
+                ? handleAutoFlow()
+                : setOutcomeOpen(true)
           }
         >
           {t('useRecording')}
@@ -574,6 +649,34 @@ export function RecordPageView({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
+
+      {/* Crash-recovery offer — a session that reached the AI review but was
+       *  never saved. Shown only when fully idle so it never competes with a
+       *  live recording; non-hijacking (explicit 復元/破棄). */}
+      {recoveredDraft && !restoring && !live && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <span className="flex-1 text-amber-900 dark:text-amber-200">
+            {t('recoverTitle')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setRestoring(true)}
+            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
+          >
+            {t('recoverAction')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearDraft()
+              setRecoveredDraft(null)
+            }}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
+          >
+            {t('recoverDiscard')}
+          </button>
+        </div>
+      )}
 
       {micError && (
         <div
@@ -654,7 +757,9 @@ export function RecordPageView({
 
       {/* Outcome — chosen at stop, BEFORE transcription, so staff aren't stuck
           waiting for the AI. Centered pop-up; the choice rides the pipeline
-          context to the save. */}
+          context to the save. Never mounts with tickets off — the stop button
+          saves directly and outcomeOpen can't turn true. */}
+      {ticketsEnabled && (
       <PostSessionResolutionDialog
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
@@ -703,7 +808,7 @@ export function RecordPageView({
               appointmentId: boundAppointmentId ?? null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
-              else toast.error(tPacks('redeemFailed'))
+              else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
             })
           }
           // 購入した → close the loop: the NEW pack must be registered, or the
@@ -729,6 +834,7 @@ export function RecordPageView({
           handleUseRecording(outcome)
         }}
       />
+      )}
 
       {/* Consent dialog */}
       {showConsentDialog && nextAppointment && (

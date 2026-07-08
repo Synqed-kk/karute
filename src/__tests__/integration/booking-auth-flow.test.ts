@@ -97,6 +97,14 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: jest.fn(() => ({ from: serviceFromMock })),
 }))
 
+// RBAC gate neutralized — this suite isolates staff attribution, not
+// permissions. Capability enforcement is covered in
+// rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
+}))
+
 // Mock resolveSynqedStaffId so the test controls translation. In prod the
 // resolver self-heals via email fallback; here we simulate the "no synqed
 // staff matches this profile" failure as a thrown error, mirroring what

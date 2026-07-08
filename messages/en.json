@@ -25,6 +25,7 @@
     "email": "Email",
     "phone": "Phone",
     "somethingWentWrong": "Something went wrong.",
+    "noPermission": "You do not have permission to perform this action.",
     "saved": "Saved",
     "notifications": "Notifications"
   },
@@ -51,7 +52,27 @@
     "hasAccount": "Already have an account?",
     "signinLink": "Sign in",
     "signupNoUser": "Signup did not return a user. Try again.",
-    "emailAlreadyRegistered": "This email is already registered. Please sign in instead."
+    "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+    "forgotPassword": "Forgot your password?",
+    "resetTitle": "Reset password",
+    "resetSubtitle": "Enter your registered email address and we'll send you a reset link.",
+    "resetSubmit": "Send reset link",
+    "resetSubmitting": "Sending...",
+    "resetSentTitle": "Email sent",
+    "resetSentBody": "If an account exists, we've sent a password reset link. If it doesn't arrive, check your spam folder too.",
+    "resetErrorGeneric": "Could not send the email. Please try again in a moment.",
+    "backToLogin": "Back to sign in",
+    "newPasswordTitle": "Set a new password",
+    "newPasswordSubtitle": "Enter your new password.",
+    "newPassword": "New password",
+    "newPasswordConfirm": "New password (confirm)",
+    "newPasswordSubmit": "Change password",
+    "newPasswordSubmitting": "Changing...",
+    "resetLinkChecking": "Checking your link...",
+    "resetLinkInvalidTitle": "This link is invalid",
+    "resetLinkInvalidBody": "This link is invalid or has expired. Please start the password reset again.",
+    "resetRequestAgain": "Start over",
+    "resetUpdateError": "Could not change the password. Please try again."
   },
   "welcome": {
     "title": "Set up your store",
@@ -185,6 +206,7 @@
     "grid": {
       "blockOwner": "Not taking bookings (owner)",
       "staffMeta": "{role} · {count} appts",
+      "staffMetaNoRole": "{count} appts",
       "staffColumnLabel": "STAFF"
     },
     "totals": {
@@ -275,7 +297,6 @@
       "karute": "Karute {date}"
     },
     "actions": {
-      "exportPdf": "Export PDF",
       "share": "Share",
       "edit": "Edit"
     },
@@ -502,6 +523,8 @@
       "lastProduct": "Last product offered",
       "recommendedFocus": "Recommended focus today",
       "reservationMemo": "Booking note",
+      "memoShowAll": "Show all",
+      "memoCollapse": "Collapse",
       "memoAnalysisLabel": "AI pre-read",
       "firstTimeHeader": "First-time customer",
       "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
@@ -566,7 +589,10 @@
       "body": "Talk about the next pack during the session. You'll record the result after stopping.",
       "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
     },
-    "otherStaffBooking": "Booked under {staff} · this record saves under {you}"
+    "otherStaffBooking": "Booked under {staff} · this record saves under {you}",
+    "recoverTitle": "You have an unsaved recording.",
+    "recoverAction": "Restore",
+    "recoverDiscard": "Discard"
   },
   "customers": {
     "title": "Customers",
@@ -745,6 +771,7 @@
         "redeemConfirm": "Record",
         "redeemDone": "Session recorded",
         "redeemFailed": "Could not record",
+        "redeemNoSessionsLeft": "No sessions left to redeem",
         "cancel": "Cancel",
         "lowRemaining": "Almost out — bring up the next pack at their next visit",
         "lifecycleLabel": "Status",
@@ -779,6 +806,12 @@
       "ageValue": "{age} y/o",
       "visitCountSuffix": " visits",
       "staffPrefix": "Staff",
+      "bookingMemo": {
+        "edit": "Edit memo",
+        "hint": "Keep the \"▶Label:\" format for the structured view. Once saved, the booking system will never overwrite it.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
@@ -929,8 +962,6 @@
     "staff": "Staff",
     "date": "Date",
     "customer": "Customer",
-    "exportPdf": "Export PDF",
-    "exportText": "Export Text",
     "noKarute": "No karute records yet",
     "saveKarute": "Save karute",
     "saving": "Saving...",
@@ -1688,6 +1719,7 @@
       "redeemed": "Redeemed for {date}",
       "undo": "Undo",
       "redeemFailed": "Could not redeem",
+      "redeemNoSessionsLeft": "No sessions left to redeem",
       "dismissed": "Recorded as no-visit",
       "dismissFailed": "Could not record",
       "more": "{n} more (shown as these are processed)"
@@ -2153,6 +2185,8 @@
     "packsDescription": "Pack presets and staff permissions",
     "packs": {
       "label": "Ticket packs",
+      "enableTitle": "Use ticket packs",
+      "enableHint": "When off, every pack surface hides — the profile pack card, dashboard reconcile/alerts, and the post-recording redeem/outcome dialog. No data is deleted.",
       "presetsTitle": "Pack presets",
       "presetsHint": "The size/price options shown in the post-recording New Pack panel. A customer's previous pack takes priority as the prefill.",
       "sizeLabel": "Sessions",
@@ -2179,7 +2213,9 @@
     "nextTreatment": "Next Treatment",
     "followUp": "Follow Up",
     "talkingPoint": "Talking Point",
-    "general": "General"
+    "general": "General",
+    "loadFailed": "Couldn't load recommended actions.",
+    "retry": "Retry"
   },
   "dataImport": {
     "title": "Data Import",
@@ -2487,7 +2523,10 @@
     "noAiHistoryYet": "No AI history yet",
     "aiSummariesAppearAfterSessions": "AI summaries will appear here after recording sessions",
     "aiSummary": "AI Summary",
-    "noAdviceGenerated": "No advice generated"
+    "noAdviceGenerated": "No advice generated",
+    "adviceLoadFailed": "Couldn't load advice.",
+    "notesSaveFailed": "Couldn't save the notes. Please try again.",
+    "retry": "Retry"
   },
   "localeToggle": {
     "switchToJapanese": "Switch to Japanese",
@@ -2652,9 +2691,12 @@
     "inviteDescription": "Send a teammate a link to join this salon. They'll get their own login and appear on your staff list.",
     "inviteEmailLabel": "Staff email",
     "inviteRoleLabel": "Role",
-    "role_ADMIN": "Admin",
-    "role_STYLIST": "Stylist",
-    "role_ASSISTANT": "Assistant",
+    "role_ADMIN": "Manager",
+    "role_STYLIST": "Staff",
+    "role_ASSISTANT": "Front desk",
+    "role_ADMIN_desc": "Runs the salon — settings, staff, data",
+    "role_STYLIST_desc": "Records, customers, bookings (own store)",
+    "role_ASSISTANT_desc": "Books and views customers only",
     "inviteCreate": "Create invite link",
     "inviteCreating": "Creating…",
     "inviteLinkReady": "Invite link ready — share it with your staff:",

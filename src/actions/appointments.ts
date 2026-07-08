@@ -8,7 +8,9 @@ import {
   type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -39,7 +41,38 @@ export interface AppointmentRow {
   source: AppointmentSource
 }
 
+/** Store for a booking made from the all-stores view: the booked staff member's
+ *  own store when they belong to exactly one, else the business's primary store
+ *  (every business has one — listStores lazily creates it). Both lookups degrade
+ *  to undefined so a store hiccup can never block taking a booking. */
+async function defaultBookingStore(
+  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
+  synqedStaffId: string,
+): Promise<string | undefined> {
+  try {
+    const assigned = (await synqed.staffStores.get(synqedStaffId)).store_ids
+    if (assigned.length === 1) return assigned[0]
+  } catch {
+    /* fall through to primary store */
+  }
+  try {
+    const { stores } = await synqed.stores.list()
+    return stores.find((s) => s.is_primary)?.id ?? stores[0]?.id
+  } catch {
+    return undefined
+  }
+}
+
 export async function createAppointment(input: AppointmentInput) {
+  // Server-side gate: booking = bookings.manage (every staff preset holds it;
+  // only a custom role with nothing toggled lacks it). Checked with can() — not
+  // requireCapability() — because this action returns the house { error } shape
+  // and its callers (NewBookingDialog, AppointmentPopout) await it WITHOUT a
+  // try/catch, so a thrown error would surface as an unhandled rejection.
+  if (!(await can('bookings.manage'))) {
+    return { error: 'You do not have permission to manage bookings.' }
+  }
+
   const orgSettings = await getOrgSettings()
   const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
   if (hoursError) return { error: hoursError }
@@ -50,14 +83,19 @@ export async function createAppointment(input: AppointmentInput) {
   try {
     // All three are independent → resolve in parallel (resolveSynqedStaffId may
     // hit the DB; getActiveStoreId is a cookie read). The active store is a
-    // server-side view label, never client-supplied; unset (all-stores view) →
-    // store_id omitted → synqed-core records NULL. Business scope (x-business-id)
+    // server-side view label, never client-supplied. Business scope (x-business-id)
     // is untouched; store is only a view/default-booking label, never isolation.
     const [synqed, synqedStaffId, activeStore] = await Promise.all([
       getSynqedClient(),
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
     ])
+    // A booking always lands at a real store. The all-stores view (the default)
+    // would save store_id NULL here — same hole the June core-side import hit
+    // (28 QR-origin rows landed storeless and fell out of every per-store
+    // calendar). Closing it app-side before staff get the app; the extra
+    // lookups only run in that view, so a pinned-store booking costs nothing.
+    const storeId = activeStore ?? (await defaultBookingStore(synqed, synqedStaffId))
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: synqedStaffId,
@@ -66,7 +104,7 @@ export async function createAppointment(input: AppointmentInput) {
       duration_minutes: input.durationMinutes,
       title: input.title ?? null,
       notes: input.notes ?? null,
-      store_id: activeStore ?? undefined,
+      store_id: storeId ?? undefined,
     })
     revalidatePath('/dashboard')
     updateTag('dashboard')
@@ -89,19 +127,22 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
   const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
 
   try {
-    // View filter: scope the agenda to the active store. null (no store picked)
-    // → no store predicate = all stores. synqed-core always applies the business
-    // scope regardless; this store filter is additive, never a replacement.
-    // Independent reads → parallel.
-    const [synqed, activeStore] = await Promise.all([
+    // Store filter: resolveStoreScope, NOT the raw active-store cookie. For a
+    // branch-restricted staff (no stores.viewAll) scope.storeId is ALWAYS one of
+    // their assigned stores — the raw cookie is absent on a fresh login, and
+    // `store_id: undefined` meant "every store's bookings", which is exactly the
+    // cross-store leak the Apple-review account exposed. For cross-store viewers
+    // scope.storeId IS the cookie, so their behavior is unchanged. synqed-core
+    // always applies the business scope regardless; this filter is additive.
+    const [synqed, scope] = await Promise.all([
       getSynqedClient(),
-      getActiveStoreId(),
+      resolveStoreScope(),
     ])
     const list = await synqed.appointments.list({
       from: dayStartUTC.toISOString(),
       to: dayEndUTC.toISOString(),
       page_size: 200,
-      store_id: activeStore ?? undefined,
+      store_id: scope.storeId ?? undefined,
     })
 
     // Customer names come from the already-cached tenant customer list (60s
@@ -173,12 +214,20 @@ export async function getAppointmentsByDate(dateStr: string, _tzOffsetMinutes: n
  */
 export async function getAppointmentById(id: string): Promise<AppointmentRow | null> {
   try {
-    const synqed = await getSynqedClient()
+    const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
     const a = await synqed.appointments.get(id)
     if (!a) return null
     // A cancelled booking must never resolve as a recording target (the record
     // page falls back to the next candidate instead). Mirrors the by-date hide.
     if (a.status === 'CANCELLED') return null
+    // Store clamp: the list reads are store-filtered, but this per-id read would
+    // otherwise let a branch-restricted staff resolve ANY booking by deep link.
+    // Fail closed on a storeless row (a handful of pre-repair imports have no
+    // store) — hidden for clamped staff, still visible in cross-store views.
+    if (scope.allowedStoreIds) {
+      const rowStore = (a as { store_id?: string | null }).store_id ?? null
+      if (!rowStore || !scope.allowedStoreIds.includes(rowStore)) return null
+    }
 
     const [cachedCustomers, staffList] = await Promise.all([
       getCachedCustomerList(),
@@ -216,17 +265,18 @@ export async function getAppointmentsInRange(
   toIso: string,
 ): Promise<Appointment[]> {
   try {
-    // Same active-store view filter as the day agenda, so week/month overview
-    // counts match the selected store. null = all stores. Independent → parallel.
-    const [synqed, activeStore] = await Promise.all([
+    // Same store scoping as the day agenda (see getAppointmentsByDate): the
+    // RBAC-resolved store, not the raw cookie, so week/month overview counts
+    // can never include another branch for a store-restricted staff.
+    const [synqed, scope] = await Promise.all([
       getSynqedClient(),
-      getActiveStoreId(),
+      resolveStoreScope(),
     ])
     const list = await synqed.appointments.list({
       from: fromIso,
       to: toIso,
       page_size: 500,
-      store_id: activeStore ?? undefined,
+      store_id: scope.storeId ?? undefined,
     })
     return list.appointments
   } catch {
@@ -236,6 +286,10 @@ export async function getAppointmentsInRange(
 
 export async function deleteAppointment(appointmentId: string) {
   try {
+    // Cancelling / deleting a booking = bookings.manage. Thrown here → caught
+    // below → house { error } shape the caller already toasts.
+    await requireCapability('bookings.manage')
+
     const synqed = await getSynqedClient()
     await synqed.appointments.delete(appointmentId)
     revalidatePath('/dashboard')
@@ -251,6 +305,10 @@ export async function updateAppointment(
   updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
 ) {
   try {
+    // Rescheduling / reassigning a booking = bookings.manage. Thrown here →
+    // caught below → house { error } shape the caller already toasts.
+    await requireCapability('bookings.manage')
+
     const synqed = await getSynqedClient()
     const patch: {
       staff_id?: string

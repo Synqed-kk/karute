@@ -143,21 +143,30 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
             />
           </div>
           <div>
-            <label htmlFor="invite-role" className="block text-xs font-medium mb-1">
+            <label className="block text-xs font-medium mb-1">
               {t('inviteRoleLabel')}
             </label>
-            <select
-              id="invite-role"
-              value={role}
-              onChange={(e) => setRole(e.target.value as InviteRole)}
-              className={inputCls}
-            >
-              {INVITE_ROLES.map((r) => (
-                <option key={r} value={r}>
-                  {t(`role_${r}`)}
-                </option>
-              ))}
-            </select>
+            <div className="flex flex-col gap-1.5">
+              {INVITE_ROLES.map((r) => {
+                const selected = role === r
+                return (
+                  <button
+                    type="button"
+                    key={r}
+                    onClick={() => setRole(r)}
+                    aria-pressed={selected}
+                    className={`flex flex-col items-start rounded-md border px-3 py-2 text-left transition-colors ${
+                      selected
+                        ? 'border-ring ring-1 ring-ring bg-muted/40'
+                        : 'border-border hover:bg-muted'
+                    }`}
+                  >
+                    <span className="text-sm font-medium">{t(`role_${r}`)}</span>
+                    <span className="text-xs text-muted-foreground">{t(`role_${r}_desc`)}</span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
           {error && <p className="text-xs text-red-400">{error}</p>}
           <Button type="submit" className="w-full" disabled={loading || !email}>
