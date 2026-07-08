@@ -5,11 +5,11 @@
 //
 // Reads the signed-in user's display_role from the staff list and
 // renders the owner OR staff variant of the coaching dashboard.
-// Both variants are SCAFFOLD ONLY in this PR — each card slot
-// renders a 対応予定 placeholder with a description of what'll
-// appear there once the data layer + per-card components are
-// ported in follow-up PRs (see MERGE_NOTES_FOR_ANTHONY.md's
-// coaching punchlist).
+// The variants are the data-driven screens (DataDrivenStaffView /
+// DataDrivenOwnerRoi). Until the data hooks exist they render the
+// honest empty state; the unlimited/comped account renders the
+// labeled sample dataset (sample-data.ts) so the finished design
+// is visible in the app.
 //
 // ANTHONY: the role check here is UI-only. Backend MUST enforce
 // the same staff-vs-owner distinction at the RLS + API layer
@@ -17,14 +17,19 @@
 // posture (Layer 1 / 2 / 3) is preserved in each scaffold card's
 // `privacyLayer` prop so you don't have to re-derive it.
 
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { loadEntitlement } from '@/lib/entitlements'
 import { CoachingPageView } from '@/components/coaching/redesign/CoachingPageView'
 
 export default async function CoachingPage() {
-  const [staffList, activeStaffId] = await Promise.all([
+  const [staffList, activeStaffId, businessId] = await Promise.all([
     getStaffList(),
     getCurrentUserStaffId(),
+    getBusinessId(),
   ])
+  // Unlimited/comped account → labeled sample data so the screens are
+  // visible before the data layer exists; everyone else → honest empty state.
+  const entitlement = await loadEntitlement(businessId)
 
   // Default to 'staff' if we can't pin down the user's role.
   // Owner-only surfaces stay hidden — safest fallback.
@@ -36,5 +41,5 @@ export default async function CoachingPage() {
       ? 'owner'
       : 'staff'
 
-  return <CoachingPageView role={role} />
+  return <CoachingPageView role={role} sampleData={entitlement.isUnlimited} />
 }
