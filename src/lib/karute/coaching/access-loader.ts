@@ -29,10 +29,17 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { coachingAccessFor, type CoachingAccess } from './access'
 
 export async function loadCoachingAccess(businessId: string): Promise<CoachingAccess> {
-  const [ent, settings] = await Promise.all([loadEntitlement(businessId), getOrgSettings()])
-  return coachingAccessFor({
-    tier: ent.tier,
-    isUnlimited: ent.isUnlimited,
-    enabled: settings?.coaching_enabled ?? false,
-  })
+  try {
+    const [ent, settings] = await Promise.all([loadEntitlement(businessId), getOrgSettings()])
+    return coachingAccessFor({
+      tier: ent.tier,
+      isUnlimited: ent.isUnlimited,
+      enabled: settings?.coaching_enabled ?? false,
+    })
+  } catch {
+    // Fail CLOSED on ANY error (audit finding: the Promise.all could reject and the
+    // 'nothing throws' promise wasn't actually guaranteed). Coaching off > coaching
+    // accidentally on for someone who shouldn't have it.
+    return { entitled: false, enabled: false, canUse: false, reason: 'not_entitled' }
+  }
 }

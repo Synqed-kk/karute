@@ -10,10 +10,13 @@
 //     (Liam's dev/test account, via the DB flag or KARUTE_UNLIMITED_BUSINESS_IDS); AND
 //   • ENABLED  — the owner has turned it on (org_settings.coaching_enabled, default
 //     off; some business types won't want it).
-// Off means off everywhere: the render gate hides every surface, and — critically —
-// every generator checks canUse before firing, so a disabled store costs nothing to
-// run (a real cost gate, not just UI). This one function is the single answer the UI,
-// the render gate, and the generators all share, so they can never disagree.
+// Off must mean off everywhere — but note this is the INTENDED contract, NOT yet
+// wired: nothing in the app calls loadCoachingAccess today (coaching is dormant), so
+// this gate currently decides nothing. When Anthony wires it (see access-loader.ts),
+// the render gate hides every surface AND every generator checks canUse before firing,
+// so a disabled store costs nothing to run (a real cost gate, not just hidden UI).
+// This one function is the single answer they must all share so they can never
+// disagree. Don't read it as already-enforced.
 
 import { TIER_FEATURES, type SubscriptionTier } from '@/lib/subscription/types'
 

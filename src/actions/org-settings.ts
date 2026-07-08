@@ -154,6 +154,11 @@ const orgSettingsByBusiness = unstable_cache(
           s.ticket_packs_enabled === undefined
             ? true
             : Boolean(s.ticket_packs_enabled),
+        // Coaching master switch — default OFF (opt-in, paid). Without this mapping
+        // the access gate would read undefined→false forever, so the toggle could
+        // never take effect even once the column + UI exist. (audit finding)
+        coaching_enabled:
+          s.coaching_enabled === undefined ? false : Boolean(s.coaching_enabled),
         voice_enrollments:
           s.voice_enrollments && typeof s.voice_enrollments === 'object'
             ? (s.voice_enrollments as Record<string, VoiceEnrollment>)
