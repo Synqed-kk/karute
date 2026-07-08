@@ -110,14 +110,21 @@ export function effectivenessComposite(
   inputs: HorizonInput[],
   priorMean: number,
 ): CompositeResult {
-  const withData = inputs.filter((i) => i.n > 0)
+  // Sanitize before summing: a NaN/undefined prior (e.g. 0/0 when a new vertical
+  // has no peer stores to average) or an off-contract horizon (HORIZON_WEIGHTS
+  // lookup → undefined → NaN) would otherwise poison the whole composite. Both
+  // degrade to "no data" for that horizon rather than corrupting the result.
+  const prior = Number.isFinite(priorMean) ? priorMean : 0
+  const withData = inputs.filter(
+    (i) => i.n > 0 && (HORIZONS as readonly number[]).includes(i.horizon),
+  )
   if (withData.length === 0) {
     return { composite: null, byHorizon: {}, horizonsUsed: [], confidence: 'none', noveltySpike: null }
   }
 
   const byHorizon: Partial<Record<Horizon, number>> = {}
   for (const i of withData) {
-    byHorizon[i.horizon] = shrink(horizonEffect(i), i.n, priorMean)
+    byHorizon[i.horizon] = shrink(horizonEffect(i), i.n, prior)
   }
 
   const used = withData
@@ -149,8 +156,10 @@ export function rankByEffectiveness<T extends { composite: number | null; totalN
   modules: T[],
 ): T[] {
   return [...modules].sort((a, b) => {
-    const ac = a.composite ?? -Infinity
-    const bc = b.composite ?? -Infinity
+    // Sink not just null but any non-finite composite (NaN/±Infinity) to the
+    // bottom, so a corrupted module can never rank by input order instead of value.
+    const ac = Number.isFinite(a.composite as number) ? (a.composite as number) : -Infinity
+    const bc = Number.isFinite(b.composite as number) ? (b.composite as number) : -Infinity
     if (ac !== bc) return bc - ac
     return b.totalN - a.totalN
   })

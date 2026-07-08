@@ -121,3 +121,22 @@ describe('rankByEffectiveness', () => {
     expect(ranked.map((m) => m.id)).toEqual(['high', 'tie-small', 'low', 'none'])
   })
 })
+
+describe('NaN / off-contract hardening (audit finding)', () => {
+  it('a non-finite prior (0/0 for a new vertical) does not poison the composite', () => {
+    const r = effectivenessComposite([hi(180, 10, 2, 5)], NaN)
+    expect(Number.isFinite(r.composite as number)).toBe(true)
+  })
+  it('an off-contract horizon is treated as no-data, never a NaN cascade', () => {
+    const r = effectivenessComposite([{ horizon: 60 as 30, treatedDelta: 10, controlDelta: 2, n: 5 }], 0)
+    expect(r.composite).toBeNull()
+    expect(r.confidence).toBe('none')
+  })
+  it('rankByEffectiveness sinks a corrupted (NaN) composite regardless of input order', () => {
+    const ranked = rankByEffectiveness([
+      { id: 'nan', composite: NaN, totalN: 999 },
+      { id: 'good', composite: 5, totalN: 10 },
+    ])
+    expect(ranked.map((m) => m.id)).toEqual(['good', 'nan'])
+  })
+})
