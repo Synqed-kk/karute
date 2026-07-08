@@ -15,13 +15,14 @@
 // stays the same.
 
 import { Check, Crown, Sparkles, Star, X } from 'lucide-react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 
 import {
   useSubscription,
   useSubscriptionMutations,
 } from '@/lib/subscription/hooks'
 import { TIER_PRICE_JPY, type SubscriptionTier } from '@/lib/subscription/types'
+import { staffLimitFor } from '@/lib/subscription/gating'
 
 const YEN = new Intl.NumberFormat('ja-JP', {
   style: 'currency',
@@ -29,8 +30,18 @@ const YEN = new Intl.NumberFormat('ja-JP', {
   maximumFractionDigits: 0,
 })
 
+/** A tier's staff-account limit as a plan feature line, driven by the real model
+ *  (staffLimitFor) so the grid and the server gate can never disagree. */
+function staffFeature(tier: SubscriptionTier, locale: string): string {
+  const n = staffLimitFor(tier)
+  const en = locale === 'en'
+  if (n === 'unlimited') return en ? 'Unlimited staff accounts' : 'スタッフ数 無制限'
+  return en ? `Up to ${n} staff accounts` : `スタッフ ${n}名まで`
+}
+
 export function PlanComparisonGrid() {
   const t = useTranslations('settings.subscription.plans')
+  const locale = useLocale()
   const subscription = useSubscription()
   const { upgradeTo, startTrial, cancelSubscription } =
     useSubscriptionMutations()
@@ -101,6 +112,7 @@ export function PlanComparisonGrid() {
           price={t('freePrice')}
           pitch={t('freePitch')}
           features={[
+            staffFeature('free', locale),
             t('freeFeature1'),
             t('freeFeature2'),
             t('freeFeature3'),
@@ -122,6 +134,7 @@ export function PlanComparisonGrid() {
           })}
           pitch={t('standardPitch')}
           features={[
+            staffFeature('standard', locale),
             t('standardFeature1'),
             t('standardFeature2'),
             t('standardFeature3'),
@@ -145,6 +158,7 @@ export function PlanComparisonGrid() {
           })}
           pitch={t('professionalPitch')}
           features={[
+            staffFeature('professional', locale),
             t('professionalFeature1'),
             t('professionalFeature2'),
             t('professionalFeature3'),
