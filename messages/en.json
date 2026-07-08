@@ -1378,6 +1378,32 @@
         "durationMin": "{n} min",
         "seeAllModules": "See all modules",
         "emptyHint": "Top 3 AI-recommended unassigned modules + quick-assign chips for consenting staff surface here. Lights up when Anthony wires useLearningModulesData() and the learning_assignments insert/delete server action."
+      },
+      "roi": {
+        "title": "Coaching’s impact",
+        "emptyHint": "How much coaching is lifting the store’s sales surfaces here as data accrues. Lights up when Anthony wires useStoreCoachingRoi().",
+        "heroLabel": "Sales impact since coaching",
+        "heroSub": "Lifted over the {n} months since it started — the pure coaching effect, with season and other factors subtracted out.",
+        "confidenceLead": "Confidence",
+        "confMature": "Established",
+        "confBuilding": "Building",
+        "confEarly": "Early",
+        "trendTitle": "Store closing rate over time",
+        "trendSub": "The dashed line is when coaching began. The gap vs stores without it has widened since.",
+        "monthsAgo": "{n} mo ago",
+        "controlLabel": "Other stores",
+        "nowLabel": "Now",
+        "liftsTitle": "Lift by metric",
+        "liftsSub": "Each is the coaching effect with other factors subtracted. Anything too early to judge is labeled “Early”.",
+        "metric": {
+          "closingRate": "Closing rate",
+          "rebookingRate": "Rebooking rate",
+          "avgRevenue": "Avg. spend",
+          "satisfaction": "Satisfaction"
+        },
+        "honestyNote": "Numbers use difference-in-differences — from the coached lift we subtract the natural change at stores without coaching, showing only the pure gain. Small samples are automatically shrunk, and anything not yet certain is honestly labeled “Building/Early”. No exaggeration.",
+        "pitchTitle": "This feature is earning more than it costs",
+        "pitchSub": "For a store this size, that’s about {amount} in monthly revenue."
       }
     },
     "staffDrill": {

@@ -259,6 +259,37 @@ export interface OwnerTriageView {
   sharingAdoption: { granted: number; total: number }
 }
 
+// ── Store coaching ROI (L2-owner) — the selling point, honestly ───────────────
+
+/** The measured lift on one store-level metric. Displays are pre-formatted for
+ *  locale/currency upstream ("+6pt", "+¥1,200") so the view is a pure renderer and
+ *  money stays multi-country. `confidence` comes straight from the effectiveness
+ *  engine (effectiveness.ts) and governs the honest label shown. */
+export interface StoreMetricLift {
+  key: string
+  liftDisplay: string
+  beforeDisplay: string
+  afterDisplay: string
+  confidence: 'early' | 'building' | 'mature'
+}
+
+/** L2-owner — coaching's measured impact on the STORE's sales: the surface that
+ *  sells the next business. EVERY number is a difference-in-differences lift vs
+ *  untreated control stores (effectiveness.ts), empirical-Bayes-shrunk and
+ *  confidence-labeled — never a raw before/after a good season could fake. Store
+ *  aggregate only; no individual staff appears here. */
+export interface StoreCoachingRoi {
+  scope: 'owner-aggregate'
+  headline: { key: string; liftDisplay: string; confidence: 'early' | 'building' | 'mature'; sinceMonths: number }
+  /** Treated (this store) vs control (untreated stores), same window; the marker
+   *  fraction is where coaching started along the series. */
+  trend: { treated: MetricPoint[]; control: MetricPoint[]; coachingStartFraction: number }
+  lifts: StoreMetricLift[]
+  /** The pays-for-itself estimate — the headline lift in money. Null when
+   *  confidence is too low to responsibly state one. */
+  monthlyValueEstimate: MoneyAmount | null
+}
+
 // ── The dormancy envelope (how every card handles "not wired yet") ────────────
 
 /** Every coaching data hook returns this. Until Anthony wires the real query,
