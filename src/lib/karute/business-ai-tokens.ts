@@ -360,18 +360,6 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
   },
   massage: {
     serviceNounJa: '施術', serviceNounEn: 'treatment',
-    categoryNotesJa: {
-      symptom:
-        '手術歴・体内の金属（プレート等）・服用中の薬も安全履歴として必ずここ。痛がった箇所・強く響いた箇所・もみ返しの傾向、過去の施術での悪化経験・施術への不安も含める。',
-      body_area:
-        '緊張・硬さ・左右差・姿勢・可動域などの観察と、痛みや効果が出ない原因の評価を含める。',
-      treatment:
-        '施術前後の変化・再テストの結果も必ず記録する。セルフケア指導（ストレッチ・エクササイズのフォーム・秒数・回数）は「セルフケア指導：」で始める。',
-      preference:
-        '圧・刺激の強さの好みを含める。',
-      next_visit:
-        '「次回は腰を重点的に」のような施術部位の約束もここ。',
-    },
     roleJa: 'マッサージセラピスト', roleEn: 'massage therapist',
     businessNounJa: 'マッサージ店', businessNounEn: 'massage studio',
     primaryFocusJa: '筋肉の緊張パターンとリラクゼーション効果',
@@ -444,18 +432,6 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
   },
   chiropractic: {
     serviceNounJa: '施術', serviceNounEn: 'treatment',
-    categoryNotesJa: {
-      symptom:
-        '手術歴・体内の金属（プレート等）・服用中の薬も安全履歴として必ずここ。痛がった箇所・強く響いた箇所・もみ返しの傾向、過去の施術での悪化経験・施術への不安も含める。',
-      body_area:
-        '緊張・硬さ・左右差・姿勢・可動域などの観察と、痛みや効果が出ない原因の評価を含める。',
-      treatment:
-        '施術前後の変化・再テストの結果も必ず記録する。セルフケア指導（ストレッチ・エクササイズのフォーム・秒数・回数）は「セルフケア指導：」で始める。',
-      preference:
-        '圧・刺激の強さの好みを含める。',
-      next_visit:
-        '「次回は腰を重点的に」のような施術部位の約束もここ。',
-    },
     roleJa: 'カイロプラクター', roleEn: 'chiropractor',
     businessNounJa: '整体院', businessNounEn: 'chiropractic clinic',
     primaryFocusJa: '背骨のアライメント・姿勢バランス・動作の回復',
@@ -526,18 +502,6 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
   },
   beauty_chiropractic: {
     serviceNounJa: '施術', serviceNounEn: 'treatment',
-    categoryNotesJa: {
-      symptom:
-        '手術歴・体内の金属（プレート等）・服用中の薬も安全履歴として必ずここ。痛がった箇所・強く響いた箇所・もみ返しの傾向、過去の施術での悪化経験・施術への不安も含める。',
-      body_area:
-        '緊張・硬さ・左右差・姿勢・可動域などの観察と、痛みや効果が出ない原因の評価を含める。',
-      treatment:
-        '施術前後の変化・再テストの結果も必ず記録する。セルフケア指導（ストレッチ・エクササイズのフォーム・秒数・回数）は「セルフケア指導：」で始める。',
-      preference:
-        '圧・刺激の強さの好みを含める。',
-      next_visit:
-        '「次回は腰を重点的に」のような施術部位の約束もここ。',
-    },
     roleJa: '美容整体師', roleEn: 'beauty-chiropractic therapist',
     businessNounJa: '美容整体院', businessNounEn: 'beauty-chiropractic studio',
     primaryFocusJa: '体のアライメントと美容的な変化（小顔・姿勢美・骨盤矯正）',

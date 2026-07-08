@@ -47,16 +47,35 @@ const NON_BODYWORK = [
 ] as const
 
 // Bodywork-only vocabulary that must never reach another vertical's prompt.
-// (施術者 itself is allowed ONLY as the literal diarization speaker label the
-// audio pipeline emits — the JA v3.3 prompts no longer use it as prose.)
+// (施術者 is allowed only in the bodywork family's own v3.2 dialect and as the
+// literal diarization speaker label the audio pipeline emits.)
 const BODYWORK_MARKERS = ['もみ返し', '可動域', '体内の金属', 'セルフケア指導']
 
+// The UltraCode-built v3.2 wording the bodywork family must keep VERBATIM —
+// reaction nuances, 部位, and the original teaching examples included.
+// (fidelity harness proved the full render byte-identical on 2026-07-09.)
+const V32_FIDELITY_CLAUSES = [
+  '楽になった・痛かった・強く効いた',
+  '何をどの部位に行ったか',
+  '「右手首：可動制限はあるが本日痛みなし」',
+  '「肩の問題」「ストレッチの話」',
+  '「かなり緊張が強い」「ここまで可動域を出したい」',
+  '既往歴・手術歴・服薬・アレルギー',
+  '「施術：」「セルフケア指導：」',
+  '施術者の発言でも',
+]
+
 describe('prompt de-bodywork (v3.3)', () => {
-  it('bodywork family keeps its domain richness via categoryNotes', () => {
+  it('bodywork family keeps the original v3.2 prompt verbatim', () => {
     for (const t of BODYWORK) {
       const p = getExtractionSystemPrompt('ja', t)
-      for (const marker of BODYWORK_MARKERS) {
-        expect(p).toContain(marker)
+      // 体内の金属 lives only in beauty-chiro's own checklist, not the shared
+      // v3.2 block — require only the family-wide markers here.
+      for (const marker of ['もみ返し', '可動域', 'セルフケア指導']) {
+        expect(`${t}: ${p}`).toContain(marker)
+      }
+      for (const clause of V32_FIDELITY_CLAUSES) {
+        expect(`${t}: ${p}`).toContain(clause)
       }
       expect(p).toContain('「施術：」')
     }
@@ -86,7 +105,9 @@ describe('prompt de-bodywork (v3.3)', () => {
   })
 
   it('the shared core no longer injects 施術者 as prose', () => {
-    for (const t of [...BODYWORK, ...NON_BODYWORK]) {
+    // The bodywork family intentionally KEEPS 施術者 — it renders Liam's
+    // original v3.2 dialect verbatim. This invariant is for everyone else.
+    for (const t of NON_BODYWORK) {
       const persona = getBusinessAiPersona(t)
       const tok = resolvePersonaTokens(persona, 'ja')
       // Only meaningful for types whose role isn't 施術者 AND whose own tokens
