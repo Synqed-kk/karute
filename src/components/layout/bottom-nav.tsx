@@ -29,15 +29,14 @@ const PRIMARY: Route[] = [
   { href: '/customers', label: 'customers', icon: Users },
 ]
 
-// /coaching + /data-import gated behind feature flags — same
-// rationale as the desktop sidebar (every coaching page renders
-// ScaffoldHint placeholders; data-import drop zone fires
-// console.info on file pick, no upload).
+// /data-import stays flag-gated — its drop zone only fires
+// console.info on file pick (no real upload yet). Coaching is a
+// first-class destination now; the page itself gates its content
+// per-account on the coaching entitlement (unlimited/paid see it,
+// others get an upgrade prompt), so the nav link is always shown.
 const MENU: Route[] = [
   { href: '/dashboard', label: 'dashboard', icon: Home },
-  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
-    ? [{ href: '/coaching' as const, label: 'coaching', icon: GraduationCap }]
-    : []),
+  { href: '/coaching', label: 'coaching', icon: GraduationCap },
   { href: '/ask-ai', label: 'askAi', icon: Sparkles },
   ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
     ? [{ href: '/data-import' as const, label: 'dataImport', icon: Upload }]

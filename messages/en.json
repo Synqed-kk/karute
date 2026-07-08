@@ -1492,6 +1492,13 @@
         "owner": "Owner",
         "staff": "Staff"
       }
+    },
+    "locked": {
+      "badge": "Professional plan",
+      "title": "Staff coaching",
+      "body": "See each staff member's growth from real service data — strengths, what to improve, and the next thing to work on, each backed by evidence. Available on the Professional plan.",
+      "cta": "View plans",
+      "ctaHint": "Change anytime from Settings → Stores"
     }
   },
   "dashboard": {
