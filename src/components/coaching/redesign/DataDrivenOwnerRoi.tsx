@@ -44,8 +44,11 @@ function Card({ children }: { children: React.ReactNode }) {
 
 // ── Treated vs control trend ─────────────────────────────────
 function TrendChart({ trend }: { trend: StoreCoachingRoi['trend'] }) {
+  // Each series needs ≥2 points to draw a line — guard them independently, not by
+  // combined length, or a single-point series produces NaN SVG coordinates
+  // (i / (length-1) → i/0). (audit finding)
+  if (trend.treated.length < 2 || trend.control.length < 2) return null
   const all = [...trend.treated, ...trend.control].map((p) => p.value)
-  if (all.length < 2) return null
   const min = Math.min(...all)
   const max = Math.max(...all)
   const range = max - min || 1
