@@ -35,7 +35,7 @@ const AiBriefSchema = z.object({
   concerns: z
     .array(z.string())
     .describe(
-      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest) — HISTORY, never actions: no imperative phrasing, and never restate a todayActions item (the homework/promise re-check lives in todayActions ONLY; here describe the underlying concern's state instead). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
+      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest) — HISTORY, never actions: no imperative phrasing, and never restate a todayActions item (the homework/promise re-check lives in todayActions ONLY; here describe the underlying concern's state instead). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE row; DROP vague catch-alls. LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
     ),
   lastProduct: z
     .object({ name: z.string(), reaction: z.string().nullable() })
@@ -60,12 +60,12 @@ const AiBriefSchema = z.object({
   cautions: z
     .array(z.string())
     .describe(
-      'Safety/service cautions the staff must know BEFORE touching the customer, stated ANYWHERE in the memo or the karute: injury/surgery history, implanted metal, medication, allergies, pressure cautions (spots that hurt/rang), service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
+      'Safety/service cautions the staff must know before the session begins, stated ANYWHERE in the memo or the karute: safety-relevant history (allergies, medication, past reactions or trouble; clinical items like surgery/metal where applicable), intensity cautions, service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
     ),
   todayActions: z
     .array(z.string())
     .describe(
-      "Up to 3 imperative actions for TODAY, each ≤30 chars — one grounded action is a complete answer; NEVER pad to fill slots. FIRST action = the re-entry item when the latest 次回 line carries homework/a promise (e.g. 「宿題のハムストレッチの実施状況を確認」) — todayActions is the ONLY field that carries the re-entry action; concerns and recommendedFocus must not repeat it. Then today's focus. A pressure/pace adjustment ONLY when it changes today's plan beyond what cautions already states — an adjustment that merely rephrases a cautions item is a duplicate, drop it. Grounded only; empty if the records give nothing actionable.",
+      "Up to 3 imperative actions for TODAY, each ≤30 chars — one grounded action is a complete answer; NEVER pad to fill slots. FIRST action = the re-entry item when the latest 次回 line carries homework/a promise (e.g. 「宿題の実施状況を確認」) — todayActions is the ONLY field that carries the re-entry action; concerns and recommendedFocus must not repeat it. Then today's focus. An intensity/pace adjustment ONLY when it changes today's plan beyond what cautions already states — an adjustment that merely rephrases a cautions item is a duplicate, drop it. Grounded only; empty if the records give nothing actionable.",
     ),
 })
 
@@ -208,7 +208,8 @@ export async function getAiPreSessionBrief(params: {
       // briefs poisoned by the QR-sync customer mis-link (a corrected
       // appointment.customer_id must not keep serving a fused brief built from
       // another customer's reservation memo).
-      v: 8,
+      // v9: de-bodywork — per-type caution taxonomy + neutral examples.
+      v: 9,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -240,6 +241,18 @@ export async function getAiPreSessionBrief(params: {
     }
 
     async function generate(): Promise<AiBrief> {
+      // De-bodywork (v9): the caution taxonomy and teaching examples follow
+      // the business's clinical posture — a nail salon never reads 体内金属.
+      const clinical = tok.clinicalPosture !== 'service'
+      const cautionTaxonomy = clinical
+        ? '既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所や強さの注意・サービスへの不安'
+        : 'アレルギー・体質・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'
+      const synthesisExample = clinical
+        ? 'e.g. memo has 胃の不調 + 内臓調整希望 → 「内臓調整は強度を弱めにして様子を見る」'
+        : 'e.g. the memo pairs a stated sensitivity with a requested service → flag the gentler approach'
+      const clusterExample = clinical
+        ? 'e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say 「姿勢由来の首・肩・腰の張り」 not four rows'
+        : 'related concerns that share one cause belong on one row'
       const langInstruction =
         locale === 'ja' ? '日本語で出力してください。' : 'Respond entirely in English.'
       const system = `You are a ${tok.role} at a ${tok.businessNoun}. Your focus: ${tok.primaryFocus}.
@@ -250,18 +263,18 @@ Rules:
 - NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses. EXCEPTION: a safety fact stated in the memo still goes to cautions — safety is the one thing worth restating.
 - LAYER CONTRACT (no fact appears twice): the card renders two layers. SKIM layer (always visible) = opener + lastWords + cautions + todayActions + memoAnalysis — owns TODAY. DETAIL layer (folded behind a 経過 toggle) = hooks + concerns + lastProduct + recommendedFocus — owns HISTORY & CONTEXT. Ownership when two fields could claim the same fact: a SAFETY fact belongs to cautions ONLY (wherever it was stated); ACTIONS belong to todayActions ONLY; the opener's personal topic may not reappear in hooks or lastWords. TOPIC overlap is NOT duplication — concerns may describe the state of a concern that todayActions checks today, and recommendedFocus may use the opener's topic as clinical rationale; only the same claim in the same framing is a repeat. Before returning, re-read your own output and delete any item in ANY field that restates another field's item.
 - memoAnalysis: the ${tok.role}'s READ of the memo — include only the applicable of these, never forced to fill all:
-    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated symptom against a requested treatment and flag a risk/adjustment (e.g. memo has 胃の不調 + 内臓調整希望 → "内臓調整は強度を弱めにして様子を見る"). This is the highest-value bullet — produce it whenever two memo facts interact. A plain safety fact goes to cautions, not here — here only the synthesis on top.
+    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated concern against a requested service and flag a risk/adjustment (${synthesisExample}). This is the highest-value bullet — produce it whenever two memo facts interact. A plain safety fact goes to cautions, not here — here only the synthesis on top.
     (b) change/contradiction — a symptom newly raised, dropped, or resurfacing vs the karute, or a want-vs-chief-complaint mismatch.
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
-- RE-ENTRY (highest value): the most recent session's summary may carry a 次回 line — homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. When present, the single most important one MUST surface as the FIRST todayActions item, phrased as an action (e.g. 「宿題のハムストレッチの実施状況を確認」「約束どおり腰を重点的に」) — and ONLY there: concerns and recommendedFocus must not repeat it. A promise the staff forgets is trust lost; one they keep is the "this place remembers me" moment. Only what the records actually say — never invent.
+- RE-ENTRY (highest value): the most recent session's summary may carry a 次回 line — homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. When present, the single most important one MUST surface as the FIRST todayActions item, phrased as an action (e.g. 「宿題の実施状況を確認」「約束どおり◯◯を重点的に」) — and ONLY there: concerns and recommendedFocus must not repeat it. A promise the staff forgets is trust lost; one they keep is the "this place remembers me" moment. Only what the records actually say — never invent.
 - opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. The topic it uses is CONSUMED as rapport material — it must not reappear in hooks or lastWords (it MAY still inform recommendedFocus as clinical rationale). Null when no genuine material exists — a forced opener is worse than none.
 - lastWords: ONLY a verbatim customer line already quoted in 『』 or 「」 in the latest session's summary/entries, copied exactly, brackets included. Never manufacture a quote. Null when the quote is about the opener's topic — the opener owns that moment.
-- cautions: what staff must know BEFORE touching the customer, stated ANYWHERE in the memo or the karute: 既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所や圧の注意・サービスへの不安. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
-- todayActions: up to 3 imperative actions (≤30 chars each) the staff executes today — ONE grounded action is a complete answer; never pad to fill slots. FIRST = the re-entry item (homework/promise from the latest 次回 line) when present; then today's focus; then a pressure/pace adjustment ONLY if it changes today's plan beyond what cautions already states (an adjustment that merely rephrases a caution is a duplicate — drop it). This is the ONLY field that carries actions — no other field may restate them.
-- concerns: HISTORY, never actions — the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). No imperative phrasing; never restate a todayActions item (when homework/a promise re-checks a concern, describe the concern's STATE here — e.g. 「ハムストリングスの張り：前回セルフケア指導」 — while the check itself stays in todayActions). Keep it USEFUL, not exhaustive:
+- cautions: what staff must know before the session begins, stated ANYWHERE in the memo or the karute: ${cautionTaxonomy}. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
+- todayActions: up to 3 imperative actions (≤30 chars each) the staff executes today — ONE grounded action is a complete answer; never pad to fill slots. FIRST = the re-entry item (homework/promise from the latest 次回 line) when present; then today's focus; then an intensity/pace adjustment ONLY if it changes today's plan beyond what cautions already states (an adjustment that merely rephrases a caution is a duplicate — drop it). This is the ONLY field that carries actions — no other field may restate them.
+- concerns: HISTORY, never actions — the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). No imperative phrasing; never restate a todayActions item (when homework/a promise re-checks a concern, describe the concern's STATE here — e.g. 「継続中の悩み：前回アドバイス済み」 — while the check itself stays in todayActions). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
-    • CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say "姿勢由来の首・肩・腰の張り" not four rows). DROP vague catch-alls (体全体の不調).
+    • CONSOLIDATE related concerns into ONE (${clusterExample}). DROP vague catch-alls (「全体的な不調」).
     • LEAD with what CHANGED — 改善 / 悪化 / 新規 are the actionable signal. Tag a direction ONLY when two dated sessions clearly show it.
     • Do NOT put (継続) on every item. A simply-ongoing concern is listed plainly (no tag) — the (継続) tag is only worth showing to contrast with something that changed; an all-(継続) list is noise.
   Most relevant first. Judge only within the sessions shown; never extrapolate. Empty if none.

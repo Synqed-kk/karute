@@ -47,6 +47,20 @@ export interface BusinessAiPersona {
    *  GENERIC_PASSPORT_FIELDS. */
   passportFieldsJa?: PassportFieldDef[]
   passportFieldsEn?: PassportFieldDef[]
+  /** The word this business uses for "what we did today" — drives the
+   *  treatment-entry title prefix (「施術：」→「トレーニング：」 etc.) and the
+   *  UI prefix strip (CurrentSessionCard). Optional: falls back to the
+   *  neutral 'other' persona's noun. */
+  serviceNounJa?: string
+  serviceNounEn?: string
+  /** Per-category enrichment appended to the NEUTRAL category definitions in
+   *  the JA extraction prompt (v3.3 de-bodywork). The neutral core carries the
+   *  semantics of the 8 DB enum values; these notes carry THIS business's
+   *  domain specifics (what もみ返し means to a massage studio). JA only until
+   *  the EN prompt re-author (PR 2 of the v3 plan). */
+  categoryNotesJa?: Partial<
+    Record<'symptom' | 'body_area' | 'treatment' | 'preference' | 'next_visit', string>
+  >
 }
 
 export interface PassportFieldDef {
@@ -57,6 +71,7 @@ export interface PassportFieldDef {
 
 const PERSONAS: Record<string, BusinessAiPersona> = {
   esthetic_salon: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: 'エステティシャン', roleEn: 'aesthetician',
     businessNounJa: 'エステサロン', businessNounEn: 'esthetic salon',
     primaryFocusJa: '肌コンディション・ボディトリートメント・季節別のスキンケア戦略',
@@ -128,6 +143,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   hair_salon: {
+    serviceNounJa: '施術', serviceNounEn: 'service',
     roleJa: 'スタイリスト', roleEn: 'stylist',
     businessNounJa: '美容室', businessNounEn: 'hair salon',
     primaryFocusJa: '髪のコンディション・スタイリング・再来サイクル',
@@ -199,6 +215,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   nail_salon: {
+    serviceNounJa: '施術', serviceNounEn: 'service',
     roleJa: 'ネイリスト', roleEn: 'nail technician',
     businessNounJa: 'ネイルサロン', businessNounEn: 'nail salon',
     primaryFocusJa: '爪のケア・デザインの好み・爪の健康履歴',
@@ -270,6 +287,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   eyelash_salon: {
+    serviceNounJa: '施術', serviceNounEn: 'service',
     roleJa: 'アイリスト', roleEn: 'eyelash technician',
     businessNounJa: 'まつげサロン', businessNounEn: 'eyelash salon',
     primaryFocusJa: 'まつげの健康・カールの持ち・リピートサイクル',
@@ -341,6 +359,19 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   massage: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
+    categoryNotesJa: {
+      symptom:
+        '手術歴・体内の金属（プレート等）・服用中の薬も安全履歴として必ずここ。痛がった箇所・強く響いた箇所・もみ返しの傾向、過去の施術での悪化経験・施術への不安も含める。',
+      body_area:
+        '緊張・硬さ・左右差・姿勢・可動域などの観察と、痛みや効果が出ない原因の評価を含める。',
+      treatment:
+        '施術前後の変化・再テストの結果も必ず記録する。セルフケア指導（ストレッチ・エクササイズのフォーム・秒数・回数）は「セルフケア指導：」で始める。',
+      preference:
+        '圧・刺激の強さの好みを含める。',
+      next_visit:
+        '「次回は腰を重点的に」のような施術部位の約束もここ。',
+    },
     roleJa: 'マッサージセラピスト', roleEn: 'massage therapist',
     businessNounJa: 'マッサージ店', businessNounEn: 'massage studio',
     primaryFocusJa: '筋肉の緊張パターンとリラクゼーション効果',
@@ -412,6 +443,19 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   chiropractic: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
+    categoryNotesJa: {
+      symptom:
+        '手術歴・体内の金属（プレート等）・服用中の薬も安全履歴として必ずここ。痛がった箇所・強く響いた箇所・もみ返しの傾向、過去の施術での悪化経験・施術への不安も含める。',
+      body_area:
+        '緊張・硬さ・左右差・姿勢・可動域などの観察と、痛みや効果が出ない原因の評価を含める。',
+      treatment:
+        '施術前後の変化・再テストの結果も必ず記録する。セルフケア指導（ストレッチ・エクササイズのフォーム・秒数・回数）は「セルフケア指導：」で始める。',
+      preference:
+        '圧・刺激の強さの好みを含める。',
+      next_visit:
+        '「次回は腰を重点的に」のような施術部位の約束もここ。',
+    },
     roleJa: 'カイロプラクター', roleEn: 'chiropractor',
     businessNounJa: '整体院', businessNounEn: 'chiropractic clinic',
     primaryFocusJa: '背骨のアライメント・姿勢バランス・動作の回復',
@@ -481,6 +525,19 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   beauty_chiropractic: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
+    categoryNotesJa: {
+      symptom:
+        '手術歴・体内の金属（プレート等）・服用中の薬も安全履歴として必ずここ。痛がった箇所・強く響いた箇所・もみ返しの傾向、過去の施術での悪化経験・施術への不安も含める。',
+      body_area:
+        '緊張・硬さ・左右差・姿勢・可動域などの観察と、痛みや効果が出ない原因の評価を含める。',
+      treatment:
+        '施術前後の変化・再テストの結果も必ず記録する。セルフケア指導（ストレッチ・エクササイズのフォーム・秒数・回数）は「セルフケア指導：」で始める。',
+      preference:
+        '圧・刺激の強さの好みを含める。',
+      next_visit:
+        '「次回は腰を重点的に」のような施術部位の約束もここ。',
+    },
     roleJa: '美容整体師', roleEn: 'beauty-chiropractic therapist',
     businessNounJa: '美容整体院', businessNounEn: 'beauty-chiropractic studio',
     primaryFocusJa: '体のアライメントと美容的な変化（小顔・姿勢美・骨盤矯正）',
@@ -548,6 +605,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   acupuncture: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: '鍼灸師', roleEn: 'acupuncturist',
     businessNounJa: '鍼灸院', businessNounEn: 'acupuncture clinic',
     primaryFocusJa: '経絡のバランス・症状の緩和・体質的傾向',
@@ -617,6 +675,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   osteopathy: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: '柔道整復師', roleEn: 'osteopath (judo therapist)',
     businessNounJa: '整骨院', businessNounEn: 'osteopathic clinic',
     primaryFocusJa: '筋骨格系の回復・外傷のリハビリ・急性期のケア',
@@ -684,6 +743,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   yoga_studio: {
+    serviceNounJa: 'レッスン', serviceNounEn: 'session',
     roleJa: 'ヨガインストラクター', roleEn: 'yoga instructor',
     businessNounJa: 'ヨガスタジオ', businessNounEn: 'yoga studio',
     primaryFocusJa: '姿勢・柔軟性・呼吸法・練習の進歩',
@@ -753,6 +813,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   pilates_studio: {
+    serviceNounJa: 'レッスン', serviceNounEn: 'session',
     roleJa: 'ピラティスインストラクター', roleEn: 'pilates instructor',
     businessNounJa: 'ピラティススタジオ', businessNounEn: 'pilates studio',
     primaryFocusJa: 'コアの安定性・アライメント・コントロールされた動きを通じたボディアウェアネス',
@@ -822,6 +883,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   personal_gym: {
+    serviceNounJa: 'トレーニング', serviceNounEn: 'training',
     roleJa: 'パーソナルトレーナー', roleEn: 'personal trainer',
     businessNounJa: 'パーソナルジム', businessNounEn: 'personal training gym',
     primaryFocusJa: '筋力の進捗・コンディショニング・体組成の目標',
@@ -891,6 +953,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   dental_clinic: {
+    serviceNounJa: '処置', serviceNounEn: 'procedure',
     roleJa: '歯科医', roleEn: 'dentist',
     businessNounJa: '歯科医院', businessNounEn: 'dental clinic',
     primaryFocusJa: '口腔健康・治療履歴・治療計画・審美',
@@ -962,6 +1025,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   medical_clinic: {
+    serviceNounJa: '処置', serviceNounEn: 'procedure',
     roleJa: '医師', roleEn: 'physician',
     businessNounJa: '医療クリニック', businessNounEn: 'medical clinic',
     primaryFocusJa: '医学的評価・治療反応・長期的な健康管理',
@@ -1029,6 +1093,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   dermatology: {
+    serviceNounJa: '処置', serviceNounEn: 'procedure',
     roleJa: '皮膚科医', roleEn: 'dermatologist',
     businessNounJa: '皮膚科クリニック', businessNounEn: 'dermatology clinic',
     primaryFocusJa: '皮膚の健康・臨床的な皮膚疾患・治療反応の追跡',
@@ -1100,6 +1165,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   cosmetic_surgery: {
+    serviceNounJa: '施術', serviceNounEn: 'procedure',
     roleJa: '美容外科医', roleEn: 'cosmetic surgeon',
     businessNounJa: '美容クリニック', businessNounEn: 'cosmetic surgery clinic',
     primaryFocusJa: '美容医療処置・回復の経過・審美的な結果',
@@ -1171,6 +1237,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   physical_therapy: {
+    serviceNounJa: 'リハビリ', serviceNounEn: 'therapy',
     roleJa: '理学療法士', roleEn: 'physical therapist',
     businessNounJa: '理学療法室', businessNounEn: 'physical therapy clinic',
     primaryFocusJa: 'リハビリの進捗・機能的動作・活動復帰',
@@ -1240,6 +1307,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   foot_care: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: 'フットケアセラピスト', roleEn: 'foot care therapist',
     businessNounJa: 'フットケアサロン', businessNounEn: 'foot care studio',
     primaryFocusJa: '足の健康・リフレクソロジーの効果・歩行に関わる悩み',
@@ -1309,6 +1377,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   relaxation: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: 'リラクゼーションセラピスト', roleEn: 'relaxation therapist',
     businessNounJa: 'リラクゼーションサロン', businessNounEn: 'relaxation salon',
     primaryFocusJa: 'ストレス緩和・全身リラクゼーション・お客様の心地よさ',
@@ -1380,6 +1449,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   aroma: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: 'アロマセラピスト', roleEn: 'aromatherapist',
     businessNounJa: 'アロマサロン', businessNounEn: 'aromatherapy salon',
     primaryFocusJa: '香りの好みとウェルネスへの反応パターン',
@@ -1451,6 +1521,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   wellness_clinic: {
+    serviceNounJa: '施術', serviceNounEn: 'treatment',
     roleJa: 'ウェルネス専門家', roleEn: 'wellness practitioner',
     businessNounJa: 'ウェルネスクリニック', businessNounEn: 'wellness clinic',
     primaryFocusJa: 'ホリスティック健康・予防ウェルネス・統合的なプロトコル',
@@ -1522,6 +1593,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   mental_health: {
+    serviceNounJa: 'セッション', serviceNounEn: 'session',
     roleJa: 'カウンセラー', roleEn: 'counselor',
     businessNounJa: 'カウンセリングルーム', businessNounEn: 'counseling practice',
     primaryFocusJa: '情緒的ウェルビーイング・メンタルヘルスの進捗・治療同盟',
@@ -1593,6 +1665,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   veterinary: {
+    serviceNounJa: '処置', serviceNounEn: 'procedure',
     roleJa: '獣医師', roleEn: 'veterinarian',
     businessNounJa: '動物病院', businessNounEn: 'veterinary clinic',
     primaryFocusJa: '動物の健康・種/品種別のケア・予防医療',
@@ -1664,6 +1737,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   pet_grooming: {
+    serviceNounJa: 'トリミング', serviceNounEn: 'grooming',
     roleJa: 'トリマー', roleEn: 'pet groomer',
     businessNounJa: 'ペットグルーミングサロン', businessNounEn: 'pet grooming salon',
     primaryFocusJa: 'ペットの被毛コンディション・犬種/猫種別のケア・グルーミングスケジュール',
@@ -1737,6 +1811,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   training_school: {
+    serviceNounJa: 'レッスン', serviceNounEn: 'lesson',
     roleJa: '講師', roleEn: 'instructor',
     businessNounJa: 'スクール', businessNounEn: 'training school',
     primaryFocusJa: 'スキルの発達・生徒の進捗・学習成果',
@@ -1806,6 +1881,7 @@ const PERSONAS: Record<string, BusinessAiPersona> = {
     ],
   },
   other: {
+    serviceNounJa: '実施内容', serviceNounEn: 'service',
     roleJa: '担当者', roleEn: 'specialist',
     businessNounJa: '施設', businessNounEn: 'practice',
     primaryFocusJa: 'お客様のケア成果とサービスの進行',
@@ -1897,6 +1973,7 @@ export function resolvePersonaTokens(
   clinicalPosture: ClinicalPosture
   seasonalRelevance: string
   typicalConcerns: string
+  serviceNoun: string
 } {
   const ja = locale === 'ja'
   const concerns = ja ? persona.typicalConcernsJa : persona.typicalConcernsEn
@@ -1907,8 +1984,18 @@ export function resolvePersonaTokens(
     clinicalPosture: persona.clinicalPosture,
     seasonalRelevance: persona.seasonalRelevance,
     typicalConcerns: concerns.join(ja ? '、' : ', '),
+    serviceNoun:
+      (ja ? persona.serviceNounJa : persona.serviceNounEn) ??
+      (ja ? (DEFAULT_PERSONA.serviceNounJa ?? '実施内容') : (DEFAULT_PERSONA.serviceNounEn ?? 'service')),
   }
 }
+
+/** Every distinct JA service noun across the personas — the UI strips these
+ *  as treatment-title kind prefixes (CurrentSessionCard) so the strip list
+ *  can never drift from what the extraction prompt mandates. */
+export const ALL_SERVICE_NOUNS_JA: string[] = [
+  ...new Set(Object.values(PERSONAS).map((p) => p.serviceNounJa ?? '実施内容')),
+]
 
 // ---------------------------------------------------------------------------
 // Capture tokens (v3.1 prompt system) — per-business hunt list, summary label
@@ -1993,6 +2080,13 @@ export interface CaptureTokens {
   checklist: string[]
   summaryLabels: SummaryLabel[]
   goodExamples: string[]
+  /** This business's word for "what we did today" (title prefix). */
+  serviceNoun: string
+  /** Per-category domain notes appended to the neutral category defs (JA
+   *  extraction prompt). Empty object when the type has none authored. */
+  categoryNotes: Partial<
+    Record<'symptom' | 'body_area' | 'treatment' | 'preference' | 'next_visit', string>
+  >
 }
 
 /** Max checklist items fed to the prompt — protects the model's instruction
@@ -2021,7 +2115,13 @@ export function resolveCaptureTokens(
     (ja ? persona.summaryLabelsJa : persona.summaryLabelsEn) ??
     (ja ? GENERIC_SUMMARY_LABELS_JA : GENERIC_SUMMARY_LABELS_EN)
   const goodExamples = (ja ? persona.goodExamplesJa : persona.goodExamplesEn) ?? []
-  return { checklist, summaryLabels, goodExamples }
+  const serviceNoun =
+    (ja ? persona.serviceNounJa : persona.serviceNounEn) ??
+    (ja ? (DEFAULT_PERSONA.serviceNounJa ?? '実施内容') : (DEFAULT_PERSONA.serviceNounEn ?? 'service'))
+  // JA-only until the EN prompt re-author (the legacy EN prompt has no
+  // category-def block to enrich).
+  const categoryNotes = (ja ? persona.categoryNotesJa : undefined) ?? {}
+  return { checklist, summaryLabels, goodExamples, serviceNoun, categoryNotes }
 }
 
 /**

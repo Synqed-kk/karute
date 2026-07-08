@@ -4,6 +4,8 @@ import type { ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { Target } from 'lucide-react'
 
+import { TREATMENT_KIND_PREFIXES } from './treatment-prefixes'
+
 export type SessionCategory =
   | 'treatment'
   | 'concern'
@@ -61,13 +63,13 @@ const CATEGORY_ORDER: SessionCategory[] = [
   'note',
 ]
 
-// The extraction prompt mandates a kind prefix on treatment titles
-// (「施術：」/「セルフケア指導：」). The chip already says 施術, so repeating the
-// prefix on every bullet reads as noise (Liam, 2026-07-03) — strip it and show
-// the kind ONCE as a sub-heading over its bullets. Titles without a known
-// prefix (incl. legacy entries) render first, unlabeled. Only these two exact
-// prefixes are stripped — body-part titles like 「左肩：…」 must keep theirs.
-const TREATMENT_KIND_PREFIXES = ['施術', 'セルフケア指導'] as const
+// The kind prefixes stripped from treatment titles (「施術：」「トレーニング：」…)
+// — the chip already names the kind, so repeating the prefix on every bullet
+// reads as noise (Liam, 2026-07-03); strip it and show the kind ONCE as a
+// sub-heading. Titles without a known prefix (incl. legacy entries) render
+// first, unlabeled. Only exact matches are stripped — body-part titles like
+// 「左肩：…」 keep theirs. List lives in treatment-prefixes.ts (imported above,
+// shared with the sync test).
 
 function splitTreatmentKinds(items: SessionEntry[]): Array<{
   kind: string | null
