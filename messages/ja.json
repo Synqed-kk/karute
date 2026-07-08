@@ -1310,7 +1310,22 @@
         "sevStrength": "強み",
         "doThis": "次の一手",
         "categoriesTitle": "会話スキル（トップ層との比較）",
-        "top": "トップ"
+        "top": "トップ",
+        "thisWeek": "今週の一手",
+        "practice": "練習する",
+        "trendTitle": "推移（成約率）",
+        "nowLabel": "今月",
+        "reasonsTitle": "不成約の理由（今月{n}件）",
+        "pendingTitle": "「後で決める」が{n}件、未決定です",
+        "pendingBody": "決めるとコーチングの精度が上がります。クロージングを毎回保留にしていること自体が、成約を逃しているポイントかもしれません。",
+        "learnTitle": "トップ層から学ぶ",
+        "reason": {
+          "budget": "予算",
+          "considering": "検討中",
+          "mismatch": "店舗ミスマッチ",
+          "follow_up": "後日連絡予定",
+          "other": "その他"
+        }
       }
     },
     "owner": {

@@ -1310,7 +1310,22 @@
         "sevStrength": "Strength",
         "doThis": "Do this",
         "categoriesTitle": "Conversation skills (vs top performers)",
-        "top": "top"
+        "top": "top",
+        "thisWeek": "This week’s move",
+        "practice": "Practice",
+        "trendTitle": "Trend (closing rate)",
+        "nowLabel": "Now",
+        "reasonsTitle": "Why deals slipped ({n} this month)",
+        "pendingTitle": "{n} outcomes still on “decide later”",
+        "pendingBody": "Resolving them sharpens your coaching — and deferring every close may itself be where the sales slip away.",
+        "learnTitle": "Learn from the top",
+        "reason": {
+          "budget": "Budget",
+          "considering": "Considering",
+          "mismatch": "Not a fit",
+          "follow_up": "Follow-up later",
+          "other": "Other"
+        }
       }
     },
     "owner": {
