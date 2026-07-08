@@ -1,0 +1,49 @@
+// ─────────────────────────────────────────────────────────────────────────
+// Coaching access — the single gate: can this business use coaching?
+// ─────────────────────────────────────────────────────────────────────────
+// Pure decision (client-, server-, and test-safe — imports only the pricing model).
+// The server loader that feeds it live data is in access-loader.ts.
+//
+// Coaching is a PAID, OPTIONAL module (Liam). It runs only when BOTH hold:
+//   • ENTITLED — the plan tier includes coaching (the paywall, via
+//     TIER_FEATURES.coachingInsights) OR the business is on the unlimited override
+//     (Liam's dev/test account, via the DB flag or KARUTE_UNLIMITED_BUSINESS_IDS); AND
+//   • ENABLED  — the owner has turned it on (org_settings.coaching_enabled, default
+//     off; some business types won't want it).
+// Off means off everywhere: the render gate hides every surface, and — critically —
+// every generator checks canUse before firing, so a disabled store costs nothing to
+// run (a real cost gate, not just UI). This one function is the single answer the UI,
+// the render gate, and the generators all share, so they can never disagree.
+
+import { TIER_FEATURES, type SubscriptionTier } from '@/lib/subscription/types'
+
+export type CoachingAccessReason = 'ok' | 'not_entitled' | 'disabled'
+
+export interface CoachingAccess {
+  /** Tier includes coaching, or the business is unlimited (dev/test bypass). */
+  entitled: boolean
+  /** The owner's per-store on/off toggle (org_settings.coaching_enabled). */
+  enabled: boolean
+  /** The single answer the render gate AND every generator gate on. */
+  canUse: boolean
+  reason: CoachingAccessReason
+}
+
+/** Does this tier include coaching? The paywall, straight from the pricing model —
+ *  so the gate and the pricing UI can never diverge (mirrors entitlements.ts). */
+export function coachingEntitledForTier(tier: SubscriptionTier): boolean {
+  return TIER_FEATURES[tier]?.coachingInsights === true
+}
+
+/** The pure gate decision. Entitled = paid tier OR unlimited override; canUse =
+ *  entitled AND the owner toggle is on. */
+export function coachingAccessFor(args: {
+  tier: SubscriptionTier
+  isUnlimited: boolean
+  enabled: boolean
+}): CoachingAccess {
+  const entitled = args.isUnlimited || coachingEntitledForTier(args.tier)
+  const canUse = entitled && args.enabled
+  const reason: CoachingAccessReason = !entitled ? 'not_entitled' : !args.enabled ? 'disabled' : 'ok'
+  return { entitled, enabled: args.enabled, canUse, reason }
+}
