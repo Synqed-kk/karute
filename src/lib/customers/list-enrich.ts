@@ -45,6 +45,10 @@ export interface CustomerEnrichment {
    *  lifetime visit_count may include undated visits, so dividing the dated
    *  span by it would understate the gap. */
   datedVisitCount: number
+  /** Count of NO_SHOW appointments — excluded from every visit count above
+   *  (a no-show never happened). Drives the repeat-no-show chip (>= 2) on
+   *  the list + profile; see isRepeatNoShow. */
+  noShowCount: number
 }
 
 // ─── Cached enrichment (one aggregate call) ──────────────────────────────────
@@ -72,21 +76,32 @@ const enrichmentByBusiness = unstable_cache(
     if (!baseUrl || !apiKey) return []
     const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
     const rows = await synqed.customers.enrichment()
-    return rows.map((r) => [
-      r.customer_id,
-      {
-        totalKarute: r.total_karute,
-        lastVisitIso: r.last_visit,
-        pastAppointmentCount: r.past_appointment_count,
-        lastVisitService: r.last_visit_service,
-        bookingStaffId: r.booking_staff_id,
-        nextAppointmentIso: r.next_appointment,
-        firstVisitIso: r.first_visit,
-        datedVisitCount: r.dated_visit_count,
-      },
-    ])
+    return rows.map((r) => {
+      // SDK-skew: synqed-core #39 (merged, live in prod) added no_show_count
+      // to the row; the installed @synqed-kk/client 1.11.0 CustomerEnrichment
+      // type hasn't caught up. The client returns the parsed API response
+      // verbatim, so the field is present at runtime — read it structurally
+      // (same pattern as the karute_number cast in customers/identity.ts).
+      const raw = r as typeof r & { no_show_count?: number }
+      return [
+        r.customer_id,
+        {
+          totalKarute: r.total_karute,
+          lastVisitIso: r.last_visit,
+          pastAppointmentCount: r.past_appointment_count,
+          lastVisitService: r.last_visit_service,
+          bookingStaffId: r.booking_staff_id,
+          nextAppointmentIso: r.next_appointment,
+          firstVisitIso: r.first_visit,
+          datedVisitCount: r.dated_visit_count,
+          noShowCount: raw.no_show_count ?? 0,
+        },
+      ]
+    })
   },
-  ['customer-enrichment-v3'],
+  // v3 → v4: cached row shape gained noShowCount — bump so stale cached rows
+  // (without the field) can't linger and under-report repeat no-shows.
+  ['customer-enrichment-v4'],
   { revalidate: 60, tags: ['dashboard', 'staff-list'] },
 )
 
@@ -99,6 +114,7 @@ const EMPTY_ENRICHMENT: CustomerEnrichment = {
   nextAppointmentIso: null,
   firstVisitIso: null,
   datedVisitCount: 0,
+  noShowCount: 0,
 }
 
 export async function enrichCustomers(

@@ -905,7 +905,8 @@
         "ageValue": "{age} y/o",
         "bookingDate": "Booked {date}",
         "bookingNone": "No booking",
-        "packFraction": "{n}/{m} left"
+        "packFraction": "{n}/{m} left",
+        "noShowChip": "{count} no-shows"
       },
       "heading": "Customers",
       "showing": "{n} showing",
