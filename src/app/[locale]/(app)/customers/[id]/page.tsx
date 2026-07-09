@@ -313,6 +313,7 @@ export default async function CustomerProfilePage({
     memoryCount: customerMemory.items.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,
+    noShowCount: enr?.noShowCount ?? 0,
   }
 
   return (

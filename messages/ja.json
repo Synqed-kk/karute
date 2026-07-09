@@ -867,7 +867,8 @@
         "ageValue": "{age}歳",
         "bookingDate": "予約 {date}",
         "bookingNone": "予約なし",
-        "packFraction": "残{n}/{m}"
+        "packFraction": "残{n}/{m}",
+        "noShowChip": "無断欠席{count}回"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
