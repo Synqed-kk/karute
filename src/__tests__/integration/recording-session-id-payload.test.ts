@@ -121,6 +121,10 @@ describe('saveKaruteRecordInline — recording_session_id payload', () => {
       staff_id: 'user-a',
       appointment_id: null,
       recording_session_id: null,
+      // store_id joined the payload when #427 (store stamping) merged after
+      // this test was written on a pre-#427 base — null here because the
+      // suite mocks no active-store cookie and there's no appointment.
+      store_id: null,
       transcript: 't',
       ai_summary: 's',
       entries: [],
