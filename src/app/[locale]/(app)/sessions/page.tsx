@@ -492,7 +492,14 @@ export default async function SessionsPage({
       lifecycleStatus: targetLifecycle?.status,
     }
     visitSegment = classifyVisitSegment(visitSignals, now)
-    visitRhythm = computeVisitRhythm(visitSignals, now)
+    // Terminal lifecycle also suppresses the rhythm PANEL, not just the
+    // tactic segment — mirrors the profile, where computeVisitPace takes
+    // isTerminal and the pace card never renders for 卒業/離客
+    // (customers/[id]/page.tsx). classifyVisitSegment nulls itself; rhythm
+    // is a plain geometry helper with no lifecycle input, so gate it here.
+    const isTerminalLifecycle =
+      targetLifecycle?.status === 'graduated' || targetLifecycle?.status === 'lost'
+    visitRhythm = isTerminalLifecycle ? null : computeVisitRhythm(visitSignals, now)
     // Mechanical brief — pure + instant. Drives the FIRST paint and every
     // cross-cutting 新規 flag (the recording-target badge + the post-session
     // dialog), so those are correct on frame one and never flip.
