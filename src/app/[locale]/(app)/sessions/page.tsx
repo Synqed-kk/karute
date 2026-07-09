@@ -4,6 +4,12 @@ import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { isReturningCustomer } from '@/lib/customers/list-enrich'
 import { getCustomer, type CustomerWithStaff } from '@/lib/customers/queries'
+import {
+  classifyVisitSegment,
+  computeVisitRhythm,
+  type VisitSegment,
+  type VisitRhythm,
+} from '@/lib/visits/segment'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
 import { listCustomerPacks } from '@/lib/packs/store'
@@ -426,6 +432,15 @@ export default async function SessionsPage({
   // The picker prefill — the customer's most recent pack (any status; the
   // store returns purchased_at DESC, so [0] is newest).
   let previousPack: { size: number; unitPrice: number } | null = null
+  // Visit-frequency segment + rhythm bar geometry for the closing-tactic strip
+  // + rhythm panel below the recording target. Same classifyVisitSegment /
+  // computeVisitRhythm helpers CustomerIdentityCard + VisitPaceCard use on the
+  // customer profile (single source — never redoes the "how should staff close
+  // this" math), driven off targetCustomer (already fetched in wave 2) — no new
+  // fetch. Null when there's no recording target.
+  let visitSegment: VisitSegment | null = null
+  let visitRhythm: VisitRhythm | null = null
+  let targetHasTicketPack = false
   if (nextAppointment?.customerId) {
     // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
     // cached list — same fields the 顧客 list + profile use, so the recording
@@ -456,6 +471,18 @@ export default async function SessionsPage({
       hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
       karuteCount: customerKarute.length,
     })
+    targetHasTicketPack = (cc?.hasTicketPack ?? false) || targetHasActivePack
+    const visitSignals = {
+      joinDateIso: targetCustomer?.created_at ?? null,
+      lastVisitIso: targetCustomer?.last_visit_at ?? null,
+      firstVisitIso: targetCustomer?.first_visit_at ?? null,
+      isExistingCustomer: targetCustomer?.is_existing_customer,
+      visitCount: targetCustomer?.visit_count,
+      karuteCount: customerKarute.length,
+      hasTicketPack: targetHasTicketPack,
+    }
+    visitSegment = classifyVisitSegment(visitSignals, now)
+    visitRhythm = computeVisitRhythm(visitSignals, now)
     // Mechanical brief — pure + instant. Drives the FIRST paint and every
     // cross-cutting 新規 flag (the recording-target badge + the post-session
     // dialog), so those are correct on frame one and never flip.
@@ -498,6 +525,9 @@ export default async function SessionsPage({
       aiBriefPromise={aiBriefPromise}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      visitSegment={visitSegment}
+      visitRhythm={visitRhythm}
+      targetHasTicketPack={targetHasTicketPack}
       targetPack={targetPack}
       packPresets={orgSettings?.pack_presets ?? []}
       staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
