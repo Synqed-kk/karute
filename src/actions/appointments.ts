@@ -407,6 +407,21 @@ export async function updateAppointment(
  * MANUAL rows that carry no reservationId — the crawl can't see them, which is
  * exactly the class of orphaned bookings this unblocks first.
  */
+/**
+ * The acting staff for the appointment audit trail, in CORE's staff-id
+ * space. getCurrentUserStaffId() returns the Supabase profiles.id the app
+ * uses everywhere, but appointments-domain staff columns (the staff_id FK,
+ * status_set_by) hold synqed-core staff.id — resolveSynqedStaffId is the
+ * canonical translation, the same one appointment create/reassign already
+ * uses. Null on ANY failure: the audit stamp is best-effort and must never
+ * block the staff's action (core accepts the field as optional).
+ */
+async function resolveActingStaffId(): Promise<string | null> {
+  const profileId = await getCurrentUserStaffId()
+  if (!profileId) return null
+  return resolveSynqedStaffId(profileId).catch(() => null)
+}
+
 export async function cancelAppointment(
   appointmentId: string,
 ): Promise<{ success: true } | { error: string }> {
@@ -416,11 +431,9 @@ export async function cancelAppointment(
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
 
-    // acting_staff_id is optional in core; source it the same way #395 sourced
-    // it for setPin/removePin (getCurrentUserStaffId — the signed-in staff's
-    // resolved id, never client input). Omitted when there's no resolvable
-    // staff identity rather than blocking the cancel.
-    const actingStaffId = await getCurrentUserStaffId()
+    // Best-effort audit stamp in core's staff-id space (see
+    // resolveActingStaffId). Omitted when unresolvable rather than blocking.
+    const actingStaffId = await resolveActingStaffId()
     const patch: { status: 'CANCELLED'; acting_staff_id?: string } = {
       status: 'CANCELLED',
       ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
@@ -461,11 +474,9 @@ export async function restoreAppointment(
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
 
-    // acting_staff_id is optional in core; source it the same way #395 sourced
-    // it for setPin/removePin (getCurrentUserStaffId — the signed-in staff's
-    // resolved id, never client input). Omitted when there's no resolvable
-    // staff identity rather than blocking the restore.
-    const actingStaffId = await getCurrentUserStaffId()
+    // Best-effort audit stamp in core's staff-id space (see
+    // resolveActingStaffId). Omitted when unresolvable rather than blocking.
+    const actingStaffId = await resolveActingStaffId()
     const patch: { status: 'SCHEDULED'; acting_staff_id?: string } = {
       status: 'SCHEDULED',
       ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
@@ -534,11 +545,10 @@ export async function markNoShowAppointment(
       return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
     }
 
-    // acting_staff_id is optional in core; source it the same way #395 sourced
-    // it for setPin/removePin (getCurrentUserStaffId — the signed-in staff's
-    // resolved id, never client input). Omitted when there's no resolvable
-    // staff identity rather than blocking the no-show mark.
-    const actingStaffId = await getCurrentUserStaffId()
+    // Best-effort audit stamp in core's staff-id space (see
+    // resolveActingStaffId — fixes the profile-id-space stamp this action
+    // originally shipped with). Omitted when unresolvable, never blocking.
+    const actingStaffId = await resolveActingStaffId()
     const patch: { status: 'NO_SHOW'; status_reason: string; acting_staff_id?: string } = {
       status: 'NO_SHOW',
       status_reason: input.reason,
