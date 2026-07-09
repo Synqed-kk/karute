@@ -225,7 +225,16 @@
       },
       "noShowErrorGeneric": "Something went wrong.",
       "cancelErrorGeneric": "Could not cancel. Please try again.",
-      "restoreErrorGeneric": "Could not restore — the booking's status may have changed."
+      "restoreErrorGeneric": "Could not restore — the booking's status may have changed.",
+      "reasonOptional": "Reason (optional)",
+      "cancelReasons": {
+        "cancel-advance-contact": "Contacted in advance",
+        "cancel-same-day-contact": "Contacted same day",
+        "cancel-salon-initiated": "Salon-initiated"
+      },
+      "noShowSectionSub": "(no contact, did not arrive)",
+      "noShowFirstTime": "This is their first no-show",
+      "noShowPriorCount": "{n} prior no-shows on record"
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",

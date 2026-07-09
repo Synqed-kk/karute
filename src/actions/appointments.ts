@@ -14,7 +14,12 @@ import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
-import { isTerminalStatus, NO_SHOW_REASONS, type AppStatus } from '@/lib/appointments/status'
+import {
+  CANCEL_REASONS,
+  isTerminalStatus,
+  NO_SHOW_REASON_NO_CONTACT,
+  type AppStatus,
+} from '@/lib/appointments/status'
 import { listCustomerPacks, addRedemption } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
@@ -428,18 +433,27 @@ async function resolveActingStaffId(): Promise<string | null> {
 
 export async function cancelAppointment(
   appointmentId: string,
+  input?: { reason?: string },
 ): Promise<{ success: true } | { error: string }> {
   try {
     // Cancelling a booking = bookings.manage. can()-style contract: callers
     // await without a try/catch and toast the { error } shape.
     await requireCapability('bookings.manage')
+    // Optional reason chip (taxonomy fix 2026-07-10): a cancel implies the
+    // customer/salon COMMUNICATED — the chips record how (advance contact /
+    // same-day contact / salon-initiated). Fixed vocabulary only; the audit
+    // trail is not a free-text field (same rule the no-show path has).
+    if (input?.reason && !(CANCEL_REASONS as readonly string[]).includes(input.reason)) {
+      return { error: 'Invalid cancel reason.' }
+    }
     const synqed = await getSynqedClient()
 
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
     const actingStaffId = await resolveActingStaffId()
-    const patch: { status: 'CANCELLED'; acting_staff_id?: string } = {
+    const patch: { status: 'CANCELLED'; status_reason?: string; acting_staff_id?: string } = {
       status: 'CANCELLED',
+      ...(input?.reason ? { status_reason: input.reason } : {}),
       ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
     }
     // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
@@ -533,15 +547,10 @@ export type MarkNoShowResult =
  */
 export async function markNoShowAppointment(
   appointmentId: string,
-  input: { reason: string; burnPack: boolean },
+  input: { burnPack: boolean },
 ): Promise<MarkNoShowResult> {
   try {
     await requireCapability('bookings.manage')
-    // The reason lands in core's status audit trail verbatim — only the
-    // sheet's fixed codes are valid; never trust the caller's string.
-    if (!(NO_SHOW_REASONS as readonly string[]).includes(input.reason)) {
-      return { error: 'Invalid no-show reason.' }
-    }
     const synqed = await getSynqedClient()
 
     const appt = await synqed.appointments.get(appointmentId)
@@ -563,9 +572,14 @@ export async function markNoShowAppointment(
     // resolveActingStaffId — fixes the profile-id-space stamp this action
     // originally shipped with). Omitted when unresolvable, never blocking.
     const actingStaffId = await resolveActingStaffId()
+    // 無断 = no contact + no arrival, by definition — so the reason is the ONE
+    // fixed code, never a staff choice (taxonomy fix 2026-07-10; the old
+    // same-day-contacted / first-time chips are legacy-display-only now:
+    // contacted cancels belong to cancelAppointment, first-time is DERIVED
+    // from no_show_count).
     const patch: { status: 'NO_SHOW'; status_reason: string; acting_staff_id?: string } = {
       status: 'NO_SHOW',
-      status_reason: input.reason,
+      status_reason: NO_SHOW_REASON_NO_CONTACT,
       ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
     }
     // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare

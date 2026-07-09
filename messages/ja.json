@@ -225,7 +225,16 @@
       },
       "noShowErrorGeneric": "操作に失敗しました",
       "cancelErrorGeneric": "キャンセルに失敗しました。もう一度お試しください",
-      "restoreErrorGeneric": "元に戻せませんでした。予約の状態が変わっている可能性があります"
+      "restoreErrorGeneric": "元に戻せませんでした。予約の状態が変わっている可能性があります",
+      "reasonOptional": "理由（任意）",
+      "cancelReasons": {
+        "cancel-advance-contact": "事前連絡あり",
+        "cancel-same-day-contact": "当日連絡あり",
+        "cancel-salon-initiated": "店舗都合"
+      },
+      "noShowSectionSub": "（連絡なく来店なし）",
+      "noShowFirstTime": "この方は初めての無断キャンセルです",
+      "noShowPriorCount": "過去{n}回の無断キャンセルがあります"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
