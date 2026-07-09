@@ -267,7 +267,7 @@ function SidebarProfileChip() {
               type="button"
               onClick={() => {
                 setOpen(false)
-                router.push('/settings' as Parameters<typeof router.push>[0])
+                router.push('/profile' as Parameters<typeof router.push>[0])
               }}
               className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-foreground hover:bg-muted/50 text-left"
             >

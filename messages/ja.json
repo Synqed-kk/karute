@@ -687,7 +687,13 @@
       "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
       "deleteCta": "データを削除",
       "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
-      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です",
+      "consentRevokeTitle": "録音同意",
+      "consentRevokeBody": "{date}に取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeBodyNoDate": "同意取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeCta": "録音同意を取り消す",
+      "consentRevokeConfirm": "録音の同意を取り消しますか？次回の録音前に、スタッフが改めて同意を取得する必要があります。",
+      "consentRevokeSuccess": "録音同意を取り消しました。"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
