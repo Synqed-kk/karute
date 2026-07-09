@@ -686,7 +686,13 @@
       "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
       "deleteCta": "Delete data",
       "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
-      "wiringPending": "Wiring pending — APPI compliance backend in flight"
+      "wiringPending": "Wiring pending — APPI compliance backend in flight",
+      "consentRevokeTitle": "Recording consent",
+      "consentRevokeBody": "Granted {date}. Revoking means staff will need to ask permission again before the next recording.",
+      "consentRevokeBodyNoDate": "On file. Revoking means staff will need to ask permission again before the next recording.",
+      "consentRevokeCta": "Revoke consent",
+      "consentRevokeConfirm": "Revoke recording consent? Staff will need to ask for permission again before the next recording.",
+      "consentRevokeSuccess": "Recording consent revoked."
     },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."

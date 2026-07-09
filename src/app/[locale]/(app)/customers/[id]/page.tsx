@@ -7,7 +7,8 @@ import { getStaffList, getBusinessId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { listCustomerPhotos } from '@/actions/customers'
+import { listCustomerPhotos, getCustomerConsent } from '@/actions/customers'
+import { isConsentCurrent } from '@/lib/consent'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import { buildCustomerMemory } from '@/lib/karute/memory-adapter'
@@ -72,7 +73,7 @@ export default async function CustomerProfilePage({
   // consistent with the list page.
   const synqed = await getSynqedClient()
 
-  const [contact, staffList, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
+  const [contact, staffList, photosResult, allCustomersList, synqedKaruteRows, enrichment, consentResult] =
     await Promise.all([
       getCustomerContact(id),
       getStaffList(),
@@ -94,6 +95,9 @@ export default async function CustomerProfilePage({
       // (assigned_staff_id) — QR-synced customers never do. Same source as the
       // list page so the profile's 担当 matches the card.
       enrichCustomers(businessId, [id]),
+      // Recording consent — same read the pre-session brief uses, so the
+      // Privacy tab's revoke row reflects the same "currently granted" truth.
+      getCustomerConsent(id).catch(() => ({ consent: null })),
     ])
 
   type KaruteRow = {
@@ -239,6 +243,14 @@ export default async function CustomerProfilePage({
     withWeekday: true,
   })
 
+  // "Currently granted" — same isConsentCurrent check the recording gate uses
+  // (a stale-policy-version consent doesn't count), so the Privacy tab's
+  // revoke row and the record-page consent pill never disagree.
+  const consentGranted = isConsentCurrent(consentResult.consent)
+  const consentGrantedAtLabel = consentResult.consent?.granted_at
+    ? prettyDate(consentResult.consent.granted_at, locale)
+    : null
+
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
     signedUrl: p.signed_url,
@@ -326,6 +338,8 @@ export default async function CustomerProfilePage({
       lifecycle={lifecycle}
       hasNextBooking={!!enrichment.get(id)?.nextAppointmentIso}
       ticketsEnabled={ticketsEnabled}
+      consentGranted={consentGranted}
+      consentGrantedAtLabel={consentGrantedAtLabel}
     />
   )
 }
