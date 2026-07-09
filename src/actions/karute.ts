@@ -55,12 +55,25 @@ async function resolveKaruteStoreId(
 async function createOrUpdateKaruteRecord(
   synqed: SynqedClient,
   payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
-): Promise<{ id: string; fresh: boolean }> {
+): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
   const recordingSessionId = payload.recording_session_id
   if (recordingSessionId) {
+    // ONLY a 404 means "no record yet". Any other lookup failure (timeout,
+    // backend error) must FAIL the save so the client retries — falling
+    // through to create() would re-enter core's idempotent dedupe and hand
+    // back stale content as success: the exact bug this upsert exists to
+    // prevent. Structural status check (not instanceof) so partial test
+    // mocks of the client package can't break the detection.
     const existing = await synqed.karuteRecords
       .getByRecordingSession(recordingSessionId)
-      .catch(() => null)
+      .catch((err: unknown) => {
+        const status =
+          err && typeof err === 'object' && 'status' in err
+            ? (err as { status: unknown }).status
+            : undefined
+        if (status === 404) return null
+        throw err
+      })
     if (existing) {
       await synqed.karuteRecords.update(existing.id, {
         transcript: payload.transcript,
@@ -68,11 +81,17 @@ async function createOrUpdateKaruteRecord(
         entries: payload.entries,
         appointment_id: payload.appointment_id,
       })
-      return { id: existing.id, fresh: false }
+      return {
+        id: existing.id,
+        fresh: false,
+        // The retry EDITED the transcript → there's genuinely new material
+        // for memory ingest; an identical transcript is just a resend.
+        transcriptChanged: existing.transcript !== payload.transcript,
+      }
     }
   }
   const record = await synqed.karuteRecords.create(payload)
-  return { id: record.id, fresh: true }
+  return { id: record.id, fresh: true, transcriptChanged: true }
 }
 
 /**
@@ -152,7 +171,7 @@ export async function saveKaruteRecord(
 
     const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
 
-    const { id, fresh } = await createOrUpdateKaruteRecord(synqed, {
+    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(synqed, {
       customer_id: input.customerId,
       store_id: storeId,
       staff_id: staffId,
@@ -188,9 +207,10 @@ export async function saveKaruteRecord(
     // Best-effort: grow the customer's persistent memory from this transcript
     // (the personal-bits + body-trajectory loop). Awaited so it reliably runs in
     // serverless; never throws — the recording is the critical artifact.
-    // FRESH saves only: a retry re-saving the same take would re-extract the
-    // same transcript and stack duplicate memory items.
-    if (fresh) {
+    // Fresh saves — or a retry whose transcript was EDITED in review (new
+    // material for memory). A retry resending an identical transcript is
+    // skipped: re-extraction would only stack duplicate memory items.
+    if (fresh || transcriptChanged) {
       await ingestSessionMemory({
         customerId: input.customerId,
         transcript: input.transcript,
@@ -245,7 +265,7 @@ export async function saveKaruteRecordInline(
 
     const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
 
-    const { id, fresh } = await createOrUpdateKaruteRecord(synqed, {
+    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(synqed, {
       customer_id: input.customerId,
       store_id: storeId,
       staff_id: staffId,
@@ -275,9 +295,9 @@ export async function saveKaruteRecordInline(
       })
     }
 
-    // Best-effort memory ingest — same loop + same fresh-only gate as
-    // saveKaruteRecord (a deduped retry must not stack duplicate memories).
-    if (fresh) {
+    // Best-effort memory ingest — same gate as saveKaruteRecord: fresh saves
+    // or edited-transcript retries; identical resends skip.
+    if (fresh || transcriptChanged) {
       await ingestSessionMemory({
         customerId: input.customerId,
         transcript: input.transcript,

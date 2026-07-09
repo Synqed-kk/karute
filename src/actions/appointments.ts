@@ -588,10 +588,16 @@ export async function markNoShowAppointment(
       // starts a day before the booking so the earlier burn (stamped with the
       // booking's JST date) is always inside it.
       const since = ymdInJst(new Date(new Date(appt.starts_at).getTime() - 86_400_000))
-      const alreadyBurned = await synqed.packs
+      // Tri-state on purpose: an ERRORED history read must fail CLOSED for
+      // money — skip the burn and tell staff (burn_failed), never risk a
+      // second charge because the check couldn't run. 'unknown' ≠ 'no'.
+      const alreadyBurned: boolean | 'unknown' = await synqed.packs
         .listRecentRedemptions(since)
         .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
-        .catch(() => false)
+        .catch(() => 'unknown' as const)
+      if (alreadyBurned === 'unknown') {
+        return { success: true, burnError: 'burn_failed' }
+      }
       if (alreadyBurned) {
         return { success: true, burnError: 'already_burned' }
       }
