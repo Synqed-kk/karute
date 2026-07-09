@@ -14,6 +14,7 @@
 // honest mailto to sales — never a faked mutation. The old
 // localStorage subscription mock is gone from this component.
 
+import { useEffect, useState } from 'react'
 import { Building2, Check, Crown, Star, X } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
@@ -24,6 +25,7 @@ import {
 } from '@/lib/subscription/types'
 import { staffLimitFor } from '@/lib/subscription/gating'
 import { STORE_SETUP_FEE_JPY } from '@/lib/subscription/fees'
+import { isNativeShell } from '@/lib/platform'
 
 const SALES_MAILTO = 'mailto:sales@synqed.jp?subject=Karute%20plan%20change'
 const ENTERPRISE_MAILTO =
@@ -55,6 +57,14 @@ export function PlanComparisonGrid({
   isUnlimited = false,
 }: PlanComparisonGridProps = {}) {
   const t = useTranslations('settings.subscription.plans')
+
+  // App-store safety (see lib/platform.ts): inside the native shell this
+  // pricing/upgrade surface must not exist — subscription changes happen on
+  // the web only. Effect-set so SSR/web hydration is byte-identical.
+  const [nativeShell, setNativeShell] = useState(false)
+  useEffect(() => {
+    setNativeShell(isNativeShell())
+  }, [])
 
   const highlightTier: SubscriptionTier | null = isUnlimited
     ? null
@@ -125,6 +135,14 @@ export function PlanComparisonGrid({
   const handleAction = (tier: SubscriptionTier) => {
     if (typeof window === 'undefined') return
     window.location.href = tier === 'enterprise' ? ENTERPRISE_MAILTO : SALES_MAILTO
+  }
+
+  if (nativeShell) {
+    return (
+      <p className="rounded-xl bg-muted/50 px-4 py-6 text-center text-[13px] text-muted-foreground">
+        {t('manageOnWeb')}
+      </p>
+    )
   }
 
   return (

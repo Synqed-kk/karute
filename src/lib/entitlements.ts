@@ -1,10 +1,12 @@
 // ─────────────────────────────────────────────────────────────
-// Entitlements — the live plan loader (P3)
+// Entitlements — the live plan loader (P3/P4)
 // ─────────────────────────────────────────────────────────────
 // Server-usable lib (imported by server actions; never shipped to the client
 // bundle). Loads a business's live tier + counts and folds them through the PURE
-// gating decisions in ./subscription/gating (store/staff limits, feature flags),
-// which are re-exported here so existing '@/lib/entitlements' imports keep working.
+// resolution in ./subscription/entitlement-resolve (which owns the Entitlement
+// shape, the KARUTE_BILLING_ENFORCEMENT arming switch, and the dev force-tier
+// QA lever) plus the PURE gating decisions in ./subscription/gating — all
+// re-exported here so existing '@/lib/entitlements' imports keep working.
 //
 // Numeric limits + feature flags are DERIVED from the plan tier via TIER_FEATURES
 // (src/lib/subscription/types.ts) — the exact model the pricing UI renders — so the
@@ -16,14 +18,15 @@
 //      zero-migration switch Anthony/Liam can flip on Vercel for the dev account.
 
 import { getSynqedClient } from '@/lib/synqed/client'
-import { TIER_FEATURES, type SubscriptionTier, type TierFeatures } from '@/lib/subscription/types'
+import { ALL_TIERS, type SubscriptionTier } from '@/lib/subscription/types'
 import {
-  storeLimitFor,
-  canAddStoreFor,
-  staffLimitFor,
-} from '@/lib/subscription/gating'
+  billingEnforced,
+  devForcedTier,
+  resolveEntitlement,
+  type Entitlement,
+} from '@/lib/subscription/entitlement-resolve'
 
-// Re-export the pure gating surface so callers can keep importing from here.
+// Re-export the pure surfaces so callers can keep importing from here.
 export {
   storeLimitFor,
   canAddStoreFor,
@@ -33,30 +36,11 @@ export {
   entitlementHasFeature,
 } from '@/lib/subscription/gating'
 export type { EntitlementFeature } from '@/lib/subscription/gating'
-
-export interface Entitlement {
-  tier: SubscriptionTier
-  /** Derived from the tier. A finite number, or 'unlimited' for paid tiers. */
-  storeLimit: number | 'unlimited'
-  /** Live count of stores in this business. */
-  storeCount: number
-  /** True when never capped/charged (DB override or env allowlist — Liam's account). */
-  isUnlimited: boolean
-  /** The tier's full feature/limit matrix — for display + the gate helpers. */
-  features: TierFeatures
-  /** Staff-account limit for the tier. */
-  staffLimit: number | 'unlimited'
-  /** The single answer both the UI and createStore gate on. */
-  canAddStore: boolean
-}
-
-const VALID_TIERS: readonly SubscriptionTier[] = [
-  'trial',
-  'free',
-  'standard',
-  'professional',
-  'enterprise',
-]
+export {
+  billingEnforced,
+  resolveEntitlement,
+} from '@/lib/subscription/entitlement-resolve'
+export type { Entitlement } from '@/lib/subscription/entitlement-resolve'
 
 /** business_ids that are never capped, from a server-only env allowlist. */
 function envUnlimited(businessId: string): boolean {
@@ -70,18 +54,25 @@ function envUnlimited(businessId: string): boolean {
 
 /** Load the live entitlement for a business. Graceful: an absent row (or a
  *  pre-migration DB without the table/column) degrades to 'free', so nothing
- *  throws on the preview before the migration is applied. */
+ *  throws on the preview before the migration is applied — and the arming
+ *  switch (Entitlement.enforced) keeps that fallback harmless until billing
+ *  actually exists. */
 export async function loadEntitlement(businessId: string): Promise<Entitlement> {
   const synqed = await getSynqedClient()
 
-  let tier: SubscriptionTier = 'free'
+  let fetchedTier: SubscriptionTier = 'free'
   let rowUnlimited = false
+  let fetchFailed = false
   try {
     const ent = await synqed.entitlements.get()
-    if (VALID_TIERS.includes(ent.tier as SubscriptionTier)) tier = ent.tier as SubscriptionTier
+    if (ALL_TIERS.includes(ent.tier as SubscriptionTier)) {
+      fetchedTier = ent.tier as SubscriptionTier
+    }
     rowUnlimited = !!ent.is_unlimited
   } catch {
-    /* core unavailable → treat as free */
+    /* core unavailable → 'free' for display, degraded=true so armed gates
+       stay permissive (an outage must never lock a paying salon out) */
+    fetchFailed = true
   }
 
   let storeCount = 0
@@ -91,14 +82,13 @@ export async function loadEntitlement(businessId: string): Promise<Entitlement> 
     /* core unavailable → 0 */
   }
 
-  const isUnlimited = rowUnlimited || envUnlimited(businessId)
-  return {
-    tier,
-    storeLimit: storeLimitFor(tier),
+  return resolveEntitlement({
+    fetchedTier,
+    rowUnlimited,
+    envAllowlisted: envUnlimited(businessId),
+    forcedTier: devForcedTier(),
+    enforced: billingEnforced(),
+    fetchFailed,
     storeCount,
-    isUnlimited,
-    features: TIER_FEATURES[tier],
-    staffLimit: staffLimitFor(tier),
-    canAddStore: canAddStoreFor({ tier, isUnlimited, storeCount }),
-  }
+  })
 }
