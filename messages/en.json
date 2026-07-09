@@ -234,7 +234,12 @@
       },
       "noShowSectionSub": "(no contact, did not arrive)",
       "noShowFirstTime": "This is their first no-show",
-      "noShowPriorCount": "{n} prior no-shows on record"
+      "noShowPriorCount": "{n} prior no-shows on record",
+      "cancelBurnWarn": {
+        "below_zero": "Cancelled {name}'s booking. The ticket was NOT consumed — no sessions remain on the pack",
+        "burn_failed": "Cancelled {name}'s booking. The ticket was NOT consumed — the redemption failed",
+        "already_burned": "Cancelled {name}'s booking. A ticket was already consumed for this booking — not consumed again"
+      }
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",

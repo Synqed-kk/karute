@@ -60,6 +60,10 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
   // un-reasoned cancel is valid; don't force a tap). The no-show side asks
   // nothing: 無断 IS the reason, and first-time/repeat is DERIVED below.
   const [cancelReason, setCancelReason] = useState<CancelReason | null>(null)
+  // Burn-on-cancel (Liam 2026-07-10): staff MAY consume a ticket on a
+  // same-day-contact cancel — the checkbox exists only while that chip is
+  // selected, and the server enforces the same pairing.
+  const [cancelBurn, setCancelBurn] = useState(false)
   const [burnPack, setBurnPack] = useState(false)
   const [packSummary, setPackSummary] = useState<{ packId: string; remaining: number } | null>(null)
   const packFetched = useRef(false)
@@ -72,33 +76,61 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
     bookingIdRef.current = booking?.id ?? null
     setNoShowOpen(false)
     setCancelReason(null)
+    setCancelBurn(false)
     setBurnPack(false)
     setPackSummary(null)
     packFetched.current = false
   }, [booking?.id])
 
+  // The customer's burnable-pack summary, lazy-fetched the FIRST time either
+  // burn surface appears (no-show section open, or the same-day chip). The
+  // staleness guard keeps a slow fetch for booking A off booking B's sheet.
+  const ensurePackSummary = useCallback(() => {
+    if (packFetched.current || !booking) return
+    packFetched.current = true
+    const forBookingId = booking.id
+    void getBurnablePackSummary(booking.clientId).then((summary) => {
+      setPackSummary((prev) =>
+        bookingIdRef.current === forBookingId ? summary : prev,
+      )
+    })
+  }, [booking])
+
   const cancelHold = useHoldToConfirm(HOLD_MS, useCallback(async () => {
     if (!booking) return
-    const res = await cancelAppointment(
-      booking.id,
-      cancelReason ? { reason: cancelReason } : undefined,
-    )
+    const burning =
+      cancelBurn && cancelReason === 'cancel-same-day-contact' && !!packSummary
+    const res = await cancelAppointment(booking.id, {
+      ...(cancelReason ? { reason: cancelReason } : {}),
+      ...(burning ? { burnPack: true } : {}),
+    })
     if ('error' in res) {
       // Generic key, never res.error raw — server errors are English/internal
       // (requireCapability, SynqedError) and this is a Japanese-first UI.
-      // Same policy the no-show path below has had since it shipped.
-      toast.error(t('cancelErrorGeneric'))
+      // Same policy the no-show path below has had since it shipped. The two
+      // burn precondition codes reuse the no-show copy (identical meaning).
+      toast.error(
+        res.code === 'no_burnable_pack' || res.code === 'already_terminal'
+          ? t(`noShowError.${res.code}`)
+          : t('cancelErrorGeneric'),
+      )
       cancelHold.reset()
       return
     }
-    toast.success(t('done', { name: booking.customerName }))
+    if (res.burnError) {
+      // Partial outcome: the cancel IS recorded but the ticket was NOT
+      // consumed — staff must hear both halves, not a success toast.
+      toast.warning(t(`cancelBurnWarn.${res.burnError}`, { name: booking.customerName }))
+    } else {
+      toast.success(t('done', { name: booking.customerName }))
+    }
     router.refresh()
     setTimeout(() => {
       cancelHold.reset()
       onClose()
     }, 320)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booking, cancelReason, onClose, router, t]))
+  }, [booking, cancelBurn, cancelReason, onClose, packSummary, router, t]))
 
   const noShowHold = useHoldToConfirm(HOLD_MS, useCallback(async () => {
     if (!booking) return
@@ -131,20 +163,8 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
 
   const toggleNoShowSection = useCallback(() => {
     setNoShowOpen((v) => !v)
-    if (!packFetched.current && booking) {
-      packFetched.current = true
-      const forBookingId = booking.id
-      void getBurnablePackSummary(booking.clientId).then((summary) => {
-        // Staleness guard: a slow fetch for booking A resolving after the
-        // sheet re-targeted booking B must not attach A's pack count/burn
-        // availability to B's sheet. (The server re-derives the real burn
-        // target independently — this is display truth, not burn truth.)
-        setPackSummary((prev) =>
-          bookingIdRef.current === forBookingId ? summary : prev,
-        )
-      })
-    }
-  }, [booking])
+    ensurePackSummary()
+  }, [ensurePackSummary])
 
   const restore = useCallback(async () => {
     if (!booking || busy) return
@@ -234,7 +254,17 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
                   <button
                     key={code}
                     type="button"
-                    onClick={() => setCancelReason((cur) => (cur === code ? null : code))}
+                    onClick={() =>
+                      setCancelReason((cur) => {
+                        const next = cur === code ? null : code
+                        // Burn is same-day-only (server enforces the same
+                        // pairing) — leaving the chip drops any checked burn
+                        // so a hidden choice can never ride along.
+                        if (next !== 'cancel-same-day-contact') setCancelBurn(false)
+                        else ensurePackSummary()
+                        return next
+                      })
+                    }
                     className={cn(
                       'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
                       cancelReason === code
@@ -246,6 +276,20 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
                   </button>
                 ))}
               </div>
+              {/* 当日連絡あり may consume a ticket — staff's choice (Liam
+               *  2026-07-10). Rendered only while that chip is selected AND
+               *  the customer holds a burnable pack. */}
+              {cancelReason === 'cancel-same-day-contact' && packSummary && (
+                <label className="mt-2.5 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={cancelBurn}
+                    onChange={(e) => setCancelBurn(e.target.checked)}
+                    className="size-4 rounded border-border"
+                  />
+                  {t('burnPack', { n: packSummary.remaining })}
+                </label>
+              )}
             </div>
 
             {/* 案C (Liam, 2026-07-06): soft red tint — solid enough to read as
