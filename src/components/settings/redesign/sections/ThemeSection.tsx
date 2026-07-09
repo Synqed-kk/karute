@@ -9,7 +9,6 @@ import {
   ChevronDown,
   Monitor,
   Moon,
-  MoonStar,
   PanelLeft,
   PanelLeftClose,
   Sun,
@@ -153,10 +152,13 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
           <label className="text-sm font-medium mb-1.5 block">
             {t('displayMode')}
           </label>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <ModeButton
               icon={<Sun className="size-3.5" />}
-              active={theme === 'light'}
+              // A stale/unknown persisted value (e.g. from a removed theme)
+              // renders as light, so highlight ライト for it — the picker must
+              // never show NO selection.
+              active={theme === 'light' || (!!theme && theme !== 'dark' && theme !== 'system')}
               onClick={() => setTheme('light')}
               label={t('modeLight')}
             />
@@ -165,14 +167,6 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
               active={theme === 'dark'}
               onClick={() => setTheme('dark')}
               label={t('modeDark')}
-            />
-            {/* Soft slate — the lighter dark (surfaces lifted out of pitch
-             *  black; globals.css .slate). Liam's pick, 2026-07-09. */}
-            <ModeButton
-              icon={<MoonStar className="size-3.5" />}
-              active={theme === 'slate'}
-              onClick={() => setTheme('slate')}
-              label={t('modeSlate')}
             />
             <ModeButton
               icon={<Monitor className="size-3.5" />}

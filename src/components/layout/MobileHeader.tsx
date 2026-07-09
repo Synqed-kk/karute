@@ -56,7 +56,7 @@ export function MobileHeader({
   return (
     <header
       data-mobile-chrome="true"
-      className="sticky top-0 z-30 border-b border-black/5 bg-white/80 pt-[env(safe-area-inset-top)] supports-backdrop-filter:bg-white/70 supports-backdrop-filter:backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-card/85 supports-backdrop-filter:dark:bg-card/70"
+      className="sticky top-0 z-30 border-b border-black/5 bg-white/80 pt-[env(safe-area-inset-top)] supports-backdrop-filter:bg-white/70 supports-backdrop-filter:backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-neutral-900/85 supports-backdrop-filter:dark:bg-neutral-900/70"
     >
       <div className="relative flex h-14 items-center justify-between gap-1 px-2">
         {/* Center — title absolutely centred on the whole bar so it stays put

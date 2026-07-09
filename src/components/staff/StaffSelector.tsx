@@ -176,7 +176,7 @@ export function StaffSelector({
           // the useLayoutEffect above detects that and flips to left-0 so the
           // menu is always fully on-screen.
           className={cn(
-            'absolute top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-popover',
+            'absolute top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900',
             alignLeft ? 'left-0' : 'right-0',
           )}
         >

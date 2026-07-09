@@ -55,10 +55,7 @@ export function ThemeToggle() {
 
   useEffect(() => setMounted(true), [])
 
-  // Slate counts as dark: this landing-page toggle stays a binary
-  // light↔dark switch (設定 owns the 3-way picker), so from slate it
-  // must go to LIGHT — not sideways into pitch black.
-  const isDark = resolvedTheme === 'dark' || resolvedTheme === 'slate'
+  const isDark = resolvedTheme === 'dark'
 
   function toggleTheme() {
     setTheme(isDark ? 'light' : 'dark')
