@@ -214,7 +214,11 @@
       "reason": "Reason",
       "noShowError": {
         "no_burnable_pack": "This customer has no ticket to use.",
-        "below_zero": "This ticket pack has no sessions left."
+        "already_terminal": "This booking is already cancelled or marked as a no-show."
+      },
+      "noShowBurnWarn": {
+        "below_zero": "Recorded {name}'s no-show, but no ticket was used — the pack has no sessions left.",
+        "burn_failed": "Recorded {name}'s no-show, but the ticket could not be used."
       },
       "noShowErrorGeneric": "Something went wrong."
     },

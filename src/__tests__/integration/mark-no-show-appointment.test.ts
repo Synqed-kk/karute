@@ -44,6 +44,7 @@ const apptUpdate = jest.fn(async () => ({}))
 const apptGet = jest.fn(async () => ({
   id: 'appt-1',
   customer_id: 'cust-1',
+  status: 'SCHEDULED',
   starts_at: '2026-07-06T03:00:00.000Z',
 }))
 jest.mock('@/lib/synqed/client', () => ({
@@ -82,6 +83,7 @@ beforeEach(() => {
   apptGet.mockImplementation(async () => ({
     id: 'appt-1',
     customer_id: 'cust-1',
+    status: 'SCHEDULED',
     starts_at: '2026-07-06T03:00:00.000Z',
   }))
   listCustomerPacks.mockImplementation(async () => [])
@@ -145,11 +147,38 @@ describe('markNoShowAppointment — burn path', () => {
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 
-  it('maps a below_zero guard failure to the stable error discriminator', async () => {
+  it('marks the status BEFORE burning — a failed burn can never strand a spent ticket', async () => {
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const updateOrder = apptUpdate.mock.invocationCallOrder[0]
+    const burnOrder = addRedemption.mock.invocationCallOrder[0]
+    expect(updateOrder).toBeLessThan(burnOrder)
+  })
+
+  it('reports a below_zero burn failure as partial success — no-show recorded, ticket not consumed', async () => {
     listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
     addRedemption.mockResolvedValueOnce({ ok: false, error: 'below_zero' })
     const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
-    expect(res).toEqual({ error: expect.any(String), code: 'below_zero' })
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'NO_SHOW' }))
+    expect(res).toEqual({ success: true, burnError: 'below_zero' })
+  })
+
+  it('refuses an already-terminal booking — a double-open race must not double-burn', async () => {
+    apptGet.mockResolvedValueOnce({
+      id: 'appt-1',
+      customer_id: 'cust-1',
+      status: 'NO_SHOW',
+      starts_at: '2026-07-06T03:00:00.000Z',
+    })
+    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    expect(res).toEqual({ error: expect.any(String), code: 'already_terminal' })
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(addRedemption).not.toHaveBeenCalled()
+  })
+
+  it('rejects a reason outside the fixed codes — the audit trail is not a free-text field', async () => {
+    const res = await markNoShowAppointment('appt-1', { reason: 'because', burnPack: false })
+    expect(res).toEqual({ error: expect.any(String) })
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 })
@@ -163,5 +192,12 @@ describe('getBurnablePackSummary', () => {
   it('returns null when the customer has no burnable pack', async () => {
     listCustomerPacks.mockResolvedValueOnce([])
     expect(await getBurnablePackSummary('cust-1')).toBeNull()
+  })
+
+  it('is capability-gated — pack balances are not probeable without bookings.manage', async () => {
+    requireCapability.mockRejectedValueOnce(new Error('no permission'))
+    expect(await getBurnablePackSummary('cust-1')).toBeNull()
+    expect(requireCapability).toHaveBeenCalledWith('bookings.manage')
+    expect(listCustomerPacks).not.toHaveBeenCalled()
   })
 })

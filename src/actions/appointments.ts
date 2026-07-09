@@ -14,7 +14,7 @@ import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
-import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
+import { isTerminalStatus, NO_SHOW_REASONS, type AppStatus } from '@/lib/appointments/status'
 import { listCustomerPacks, addRedemption } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
@@ -424,7 +424,10 @@ export async function restoreAppointment(
   }
 }
 
-export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'below_zero' }
+export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
+export type MarkNoShowResult =
+  | { success: true; burnError?: 'below_zero' | 'burn_failed' }
+  | MarkNoShowError
 
 /**
  * Marks a booking NO_SHOW (synqed-core #39), optionally burning one session
@@ -433,36 +436,40 @@ export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'belo
  * charge a session). `counts_as_visit: false` is sent on the burn so
  * visit-count-driven surfaces (lifecycle, dormancy) don't treat the no-show
  * as a completed visit.
+ *
+ * Ordering is load-bearing: every precondition is checked FIRST (nothing
+ * happened yet if one fails), then the status is marked, then the ticket is
+ * burned. The burn goes LAST so its failure can never strand a spent ticket
+ * on a still-active booking (and a staff retry can never double-burn) — the
+ * partial outcome is `success + burnError`: the no-show IS recorded, the
+ * ticket was NOT consumed, and the UI must say both.
  */
 export async function markNoShowAppointment(
   appointmentId: string,
   input: { reason: string; burnPack: boolean },
-): Promise<{ success: true } | MarkNoShowError> {
+): Promise<MarkNoShowResult> {
   try {
     await requireCapability('bookings.manage')
+    // The reason lands in core's status audit trail verbatim — only the
+    // sheet's fixed codes are valid; never trust the caller's string.
+    if (!(NO_SHOW_REASONS as readonly string[]).includes(input.reason)) {
+      return { error: 'Invalid no-show reason.' }
+    }
     const synqed = await getSynqedClient()
 
-    if (input.burnPack) {
-      const appt = await synqed.appointments.get(appointmentId)
-      if (!appt) return { error: 'Booking not found.' }
-      const packs = await listCustomerPacks(appt.customer_id)
-      const target = pickRedemptionTarget(packs)
-      if (!target) {
-        return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
-      }
-      const burn = await addRedemption({
-        packId: target.id,
-        customerId: appt.customer_id,
-        redeemedOn: ymdInJst(new Date(appt.starts_at)),
-        appointmentId,
-        source: 'manual',
-        countsAsVisit: false,
-      })
-      if (!burn.ok) {
-        return burn.error === 'below_zero'
-          ? { error: 'This pack has no sessions left.', code: 'below_zero' }
-          : { error: burn.error }
-      }
+    const appt = await synqed.appointments.get(appointmentId)
+    if (!appt) return { error: 'Booking not found.' }
+    // Already CANCELLED/NO_SHOW (double-open race, stale agenda): refuse
+    // rather than re-mark — re-marking is harmless but a second burn is not.
+    if (isTerminalStatus(appt.status)) {
+      return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
+    }
+
+    const target = input.burnPack
+      ? pickRedemptionTarget(await listCustomerPacks(appt.customer_id))
+      : null
+    if (input.burnPack && !target) {
+      return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
     }
 
     // acting_staff_id is optional in core; source it the same way #395 sourced
@@ -486,6 +493,20 @@ export async function markNoShowAppointment(
     revalidatePath('/appointments')
     revalidatePath('/dashboard')
     updateTag('dashboard')
+
+    if (target) {
+      const burn = await addRedemption({
+        packId: target.id,
+        customerId: appt.customer_id,
+        redeemedOn: ymdInJst(new Date(appt.starts_at)),
+        appointmentId,
+        source: 'manual',
+        countsAsVisit: false,
+      })
+      if (!burn.ok) {
+        return { success: true, burnError: burn.error === 'below_zero' ? 'below_zero' : 'burn_failed' }
+      }
+    }
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -494,10 +515,19 @@ export async function markNoShowAppointment(
 
 /** Whether the customer has a burnable pack, for the no-show sheet's burn
  *  toggle (lazy-fetched when the no-show section opens — no reason to pay for
- *  this on every sheet open). Same FIFO target the burn itself uses. */
+ *  this on every sheet open). Same FIFO target the burn itself uses. Gated
+ *  like every other booking mutation helper — pack balances are customer data
+ *  and must not be probeable without the capability. */
 export async function getBurnablePackSummary(
   customerId: string,
 ): Promise<{ packId: string; remaining: number } | null> {
-  const target = pickRedemptionTarget(await listCustomerPacks(customerId))
-  return target ? { packId: target.id, remaining: target.remaining } : null
+  try {
+    await requireCapability('bookings.manage')
+    const target = pickRedemptionTarget(await listCustomerPacks(customerId))
+    return target ? { packId: target.id, remaining: target.remaining } : null
+  } catch {
+    // No capability / transient API failure — the sheet just doesn't offer
+    // the burn toggle. The server-side burn path re-checks everything anyway.
+    return null
+  }
 }

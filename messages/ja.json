@@ -214,7 +214,11 @@
       "reason": "理由",
       "noShowError": {
         "no_burnable_pack": "消化できる回数券がありません",
-        "below_zero": "この回数券は残り回数がありません"
+        "already_terminal": "この予約はすでにキャンセルまたは無断キャンセルになっています"
+      },
+      "noShowBurnWarn": {
+        "below_zero": "{name}様の無断キャンセルは記録しました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません"
       },
       "noShowErrorGeneric": "操作に失敗しました"
     },

@@ -87,14 +87,20 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
     })
     if ('error' in res) {
       toast.error(
-        res.code === 'no_burnable_pack' || res.code === 'below_zero'
+        res.code === 'no_burnable_pack' || res.code === 'already_terminal'
           ? t(`noShowError.${res.code}`)
           : t('noShowErrorGeneric'),
       )
       noShowHold.reset()
       return
     }
-    toast.success(t('noShowDone', { name: booking.customerName }))
+    if (res.burnError) {
+      // Partial outcome: the no-show IS recorded but the ticket was NOT
+      // consumed — staff must hear both halves, not a success toast.
+      toast.warning(t(`noShowBurnWarn.${res.burnError}`, { name: booking.customerName }))
+    } else {
+      toast.success(t('noShowDone', { name: booking.customerName }))
+    }
     router.refresh()
     setTimeout(() => {
       noShowHold.reset()
