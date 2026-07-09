@@ -54,8 +54,16 @@ export async function createPackAction(input: {
   // Identical to TicketPackCard's nextRound; business-wide, store-blind.
   const purchaseRound =
     input.purchaseRound ?? nextPurchaseRound(await listCustomerPacks(input.customerId))
+  // SERVER-derived 合計金額 when the caller doesn't supply one — NEITHER form
+  // does (profile AddPackDialog, stop-dialog picker), which saved every pack
+  // with total_price null and zeroed pack revenue. The app prices per-session
+  // (単価 field, unconsumedValue = remaining × unit_price), so the amount the
+  // customer paid IS unit × size. Defaulted here, not in the forms, so every
+  // caller — present and future — is covered by one rule.
+  const totalPrice = input.totalPrice ?? input.unitPrice * input.packSize
   const result = await createPack({
     ...(input as CreatePackInput),
+    totalPrice,
     purchaseRound,
     source: 'manual',
     createdBy: staffId,
