@@ -78,6 +78,11 @@ class GlobalRecorder {
    *  time can await it briefly instead of only reading whatever has resolved
    *  so far. Cleared on discard(). */
   private recordingSessionPromise: Promise<string | null> | null = null
+  /** Staleness guard for the mint. A slow mint from recording A resolving
+   *  AFTER discard()/a new start() must not stamp its id (minted for A's
+   *  customer) onto recording B — bump on every start() and discard(); the
+   *  mint's .then only writes when its generation is still current. */
+  private recordingSessionGen = 0
   version = 0
 
   subscribe(fn: Listener) {
@@ -136,10 +141,14 @@ class GlobalRecorder {
     // below — a network call must NEVER block or delay the mic prompt. Held so
     // handleUseRecording can await it briefly at save time; a slow/failed mint
     // just leaves this null (save proceeds without recording_session_id).
+    const gen = ++this.recordingSessionGen
     this.recordingSessionPromise = startRecordingSession({
       customerId: this.target?.customerId ?? null,
       appointmentId: this.target?.appointmentId ?? null,
     }).then((res) => {
+      // Stale mint (user discarded / started a new recording while this was
+      // in flight): drop it — its row belongs to a different take/customer.
+      if (gen !== this.recordingSessionGen) return null
       this.recordingSessionId = res?.id ?? null
       this.notify()
       return this.recordingSessionId
@@ -256,6 +265,9 @@ class GlobalRecorder {
     this.target = null
     this.recordingSessionId = null
     this.recordingSessionPromise = null
+    // Invalidate any in-flight mint so its late resolution can't stamp a
+    // discarded take's session id onto the next recording.
+    this.recordingSessionGen++
     this.state = 'idle'
     this.startedAt = null
     this.recorder = null
