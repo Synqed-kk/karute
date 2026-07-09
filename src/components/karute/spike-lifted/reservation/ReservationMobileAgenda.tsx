@@ -245,24 +245,37 @@ function AgendaRow({
   // as before. Liam's keeps: the stripe AND the avatar survive even here.
   const [expanded, setExpanded] = useState(false)
 
-  if (r.isCancelled) {
-    // キャンセル済み tombstone — thin, greyed, strikethrough, in its original
-    // slot so staff see the opening. Same rendering whether QuickReserve
-    // auto-cancelled it or staff hold-cancelled it (one rule). Tap opens the
-    // cancelled sheet (details + 元に戻す) — never the record action sheet.
+  if (r.isCancelled || r.isNoShow) {
+    // キャンセル済み / 無断キャンセル tombstone — thin, in its original slot so
+    // staff see the opening. Same rendering whether QuickReserve auto-cancelled
+    // it or staff hold-cancelled/no-showed it (one rule). Tap opens the sheet
+    // in restore mode (details + 元に戻す) — never the record action sheet.
+    // NO_SHOW gets a warning (amber) tint instead of grey — a customer no-show
+    // is an exception staff should notice, not just a freed slot.
     return (
       <button
         type="button"
         onClick={() => onSelectCancelled?.(r)}
         disabled={!onSelectCancelled}
-        className="relative flex w-full items-center gap-2.5 px-4 py-2 text-left opacity-55 transition-opacity active:opacity-80"
+        className={cn(
+          'relative flex w-full items-center gap-2.5 px-4 py-2 text-left transition-opacity active:opacity-80',
+          r.isNoShow ? 'opacity-90' : 'opacity-55',
+        )}
       >
         <span
-          className="w-12 shrink-0 text-[13px] font-semibold tabular-nums text-muted-foreground line-through"
+          className={cn(
+            'w-12 shrink-0 text-[13px] font-semibold tabular-nums line-through',
+            r.isNoShow ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
+          )}
         >
           {r.startTimeHm}
         </span>
-        <span className="min-w-0 truncate text-[13px] text-muted-foreground line-through">
+        <span
+          className={cn(
+            'min-w-0 truncate text-[13px] line-through',
+            r.isNoShow ? 'text-amber-700 dark:text-amber-400' : 'text-muted-foreground',
+          )}
+        >
           {r.customerName}
           {honorific && <span className="ml-0.5 text-[11px]">{honorific}</span>}
         </span>
@@ -271,8 +284,15 @@ function AgendaRow({
             {r.karuteNumber}
           </span>
         )}
-        <span className="ml-auto inline-flex h-5 shrink-0 items-center rounded-full border border-border/70 px-2 text-[10px] font-medium text-muted-foreground">
-          {t('cancelled')}
+        <span
+          className={cn(
+            'ml-auto inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[10px] font-medium',
+            r.isNoShow
+              ? `${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`
+              : 'border-border/70 text-muted-foreground',
+          )}
+        >
+          {r.isNoShow ? t('noShow') : t('cancelled')}
         </span>
       </button>
     )

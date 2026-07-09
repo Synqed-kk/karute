@@ -1,5 +1,6 @@
 import { getSynqedClient } from '@/lib/synqed/client'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import {
   withUsage,
   type CustomerLifecycle,
@@ -98,8 +99,9 @@ export async function updatePackStatus(
  *  redemption to when the caller didn't supply one — same customer_id +
  *  JST-day window as getAppointmentsByDate/reconcile.ts, but scoped to the one
  *  customer server-side so it's a single small page and immune to the agenda's
- *  active-store view filter (a profile burn isn't store-scoped). Cancelled
- *  bookings never match — mirrors getAppointmentsByDate. Multiple same-day
+ *  active-store view filter (a profile burn isn't store-scoped). Non-cancelled
+ *  bookings only (CANCELLED or NO_SHOW never match) — mirrors
+ *  getAppointmentsByDate. Multiple same-day
  *  bookings: pick the one closest to now (the next upcoming), else — if every
  *  booking that day has already passed — the day's first. null when there's no
  *  booking that day — a valid walk-in, not an error. */
@@ -118,7 +120,7 @@ export async function findCustomerAppointmentForDate(
       page_size: 200,
     })
     const candidates = appointments
-      .filter((a) => a.status !== 'CANCELLED')
+      .filter((a) => !isTerminalStatus(a.status))
       .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
     if (candidates.length === 0) return null
     const nowIso = new Date().toISOString()
@@ -137,6 +139,11 @@ export interface AddRedemptionInput {
   karuteRecordId?: string | null
   source?: PackSource
   createdBy?: string | null
+  /** Whether this redemption counts as a completed visit — core defaults
+   *  true, so omit for the normal check-off. A no-show burn MUST send false:
+   *  the ticket is spent but no visit happened, so visit-count-driven surfaces
+   *  (lifecycle, dormancy) must not treat it as one. */
+  countsAsVisit?: boolean
 }
 
 /** Check one session off a pack. The caller decides WHEN consumption happens
@@ -146,7 +153,7 @@ export async function addRedemption(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const synqed = await getSynqedClient()
-    const { id } = await synqed.packs.addRedemption({
+    const payload = {
       pack_id: input.packId,
       customer_id: input.customerId,
       redeemed_on: input.redeemedOn,
@@ -154,7 +161,13 @@ export async function addRedemption(
       karute_record_id: input.karuteRecordId ?? null,
       source: input.source ?? 'manual',
       created_by: input.createdBy ?? null,
-    })
+      ...(input.countsAsVisit === undefined ? {} : { counts_as_visit: input.countsAsVisit }),
+    }
+    // SDK-skew cast: @synqed-kk/client 1.11.0's addRedemption() type doesn't
+    // declare counts_as_visit yet (synqed-core #39) — cast to send it.
+    const { id } = await synqed.packs.addRedemption(
+      payload as Parameters<typeof synqed.packs.addRedemption>[0],
+    )
     return { ok: true, id }
   } catch (err) {
     warn('addRedemption', err)

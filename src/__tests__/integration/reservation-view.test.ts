@@ -34,6 +34,7 @@ function row(over: Partial<AppointmentRow>): AppointmentRow {
     customers: { name: 'Yamada Hanako' },
     synqed_status: 'SCHEDULED',
     source: 'MANUAL',
+    status_reason: null,
     ...over,
   } as AppointmentRow
 }

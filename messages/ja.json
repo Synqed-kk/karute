@@ -183,11 +183,12 @@
       "packLeft": "残{remaining}/{size}",
       "unrecorded": "未記録",
       "nextUp": "次 ▸",
-      "cancelled": "キャンセル済み"
+      "cancelled": "キャンセル済み",
+      "noShow": "無断キャンセル"
     },
     "cancelSheet": {
       "title": "この予約をキャンセルしますか？",
-      "ticketNote": "回数券は消化されません。無断キャンセルの消化は、今後の機能で選べるようになります。",
+      "ticketNote": "回数券は消化されません。無断キャンセルの消化は下の「無断キャンセル」から選べます。",
       "holdLabel": "長押しでキャンセル",
       "holdHint": "ボタンを約1秒間押し続けると確定します",
       "holdKeep": "そのまま押し続けてください…",
@@ -198,7 +199,28 @@
       "restoring": "戻しています…",
       "restored": "{name}様の予約を元に戻しました",
       "staffPrefix": "担当",
-      "close": "閉じる"
+      "close": "閉じる",
+      "noShowSectionLabel": "無断キャンセル",
+      "noShowReasons": {
+        "no-show-no-contact": "連絡なし",
+        "same-day-contacted": "当日連絡あり",
+        "first-time-no-show": "初回の無断キャンセル"
+      },
+      "burnPack": "回数券を1回消化する（残り{n}回）",
+      "noShowHoldLabel": "長押しで無断キャンセルにする",
+      "noShowDone": "{name}様の予約を無断キャンセルにしました",
+      "noShowRestoreTitle": "無断キャンセルの予約",
+      "noShowBody": "この予約は無断キャンセルとして記録されています。",
+      "reason": "理由",
+      "noShowError": {
+        "no_burnable_pack": "消化できる回数券がありません",
+        "already_terminal": "この予約はすでにキャンセルまたは無断キャンセルになっています"
+      },
+      "noShowBurnWarn": {
+        "below_zero": "{name}様の無断キャンセルは記録しました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません"
+      },
+      "noShowErrorGeneric": "操作に失敗しました"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",

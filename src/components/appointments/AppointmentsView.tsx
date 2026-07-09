@@ -389,12 +389,13 @@ export function AppointmentsView(props: AppointmentsViewProps) {
         {view === 'day' ? (
           <>
             <div className="hidden md:block">
-              {/* Desktop grid keeps cancelled rows hidden for now — a greyed
-               *  grid-block treatment is a follow-up; phones are the staff
-               *  device. The mobile agenda below renders them as tombstones. */}
+              {/* Desktop grid keeps terminal (cancelled/no-show) rows hidden
+               *  for now — a greyed grid-block treatment is a follow-up;
+               *  phones are the staff device. The mobile agenda below renders
+               *  them as tombstones. */}
               <ReservationGrid
                 staff={props.reservationStaff}
-                reservations={props.reservationViews.filter((r) => !r.isCancelled)}
+                reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
                 businessHours={props.businessHours}
                 onSelect={setSelected}
               />
@@ -408,8 +409,10 @@ export function AppointmentsView(props: AppointmentsViewProps) {
                 onSelectCancelled={(v) => setCancelTarget({ view: v, mode: 'cancelled' })}
               />
             </div>
+            {/* Totals must not count terminal rows — a no-show is not a
+             *  visit, and a burned ticket is accounted in packs, not here. */}
             <ReservationTotals
-              reservations={props.reservationViews.filter((r) => !r.isCancelled)}
+              reservations={props.reservationViews.filter((r) => !r.isCancelled && !r.isNoShow)}
             />
           </>
         ) : view === 'week' && props.weekData && props.weekStartIso ? (

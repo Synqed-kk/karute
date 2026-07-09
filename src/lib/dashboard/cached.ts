@@ -3,6 +3,7 @@ import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
 import { getActiveStoreId } from '@/actions/stores'
 import { ymdInJst, JST_OFFSET } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 
 /** YYYY-MM-DD arithmetic that can't drift across timezones. */
 function addDaysYmd(ymd: string, days: number): string {
@@ -146,13 +147,13 @@ const dashboardByDay = unstable_cache(
       if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
     }
 
-    // Drop cancelled bookings (the QR sync marks them) so the dashboard's
-    // lists don't show them full-color — matches the agenda's hide. Karute
-    // linkage only applies to today (tomorrow can't have records yet).
+    // Drop terminal (cancelled/no-show) bookings so the dashboard's lists
+    // don't show them full-color — matches the agenda's hide. Karute linkage
+    // only applies to today (tomorrow can't have records yet).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const mapAppointments = (rows: any[]): DashboardTodayAppointment[] =>
       rows
-        .filter((a) => a.status !== 'CANCELLED')
+        .filter((a) => !isTerminalStatus(a.status))
         .map((a) => ({
           id: a.id,
           client_id: a.customer_id,

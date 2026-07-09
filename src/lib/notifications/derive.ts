@@ -22,6 +22,7 @@ import {
 } from '@/lib/customers/list-enrich'
 import { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import { getAppointmentsByDate } from '@/actions/appointments'
 import {
   assembleNotificationFeed,
@@ -138,8 +139,8 @@ const getCachedRecentBookings = unstable_cache(
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
     const cutoff = now.getTime() - NEW_BOOKING_LOOKBACK_MS
     return list.appointments
-      // A cancelled booking is not a new booking.
-      .filter((a) => a.status !== 'CANCELLED')
+      // A cancelled or no-show booking is not a new booking.
+      .filter((a) => !isTerminalStatus(a.status))
       // Cheap pre-filter on the recency window (the assembler re-checks both
       // recency AND future, but trimming here keeps the mapped array small).
       .filter((a) => new Date(a.created_at).getTime() >= cutoff)
