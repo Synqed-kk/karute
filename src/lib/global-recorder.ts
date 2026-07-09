@@ -2,6 +2,7 @@
 
 import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
+import { startRecordingSession } from '@/actions/recordings'
 
 /**
  * Global MediaRecorder singleton.
@@ -60,6 +61,11 @@ class GlobalRecorder {
    *  single source of truth for what the save attaches to — immune to nav drift.
    *  Survives stop→complete; cleared only on discard(). */
   target: RecordingTarget | null = null
+  /** Server-minted `recording_sessions.id` (synqed-core), fired in parallel with
+   *  getUserMedia at start() so it never delays/blocks the mic. null until it
+   *  resolves, and null forever if the mint failed — the save then proceeds
+   *  without it exactly as before this existed (no dedupe for that save). */
+  recordingSessionId: string | null = null
 
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
@@ -68,6 +74,10 @@ class GlobalRecorder {
   private pauseStart = 0
   private runawayTimer: ReturnType<typeof setInterval> | null = null
   private listeners = new Set<Listener>()
+  /** The in-flight session-mint promise from the current recording, so save
+   *  time can await it briefly instead of only reading whatever has resolved
+   *  so far. Cleared on discard(). */
+  private recordingSessionPromise: Promise<string | null> | null = null
   version = 0
 
   subscribe(fn: Listener) {
@@ -120,6 +130,20 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.target = opts?.target ?? null
+    this.recordingSessionId = null
+
+    // Mint the recording-session id (synqed-core) IN PARALLEL with getUserMedia
+    // below — a network call must NEVER block or delay the mic prompt. Held so
+    // handleUseRecording can await it briefly at save time; a slow/failed mint
+    // just leaves this null (save proceeds without recording_session_id).
+    this.recordingSessionPromise = startRecordingSession({
+      customerId: this.target?.customerId ?? null,
+      appointmentId: this.target?.appointmentId ?? null,
+    }).then((res) => {
+      this.recordingSessionId = res?.id ?? null
+      this.notify()
+      return this.recordingSessionId
+    })
 
     let micStream: MediaStream
     try {
@@ -174,6 +198,19 @@ class GlobalRecorder {
     this.notify()
   }
 
+  /**
+   * Await the in-flight recording-session mint briefly at save time — bounded
+   * so a slow network call can never hold up the save. Returns the id if
+   * already resolved, races the in-flight promise against `timeoutMs`
+   * otherwise, or null if start() was never called / it already failed.
+   */
+  async awaitRecordingSessionId(timeoutMs = 1500): Promise<string | null> {
+    if (this.recordingSessionId !== null) return this.recordingSessionId
+    if (!this.recordingSessionPromise) return null
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
+    return Promise.race([this.recordingSessionPromise, timeout])
+  }
+
   stop() {
     this.clearRunawayGuard()
     if (this.recorder && this.recorder.state !== 'inactive') {
@@ -217,6 +254,8 @@ class GlobalRecorder {
     this.overrun = false
     this.autoStopped = false
     this.target = null
+    this.recordingSessionId = null
+    this.recordingSessionPromise = null
     this.state = 'idle'
     this.startedAt = null
     this.recorder = null

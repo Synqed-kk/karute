@@ -89,6 +89,7 @@ export async function saveKaruteRecord(
       customer_id: input.customerId,
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
+      recording_session_id: input.recordingSessionId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
@@ -141,7 +142,8 @@ export async function saveKaruteRecord(
 
 /**
  * Same as saveKaruteRecord but returns the record ID instead of redirecting.
- * Used by the RecordingPanel which stays on the appointments page.
+ * Used by ProcessingIndicator's background auto-save (the staff never comes
+ * back to a review screen for a known customer + chosen outcome).
  */
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
@@ -162,6 +164,7 @@ export async function saveKaruteRecordInline(
       customer_id: input.customerId,
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
+      recording_session_id: input.recordingSessionId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
