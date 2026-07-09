@@ -51,7 +51,6 @@ import {
   customerVisitCount,
   formatJoinDate,
   formatLastVisit,
-  deriveKaruteNumber,
   defaultAiPredict,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
@@ -340,34 +339,6 @@ describe('formatLastVisit', () => {
     // Same output as the standalone JP join-date formatter.
     expect(date).toBe(formatJoinDate(ISO, 'ja'))
     expect(date).toMatch(/年.*月.*日$/)
-  })
-})
-
-describe('deriveKaruteNumber', () => {
-  it('produces a "#" + 5-digit decimal string', () => {
-    expect(deriveKaruteNumber('abcdef12-0000-0000-0000-000000000000')).toMatch(/^#\d{5}$/)
-  })
-
-  it('is deterministic for a given id', () => {
-    const id = '11111111-2222-3333-4444-555555555555'
-    expect(deriveKaruteNumber(id)).toBe(deriveKaruteNumber(id))
-  })
-
-  it('zero-pads small values to 5 digits', () => {
-    // First 6 hex chars "000001" → 1 → "#00001".
-    expect(deriveKaruteNumber('000001ab-0000-0000-0000-000000000000')).toBe('#00001')
-  })
-
-  it('applies modulo 100000 to keep it 5 digits', () => {
-    // First 6 hex chars "ffffff" = 16777215 % 100000 = 77215.
-    expect(deriveKaruteNumber('ffffff00-0000-0000-0000-000000000000')).toBe('#77215')
-  })
-
-  it('strips dashes before slicing the first 6 hex chars', () => {
-    // "ab-cdef" → "abcdef" so dashes inside the prefix don't poison the parse.
-    expect(deriveKaruteNumber('ab-cdef-00-0000-000000000000')).toBe(
-      deriveKaruteNumber('abcdef000000000000000000000000000000'),
-    )
   })
 })
 

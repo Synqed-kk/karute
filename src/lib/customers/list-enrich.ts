@@ -365,33 +365,6 @@ export function formatLastVisit(
   return { date, ago }
 }
 
-/**
- * Display-only karute number for a customer.
- *
- * Real karute numbers in salon UX are short DECIMAL strings
- * (`#00120`, `#01234`) — visually scannable, no confusable letters
- * (O/0, I/1, B/8). The previous implementation took the first 5 hex
- * chars of the UUID and uppercased them (`#CBF42`, `#814F5`), which
- * looked like a debug token and didn't match the design spike.
- *
- * Derivation: take the first 6 hex chars (24 bits), parse as base-
- * 16, modulo 100_000, zero-pad to 5 digits. Deterministic so a
- * given customer always renders the same number across the app.
- *
- * ANTHONY: this is a stand-in. The real product wants a sequential
- * per-tenant `customers.karute_number` column (text, populated by a
- * trigger that does `lpad(nextval('karute_number_seq')::text, 5,
- * '0')`, with `unique (business_id, karute_number)`). When that
- * column ships, drop this helper and read the field directly.
- */
-export function deriveKaruteNumber(id: string): string {
-  const hex = id.replace(/-/g, '').slice(0, 6)
-  const n = Number.parseInt(hex, 16)
-  if (!Number.isFinite(n)) return '#00000'
-  const padded = String(n % 100_000).padStart(5, '0')
-  return `#${padded}`
-}
-
 // Default AI-predict stub. Hardcoded "Soon" timing — replace with the
 // rebooking-window model output when it lands.
 export function defaultAiPredict(status: CustomerStatusKey): CustomerListRow['aiPredict'] {

@@ -4,7 +4,7 @@
  * synqed-core; contract testing lives in synqed-core/tests/*.
  *
  * Covers: createCustomer, saveKaruteRecord (atomic create + entries),
- * addManualEntry, deleteEntry, deleteKaruteRecord, deleteCustomer.
+ * deleteKaruteRecord, deleteCustomer.
  */
 
 import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
@@ -65,7 +65,6 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { createCustomer, deleteCustomer } from '@/actions/customers'
 import { saveKaruteRecord, deleteKaruteRecord } from '@/actions/karute'
-import { addManualEntry, deleteEntry } from '@/actions/entries'
 import { redirect } from 'next/navigation'
 
 describe('Migrated core flow — customers + karute + entries', () => {
@@ -134,34 +133,6 @@ describe('Migrated core flow — customers + karute + entries', () => {
       is_manual: false,
     })
     expect(redirect).toHaveBeenCalledWith('/en/karute/karute-1')
-  })
-
-  it('addManualEntry calls addEntry with is_manual=true and confidence=null', async () => {
-    karuteRecords.addEntry.mockResolvedValue({ id: 'entry-1' })
-
-    const result = await addManualEntry({
-      karuteRecordId: 'karute-1',
-      category: 'next_visit',
-      content: '2 weeks out',
-    })
-
-    expect(result).toEqual({})
-    expect(karuteRecords.addEntry).toHaveBeenCalledWith('karute-1', {
-      category: 'NEXT_VISIT',
-      content: '2 weeks out',
-      is_manual: true,
-      confidence: null,
-      original_quote: null,
-    })
-  })
-
-  it('deleteEntry calls deleteEntry on the client', async () => {
-    karuteRecords.deleteEntry.mockResolvedValue(undefined)
-
-    const result = await deleteEntry('entry-1', 'karute-1')
-
-    expect(result).toEqual({})
-    expect(karuteRecords.deleteEntry).toHaveBeenCalledWith('karute-1', 'entry-1')
   })
 
   it('deleteKaruteRecord delegates to client.karuteRecords.delete (server cascades)', async () => {

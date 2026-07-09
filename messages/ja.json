@@ -2020,8 +2020,6 @@
     "consentRequiredDescription": "モードCのみ有効です。",
     "consentTemplate": "同意テンプレート文",
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
-    "enrollVoice": "音声を登録",
-    "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
