@@ -220,9 +220,12 @@
       },
       "noShowBurnWarn": {
         "below_zero": "{name}様の無断キャンセルは記録しました。回数券は残り回数がないため消化されていません",
-        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません"
+        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません",
+        "already_burned": "{name}様の無断キャンセルは記録しました。この予約では回数券がすでに消化済みのため、再消化していません"
       },
-      "noShowErrorGeneric": "操作に失敗しました"
+      "noShowErrorGeneric": "操作に失敗しました",
+      "cancelErrorGeneric": "キャンセルに失敗しました。もう一度お試しください",
+      "restoreErrorGeneric": "元に戻せませんでした。予約の状態が変わっている可能性があります"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",

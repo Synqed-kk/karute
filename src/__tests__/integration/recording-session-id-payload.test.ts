@@ -71,7 +71,16 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: jest.fn(async () => true),
 }))
 
-const karuteRecords = { create: jest.fn() }
+const karuteRecords = {
+  create: jest.fn(),
+  update: jest.fn(),
+  // The save upserts by recording session (a repeat save UPDATES the existing
+  // record instead of letting core's dedupe silently return stale content).
+  // Default: nothing saved yet → the create path.
+  getByRecordingSession: jest.fn(async (): Promise<{ id: string }> => {
+    throw new Error('404 not found')
+  }),
+}
 const appointments = { get: jest.fn() }
 
 jest.mock('@synqed-kk/client', () => ({
@@ -97,6 +106,8 @@ beforeEach(() => {
   }))
 
   karuteRecords.create.mockResolvedValue({ id: 'kr-1' })
+  karuteRecords.update.mockResolvedValue({ id: 'kr-1' })
+  karuteRecords.getByRecordingSession.mockRejectedValue(new Error('404 not found'))
 })
 
 const baseInput = {
@@ -152,5 +163,29 @@ describe('saveKaruteRecord — recording_session_id payload', () => {
     expect(karuteRecords.create).toHaveBeenCalledWith(
       expect.objectContaining({ recording_session_id: null }),
     )
+  })
+})
+
+describe('upsert by recording session — a retry must never lose staff edits', () => {
+  it('UPDATES the existing record with the newest content instead of creating', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({ id: 'kr-existing' })
+    const res = await saveKaruteRecordInline({
+      ...baseInput,
+      transcript: 't-edited',
+      summary: 's-edited',
+      recordingSessionId: 'rs-1',
+    })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(karuteRecords.update).toHaveBeenCalledWith(
+      'kr-existing',
+      expect.objectContaining({ transcript: 't-edited', ai_summary: 's-edited' }),
+    )
+    expect(res).toEqual({ id: 'kr-existing' })
+  })
+
+  it('no recordingSessionId → straight create, no lookup', async () => {
+    await saveKaruteRecordInline(baseInput)
+    expect(karuteRecords.getByRecordingSession).not.toHaveBeenCalled()
+    expect(karuteRecords.create).toHaveBeenCalledTimes(1)
   })
 })

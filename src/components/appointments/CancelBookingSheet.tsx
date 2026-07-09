@@ -54,9 +54,13 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
   const [burnPack, setBurnPack] = useState(false)
   const [packSummary, setPackSummary] = useState<{ packId: string; remaining: number } | null>(null)
   const packFetched = useRef(false)
+  // The CURRENT target's id — in-flight pack fetches compare against this so
+  // a slow response for a previous booking can't stamp its data on this one.
+  const bookingIdRef = useRef<string | null>(null)
 
   // Reset the no-show section whenever a different booking is targeted.
   useEffect(() => {
+    bookingIdRef.current = booking?.id ?? null
     setNoShowOpen(false)
     setNoShowReason(NO_SHOW_REASONS[0])
     setBurnPack(false)
@@ -68,7 +72,10 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
     if (!booking) return
     const res = await cancelAppointment(booking.id)
     if ('error' in res) {
-      toast.error(res.error)
+      // Generic key, never res.error raw — server errors are English/internal
+      // (requireCapability, SynqedError) and this is a Japanese-first UI.
+      // Same policy the no-show path below has had since it shipped.
+      toast.error(t('cancelErrorGeneric'))
       cancelHold.reset()
       return
     }
@@ -115,7 +122,16 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
     setNoShowOpen((v) => !v)
     if (!packFetched.current && booking) {
       packFetched.current = true
-      void getBurnablePackSummary(booking.clientId).then(setPackSummary)
+      const forBookingId = booking.id
+      void getBurnablePackSummary(booking.clientId).then((summary) => {
+        // Staleness guard: a slow fetch for booking A resolving after the
+        // sheet re-targeted booking B must not attach A's pack count/burn
+        // availability to B's sheet. (The server re-derives the real burn
+        // target independently — this is display truth, not burn truth.)
+        setPackSummary((prev) =>
+          bookingIdRef.current === forBookingId ? summary : prev,
+        )
+      })
     }
   }, [booking])
 
@@ -125,7 +141,8 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
     const res = await restoreAppointment(booking.id)
     setBusy(false)
     if ('error' in res) {
-      toast.error(res.error)
+      // Generic key, never res.error raw — see the cancel handler.
+      toast.error(t('restoreErrorGeneric'))
       return
     }
     toast.success(t('restored', { name: booking.customerName }))

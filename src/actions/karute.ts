@@ -36,6 +36,46 @@ async function resolveKaruteStoreId(
 }
 
 /**
+ * Create the karute record — or, if this recording session was ALREADY saved,
+ * UPDATE that record with the newest content instead.
+ *
+ * Why: core's idempotent create (synqed-core #38) returns the EXISTING record
+ * when recording_session_id repeats. If an autosave lands server-side but the
+ * client sees a network error, the staff is routed to review, edits the
+ * summary/entries, and re-saves — the bare create would hand back the OLD
+ * record and report success while every edit silently vanished. Upserting by
+ * recording session makes the record converge on what the staff last saw
+ * (core's update does a FULL entries replace — verified in karute.service).
+ *
+ * `fresh` tells the caller whether memory ingest should run — an update is a
+ * retry of a transcript that was already ingested on the first save.
+ * Residual race (concurrent first saves both passing the lookup) falls back
+ * to core's dedupe, which is correct there: both carry identical content.
+ */
+async function createOrUpdateKaruteRecord(
+  synqed: SynqedClient,
+  payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
+): Promise<{ id: string; fresh: boolean }> {
+  const recordingSessionId = payload.recording_session_id
+  if (recordingSessionId) {
+    const existing = await synqed.karuteRecords
+      .getByRecordingSession(recordingSessionId)
+      .catch(() => null)
+    if (existing) {
+      await synqed.karuteRecords.update(existing.id, {
+        transcript: payload.transcript,
+        ai_summary: payload.ai_summary,
+        entries: payload.entries,
+        appointment_id: payload.appointment_id,
+      })
+      return { id: existing.id, fresh: false }
+    }
+  }
+  const record = await synqed.karuteRecords.create(payload)
+  return { id: record.id, fresh: true }
+}
+
+/**
  * The recent karute records for ONE customer, newest first — read from
  * synqed-core (the source of truth). The Supabase `karute_records` mirror is
  * empty post-migration, so the record page's "recent recordings" + first-visit
@@ -112,7 +152,7 @@ export async function saveKaruteRecord(
 
     const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
 
-    const record = await synqed.karuteRecords.create({
+    const { id, fresh } = await createOrUpdateKaruteRecord(synqed, {
       customer_id: input.customerId,
       store_id: storeId,
       staff_id: staffId,
@@ -128,11 +168,12 @@ export async function saveKaruteRecord(
         is_manual: false,
       })),
     })
-    recordId = record.id
+    recordId = id
 
     // Best-effort: persist the session outcome (the coaching training label).
     // NEVER gate the save/redirect on it — the recording is the critical
-    // artifact, and setKaruteOutcome swallows its own errors.
+    // artifact, and setKaruteOutcome swallows its own errors. Runs on the
+    // update path too (upsert semantics — the retry's outcome decision wins).
     if (input.outcome) {
       await setKaruteOutcome({
         karuteRecordId: recordId,
@@ -147,13 +188,17 @@ export async function saveKaruteRecord(
     // Best-effort: grow the customer's persistent memory from this transcript
     // (the personal-bits + body-trajectory loop). Awaited so it reliably runs in
     // serverless; never throws — the recording is the critical artifact.
-    await ingestSessionMemory({
-      customerId: input.customerId,
-      transcript: input.transcript,
-      locale: await getLocale(),
-      // Live-recording save — the session is today (JST).
-      sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
-    })
+    // FRESH saves only: a retry re-saving the same take would re-extract the
+    // same transcript and stack duplicate memory items.
+    if (fresh) {
+      await ingestSessionMemory({
+        customerId: input.customerId,
+        transcript: input.transcript,
+        locale: await getLocale(),
+        // Live-recording save — the session is today (JST).
+        sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+      })
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
@@ -183,14 +228,24 @@ export async function saveKaruteRecordInline(
 
     const synqed = await getSynqedClient()
 
-    const staffId = await getCurrentUserStaffId()
+    // Same recorder-first attribution + appointment-staff fallback as
+    // saveKaruteRecord: autosave only ever fires for appointment-bound takes
+    // (global-pipeline requires appointmentCustomerId), which is exactly the
+    // shape where the fallback works — without it, every autosave on a
+    // PIN-less shared account failed over to manual review.
+    let staffId: string | null = await getCurrentUserStaffId()
+    let fetchedAppointment: Appointment | null = null
+    if (!staffId && input.appointmentId) {
+      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
+      staffId = fetchedAppointment?.staff_id ?? null
+    }
     if (!staffId) {
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId)
+    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
 
-    const record = await synqed.karuteRecords.create({
+    const { id, fresh } = await createOrUpdateKaruteRecord(synqed, {
       customer_id: input.customerId,
       store_id: storeId,
       staff_id: staffId,
@@ -211,7 +266,7 @@ export async function saveKaruteRecordInline(
     // Never gate the return on it; setKaruteOutcome swallows its own errors.
     if (input.outcome) {
       await setKaruteOutcome({
-        karuteRecordId: record.id,
+        karuteRecordId: id,
         customerId: input.customerId,
         status: input.outcome.status,
         reason: input.outcome.reason,
@@ -220,18 +275,21 @@ export async function saveKaruteRecordInline(
       })
     }
 
-    // Best-effort memory ingest — same loop as saveKaruteRecord.
-    await ingestSessionMemory({
-      customerId: input.customerId,
-      transcript: input.transcript,
-      locale: await getLocale(),
-      // Live-recording save — the session is today (JST).
-      sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
-    })
+    // Best-effort memory ingest — same loop + same fresh-only gate as
+    // saveKaruteRecord (a deduped retry must not stack duplicate memories).
+    if (fresh) {
+      await ingestSessionMemory({
+        customerId: input.customerId,
+        transcript: input.transcript,
+        locale: await getLocale(),
+        // Live-recording save — the session is today (JST).
+        sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+      })
+    }
 
     revalidatePath(`/customers/${input.customerId}`)
     updateTag('dashboard')
-    return { id: record.id }
+    return { id }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
