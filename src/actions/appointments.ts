@@ -404,9 +404,12 @@ export async function cancelAppointment(
  * (キャンセル済み AND 無断キャンセル rows both use this). Safe by construction:
  * status-only, NEVER sends ticket fields both ways — a no-show restore does
  * NOT auto-unburn a redeemed ticket; unburning is a separate, explicit pack
- * action. Restoring a booking the customer REALLY cancelled upstream
- * self-heals — the next QR crawl marks it CANCELLED again (markOrphanedCancelled),
- * so a wrong undo survives at most one sync.
+ * action. NOTE (verified against core #39's sync.service): a restore stamps
+ * status_source=STAFF, and the crawl's orphan sweep (markOrphanedCancelled)
+ * skips ALL staff-touched rows — so restoring a booking the customer really
+ * cancelled upstream does NOT self-heal; it stays SCHEDULED until staff
+ * cancel it again by hand. Restore is a deliberate staff decision that wins
+ * over the crawl, same as the cancel itself.
  */
 export async function restoreAppointment(
   appointmentId: string,
