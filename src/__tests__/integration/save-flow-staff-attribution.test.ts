@@ -48,6 +48,7 @@ jest.mock('next/headers', () => ({
 // this suite stays scoped to staff attribution.
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 
 delete process.env.SUPABASE_JWT_SECRET

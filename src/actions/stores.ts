@@ -132,6 +132,28 @@ export async function getActiveStoreId(): Promise<string | null> {
   return jar.get(ACTIVE_STORE_COOKIE)?.value ?? null
 }
 
+/** The business's primary store id (?? first store). Null when the business
+ *  has no stores yet or the lookup fails. */
+export async function getPrimaryStoreId(): Promise<string | null> {
+  try {
+    const synqed = await getSynqedClient()
+    const { stores } = await synqed.stores.list()
+    return stores.find((s) => s.is_primary)?.id ?? stores[0]?.id ?? null
+  } catch {
+    return null
+  }
+}
+
+/** The store that store-scoped reads/writes default to: the pinned cookie,
+ *  else the PRIMARY store. The StoreSwitcher displays the primary as active
+ *  when nothing is pinned ("there is always an active store") — data and
+ *  display must share that default, otherwise an unpinned cross-store viewer
+ *  sees a pill naming one store over a list mixing every store (the カルテ
+ *  leak Liam kept hitting). */
+export async function getDefaultStoreId(): Promise<string | null> {
+  return (await getActiveStoreId()) ?? getPrimaryStoreId()
+}
+
 /** Switch the active store. Validates the store is in the caller's business
  *  (so the cookie can never point at another tenant's store), then persists it. */
 export async function setActiveStore(storeId: string): Promise<{ ok: true } | { error: string }> {

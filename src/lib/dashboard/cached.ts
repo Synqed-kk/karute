@@ -1,7 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
-import { getActiveStoreId } from '@/actions/stores'
+import { getDefaultStoreId } from '@/actions/stores'
 import { ymdInJst, JST_OFFSET } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
 
@@ -79,20 +79,22 @@ const dashboardByDay = unstable_cache(
     const [weekly, monthly, weekly7, appointmentsRes, tomorrowRes, todayKaruteRes, recentRes, customerList, staffRes] =
       await Promise.all([
         // from/to filter created_at upstream, so .total gives the counts.
+        // Karute reads share the appointments' store lens (SDK 1.11.1 finally
+        // serializes karuteRecords store_id — before that the param was
+        // silently dropped and these leaked every store's records).
         synqed?.karuteRecords
-          .list({ from: weekStartIso, page_size: 1 })
+          .list({ from: weekStartIso, page_size: 1, store_id: activeStore ?? undefined })
           .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
         synqed?.karuteRecords
-          .list({ from: monthStartIso, page_size: 1 })
+          .list({ from: monthStartIso, page_size: 1, store_id: activeStore ?? undefined })
           .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
         // Rolling 7-day karute count — pairs with the page's 7-day redemption
         // count so the owner pulse compares like windows.
         synqed?.karuteRecords
-          .list({ from: rolling7Start, page_size: 1 })
+          .list({ from: rolling7Start, page_size: 1, store_id: activeStore ?? undefined })
           .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
         // Dashboard "today" list scoped to the active store (a view filter;
-        // null = all stores). The weekly/monthly karute counts above stay
-        // business-wide until synqed-core can filter karute records by store.
+        // null = all stores).
         synqed?.appointments
           .list({ from: todayStart, to: todayEnd, page_size: 200, store_id: activeStore ?? undefined })
           .catch(() => ({ appointments: [] })) ??
@@ -104,11 +106,11 @@ const dashboardByDay = unstable_cache(
           Promise.resolve({ appointments: [] }),
         // Today's karute, to link each appointment to its recording (status).
         synqed?.karuteRecords
-          .list({ from: todayStart, to: todayEnd, page_size: 200 })
+          .list({ from: todayStart, to: todayEnd, page_size: 200, store_id: activeStore ?? undefined })
           .catch(() => ({ karute_records: [] })) ??
           Promise.resolve({ karute_records: [] }),
         synqed?.karuteRecords
-          .list({ page_size: 5 })
+          .list({ page_size: 5, store_id: activeStore ?? undefined })
           .catch(() => ({ karute_records: [] })) ??
           Promise.resolve({ karute_records: [] }),
         synqed?.customers
@@ -219,7 +221,9 @@ export async function getDashboardData(): Promise<DashboardData> {
   // Active store threads in as an extra positional arg so it becomes part of the
   // cache key — a store-scoped dashboard is never served from another store's
   // cache entry. Read in request scope (unstable_cache runs outside it).
-  const activeStore = await getActiveStoreId()
+  // getDefaultStoreId: an unset cookie means the PRIMARY store (what the
+  // switcher displays as active), not "all stores".
+  const activeStore = await getDefaultStoreId()
   return dashboardByDay(
     businessId,
     todayDay,
