@@ -212,6 +212,7 @@
       "noShowRestoreTitle": "No-show booking",
       "noShowBody": "This booking is recorded as a no-show.",
       "reason": "Reason",
+      "statusSetBy": "Updated by {name} on {date} at {time}",
       "noShowError": {
         "no_burnable_pack": "This customer has no ticket to use.",
         "already_terminal": "This booking is already cancelled or marked as a no-show."

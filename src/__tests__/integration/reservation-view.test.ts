@@ -35,6 +35,8 @@ function row(over: Partial<AppointmentRow>): AppointmentRow {
     synqed_status: 'SCHEDULED',
     source: 'MANUAL',
     status_reason: null,
+    status_set_by_name: null,
+    status_set_at: null,
     ...over,
   } as AppointmentRow
 }
@@ -165,6 +167,32 @@ describe('appointmentsToReservationViews', () => {
     )
     expect(result[0].customerName).toBe('—')
     expect(result[0].customerInitials).toBe('—')
+  })
+
+  it('carries statusSetByName/statusSetAt through onto the view', () => {
+    const result = appointmentsToReservationViews(
+      [
+        row({
+          synqed_status: 'CANCELLED',
+          status_set_by_name: 'Tanaka Misaki',
+          status_set_at: '2026-05-12T09:00:00.000Z',
+        }),
+      ],
+      [],
+      NOW_MID,
+    )
+    expect(result[0].statusSetByName).toBe('Tanaka Misaki')
+    expect(result[0].statusSetAt).toBe('2026-05-12T09:00:00.000Z')
+  })
+
+  it('leaves statusSetByName/statusSetAt null when absent (sync-cancelled rows)', () => {
+    const result = appointmentsToReservationViews(
+      [row({ synqed_status: 'CANCELLED' })],
+      [],
+      NOW_MID,
+    )
+    expect(result[0].statusSetByName).toBeNull()
+    expect(result[0].statusSetAt).toBeNull()
   })
 
   it('leaves service empty when title is null (no misleading fallback)', () => {

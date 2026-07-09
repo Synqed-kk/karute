@@ -212,6 +212,7 @@
       "noShowRestoreTitle": "無断キャンセルの予約",
       "noShowBody": "この予約は無断キャンセルとして記録されています。",
       "reason": "理由",
+      "statusSetBy": "{name}が{date} {time}に操作",
       "noShowError": {
         "no_burnable_pack": "消化できる回数券がありません",
         "already_terminal": "この予約はすでにキャンセルまたは無断キャンセルになっています"
