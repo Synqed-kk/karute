@@ -43,6 +43,13 @@ jest.mock('next/headers', () => ({
   })),
 }))
 
+// Store resolution for karute writes (no appointment → active-store cookie).
+// Mocked directly (rather than exercised through the real cookie jar above) so
+// this suite stays scoped to staff attribution.
+jest.mock('@/actions/stores', () => ({
+  getActiveStoreId: jest.fn(async () => null),
+}))
+
 delete process.env.SUPABASE_JWT_SECRET
 process.env.SYNQED_CORE_URL = 'http://test.invalid'
 process.env.SYNQED_CORE_API_KEY = 'test-key'
@@ -175,9 +182,10 @@ describe('saveKaruteRecord — staff attribution', () => {
       { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
     ]
     // The appointment is owned by a different staff member, but the record must
-    // save under the RECORDER (covering / swaps / off-schedule). The appointment
-    // isn't even fetched once the recorder is identified.
-    appointments.get.mockResolvedValue({ staff_id: 'other-staff' })
+    // save under the RECORDER (covering / swaps / off-schedule) — the staff
+    // fallback never fetches it. It's still fetched ONCE for store_id (the
+    // booking's store is the truth of where the session happened).
+    appointments.get.mockResolvedValue({ staff_id: 'other-staff', store_id: 'store-9' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
 
     await saveKaruteRecord({
@@ -192,9 +200,10 @@ describe('saveKaruteRecord — staff attribution', () => {
       expect.objectContaining({
         staff_id: 'user-a', // the recorder, NOT other-staff
         appointment_id: 'appt-1',
+        store_id: 'store-9',
       }),
     )
-    expect(appointments.get).not.toHaveBeenCalled()
+    expect(appointments.get).toHaveBeenCalledTimes(1)
   })
 
   it("falls back to the appointment's staff_id only when the signer has no staff row", async () => {
