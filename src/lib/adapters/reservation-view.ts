@@ -59,6 +59,13 @@ export interface ReservationView {
   /** status_reason from core, for CANCELLED/NO_SHOW rows — the no-show
    *  sheet's restore mode shows it. null for active rows or when absent. */
   statusReason: string | null
+  /** Display name of the staff who set the current terminal status —
+   *  resolved server-side from core's status_set_by. null when absent (e.g.
+   *  a sync-cancelled row carries no status_set_by). */
+  statusSetByName: string | null
+  /** status_set_at from core, for CANCELLED/NO_SHOW rows — paired with
+   *  statusSetByName for the "who/when" line. null when absent. */
+  statusSetAt: string | null
   staffColorKey: StaffColorKey | 'neutral'
   /** ID of the customer, used to route follow-up actions (memory, new karute). */
   clientId: string
@@ -174,6 +181,8 @@ export function appointmentsToReservationViews(
       isCancelled: r.synqed_status === 'CANCELLED',
       isNoShow: r.synqed_status === 'NO_SHOW',
       statusReason: r.status_reason,
+      statusSetByName: r.status_set_by_name,
+      statusSetAt: r.status_set_at,
       staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,

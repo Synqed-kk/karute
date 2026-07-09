@@ -6,10 +6,34 @@ import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getActiveStoreId } from '@/actions/stores'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
-import type { KaruteRecord } from '@synqed-kk/client'
+import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
+
+/**
+ * Resolve which store a karute record write should be stamped with. Reads are
+ * already store-filtered (synqed-core PR #18); this is the write side.
+ *
+ * The booking's store is the truth of where the session happened, so an
+ * appointment-linked save is stamped with ITS store_id — fetched fresh unless
+ * the caller already pulled the appointment (e.g. for staff-id fallback), in
+ * which case that's reused so a save never fetches the same appointment
+ * twice. With no appointment, fall back to the viewer's active-store cookie
+ * (may be null — exactly today's behavior).
+ */
+async function resolveKaruteStoreId(
+  synqed: SynqedClient,
+  appointmentId: string | null | undefined,
+  fetchedAppointment?: Appointment | null,
+): Promise<string | null> {
+  if (appointmentId) {
+    const appt = fetchedAppointment ?? (await synqed.appointments.get(appointmentId).catch(() => null))
+    return appt?.store_id ?? null
+  }
+  return getActiveStoreId()
+}
 
 /**
  * The recent karute records for ONE customer, newest first — read from
@@ -77,18 +101,23 @@ export async function saveKaruteRecord(
     // the karte correctly saves under YOU. The appointment's staff is only a
     // fallback for an account with no staff identity, so the save never fails.
     let staffId: string | null = await getCurrentUserStaffId()
+    let fetchedAppointment: Appointment | null = null
     if (!staffId && input.appointmentId) {
-      const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = appt?.staff_id ?? null
+      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
+      staffId = fetchedAppointment?.staff_id ?? null
     }
     if (!staffId) {
       return { error: 'No staff identity for the signed-in user.' }
     }
 
+    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
+
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
+      store_id: storeId,
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
+      recording_session_id: input.recordingSessionId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
@@ -141,7 +170,8 @@ export async function saveKaruteRecord(
 
 /**
  * Same as saveKaruteRecord but returns the record ID instead of redirecting.
- * Used by the RecordingPanel which stays on the appointments page.
+ * Used by ProcessingIndicator's background auto-save (the staff never comes
+ * back to a review screen for a known customer + chosen outcome).
  */
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
@@ -158,10 +188,14 @@ export async function saveKaruteRecordInline(
       return { error: 'No staff identity for the signed-in user.' }
     }
 
+    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId)
+
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
+      store_id: storeId,
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
+      recording_session_id: input.recordingSessionId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
@@ -266,8 +300,13 @@ export async function createManualKaruteRecord(input: {
 
     const synqed = await getSynqedClient()
 
+    // Manual creation has no linked appointment — store resolution falls
+    // straight to the viewer's active-store cookie.
+    const storeId = await resolveKaruteStoreId(synqed, null)
+
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
+      store_id: storeId,
       staff_id: input.staffId,
       status: 'DRAFT',
       // No transcript / no entries on manual create — staff fills

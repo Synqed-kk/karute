@@ -55,6 +55,9 @@ import {
 } from '@/actions/packs'
 import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
+import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
+import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
 
 export interface RecordPageNextAppointment {
   id: string
@@ -94,6 +97,17 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  /** Recording target's visit-frequency segment (常連/安定/離脱気味/新規) — same
+   *  classifyVisitSegment the customer profile uses. Drives ClosingTacticHint;
+   *  null when there's no target or a terminal lifecycle decision owns them. */
+  visitSegment?: VisitSegment | null
+  /** Rhythm-bar geometry (days since last visit vs. usual interval) — same
+   *  computeVisitRhythm the customer profile's cadence math uses. Drives
+   *  VisitRhythmPanel; null without enough dated history. */
+  visitRhythm?: VisitRhythm | null
+  /** Whether the recording target holds a 回数券 — gates ClosingTacticHint's
+   *  pack vs. no-pack tactic line. */
+  targetHasTicketPack?: boolean
   /** The target customer's active 回数券 (sessions remaining) — drives the
    *  one-tap 消化 row in the post-session outcome dialog (design #1). */
   targetPack?: { id: string; remaining: number; size: number } | null
@@ -139,6 +153,9 @@ export function RecordPageView({
   aiBriefPromise,
   recentRecordings,
   consentDate,
+  visitSegment = null,
+  visitRhythm = null,
+  targetHasTicketPack = false,
   targetPack = null,
   packPresets = [],
   staffCanCustomizePacks = true,
@@ -165,6 +182,7 @@ export function RecordPageView({
     startRecording,
     stopRecording,
     discardRecording,
+    awaitRecordingSessionId,
   } = useGlobalRecorder()
 
   // Background AI pipeline (transcribe → extract → summarize). Module-level
@@ -333,7 +351,7 @@ export function RecordPageView({
     discardRecording()
     setPhase('idle')
   }
-  function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
+  async function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
     // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
     // modal on this page). The top-corner chip shows progress; staff can leave
@@ -347,6 +365,12 @@ export function RecordPageView({
     const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
       ? (recordingCustomerId ?? undefined)
       : nextAppointment?.customerId)
+    // Recording-session id was minted at start() (in parallel with getUserMedia)
+    // — by now (recording has run its full length) it has almost always
+    // resolved; this short await only covers the rare case it hasn't yet.
+    // null on timeout/failure → save proceeds without recording_session_id,
+    // exactly as before this feature existed (no dedupe for that save).
+    const recordingSessionId = await awaitRecordingSessionId()
     globalPipeline.start(result.blob, {
       locale,
       customers,
@@ -355,6 +379,7 @@ export function RecordPageView({
       appointmentCustomerId: effectiveCustomerId,
       outcome,
       outcomeSkipped,
+      recordingSessionId,
     })
     // The pipeline now owns the audio; clear the recorder + return to idle so
     // the page isn't stuck on the "review your take" screen.
@@ -436,6 +461,7 @@ export function RecordPageView({
         appointmentId={pipeline.context.appointmentId}
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
+        recordingSessionId={pipeline.context.recordingSessionId}
         onSaved={() => {
           // Save persisted the record → drop the recovery draft (storage +
           // in-memory), so no stale banner reoffers a finished session.
@@ -477,6 +503,7 @@ export function RecordPageView({
         duration={recoveredDraft.duration}
         appointmentId={recoveredDraft.appointmentId}
         appointmentCustomerId={recoveredDraft.appointmentCustomerId}
+        recordingSessionId={recoveredDraft.recordingSessionId}
         onSaved={() => {
           clearDraft()
           setRecoveredDraft(null)
@@ -701,6 +728,12 @@ export function RecordPageView({
             />
             {otherStaffBanner}
             <RepurchaseCueBanner pack={targetPack} />
+            {visitRhythm && (
+              <div className="overflow-hidden rounded-2xl border border-border">
+                <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
+              </div>
+            )}
+            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             <Suspense
               key={nextAppointment?.customerId ?? 'none'}
               fallback={
@@ -728,6 +761,12 @@ export function RecordPageView({
           />
           {otherStaffBanner}
           <RepurchaseCueBanner pack={targetPack} />
+          {visitRhythm && (
+            <div className="overflow-hidden rounded-2xl border border-border">
+              <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
+            </div>
+          )}
+          <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           <Suspense
             key={nextAppointment?.customerId ?? 'none'}
             fallback={
