@@ -71,7 +71,18 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: jest.fn(async () => true),
 }))
 
-const karuteRecords = { create: jest.fn() }
+const karuteRecords = {
+  create: jest.fn(),
+  update: jest.fn(),
+  // The save upserts by recording session (a repeat save UPDATES the existing
+  // record instead of letting core's dedupe silently return stale content).
+  // Default: nothing saved yet → the create path.
+  // Rejection carries status:404 — the upsert only treats a REAL not-found as
+  // "no record yet"; any other lookup failure fails the save (retry-safe).
+  getByRecordingSession: jest.fn(async (): Promise<{ id: string; transcript?: string }> => {
+    throw Object.assign(new Error('not found'), { status: 404 })
+  }),
+}
 const appointments = { get: jest.fn() }
 
 jest.mock('@synqed-kk/client', () => ({
@@ -97,6 +108,10 @@ beforeEach(() => {
   }))
 
   karuteRecords.create.mockResolvedValue({ id: 'kr-1' })
+  karuteRecords.update.mockResolvedValue({ id: 'kr-1' })
+  karuteRecords.getByRecordingSession.mockRejectedValue(
+    Object.assign(new Error('not found'), { status: 404 }),
+  )
 })
 
 const baseInput = {
@@ -152,5 +167,39 @@ describe('saveKaruteRecord — recording_session_id payload', () => {
     expect(karuteRecords.create).toHaveBeenCalledWith(
       expect.objectContaining({ recording_session_id: null }),
     )
+  })
+})
+
+describe('upsert by recording session — a retry must never lose staff edits', () => {
+  it('UPDATES the existing record with the newest content instead of creating', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({ id: 'kr-existing' })
+    const res = await saveKaruteRecordInline({
+      ...baseInput,
+      transcript: 't-edited',
+      summary: 's-edited',
+      recordingSessionId: 'rs-1',
+    })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(karuteRecords.update).toHaveBeenCalledWith(
+      'kr-existing',
+      expect.objectContaining({ transcript: 't-edited', ai_summary: 's-edited' }),
+    )
+    expect(res).toEqual({ id: 'kr-existing' })
+  })
+
+  it('no recordingSessionId → straight create, no lookup', async () => {
+    await saveKaruteRecordInline(baseInput)
+    expect(karuteRecords.getByRecordingSession).not.toHaveBeenCalled()
+    expect(karuteRecords.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('a NON-404 lookup failure fails the save — never falls through to a stale create', async () => {
+    karuteRecords.getByRecordingSession.mockRejectedValueOnce(
+      Object.assign(new Error('gateway timeout'), { status: 504 }),
+    )
+    const res = await saveKaruteRecordInline({ ...baseInput, recordingSessionId: 'rs-1' })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(karuteRecords.update).not.toHaveBeenCalled()
+    expect(res).toEqual({ error: expect.any(String) })
   })
 })

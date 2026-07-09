@@ -46,6 +46,11 @@ export async function createPackAction(input: {
     return { ok: false, error: 'packSize must be > 0' }
   if (!Number.isFinite(input.unitPrice) || input.unitPrice < 0)
     return { ok: false, error: 'unitPrice must be >= 0' }
+  // A single session is one session — server-enforced so no future caller can
+  // send kind:'single' with packSize 10 and inflate the derived total_price
+  // (today's forms clamp this client-side; the money rule lives here).
+  if (input.kind === 'single' && input.packSize !== 1)
+    return { ok: false, error: 'single kind must have packSize 1' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   // SERVER-derived 購入回数 when the caller doesn't supply one (the stop-dialog
   // picker doesn't): highest STORED round + 1, never a row count — the imports

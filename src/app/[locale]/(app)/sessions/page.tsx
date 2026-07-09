@@ -12,8 +12,7 @@ import {
 } from '@/lib/visits/segment'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
-import { listCustomerPacks, getCustomerLifecycle } from '@/lib/packs/store'
-import type { CustomerLifecycle } from '@/lib/packs/types'
+import { listCustomerPacks, getCustomerLifecycleChecked } from '@/lib/packs/store'
 import type { PackWithUsage } from '@/lib/packs/types'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { memoContent } from '@/lib/sync/qr-notes'
@@ -325,12 +324,12 @@ export default async function SessionsPage({
   // 回数券 off (org setting, wave 1) → skip the pack read; targetPack stays
   // null and the whole burn/outcome flow below never engages.
   const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
-  const [customerKarute, targetCustomer, consentOnFile, targetPacks, targetLifecycle]: [
+  const [customerKarute, targetCustomer, consentOnFile, targetPacks, lifecycleRead]: [
     KaruteRecord[],
     CustomerWithStaff | null,
     Awaited<ReturnType<typeof getCustomerConsent>>['consent'],
     PackWithUsage[],
-    CustomerLifecycle | null,
+    Awaited<ReturnType<typeof getCustomerLifecycleChecked>>,
   ] = targetCustomerId
     ? await Promise.all([
         getCustomerKaruteRecords(targetCustomerId, 10),
@@ -343,11 +342,13 @@ export default async function SessionsPage({
           : Promise.resolve([] as PackWithUsage[]),
         // Lifecycle (卒業/離客) — same signal the customer profile threads into
         // classifyVisitSegment (customers/[id]/page.tsx). A terminal lifecycle
-        // decision outranks cadence: without it the closing-tactic strip would
-        // coach staff to close a customer the salon already released.
-        getCustomerLifecycle(targetCustomerId),
+        // decision outranks cadence, and a FAILED read must fail closed
+        // (suppress coaching), never masquerade as "active customer".
+        getCustomerLifecycleChecked(targetCustomerId),
       ])
-    : [[], null, null, [], null]
+    : [[], null, null, [], { ok: true as const, lifecycle: null }]
+  const targetLifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
+  const lifecycleUnknown = !lifecycleRead.ok
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
   const targetKaruteNumber = nextAppointment?.customerId
@@ -491,7 +492,9 @@ export default async function SessionsPage({
       // profile applies; never coach staff to close a released customer.
       lifecycleStatus: targetLifecycle?.status,
     }
-    visitSegment = classifyVisitSegment(visitSignals, now)
+    // Fail closed on an errored lifecycle read: coaching a customer the salon
+    // may already have released is worse than briefly showing no coaching.
+    visitSegment = lifecycleUnknown ? null : classifyVisitSegment(visitSignals, now)
     // Terminal lifecycle also suppresses the rhythm PANEL, not just the
     // tactic segment — mirrors the profile, where computeVisitPace takes
     // isTerminal and the pace card never renders for 卒業/離客
@@ -499,7 +502,8 @@ export default async function SessionsPage({
     // is a plain geometry helper with no lifecycle input, so gate it here.
     const isTerminalLifecycle =
       targetLifecycle?.status === 'graduated' || targetLifecycle?.status === 'lost'
-    visitRhythm = isTerminalLifecycle ? null : computeVisitRhythm(visitSignals, now)
+    visitRhythm =
+      isTerminalLifecycle || lifecycleUnknown ? null : computeVisitRhythm(visitSignals, now)
     // Mechanical brief — pure + instant. Drives the FIRST paint and every
     // cross-cutting 新規 flag (the recording-target badge + the post-session
     // dialog), so those are correct on frame one and never flip.

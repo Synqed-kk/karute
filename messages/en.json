@@ -220,9 +220,12 @@
       },
       "noShowBurnWarn": {
         "below_zero": "Recorded {name}'s no-show, but no ticket was used — the pack has no sessions left.",
-        "burn_failed": "Recorded {name}'s no-show, but the ticket could not be used."
+        "burn_failed": "Recorded {name}'s no-show, but the ticket could not be used.",
+        "already_burned": "Recorded {name}'s no-show. A ticket was already used for this booking, so it was not charged again."
       },
-      "noShowErrorGeneric": "Something went wrong."
+      "noShowErrorGeneric": "Something went wrong.",
+      "cancelErrorGeneric": "Could not cancel. Please try again.",
+      "restoreErrorGeneric": "Could not restore — the booking's status may have changed."
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",

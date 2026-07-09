@@ -335,7 +335,11 @@ export async function getAppointmentsInRange(
       page_size: 500,
       store_id: scope.storeId ?? undefined,
     })
-    return list.appointments
+    // Terminal (CANCELLED/NO_SHOW) bookings must not inflate the week/month
+    // overview counts, utilization, or density — same invariant the day view
+    // enforces ("a no-show is not a visit", AppointmentsView). The week/month
+    // card shapes carry no terminal flag, so filtering here is the only gate.
+    return list.appointments.filter((a) => !isTerminalStatus(a.status))
   } catch {
     return []
   }
@@ -474,6 +478,16 @@ export async function restoreAppointment(
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
 
+    // Precondition: only a terminal booking can be restored. Without this, a
+    // stale tombstone sheet on a second device could clobber a booking another
+    // staff already restored and started (SCHEDULED → IN_PROGRESS) back to
+    // SCHEDULED with no error. Mirrors markNoShowAppointment's read-check.
+    const appt = await synqed.appointments.get(appointmentId)
+    if (!appt) return { error: 'Booking not found.' }
+    if (!isTerminalStatus(appt.status)) {
+      return { error: 'This booking is already active.' }
+    }
+
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
     const actingStaffId = await resolveActingStaffId()
@@ -499,7 +513,7 @@ export async function restoreAppointment(
 
 export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
 export type MarkNoShowResult =
-  | { success: true; burnError?: 'below_zero' | 'burn_failed' }
+  | { success: true; burnError?: 'below_zero' | 'burn_failed' | 'already_burned' }
   | MarkNoShowError
 
 /**
@@ -567,6 +581,26 @@ export async function markNoShowAppointment(
     updateTag('dashboard')
 
     if (target) {
+      // One appointment can only ever burn ONE ticket. Without this check the
+      // mark → restore → mark-again cycle burns a second session for the same
+      // physical no-show (restore is status-only by contract and never
+      // un-burns). listRecentRedemptions carries appointment_id; the window
+      // starts a day before the booking so the earlier burn (stamped with the
+      // booking's JST date) is always inside it.
+      const since = ymdInJst(new Date(new Date(appt.starts_at).getTime() - 86_400_000))
+      // Tri-state on purpose: an ERRORED history read must fail CLOSED for
+      // money — skip the burn and tell staff (burn_failed), never risk a
+      // second charge because the check couldn't run. 'unknown' ≠ 'no'.
+      const alreadyBurned: boolean | 'unknown' = await synqed.packs
+        .listRecentRedemptions(since)
+        .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
+        .catch(() => 'unknown' as const)
+      if (alreadyBurned === 'unknown') {
+        return { success: true, burnError: 'burn_failed' }
+      }
+      if (alreadyBurned) {
+        return { success: true, burnError: 'already_burned' }
+      }
       const burn = await addRedemption({
         packId: target.id,
         customerId: appt.customer_id,

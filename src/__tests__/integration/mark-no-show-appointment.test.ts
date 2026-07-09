@@ -47,9 +47,13 @@ const apptGet = jest.fn(async () => ({
   status: 'SCHEDULED',
   starts_at: '2026-07-06T03:00:00.000Z',
 }))
+const listRecentRedemptions = jest.fn(
+  async (_since: string): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> => [],
+)
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     appointments: { update: apptUpdate, get: apptGet },
+    packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
   })),
 }))
 
@@ -88,6 +92,7 @@ beforeEach(() => {
   }))
   listCustomerPacks.mockImplementation(async () => [])
   addRedemption.mockImplementation(async () => ({ ok: true, id: 'redemption-1' }))
+  listRecentRedemptions.mockImplementation(async () => [])
 })
 
 describe('markNoShowAppointment — no-burn path', () => {
@@ -180,6 +185,30 @@ describe('markNoShowAppointment — burn path', () => {
     const res = await markNoShowAppointment('appt-1', { reason: 'because', burnPack: false })
     expect(res).toEqual({ error: expect.any(String) })
     expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('one appointment burns ONE ticket ever — a restore → re-mark cycle must not double-burn', async () => {
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    // An earlier no-show already burned a redemption linked to this booking.
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-07-06' },
+    ])
+    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    // Status IS re-marked (the booking really is a no-show again)…
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'NO_SHOW' }))
+    // …but the ticket is NOT burned a second time, and staff hear why.
+    expect(addRedemption).not.toHaveBeenCalled()
+    expect(res).toEqual({ success: true, burnError: 'already_burned' })
+  })
+
+  it('a redemption on a DIFFERENT appointment does not block this burn', async () => {
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', appointment_id: 'appt-OTHER', redeemed_on: '2026-07-06' },
+    ])
+    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    expect(addRedemption).toHaveBeenCalledTimes(1)
+    expect(res).toEqual({ success: true })
   })
 })
 

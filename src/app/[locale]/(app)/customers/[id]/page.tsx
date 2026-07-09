@@ -36,7 +36,7 @@ import {
 } from '@/lib/customers/identity'
 import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
 import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
-import { getCustomerLifecycle, listCustomerPacks } from '@/lib/packs/store'
+import { getCustomerLifecycleChecked, listCustomerPacks } from '@/lib/packs/store'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
@@ -178,10 +178,14 @@ export default async function CustomerProfilePage({
   // Tickets off (org setting) → skip the pack fetch entirely; lifecycle is
   // customer-state, not a ticket feature, so it always loads.
   const ticketsEnabled = orgSettingsForPassport?.ticket_packs_enabled ?? true
-  const [packs, lifecycle] = await Promise.all([
+  const [packs, lifecycleRead] = await Promise.all([
     ticketsEnabled ? listCustomerPacks(id) : Promise.resolve([]),
-    getCustomerLifecycle(id),
+    // Checked read: a FAILED lifecycle fetch must fail closed for coaching
+    // (suppress the pace verdict below), not read as "active customer".
+    // Display consumers (status chip, lifecycle buttons) keep null-degrade.
+    getCustomerLifecycleChecked(id),
   ])
+  const lifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
   // Real ledger signal: any active counted pack → 回数券 holder, regardless of
   // whether the QR flag has synced. Joins the status resolver + the 回数券あり
   // chip so a manually-registered pack reads consistently everywhere.
@@ -237,7 +241,9 @@ export default async function CustomerProfilePage({
     datedVisitCount: enr?.datedVisitCount ?? 0,
     totalVisits: customerVisitCount(statusSignals),
     isReturning: isReturningCustomer(statusSignals),
-    isTerminal: lifecycle?.status === 'graduated' || lifecycle?.status === 'lost',
+    // Fail closed on an errored read — never coach a possibly-released customer.
+    isTerminal:
+      !lifecycleRead.ok || lifecycle?.status === 'graduated' || lifecycle?.status === 'lost',
   })
   const visitPaceLastVisitDate = formatCompactDate(lastVisitIso, locale, new Date(), {
     withWeekday: true,

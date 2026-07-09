@@ -43,8 +43,16 @@ const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff
 jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: () => getCurrentUserStaffId() }))
 
 const apptUpdate = jest.fn(async () => ({}))
+// restoreAppointment reads the booking first: only a terminal row restores
+// (a stale tombstone sheet must not clobber a re-activated booking).
+const apptGet = jest.fn(async () => ({
+  id: 'appt-1',
+  customer_id: 'cust-1',
+  status: 'CANCELLED',
+  starts_at: '2026-07-06T03:00:00.000Z',
+}))
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ appointments: { update: apptUpdate } })),
+  getSynqedClient: jest.fn(async () => ({ appointments: { update: apptUpdate, get: apptGet } })),
 }))
 
 import { cancelAppointment, restoreAppointment } from '@/actions/appointments'
@@ -54,6 +62,12 @@ beforeEach(() => {
   requireCapability.mockImplementation(async () => {})
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
   apptUpdate.mockImplementation(async () => ({}))
+  apptGet.mockImplementation(async () => ({
+    id: 'appt-1',
+    customer_id: 'cust-1',
+    status: 'CANCELLED',
+    starts_at: '2026-07-06T03:00:00.000Z',
+  }))
 })
 
 describe('cancelAppointment', () => {
@@ -115,5 +129,17 @@ describe('restoreAppointment (undo)', () => {
     const res = await restoreAppointment('appt-1')
     expect(apptUpdate).not.toHaveBeenCalled()
     expect(res).toEqual({ error: 'Not allowed' })
+  })
+
+  it('refuses to restore a booking that is not terminal — a stale sheet must not clobber live state', async () => {
+    apptGet.mockResolvedValueOnce({
+      id: 'appt-1',
+      customer_id: 'cust-1',
+      status: 'IN_PROGRESS',
+      starts_at: '2026-07-06T03:00:00.000Z',
+    })
+    const res = await restoreAppointment('appt-1')
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(res).toEqual({ error: expect.any(String) })
   })
 })

@@ -422,6 +422,27 @@ export async function getCustomerLifecycle(
   }
 }
 
+/**
+ * Lifecycle read that DISTINGUISHES "no lifecycle row" (a normal active
+ * customer) from "the read failed". Coaching surfaces must fail CLOSED on
+ * error: a transient backend hiccup on a 卒業/離客 customer must not render
+ * closing tactics for someone the salon already released — treat an errored
+ * read as "unknown, suppress coaching", never as "active".
+ */
+export async function getCustomerLifecycleChecked(
+  customerId: string,
+): Promise<{ ok: true; lifecycle: CustomerLifecycle | null } | { ok: false }> {
+  if (!customerId) return { ok: true, lifecycle: null }
+  try {
+    const synqed = await getSynqedClient()
+    const lifecycle = (await synqed.packs.getLifecycle(customerId)) as CustomerLifecycle | null
+    return { ok: true, lifecycle }
+  } catch (err) {
+    warn('getCustomerLifecycleChecked', err)
+    return { ok: false }
+  }
+}
+
 export async function setCustomerLifecycle(
   customerId: string,
   status: CustomerLifecycle['status'],
