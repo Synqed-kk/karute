@@ -12,7 +12,8 @@ import {
 } from '@/lib/visits/segment'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
-import { listCustomerPacks } from '@/lib/packs/store'
+import { listCustomerPacks, getCustomerLifecycle } from '@/lib/packs/store'
+import type { CustomerLifecycle } from '@/lib/packs/types'
 import type { PackWithUsage } from '@/lib/packs/types'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { memoContent } from '@/lib/sync/qr-notes'
@@ -324,11 +325,12 @@ export default async function SessionsPage({
   // 回数券 off (org setting, wave 1) → skip the pack read; targetPack stays
   // null and the whole burn/outcome flow below never engages.
   const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
-  const [customerKarute, targetCustomer, consentOnFile, targetPacks]: [
+  const [customerKarute, targetCustomer, consentOnFile, targetPacks, targetLifecycle]: [
     KaruteRecord[],
     CustomerWithStaff | null,
     Awaited<ReturnType<typeof getCustomerConsent>>['consent'],
     PackWithUsage[],
+    CustomerLifecycle | null,
   ] = targetCustomerId
     ? await Promise.all([
         getCustomerKaruteRecords(targetCustomerId, 10),
@@ -339,8 +341,13 @@ export default async function SessionsPage({
         ticketsEnabled
           ? listCustomerPacks(targetCustomerId)
           : Promise.resolve([] as PackWithUsage[]),
+        // Lifecycle (卒業/離客) — same signal the customer profile threads into
+        // classifyVisitSegment (customers/[id]/page.tsx). A terminal lifecycle
+        // decision outranks cadence: without it the closing-tactic strip would
+        // coach staff to close a customer the salon already released.
+        getCustomerLifecycle(targetCustomerId),
       ])
-    : [[], null, null, []]
+    : [[], null, null, [], null]
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
   const targetKaruteNumber = nextAppointment?.customerId
@@ -480,6 +487,9 @@ export default async function SessionsPage({
       visitCount: targetCustomer?.visit_count,
       karuteCount: customerKarute.length,
       hasTicketPack: targetHasTicketPack,
+      // Terminal lifecycle (卒業/離客) nulls the segment — same gate the
+      // profile applies; never coach staff to close a released customer.
+      lifecycleStatus: targetLifecycle?.status,
     }
     visitSegment = classifyVisitSegment(visitSignals, now)
     visitRhythm = computeVisitRhythm(visitSignals, now)
