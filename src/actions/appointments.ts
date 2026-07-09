@@ -5,15 +5,19 @@ import {
   SynqedError,
   type Appointment,
   type AppointmentSource,
-  type AppointmentStatus,
 } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
+import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
+import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
+import { listCustomerPacks, addRedemption } from '@/lib/packs/store'
+import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { ymdInJst } from '@/lib/date/jst'
 import {
   validateAppointmentTime,
   type AppointmentInput,
@@ -32,13 +36,19 @@ export interface AppointmentRow {
   karute_record_id: string | null
   created_at: string
   customers: { name: string } | null
-  synqed_status: AppointmentStatus
+  // AppStatus (not AppointmentStatus) — core can return NO_SHOW (synqed-core
+  // #39) even though the installed SDK's type doesn't declare it yet.
+  synqed_status: AppStatus
   /**
    * Origin of the booking. Bookings imported from external systems
    * (QUICKRESERVE, SALON_BOARD, etc.) start as "pending" in the UI until a
    * staff member confirms them; manually entered bookings skip that state.
    */
   source: AppointmentSource
+  /** status_reason from core (audit trail for CANCELLED/NO_SHOW). SDK-skew:
+   *  the installed client type doesn't declare this field yet — read via a
+   *  narrow cast at the call site. null when absent or not terminal. */
+  status_reason: string | null
 }
 
 /** Store for a booking made from the all-stores view: the booked staff member's
@@ -121,11 +131,14 @@ export async function getAppointmentsByDate(
   dateStr: string,
   _tzOffsetMinutes: number = 540,
   opts?: {
-    /** Include CANCELLED rows (rendered greyed on the 予約 agenda). Default
+    /** Include CANCELLED + NO_SHOW rows (rendered as tombstones on the 予約
+     *  agenda — grey for cancelled, warning-tinted for no-show). Default
      *  false ON PURPOSE: every other consumer — the /sessions recording-target
      *  picker, dashboard today-list, notifications, pack reconcile — relies on
-     *  cancelled bookings being invisible so one can never become a recording
-     *  target or a reconcile candidate. Only the agenda opts in. */
+     *  terminal bookings being invisible so one can never become a recording
+     *  target or a reconcile candidate. Only the agenda opts in. Kept as
+     *  `includeCancelled` (not renamed to something NO_SHOW-neutral) — the name
+     *  ripples to every call site for no behavioral gain. */
     includeCancelled?: boolean
   },
 ): Promise<AppointmentRow[]> {
@@ -184,13 +197,14 @@ export async function getAppointmentsByDate(
     )
 
     return list.appointments
-      // Cancelled bookings are hidden by DEFAULT — the QR sync marks a
-      // reservation CANCELLED when it vanishes upstream, and this list feeds
-      // the /sessions recording-target picker, so a cancelled slot must never
-      // be auto-selected as a recording target. The 予約 agenda alone passes
-      // includeCancelled to render them as thin greyed キャンセル済み rows in
-      // their original time slot (the freed slot stays visible to staff).
-      .filter((a) => (opts?.includeCancelled ? true : a.status !== 'CANCELLED'))
+      // Terminal (CANCELLED/NO_SHOW) bookings are hidden by DEFAULT — the QR
+      // sync marks a reservation CANCELLED when it vanishes upstream, and this
+      // list feeds the /sessions recording-target picker, so a terminal slot
+      // must never be auto-selected as a recording target. The 予約 agenda
+      // alone passes includeCancelled to render them as thin tombstone rows
+      // (grey キャンセル済み / warning-tinted 無断キャンセル) in their original
+      // time slot (the freed slot stays visible to staff).
+      .filter((a) => (opts?.includeCancelled ? true : !isTerminalStatus(a.status)))
       .map((a) => ({
         id: a.id,
         staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
@@ -204,6 +218,9 @@ export async function getAppointmentsByDate(
         customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
         synqed_status: a.status,
         source: a.source,
+        // SDK-skew: status_reason isn't in the installed client's Appointment
+        // type yet (synqed-core #39); cast to read it.
+        status_reason: (a as typeof a & { status_reason?: string | null }).status_reason ?? null,
       }))
   } catch {
     return []
@@ -228,9 +245,10 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
     const [synqed, scope] = await Promise.all([getSynqedClient(), resolveStoreScope()])
     const a = await synqed.appointments.get(id)
     if (!a) return null
-    // A cancelled booking must never resolve as a recording target (the record
-    // page falls back to the next candidate instead). Mirrors the by-date hide.
-    if (a.status === 'CANCELLED') return null
+    // A cancelled OR no-show booking must never resolve as a recording target
+    // (the record page falls back to the next candidate instead). Mirrors the
+    // by-date hide.
+    if (isTerminalStatus(a.status)) return null
     // Store clamp: the list reads are store-filtered, but this per-id read would
     // otherwise let a branch-restricted staff resolve ANY booking by deep link.
     // Fail closed on a storeless row (a handful of pre-repair imports have no
@@ -265,6 +283,7 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
       customers: customerName ? { name: customerName } : null,
       synqed_status: a.status,
       source: a.source,
+      status_reason: (a as typeof a & { status_reason?: string | null }).status_reason ?? null,
     }
   } catch {
     return null
@@ -381,10 +400,13 @@ export async function cancelAppointment(
 
 /**
  * Un-cancels a booking (status → SCHEDULED) — the one-tap exit for a staff
- * mis-cancel, offered from the greyed キャンセル済み row's sheet. Safe by
- * construction: ticket-neutral both ways, and restoring a booking the customer
- * REALLY cancelled upstream self-heals — the next QR crawl marks it CANCELLED
- * again (markOrphanedCancelled), so a wrong undo survives at most one sync.
+ * mis-cancel or mis-marked no-show, offered from the tombstone row's sheet
+ * (キャンセル済み AND 無断キャンセル rows both use this). Safe by construction:
+ * status-only, NEVER sends ticket fields both ways — a no-show restore does
+ * NOT auto-unburn a redeemed ticket; unburning is a separate, explicit pack
+ * action. Restoring a booking the customer REALLY cancelled upstream
+ * self-heals — the next QR crawl marks it CANCELLED again (markOrphanedCancelled),
+ * so a wrong undo survives at most one sync.
  */
 export async function restoreAppointment(
   appointmentId: string,
@@ -400,4 +422,82 @@ export async function restoreAppointment(
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
+}
+
+export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'below_zero' }
+
+/**
+ * Marks a booking NO_SHOW (synqed-core #39), optionally burning one session
+ * off the customer's oldest active pack (ticket-neutral is the CANCELLED
+ * path's contract, not this one — a no-show is the explicit staff choice to
+ * charge a session). `counts_as_visit: false` is sent on the burn so
+ * visit-count-driven surfaces (lifecycle, dormancy) don't treat the no-show
+ * as a completed visit.
+ */
+export async function markNoShowAppointment(
+  appointmentId: string,
+  input: { reason: string; burnPack: boolean },
+): Promise<{ success: true } | MarkNoShowError> {
+  try {
+    await requireCapability('bookings.manage')
+    const synqed = await getSynqedClient()
+
+    if (input.burnPack) {
+      const appt = await synqed.appointments.get(appointmentId)
+      if (!appt) return { error: 'Booking not found.' }
+      const packs = await listCustomerPacks(appt.customer_id)
+      const target = pickRedemptionTarget(packs)
+      if (!target) {
+        return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
+      }
+      const burn = await addRedemption({
+        packId: target.id,
+        customerId: appt.customer_id,
+        redeemedOn: ymdInJst(new Date(appt.starts_at)),
+        appointmentId,
+        source: 'manual',
+        countsAsVisit: false,
+      })
+      if (!burn.ok) {
+        return burn.error === 'below_zero'
+          ? { error: 'This pack has no sessions left.', code: 'below_zero' }
+          : { error: burn.error }
+      }
+    }
+
+    // acting_staff_id is optional in core; source it the same way #395 sourced
+    // it for setPin/removePin (getCurrentUserStaffId — the signed-in staff's
+    // resolved id, never client input). Omitted when there's no resolvable
+    // staff identity rather than blocking the no-show mark.
+    const actingStaffId = await getCurrentUserStaffId()
+    const patch: { status: 'NO_SHOW'; status_reason: string; acting_staff_id?: string } = {
+      status: 'NO_SHOW',
+      status_reason: input.reason,
+      ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
+    }
+    // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
+    // NO_SHOW / status_reason / acting_staff_id yet (synqed-core #39) — the
+    // client JSON-stringifies the input verbatim, so the fields flow through
+    // at runtime.
+    await synqed.appointments.update(
+      appointmentId,
+      patch as unknown as Parameters<typeof synqed.appointments.update>[1],
+    )
+    revalidatePath('/appointments')
+    revalidatePath('/dashboard')
+    updateTag('dashboard')
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** Whether the customer has a burnable pack, for the no-show sheet's burn
+ *  toggle (lazy-fetched when the no-show section opens — no reason to pay for
+ *  this on every sheet open). Same FIFO target the burn itself uses. */
+export async function getBurnablePackSummary(
+  customerId: string,
+): Promise<{ packId: string; remaining: number } | null> {
+  const target = pickRedemptionTarget(await listCustomerPacks(customerId))
+  return target ? { packId: target.id, remaining: target.remaining } : null
 }

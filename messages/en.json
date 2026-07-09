@@ -183,11 +183,12 @@
       "packLeft": "{remaining}/{size} left",
       "unrecorded": "No record",
       "nextUp": "Next ▸",
-      "cancelled": "Cancelled"
+      "cancelled": "Cancelled",
+      "noShow": "No-show"
     },
     "cancelSheet": {
       "title": "Cancel this booking?",
-      "ticketNote": "No ticket will be used. A no-show ticket charge becomes selectable in an upcoming update.",
+      "ticketNote": "No ticket will be used. A no-show ticket charge is selectable below.",
       "holdLabel": "Hold to cancel",
       "holdHint": "Press and hold for about a second to confirm",
       "holdKeep": "Keep holding…",
@@ -198,7 +199,24 @@
       "restoring": "Restoring…",
       "restored": "Restored {name}'s booking",
       "staffPrefix": "Staff",
-      "close": "Close"
+      "close": "Close",
+      "noShowSectionLabel": "No-show",
+      "noShowReasons": {
+        "no-show-no-contact": "No contact",
+        "same-day-contacted": "Contacted same day",
+        "first-time-no-show": "First-time no-show"
+      },
+      "burnPack": "Use 1 ticket session ({n} left)",
+      "noShowHoldLabel": "Hold to mark no-show",
+      "noShowDone": "Marked {name}'s booking as a no-show",
+      "noShowRestoreTitle": "No-show booking",
+      "noShowBody": "This booking is recorded as a no-show.",
+      "reason": "Reason",
+      "noShowError": {
+        "no_burnable_pack": "This customer has no ticket to use.",
+        "below_zero": "This ticket pack has no sessions left."
+      },
+      "noShowErrorGeneric": "Something went wrong."
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",

@@ -7,6 +7,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import {
   listAllLifecycles,
   listAllPackUsage,
@@ -92,7 +93,7 @@ export async function loadUnprocessedVisits(): Promise<ReconcileData> {
       id: a.id,
       customerId: a.customer_id,
       visitDayJst: ymdInJst(new Date(a.starts_at)),
-      isCancelled: (a.status ?? '') === 'CANCELLED',
+      isCancelled: isTerminalStatus(a.status ?? ''),
       isImport: (a.notes ?? '').includes('sheet-import'),
       hasKarute: karuteByAppointment.has(a.id),
     }))

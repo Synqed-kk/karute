@@ -1,6 +1,7 @@
 import type { AppointmentRow } from '@/actions/appointments'
 import type { StaffMember } from '@/lib/staff'
 import { assignStaffColors, type StaffColorKey } from '@/lib/staff-colors'
+import { isTerminalStatus } from '@/lib/appointments/status'
 
 // ---------------------------------------------------------------------------
 // Adapter: AppointmentRow -> ReservationView for the reservation UI.
@@ -51,6 +52,13 @@ export interface ReservationView {
    *  dimming, but a cancelled booking must stay distinguishable (strikethrough
    *  time): the slot is FREE, a finished session is not. */
   isCancelled: boolean
+  /** Raw NO_SHOW from synqed (synqed-core #39) — a terminal booking like
+   *  isCancelled, but must render as a DISTINCT 無断キャンセル tombstone
+   *  (warning tint) instead of the grey キャンセル済み one. */
+  isNoShow: boolean
+  /** status_reason from core, for CANCELLED/NO_SHOW rows — the no-show
+   *  sheet's restore mode shows it. null for active rows or when absent. */
+  statusReason: string | null
   staffColorKey: StaffColorKey | 'neutral'
   /** ID of the customer, used to route follow-up actions (memory, new karute). */
   clientId: string
@@ -103,7 +111,7 @@ export function computeDisplayStatus(
   now: Date,
   opts: DisplayStatusOptions = {},
 ): DisplayStatus {
-  if (row.synqed_status === 'COMPLETED' || row.synqed_status === 'CANCELLED') return 'completed'
+  if (row.synqed_status === 'COMPLETED' || isTerminalStatus(row.synqed_status)) return 'completed'
   if (row.synqed_status === 'IN_PROGRESS') return 'in_session'
   const start = new Date(row.start_time).getTime()
   const end = start + row.duration_minutes * 60_000
@@ -164,6 +172,8 @@ export function appointmentsToReservationViews(
       service: r.title ?? '',
       displayStatus: computeDisplayStatus(r, now, { isFirstTimeCustomer }),
       isCancelled: r.synqed_status === 'CANCELLED',
+      isNoShow: r.synqed_status === 'NO_SHOW',
+      statusReason: r.status_reason,
       staffColorKey: staffColors.get(r.staff_profile_id)?.key ?? 'neutral',
       clientId: r.client_id,
       karuteRecordId: r.karute_record_id,
