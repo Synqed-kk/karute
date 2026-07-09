@@ -2027,8 +2027,6 @@
     "consentRequiredDescription": "Only meaningful in Mode C.",
     "consentTemplate": "Consent template text",
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
-    "enrollVoice": "Enroll voice",
-    "voiceEnrollmentSoon": "Voice enrollment — coming soon",
     "contactSales": "Contact sales",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
