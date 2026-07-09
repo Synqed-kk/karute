@@ -49,6 +49,15 @@ export interface AppointmentRow {
    *  the installed client type doesn't declare this field yet — read via a
    *  narrow cast at the call site. null when absent or not terminal. */
   status_reason: string | null
+  /** Display name of the staff who set the current status (resolved from
+   *  core's status_set_by — a staff id — via the staff list already fetched
+   *  at the call site). null when absent (sync-set rows carry no
+   *  status_set_by) or not yet resolvable. */
+  status_set_by_name: string | null
+  /** status_set_at from core (audit trail timestamp for CANCELLED/NO_SHOW/
+   *  restore). SDK-skew: same narrow-cast pattern as status_reason. null
+   *  when absent or not terminal. */
+  status_set_at: string | null
 }
 
 /** Store for a booking made from the all-stores view: the booked staff member's
@@ -195,6 +204,9 @@ export async function getAppointmentsByDate(
         .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
         .map((s) => [s.id, s.user_id]),
     )
+    // status_set_by (core staff id) -> display name, resolved here since this
+    // is the one place that already has the full staff list in hand.
+    const nameByStaffId = new Map(staffList.staff.map((s) => [s.id, s.name]))
 
     return list.appointments
       // Terminal (CANCELLED/NO_SHOW) bookings are hidden by DEFAULT — the QR
@@ -205,23 +217,29 @@ export async function getAppointmentsByDate(
       // (grey キャンセル済み / warning-tinted 無断キャンセル) in their original
       // time slot (the freed slot stays visible to staff).
       .filter((a) => (opts?.includeCancelled ? true : !isTerminalStatus(a.status)))
-      .map((a) => ({
-        id: a.id,
-        staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
-        client_id: a.customer_id,
-        start_time: a.starts_at,
-        duration_minutes: a.duration_minutes ?? 0,
-        title: a.title,
-        notes: a.notes,
-        karute_record_id: karuteByAppointment.get(a.id) ?? null,
-        created_at: a.created_at,
-        customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
-        synqed_status: a.status,
-        source: a.source,
-        // SDK-skew: status_reason isn't in the installed client's Appointment
-        // type yet (synqed-core #39); cast to read it.
-        status_reason: (a as typeof a & { status_reason?: string | null }).status_reason ?? null,
-      }))
+      .map((a) => {
+        // SDK-skew: status_reason/status_set_by/status_set_at aren't in the
+        // installed client's Appointment type yet (synqed-core #39); cast to
+        // read them.
+        const statusSetBy = (a as typeof a & { status_set_by?: string | null }).status_set_by ?? null
+        return {
+          id: a.id,
+          staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
+          client_id: a.customer_id,
+          start_time: a.starts_at,
+          duration_minutes: a.duration_minutes ?? 0,
+          title: a.title,
+          notes: a.notes,
+          karute_record_id: karuteByAppointment.get(a.id) ?? null,
+          created_at: a.created_at,
+          customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
+          synqed_status: a.status,
+          source: a.source,
+          status_reason: (a as typeof a & { status_reason?: string | null }).status_reason ?? null,
+          status_set_by_name: statusSetBy ? nameByStaffId.get(statusSetBy) ?? null : null,
+          status_set_at: (a as typeof a & { status_set_at?: string | null }).status_set_at ?? null,
+        }
+      })
   } catch {
     return []
   }
@@ -269,6 +287,13 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
         .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
         .map((s) => [s.id, s.user_id]),
     )
+    // status_set_by (core staff id) -> display name, resolved here since this
+    // is the one place that already has the full staff list in hand.
+    const nameByStaffId = new Map(staffList.staff.map((s) => [s.id, s.name]))
+    // SDK-skew: status_reason/status_set_by/status_set_at aren't in the
+    // installed client's Appointment type yet (synqed-core #39); cast to
+    // read them.
+    const statusSetBy = (a as typeof a & { status_set_by?: string | null }).status_set_by ?? null
 
     return {
       id: a.id,
@@ -284,6 +309,8 @@ export async function getAppointmentById(id: string): Promise<AppointmentRow | n
       synqed_status: a.status,
       source: a.source,
       status_reason: (a as typeof a & { status_reason?: string | null }).status_reason ?? null,
+      status_set_by_name: statusSetBy ? nameByStaffId.get(statusSetBy) ?? null : null,
+      status_set_at: (a as typeof a & { status_set_at?: string | null }).status_set_at ?? null,
     }
   } catch {
     return null
@@ -388,7 +415,23 @@ export async function cancelAppointment(
     // await without a try/catch and toast the { error } shape.
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
-    await synqed.appointments.update(appointmentId, { status: 'CANCELLED' })
+
+    // acting_staff_id is optional in core; source it the same way #395 sourced
+    // it for setPin/removePin (getCurrentUserStaffId — the signed-in staff's
+    // resolved id, never client input). Omitted when there's no resolvable
+    // staff identity rather than blocking the cancel.
+    const actingStaffId = await getCurrentUserStaffId()
+    const patch: { status: 'CANCELLED'; acting_staff_id?: string } = {
+      status: 'CANCELLED',
+      ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
+    }
+    // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
+    // acting_staff_id yet (synqed-core #39) — the client JSON-stringifies the
+    // input verbatim, so the field flows through at runtime.
+    await synqed.appointments.update(
+      appointmentId,
+      patch as unknown as Parameters<typeof synqed.appointments.update>[1],
+    )
     revalidatePath('/appointments')
     revalidatePath('/dashboard')
     updateTag('dashboard')
@@ -417,7 +460,23 @@ export async function restoreAppointment(
   try {
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
-    await synqed.appointments.update(appointmentId, { status: 'SCHEDULED' })
+
+    // acting_staff_id is optional in core; source it the same way #395 sourced
+    // it for setPin/removePin (getCurrentUserStaffId — the signed-in staff's
+    // resolved id, never client input). Omitted when there's no resolvable
+    // staff identity rather than blocking the restore.
+    const actingStaffId = await getCurrentUserStaffId()
+    const patch: { status: 'SCHEDULED'; acting_staff_id?: string } = {
+      status: 'SCHEDULED',
+      ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
+    }
+    // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
+    // acting_staff_id yet (synqed-core #39) — the client JSON-stringifies the
+    // input verbatim, so the field flows through at runtime.
+    await synqed.appointments.update(
+      appointmentId,
+      patch as unknown as Parameters<typeof synqed.appointments.update>[1],
+    )
     revalidatePath('/appointments')
     revalidatePath('/dashboard')
     updateTag('dashboard')

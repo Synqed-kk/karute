@@ -18,7 +18,7 @@
 // never re-issues a burned ticket; unburning is a separate, explicit action.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useTranslations, useLocale } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
 import { toast } from 'sonner'
 import { AlertTriangle, Ban, ChevronDown, RotateCcw, X } from 'lucide-react'
@@ -31,6 +31,7 @@ import {
 import { NO_SHOW_REASONS, type NoShowReason } from '@/lib/appointments/status'
 import { useHoldToConfirm } from '@/hooks/use-hold-to-confirm'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
+import { formatCompactDateJst, hmInJst } from '@/lib/date/jst'
 import { cn } from '@/lib/utils'
 
 const HOLD_MS = 900
@@ -44,6 +45,7 @@ interface CancelBookingSheetProps {
 export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingSheetProps) {
   const t = useTranslations('reservation.cancelSheet')
   const tc = useTranslations('reservation')
+  const locale = useLocale()
   const router = useRouter()
   const [busy, setBusy] = useState(false)
 
@@ -315,6 +317,17 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
             {booking.isNoShow && booking.statusReason && (
               <p className="mt-2 text-xs text-muted-foreground">
                 {t('reason')}: {reasonLabel(booking.statusReason)}
+              </p>
+            )}
+            {/* Sync-cancelled rows (QR crawl) carry no status_set_by — render
+             *  nothing rather than an empty "操作" label. */}
+            {booking.statusSetByName && booking.statusSetAt && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t('statusSetBy', {
+                  name: booking.statusSetByName,
+                  date: formatCompactDateJst(new Date(booking.statusSetAt), locale),
+                  time: hmInJst(new Date(booking.statusSetAt)),
+                })}
               </p>
             )}
             <button
