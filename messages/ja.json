@@ -182,7 +182,23 @@
       "renewalFlag": "更新案内",
       "packLeft": "残{remaining}/{size}",
       "unrecorded": "未記録",
-      "nextUp": "次 ▸"
+      "nextUp": "次 ▸",
+      "cancelled": "キャンセル済み"
+    },
+    "cancelSheet": {
+      "title": "この予約をキャンセルしますか？",
+      "ticketNote": "回数券は消化されません。無断キャンセルの消化は、今後の機能で選べるようになります。",
+      "holdLabel": "長押しでキャンセル",
+      "holdHint": "ボタンを約1秒間押し続けると確定します",
+      "holdKeep": "そのまま押し続けてください…",
+      "done": "{name}様の予約をキャンセルしました",
+      "cancelledTitle": "キャンセル済みの予約",
+      "cancelledBody": "この予約はキャンセルされています。回数券は消化されていません。",
+      "restore": "元に戻す",
+      "restoring": "戻しています…",
+      "restored": "{name}様の予約を元に戻しました",
+      "staffPrefix": "担当",
+      "close": "閉じる"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",

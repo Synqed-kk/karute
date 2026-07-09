@@ -182,7 +182,23 @@
       "renewalFlag": "Renewal",
       "packLeft": "{remaining}/{size} left",
       "unrecorded": "No record",
-      "nextUp": "Next ▸"
+      "nextUp": "Next ▸",
+      "cancelled": "Cancelled"
+    },
+    "cancelSheet": {
+      "title": "Cancel this booking?",
+      "ticketNote": "No ticket will be used. A no-show ticket charge becomes selectable in an upcoming update.",
+      "holdLabel": "Hold to cancel",
+      "holdHint": "Press and hold for about a second to confirm",
+      "holdKeep": "Keep holding…",
+      "done": "Cancelled {name}'s booking",
+      "cancelledTitle": "Cancelled booking",
+      "cancelledBody": "This booking is cancelled. No ticket was used.",
+      "restore": "Restore",
+      "restoring": "Restoring…",
+      "restored": "Restored {name}'s booking",
+      "staffPrefix": "Staff",
+      "close": "Close"
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
