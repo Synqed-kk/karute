@@ -1,5 +1,6 @@
 'use server'
 
+import { cache } from 'react'
 import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 
@@ -132,9 +133,11 @@ export async function getActiveStoreId(): Promise<string | null> {
   return jar.get(ACTIVE_STORE_COOKIE)?.value ?? null
 }
 
-/** The business's primary store id (?? first store). Null when the business
- *  has no stores yet or the lookup fails. */
-export async function getPrimaryStoreId(): Promise<string | null> {
+// Per-request dedupe (React cache): layout + page + actions each resolve the
+// store scope, and a viewer with no pinned cookie (every single-store salon —
+// the switcher never renders for them) would otherwise pay one stores.list
+// core roundtrip per call site on every request.
+const primaryStoreIdOnce = cache(async (): Promise<string | null> => {
   try {
     const synqed = await getSynqedClient()
     const { stores } = await synqed.stores.list()
@@ -142,6 +145,12 @@ export async function getPrimaryStoreId(): Promise<string | null> {
   } catch {
     return null
   }
+})
+
+/** The business's primary store id (?? first store). Null when the business
+ *  has no stores yet or the lookup fails. */
+export async function getPrimaryStoreId(): Promise<string | null> {
+  return primaryStoreIdOnce()
 }
 
 /** The store that store-scoped reads/writes default to: the pinned cookie,
