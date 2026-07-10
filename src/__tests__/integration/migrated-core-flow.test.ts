@@ -30,6 +30,7 @@ jest.mock('@/lib/staff', () => ({
 // This suite isolates the synqed-client delegation, not store scoping.
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 
 // RBAC gate neutralized — this flow test isolates the synqed-client delegation,
