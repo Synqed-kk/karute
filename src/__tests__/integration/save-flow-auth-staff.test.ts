@@ -24,6 +24,13 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => currentStaffId),
 }))
 
+// Store resolution for karute writes (no appointment → active-store cookie).
+// This suite isolates staff attribution, so the cookie lookup is stubbed out.
+jest.mock('@/actions/stores', () => ({
+  getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
+}))
+
 // RBAC gate is neutralized here — these tests isolate staff attribution, not
 // permissions. Dedicated capability tests live in rbac-server-enforcement.test.ts.
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -65,14 +72,16 @@ describe('saveKaruteRecord — staff attribution', () => {
 
   it('attributes to the RECORDER even when the booking belongs to another staff', async () => {
     currentStaffId = 'me-staff'
-    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'appt-staff' })
+    appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'appt-staff', store_id: 'store-1' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
     await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-1' })
     expect(karuteRecords.create).toHaveBeenCalledWith(
-      expect.objectContaining({ staff_id: 'me-staff', appointment_id: 'ap-1' }),
+      expect.objectContaining({ staff_id: 'me-staff', appointment_id: 'ap-1', store_id: 'store-1' }),
     )
-    // Recorder known → no need to look the appointment's staff up.
-    expect(appointments.get).not.toHaveBeenCalled()
+    // Recorder known → no need to look the appointment's staff up for THAT, but
+    // it's still fetched once for store_id (the booking's store is the truth of
+    // where the session happened).
+    expect(appointments.get).toHaveBeenCalledTimes(1)
   })
 
   it("falls back to the appointment's staff only when the signer has no staff identity", async () => {

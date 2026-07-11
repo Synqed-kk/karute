@@ -182,3 +182,12 @@ describe('getAppointmentById — store scope', () => {
     expect(row?.id).toBe('appt-x')
   })
 })
+
+describe('getAppointmentById — recording-target guard', () => {
+  it('a NO_SHOW appointment resolves to null — never a recording target', async () => {
+    crossStore(null)
+    const { get } = await appointmentsMock()
+    get.mockResolvedValueOnce({ ...makeSynqedAppointment(null), status: 'NO_SHOW' })
+    expect(await getAppointmentById('appt-x')).toBeNull()
+  })
+})

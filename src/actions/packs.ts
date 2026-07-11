@@ -46,6 +46,11 @@ export async function createPackAction(input: {
     return { ok: false, error: 'packSize must be > 0' }
   if (!Number.isFinite(input.unitPrice) || input.unitPrice < 0)
     return { ok: false, error: 'unitPrice must be >= 0' }
+  // A single session is one session — server-enforced so no future caller can
+  // send kind:'single' with packSize 10 and inflate the derived total_price
+  // (today's forms clamp this client-side; the money rule lives here).
+  if (input.kind === 'single' && input.packSize !== 1)
+    return { ok: false, error: 'single kind must have packSize 1' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   // SERVER-derived 購入回数 when the caller doesn't supply one (the stop-dialog
   // picker doesn't): highest STORED round + 1, never a row count — the imports
@@ -54,8 +59,16 @@ export async function createPackAction(input: {
   // Identical to TicketPackCard's nextRound; business-wide, store-blind.
   const purchaseRound =
     input.purchaseRound ?? nextPurchaseRound(await listCustomerPacks(input.customerId))
+  // SERVER-derived 合計金額 when the caller doesn't supply one — NEITHER form
+  // does (profile AddPackDialog, stop-dialog picker), which saved every pack
+  // with total_price null and zeroed pack revenue. The app prices per-session
+  // (単価 field, unconsumedValue = remaining × unit_price), so the amount the
+  // customer paid IS unit × size. Defaulted here, not in the forms, so every
+  // caller — present and future — is covered by one rule.
+  const totalPrice = input.totalPrice ?? input.unitPrice * input.packSize
   const result = await createPack({
     ...(input as CreatePackInput),
+    totalPrice,
     purchaseRound,
     source: 'manual',
     createdBy: staffId,

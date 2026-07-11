@@ -6,10 +6,95 @@ import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getDefaultStoreId } from '@/actions/stores'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
-import type { KaruteRecord } from '@synqed-kk/client'
+import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
+
+/**
+ * Resolve which store a karute record write should be stamped with. Reads are
+ * already store-filtered (synqed-core PR #18); this is the write side.
+ *
+ * The booking's store is the truth of where the session happened, so an
+ * appointment-linked save is stamped with ITS store_id — fetched fresh unless
+ * the caller already pulled the appointment (e.g. for staff-id fallback), in
+ * which case that's reused so a save never fetches the same appointment
+ * twice. With no appointment, fall back to the viewer's active-store cookie,
+ * else the primary store (getDefaultStoreId) — never mint a NULL-store record
+ * for a viewer who simply hasn't touched the switcher, or it vanishes from
+ * every store-scoped カルテ list.
+ */
+async function resolveKaruteStoreId(
+  synqed: SynqedClient,
+  appointmentId: string | null | undefined,
+  fetchedAppointment?: Appointment | null,
+): Promise<string | null> {
+  if (appointmentId) {
+    const appt = fetchedAppointment ?? (await synqed.appointments.get(appointmentId).catch(() => null))
+    return appt?.store_id ?? null
+  }
+  return getDefaultStoreId()
+}
+
+/**
+ * Create the karute record — or, if this recording session was ALREADY saved,
+ * UPDATE that record with the newest content instead.
+ *
+ * Why: core's idempotent create (synqed-core #38) returns the EXISTING record
+ * when recording_session_id repeats. If an autosave lands server-side but the
+ * client sees a network error, the staff is routed to review, edits the
+ * summary/entries, and re-saves — the bare create would hand back the OLD
+ * record and report success while every edit silently vanished. Upserting by
+ * recording session makes the record converge on what the staff last saw
+ * (core's update does a FULL entries replace — verified in karute.service).
+ *
+ * `fresh` tells the caller whether memory ingest should run — an update is a
+ * retry of a transcript that was already ingested on the first save.
+ * Residual race (concurrent first saves both passing the lookup) falls back
+ * to core's dedupe, which is correct there: both carry identical content.
+ */
+async function createOrUpdateKaruteRecord(
+  synqed: SynqedClient,
+  payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
+): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
+  const recordingSessionId = payload.recording_session_id
+  if (recordingSessionId) {
+    // ONLY a 404 means "no record yet". Any other lookup failure (timeout,
+    // backend error) must FAIL the save so the client retries — falling
+    // through to create() would re-enter core's idempotent dedupe and hand
+    // back stale content as success: the exact bug this upsert exists to
+    // prevent. Structural status check (not instanceof) so partial test
+    // mocks of the client package can't break the detection.
+    const existing = await synqed.karuteRecords
+      .getByRecordingSession(recordingSessionId)
+      .catch((err: unknown) => {
+        const status =
+          err && typeof err === 'object' && 'status' in err
+            ? (err as { status: unknown }).status
+            : undefined
+        if (status === 404) return null
+        throw err
+      })
+    if (existing) {
+      await synqed.karuteRecords.update(existing.id, {
+        transcript: payload.transcript,
+        ai_summary: payload.ai_summary,
+        entries: payload.entries,
+        appointment_id: payload.appointment_id,
+      })
+      return {
+        id: existing.id,
+        fresh: false,
+        // The retry EDITED the transcript → there's genuinely new material
+        // for memory ingest; an identical transcript is just a resend.
+        transcriptChanged: existing.transcript !== payload.transcript,
+      }
+    }
+  }
+  const record = await synqed.karuteRecords.create(payload)
+  return { id: record.id, fresh: true, transcriptChanged: true }
+}
 
 /**
  * The recent karute records for ONE customer, newest first — read from
@@ -77,18 +162,23 @@ export async function saveKaruteRecord(
     // the karte correctly saves under YOU. The appointment's staff is only a
     // fallback for an account with no staff identity, so the save never fails.
     let staffId: string | null = await getCurrentUserStaffId()
+    let fetchedAppointment: Appointment | null = null
     if (!staffId && input.appointmentId) {
-      const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = appt?.staff_id ?? null
+      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
+      staffId = fetchedAppointment?.staff_id ?? null
     }
     if (!staffId) {
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const record = await synqed.karuteRecords.create({
+    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
+
+    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(synqed, {
       customer_id: input.customerId,
+      store_id: storeId,
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
+      recording_session_id: input.recordingSessionId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
@@ -99,11 +189,12 @@ export async function saveKaruteRecord(
         is_manual: false,
       })),
     })
-    recordId = record.id
+    recordId = id
 
     // Best-effort: persist the session outcome (the coaching training label).
     // NEVER gate the save/redirect on it — the recording is the critical
-    // artifact, and setKaruteOutcome swallows its own errors.
+    // artifact, and setKaruteOutcome swallows its own errors. Runs on the
+    // update path too (upsert semantics — the retry's outcome decision wins).
     if (input.outcome) {
       await setKaruteOutcome({
         karuteRecordId: recordId,
@@ -118,13 +209,18 @@ export async function saveKaruteRecord(
     // Best-effort: grow the customer's persistent memory from this transcript
     // (the personal-bits + body-trajectory loop). Awaited so it reliably runs in
     // serverless; never throws — the recording is the critical artifact.
-    await ingestSessionMemory({
-      customerId: input.customerId,
-      transcript: input.transcript,
-      locale: await getLocale(),
-      // Live-recording save — the session is today (JST).
-      sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
-    })
+    // Fresh saves — or a retry whose transcript was EDITED in review (new
+    // material for memory). A retry resending an identical transcript is
+    // skipped: re-extraction would only stack duplicate memory items.
+    if (fresh || transcriptChanged) {
+      await ingestSessionMemory({
+        customerId: input.customerId,
+        transcript: input.transcript,
+        locale: await getLocale(),
+        // Live-recording save — the session is today (JST).
+        sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+      })
+    }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
@@ -141,7 +237,8 @@ export async function saveKaruteRecord(
 
 /**
  * Same as saveKaruteRecord but returns the record ID instead of redirecting.
- * Used by the RecordingPanel which stays on the appointments page.
+ * Used by ProcessingIndicator's background auto-save (the staff never comes
+ * back to a review screen for a known customer + chosen outcome).
  */
 export async function saveKaruteRecordInline(
   input: SaveKaruteInput,
@@ -153,15 +250,29 @@ export async function saveKaruteRecordInline(
 
     const synqed = await getSynqedClient()
 
-    const staffId = await getCurrentUserStaffId()
+    // Same recorder-first attribution + appointment-staff fallback as
+    // saveKaruteRecord: autosave only ever fires for appointment-bound takes
+    // (global-pipeline requires appointmentCustomerId), which is exactly the
+    // shape where the fallback works — without it, every autosave on a
+    // PIN-less shared account failed over to manual review.
+    let staffId: string | null = await getCurrentUserStaffId()
+    let fetchedAppointment: Appointment | null = null
+    if (!staffId && input.appointmentId) {
+      fetchedAppointment = await synqed.appointments.get(input.appointmentId).catch(() => null)
+      staffId = fetchedAppointment?.staff_id ?? null
+    }
     if (!staffId) {
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const record = await synqed.karuteRecords.create({
+    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
+
+    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(synqed, {
       customer_id: input.customerId,
+      store_id: storeId,
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
+      recording_session_id: input.recordingSessionId ?? null,
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
@@ -177,7 +288,7 @@ export async function saveKaruteRecordInline(
     // Never gate the return on it; setKaruteOutcome swallows its own errors.
     if (input.outcome) {
       await setKaruteOutcome({
-        karuteRecordId: record.id,
+        karuteRecordId: id,
         customerId: input.customerId,
         status: input.outcome.status,
         reason: input.outcome.reason,
@@ -186,18 +297,21 @@ export async function saveKaruteRecordInline(
       })
     }
 
-    // Best-effort memory ingest — same loop as saveKaruteRecord.
-    await ingestSessionMemory({
-      customerId: input.customerId,
-      transcript: input.transcript,
-      locale: await getLocale(),
-      // Live-recording save — the session is today (JST).
-      sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
-    })
+    // Best-effort memory ingest — same gate as saveKaruteRecord: fresh saves
+    // or edited-transcript retries; identical resends skip.
+    if (fresh || transcriptChanged) {
+      await ingestSessionMemory({
+        customerId: input.customerId,
+        transcript: input.transcript,
+        locale: await getLocale(),
+        // Live-recording save — the session is today (JST).
+        sessionDate: new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Tokyo' }),
+      })
+    }
 
     revalidatePath(`/customers/${input.customerId}`)
     updateTag('dashboard')
-    return { id: record.id }
+    return { id }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unexpected error' }
   }
@@ -266,8 +380,13 @@ export async function createManualKaruteRecord(input: {
 
     const synqed = await getSynqedClient()
 
+    // Manual creation has no linked appointment — store resolution falls
+    // straight to the viewer's active-store cookie.
+    const storeId = await resolveKaruteStoreId(synqed, null)
+
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,
+      store_id: storeId,
       staff_id: input.staffId,
       status: 'DRAFT',
       // No transcript / no entries on manual create — staff fills

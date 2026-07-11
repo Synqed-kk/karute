@@ -32,6 +32,10 @@ interface ReviewScreenProps {
   /** Outcome chosen at stop (RecordPageView) — applied directly at save, so no
    *  dialog re-opens here. */
   outcome?: SessionOutcome
+  /** Server-minted recording_sessions id (synqed-core) — carried to the save so
+   *  core's idempotent-save dedupe has something to key on. null/undefined =
+   *  today's behavior (no dedupe for that save). */
+  recordingSessionId?: string | null
   onSaved: () => void
   /** Bail out without saving — clears the background pipeline + take. */
   onDiscard?: () => void
@@ -46,6 +50,7 @@ export function ReviewScreen({
   appointmentId,
   appointmentCustomerId,
   outcome,
+  recordingSessionId,
   onSaved,
   onDiscard,
 }: ReviewScreenProps) {
@@ -79,8 +84,9 @@ export function ReviewScreen({
       duration,
       appointmentId,
       appointmentCustomerId,
+      recordingSessionId: recordingSessionId ?? undefined,
     })
-  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId])
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
@@ -150,6 +156,7 @@ export function ReviewScreen({
         duration,
         appointmentId,
         outcome,
+        recordingSessionId,
       })
 
       if (result && 'error' in result) {
