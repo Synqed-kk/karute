@@ -1,5 +1,6 @@
 'use client'
 
+import { useTranslations } from 'next-intl'
 import type { StaffMember } from '@/lib/staff'
 import type { Entitlement } from '@/lib/entitlements'
 import { StaffList } from '@/components/staff/StaffList'
