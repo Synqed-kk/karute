@@ -23,14 +23,14 @@ const eslintConfig = defineConfig([
     },
   },
   {
-    // The compiler-powered immutability rule misreads test-harness patterns —
-    // capitalized mock classes, outer-variable render counters — as React
-    // components, and its diagnostics IGNORE inline eslint-disable comments
-    // (verified on CI: suppressed lines kept erroring, directives reported
-    // unused). Tests aren't components; turn it off for the test tree only.
+    // The compiler-powered purity rules misread test-harness patterns as React
+    // components: capitalized mock classes (immutability), outer-variable
+    // setter grabs and render counters (globals). Tests aren't components —
+    // turn both off for the test tree only.
     files: ["src/__tests__/**"],
     rules: {
       "react-hooks/immutability": "off",
+      "react-hooks/globals": "off",
     },
   },
 ]);
