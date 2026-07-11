@@ -124,7 +124,7 @@ export function PlanComparisonGrid({
 
   const handleAction = (tier: SubscriptionTier) => {
     if (typeof window === 'undefined') return
-    window.location.href = tier === 'enterprise' ? ENTERPRISE_MAILTO : SALES_MAILTO
+    window.location.assign(tier === 'enterprise' ? ENTERPRISE_MAILTO : SALES_MAILTO)
   }
 
   return (
