@@ -35,8 +35,15 @@ export default async function CoachingLayout({
   // The owner's org on/off toggle (access.ts's `canUse`) is Anthony's
   // org-settings wiring; this gate is the paywall axis (`entitled`).
   const entitlement = await loadEntitlement(businessId)
+  // DELIBERATE exception to the billing arming switch (Liam confirmed 7/11):
+  // coaching stays tier-locked even while billing is disarmed — the locked
+  // screen doubles as the feature's storefront. `degraded` IS honored: a core
+  // outage must never lock an entitled business out (the same fail-open every
+  // other wall uses).
   const entitled =
-    entitlement.isUnlimited || coachingEntitledForTier(entitlement.tier)
+    entitlement.degraded ||
+    entitlement.isUnlimited ||
+    coachingEntitledForTier(entitlement.tier)
   if (!entitled) {
     return <CoachingLocked />
   }

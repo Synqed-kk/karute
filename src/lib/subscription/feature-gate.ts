@@ -17,7 +17,7 @@ import 'server-only'
 
 import { getBusinessId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { loadEntitlement } from '@/lib/entitlements'
+import { billingEnforced, loadEntitlement } from '@/lib/entitlements'
 import {
   canAddStaffFor,
   entitlementHasFeature,
@@ -27,6 +27,10 @@ import {
 export async function featureAllowed(
   feature: EntitlementFeature,
 ): Promise<boolean> {
+  // Disarmed = today's behavior with ZERO added I/O — the arming switch is a
+  // pure env read, so check it before the entitlement round-trips (audit
+  // finding: 3 backend calls per AI request that decided nothing).
+  if (!billingEnforced()) return true
   try {
     const businessId = await getBusinessId()
     const ent = await loadEntitlement(businessId)
@@ -48,6 +52,10 @@ export async function staffAddAllowed(): Promise<{
   count: number
   limit: number | 'unlimited'
 }> {
+  // Same zero-I/O early exit as featureAllowed; the fallback shape matches
+  // the catch below (callers already tolerate count 0 / unlimited — the cap
+  // meter reads the separately-loaded entitlement, not this).
+  if (!billingEnforced()) return { allowed: true, count: 0, limit: 'unlimited' }
   try {
     const businessId = await getBusinessId()
     const ent = await loadEntitlement(businessId)
