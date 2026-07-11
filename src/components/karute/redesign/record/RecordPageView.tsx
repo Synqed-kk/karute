@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, use, useCallback, useEffect, useState } from 'react'
+import { Suspense, use, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { toast } from 'sonner'
@@ -55,6 +55,9 @@ import {
 } from '@/actions/packs'
 import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
+import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
+import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
 
 export interface RecordPageNextAppointment {
   id: string
@@ -94,6 +97,17 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  /** Recording target's visit-frequency segment (常連/安定/離脱気味/新規) — same
+   *  classifyVisitSegment the customer profile uses. Drives ClosingTacticHint;
+   *  null when there's no target or a terminal lifecycle decision owns them. */
+  visitSegment?: VisitSegment | null
+  /** Rhythm-bar geometry (days since last visit vs. usual interval) — same
+   *  computeVisitRhythm the customer profile's cadence math uses. Drives
+   *  VisitRhythmPanel; null without enough dated history. */
+  visitRhythm?: VisitRhythm | null
+  /** Whether the recording target holds a 回数券 — gates ClosingTacticHint's
+   *  pack vs. no-pack tactic line. */
+  targetHasTicketPack?: boolean
   /** The target customer's active 回数券 (sessions remaining) — drives the
    *  one-tap 消化 row in the post-session outcome dialog (design #1). */
   targetPack?: { id: string; remaining: number; size: number } | null
@@ -139,6 +153,9 @@ export function RecordPageView({
   aiBriefPromise,
   recentRecordings,
   consentDate,
+  visitSegment = null,
+  visitRhythm = null,
+  targetHasTicketPack = false,
   targetPack = null,
   packPresets = [],
   staffCanCustomizePacks = true,
@@ -165,6 +182,7 @@ export function RecordPageView({
     startRecording,
     stopRecording,
     discardRecording,
+    awaitRecordingSessionId,
   } = useGlobalRecorder()
 
   // Background AI pipeline (transcribe → extract → summarize). Module-level
@@ -226,6 +244,12 @@ export function RecordPageView({
   // before transcription — so they decide once, up front, then the AI runs in
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
+
+  // Re-entry + staleness guards for the use-recording flow (it awaits the
+  // session-id mint, so it's no longer atomic): first tap wins, and a discard
+  // bumps the generation so an in-flight use drops its now-discarded take.
+  const usingRecording = useRef(false)
+  const useRecordingGen = useRef(0)
 
   // Crash recovery: a draft persisted by ReviewScreen from a session that was
   // never saved (WebView killed, tab reloaded). Loaded after mount (client-only,
@@ -330,36 +354,61 @@ export function RecordPageView({
     startRecording({ noiseSuppression, target: null })
   }
   function handleDiscard() {
+    // Invalidate any in-flight handleUseRecording: its post-await body must
+    // not hand a take the staff just discarded to the pipeline.
+    useRecordingGen.current++
     discardRecording()
     setPhase('idle')
   }
-  function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
+  async function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
-    // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
-    // modal on this page). The top-corner chip shows progress; staff can leave
-    // and keep working. When it's done the chip brings them back to review+save.
-    // The outcome (chosen at stop) rides along so the save applies it without
-    // re-prompting at the end.
-    // `|| undefined`: a walk-in target (customer recorded with no booking)
-    // carries id='' — coerce it so the save writes appointment_id null, not ''.
-    const effectiveAppointmentId =
-      (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
-    const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
-      ? (recordingCustomerId ?? undefined)
-      : nextAppointment?.customerId)
-    globalPipeline.start(result.blob, {
-      locale,
-      customers,
-      duration: Math.round(result.durationMs / 1000),
-      appointmentId: effectiveAppointmentId,
-      appointmentCustomerId: effectiveCustomerId,
-      outcome,
-      outcomeSkipped,
-    })
-    // The pipeline now owns the audio; clear the recorder + return to idle so
-    // the page isn't stuck on the "review your take" screen.
-    discardRecording()
-    setPhase('idle')
+    // Re-entry guard. handleUseRecording gained an await (the session-id
+    // mint), opening a real window where a double-tap — or 自動 mode's
+    // handleAutoFlow, which ALSO burns a pack session — could run twice for
+    // one take. First entry wins; the generation check after the await
+    // catches a discard racing an in-flight use.
+    if (usingRecording.current) return
+    usingRecording.current = true
+    const gen = ++useRecordingGen.current
+    try {
+      // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
+      // modal on this page). The top-corner chip shows progress; staff can leave
+      // and keep working. When it's done the chip brings them back to review+save.
+      // The outcome (chosen at stop) rides along so the save applies it without
+      // re-prompting at the end.
+      // `|| undefined`: a walk-in target (customer recorded with no booking)
+      // carries id='' — coerce it so the save writes appointment_id null, not ''.
+      const effectiveAppointmentId =
+        (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
+      const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
+        ? (recordingCustomerId ?? undefined)
+        : nextAppointment?.customerId)
+      // Recording-session id was minted at start() (in parallel with getUserMedia)
+      // — by now (recording has run its full length) it has almost always
+      // resolved; this short await only covers the rare case it hasn't yet.
+      // null on timeout/failure → save proceeds without recording_session_id,
+      // exactly as before this feature existed (no dedupe for that save).
+      const recordingSessionId = await awaitRecordingSessionId()
+      // A discard during the await bumps the generation — this take no longer
+      // belongs to us; drop it instead of pipelining a discarded recording.
+      if (gen !== useRecordingGen.current) return
+      globalPipeline.start(result.blob, {
+        locale,
+        customers,
+        duration: Math.round(result.durationMs / 1000),
+        appointmentId: effectiveAppointmentId,
+        appointmentCustomerId: effectiveCustomerId,
+        outcome,
+        outcomeSkipped,
+        recordingSessionId,
+      })
+      // The pipeline now owns the audio; clear the recorder + return to idle so
+      // the page isn't stuck on the "review your take" screen.
+      discardRecording()
+      setPhase('idle')
+    } finally {
+      usingRecording.current = false
+    }
   }
   function handleNewSession() {
     discardRecording()
@@ -389,6 +438,10 @@ export function RecordPageView({
   // coaching labels. Consume 1 session (undo-able toast) + autosave without an
   // outcome row.
   function handleAutoFlow() {
+    // Same re-entry guard as handleUseRecording — this path ALSO burns a
+    // pack session (redeemSessionAction has no server-side idempotency), so
+    // a double-tap must not fire it twice for one take.
+    if (usingRecording.current) return
     if (targetPack && boundCustomerId) {
       const from = targetPack.remaining
       void redeemSessionAction({
@@ -436,6 +489,7 @@ export function RecordPageView({
         appointmentId={pipeline.context.appointmentId}
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
+        recordingSessionId={pipeline.context.recordingSessionId}
         onSaved={() => {
           // Save persisted the record → drop the recovery draft (storage +
           // in-memory), so no stale banner reoffers a finished session.
@@ -477,6 +531,7 @@ export function RecordPageView({
         duration={recoveredDraft.duration}
         appointmentId={recoveredDraft.appointmentId}
         appointmentCustomerId={recoveredDraft.appointmentCustomerId}
+        recordingSessionId={recoveredDraft.recordingSessionId}
         onSaved={() => {
           clearDraft()
           setRecoveredDraft(null)
@@ -701,6 +756,12 @@ export function RecordPageView({
             />
             {otherStaffBanner}
             <RepurchaseCueBanner pack={targetPack} />
+            {visitRhythm && (
+              <div className="overflow-hidden rounded-2xl border border-border">
+                <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
+              </div>
+            )}
+            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             <Suspense
               key={nextAppointment?.customerId ?? 'none'}
               fallback={<BriefLoadingCard />}
@@ -723,6 +784,12 @@ export function RecordPageView({
           />
           {otherStaffBanner}
           <RepurchaseCueBanner pack={targetPack} />
+          {visitRhythm && (
+            <div className="overflow-hidden rounded-2xl border border-border">
+              <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
+            </div>
+          )}
+          <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           <Suspense
             key={nextAppointment?.customerId ?? 'none'}
             fallback={<BriefLoadingCard />}

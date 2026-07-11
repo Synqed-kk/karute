@@ -13,6 +13,7 @@ import {
   Sparkles,
   Square,
   Upload,
+  UserRound,
   Users,
   Settings,
   Menu as MenuIcon,
@@ -42,6 +43,9 @@ const MENU: Route[] = [
     ? [{ href: '/data-import' as const, label: 'dataImport', icon: Upload }]
     : []),
   { href: '/data-export', label: 'dataExport', icon: Download },
+  // Own-account profile (name/role/language/logout). Desktop reaches it via
+  // the sidebar footer dropdown; this menu entry is the ONLY mobile path.
+  { href: '/profile', label: 'profile', icon: UserRound },
   { href: '/settings', label: 'settings', icon: Settings },
 ]
 
@@ -54,6 +58,7 @@ const FALLBACK_LABELS: Record<string, string> = {
   askAi: 'Ask AI',
   dataImport: 'Import',
   dataExport: 'Export',
+  profile: 'Profile',
   settings: 'Settings',
   recording: 'Recording',
   menu: 'Menu',

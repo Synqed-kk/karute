@@ -15,7 +15,7 @@
  *
  * CAPABILITY ↔ ACTION (must match src/lib/auth/permissions.ts presets):
  *   records.write   → saveKaruteRecord(Inline), createManualKaruteRecord,
- *                     addManualEntry, deleteEntry, regenerateKaruteEntries,
+ *                     regenerateKaruteEntries,
  *                     updateKaruteSummary   (owner/manager/senior/practitioner)
  *   records.delete  → deleteKaruteRecord    (owner/manager/senior)
  *                     + cross-staff assign on createManualKaruteRecord
@@ -48,6 +48,7 @@ jest.mock('@/actions/org-settings', () => ({
 }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
@@ -119,7 +120,6 @@ import {
   deleteKaruteRecord,
   createManualKaruteRecord,
 } from '@/actions/karute'
-import { addManualEntry, deleteEntry } from '@/actions/entries'
 import {
   regenerateKaruteEntries,
   updateKaruteSummary,
@@ -198,40 +198,6 @@ describe('RBAC — records.write actions', () => {
   it('saveKaruteRecordInline with records.write returns the new id', async () => {
     const result = await saveKaruteRecordInline({ ...baseSave })
     expect(result).toEqual({ id: 'karute-1' })
-  })
-
-  it('addManualEntry requires records.write; denial returns { error }', async () => {
-    deny('records.write')
-    const result = await addManualEntry({
-      karuteRecordId: 'k-1',
-      category: 'symptom',
-      content: 'x',
-    })
-    expect(result).toEqual({ error: DENIAL })
-    expect(karuteRecords.addEntry).not.toHaveBeenCalled()
-  })
-
-  it('addManualEntry with records.write writes the entry', async () => {
-    const result = await addManualEntry({
-      karuteRecordId: 'k-1',
-      category: 'symptom',
-      content: 'x',
-    })
-    expect(result).toEqual({})
-    expect(karuteRecords.addEntry).toHaveBeenCalledTimes(1)
-  })
-
-  it('deleteEntry requires records.write (editing, not destructive); denial blocks', async () => {
-    deny('records.write')
-    const result = await deleteEntry('entry-1', 'k-1')
-    expect(result).toEqual({ error: DENIAL })
-    expect(karuteRecords.deleteEntry).not.toHaveBeenCalled()
-  })
-
-  it('deleteEntry with records.write removes the entry', async () => {
-    const result = await deleteEntry('entry-1', 'k-1')
-    expect(result).toEqual({})
-    expect(karuteRecords.deleteEntry).toHaveBeenCalledWith('k-1', 'entry-1')
   })
 
   it('regenerateKaruteEntries requires records.write; denial returns { error } and does not mutate', async () => {

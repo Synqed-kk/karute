@@ -128,6 +128,7 @@
     "askAi": "AI相談",
     "dataImport": "インポート",
     "dataExport": "エクスポート",
+    "profile": "プロフィール",
     "settings": "設定",
     "menu": "メニュー",
     "pickBooking": "予約を選択"
@@ -183,7 +184,49 @@
       "renewalFlag": "更新案内",
       "packLeft": "残{remaining}/{size}",
       "unrecorded": "未記録",
-      "nextUp": "次 ▸"
+      "nextUp": "次 ▸",
+      "cancelled": "キャンセル済み",
+      "noShow": "無断キャンセル"
+    },
+    "cancelSheet": {
+      "title": "この予約をキャンセルしますか？",
+      "ticketNote": "回数券は消化されません。無断キャンセルの消化は下の「無断キャンセル」から選べます。",
+      "holdLabel": "長押しでキャンセル",
+      "holdHint": "ボタンを約1秒間押し続けると確定します",
+      "holdKeep": "そのまま押し続けてください…",
+      "done": "{name}様の予約をキャンセルしました",
+      "cancelledTitle": "キャンセル済みの予約",
+      "cancelledBody": "この予約はキャンセルされています。回数券は消化されていません。",
+      "restore": "元に戻す",
+      "restoring": "戻しています…",
+      "restored": "{name}様の予約を元に戻しました",
+      "staffPrefix": "担当",
+      "close": "閉じる",
+      "noShowSectionLabel": "無断キャンセル",
+      "noShowReasons": {
+        "no-show-no-contact": "連絡なし",
+        "same-day-contacted": "当日連絡あり",
+        "first-time-no-show": "初回の無断キャンセル"
+      },
+      "burnPack": "回数券を1回消化する（残り{n}回）",
+      "noShowHoldLabel": "長押しで無断キャンセルにする",
+      "noShowDone": "{name}様の予約を無断キャンセルにしました",
+      "noShowRestoreTitle": "無断キャンセルの予約",
+      "noShowBody": "この予約は無断キャンセルとして記録されています。",
+      "reason": "理由",
+      "statusSetBy": "{name}が{date} {time}に操作",
+      "noShowError": {
+        "no_burnable_pack": "消化できる回数券がありません",
+        "already_terminal": "この予約はすでにキャンセルまたは無断キャンセルになっています"
+      },
+      "noShowBurnWarn": {
+        "below_zero": "{name}様の無断キャンセルは記録しました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません",
+        "already_burned": "{name}様の無断キャンセルは記録しました。この予約では回数券がすでに消化済みのため、再消化していません"
+      },
+      "noShowErrorGeneric": "操作に失敗しました",
+      "cancelErrorGeneric": "キャンセルに失敗しました。もう一度お試しください",
+      "restoreErrorGeneric": "元に戻せませんでした。予約の状態が変わっている可能性があります"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
@@ -649,7 +692,13 @@
       "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
       "deleteCta": "データを削除",
       "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
-      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です",
+      "consentRevokeTitle": "録音同意",
+      "consentRevokeBody": "{date}に取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeBodyNoDate": "同意取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeCta": "録音同意を取り消す",
+      "consentRevokeConfirm": "録音の同意を取り消しますか？次回の録音前に、スタッフが改めて同意を取得する必要があります。",
+      "consentRevokeSuccess": "録音同意を取り消しました。"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
@@ -868,7 +917,8 @@
         "ageValue": "{age}歳",
         "bookingDate": "予約 {date}",
         "bookingNone": "予約なし",
-        "packFraction": "残{n}/{m}"
+        "packFraction": "残{n}/{m}",
+        "noShowChip": "無断欠席{count}回"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
@@ -2055,8 +2105,6 @@
     "consentRequiredDescription": "モードCのみ有効です。",
     "consentTemplate": "同意テンプレート文",
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
-    "enrollVoice": "音声を登録",
-    "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",

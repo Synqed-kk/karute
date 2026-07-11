@@ -128,6 +128,7 @@
     "askAi": "Ask AI",
     "dataImport": "Import",
     "dataExport": "Export",
+    "profile": "Profile",
     "settings": "Settings",
     "menu": "More",
     "pickBooking": "Pick booking"
@@ -183,7 +184,49 @@
       "renewalFlag": "Renewal",
       "packLeft": "{remaining}/{size} left",
       "unrecorded": "No record",
-      "nextUp": "Next ▸"
+      "nextUp": "Next ▸",
+      "cancelled": "Cancelled",
+      "noShow": "No-show"
+    },
+    "cancelSheet": {
+      "title": "Cancel this booking?",
+      "ticketNote": "No ticket will be used. A no-show ticket charge is selectable below.",
+      "holdLabel": "Hold to cancel",
+      "holdHint": "Press and hold for about a second to confirm",
+      "holdKeep": "Keep holding…",
+      "done": "Cancelled {name}'s booking",
+      "cancelledTitle": "Cancelled booking",
+      "cancelledBody": "This booking is cancelled. No ticket was used.",
+      "restore": "Restore",
+      "restoring": "Restoring…",
+      "restored": "Restored {name}'s booking",
+      "staffPrefix": "Staff",
+      "close": "Close",
+      "noShowSectionLabel": "No-show",
+      "noShowReasons": {
+        "no-show-no-contact": "No contact",
+        "same-day-contacted": "Contacted same day",
+        "first-time-no-show": "First-time no-show"
+      },
+      "burnPack": "Use 1 ticket session ({n} left)",
+      "noShowHoldLabel": "Hold to mark no-show",
+      "noShowDone": "Marked {name}'s booking as a no-show",
+      "noShowRestoreTitle": "No-show booking",
+      "noShowBody": "This booking is recorded as a no-show.",
+      "reason": "Reason",
+      "statusSetBy": "Updated by {name} on {date} at {time}",
+      "noShowError": {
+        "no_burnable_pack": "This customer has no ticket to use.",
+        "already_terminal": "This booking is already cancelled or marked as a no-show."
+      },
+      "noShowBurnWarn": {
+        "below_zero": "Recorded {name}'s no-show, but no ticket was used — the pack has no sessions left.",
+        "burn_failed": "Recorded {name}'s no-show, but the ticket could not be used.",
+        "already_burned": "Recorded {name}'s no-show. A ticket was already used for this booking, so it was not charged again."
+      },
+      "noShowErrorGeneric": "Something went wrong.",
+      "cancelErrorGeneric": "Could not cancel. Please try again.",
+      "restoreErrorGeneric": "Could not restore — the booking's status may have changed."
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
@@ -649,7 +692,13 @@
       "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
       "deleteCta": "Delete data",
       "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
-      "wiringPending": "Wiring pending — APPI compliance backend in flight"
+      "wiringPending": "Wiring pending — APPI compliance backend in flight",
+      "consentRevokeTitle": "Recording consent",
+      "consentRevokeBody": "Granted {date}. Revoking means staff will need to ask permission again before the next recording.",
+      "consentRevokeBodyNoDate": "On file. Revoking means staff will need to ask permission again before the next recording.",
+      "consentRevokeCta": "Revoke consent",
+      "consentRevokeConfirm": "Revoke recording consent? Staff will need to ask for permission again before the next recording.",
+      "consentRevokeSuccess": "Recording consent revoked."
     },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
@@ -868,7 +917,8 @@
         "ageValue": "{age} y/o",
         "bookingDate": "Booked {date}",
         "bookingNone": "No booking",
-        "packFraction": "{n}/{m} left"
+        "packFraction": "{n}/{m} left",
+        "noShowChip": "{count} no-shows"
       },
       "heading": "Customers",
       "showing": "{n} showing",
@@ -2055,8 +2105,6 @@
     "consentRequiredDescription": "Only meaningful in Mode C.",
     "consentTemplate": "Consent template text",
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
-    "enrollVoice": "Enroll voice",
-    "voiceEnrollmentSoon": "Voice enrollment — coming soon",
     "contactSales": "Contact sales",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
