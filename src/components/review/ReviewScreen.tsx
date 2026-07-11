@@ -269,6 +269,13 @@ export function ReviewScreen({
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-4">
+      {/* Everything behind the consent dialog goes INERT while it's open —
+          the frozen save snapshot means edits typed back here would be
+          silently dropped (and Shift+Tab could reach the never-disabled
+          editor fields past the dialog's focus). display:contents keeps the
+          flex layout byte-identical; inert kills focus/typing/clicks for the
+          whole subtree, current and future fields alike. */}
+      <div inert={!!pendingConsentSave} className="contents">
       {/* AI Suggestions */}
       {(suggestionsLoading || suggestions.length > 0) && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -402,6 +409,7 @@ export function ReviewScreen({
             {saving ? tc('saving') : tc('save')}
           </button>
         </div>
+      </div>
       </div>
 
       {/* Save-time consent gate (walk-in attach / revoked-consent backstop).
