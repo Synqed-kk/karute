@@ -17,29 +17,35 @@ export default async function AskAIPage({
   const { locale } = await params
   const supabase = await createClient()
 
+  // Scope counts from synqed-core (the Supabase karute_records mirror is empty
+  // post-migration — Karute + Recordings used to show 0).
+  const synqedPromise = getSynqedClient()
+  const nowIso = new Date().toISOString()
+
   const [
     {
       data: { user },
     },
     orgSettings,
+    karuteRes,
+    customerList,
+    apptList,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getOrgSettings(),
-  ])
-
-  // Scope counts from synqed-core (the Supabase karute_records mirror is empty
-  // post-migration — Karute + Recordings used to show 0).
-  const synqed = await getSynqedClient()
-  const nowIso = new Date().toISOString()
-
-  const [karuteRes, customerList, apptList] = await Promise.all([
-    synqed.karuteRecords
-      .list({ page_size: 200 })
-      .catch(() => ({ total: 0, karute_records: [] as { transcript?: string | null }[] })),
-    synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
-    synqed.appointments
-      .list({ from: nowIso, page_size: 1 })
-      .catch(() => ({ total: 0 })),
+    synqedPromise.then((synqed) =>
+      synqed.karuteRecords
+        .list({ page_size: 200 })
+        .catch(() => ({ total: 0, karute_records: [] as { transcript?: string | null }[] })),
+    ),
+    synqedPromise.then((synqed) =>
+      synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    ),
+    synqedPromise.then((synqed) =>
+      synqed.appointments
+        .list({ from: nowIso, page_size: 1 })
+        .catch(() => ({ total: 0 })),
+    ),
   ])
 
   const scope: DataScopeItem[] = [
