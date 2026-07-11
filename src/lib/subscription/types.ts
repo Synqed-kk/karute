@@ -36,6 +36,7 @@ export const TIER_PRICE_JPY: Record<SubscriptionTier, number> = {
 
 export const FREE_TIER_LIMITS = {
   stores: 1,
+  staff: 2,
   customers: 15,
   recordingsPerMonth: 10,
   aiKaruteGeneration: false,
@@ -48,6 +49,9 @@ export const FREE_TIER_LIMITS = {
 
 export interface TierFeatures {
   stores: number | 'unlimited'
+  /** Max staff accounts across the org. Cheaper tiers are capped; pro/enterprise
+   *  are unlimited. Prices/limits are all adjustable — this is the structure. */
+  staff: number | 'unlimited'
   customers: number | 'unlimited'
   recordingsPerMonth: number | 'unlimited'
   aiKaruteGeneration: boolean
@@ -61,6 +65,7 @@ export interface TierFeatures {
 export const TIER_FEATURES: Record<SubscriptionTier, TierFeatures> = {
   trial: {
     stores: 1,
+    staff: 'unlimited',
     customers: 'unlimited',
     recordingsPerMonth: 'unlimited',
     aiKaruteGeneration: true,
@@ -73,6 +78,7 @@ export const TIER_FEATURES: Record<SubscriptionTier, TierFeatures> = {
   free: { ...FREE_TIER_LIMITS },
   standard: {
     stores: 'unlimited',
+    staff: 10,
     customers: 200,
     recordingsPerMonth: 200,
     aiKaruteGeneration: true,
@@ -84,6 +90,7 @@ export const TIER_FEATURES: Record<SubscriptionTier, TierFeatures> = {
   },
   professional: {
     stores: 'unlimited',
+    staff: 'unlimited',
     customers: 'unlimited',
     recordingsPerMonth: 'unlimited',
     aiKaruteGeneration: true,
@@ -95,6 +102,7 @@ export const TIER_FEATURES: Record<SubscriptionTier, TierFeatures> = {
   },
   enterprise: {
     stores: 'unlimited',
+    staff: 'unlimited',
     customers: 'unlimited',
     recordingsPerMonth: 'unlimited',
     aiKaruteGeneration: true,

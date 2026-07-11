@@ -2,6 +2,7 @@
 
 import { getBusinessId } from '@/lib/staff'
 import { loadEntitlement, type Entitlement } from '@/lib/entitlements'
+import { TIER_FEATURES } from '@/lib/subscription/types'
 
 /** The caller's live store entitlement (plan limit + live count + can-add).
  *  Callable from client components (StoresSection). Returns a safe, blocked
@@ -16,6 +17,8 @@ export async function getEntitlement(): Promise<Entitlement> {
       storeLimit: 1,
       storeCount: 0,
       isUnlimited: false,
+      features: TIER_FEATURES.free,
+      staffLimit: TIER_FEATURES.free.staff,
       canAddStore: false,
     }
   }

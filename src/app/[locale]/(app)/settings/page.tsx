@@ -2,6 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { listStores, getActiveStoreId } from '@/actions/stores'
+import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import type { Capability } from '@/lib/auth/permissions'
 import { SettingsShell } from '@/components/settings/redesign/SettingsShell'
@@ -14,20 +15,31 @@ export default async function SettingsPage({
 }) {
   const { locale } = await params
 
-  const [staffList, activeStaffId, t, orgSettings, stores, initialActiveStoreId, caps] =
-    await Promise.all([
-      getStaffList(),
-      getCurrentUserStaffId(),
-      getTranslations('settings'),
-      getOrgSettings(),
-      // Server-fetch the store list (+ active store) so the 店舗 settings section
-      // paints complete — no placeholder-then-pop-in when the second store loads.
-      // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
-      // degrade to [] and let StoresSection fall back to its client fetch.
-      listStores().catch(() => []),
-      getActiveStoreId().catch(() => null),
-      getMyCapabilities().catch(() => new Set<Capability>()),
-    ])
+  const [
+    staffList,
+    activeStaffId,
+    t,
+    orgSettings,
+    stores,
+    initialActiveStoreId,
+    caps,
+    entitlement,
+  ] = await Promise.all([
+    getStaffList(),
+    getCurrentUserStaffId(),
+    getTranslations('settings'),
+    getOrgSettings(),
+    // Server-fetch the store list (+ active store) so the 店舗 settings section
+    // paints complete — no placeholder-then-pop-in when the second store loads.
+    // Guarded: a synqed-core hiccup here must NOT 500 the whole settings page —
+    // degrade to [] and let StoresSection fall back to its client fetch.
+    listStores().catch(() => []),
+    getActiveStoreId().catch(() => null),
+    getMyCapabilities().catch(() => new Set<Capability>()),
+    // Same treatment for the entitlement — the plan row + add-store gate paint
+    // with the page instead of popping in after a client fetch.
+    getEntitlement().catch(() => null),
+  ])
 
   const isOwner = staffList.some(
     (s) => s.id === activeStaffId && s.display_role === 'owner',
@@ -55,6 +67,7 @@ export default async function SettingsPage({
         canInviteStaff={canInviteStaff}
         initialStores={canViewAllStores ? stores : []}
         initialActiveStoreId={initialActiveStoreId}
+        initialEntitlement={entitlement}
       />
     </SettingsPageChrome>
   )
