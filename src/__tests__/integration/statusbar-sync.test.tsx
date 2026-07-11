@@ -45,13 +45,13 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount())
   container.remove()
-  delete (window as Record<string, unknown> & Window).Capacitor
+  delete (window as unknown as Record<string, unknown> & Window).Capacitor
 })
 
 test('shell + stored dark theme: cold mount fires setStyle DARK exactly once', async () => {
   localStorage.setItem('theme', 'dark')
   const setStyle = jest.fn().mockResolvedValue(undefined)
-  ;(window as Record<string, unknown> & Window).Capacitor = {
+  ;(window as unknown as Record<string, unknown> & Window).Capacitor = {
     Plugins: { StatusBar: { setStyle } },
   }
 
@@ -71,7 +71,7 @@ test('shell + stored dark theme: cold mount fires setStyle DARK exactly once', a
 test('shell: theme toggle dark->light re-fires with LIGHT', async () => {
   localStorage.setItem('theme', 'dark')
   const setStyle = jest.fn().mockResolvedValue(undefined)
-  ;(window as Record<string, unknown> & Window).Capacitor = {
+  ;(window as unknown as Record<string, unknown> & Window).Capacitor = {
     Plugins: { StatusBar: { setStyle } },
   }
 
@@ -92,7 +92,7 @@ test('shell: theme toggle dark->light re-fires with LIGHT', async () => {
 
 test('shell + no stored theme: defaults to light -> LIGHT', async () => {
   const setStyle = jest.fn().mockResolvedValue(undefined)
-  ;(window as Record<string, unknown> & Window).Capacitor = {
+  ;(window as unknown as Record<string, unknown> & Window).Capacitor = {
     Plugins: { StatusBar: { setStyle } },
   }
 
@@ -124,7 +124,7 @@ test('plain browser (no Capacitor): renders children, throws nothing, adds no gl
 
 test('shell bridge present but StatusBar plugin missing: no throw', async () => {
   localStorage.setItem('theme', 'dark')
-  ;(window as Record<string, unknown> & Window).Capacitor = {
+  ;(window as unknown as Record<string, unknown> & Window).Capacitor = {
     Plugins: { SplashScreen: { hide: () => Promise.resolve() } },
   }
 
@@ -142,7 +142,7 @@ test('shell bridge present but StatusBar plugin missing: no throw', async () => 
 test('children do NOT re-render when theme changes (only StatusBarSync consumes context)', async () => {
   localStorage.setItem('theme', 'dark')
   const setStyle = jest.fn().mockResolvedValue(undefined)
-  ;(window as Record<string, unknown> & Window).Capacitor = {
+  ;(window as unknown as Record<string, unknown> & Window).Capacitor = {
     Plugins: { StatusBar: { setStyle } },
   }
 
