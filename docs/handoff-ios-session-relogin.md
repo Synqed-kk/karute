@@ -1,5 +1,13 @@
 # Handoff — iOS forces re-login on every cold launch
 
+> **FIELD CORRECTION (Liam, 2026-07-11): his iPhone does NOT re-login on cold
+> open — the problem he sees is ANDROID-only.** This doc's iOS repro predates
+> the current CookieVC restore state; treat the iOS issue as NOT REPRODUCING
+> (possible >1h-idle tail remains, documented in AppDelegate.swift). Do not
+> "fix" iOS re-login without first reproducing it on a current build. The
+> Android re-login belongs to the PARKED Android lane (its shell has no
+> cookie-persistence equivalent of CookieVC — likely starting point).
+
 **Problem:** The Karute iOS app (Capacitor remote-URL shell over `karute-omega.vercel.app`) makes the user log in again on every cold launch. It should stay logged in.
 
 **Where:** branch `feat/ios-capacitor-shell` → `ios/App/App/AppDelegate.swift` (the `CookieVC` class). Native-only change; web/prod is untouched.
