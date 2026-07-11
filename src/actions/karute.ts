@@ -6,6 +6,7 @@ import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { getDefaultStoreId } from '@/actions/stores'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
@@ -156,6 +157,17 @@ export async function saveKaruteRecord(
 
     const synqed = await getSynqedClient()
 
+    // Consent gate, server-enforced: a record must never persist for a customer
+    // whose recording consent isn't CURRENT. The record page gates the START of
+    // a booked take, but the walk-in flow attaches its customer only here at
+    // save — the client shows the consent dialog first (ReviewScreen matches on
+    // CONSENT_REQUIRED_ERROR), and this makes the rule hold regardless of path.
+    // Fail closed: an unreadable consent rejects the save, never bypasses it.
+    const { consent } = await synqed.customers.getConsent(input.customerId)
+    if (!isConsentCurrent(consent)) {
+      throw new Error(CONSENT_REQUIRED_ERROR)
+    }
+
     // Attribute the record to whoever RECORDED it — the signed-in staff — NOT
     // the booking's staff. For your own bookings these are identical; when you
     // record a customer booked under ANOTHER staff (covering, swaps, days off),
@@ -249,6 +261,16 @@ export async function saveKaruteRecordInline(
     await requireCapability('records.write')
 
     const synqed = await getSynqedClient()
+
+    // Same server-enforced consent gate as saveKaruteRecord. Autosave takes are
+    // appointment-bound (start-gated on the record page), so this normally
+    // passes untouched; if it ever rejects (consent revoked mid-session), the
+    // pipeline's error path falls back to review, whose consent dialog handles
+    // it — the take is never lost.
+    const { consent } = await synqed.customers.getConsent(input.customerId)
+    if (!isConsentCurrent(consent)) {
+      throw new Error(CONSENT_REQUIRED_ERROR)
+    }
 
     // Same recorder-first attribution + appointment-staff fallback as
     // saveKaruteRecord: autosave only ever fires for appointment-bound takes

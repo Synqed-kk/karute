@@ -11,6 +11,8 @@
  *     payload is byte-for-byte what it was before this field existed.
  */
 
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
   return {
@@ -84,9 +86,16 @@ const karuteRecords = {
   }),
 }
 const appointments = { get: jest.fn() }
+// Save-gate consent check (src/actions/karute.ts) — current-version consent by
+// default so this suite's payload/upsert assertions reach create() untouched.
+const customers = {
+  getConsent: jest.fn(async () => ({
+    consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+  })),
+}
 
 jest.mock('@synqed-kk/client', () => ({
-  SynqedClient: jest.fn().mockImplementation(() => ({ karuteRecords, appointments })),
+  SynqedClient: jest.fn().mockImplementation(() => ({ karuteRecords, appointments, customers })),
 }))
 
 import { saveKaruteRecord, saveKaruteRecordInline } from '@/actions/karute'
