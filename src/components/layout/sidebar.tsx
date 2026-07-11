@@ -72,18 +72,14 @@ type NavRoute = {
   Icon: () => React.ReactElement
 }
 
-// /coaching + /data-import gated behind feature flags.
+// /data-import stays flag-gated: ImportDropzone.tsx fires
+// `console.info('[dev] Import file selected', …)` on file pick —
+// no upload, no session, no progress. Owner picks a CSV and
+// watches nothing happen. Nav entry hides until uploadImportCsv ships.
 //
-// /coaching: every page in src/app/[locale]/(app)/coaching/ passes
-// `null` to its view component (growth, insights, patterns,
-// modules, transparency). Each renders a ScaffoldHint placeholder.
-// The privacy Layer 1/2/3 badges are decorative — no data to
-// scope. Nav entry hides until the producers ship.
-//
-// /data-import: ImportDropzone.tsx fires `console.info('[dev]
-// Import file selected', …)` on file pick. No upload, no
-// session, no progress. Owner picks a CSV and watches nothing
-// happen. Nav entry hides until uploadImportCsv ships.
+// /coaching is a first-class destination now; the page itself gates
+// its content per-account on the coaching entitlement (unlimited/paid
+// tiers see it, others get an upgrade prompt), so the link always shows.
 //
 // /data-export stays — CSV / JSON exports for customers run for
 // real via the /api/export route (other combinations toast
@@ -94,9 +90,7 @@ const NAV_ROUTES: NavRoute[] = [
   { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon },
   { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon },
-  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
-    ? [{ id: 'coaching' as const, href: '/coaching', labelKey: 'coaching' as const, Icon: GraduationCapIcon }]
-    : []),
+  { id: 'coaching', href: '/coaching', labelKey: 'coaching', Icon: GraduationCapIcon },
   { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon },
   ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
     ? [{ id: 'dataImport' as const, href: '/data-import', labelKey: 'dataImport' as const, Icon: ImportIcon }]

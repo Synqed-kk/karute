@@ -1302,7 +1302,7 @@
       "mobileRowEmpty": "Real-time session tips",
       "collapseAria": "Collapse",
       "intro": "Real-time suggestions during the session. Owners and managers can't see this.",
-      "emptyHint": "During a session, AI analyzes the last 2 minutes of conversation every ~30s and suggests next questions, top-performer phrasing, and closing timing. Lights up when Anthony wires the Haiku-backed generator + the Supabase Realtime channel (filtered by session_id + staff_id)."
+      "emptyHint": "During a session, AI analyzes the last 2 minutes of conversation every ~30s and suggests next questions, top-performer phrasing, and closing timing."
     },
     "header": {
       "title": "Coaching",
@@ -1312,46 +1312,77 @@
     "staff": {
       "monthlyGrowth": {
         "title": "This month's growth",
-        "subtitle": "Your staff-private data (Layer 1)",
-        "body": "AI analyzes your sessions and surfaces your monthly score, change-from-last-month, sessions analyzed, and patterns mastered vs in-progress. Lights up when Anthony wires usePersonalGrowthData().",
+        "subtitle": "Your private data (visible only to you)",
+        "body": "AI analyzes your sessions and surfaces your monthly score, change-from-last-month, sessions analyzed, and patterns mastered vs in-progress.",
         "vsLastMonth": "vs last month",
         "statSessionsAnalyzed": "Sessions analyzed",
         "statPatternsMastered": "Patterns mastered",
         "statPatternsInProgress": "In progress",
-        "emptyHint": "AI will analyze your sessions and surface your monthly score + pattern mastery here. Lights up when Anthony wires growth-data retrieval.",
+        "emptyHint": "AI will analyze your sessions and surface your monthly score + pattern mastery here.",
         "seeFullGrowth": "See full growth"
       },
       "learnFromTop": {
         "title": "Learn from top performers",
-        "subtitle": "Anonymized team-shared data (Layer 2)",
+        "subtitle": "Anonymized team-shared data",
         "body": "Conversational patterns extracted from the salon's top performers, surfaced without identifying who. AI extracts natural conversation framing + proposal phrasing and suggests how to apply them in today's session.",
         "seeAll": "See all",
-        "emptyHint": "AI-extracted patterns from the salon's top performers surface here, anonymized + ready to apply in today's session. Lights up when Anthony wires the pattern-extraction pipeline."
+        "emptyHint": "AI-extracted patterns from the salon's top performers surface here, anonymized + ready to apply in today's session."
       },
       "strengths": {
         "title": "Your strengths",
-        "body": "AI extracts your strongest categories from past sessions — proposals + conversation patterns you can lean into with confidence. Staff-private (Layer 1).",
-        "emptyHint": "AI analyzes your past sessions and surfaces your strongest categories + conversation patterns here. Lights up when Anthony wires growth-data retrieval."
+        "body": "AI extracts your strongest categories from past sessions — proposals + conversation patterns you can lean into with confidence. Visible only to you.",
+        "emptyHint": "AI analyzes your past sessions and surfaces your strongest categories + conversation patterns here."
       },
       "nextFocus": {
         "title": "Next focus",
-        "body": "Growth-opportunity categories + a concrete action you can try in today's session to develop them. Staff-private (Layer 1).",
-        "emptyHint": "AI identifies growth-opportunity categories + suggests concrete actions you can try in today's session. Lights up when Anthony wires growth-data retrieval."
+        "body": "Growth-opportunity categories + a concrete action you can try in today's session to develop them. Visible only to you.",
+        "emptyHint": "AI identifies growth-opportunity categories + suggests concrete actions you can try in today's session."
       },
       "recentModules": {
         "title": "Recent learning modules",
-        "subtitle": "Modules assigned to you by the owner (Layer 1)",
-        "body": "Learning modules assigned by the owner (scripts, videos, tests) with progress. Lights up when Anthony wires useLearningModulesData().",
+        "subtitle": "Modules assigned to you by the owner",
+        "body": "Learning modules assigned by the owner (scripts, videos, tests) with progress.",
         "durationMin": "{n} min",
         "assignedBy": "from {name}",
-        "emptyHint": "Modules assigned by your owner — with progress — surface here. Lights up when Anthony wires the module-assignment retrieval."
+        "emptyHint": "Modules assigned by your owner — with progress — surface here."
+      },
+      "dataView": {
+        "title": "Your performance",
+        "emptyHint": "Once your sessions are analyzed, your closing rate, rebooking rate and specific, evidenced findings surface here.",
+        "closingRate": "Closing rate",
+        "rebookingRate": "Rebooking rate",
+        "satisfaction": "Satisfaction",
+        "avgRevenue": "Avg. spend",
+        "basedOn": "From {n} sessions",
+        "findingsTitle": "This period’s findings",
+        "sevPriority": "Priority",
+        "sevWatch": "Watch",
+        "sevStrength": "Strength",
+        "doThis": "Do this",
+        "categoriesTitle": "Conversation skills (vs top performers)",
+        "top": "top",
+        "thisWeek": "This week’s move",
+        "practice": "Practice",
+        "trendTitle": "Trend (closing rate)",
+        "nowLabel": "Now",
+        "reasonsTitle": "Why deals slipped ({n} this month)",
+        "pendingTitle": "{n} outcomes still on “decide later”",
+        "pendingBody": "Resolving them sharpens your coaching — and deferring every close may itself be where the sales slip away.",
+        "learnTitle": "Learn from the top",
+        "reason": {
+          "budget": "Budget",
+          "considering": "Considering",
+          "mismatch": "Not a fit",
+          "follow_up": "Follow-up later",
+          "other": "Other"
+        }
       }
     },
     "owner": {
       "teamPerformance": {
         "title": "Team performance",
         "subtitle": "Aggregated data (Layer 3)",
-        "body": "Monthly summary of the team's key metrics (revenue, rebooking rate, customer satisfaction, per-customer revenue). Aggregated values only — no individual staff identification. Lights up when Anthony wires useStaffPerformanceData().",
+        "body": "Monthly summary of the team's key metrics (revenue, rebooking rate, customer satisfaction, per-customer revenue). Aggregated values only — no individual staff identification.",
         "cardTitle": "Store-wide performance",
         "vsLastMonth": "vs last month",
         "metricClosing": "Avg closing rate",
@@ -1359,23 +1390,23 @@
         "metricAvgRevenue": "Avg per-customer revenue",
         "metricSatisfaction": "Avg satisfaction",
         "totalSessionsLabel": "Total sessions this month ·",
-        "emptyHint": "Store-wide aggregated key metrics surface here. Lights up when Anthony wires the team summary retrieval."
+        "emptyHint": "Store-wide aggregated key metrics surface here."
       },
       "teamTrends": {
         "title": "Team trends",
         "tileGrowing": "Growing",
         "tileStable": "Stable",
         "tileNeedsSupport": "Needs support",
-        "headCount": " staff",
+        "headCount": "staff",
         "focusAreasHeader": "Team-wide focus areas (by frequency)",
-        "emptyHint": "Head-count of growing / stable / needs-support staff plus AI-extracted focus-area frequency ranking surfaces here. Lights up when Anthony wires useStaffPerformanceData()."
+        "emptyHint": "Head-count of growing / stable / needs-support staff plus AI-extracted focus-area frequency ranking surfaces here."
       },
       "topPerformers": {
         "cardTitle": "Top performers",
         "cardIntro": "Top tier on aggregate metrics. Their patterns power the (anonymized) team pattern library.",
         "closingShort": "Close {pct}%",
         "rebookingShort": "Rebook {pct}%",
-        "emptyHint": "Named top-performing staff with closing + rebooking rates surface here (owner-only, Layer 2 named). Lights up when Anthony wires useStaffPerformanceData()."
+        "emptyHint": "Named top-performing staff with closing + rebooking rates surface here (owner-only)."
       },
       "staffTable": {
         "cardTitle": "Staff list",
@@ -1389,14 +1420,40 @@
         "colTrend": "Trend",
         "sessionsCount": "{n} sessions",
         "vsLastMonth": "vs last month",
-        "emptyHint": "Monthly performance metrics for consenting staff (closing, rebooking, avg revenue, satisfaction, growth trend) surface here as a sortable table. Each row links to /coaching/staff/[id]. Lights up when Anthony wires useStaffPerformanceData()."
+        "emptyHint": "Monthly performance metrics for consenting staff (closing, rebooking, avg revenue, satisfaction, growth trend) surface here as a sortable table. Each row links to /coaching/staff/[id]."
       },
       "assignModules": {
         "cardTitle": "Assign learning modules",
         "cardIntro": "Pick a module and assign it to the staff you want to support. They receive a notification when assigned.",
         "durationMin": "{n} min",
         "seeAllModules": "See all modules",
-        "emptyHint": "Top 3 AI-recommended unassigned modules + quick-assign chips for consenting staff surface here. Lights up when Anthony wires useLearningModulesData() and the learning_assignments insert/delete server action."
+        "emptyHint": "Top 3 AI-recommended unassigned modules + quick-assign chips for consenting staff surface here."
+      },
+      "roi": {
+        "title": "Coaching’s impact",
+        "emptyHint": "How much coaching is lifting the store’s sales surfaces here as data accrues.",
+        "heroLabel": "Sales impact since coaching",
+        "heroSub": "Lifted over the {n} months since it started — the pure coaching effect, with season and other factors subtracted out.",
+        "confidenceLead": "Confidence",
+        "confMature": "Established",
+        "confBuilding": "Building",
+        "confEarly": "Early",
+        "trendTitle": "Store closing rate over time",
+        "trendSub": "The dashed line is when coaching began. The gap vs stores without it has widened since.",
+        "monthsAgo": "{n} mo ago",
+        "controlLabel": "Other stores",
+        "nowLabel": "Now",
+        "liftsTitle": "Lift by metric",
+        "liftsSub": "Each is the coaching effect with other factors subtracted. Anything too early to judge is labeled “Early”.",
+        "metric": {
+          "closingRate": "Closing rate",
+          "rebookingRate": "Rebooking rate",
+          "avgRevenue": "Avg. spend",
+          "satisfaction": "Satisfaction"
+        },
+        "honestyNote": "Numbers use difference-in-differences — from the coached lift we subtract the natural change at stores without coaching, showing only the pure gain. Small samples are automatically shrunk, and anything not yet certain is honestly labeled “Building/Early”. No exaggeration.",
+        "pitchTitle": "This feature is earning more than it costs",
+        "pitchSub": "For a store this size, that’s about {amount} in monthly revenue."
       }
     },
     "staffDrill": {
@@ -1412,17 +1469,17 @@
       "metricSatisfaction": "Satisfaction",
       "metricSatisfactionValue": "{score} / 5.0",
       "metricScaffoldValue": "—",
-      "metricsScaffoldHint": "Monthly closing / rebooking / avg-revenue / satisfaction aggregates surface here. Lights up when Anthony wires useStaffPerformanceData().",
+      "metricsScaffoldHint": "Monthly closing / rebooking / avg-revenue / satisfaction aggregates surface here.",
       "chartTitle": "{name}'s growth trajectory",
       "chartSubtitle": "Monthly category-score series",
-      "chartEmptyHint": "Monthly category-score series chart surfaces here. Layer 2 aggregate only (no AI). Lights up when Anthony wires useStaffPerformanceData() including the trajectoryL2 series.",
+      "chartEmptyHint": "Monthly category-score series chart surfaces here.",
       "gapTitle": "Growth-area analysis",
       "gapSubtitle": "Categorical · gap to top performers",
       "gapPriorityHigh": "High priority",
       "gapPriorityMedium": "Medium priority",
       "gapPriorityStable": "Stable",
       "gapDiffFromTop": "Gap to top {pct}%",
-      "gapEmptyHint": "Categorical growth areas + gap to top-performer baseline surface here. Weekly claude-sonnet batch; prompt guard rejects any output that names customers or quotes sessions — only 'growth areas' and 'support points' vocabulary is allowed. Lights up when Anthony wires useCategoricalInsightsData(staffId).",
+      "gapEmptyHint": "Categorical growth areas + gap to top-performer baseline surface here. Customer names and session details are never included.",
       "modal": {
         "title": "Opening {name}'s individual data",
         "description": "For privacy, conversation recordings, transcripts, and specific customer interactions are not shown. Only performance metrics and growth areas (categorical level) are displayed.",
@@ -1450,7 +1507,7 @@
       "allCategories": "All categories",
       "emptyTitle": "No modules match these filters",
       "emptyBody": "Try changing the search or clearing filters. AI-generated modules arrive weekly as the top-performer pattern bank grows.",
-      "scaffoldHint": "An AI-curated catalog of learning modules, search / tab / category filters, a 3-column card grid, and per-staff assignment chips surface here. Lights up when Anthony wires useLearningModulesData() + useStaffPerformanceData(). Assignment writes go through a learning_assignments INSERT/DELETE server action (owner-only).",
+      "scaffoldHint": "An AI-curated catalog of learning modules, search / tab / category filters, and per-staff assignment surface here. Assigning is owner-only.",
       "durationMin": "{n} min",
       "completion": "Progress",
       "assignTo": "Assign to",
@@ -1464,7 +1521,7 @@
       "subtitleStaff": "Learn ready-to-try patterns from your top performers — examples you can apply in today's session.",
       "subtitleOwner": "Team-shared pattern library. Source attribution is anonymized for staff viewers.",
       "learnersFooter": "Staff currently learning this · {n}",
-      "sectionEmptyHint": "AI-extracted patterns from top performers (the actual phrasing, how many staff are learning it, source attribution for owners) surface here. Lights up when Anthony wires useTopPerformerPatternsData(). Weekly batch; source name stripped server-side for staff viewers.",
+      "sectionEmptyHint": "AI-extracted patterns from top performers (the actual phrasing, how many staff are learning it) surface here. Source names are anonymized for staff viewers.",
       "categories": {
         "counseling_questions": {
           "title": "Counseling questions",
@@ -1494,7 +1551,7 @@
       "subtitle": "A private, detailed view of your own growth — only you can see this.",
       "staffOnlyNotice": "This is a staff-private growth page. Owners and managers only see categorical growth areas via the coaching dashboard.",
       "chartTitle": "Growth trajectory",
-      "chartEmptyHint": "Your monthly score trajectory chart surfaces here (Layer 1, staff-private). Lights up when Anthony wires usePersonalGrowthData().",
+      "chartEmptyHint": "Your monthly score trajectory chart surfaces here (visible only to you).",
       "monthAxisLabel": "{mm}",
       "statSessions": "Sessions analyzed",
       "statMastered": "Patterns mastered",
@@ -1504,10 +1561,10 @@
       "inProgressHeader": "In progress · {n}",
       "masteredEmpty": "No mastered patterns yet.",
       "inProgressEmpty": "No patterns in progress.",
-      "masteredEmptyHint": "Your assigned learning modules and per-module completion rate surface here. Lights up when Anthony wires useLearningModulesData({ assignedTo }).",
+      "masteredEmptyHint": "Your assigned learning modules and per-module completion rate surface here.",
       "insightsTitle": "Recent coaching suggestions",
       "insightsIntro": "Specific suggestions you received during individual sessions. Only you can see these.",
-      "insightsEmptyHint": "Past in-session and post-session AI suggestions, plus your outcome on each (worked / tried / skipped / unconfirmed), surface here. Lights up when Anthony wires usePersonalCoachingInsightsData().",
+      "insightsEmptyHint": "Past in-session and post-session AI suggestions, plus your outcome on each (worked / tried / skipped / unconfirmed), surface here.",
       "outcomeWorked": "Worked",
       "outcomeTried": "Tried",
       "outcomeSkipped": "Skipped",
@@ -1515,9 +1572,10 @@
       "transcriptsTitle": "Conversation excerpts + coaching notes",
       "transcriptsIntro": "Excerpts from your sessions with AI coaching notes attached to specific moments. Owners and managers cannot see this.",
       "coachingNoteLabel": "AI coaching note",
-      "transcriptsEmptyHint": "Conversation excerpts from your sessions plus the AI coaching notes attached at specific timestamps surface here (the most sensitive Layer-1 surface). Lights up when Anthony wires useSessionTranscriptsData()."
+      "transcriptsEmptyHint": "Conversation excerpts from your sessions plus the AI coaching notes attached at specific timestamps surface here (the most sensitive Layer-1 surface)."
     },
     "data": {
+      "sampleBanner": "Preview — showing sample data. Real numbers appear once your sessions start being analyzed.",
       "back": "Back to coaching",
       "title": "Your data",
       "subtitleStaff": "What gets recorded for coaching, and exactly what your owners can and can't see.",
@@ -1573,6 +1631,13 @@
         "owner": "Owner",
         "staff": "Staff"
       }
+    },
+    "locked": {
+      "badge": "Professional plan",
+      "title": "Staff coaching",
+      "body": "See each staff member's growth from real service data — strengths, what to improve, and the next thing to work on, each backed by evidence. Available on the Professional plan.",
+      "cta": "View plans",
+      "ctaHint": "Change anytime from Settings → Stores"
     }
   },
   "dashboard": {
@@ -1838,6 +1903,13 @@
     "bookingSync": "Booking Sync",
     "bookingSyncDescription": "Sync with Quick Reserve etc.",
     "stores": {
+      "plan": {
+        "label": "Current plan",
+        "unlimitedLabel": "Unlimited",
+        "viewCta": "View / change plan",
+        "dialogTitle": "Plans",
+        "dialogDesc": "Your monthly plan per store. Available features vary by plan."
+      },
       "title": "Stores",
       "unnamedStore": "Unnamed store",
       "ownerView": "Owner permissions",
@@ -2082,49 +2154,44 @@
         "cancelBody": "You'll downgrade to Free and lose access to AI features"
       },
       "plans": {
-        "trialBannerTitle": "14-day free trial",
-        "trialBannerBody": "Try Professional free for 14 days. Cancel anytime during the trial.",
-        "trialBannerCta": "Start trial",
-        "freeTitle": "Free",
-        "freePrice": "¥0",
-        "freePitch": "Try the basics. No AI features, but core karute + customer management works.",
-        "freeFeature1": "1 store max",
-        "freeFeature2": "15 customers max",
-        "freeFeature3": "10 recordings / month",
-        "freeFeature4": "× AI karute auto-generation",
-        "freeFeature5": "× Customer memory auto-extract",
-        "freeFeature6": "× AI re-engagement drafts",
-        "freeFeature7": "× Coaching insights",
-        "standardTitle": "Standard",
-        "standardPrice": "{price} / store / month",
-        "standardPitch": "All the core AI features. Right for most single-site and small-team salons.",
-        "standardFeature1": "Unlimited stores",
-        "standardFeature2": "Unlimited customers",
-        "standardFeature3": "Unlimited recordings",
-        "standardFeature4": "AI karute auto-generation",
-        "standardFeature5": "Customer memory auto-extract",
-        "standardFeature6": "AI re-engagement drafts",
-        "standardFeature7": "Basic coaching insights",
-        "standardFeature8": "× Advanced coaching analytics",
-        "standardFeature9": "× Priority support",
-        "professionalTitle": "Professional",
-        "professionalPrice": "{price} / store / month",
-        "professionalPitch": "For team-run / multi-site operations. Advanced coaching + SYNQED Reserve bundle discount.",
-        "professionalFeature1": "Everything in Standard",
-        "professionalFeature2": "Advanced coaching analytics (categorical + growth trends)",
-        "professionalFeature3": "Priority AI action ranking",
-        "professionalFeature4": "SYNQED Reserve bundle discount (at launch)",
-        "professionalFeature5": "Priority support",
-        "professionalFeature6": "14-day free trial available",
-        "enterpriseTitle": "Enterprise",
-        "enterprisePitch": "For chains with 5+ stores. Volume discount, SLA, dedicated support, custom integrations — contact sales.",
-        "enterpriseCta": "Contact sales",
+        "unlimitedBannerTitle": "Unlimited account",
+        "unlimitedBannerBody": "This account has every feature unlocked with no limits. No plan change needed.",
+        "mostPopular": "Most popular",
+        "currentPill": "Current plan",
+        "perStoreMonth": "/ store / mo",
+        "priceCustom": "Custom",
+        "staffUpTo": "Up to {n} staff",
+        "staffUnlimited": "Unlimited staff",
+        "storesLimited": "{n, plural, one {# store} other {# stores}}",
+        "storesUnlimited": "Unlimited stores",
+        "quotaLimited": "{customers} customers / {recordings} recordings per month",
+        "quotaAllUnlimited": "Stores, customers & recordings — all unlimited",
+        "featAiKarte": "AI karte auto-generation",
+        "featAiSuite": "AI karte, memory & outreach",
+        "featCoaching": "Coaching",
+        "featCoachingPlus": "Coaching + deep analysis",
+        "featPrioritySupport": "Priority support",
+        "entVolume": "Everything unlimited + volume discounts",
+        "entAllPro": "All Professional features",
+        "entSupport": "Dedicated support",
+        "freePitch": "For individuals and small teams giving Karute a try.",
+        "standardPitch": "For stores automating their daily records with AI.",
+        "professionalPitch": "For stores that want everything — coaching included.",
+        "enterprisePitch": "For multi-store chains — better per-store pricing at scale.",
         "actionCurrent": "Current plan",
-        "actionDowngradeFree": "Downgrade to Free",
         "actionUpgrade": "Upgrade to {tier}",
-        "downgradeConfirm": "Downgrade to Free?\n\nYour store count drops to 1 and AI features (karute generation, memory extraction, outreach drafts) will no longer be available. Past data stays viewable.",
-        "mostPopular": "Popular",
-        "currentPill": "Current"
+        "actionContact": "Contact us",
+        "actionUnlimited": "No plan change needed",
+        "feesTitle": "When you add a store",
+        "feesIntro": "Pricing depends on the kind of store you add (amounts adjustable).",
+        "feeSetupTag": "Setup fee",
+        "feeSetupLead": "Adding a store in a different industry",
+        "feeSetupRest": "→ a one-time setup fee (e.g. {fee}) + a monthly seat. A new industry needs its own setup.",
+        "feeBranchTag": "Monthly only",
+        "feeBranchLead": "Adding a branch in the same industry",
+        "feeBranchRest": "→ no setup fee — just one more monthly seat.",
+        "feeOwnerTag": "Free",
+        "feeOwnerBody": "The owner account is always free — no limits, no charges."
       },
       "cancel": {
         "dialogTitle": "Cancel your subscription?",

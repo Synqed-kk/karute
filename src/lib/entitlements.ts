@@ -1,23 +1,38 @@
 // ─────────────────────────────────────────────────────────────
-// Entitlements — store-limit / plan layer (P3)
+// Entitlements — the live plan loader (P3)
 // ─────────────────────────────────────────────────────────────
 // Server-usable lib (imported by server actions; never shipped to the client
-// bundle). The single source of truth for "can this business add another store?"
+// bundle). Loads a business's live tier + counts and folds them through the PURE
+// gating decisions in ./subscription/gating (store/staff limits, feature flags),
+// which are re-exported here so existing '@/lib/entitlements' imports keep working.
 //
-// The numeric store limit is DERIVED from the plan tier via TIER_FEATURES
-// (src/lib/subscription/types.ts) — the exact model the pricing UI renders — so
-// the server gate (createStore) and the client UI (StoresSection) can never
-// disagree. A business's current tier + a comp/dev "unlimited" override live in
-// the business_entitlements table (20260604020000). A business with no row is
-// 'free' (1 store).
+// Numeric limits + feature flags are DERIVED from the plan tier via TIER_FEATURES
+// (src/lib/subscription/types.ts) — the exact model the pricing UI renders — so the
+// server gate (createStore) and the client UI (StoresSection) can never disagree.
 //
-// Dev/owner bypass — Liam's account must never be store-capped. Two levers:
+// Dev/owner bypass — Liam's account must never be capped or charged. Two levers:
 //   1. business_entitlements.is_unlimited = true   (per-business, in the DB), or
 //   2. KARUTE_UNLIMITED_BUSINESS_IDS env (comma-separated business_ids) — a
 //      zero-migration switch Anthony/Liam can flip on Vercel for the dev account.
 
 import { getSynqedClient } from '@/lib/synqed/client'
-import { TIER_FEATURES, type SubscriptionTier } from '@/lib/subscription/types'
+import { TIER_FEATURES, type SubscriptionTier, type TierFeatures } from '@/lib/subscription/types'
+import {
+  storeLimitFor,
+  canAddStoreFor,
+  staffLimitFor,
+} from '@/lib/subscription/gating'
+
+// Re-export the pure gating surface so callers can keep importing from here.
+export {
+  storeLimitFor,
+  canAddStoreFor,
+  staffLimitFor,
+  canAddStaffFor,
+  tierHasFeature,
+  entitlementHasFeature,
+} from '@/lib/subscription/gating'
+export type { EntitlementFeature } from '@/lib/subscription/gating'
 
 export interface Entitlement {
   tier: SubscriptionTier
@@ -25,8 +40,12 @@ export interface Entitlement {
   storeLimit: number | 'unlimited'
   /** Live count of stores in this business. */
   storeCount: number
-  /** True when never store-capped (DB override or env allowlist). */
+  /** True when never capped/charged (DB override or env allowlist — Liam's account). */
   isUnlimited: boolean
+  /** The tier's full feature/limit matrix — for display + the gate helpers. */
+  features: TierFeatures
+  /** Staff-account limit for the tier. */
+  staffLimit: number | 'unlimited'
   /** The single answer both the UI and createStore gate on. */
   canAddStore: boolean
 }
@@ -39,23 +58,7 @@ const VALID_TIERS: readonly SubscriptionTier[] = [
   'enterprise',
 ]
 
-/** Store limit for a tier, straight from the pricing model. */
-export function storeLimitFor(tier: SubscriptionTier): number | 'unlimited' {
-  return TIER_FEATURES[tier].stores
-}
-
-/** Pure decision — shared so the server gate and the client UI agree. */
-export function canAddStoreFor(args: {
-  tier: SubscriptionTier
-  isUnlimited: boolean
-  storeCount: number
-}): boolean {
-  if (args.isUnlimited) return true
-  const limit = storeLimitFor(args.tier)
-  return limit === 'unlimited' || args.storeCount < limit
-}
-
-/** business_ids that are never store-capped, from a server-only env allowlist. */
+/** business_ids that are never capped, from a server-only env allowlist. */
 function envUnlimited(businessId: string): boolean {
   const raw = process.env.KARUTE_UNLIMITED_BUSINESS_IDS ?? ''
   return raw
@@ -69,9 +72,6 @@ function envUnlimited(businessId: string): boolean {
  *  pre-migration DB without the table/column) degrades to 'free', so nothing
  *  throws on the preview before the migration is applied. */
 export async function loadEntitlement(businessId: string): Promise<Entitlement> {
-  // Tier + unlimited override and the live store count both come from synqed-core
-  // now (the entitlement + stores tables moved there). The client is business-
-  // scoped to the session, which is the businessId passed in.
   const synqed = await getSynqedClient()
 
   let tier: SubscriptionTier = 'free'
@@ -97,6 +97,8 @@ export async function loadEntitlement(businessId: string): Promise<Entitlement> 
     storeLimit: storeLimitFor(tier),
     storeCount,
     isUnlimited,
+    features: TIER_FEATURES[tier],
+    staffLimit: staffLimitFor(tier),
     canAddStore: canAddStoreFor({ tier, isUnlimited, storeCount }),
   }
 }

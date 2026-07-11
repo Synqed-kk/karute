@@ -47,7 +47,7 @@ import {
   StoreFormDialog,
   type StoreFormMode,
 } from './stores/StoreFormDialog'
-import { SubscriptionSummaryCard } from './stores/SubscriptionSummaryCard'
+import { PlanComparisonDialog } from './stores/PlanComparisonDialog'
 import type { Store, StoreFormValues } from './stores/types'
 
 interface StoresSectionProps {
@@ -60,6 +60,9 @@ interface StoresSectionProps {
    *  fetched on mount. Absent → fall back to the old full client fetch. */
   initialStores?: StoreRow[]
   initialActiveStoreId?: string | null
+  /** Entitlement fetched on the server — the plan row + add-store gate paint
+   *  with the page (no pop-in). Null/absent → client fetch fallback. */
+  initialEntitlement?: Entitlement | null
 }
 
 // StoreRow (synqed-core shape) → the Store the UI renders.
@@ -81,8 +84,11 @@ export function StoresSection({
   isOwner = false,
   initialStores,
   initialActiveStoreId,
+  initialEntitlement,
 }: StoresSectionProps) {
   const t = useTranslations('settings.stores')
+  const tPlan = useTranslations('settings.stores.plan')
+  const tTier = useTranslations('settings.subscription.tierLabels')
 
   // Synthesize a primary store from orgSettings until Anthony's
   // `stores` table lands. Additional stores append to this list
@@ -115,8 +121,9 @@ export function StoresSection({
 
   const [stores, setStores] = useState<Store[]>(initialMapped)
   const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
+  const [planDialogOpen, setPlanDialogOpen] = useState(false)
   const [formMode, setFormMode] = useState<StoreFormMode>(null)
-  const [entitlement, setEntitlement] = useState<Entitlement | null>(null)
+  const [entitlement, setEntitlement] = useState<Entitlement | null>(initialEntitlement ?? null)
   const [activeStoreId, setActiveStoreId] = useState<string>(
     initialActiveStoreId ??
       initialMapped.find((s) => s.isPrimary)?.id ??
@@ -146,13 +153,17 @@ export function StoresSection({
     // store re-list that caused the placeholder-then-pop-in. Without server
     // data, fall back to the full client refresh.
     if (initialStores && initialStores.length > 0) {
-      void getEntitlement()
-        .then(setEntitlement)
-        .catch((e) => console.error('Failed to load store entitlement', e))
+      // Server-seeded entitlement → nothing to fetch; the whole section painted
+      // complete with the page. Only fetch when the server pass failed.
+      if (!initialEntitlement) {
+        void getEntitlement()
+          .then(setEntitlement)
+          .catch((e) => console.error('Failed to load store entitlement', e))
+      }
     } else {
       void refresh()
     }
-  }, [refresh, initialStores])
+  }, [refresh, initialStores, initialEntitlement])
 
   // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
   const handleSwitch = async (storeId: string) => {
@@ -211,14 +222,45 @@ export function StoresSection({
         onClose={() => setFormMode(null)}
         onSave={handleFormSave}
       />
+      <PlanComparisonDialog
+        open={planDialogOpen}
+        onClose={() => setPlanDialogOpen(false)}
+        currentTier={entitlement?.tier}
+        isUnlimited={!!entitlement?.isUnlimited}
+      />
 
-      {/* SubscriptionSummaryCard hidden until Stripe wires up — the
-       *  mock seed renders a fake trial banner that misleads owners
-       *  (`tier: 'trial'`, countdown to 2026-06-15). Gated by the
-       *  same NEXT_PUBLIC_FEATURE_SUBSCRIPTION flag that hides the
-       *  subscription tab. */}
-      {process.env.NEXT_PUBLIC_FEATURE_SUBSCRIPTION === 'true' && (
-        <SubscriptionSummaryCard />
+      {/* Plan surface — the plan/paywall lives here in 店舗 (per Liam's
+       *  IA), not a separate settings tab. Shows the REAL current plan
+       *  from the entitlement (or the unlimited-account state), and the
+       *  「プランを見る・変更」 button opens the tier comparison. Owner-only:
+       *  plan changes are an owner action. Replaces the old
+       *  SubscriptionSummaryCard, whose mock seed showed a fake trial
+       *  countdown (tier: 'trial', ended 2026-06-15). */}
+      {isOwner && entitlement && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card px-4 py-3.5 ring-1 ring-black/5 dark:ring-white/5">
+          <div className="min-w-0">
+            <div className="text-[12px] font-medium text-muted-foreground">
+              {tPlan('label')}
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[15px] font-semibold text-foreground">
+              {entitlement.isUnlimited ? (
+                <>
+                  <Crown className="size-4 text-amber-500" aria-hidden />
+                  {tPlan('unlimitedLabel')}
+                </>
+              ) : (
+                tTier(entitlement.tier)
+              )}
+            </div>
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => setPlanDialogOpen(true)}
+            className="h-9 shrink-0"
+          >
+            {tPlan('viewCta')}
+          </Button>
+        </div>
       )}
 
       {/* Owner permissions banner — only renders for owners */}
