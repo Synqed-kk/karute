@@ -24,6 +24,17 @@ export type SubscriptionStatus =
   | 'canceled'
   | 'free'
 
+/** Every tier, for validating externally-sourced tier strings (core rows,
+ *  env overrides). Single list — add a tier here and TIER_FEATURES breaks
+ *  the build until it's priced, which is the point. */
+export const ALL_TIERS: readonly SubscriptionTier[] = [
+  'trial',
+  'free',
+  'standard',
+  'professional',
+  'enterprise',
+] as const
+
 /** Per-tier price in JPY per store per month. Single source of
  *  truth for every price the UI renders. */
 export const TIER_PRICE_JPY: Record<SubscriptionTier, number> = {

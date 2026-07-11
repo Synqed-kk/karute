@@ -27,7 +27,8 @@
     "somethingWentWrong": "エラーが発生しました。",
     "noPermission": "この操作を行う権限がありません。",
     "saved": "保存済み",
-    "notifications": "通知"
+    "notifications": "通知",
+    "staffLimitReached": "スタッフ数がプランの上限に達しています。追加にはプランのアップグレードが必要です"
   },
   "auth": {
     "title": "カルテにサインイン",
@@ -1117,6 +1118,7 @@
       "relearnConfirmTooltip": "AIが抽出した項目を作り直します。ピン留め・スタッフ追加・編集済みの項目はそのまま残ります。",
       "relearnRunning": "再学習中…",
       "relearnFailed": "再学習できませんでした（録音の文字起こしが見つからないか、エラーが発生しました）",
+      "relearnLocked": "このプランではAIメモリーの再学習はご利用いただけません。プランのアップグレードをご検討ください",
       "relearnDone": "再学習が完了しました（{n}件）",
       "passportHint": "点線の値はタップで根拠の発言を表示。鉛筆で修正でき、修正した値はAIが上書きしません。",
       "passportQuoteHint": "タップで根拠の発言を表示",
@@ -2191,7 +2193,8 @@
         "feeBranchLead": "同じ業種の支店を追加",
         "feeBranchRest": "→ 初期費用なし、月額シートが1つ増えるだけです。",
         "feeOwnerTag": "無料",
-        "feeOwnerBody": "オーナーアカウントは常に無料 — 上限も課金もかかりません。"
+        "feeOwnerBody": "オーナーアカウントは常に無料 — 上限も課金もかかりません。",
+        "manageOnWeb": "プランの確認・変更はWeb版の設定から行えます"
       },
       "cancel": {
         "dialogTitle": "本当に解約しますか？",
@@ -2297,7 +2300,10 @@
       "saving": "保存中…",
       "saved": "保存しました",
       "saveFailed": "保存できませんでした"
-    }
+    },
+    "staffCountWithLimit": "{n}/{limit}名のスタッフ",
+    "staffLimitHint": "プランのスタッフ上限に達しています。追加にはアップグレードが必要です",
+    "staffLimitInviteHint": "プランの上限のため新しいスタッフは招待できません（既存スタッフへの再招待は可能）"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -2802,7 +2808,8 @@
     "pendingInvites": "保留中の招待",
     "revoke": "取り消す",
     "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
-    "inviteExistingNone": "新しいスタッフ（メールのみ）"
+    "inviteExistingNone": "新しいスタッフ（メールのみ）",
+    "staffLimitReached": "スタッフ数がプランの上限に達しているため、新しいスタッフを招待できません。既存スタッフへの再招待は可能です"
   },
   "permissions": {
     "roleLabel": "権限",
