@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useLocale, useTranslations } from 'next-intl'
 import { ArrowRight, GraduationCap, Lock } from 'lucide-react'
+import { WebOnly } from '@/components/shell/WebOnly'
 
 // ─────────────────────────────────────────────────────────────
 // Coaching — locked / upsell state
@@ -36,14 +37,19 @@ export function CoachingLocked() {
           {t('body')}
         </p>
 
-        <Link
-          href={`/${locale}/settings`}
-          className="mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 text-[14px] font-semibold text-white transition-colors hover:bg-indigo-700"
-        >
-          {t('cta')}
-          <ArrowRight className="size-4" aria-hidden />
-        </Link>
-        <p className="mt-3 text-[11.5px] text-muted-foreground">{t('ctaHint')}</p>
+        {/* App-store canon: no plan-steering CTA inside the native shell —
+            the locked info above stays, the button is web-only (never SSR'd,
+            so it can't flash in the shell either). */}
+        <WebOnly>
+          <Link
+            href={`/${locale}/settings`}
+            className="mt-7 inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-6 text-[14px] font-semibold text-white transition-colors hover:bg-indigo-700"
+          >
+            {t('cta')}
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
+          <p className="mt-3 text-[11.5px] text-muted-foreground">{t('ctaHint')}</p>
+        </WebOnly>
       </div>
     </main>
   )
