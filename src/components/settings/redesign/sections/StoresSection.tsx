@@ -41,6 +41,7 @@ import type { OrgSettings } from '@/actions/org-settings'
 import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
+import { isNativeShell } from '@/lib/platform'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
@@ -89,6 +90,13 @@ export function StoresSection({
   const t = useTranslations('settings.stores')
   const tPlan = useTranslations('settings.stores.plan')
   const tTier = useTranslations('settings.subscription.tierLabels')
+
+  // App-store safety (lib/platform.ts): purchase entry points are web-only.
+  // Effect-set so SSR/web hydration stays byte-identical.
+  const [nativeShell, setNativeShell] = useState(false)
+  useEffect(() => {
+    setNativeShell(isNativeShell())
+  }, [])
 
   // Synthesize a primary store from orgSettings until Anthony's
   // `stores` table lands. Additional stores append to this list
@@ -253,13 +261,18 @@ export function StoresSection({
               )}
             </div>
           </div>
-          <Button
-            variant="outline"
-            onClick={() => setPlanDialogOpen(true)}
-            className="h-9 shrink-0"
-          >
-            {tPlan('viewCta')}
-          </Button>
+          {/* App-store safety: the plan-change entry point is web-only (the
+              dialog behind it is a purchase surface — see lib/platform.ts).
+              The current-plan STATUS above stays visible everywhere. */}
+          {!nativeShell && (
+            <Button
+              variant="outline"
+              onClick={() => setPlanDialogOpen(true)}
+              className="h-9 shrink-0"
+            >
+              {tPlan('viewCta')}
+            </Button>
+          )}
         </div>
       )}
 

@@ -27,7 +27,8 @@
     "somethingWentWrong": "Something went wrong.",
     "noPermission": "You do not have permission to perform this action.",
     "saved": "Saved",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "staffLimitReached": "You've reached your plan's staff limit. Upgrade your plan to add more staff"
   },
   "auth": {
     "title": "Sign in to Karute",
@@ -1117,6 +1118,7 @@
       "relearnConfirmTooltip": "Rebuilds the AI-extracted items. Pinned, staff-added, and staff-edited items are kept.",
       "relearnRunning": "Re-learning…",
       "relearnFailed": "Re-learn failed (no transcripts found, or an error occurred)",
+      "relearnLocked": "Re-learn is not available on your current plan. Consider upgrading to use AI memory features",
       "relearnDone": "Re-learned {n} items",
       "passportHint": "Dotted values: tap to see the source quote. Pencil to correct — corrections are never overwritten by AI.",
       "passportQuoteHint": "Tap to see the source quote",
@@ -2191,7 +2193,8 @@
         "feeBranchLead": "Adding a branch in the same industry",
         "feeBranchRest": "→ no setup fee — just one more monthly seat.",
         "feeOwnerTag": "Free",
-        "feeOwnerBody": "The owner account is always free — no limits, no charges."
+        "feeOwnerBody": "The owner account is always free — no limits, no charges.",
+        "manageOnWeb": "Plans can be viewed and changed from the web version's settings"
       },
       "cancel": {
         "dialogTitle": "Cancel your subscription?",
@@ -2297,7 +2300,10 @@
       "saving": "Saving…",
       "saved": "Saved",
       "saveFailed": "Could not save"
-    }
+    },
+    "staffCountWithLimit": "{n}/{limit} staff",
+    "staffLimitHint": "Your plan's staff limit is reached. Upgrade to add more",
+    "staffLimitInviteHint": "New staff can't be invited on your current plan (re-invites to existing staff still work)"
   },
   "aiActions": {
     "title": "AI Recommended Actions",
@@ -2802,7 +2808,8 @@
     "pendingInvites": "Pending invites",
     "revoke": "Revoke",
     "inviteExistingLabel": "Invite an existing team member (optional)",
-    "inviteExistingNone": "New hire (email only)"
+    "inviteExistingNone": "New hire (email only)",
+    "staffLimitReached": "Your plan's staff limit is reached, so new staff can't be invited. Re-inviting existing staff still works"
   },
   "permissions": {
     "roleLabel": "Role & permissions",

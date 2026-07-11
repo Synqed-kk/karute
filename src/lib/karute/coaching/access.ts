@@ -18,7 +18,8 @@
 // This one function is the single answer they must all share so they can never
 // disagree. Don't read it as already-enforced.
 
-import { TIER_FEATURES, type SubscriptionTier } from '@/lib/subscription/types'
+import type { SubscriptionTier } from '@/lib/subscription/types'
+import { tierHasFeature } from '@/lib/subscription/gating'
 
 export type CoachingAccessReason = 'ok' | 'not_entitled' | 'disabled'
 
@@ -32,10 +33,11 @@ export interface CoachingAccess {
   reason: CoachingAccessReason
 }
 
-/** Does this tier include coaching? The paywall, straight from the pricing model —
- *  so the gate and the pricing UI can never diverge (mirrors entitlements.ts). */
+/** Does this tier include coaching? Delegates to the ONE generic feature gate
+ *  (gating.ts tierHasFeature) so the coaching gate, the pricing UI, and every
+ *  other feature wall share a single source and can never diverge. */
 export function coachingEntitledForTier(tier: SubscriptionTier): boolean {
-  return TIER_FEATURES[tier]?.coachingInsights === true
+  return tierHasFeature(tier, 'coachingInsights')
 }
 
 /** The pure gate decision. Entitled = paid tier OR unlimited override; canUse =

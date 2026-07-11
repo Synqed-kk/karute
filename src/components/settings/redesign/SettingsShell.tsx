@@ -227,6 +227,7 @@ export function SettingsShell({
             activeStaffId={activeStaffId}
             canManageStaff={canManageStaff}
             canInviteStaff={canInviteStaff}
+            entitlement={initialEntitlement}
             voiceEnrollments={Object.fromEntries(
               Object.entries(orgSettings?.voice_enrollments ?? {}).map(
                 ([id, v]) => [id, v.status === 'saved' ? v.consent_at : null],

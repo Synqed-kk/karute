@@ -43,6 +43,11 @@ export async function getSuggestedFollowUp(params: {
 
   try {
     if (!process.env.OPENAI_API_KEY) return null
+    // Plan gate (P4): outreach drafts are a paid capability once billing arms.
+    // Locked → null, and the card keeps its 対応予定 preview (this function is
+    // best-effort by contract). Dynamic import keeps test import-chains light.
+    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
+    if (!(await featureAllowed('aiOutreachDrafts'))) return null
     const orgSettings = await getOrgSettings().catch(() => null)
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const tok = resolvePersonaTokens(persona, locale)
