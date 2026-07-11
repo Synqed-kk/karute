@@ -23,6 +23,8 @@
  *                     (every preset except empty custom)
  */
 
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
   return { ...actual, cache: (fn: (...a: unknown[]) => unknown) => fn }
@@ -110,7 +112,14 @@ jest.mock('@/lib/synqed/client', () => {
   }
   const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
   const stores = { list: jest.fn(async () => ({ stores: [] })) }
-  const client = { karuteRecords, appointments, staffStores, stores }
+  // Save-gate consent check (src/actions/karute.ts) — current-version consent
+  // by default so this suite's RBAC assertions reach create() untouched.
+  const customers = {
+    getConsent: jest.fn(async () => ({
+      consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+    })),
+  }
+  const client = { karuteRecords, appointments, staffStores, stores, customers }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
