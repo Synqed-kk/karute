@@ -4,6 +4,7 @@
 // requireCapability(...) so the UI is never the thing standing between a user
 // and an action.
 
+import { cache } from 'react'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import {
@@ -25,7 +26,7 @@ import {
  *     therefore keeps full power either way — applying the migration changes no
  *     one's effective access until someone is explicitly customized.
  */
-export async function getMyCapabilities(): Promise<Set<Capability>> {
+export const getMyCapabilities = cache(async (): Promise<Set<Capability>> => {
   const uid = await getCurrentUserStaffId()
   if (!uid) return new Set()
 
@@ -61,7 +62,7 @@ export async function getMyCapabilities(): Promise<Set<Capability>> {
   }
 
   return effectiveCapabilities(role, override)
-}
+})
 
 export async function can(capability: Capability): Promise<boolean> {
   return (await getMyCapabilities()).has(capability)

@@ -10,6 +10,7 @@ import { Entry, EntrySchema, ENTRY_CATEGORIES } from '@/types/ai'
 import { EntryCard } from './EntryCard'
 import { ReviewHeader } from './ReviewHeader'
 import { saveKaruteRecord } from '@/actions/karute'
+import { saveDraft, clearDraft } from '@/lib/karute/draft'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
@@ -31,6 +32,10 @@ interface ReviewScreenProps {
   /** Outcome chosen at stop (RecordPageView) — applied directly at save, so no
    *  dialog re-opens here. */
   outcome?: SessionOutcome
+  /** Server-minted recording_sessions id (synqed-core) — carried to the save so
+   *  core's idempotent-save dedupe has something to key on. null/undefined =
+   *  today's behavior (no dedupe for that save). */
+  recordingSessionId?: string | null
   onSaved: () => void
   /** Bail out without saving — clears the background pipeline + take. */
   onDiscard?: () => void
@@ -45,6 +50,7 @@ export function ReviewScreen({
   appointmentId,
   appointmentCustomerId,
   outcome,
+  recordingSessionId,
   onSaved,
   onDiscard,
 }: ReviewScreenProps) {
@@ -56,6 +62,31 @@ export function ReviewScreen({
   )
   const [suggestions, setSuggestions] = useState<{ text: string; type: string }[]>([])
   const [suggestionsLoading, setSuggestionsLoading] = useState(true)
+
+  // Persist a recovery draft the moment the AI result is on screen. The audio is
+  // already deleted by now, so this transcript is the ONLY copy — if the WebView
+  // backgrounds and is killed, or the tab reloads, the in-memory pipeline is gone
+  // and this sessionStorage draft is what RecordPageView restores from. Cleared on
+  // successful save. Keyed on transcript so it re-saves if the take changes.
+  useEffect(() => {
+    if (!transcript) return
+    // Fire-and-forget: saveDraft is async now (it stamps the signed-in user id
+    // so only that staff member can recover the draft — see lib/karute/draft).
+    void saveDraft({
+      transcript,
+      summary,
+      entries: entries.map((e) => ({
+        category: e.category,
+        content: e.title,
+        sourceQuote: e.source_quote,
+        confidenceScore: e.confidence_score,
+      })),
+      duration,
+      appointmentId,
+      appointmentCustomerId,
+      recordingSessionId: recordingSessionId ?? undefined,
+    })
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
@@ -125,6 +156,7 @@ export function ReviewScreen({
         duration,
         appointmentId,
         outcome,
+        recordingSessionId,
       })
 
       if (result && 'error' in result) {
@@ -134,9 +166,11 @@ export function ReviewScreen({
       // On success, saveKaruteRecord redirects
     } catch (err) {
       if (err instanceof Error && err.message.includes('NEXT_REDIRECT')) {
-        // Success: saveKaruteRecord redirects by throwing NEXT_REDIRECT. Clear
-        // the background pipeline first so the top-corner chip doesn't linger
-        // after we navigate to the saved karute, then re-throw to let Next route.
+        // Success: saveKaruteRecord redirects by throwing NEXT_REDIRECT. The
+        // record is now persisted, so drop the recovery draft, clear the
+        // background pipeline (so the top-corner chip doesn't linger after we
+        // navigate to the saved karute), then re-throw to let Next route.
+        clearDraft()
         onSaved()
         throw err
       }

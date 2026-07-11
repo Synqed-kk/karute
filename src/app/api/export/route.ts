@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { can } from '@/lib/auth/require-permission'
 import { listCustomers } from '@/lib/customers/queries'
 import { SCOPES, isWired, type ScopeKey, type FormatKey } from '@/lib/export/scopes'
 
@@ -13,6 +14,18 @@ export async function GET(request: Request) {
   } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Bulk customer export (PII) = data.export — the capability the presets give
+  // owner / manager / senior only (practitioner + frontdesk lack it). The
+  // /data-export page + nav link are NOT capability-gated in the UI today, so
+  // this route was reachable by any signed-in staff; this is the enforcement
+  // point. 403, not a thrown error, because this is an HTTP handler.
+  if (!(await can('data.export'))) {
+    return NextResponse.json(
+      { error: 'You do not have permission to export data.' },
+      { status: 403 },
+    )
   }
 
   const url = new URL(request.url)

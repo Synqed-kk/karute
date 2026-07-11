@@ -2,6 +2,7 @@
 
 import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
+import { startRecordingSession } from '@/actions/recordings'
 
 /**
  * Global MediaRecorder singleton.
@@ -10,6 +11,13 @@ import type { RecordingResult } from '@/hooks/use-media-recorder'
  */
 
 type Listener = () => void
+
+export interface RecordingTarget {
+  customerId: string
+  customerName: string
+  karuteNumber: string | null
+  appointmentId: string | null // null = walk-in (no booking)
+}
 
 // ── Runaway-recording safety nets ────────────────────────────────────────────
 // Interim guard until segmented capture removes the length ceiling entirely.
@@ -49,6 +57,15 @@ class GlobalRecorder {
   overrun = false
   /** True when the hard cap auto-stopped + saved the recording (UI informs staff). */
   autoStopped = false
+  /** Customer/appointment the recording is BOUND to, captured at start(). The
+   *  single source of truth for what the save attaches to — immune to nav drift.
+   *  Survives stop→complete; cleared only on discard(). */
+  target: RecordingTarget | null = null
+  /** Server-minted `recording_sessions.id` (synqed-core), fired in parallel with
+   *  getUserMedia at start() so it never delays/blocks the mic. null until it
+   *  resolves, and null forever if the mint failed — the save then proceeds
+   *  without it exactly as before this existed (no dedupe for that save). */
+  recordingSessionId: string | null = null
 
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
@@ -57,6 +74,15 @@ class GlobalRecorder {
   private pauseStart = 0
   private runawayTimer: ReturnType<typeof setInterval> | null = null
   private listeners = new Set<Listener>()
+  /** The in-flight session-mint promise from the current recording, so save
+   *  time can await it briefly instead of only reading whatever has resolved
+   *  so far. Cleared on discard(). */
+  private recordingSessionPromise: Promise<string | null> | null = null
+  /** Staleness guard for the mint. A slow mint from recording A resolving
+   *  AFTER discard()/a new start() must not stamp its id (minted for A's
+   *  customer) onto recording B — bump on every start() and discard(); the
+   *  mint's .then only writes when its generation is still current. */
+  private recordingSessionGen = 0
   version = 0
 
   subscribe(fn: Listener) {
@@ -101,13 +127,32 @@ class GlobalRecorder {
     }
   }
 
-  async start(opts?: { noiseSuppression?: boolean }) {
+  async start(opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) {
     this.error = null
     this.result = null
     this.chunks = []
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.target = opts?.target ?? null
+    this.recordingSessionId = null
+
+    // Mint the recording-session id (synqed-core) IN PARALLEL with getUserMedia
+    // below — a network call must NEVER block or delay the mic prompt. Held so
+    // handleUseRecording can await it briefly at save time; a slow/failed mint
+    // just leaves this null (save proceeds without recording_session_id).
+    const gen = ++this.recordingSessionGen
+    this.recordingSessionPromise = startRecordingSession({
+      customerId: this.target?.customerId ?? null,
+      appointmentId: this.target?.appointmentId ?? null,
+    }).then((res) => {
+      // Stale mint (user discarded / started a new recording while this was
+      // in flight): drop it — its row belongs to a different take/customer.
+      if (gen !== this.recordingSessionGen) return null
+      this.recordingSessionId = res?.id ?? null
+      this.notify()
+      return this.recordingSessionId
+    })
 
     let micStream: MediaStream
     try {
@@ -162,6 +207,19 @@ class GlobalRecorder {
     this.notify()
   }
 
+  /**
+   * Await the in-flight recording-session mint briefly at save time — bounded
+   * so a slow network call can never hold up the save. Returns the id if
+   * already resolved, races the in-flight promise against `timeoutMs`
+   * otherwise, or null if start() was never called / it already failed.
+   */
+  async awaitRecordingSessionId(timeoutMs = 1500): Promise<string | null> {
+    if (this.recordingSessionId !== null) return this.recordingSessionId
+    if (!this.recordingSessionPromise) return null
+    const timeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs))
+    return Promise.race([this.recordingSessionPromise, timeout])
+  }
+
   stop() {
     this.clearRunawayGuard()
     if (this.recorder && this.recorder.state !== 'inactive') {
@@ -204,6 +262,12 @@ class GlobalRecorder {
     this.pausedDuration = 0
     this.overrun = false
     this.autoStopped = false
+    this.target = null
+    this.recordingSessionId = null
+    this.recordingSessionPromise = null
+    // Invalidate any in-flight mint so its late resolution can't stamp a
+    // discarded take's session id onto the next recording.
+    this.recordingSessionGen++
     this.state = 'idle'
     this.startedAt = null
     this.recorder = null

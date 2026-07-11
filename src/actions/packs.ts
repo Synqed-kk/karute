@@ -10,13 +10,19 @@ import {
   addPackAlertDismissal,
   addRedemption,
   createPack,
+  findCustomerAppointmentForDate,
   removeRedemption,
   setCustomerLifecycle,
   updatePackStatus,
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
-import type { LifecycleStatus, PackKind, PackStatus } from '@/lib/packs/types'
+import {
+  nextPurchaseRound,
+  type LifecycleStatus,
+  type PackKind,
+  type PackStatus,
+} from '@/lib/packs/types'
 
 // 回数券 server actions — the ONLY write path to the pack tables (they're
 // RLS-locked; browser clients can't reach them). Each action stamps the acting
@@ -40,18 +46,29 @@ export async function createPackAction(input: {
     return { ok: false, error: 'packSize must be > 0' }
   if (!Number.isFinite(input.unitPrice) || input.unitPrice < 0)
     return { ok: false, error: 'unitPrice must be >= 0' }
+  // A single session is one session — server-enforced so no future caller can
+  // send kind:'single' with packSize 10 and inflate the derived total_price
+  // (today's forms clamp this client-side; the money rule lives here).
+  if (input.kind === 'single' && input.packSize !== 1)
+    return { ok: false, error: 'single kind must have packSize 1' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   // SERVER-derived 購入回数 when the caller doesn't supply one (the stop-dialog
-  // picker doesn't): round = count of the customer's existing counted packs —
-  // identical to TicketPackCard's nextRound, business-wide, store-blind. A
-  // 銀座 re-subscribe is 2枚目, never a fresh 初回 (§7.4 — the first-timer
-  // nightmare in money clothing).
+  // picker doesn't): highest STORED round + 1, never a row count — the imports
+  // collapsed history to one row per customer, so counting relabels a round-4
+  // regular as 初回 (§7.4 — the first-timer nightmare in money clothing).
+  // Identical to TicketPackCard's nextRound; business-wide, store-blind.
   const purchaseRound =
-    input.purchaseRound ??
-    (await listCustomerPacks(input.customerId)).filter((p) => p.kind === 'pack')
-      .length
+    input.purchaseRound ?? nextPurchaseRound(await listCustomerPacks(input.customerId))
+  // SERVER-derived 合計金額 when the caller doesn't supply one — NEITHER form
+  // does (profile AddPackDialog, stop-dialog picker), which saved every pack
+  // with total_price null and zeroed pack revenue. The app prices per-session
+  // (単価 field, unconsumedValue = remaining × unit_price), so the amount the
+  // customer paid IS unit × size. Defaulted here, not in the forms, so every
+  // caller — present and future — is covered by one rule.
+  const totalPrice = input.totalPrice ?? input.unitPrice * input.packSize
   const result = await createPack({
     ...(input as CreatePackInput),
+    totalPrice,
     purchaseRound,
     source: 'manual',
     createdBy: staffId,
@@ -85,11 +102,21 @@ export async function redeemSessionAction(input: {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
   const staffId = await getCurrentUserStaffId().catch(() => null)
   const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  const redeemedOn = input.redeemedOn ?? jstToday
+  // The customer-profile burn button never sends an appointmentId, so those
+  // redemptions landed appointment_id NULL even when the customer actually had
+  // a booking that day. Only fill in when the caller left it unset — never
+  // override an explicit id (e.g. the reconcile strip's specific booking).
+  // No match (walk-in / no booking that day) is expected, not an error.
+  const appointmentId =
+    input.appointmentId !== undefined
+      ? input.appointmentId
+      : await findCustomerAppointmentForDate(input.customerId, redeemedOn)
   const result = await addRedemption({
     packId: input.packId,
     customerId: input.customerId,
-    redeemedOn: input.redeemedOn ?? jstToday,
-    appointmentId: input.appointmentId ?? null,
+    redeemedOn,
+    appointmentId,
     karuteRecordId: input.karuteRecordId ?? null,
     source: input.source ?? 'manual',
     createdBy: staffId,

@@ -1,5 +1,6 @@
 import { getLocale, getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getOrgSettings } from '@/actions/org-settings'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import type { CustomerListRow } from '@/components/customers/redesign/types'
@@ -19,6 +20,7 @@ import {
   deriveFamilyInitials,
 } from '@/lib/customers/identity'
 import { listAllCustomers } from '@/lib/customers/list-all'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
 import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
@@ -33,7 +35,16 @@ export default async function CustomersPage({
   const query = rawQuery ?? ''
 
   const t = startTiming(`customers q="${query}"`)
-  const synqed = await getSynqedClient()
+  // Both are independent — getSynqedClient hits the auth layer while
+  // resolveStoreScope reads capabilities + the active-store cookie; resolve in
+  // parallel. The scope is the view lens for the 顧客 list: a cross-store viewer
+  // gets their pinned store (null = all), a branch-restricted staff is clamped
+  // to their own store (and search stays scoped via enforceStore).
+  const [synqed, scope] = await Promise.all([
+    getSynqedClient(),
+    resolveStoreScope(),
+  ])
+  const enforceStore = scope.allowedStoreIds != null
 
   // Locale + translated relative-time strings, pulled once at page level
   // and threaded into the (synchronous) formatters so JP users see
@@ -44,6 +55,8 @@ export default async function CustomersPage({
     t.phase('customers.list', () =>
       listAllCustomers(synqed, {
         search: query.trim() || undefined,
+        store_id: scope.storeId,
+        enforceStore,
         sort_by: 'updated_at',
         sort_order: 'desc',
       }),
@@ -71,12 +84,20 @@ export default async function CustomersPage({
   const customerIds = list.customers.map((c) => c.id)
   // Pack usage + lifecycle load in parallel with the enrichment — both come
   // back as empty maps until the ticket_packs migration applies (graceful).
-  const [enrichment, packUsage, lifecycles] = await Promise.all([
+  const [enrichment, packUsageRaw, lifecycles, orgSettings] = await Promise.all([
     t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
     listAllPackUsage(),
     listAllLifecycles(),
+    getOrgSettings(),
   ])
   t.end()
+  // 回数券 off (org setting): blank the usage map so the per-row ticket line,
+  // 残N chip and pack alert all disappear (wave stays parallel; the QR
+  // has_ticket_pack flag still feeds status resolution unchanged).
+  const packUsage =
+    (orgSettings?.ticket_packs_enabled ?? true)
+      ? packUsageRaw
+      : (new Map() as typeof packUsageRaw)
 
   // Sequential per-tenant karute numbers — sorted by created_at so the
   // oldest customer gets #00001, etc. Computed in-memory until Anthony
@@ -176,6 +197,7 @@ export default async function CustomersPage({
         new Date(),
         { withWeekday: true },
       ),
+      noShowCount: enriched?.noShowCount ?? 0,
     }
   })
 

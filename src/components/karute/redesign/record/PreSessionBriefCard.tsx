@@ -39,8 +39,26 @@
 //   karute list. ANTHONY: enforce the cross-staff visibility check
 //   server-side when wiring the real `pre_session_briefs` read.
 
+import { useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Clock, Gift, PawPrint, Quote, Sparkles, Target, Wand2 } from 'lucide-react'
+import {
+  AlertTriangle,
+  ChevronDown,
+  Clock,
+  Gift,
+  MessageCircle,
+  PawPrint,
+  Quote,
+  Sparkles,
+  Target,
+  Wand2,
+} from 'lucide-react'
+import { parseQrMemo, QR_MEMO_LABELS } from '@/lib/sync/qr-notes'
+
+// Approximate width at which the free-text 備考(参考) value overflows the 2-line
+// clamp (~40 chars/line at this size). Below it, the value fits and the
+// すべて表示 toggle is suppressed so staff never see a control that does nothing.
+const NOTES_CLAMP_MIN_CHARS = 80
 
 export interface PreSessionBrief {
   /** True = first-ever visit for this customer → render the warm-
@@ -68,6 +86,19 @@ export interface PreSessionBrief {
    *  (期待), tone (トーン), points to watch (注意点). Rendered under the verbatim
    *  memo. Empty/undefined when there's no memo or no AI analysis. */
   memoAnalysis?: string[]
+  // ── 30-second layer (2026-07-03 redesign) — all optional so the mechanical
+  // fallback + pre-v7 cached briefs render the classic layout unchanged. ──
+  /** ONE spoken first line to open with (from durable personal memory).
+   *  Null/absent = no genuine material; the AI never forces one. */
+  opener?: string | null
+  /** The customer's own quoted words (『』/「」) from the latest session, verbatim. */
+  lastWords?: string | null
+  /** Must-know-before-touching cautions (history, metal, meds, pressure). */
+  cautions?: string[]
+  /** Up to 3 imperative actions for today; first = homework/promise re-entry. */
+  todayActions?: string[]
+  /** Pure date math — days since last visit + the usual gap (median). */
+  rhythm?: { daysSince: number; usualGapDays: number | null } | null
 }
 
 interface PreSessionBriefCardProps {
@@ -97,11 +128,51 @@ export function PreSessionBriefCard({
   customerName,
 }: PreSessionBriefCardProps) {
   const t = useTranslations('recording.brief')
+  const [detailOpen, setDetailOpen] = useState(false)
   // Always render — when `brief` is null we fall back to the
   // scaffolding shell above so staff sees every AI-capability hint.
   const isScaffoldOnly = !brief
   const effectiveBrief = brief ?? EMPTY_BRIEF_SCAFFOLD
   const hasMemoAnalysis = (effectiveBrief.memoAnalysis?.length ?? 0) > 0
+  // 30-second layer (v7 AI briefs). When ANY of it exists the card leads with
+  // opener → cautions → today's actions and folds the classic recap sections
+  // into a 詳しい経過 toggle. Pre-v7 caches / the mechanical fallback have none
+  // of these fields → classic layout renders exactly as before.
+  const hasOpener = !!(effectiveBrief.opener || effectiveBrief.lastWords)
+  const cautions = effectiveBrief.cautions ?? []
+  const todayActions = effectiveBrief.todayActions ?? []
+  const hasThirtySecondLayer = hasOpener || cautions.length > 0 || todayActions.length > 0
+  // Layer-contract seat belt: the prompt forbids a hook from repeating the
+  // opener's topic, but a slipped generation (or a stale cache) must still
+  // never show the same line twice — drop a hook whose title is inside the
+  // opener, or whose body is the opener restated. Length floors keep short
+  // strings from matching incidentally (Japanese has no word boundaries:
+  // 海 is inside 北海道, 運動 inside 運動会).
+  const openerNorm = normalizeForDedup(effectiveBrief.opener ?? '')
+  const visibleHooks = openerNorm
+    ? effectiveBrief.hooks.filter((h) => {
+        const title = normalizeForDedup(h.title)
+        if (
+          title.length >= 3 &&
+          (openerNorm.includes(title) || (openerNorm.length >= 5 && title.includes(openerNorm)))
+        )
+          return false
+        const body = normalizeForDedup(h.body ?? '')
+        if (body.length >= 5 && openerNorm.length >= 5 && (openerNorm.includes(body) || body.includes(openerNorm)))
+          return false
+        return true
+      })
+    : effectiveBrief.hooks
+  const rhythm = effectiveBrief.rhythm ?? null
+  const rhythmLabel = rhythm
+    ? rhythm.usualGapDays && rhythm.usualGapDays > 0
+      ? rhythm.daysSince <= rhythm.usualGapDays * 0.6
+        ? t('rhythmEarly', { days: rhythm.daysSince })
+        : rhythm.daysSince >= rhythm.usualGapDays * 1.7
+          ? t('rhythmLate', { days: rhythm.daysSince })
+          : null
+      : null
+    : null
 
   // FIRST-VISIT FRAMING — gradient blue card with warm intro copy.
   // Matches the spike's first-visit branch (no recap sections; just
@@ -171,6 +242,14 @@ export function PreSessionBriefCard({
             </div>
           )}
         </div>
+        {/* Rhythm badge — pure date math; only shown when today's gap clearly
+         *  deviates from the customer's usual cadence (an early return or a
+         *  long absence is signal BEFORE the customer says a word). */}
+        {rhythmLabel && (
+          <span className="shrink-0 rounded-full bg-amber-500/10 px-2.5 py-1 text-[11px] font-medium text-amber-700 ring-1 ring-amber-500/25 dark:text-amber-300">
+            {rhythmLabel}
+          </span>
+        )}
       </header>
 
       {/* Reservation memo — surface FIRST when present (it's literal
@@ -199,105 +278,219 @@ export function PreSessionBriefCard({
         />
       ) : null}
 
-      {/* Conversation hooks — most actionable, surface near top */}
-      {effectiveBrief.hooks.length > 0 ? (
-        <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
-          <ul className="space-y-1">
-            {effectiveBrief.hooks.map((h, i) => (
-              <li
-                key={i}
-                className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
-              >
-                <span className="mt-0.5 shrink-0 text-blue-400">•</span>
-                <span>
-                  <span className="font-medium">{h.title}</span>
-                  {h.body && <span className="text-muted-foreground"> — {h.body}</span>}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection icon={<PawPrint className="size-3" />} title={t('hooks')}>
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
-        </BriefSection>
-      ) : null}
+      {/* ① 会話の第一声 — the opener + the customer's own words from last
+       *  time. THE first thing staff read: how to start the conversation. */}
+      {hasOpener && (
+        <div className="mb-3 rounded-lg border border-blue-200/70 bg-card/70 p-3 dark:border-blue-500/20">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-blue-700 dark:text-blue-300">
+            <MessageCircle className="size-3" aria-hidden />
+            {t('opener')}
+          </div>
+          {effectiveBrief.opener && (
+            <p className="text-[14px] font-medium leading-relaxed text-foreground/95">
+              {effectiveBrief.opener}
+            </p>
+          )}
+          {effectiveBrief.lastWords && (
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
+              {t('lastWords')}：{effectiveBrief.lastWords}
+            </p>
+          )}
+        </div>
+      )}
 
-      {/* Last concerns — clinical recap */}
-      {effectiveBrief.concerns.length > 0 ? (
-        <BriefSection
-          icon={<Clock className="size-3" />}
-          title={t('concerns')}
-          divider
-        >
+      {/* ② 注意 — must-know-before-touching. Amber, always visible when the
+       *  records carry safety/service cautions. */}
+      {cautions.length > 0 && (
+        <div className="mb-3 rounded-lg bg-amber-50/80 p-3 ring-1 ring-amber-300/60 dark:bg-amber-500/[0.1] dark:ring-amber-500/30">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-amber-800 dark:text-amber-300">
+            <AlertTriangle className="size-3" aria-hidden />
+            {t('cautions')}
+          </div>
           <ul className="space-y-1">
-            {effectiveBrief.concerns.map((c, i) => (
+            {cautions.map((c, i) => (
               <li
                 key={i}
-                className="flex gap-2 text-[13px] leading-relaxed text-foreground/85"
+                className="flex gap-2 text-[13px] leading-relaxed text-amber-900 dark:text-amber-100/90"
               >
-                <span className="mt-1 shrink-0 text-muted-foreground/60">•</span>
+                <span className="mt-0.5 shrink-0">•</span>
                 <span>{c}</span>
               </li>
             ))}
           </ul>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection
-          icon={<Clock className="size-3" />}
-          title={t('concerns')}
-          divider
-        >
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
-        </BriefSection>
-      ) : null}
+        </div>
+      )}
 
-      {/* Last product + reaction */}
-      {effectiveBrief.lastProduct ? (
-        <BriefSection
-          icon={<Gift className="size-3" />}
-          title={t('lastProduct')}
-          divider
-        >
-          <div className="text-[13px] leading-relaxed text-foreground/90">
-            <span className="font-medium">{effectiveBrief.lastProduct.name}</span>
-            {effectiveBrief.lastProduct.reaction && (
-              <span className="text-muted-foreground"> — {effectiveBrief.lastProduct.reaction}</span>
-            )}
+      {/* ③ 今日やること — 2-3 numbered actions; the skim replaces the prose. */}
+      {todayActions.length > 0 && (
+        <div className="mb-3 rounded-lg border border-blue-100/80 bg-card/70 p-3 dark:border-blue-500/15">
+          <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <Target className="size-3" aria-hidden />
+            {t('today')}
           </div>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection
-          icon={<Gift className="size-3" />}
-          title={t('lastProduct')}
-          divider
-        >
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
-        </BriefSection>
-      ) : null}
+          <ol className="space-y-1">
+            {todayActions.map((a, i) => (
+              <li
+                key={i}
+                className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
+              >
+                <span className="shrink-0 font-semibold tabular-nums text-blue-500">
+                  {i + 1}.
+                </span>
+                <span>{a}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
 
-      {/* AI-suggested focus for this session */}
-      {effectiveBrief.recommendedFocus ? (
-        <BriefSection
-          icon={<Target className="size-3" />}
-          title={t('recommendedFocus')}
-          divider
+      {/* Detail toggle — the classic recap sections (hooks/concerns/product/
+       *  focus) fold away when the 30-second layer is present. Without it
+       *  (mechanical fallback, pre-v7 caches) they render as before. */}
+      {hasThirtySecondLayer && (
+        <button
+          type="button"
+          onClick={() => setDetailOpen((v) => !v)}
+          className="mb-2 flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          <p className="text-[13px] leading-relaxed text-foreground/85">
-            {effectiveBrief.recommendedFocus}
-          </p>
-        </BriefSection>
-      ) : isScaffoldOnly ? (
-        <BriefSection
-          icon={<Target className="size-3" />}
-          title={t('recommendedFocus')}
-          divider
-        >
-          <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
-        </BriefSection>
-      ) : null}
+          <ChevronDown
+            className={`size-3.5 transition-transform ${detailOpen ? 'rotate-180' : ''}`}
+            aria-hidden
+          />
+          {detailOpen ? t('detailHide') : t('detailShow')}
+        </button>
+      )}
+
+      {(!hasThirtySecondLayer || detailOpen) && (() => {
+        // The four detail sections. With the 30-second layer the detail is
+        // pure HISTORY & CONTEXT, so it leads with the clinical trajectory
+        // (経過 → 理由 → 前回の提案 → その他の話題). Without it (mechanical
+        // fallback, pre-v8 caches) the classic hooks-first order renders
+        // exactly as before. The top rule between sections comes from
+        // BriefSection's own first:-variant styling, so whichever section
+        // happens to render first (in either order) stays ruleless.
+        const hooksSection =
+          visibleHooks.length > 0 ? (
+            <BriefSection
+              icon={<PawPrint className="size-3" />}
+              title={t('hooks')}
+            >
+              <ul className="space-y-1">
+                {visibleHooks.map((h, i) => (
+                  <li
+                    key={i}
+                    className="flex gap-2 text-[14px] leading-relaxed text-foreground/90"
+                  >
+                    <span className="mt-0.5 shrink-0 text-blue-400">•</span>
+                    <span>
+                      <span className="font-medium">{h.title}</span>
+                      {h.body && <span className="text-muted-foreground"> — {h.body}</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<PawPrint className="size-3" />}
+              title={t('hooks')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
+            </BriefSection>
+          ) : null
+
+        const concernsSection =
+          effectiveBrief.concerns.length > 0 ? (
+            <BriefSection
+              icon={<Clock className="size-3" />}
+              title={t('concerns')}
+            >
+              <ul className="space-y-1">
+                {effectiveBrief.concerns.map((c, i) => (
+                  <li
+                    key={i}
+                    className="flex gap-2 text-[13px] leading-relaxed text-foreground/85"
+                  >
+                    <span className="mt-1 shrink-0 text-muted-foreground/60">•</span>
+                    <span>{c}</span>
+                  </li>
+                ))}
+              </ul>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<Clock className="size-3" />}
+              title={t('concerns')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
+            </BriefSection>
+          ) : null
+
+        const productSection =
+          effectiveBrief.lastProduct ? (
+            <BriefSection
+              icon={<Gift className="size-3" />}
+              title={t('lastProduct')}
+            >
+              <div className="text-[13px] leading-relaxed text-foreground/90">
+                <span className="font-medium">{effectiveBrief.lastProduct.name}</span>
+                {effectiveBrief.lastProduct.reaction && (
+                  <span className="text-muted-foreground"> — {effectiveBrief.lastProduct.reaction}</span>
+                )}
+              </div>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<Gift className="size-3" />}
+              title={t('lastProduct')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
+            </BriefSection>
+          ) : null
+
+        const focusSection =
+          effectiveBrief.recommendedFocus ? (
+            <BriefSection
+              icon={<Target className="size-3" />}
+              title={t('recommendedFocus')}
+            >
+              <p className="text-[13px] leading-relaxed text-foreground/85">
+                {effectiveBrief.recommendedFocus}
+              </p>
+            </BriefSection>
+          ) : isScaffoldOnly ? (
+            <BriefSection
+              icon={<Target className="size-3" />}
+              title={t('recommendedFocus')}
+            >
+              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
+            </BriefSection>
+          ) : null
+
+        return hasThirtySecondLayer ? (
+          <div>
+            {concernsSection}
+            {focusSection}
+            {productSection}
+            {hooksSection}
+          </div>
+        ) : (
+          <div>
+            {hooksSection}
+            {concernsSection}
+            {productSection}
+            {focusSection}
+          </div>
+        )
+      })()}
     </section>
   )
+}
+
+// Strip whitespace + punctuation so "restated with different punctuation"
+// still registers as a duplicate (筋トレ再開したそうですね。 vs 筋トレ再開).
+function normalizeForDedup(s: string): string {
+  return s.replace(/[\s　、。・．，,.!！?？「」『』()（）〜~ー–—:：]/g, '')
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -308,15 +501,13 @@ function BriefSection({
   icon,
   title,
   children,
-  divider,
 }: {
   icon: React.ReactNode
   title: string
   children: React.ReactNode
-  divider?: boolean
 }) {
   return (
-    <div className={divider ? 'mb-4 border-t border-blue-100/80 pt-3 dark:border-blue-500/15 last:mb-0' : 'mb-4 last:mb-0'}>
+    <div className="mb-4 border-t border-blue-100/80 pt-3 first:border-t-0 first:pt-0 dark:border-blue-500/15 last:mb-0">
       <div className="mb-1.5 flex items-center gap-1 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
         {icon}
         {title}
@@ -330,6 +521,14 @@ function BriefSection({
 // Rendered verbatim (not AI-rewritten) so staff sees EXACTLY what the
 // customer chose to say. Amber tint distinguishes it from AI-synthesized
 // sections.
+//
+// When the memo carries QuickReserve's ▶key:value structure it's rendered as
+// skimmable labeled rows (same parse as the カルテ customer tab, via parseQrMemo)
+// so staff can scan 症状 / ゴール / セルフ / 回数 at a glance before the session.
+// Two briefing-only differences from the customer tab: empty-value keys are
+// OMITTED (a bare "quick:" would just be noise here), and the long free-text
+// 備考(参考) row collapses to a 2-line clamp with a すべて表示 / 閉じる toggle.
+// A memo with no ▶ structure falls back to the verbatim single-paragraph render.
 function MemoBlock({
   memo,
   label,
@@ -339,6 +538,15 @@ function MemoBlock({
   label: string
   className?: string
 }) {
+  const t = useTranslations('recording.brief')
+  const [memoExpanded, setMemoExpanded] = useState(false)
+  // Drop empty-value segments (e.g. "▶quick:" with nothing after it) — in the
+  // customer tab those render as "—", but in the pre-session skim they're noise.
+  const rows = parseQrMemo(memo)?.filter((r) => r.value) ?? null
+  // The free-text 備考(参考) row is the one long value staff shouldn't have to
+  // scroll past; clamp it to 2 lines behind a toggle. Everything else is short.
+  const notesLabel = QR_MEMO_LABELS['参考']
+
   return (
     <div
       className={`rounded-lg bg-amber-50/70 p-3 ring-1 ring-amber-200/70 dark:bg-amber-500/[0.08] dark:ring-amber-500/20 ${className ?? ''}`}
@@ -347,9 +555,52 @@ function MemoBlock({
         <Quote className="size-3" aria-hidden />
         {label}
       </div>
-      <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
-        {memo}
-      </p>
+      {rows && rows.length > 0 ? (
+        <dl className="space-y-1.5">
+          {rows.map((r, i) => {
+            // Only the 備考(参考) row clamps, and only when it's actually long
+            // enough for a 2-line clamp to bite — CSS line-clamp can't report
+            // overflow to React, so approximate with length/newlines. A one-line
+            // 備考 renders plain, without a toggle that would do nothing.
+            const clampable =
+              r.label === notesLabel &&
+              (r.value.length >= NOTES_CLAMP_MIN_CHARS || r.value.includes('\n'))
+            return (
+              <div
+                key={i}
+                className="grid grid-cols-[4.5rem_1fr] gap-2.5 text-[13px] leading-relaxed"
+              >
+                <dt className="shrink-0 text-[11px] font-medium uppercase tracking-wide text-amber-800/80 dark:text-amber-300/80">
+                  {r.label || '—'}
+                </dt>
+                <dd className="min-w-0 text-foreground/90">
+                  <p
+                    className={`whitespace-pre-wrap ${
+                      clampable && !memoExpanded ? 'line-clamp-2' : ''
+                    }`}
+                  >
+                    {r.value}
+                  </p>
+                  {clampable && (
+                    <button
+                      type="button"
+                      aria-expanded={memoExpanded}
+                      onClick={() => setMemoExpanded((v) => !v)}
+                      className="mt-0.5 text-[11px] font-medium text-amber-700 transition-colors hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-200"
+                    >
+                      {memoExpanded ? t('memoCollapse') : t('memoShowAll')}
+                    </button>
+                  )}
+                </dd>
+              </div>
+            )
+          })}
+        </dl>
+      ) : (
+        <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-foreground/90">
+          {memo}
+        </p>
+      )}
     </div>
   )
 }
@@ -382,7 +633,9 @@ function MemoAnalysisBlock({
               className="flex gap-1.5 text-[12px] leading-relaxed text-foreground/85"
             >
               <span className="mt-0.5 shrink-0 text-blue-400">•</span>
-              <span>{p}</span>
+              {/* The model occasionally emits a stray leading colon (":猫背改善中→…").
+               *  Strip it at render — a lone bullet+colon reads as broken. */}
+              <span>{p.replace(/^[:：]\s*/, '')}</span>
             </li>
           ))}
         </ul>

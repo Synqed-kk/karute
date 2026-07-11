@@ -21,6 +21,11 @@ export interface CachedCustomerOption {
    *  顧客 list/profile do, instead of mislabeling 回数券 holders as 新規. */
   visitCount: number
   hasTicketPack: boolean
+  /** Real chart number from core. snake_case on purpose: assignSequentialKaruteNumbers
+   *  reads this exact key structurally — carrying it means every cached-list consumer
+   *  (agenda, recording picker, dashboard) shows the real number instead of the
+   *  sort-index fallback (#00370 vs #00374 bug). */
+  karute_number: number | null
 }
 
 // businessId is the cache key — Next includes function args in the key automatically,
@@ -54,6 +59,7 @@ const customerListByBusiness = unstable_cache(
         is_existing_customer?: boolean
         visit_count?: number
         has_ticket_pack?: boolean
+        karute_number?: number | null
       }
       return {
         id: c.id,
@@ -62,10 +68,11 @@ const customerListByBusiness = unstable_cache(
         created_at: c.created_at,
         visitCount: qr.visit_count ?? 0,
         hasTicketPack: qr.has_ticket_pack ?? false,
+        karute_number: qr.karute_number ?? null,
       }
     })
   },
-  ['cached-customer-list-v3'],
+  ['cached-customer-list-v4'],
   { revalidate: 60, tags: ['customers'] },
 )
 
@@ -75,5 +82,17 @@ const customerListByBusiness = unstable_cache(
  */
 export async function getCachedCustomerList(): Promise<CachedCustomerOption[]> {
   const businessId = await getBusinessId()
+  return customerListByBusiness(businessId)
+}
+
+/**
+ * businessId-EXPLICIT variant — does NOT read auth (cookies), so it's safe to
+ * call from inside an `unstable_cache` body. The notification feed deriver uses
+ * it to cache its enrichment pass per business without an auth read in the
+ * cache context. Same 60s cache + 'customers' tag as `getCachedCustomerList`.
+ */
+export function getCachedCustomerListFor(
+  businessId: string,
+): Promise<CachedCustomerOption[]> {
   return customerListByBusiness(businessId)
 }

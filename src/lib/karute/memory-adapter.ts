@@ -7,7 +7,10 @@
 // seam between them, so the card never needs to know the store's schema.
 
 import type { MemoryItem as LibMemoryItem } from './memory-types'
+import type { PassportFieldDef } from './business-ai-tokens'
+import type { CustomerPassport } from './ai-passport'
 import type {
+  CustomerIntake,
   CustomerMemory,
   MemoryItem as SpikeMemoryItem,
   MemorySource as SpikeSource,
@@ -26,8 +29,45 @@ function mapSource(s: LibMemoryItem['source']): SpikeSource {
 export function buildCustomerMemory(
   items: LibMemoryItem[],
   customerId: string,
+  passport?: {
+    fieldDefs: PassportFieldDef[]
+    ai: CustomerPassport | null
+    firstVisitAt: string | null
+  },
 ): CustomerMemory {
-  const spikeItems: SpikeMemoryItem[] = items.map((m) => ({
+  // Passport rows (category='passport') are staff overrides for the これまで
+  // box — they must never render in the 5 category sections nor inflate the
+  // メモリー tab count.
+  const passportRows = items.filter((m) => (m.category as string) === 'passport')
+  const sectionItems = items.filter((m) => (m.category as string) !== 'passport')
+
+  const intake: CustomerIntake | null = passport
+    ? {
+        firstVisitAt: passport.firstVisitAt,
+        fields: passport.fieldDefs.map((def) => {
+          const staff = passportRows.find((r) => r.label === def.key)
+          if (staff?.detail?.trim()) {
+            return {
+              key: def.key,
+              label: def.label,
+              value: staff.detail.trim(),
+              quote: null,
+              source: 'staff' as const,
+            }
+          }
+          const ai = passport.ai?.fields.find((f) => f.key === def.key)
+          return {
+            key: def.key,
+            label: def.label,
+            value: ai?.value ?? null,
+            quote: ai?.quote ?? null,
+            source: 'ai' as const,
+          }
+        }),
+      }
+    : null
+
+  const spikeItems: SpikeMemoryItem[] = sectionItems.map((m) => ({
     id: m.id,
     category: m.category,
     label: m.label,
@@ -44,7 +84,7 @@ export function buildCustomerMemory(
   return {
     customerId,
     items: spikeItems,
-    intake: null,
+    intake,
     lastUpdatedAt,
     updatedThisVisit: 0,
   }

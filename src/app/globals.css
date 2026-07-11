@@ -184,6 +184,24 @@
   }
 }
 
+@layer base {
+  /* iOS/WKWebView auto-zooms a focused field when its computed font-size is
+     < 16px (and does NOT reset on blur — the user must pinch back out). Force
+     >=16px on coarse-pointer (touch) devices for every text-entry control so
+     tapping a login / search / settings field never zooms. Scoped to
+     pointer:coarse so the desktop md:text-sm (14px) look is untouched.
+     !important is required: text-sm/text-xs live in Tailwind's `utilities`
+     cascade layer; an !important declaration here (base layer) wins over their
+     normal declarations regardless of selector specificity. */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
 /* ─────────────────────────────────────────────────────────────
    Reservation phase-1 tokens — status tones + hatched pattern.
    Tones inherit from prototype STATUS_STYLES (helpers.jsx).

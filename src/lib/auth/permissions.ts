@@ -21,7 +21,15 @@ export const CAPABILITIES = [
   'data.export',       // export / import customer + karute data
   'records.delete',    // delete customers / karute (destructive)
   'records.write',     // record sessions, create / edit karute
+  'recordings.viewAll',// read EVERY staff's raw transcript/recording (vs. only
+                       // your OWN). Owner + manager (supervisory) by default; a
+                       // practitioner sees only the karute THEY recorded. The AI
+                       // summary + entries stay shared regardless.
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
+  'stores.viewAll',    // see EVERY store's karute + customers (vs. own store only).
+                       // Without it, a staff member is clamped to their
+                       // staff_stores assignment (regular staff = own branch; SV
+                       // + manager + owner = cross-store). See lib/auth/store-scope.
   'alerts.manage',     // dismiss 離客/pack alerts (Kitano's rule: manager+ only —
                        // staff must show the manager they contacted the customer)
   'customers.view',    // baseline — view customers + karute
@@ -50,9 +58,9 @@ export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   // Runs the salon — everything EXCEPT money + existential. Manages staff
   // (Liam's call). No billing, no delete-the-business.
   manager: ALL.filter((c) => c !== 'billing.manage' && c !== 'business.manage'),
-  // Lead practitioner: does the work + sees whole-salon analytics + exports;
-  // no settings/staff/billing.
-  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'customers.view', 'bookings.manage'],
+  // Lead practitioner / SV (supervisor): does the work + sees whole-salon
+  // analytics + exports + cross-store visibility; no settings/staff/billing.
+  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage'],
   // Practitioner: the core service provider.
   practitioner: ['records.write', 'customers.view', 'bookings.manage'],
   // Front desk: books + views, no records, nothing destructive.

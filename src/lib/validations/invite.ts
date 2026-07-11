@@ -9,6 +9,9 @@ export type InviteRole = (typeof INVITE_ROLES)[number]
 export const inviteSchema = z.object({
   email: z.string().trim().toLowerCase().email('A valid email is required').max(255),
   role: z.enum(INVITE_ROLES),
+  // When the invite is launched from an existing staff row, its id rides along so
+  // acceptInvite LINKS that row (sets user_id) instead of minting a duplicate.
+  staffId: z.string().uuid().optional(),
 })
 export type InviteInput = z.infer<typeof inviteSchema>
 

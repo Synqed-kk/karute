@@ -1,6 +1,16 @@
 import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
+import { getDefaultStoreId } from '@/actions/stores'
+import { ymdInJst, JST_OFFSET } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
+
+/** YYYY-MM-DD arithmetic that can't drift across timezones. */
+function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
 
 export interface DashboardTodayAppointment {
   id: string
@@ -29,7 +39,11 @@ export interface DashboardData {
   weeklyKaruteCount: number
   monthlyKaruteCount: number
   todayAppointments: DashboardTodayAppointment[]
+  tomorrowAppointments: DashboardTodayAppointment[]
   recentKarute: DashboardRecentKarute[]
+  /** Karute records created in the last 7 days (rolling window — pairs with
+   *  the page's 7-day redemption count for the owner pulse line). */
+  weekKaruteCount: number
 }
 
 // Cache the dashboard data trio per (business, todayDay, weekStartIso). Mutation
@@ -41,6 +55,7 @@ const dashboardByDay = unstable_cache(
     todayDay: string,
     weekStartIso: string,
     monthStartIso: string,
+    activeStore: string | null,
   ): Promise<DashboardData> => {
     // All reads go through synqed-core (the source of truth). The client is
     // already business-scoped, so there's no tenant staff-id filter to build.
@@ -51,29 +66,51 @@ const dashboardByDay = unstable_cache(
     const synqed =
       baseUrl && apiKey ? new SynqedClient({ baseUrl, apiKey, businessId }) : null
 
-    const todayStart = `${todayDay}T00:00:00Z`
-    const todayEnd = `${todayDay}T23:59:59Z`
+    // JST calendar windows. The previous version used `T00:00:00Z` (UTC), so
+    // every JST morning until 09:00 the dashboard showed YESTERDAY's bookings
+    // and rendered times in UTC (12:00 JST displayed as 03:00).
+    const todayStart = new Date(`${todayDay}T00:00:00${JST_OFFSET}`).toISOString()
+    const todayEnd = new Date(`${todayDay}T23:59:59.999${JST_OFFSET}`).toISOString()
+    const tomorrowDay = addDaysYmd(todayDay, 1)
+    const tomorrowStart = new Date(`${tomorrowDay}T00:00:00${JST_OFFSET}`).toISOString()
+    const tomorrowEnd = new Date(`${tomorrowDay}T23:59:59.999${JST_OFFSET}`).toISOString()
+    const rolling7Start = new Date(`${addDaysYmd(todayDay, -6)}T00:00:00${JST_OFFSET}`).toISOString()
 
-    const [weekly, monthly, appointmentsRes, todayKaruteRes, recentRes, customerList, staffRes] =
+    const [weekly, monthly, weekly7, appointmentsRes, tomorrowRes, todayKaruteRes, recentRes, customerList, staffRes] =
       await Promise.all([
         // from/to filter created_at upstream, so .total gives the counts.
+        // Karute reads share the appointments' store lens (SDK 1.11.1 finally
+        // serializes karuteRecords store_id — before that the param was
+        // silently dropped and these leaked every store's records).
         synqed?.karuteRecords
-          .list({ from: weekStartIso, page_size: 1 })
+          .list({ from: weekStartIso, page_size: 1, store_id: activeStore ?? undefined })
           .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
         synqed?.karuteRecords
-          .list({ from: monthStartIso, page_size: 1 })
+          .list({ from: monthStartIso, page_size: 1, store_id: activeStore ?? undefined })
           .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
+        // Rolling 7-day karute count — pairs with the page's 7-day redemption
+        // count so the owner pulse compares like windows.
+        synqed?.karuteRecords
+          .list({ from: rolling7Start, page_size: 1, store_id: activeStore ?? undefined })
+          .catch(() => ({ total: 0 })) ?? Promise.resolve({ total: 0 }),
+        // Dashboard "today" list scoped to the active store (a view filter;
+        // null = all stores).
         synqed?.appointments
-          .list({ from: todayStart, to: todayEnd, page_size: 200 })
+          .list({ from: todayStart, to: todayEnd, page_size: 200, store_id: activeStore ?? undefined })
+          .catch(() => ({ appointments: [] })) ??
+          Promise.resolve({ appointments: [] }),
+        // Tomorrow preview strip.
+        synqed?.appointments
+          .list({ from: tomorrowStart, to: tomorrowEnd, page_size: 200, store_id: activeStore ?? undefined })
           .catch(() => ({ appointments: [] })) ??
           Promise.resolve({ appointments: [] }),
         // Today's karute, to link each appointment to its recording (status).
         synqed?.karuteRecords
-          .list({ from: todayStart, to: todayEnd, page_size: 200 })
+          .list({ from: todayStart, to: todayEnd, page_size: 200, store_id: activeStore ?? undefined })
           .catch(() => ({ karute_records: [] })) ??
           Promise.resolve({ karute_records: [] }),
         synqed?.karuteRecords
-          .list({ page_size: 5 })
+          .list({ page_size: 5, store_id: activeStore ?? undefined })
           .catch(() => ({ karute_records: [] })) ??
           Promise.resolve({ karute_records: [] }),
         synqed?.customers
@@ -112,25 +149,33 @@ const dashboardByDay = unstable_cache(
       if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
     }
 
-    const todayAppointments: DashboardTodayAppointment[] = (
-      'appointments' in appointmentsRes ? appointmentsRes.appointments : []
+    // Drop terminal (cancelled/no-show) bookings so the dashboard's lists
+    // don't show them full-color — matches the agenda's hide. Karute linkage
+    // only applies to today (tomorrow can't have records yet).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mapAppointments = (rows: any[]): DashboardTodayAppointment[] =>
+      rows
+        .filter((a) => !isTerminalStatus(a.status))
+        .map((a) => ({
+          id: a.id,
+          client_id: a.customer_id,
+          start_time: a.starts_at,
+          duration_minutes: a.duration_minutes ?? 0,
+          staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
+          title: a.title,
+          notes: a.notes,
+          karute_record_id: karuteByAppointment.get(a.id) ?? null,
+          customers: customerNameById.has(a.customer_id)
+            ? { name: customerNameById.get(a.customer_id)! }
+            : null,
+        }))
+
+    const todayAppointments = mapAppointments(
+      'appointments' in appointmentsRes ? appointmentsRes.appointments : [],
     )
-      // Drop cancelled bookings (the QR sync marks them) so the dashboard's
-      // "today" list doesn't show them full-color — matches the agenda's hide.
-      .filter((a) => a.status !== 'CANCELLED')
-      .map((a) => ({
-      id: a.id,
-      client_id: a.customer_id,
-      start_time: a.starts_at,
-      duration_minutes: a.duration_minutes ?? 0,
-      staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
-      title: a.title,
-      notes: a.notes,
-      karute_record_id: karuteByAppointment.get(a.id) ?? null,
-      customers: customerNameById.has(a.customer_id)
-        ? { name: customerNameById.get(a.customer_id)! }
-        : null,
-    }))
+    const tomorrowAppointments = mapAppointments(
+      'appointments' in tomorrowRes ? tomorrowRes.appointments : [],
+    )
 
     const recentKarute: DashboardRecentKarute[] = (
       'karute_records' in recentRes ? recentRes.karute_records : []
@@ -150,11 +195,13 @@ const dashboardByDay = unstable_cache(
     return {
       weeklyKaruteCount: 'total' in weekly ? weekly.total : 0,
       monthlyKaruteCount: 'total' in monthly ? monthly.total : 0,
+      weekKaruteCount: 'total' in weekly7 ? weekly7.total : 0,
       todayAppointments,
+      tomorrowAppointments,
       recentKarute,
     }
   },
-  ['dashboard-v3'],
+  ['dashboard-v5'],
   { revalidate: 60, tags: ['dashboard'] },
 )
 
@@ -167,13 +214,21 @@ export async function getDashboardData(): Promise<DashboardData> {
   const startOfMonth = new Date(
     Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1),
   )
-  // `todayDay` IS today (YYYY-MM-DD). The previous version derived it from
-  // `now - 1 day`, so the "today's appointments" window targeted yesterday.
-  const todayDay = now.toISOString().split('T')[0]
+  // `todayDay` is today's JST calendar day. The previous version used the
+  // UTC day, which lags JST by 9 hours — every morning until 09:00 JST the
+  // dashboard was still on yesterday.
+  const todayDay = ymdInJst(now)
+  // Active store threads in as an extra positional arg so it becomes part of the
+  // cache key — a store-scoped dashboard is never served from another store's
+  // cache entry. Read in request scope (unstable_cache runs outside it).
+  // getDefaultStoreId: an unset cookie means the PRIMARY store (what the
+  // switcher displays as active), not "all stores".
+  const activeStore = await getDefaultStoreId()
   return dashboardByDay(
     businessId,
     todayDay,
     startOfWeek.toISOString(),
     startOfMonth.toISOString(),
+    activeStore,
   )
 }

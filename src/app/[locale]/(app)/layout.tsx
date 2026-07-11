@@ -10,12 +10,16 @@ import { Sidebar } from '@/components/layout/sidebar'
 // import { AIChatFAB } from '@/components/ai/AIChatFAB'
 import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
 import { ProcessingIndicator } from '@/components/recording/ProcessingIndicator'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getStaffList, getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getNextCustomer } from '@/lib/appointments/next-customer'
 import { SessionProvider } from '@/providers/session-provider'
+import { NotificationsProvider } from '@/lib/notifications/context'
+import { buildNotificationFeed } from '@/lib/notifications/derive'
 
 import { createClient } from '@/lib/supabase/server'
+import { listStores, getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { redirect } from 'next/navigation'
 
 export default async function DashboardLayout({
@@ -28,7 +32,7 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
-  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer] = await Promise.all([
+  const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore, storeScope] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
     getCurrentUserStaffId(),
@@ -38,10 +42,31 @@ export default async function DashboardLayout({
     // Failure is non-fatal — bottom nav falls back to its scaffold
     // copy ("予約を選択") if this query errors.
     getNextCustomer().catch(() => null),
+    // v1 notification feed — DERIVED on the server (no notifications table),
+    // seeded here the same way the dashboard seeds packAlerts into its card.
+    // Best-effort: a failure degrades to an empty feed (bell shows no badge),
+    // never blocks the app shell.
+    getBusinessId()
+      .then((businessId) => buildNotificationFeed(businessId, locale))
+      .catch(() => []),
+    // Multi-store header switcher data (best-effort; [] / null → switcher hides).
+    listStores().catch(() => []),
+    getActiveStoreId().catch(() => null),
+    // RBAC store scope — drives which stores the switcher offers (a
+    // branch-restricted staff only sees their own) + which is active.
+    resolveStoreScope().catch(() => null),
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
   }
+
+  // A branch-restricted staff (storeScope.allowedStoreIds set) only sees their
+  // own store(s) in the switcher; the clamp also picks the active store. Cross-
+  // store viewers (or a failed scope resolve) keep the full list + raw cookie.
+  const visibleStores = storeScope?.allowedStoreIds
+    ? stores.filter((s) => storeScope.allowedStoreIds!.includes(s.id))
+    : stores
+  const switcherActiveStore = storeScope ? storeScope.storeId : activeStore
 
   const staffItems = staffList.map((s) => ({
     id: s.id,
@@ -67,6 +92,10 @@ export default async function DashboardLayout({
 
   return (
     <SessionProvider data={sessionData}>
+      <NotificationsProvider
+        feed={notificationFeed}
+        staffId={activeStaff?.id ?? null}
+      >
       {/* h-dvh (dynamic viewport height) keeps the bottom nav inside the
           visible viewport on iOS Safari + in-app browsers (Discord/Twitter/
           Slack), whose chrome would otherwise occlude a fixed bottom-0
@@ -82,7 +111,7 @@ export default async function DashboardLayout({
              *  view, giving every mobile screen a consistent
              *  app-chrome surface. md:hidden so the sidebar owns
              *  the chrome on desktop. */}
-            <MobileHeader />
+            <MobileHeader stores={visibleStores} activeStoreId={switcherActiveStore} />
             {/* No horizontal padding here — matches the spike's
              *  (app) layout which provides ZERO padding. Each page
              *  component owns its own `px-4 md:px-6` (or whatever
@@ -110,6 +139,7 @@ export default async function DashboardLayout({
           <BottomNav nextCustomer={nextCustomer} locale={locale} />
         </div>
       </div>
+      </NotificationsProvider>
     </SessionProvider>
   )
 }

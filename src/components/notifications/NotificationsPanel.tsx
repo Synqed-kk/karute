@@ -18,13 +18,21 @@
 //   • NO MOCK SEED. Empty state is the natural default.
 //
 // UX rules preserved verbatim from spike header:
-//   - Opening the panel does NOT auto-mark-all-read. Read state
-//     only changes on explicit tap of a row OR the "mark all
-//     read" button. Otherwise unread state is noisy for someone
-//     who just glances at the panel.
-//   - Empty state surfaces an affirming "all caught up"
-//     message + a scaffold hint explaining what'll populate
-//     here once Anthony wires Supabase.
+//   - Opening the panel does NOT auto-mark-all-read. The badge
+//     (booking items newer than the per-staff lastSeen cursor)
+//     only clears when the panel CLOSES or "mark all read" is
+//     tapped — both advance the cursor. Otherwise unread state is
+//     noisy for someone who just glances at the panel.
+//   - Empty state surfaces an affirming "all caught up" message.
+//
+// V1 READ MODEL (derived feed): items have no persisted per-row
+// read_at — the feed is server-derived (buildNotificationFeed) and
+// ephemeral. "Unread" = a BOOKING item created after the staff
+// member last saw the panel (the lastSeen cursor in hooks.ts). So
+// per-item unread styling keys off lastSeen, not item.readAt
+// (which is always null on a derived item). markAllRead / close
+// advance the cursor; markRead is a no-op in this model (kept for
+// the prod-table swap).
 //
 // Navigation uses useRouter().push() (not <Link>) so the order
 // is deterministic: mark read → close sheet → push. The spike's
@@ -39,13 +47,15 @@ import {
   Bell,
   Brain,
   Calendar,
+  CalendarPlus,
+  ChevronDown,
   CheckCheck,
   CreditCard,
   GraduationCap,
   Sparkles,
-  Trash2,
   Zap,
   ShieldCheck,
+  X,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -59,6 +69,8 @@ import {
 import {
   useNotifications,
   useNotificationMutations,
+  useUnreadCount,
+  useUnreadIds,
 } from '@/lib/notifications/hooks'
 import type {
   NotificationCategory,
@@ -123,7 +135,7 @@ export function NotificationsPanel({
 }: NotificationsPanelProps) {
   const router = useRouter()
   const items = useNotifications()
-  const { markRead, markAllRead, clearAll } = useNotificationMutations()
+  const { markRead, markAllRead } = useNotificationMutations()
   const t = useTranslations('notifications')
   const locale = useLocale()
   const isEn = locale === 'en'
@@ -131,14 +143,22 @@ export function NotificationsPanel({
   // mid-view if the user lingers.
   const [now] = useState(() => Date.now())
 
-  const unreadCount = items.filter((i) => i.readAt === null).length
+  // V1 derived-feed read model: "unread" = the booking items the badge counts
+  // (new since the per-staff lastSeen cursor). Single source — the header
+  // badge and the per-row dot both read this, so they can never disagree.
+  const unreadCount = useUnreadCount()
+  const unreadIds = useUnreadIds()
   const hasUnread = unreadCount > 0
-  const allUnread = items.length > 0 && items.every((i) => i.readAt === null)
 
-  const { today, thisWeek, older } = groupByAge(items, now)
+  // Design 1 (digest): collapse the 新規予約 flood into ONE expandable card so
+  // the panel reads as a calm summary, not a wall of booking rows. Everything
+  // else (today's digest, the chase roll-up, drafts, sync-pending) is already a
+  // single standing item, rendered as a clean row.
+  const bookingItems = items.filter((n) => n.category === 'booking')
+  const standingItems = items.filter((n) => n.category !== 'booking')
 
   const handleItemClick = (item: NotificationItem) => {
-    if (item.readAt === null) markRead(item.id)
+    markRead(item.id)
     onClose()
     if (item.href) router.push(item.href)
   }
@@ -147,24 +167,42 @@ export function NotificationsPanel({
     <Sheet open={open} onOpenChange={(o) => !o && onClose()}>
       <SheetContent
         side="right"
-        className="flex w-[90%] flex-col gap-0 p-0 sm:max-w-sm"
+        showCloseButton={false}
+        className="flex w-[90%] flex-col gap-0 p-0 pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] sm:max-w-sm"
       >
         <SheetHeader className="border-b border-black/5 px-4 pt-4 pb-3 dark:border-white/10">
-          <SheetTitle className="flex items-center gap-2">
-            <Bell className="size-4 text-foreground/80" aria-hidden />
-            {t('title')}
-            {hasUnread && (
-              <span className="inline-flex h-5 items-center rounded-full bg-red-600 px-2 text-[11px] font-semibold tabular-nums text-white">
-                {unreadCount}
-              </span>
-            )}
-          </SheetTitle>
+          <div className="flex items-center justify-between gap-2">
+            <SheetTitle className="flex items-center gap-2">
+              <Bell className="size-4 text-foreground/80" aria-hidden />
+              {t('title')}
+              {hasUnread && (
+                <span className="inline-flex h-5 items-center rounded-full bg-red-600 px-2 text-[11px] font-semibold tabular-nums text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </SheetTitle>
+            {/* In-flow close button — replaces shadcn's absolute top-3 ✕, which
+                jammed under the status bar / Dynamic Island once safe-area was
+                active. It lives inside the header, so the SheetContent's
+                pt-[env(safe-area-inset-top)] pushes it below the notch. */}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label={isEn ? 'Close' : '閉じる'}
+              className="-mr-1 inline-flex size-8 shrink-0 items-center justify-center rounded-md text-foreground/60 transition-colors hover:bg-gray-100 hover:text-foreground dark:hover:bg-white/[0.05]"
+            >
+              <X className="size-4" aria-hidden />
+            </button>
+          </div>
           <SheetDescription className="sr-only">
             {t('description')}
           </SheetDescription>
         </SheetHeader>
 
-        {/* Toolbar — only renders when there's at least one item */}
+        {/* Toolbar — only renders when there's at least one item. "Clear read"
+         *  is dropped in the v1 derived model: there's no per-row dismiss to
+         *  apply (the feed reflects live data), only the lastSeen cursor that
+         *  "mark all read" advances. */}
         {items.length > 0 && (
           <div className="flex items-center gap-2 border-b border-black/5 px-4 py-2 dark:border-white/10">
             <button
@@ -176,15 +214,6 @@ export function NotificationsPanel({
               <CheckCheck className="size-3.5" aria-hidden />
               {t('markAllRead')}
             </button>
-            <button
-              type="button"
-              onClick={clearAll}
-              disabled={allUnread}
-              className="inline-flex h-8 items-center gap-1 rounded-md px-2.5 text-[12px] font-medium text-muted-foreground transition-colors hover:bg-gray-100 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/[0.05]"
-            >
-              <Trash2 className="size-3.5" aria-hidden />
-              {t('clearRead')}
-            </button>
           </div>
         )}
 
@@ -192,50 +221,30 @@ export function NotificationsPanel({
           {items.length === 0 ? (
             <EmptyState t={t} />
           ) : (
-            <>
-              {today.length > 0 && (
-                <Section title={t('today')}>
-                  {today.map((n) => (
-                    <NotificationRow
-                      key={n.id}
-                      item={n}
-                      onClick={() => handleItemClick(n)}
-                      isEn={isEn}
-                      now={now}
-                      t={t}
-                    />
-                  ))}
-                </Section>
+            <div className="divide-y divide-black/5 dark:divide-white/10">
+              {bookingItems.length > 0 && (
+                <NewBookingsDigest
+                  items={bookingItems}
+                  unreadCount={unreadCount}
+                  unreadIds={unreadIds}
+                  onItemClick={handleItemClick}
+                  isEn={isEn}
+                  now={now}
+                  t={t}
+                />
               )}
-              {thisWeek.length > 0 && (
-                <Section title={t('thisWeek')}>
-                  {thisWeek.map((n) => (
-                    <NotificationRow
-                      key={n.id}
-                      item={n}
-                      onClick={() => handleItemClick(n)}
-                      isEn={isEn}
-                      now={now}
-                      t={t}
-                    />
-                  ))}
-                </Section>
-              )}
-              {older.length > 0 && (
-                <Section title={t('older')}>
-                  {older.map((n) => (
-                    <NotificationRow
-                      key={n.id}
-                      item={n}
-                      onClick={() => handleItemClick(n)}
-                      isEn={isEn}
-                      now={now}
-                      t={t}
-                    />
-                  ))}
-                </Section>
-              )}
-            </>
+              {standingItems.map((n) => (
+                <NotificationRow
+                  key={n.id}
+                  item={n}
+                  isUnread={unreadIds.has(n.id)}
+                  onClick={() => handleItemClick(n)}
+                  isEn={isEn}
+                  now={now}
+                  t={t}
+                />
+              ))}
+            </div>
           )}
         </div>
       </SheetContent>
@@ -244,24 +253,82 @@ export function NotificationsPanel({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Section header — sticky within the scroll container
+// 新規予約 digest (Design 1) — collapse the recent-booking flood into
+// ONE tappable card. Collapsed shows just the count; tapping reveals
+// each booking row. Keeps the panel a calm summary, not a wall of rows.
 // ─────────────────────────────────────────────────────────────
 
-function Section({
-  title,
-  children,
+function NewBookingsDigest({
+  items,
+  unreadCount,
+  unreadIds,
+  onItemClick,
+  isEn,
+  now,
+  t,
 }: {
-  title: string
-  children: React.ReactNode
+  items: NotificationItem[]
+  unreadCount: number
+  unreadIds: Set<string>
+  onItemClick: (item: NotificationItem) => void
+  isEn: boolean
+  now: number
+  t: ReturnType<typeof useTranslations>
 }) {
+  const [expanded, setExpanded] = useState(false)
+  const count = items.length
   return (
     <div>
-      <div className="sticky top-0 z-10 bg-card/95 px-4 py-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur-md supports-backdrop-filter:bg-card/80">
-        {title}
-      </div>
-      <div className="divide-y divide-black/5 dark:divide-white/10">
-        {children}
-      </div>
+      <button
+        type="button"
+        onClick={() => setExpanded((e) => !e)}
+        aria-expanded={expanded}
+        className="flex w-full items-center gap-3 bg-blue-50/70 px-4 py-3.5 text-left transition-colors hover:bg-blue-50 active:bg-blue-100/50 dark:bg-blue-500/[0.08] dark:hover:bg-blue-500/[0.12]"
+      >
+        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-500/20">
+          <CalendarPlus
+            className="size-4 text-blue-700 dark:text-blue-300"
+            aria-hidden
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[14px] font-semibold text-blue-900 dark:text-blue-100">
+              {isEn ? `${count} new bookings` : `新規予約 ${count}件`}
+            </span>
+            {unreadCount > 0 && (
+              <span
+                aria-hidden
+                className="size-1.5 shrink-0 rounded-full bg-red-600"
+              />
+            )}
+          </div>
+          <div className="mt-0.5 text-[12px] text-blue-700/80 dark:text-blue-300/80">
+            {isEn ? 'Added since you last checked' : '前回確認後に入った予約'}
+          </div>
+        </div>
+        <ChevronDown
+          className={`size-4 shrink-0 text-blue-700/70 transition-transform dark:text-blue-300/70 ${
+            expanded ? 'rotate-180' : ''
+          }`}
+          aria-hidden
+        />
+      </button>
+      {expanded && (
+        <div className="divide-y divide-black/5 bg-blue-50/25 dark:divide-white/10 dark:bg-blue-500/[0.03]">
+          {items.map((n) => (
+            <NotificationRow
+              key={n.id}
+              item={n}
+              isUnread={unreadIds.has(n.id)}
+              onClick={() => onItemClick(n)}
+              isEn={isEn}
+              now={now}
+              t={t}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -272,12 +339,16 @@ function Section({
 
 function NotificationRow({
   item,
+  isUnread,
   onClick,
   isEn,
   now,
   t,
 }: {
   item: NotificationItem
+  /** v1: derived from the lastSeen cursor (booking items newer than it), not
+   *  item.readAt — see the panel's V1 READ MODEL note. */
+  isUnread: boolean
   onClick: () => void
   isEn: boolean
   now: number
@@ -285,7 +356,6 @@ function NotificationRow({
 }) {
   const meta = CATEGORY_META[item.category]
   const Icon = meta.icon
-  const isUnread = item.readAt === null
   const title = isEn ? item.titleEn : item.titleJa
   const body = isEn ? item.bodyEn : item.bodyJa
   const relTime = formatRelTime(item.createdAt, now, isEn, t)
@@ -333,8 +403,9 @@ function NotificationRow({
 }
 
 // ─────────────────────────────────────────────────────────────
-// Empty state — also functions as the "Anthony wires this"
-// scaffolding hint, since karute ships without mock seeds.
+// Empty state — affirming "all caught up". The scaffold pill (which
+// explained the unwired data layer) is removed now that the feed is
+// real: an empty panel genuinely means nothing needs attention.
 // ─────────────────────────────────────────────────────────────
 
 function EmptyState({
@@ -353,54 +424,13 @@ function EmptyState({
       <div className="mt-1 max-w-[260px] text-[12px] leading-relaxed text-muted-foreground">
         {t('emptyBody')}
       </div>
-      {/* 対応予定 scaffold pill — surfaces the fact that the
-       *  notifications data layer isn't wired yet, so the empty
-       *  state isn't mistaken for "no notifications today". */}
-      <div className="mt-4 flex max-w-[280px] gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-3 text-left dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 inline-flex items-center">
-            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-              {t('scaffoldLabel')}
-            </span>
-          </div>
-          <p className="text-[11px] italic leading-relaxed text-muted-foreground">
-            {t('scaffoldBody')}
-          </p>
-        </div>
-      </div>
     </div>
   )
 }
 
 // ─────────────────────────────────────────────────────────────
-// Grouping + relative-time — lifted from spike verbatim
+// Relative-time — lifted from spike verbatim
 // ─────────────────────────────────────────────────────────────
-
-function groupByAge(
-  items: NotificationItem[],
-  now: number,
-): {
-  today: NotificationItem[]
-  thisWeek: NotificationItem[]
-  older: NotificationItem[]
-} {
-  const DAY = 24 * 60 * 60 * 1000
-  const today: NotificationItem[] = []
-  const thisWeek: NotificationItem[] = []
-  const older: NotificationItem[] = []
-  // Strict newest-first (user's mental model is chronological).
-  const sorted = [...items].sort(
-    (a, b) =>
-      new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  )
-  for (const n of sorted) {
-    const age = now - new Date(n.createdAt).getTime()
-    if (age < DAY) today.push(n)
-    else if (age < 7 * DAY) thisWeek.push(n)
-    else older.push(n)
-  }
-  return { today, thisWeek, older }
-}
 
 function formatRelTime(
   iso: string,

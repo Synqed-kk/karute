@@ -11,9 +11,22 @@
 
 const MAX_FIELD_CHARS = 8000
 
+/** Cap for full session TRANSCRIPTS. The 8k field cap silently cut real
+ *  sessions to their first third (a 60-min JA session is ~25k chars) — the AI
+ *  never saw the facts staff reported missing (verified on the 2026-06-30
+ *  session: surgery history at char ~14k, self-care coaching at ~19k). 60k
+ *  chars ≈ 30k tokens, comfortably inside gpt-4o's context; the injection
+ *  defense is the delimiters + preamble, not the length cap. Transcripts only
+ *  — short fields (names, memos) keep the 8k default. */
+export const MAX_TRANSCRIPT_CHARS = 60_000
+
+/** Cap for multi-session HISTORY blocks (summaries + entries joined across
+ *  visits) — bigger than a field, smaller than a raw transcript. */
+export const MAX_HISTORY_CHARS = 30_000
+
 /** Wrap untrusted content so the LLM can structurally distinguish it from instructions. */
-export function wrapUntrustedContent(label: string, value: string): string {
-  const clipped = clipForSafety(value)
+export function wrapUntrustedContent(label: string, value: string, max?: number): string {
+  const clipped = clipForSafety(value, max)
   return `<<<UNTRUSTED:${label}>>>\n${clipped}\n<<<END:${label}>>>`
 }
 

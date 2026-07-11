@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { staffRoleLabel } from '@/lib/staff/role-label'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getAppointmentsByDate, getAppointmentsInRange } from '@/actions/appointments'
@@ -10,6 +11,7 @@ import {
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
 import { enrichCustomers, isReturningCustomer } from '@/lib/customers/list-enrich'
+import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getBusinessId } from '@/lib/staff'
@@ -109,7 +111,10 @@ export default async function AppointmentsPage({
     getCurrentUserStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(selectedDateStr),
+    // The agenda is the ONE consumer that wants cancelled rows — rendered as
+    // thin greyed キャンセル済み tombstones in their original slot. Every other
+    // getAppointmentsByDate caller keeps the hidden-by-default contract.
+    getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true }),
     getBusinessId().catch(() => null),
     weekRange
       ? getAppointmentsInRange(
@@ -139,7 +144,9 @@ export default async function AppointmentsPage({
   const reservationStaff: ReservationStaff[] = staffList.map((s) => ({
     id: s.id,
     name: s.full_name ?? 'Unknown',
-    role: s.display_role ?? s.position ?? '',
+    // The person's own 役職 first; else the authority code mapped to Japanese
+    // (never the raw enum — the grid was leaking "STYLIST" under every name).
+    role: s.position ?? staffRoleLabel(s.display_role),
     // TODO(phase-1.5): wire synqed-core role to derive takesBookings
     takesBookings: true,
     initials: (s.full_name ?? '?').trim().slice(0, 1) || '?',
@@ -154,12 +161,16 @@ export default async function AppointmentsPage({
     new Set(dayAppointments.map((a) => a.client_id)),
   )
   // Pack usage loads in parallel — the 残3/10 pill on each agenda row. Empty
-  // map until the ticket_packs migration applies (graceful).
+  // map until the ticket_packs migration applies (graceful). 回数券 off (org
+  // setting, wave 1) → skip the read; the pills just don't render.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
   const [enrichment, packUsage] = await Promise.all([
     businessId && clientIdsForDay.length
       ? enrichCustomers(businessId, clientIdsForDay)
       : Promise.resolve(new Map()),
-    listAllPackUsage(),
+    ticketsEnabled
+      ? listAllPackUsage()
+      : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsage>>),
   ])
   // QR "returning customer" flag per client (cached 500-customer list). A known
   // existing customer is NEVER 新規 — even with no karute/past appointment yet
@@ -186,6 +197,14 @@ export default async function AppointmentsPage({
         pastAppointmentCount: e.pastAppointmentCount,
       }),
     )
+  }
+  // The reservation system outranks inference (Liam's rule): a booking on a
+  // 新規 course IS a first visit; a booking on any other named course means
+  // returning — our own missing history proves nothing. Titleless bookings
+  // keep the inferred value set above.
+  for (const a of dayAppointments) {
+    const fromBooking = firstVisitFromBooking(a.title)
+    if (fromBooking !== null) isFirstTimeByClient.set(a.client_id, fromBooking)
   }
 
   // Sequential salon karute number per customer — same helper + same cached

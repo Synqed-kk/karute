@@ -47,6 +47,18 @@ export interface CustomerIntake {
   /** Free-form additional highlights for the intake summary line.
    *  Optional; the structured fields above are preferred. */
   highlights?: string[]
+  /** Token-driven passport fields (2026-07-03): when present the IntakeBlock
+   *  renders THIS list (business-type field set) instead of the fixed legacy
+   *  four. value=null renders an honest dash; quote is the verbatim source
+   *  the AI grounded the value in; source='staff' marks a human override
+   *  (locked — AI never overwrites it). */
+  fields?: Array<{
+    key: string
+    label: string
+    value: string | null
+    quote: string | null
+    source: 'ai' | 'staff'
+  }>
 }
 
 export interface CustomerMemory {

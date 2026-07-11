@@ -5,16 +5,16 @@ import { openai } from '@/lib/openai'
 import { getExtractionSystemPrompt } from '@/lib/prompts'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
-import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { defensivePreamble, wrapUntrustedContent, MAX_TRANSCRIPT_CHARS } from '@/lib/ai-safety'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(request: Request) {
   const limited = await enforceAiRateLimit('extract')
   if (limited) return limited
   try {
     const body = await request.json()
-    const { transcript, locale } = body
+    const { transcript, locale, customerName, sessionDate } = body
 
     if (!transcript || typeof transcript !== 'string' || transcript.trim() === '') {
       return NextResponse.json({ error: 'transcript is required' }, { status: 400 })
@@ -26,6 +26,10 @@ export async function POST(request: Request) {
     const systemPrompt = getExtractionSystemPrompt(
       locale ?? 'en',
       orgSettings?.business_type,
+      {
+        customerName: typeof customerName === 'string' ? customerName : null,
+        sessionDate: typeof sessionDate === 'string' ? sessionDate : null,
+      },
     )
 
     const completion = await openai.chat.completions.parse({
@@ -43,7 +47,7 @@ export async function POST(request: Request) {
         { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
         {
           role: 'user',
-          content: `Extract karute entries from this session transcript:\n\n${wrapUntrustedContent('transcript', transcript)}`,
+          content: `Extract karute entries from this session transcript:\n\n${wrapUntrustedContent('transcript', transcript, MAX_TRANSCRIPT_CHARS)}`,
         },
       ],
       response_format: zodResponseFormat(ExtractionResultSchema, 'extraction_result'),

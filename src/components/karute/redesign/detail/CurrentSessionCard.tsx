@@ -8,9 +8,11 @@ export type SessionCategory =
   | 'treatment'
   | 'concern'
   | 'condition'
+  | 'preference'
   | 'lifestyle'
   | 'product'
   | 'next'
+  | 'note'
 
 export interface SessionEntry {
   id: string
@@ -35,7 +37,13 @@ const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
   // apart from the clinical 状態 so rapport material reads as rapport.
   lifestyle: { bg: 'rgba(20, 184, 166, 0.18)', text: '#0d9488' },
   product: { bg: 'rgba(59, 130, 246, 0.18)', text: '#2563eb' },
+  // Service preferences (pressure, conversation volume, comfort) — previously
+  // mis-shelved under 製品; they are how the customer wants to be treated.
+  preference: { bg: 'rgba(216, 90, 48, 0.16)', text: '#993c1d' },
   next: { bg: 'rgba(236, 72, 153, 0.18)', text: '#be185d' },
+  // Catch-all for facts that fit no other drawer — honest label instead of
+  // silently masquerading as a 気になる点.
+  note: { bg: 'rgba(136, 135, 128, 0.18)', text: '#5f5e5a' },
 }
 
 // Stable session-narrative order — concerns raised → condition read → treatment
@@ -47,9 +55,40 @@ const CATEGORY_ORDER: SessionCategory[] = [
   'condition',
   'lifestyle',
   'treatment',
+  'preference',
   'product',
   'next',
+  'note',
 ]
+
+// The extraction prompt mandates a kind prefix on treatment titles
+// (「施術：」/「セルフケア指導：」). The chip already says 施術, so repeating the
+// prefix on every bullet reads as noise (Liam, 2026-07-03) — strip it and show
+// the kind ONCE as a sub-heading over its bullets. Titles without a known
+// prefix (incl. legacy entries) render first, unlabeled. Only these two exact
+// prefixes are stripped — body-part titles like 「左肩：…」 must keep theirs.
+const TREATMENT_KIND_PREFIXES = ['施術', 'セルフケア指導'] as const
+
+function splitTreatmentKinds(items: SessionEntry[]): Array<{
+  kind: string | null
+  items: Array<SessionEntry & { display: string }>
+}> {
+  const groups = new Map<string | null, Array<SessionEntry & { display: string }>>()
+  for (const e of items) {
+    const m = e.body.match(/^([^：:]{1,12})[：:]\s*([\s\S]+)$/)
+    const kind =
+      m && (TREATMENT_KIND_PREFIXES as readonly string[]).includes(m[1].trim())
+        ? m[1].trim()
+        : null
+    const display = kind && m ? m[2] : e.body
+    const arr = groups.get(kind)
+    if (arr) arr.push({ ...e, display })
+    else groups.set(kind, [{ ...e, display }])
+  }
+  return [null, ...TREATMENT_KIND_PREFIXES]
+    .filter((k) => groups.has(k))
+    .map((k) => ({ kind: k, items: groups.get(k)! }))
+}
 
 export function CurrentSessionCard({
   sessionDate,
@@ -104,22 +143,36 @@ export function CurrentSessionCard({
                   </span>
                 )}
               </div>
-              {/* Entries — clean bullets, color-keyed to the category */}
-              <ul className="flex flex-col gap-1.5">
-                {items.map((e) => (
-                  <li
-                    key={e.id}
-                    className="flex items-start gap-2.5 text-sm leading-snug text-foreground/90"
-                  >
-                    <span
-                      aria-hidden
-                      className="mt-[7px] size-1.5 shrink-0 rounded-full"
-                      style={{ background: tone.text }}
-                    />
-                    <span className="min-w-0">{e.body}</span>
-                  </li>
-                ))}
-              </ul>
+              {/* Entries — clean bullets, color-keyed to the category. The
+                  treatment group renders kind sub-headings (施術/セルフケア指導)
+                  once instead of a repeated prefix on every line. */}
+              {(category === 'treatment'
+                ? splitTreatmentKinds(items)
+                : [{ kind: null, items: items.map((e) => ({ ...e, display: e.body })) }]
+              ).map((sub) => (
+                <div key={sub.kind ?? 'plain'} className="flex flex-col gap-1.5">
+                  {sub.kind && (
+                    <span className="text-[11px] font-medium text-muted-foreground">
+                      {sub.kind}
+                    </span>
+                  )}
+                  <ul className="flex flex-col gap-1.5">
+                    {sub.items.map((e) => (
+                      <li
+                        key={e.id}
+                        className="flex items-start gap-2.5 text-sm leading-snug text-foreground/90"
+                      >
+                        <span
+                          aria-hidden
+                          className="mt-[7px] size-1.5 shrink-0 rounded-full"
+                          style={{ background: tone.text }}
+                        />
+                        <span className="min-w-0">{e.display}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           )
         })}

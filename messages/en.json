@@ -25,6 +25,7 @@
     "email": "Email",
     "phone": "Phone",
     "somethingWentWrong": "Something went wrong.",
+    "noPermission": "You do not have permission to perform this action.",
     "saved": "Saved",
     "notifications": "Notifications"
   },
@@ -51,7 +52,27 @@
     "hasAccount": "Already have an account?",
     "signinLink": "Sign in",
     "signupNoUser": "Signup did not return a user. Try again.",
-    "emailAlreadyRegistered": "This email is already registered. Please sign in instead."
+    "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+    "forgotPassword": "Forgot your password?",
+    "resetTitle": "Reset password",
+    "resetSubtitle": "Enter your registered email address and we'll send you a reset link.",
+    "resetSubmit": "Send reset link",
+    "resetSubmitting": "Sending...",
+    "resetSentTitle": "Email sent",
+    "resetSentBody": "If an account exists, we've sent a password reset link. If it doesn't arrive, check your spam folder too.",
+    "resetErrorGeneric": "Could not send the email. Please try again in a moment.",
+    "backToLogin": "Back to sign in",
+    "newPasswordTitle": "Set a new password",
+    "newPasswordSubtitle": "Enter your new password.",
+    "newPassword": "New password",
+    "newPasswordConfirm": "New password (confirm)",
+    "newPasswordSubmit": "Change password",
+    "newPasswordSubmitting": "Changing...",
+    "resetLinkChecking": "Checking your link...",
+    "resetLinkInvalidTitle": "This link is invalid",
+    "resetLinkInvalidBody": "This link is invalid or has expired. Please start the password reset again.",
+    "resetRequestAgain": "Start over",
+    "resetUpdateError": "Could not change the password. Please try again."
   },
   "welcome": {
     "title": "Set up your store",
@@ -106,6 +127,7 @@
     "askAi": "Ask AI",
     "dataImport": "Import",
     "dataExport": "Export",
+    "profile": "Profile",
     "settings": "Settings",
     "menu": "More",
     "pickBooking": "Pick booking"
@@ -161,7 +183,49 @@
       "renewalFlag": "Renewal",
       "packLeft": "{remaining}/{size} left",
       "unrecorded": "No record",
-      "nextUp": "Next ▸"
+      "nextUp": "Next ▸",
+      "cancelled": "Cancelled",
+      "noShow": "No-show"
+    },
+    "cancelSheet": {
+      "title": "Cancel this booking?",
+      "ticketNote": "No ticket will be used. A no-show ticket charge is selectable below.",
+      "holdLabel": "Hold to cancel",
+      "holdHint": "Press and hold for about a second to confirm",
+      "holdKeep": "Keep holding…",
+      "done": "Cancelled {name}'s booking",
+      "cancelledTitle": "Cancelled booking",
+      "cancelledBody": "This booking is cancelled. No ticket was used.",
+      "restore": "Restore",
+      "restoring": "Restoring…",
+      "restored": "Restored {name}'s booking",
+      "staffPrefix": "Staff",
+      "close": "Close",
+      "noShowSectionLabel": "No-show",
+      "noShowReasons": {
+        "no-show-no-contact": "No contact",
+        "same-day-contacted": "Contacted same day",
+        "first-time-no-show": "First-time no-show"
+      },
+      "burnPack": "Use 1 ticket session ({n} left)",
+      "noShowHoldLabel": "Hold to mark no-show",
+      "noShowDone": "Marked {name}'s booking as a no-show",
+      "noShowRestoreTitle": "No-show booking",
+      "noShowBody": "This booking is recorded as a no-show.",
+      "reason": "Reason",
+      "statusSetBy": "Updated by {name} on {date} at {time}",
+      "noShowError": {
+        "no_burnable_pack": "This customer has no ticket to use.",
+        "already_terminal": "This booking is already cancelled or marked as a no-show."
+      },
+      "noShowBurnWarn": {
+        "below_zero": "Recorded {name}'s no-show, but no ticket was used — the pack has no sessions left.",
+        "burn_failed": "Recorded {name}'s no-show, but the ticket could not be used.",
+        "already_burned": "Recorded {name}'s no-show. A ticket was already used for this booking, so it was not charged again."
+      },
+      "noShowErrorGeneric": "Something went wrong.",
+      "cancelErrorGeneric": "Could not cancel. Please try again.",
+      "restoreErrorGeneric": "Could not restore — the booking's status may have changed."
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
@@ -185,6 +249,7 @@
     "grid": {
       "blockOwner": "Not taking bookings (owner)",
       "staffMeta": "{role} · {count} appts",
+      "staffMetaNoRole": "{count} appts",
       "staffColumnLabel": "STAFF"
     },
     "totals": {
@@ -275,7 +340,6 @@
       "karute": "Karute {date}"
     },
     "actions": {
-      "exportPdf": "Export PDF",
       "share": "Share",
       "edit": "Edit"
     },
@@ -316,7 +380,12 @@
       "confidence": "Confidence",
       "vsLast": "vs last",
       "recommended": "Recommended",
-      "rationale": "AI rationale"
+      "rationale": "AI rationale",
+      "delta": {
+        "improving": "Improving",
+        "worsening": "Worsening",
+        "stable": "Stable"
+      }
     },
     "suggestedMessage": {
       "title": "AI SUGGESTED MESSAGE",
@@ -333,7 +402,9 @@
         "condition": "Body area",
         "lifestyle": "Lifestyle",
         "product": "Product",
-        "next": "Next"
+        "next": "Next",
+        "preference": "Preferences",
+        "note": "Notes"
       }
     },
     "regenerate": {
@@ -355,7 +426,9 @@
       "title": "Recording · transcript",
       "consentOnFile": "Consent on file",
       "duration": "Duration {duration}",
-      "noTranscript": "No transcript yet"
+      "noTranscript": "No transcript yet",
+      "restrictedTitle": "Recording · transcript",
+      "restricted": "Only the staff who recorded this session can view the transcript. The summary above is shared."
     }
   },
   "recording": {
@@ -493,6 +566,8 @@
       "lastProduct": "Last product offered",
       "recommendedFocus": "Recommended focus today",
       "reservationMemo": "Booking note",
+      "memoShowAll": "Show all",
+      "memoCollapse": "Collapse",
       "memoAnalysisLabel": "AI pre-read",
       "firstTimeHeader": "First-time customer",
       "firstTimeBody": "This is {name}'s first visit. Start by asking what brought them in and what they're hoping to achieve, then listen carefully to their concerns.",
@@ -503,7 +578,15 @@
       "aiHintHooks": "From past karute + conversation history, AI will surface natural small-talk hooks — pets, family, hobbies, recent events — to help staff open the session warmly.",
       "aiHintConcerns": "AI will pull the main complaints, treatments delivered, and follow-up notes from prior karute entries into a chronological recap of what to verify today.",
       "aiHintLastProduct": "AI will pull the last product or service proposed and how the customer responded (purchased / considering / declined-phrasing) to inform today's recommendation strategy.",
-      "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction."
+      "aiHintRecommendedFocus": "Based on karute history, product reactions, seasonal factors, and salon goals, AI will suggest the focus angle for today's session — deeper questions, product to propose, care direction.",
+      "opener": "Opening line",
+      "lastWords": "Their words last time",
+      "cautions": "Cautions (before treating)",
+      "today": "Today",
+      "detailShow": "Show history",
+      "detailHide": "Hide history",
+      "rhythmEarly": "{days}d since last — earlier than usual",
+      "rhythmLate": "{days}d since last — longer than usual"
     },
     "source": {
       "phoneMic": "Phone mic",
@@ -549,7 +632,10 @@
       "body": "Talk about the next pack during the session. You'll record the result after stopping.",
       "bodyLast": "This is their LAST session. Be sure to discuss the next pack — you'll record the result after stopping."
     },
-    "otherStaffBooking": "Booked under {staff} · this record saves under {you}"
+    "otherStaffBooking": "Booked under {staff} · this record saves under {you}",
+    "recoverTitle": "You have an unsaved recording.",
+    "recoverAction": "Restore",
+    "recoverDiscard": "Discard"
   },
   "customers": {
     "title": "Customers",
@@ -605,7 +691,13 @@
       "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
       "deleteCta": "Delete data",
       "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
-      "wiringPending": "Wiring pending — APPI compliance backend in flight"
+      "wiringPending": "Wiring pending — APPI compliance backend in flight",
+      "consentRevokeTitle": "Recording consent",
+      "consentRevokeBody": "Granted {date}. Revoking means staff will need to ask permission again before the next recording.",
+      "consentRevokeBodyNoDate": "On file. Revoking means staff will need to ask permission again before the next recording.",
+      "consentRevokeCta": "Revoke consent",
+      "consentRevokeConfirm": "Revoke recording consent? Staff will need to ask for permission again before the next recording.",
+      "consentRevokeSuccess": "Recording consent revoked."
     },
     "search": {
       "placeholder": "Search by name, reading, phone, or email..."
@@ -728,6 +820,7 @@
         "redeemConfirm": "Record",
         "redeemDone": "Session recorded",
         "redeemFailed": "Could not record",
+        "redeemNoSessionsLeft": "No sessions left to redeem",
         "cancel": "Cancel",
         "lowRemaining": "Almost out — bring up the next pack at their next visit",
         "lifecycleLabel": "Status",
@@ -762,6 +855,12 @@
       "ageValue": "{age} y/o",
       "visitCountSuffix": " visits",
       "staffPrefix": "Staff",
+      "bookingMemo": {
+        "edit": "Edit memo",
+        "hint": "Keep the \"▶Label:\" format for the structured view. Once saved, the booking system will never overwrite it.",
+        "save": "Save",
+        "cancel": "Cancel"
+      },
       "edit": "Edit",
       "editDialogTitle": "Edit customer",
       "editDialogDescription": "Update this customer's contact info. Saved changes propagate everywhere this customer is shown."
@@ -817,7 +916,8 @@
         "ageValue": "{age} y/o",
         "bookingDate": "Booked {date}",
         "bookingNone": "No booking",
-        "packFraction": "{n}/{m} left"
+        "packFraction": "{n}/{m} left",
+        "noShowChip": "{count} no-shows"
       },
       "heading": "Customers",
       "showing": "{n} showing",
@@ -912,8 +1012,6 @@
     "staff": "Staff",
     "date": "Date",
     "customer": "Customer",
-    "exportPdf": "Export PDF",
-    "exportText": "Export Text",
     "noKarute": "No karute records yet",
     "saveKarute": "Save karute",
     "saving": "Saving...",
@@ -988,7 +1086,7 @@
       "addManually": "Add manually",
       "lastUpdated": "Last updated: {date}",
       "sectionEmpty": "Coming soon — nothing here yet",
-      "comingSoonPill": "Coming soon",
+      "comingSoonPill": "Not yet learned",
       "intakeEmpty": "Intake info will appear here once the first intake form is completed.",
       "intakeFields": {
         "firstVisit": "First visit",
@@ -1014,7 +1112,18 @@
       "deleted": "Deleted",
       "actionFailed": "Action failed",
       "pinnedToast": "Pinned",
-      "unpinned": "Unpinned"
+      "unpinned": "Unpinned",
+      "relearnConfirm": "Tap again to re-learn",
+      "relearnConfirmTooltip": "Rebuilds the AI-extracted items. Pinned, staff-added, and staff-edited items are kept.",
+      "relearnRunning": "Re-learning…",
+      "relearnFailed": "Re-learn failed (no transcripts found, or an error occurred)",
+      "relearnDone": "Re-learned {n} items",
+      "passportHint": "Dotted values: tap to see the source quote. Pencil to correct — corrections are never overwritten by AI.",
+      "passportQuoteHint": "Tap to see the source quote",
+      "passportEdit": "Edit {field}",
+      "passportSave": "Save",
+      "passportCancel": "Cancel",
+      "passportSaveFailed": "Could not save"
     },
     "tabHeading": "Karute",
     "recordList": {
@@ -1467,6 +1576,69 @@
     }
   },
   "dashboard": {
+    "flow": {
+      "ownerChip": "Owner",
+      "nextCustomer": "Next customer",
+      "customerHonorific": "{name}",
+      "minsLeft": "in {n} min",
+      "hoursMinsLeft": "in {h}h {m}m",
+      "inSession": "In session",
+      "firstVisit": "First visit",
+      "nthVisit": "Visit {n}",
+      "repeat": "Returning",
+      "remainingOf": "of {m}",
+      "durationMin": "{n} min",
+      "requestLabel": "Request: ",
+      "lastVisitLabel": "Last visit ({date}): ",
+      "openKarute": "Open karute",
+      "swipeHint": "Swipe for next booking",
+      "tomorrowFirst": "Tomorrow's first customer",
+      "tomorrowCount": "{n} bookings tomorrow",
+      "dayDoneTitle": "Day complete",
+      "dayDone": "{n} sessions done — great work",
+      "todosTitle": "To do (today, {n})",
+      "karuteMissing": "Karute missing · {name} ({time})",
+      "redeemMissing": "Ticket not redeemed · {name}",
+      "recordCta": "Record",
+      "redeemCta": "Redeem",
+      "redeemed": "Redeemed a session for {name}",
+      "redeemFailed": "Couldn't redeem",
+      "undo": "Undo",
+      "attentionTitle": "Today's highlights",
+      "attentionOf": "{n} of {total} bookings",
+      "badgeLastOne": "1 left",
+      "badgePackDone": "Pack done",
+      "badgeComeback": "{n}d gap",
+      "badgeMemo": "Memo",
+      "attentionFootnote": "Customers with nothing notable aren't shown · tap for the customer page",
+      "actionsTitle": "Suggested actions",
+      "renewalTitle": "{name} — 1 session left",
+      "renewalBodyCycle": "A regular on a ~{cycle}-day rhythm, visiting today at {time} — after the session is the moment to offer the next pack.",
+      "renewalBody": "Visiting today at {time} — offer the next pack after the session.",
+      "rebookTitle": "Rebook suggestions — {n} without a next booking",
+      "rebookItem": "{name} ({remaining} left) → around {due}",
+      "winbackTitle": "Long-absent customers — {n} to reach out to",
+      "winbackItem": "{name} ({remaining} left · {days}d)",
+      "winbackBody": "tickets remaining but no recent visits",
+      "openCustomer": "Open customer",
+      "actionsFootnote": "Visit rhythm computed from real visit dates · refreshed each morning",
+      "tomorrowTitle": "Tomorrow {date}",
+      "tomorrowLine": "{n} customers · {f} first-timers · first at {time} ({name})",
+      "ownerBandTitle": "Owner",
+      "riskTitle": "At-risk revenue",
+      "riskSub": "{n} to contact",
+      "liabilityTitle": "Unredeemed balance",
+      "liabilitySub": "prepaid by {n} customers",
+      "contactRow": "Customers to contact",
+      "backlogRow": "Unprocessed visits (backlog)",
+      "lastOneRow": "Customers on their last ticket",
+      "lastOneMeta": "{n} · {m} booked",
+      "hasBooking": "booked",
+      "personCount": "{n}",
+      "itemCount": "{n}",
+      "pulseRow": "Last 7 days",
+      "pulseValue": "{r} redeemed · {k} karute"
+    },
     "title": "Appointments",
     "dashboardTitle": "Dashboard",
     "welcomeBack": "Welcome back, {name}",
@@ -1590,6 +1762,7 @@
       "redeemed": "Redeemed for {date}",
       "undo": "Undo",
       "redeemFailed": "Could not redeem",
+      "redeemNoSessionsLeft": "No sessions left to redeem",
       "dismissed": "Recorded as no-visit",
       "dismissFailed": "Could not record",
       "more": "{n} more (shown as these are processed)"
@@ -1673,6 +1846,9 @@
       "addStore": "Add",
       "limitReached": "You've reached your plan's store limit",
       "primaryBadge": "Main",
+      "switcherTitle": "Switch store",
+      "allStores": "All stores",
+      "allStoresSub": "Cross-store",
       "activeBadge": "Active",
       "staffUnit": "{n} staff",
       "customersUnit": "{n} customers",
@@ -1680,7 +1856,7 @@
       "switchTo": "Switch",
       "edit": "Edit",
       "emptyState": "No stores yet. Tap Add to register one.",
-      "activeStoreScopeNote": "The Switch button is a UI preview today — filtering each tab's data by the active store lights up when the stores table lands.",
+      "activeStoreScopeNote": "Switching stores scopes the customer list, dashboard, and agenda to the selected store (per-store figures are derived from that store's events). Full karute-list scoping turns on once the synqed-core karute store filter ships.",
       "addStoreSubscription": {
         "freeAtLimitTitle": "Upgrade to add another store",
         "freeAtLimitBody": "The Free plan is limited to 1 store. Upgrade to Standard or Professional to add more.",
@@ -1717,6 +1893,7 @@
         "saved": "Saved"
       },
       "assignLabel": "Store / location",
+      "assignMultiHint": "Select any number. If none are selected, the staff appears in every store.",
       "unassigned": "Unassigned"
     },
     "coaching": {
@@ -1854,8 +2031,6 @@
     "consentRequiredDescription": "Only meaningful in Mode C.",
     "consentTemplate": "Consent template text",
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
-    "enrollVoice": "Enroll voice",
-    "voiceEnrollmentSoon": "Voice enrollment — coming soon",
     "contactSales": "Contact sales",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
@@ -2040,6 +2215,8 @@
     "packsDescription": "Pack presets and staff permissions",
     "packs": {
       "label": "Ticket packs",
+      "enableTitle": "Use ticket packs",
+      "enableHint": "When off, every pack surface hides — the profile pack card, dashboard reconcile/alerts, and the post-recording redeem/outcome dialog. No data is deleted.",
       "presetsTitle": "Pack presets",
       "presetsHint": "The size/price options shown in the post-recording New Pack panel. A customer's previous pack takes priority as the prefill.",
       "sizeLabel": "Sessions",
@@ -2066,7 +2243,9 @@
     "nextTreatment": "Next Treatment",
     "followUp": "Follow Up",
     "talkingPoint": "Talking Point",
-    "general": "General"
+    "general": "General",
+    "loadFailed": "Couldn't load recommended actions.",
+    "retry": "Retry"
   },
   "dataImport": {
     "title": "Data Import",
@@ -2246,14 +2425,11 @@
     "title": "Notifications",
     "description": "Recent activity and alerts.",
     "markAllRead": "Mark all read",
-    "clearRead": "Clear read",
     "today": "Today",
     "thisWeek": "This week",
     "older": "Older",
     "emptyTitle": "You're all caught up",
-    "emptyBody": "Bookings, billing, memory reviews, coaching reports, and mentions will surface here.",
-    "scaffoldLabel": "Coming soon",
-    "scaffoldBody": "Notifications system is in development. Once Anthony wires the Supabase notifications table + realtime subscription, booking / billing / coaching events surface here automatically.",
+    "emptyBody": "Today's appointments, new bookings, follow-ups, unsaved records, and sync status will surface here.",
     "justNow": "just now",
     "minutesAgo": "{n} min ago",
     "hoursAgo": "{n}h ago",
@@ -2377,7 +2553,10 @@
     "noAiHistoryYet": "No AI history yet",
     "aiSummariesAppearAfterSessions": "AI summaries will appear here after recording sessions",
     "aiSummary": "AI Summary",
-    "noAdviceGenerated": "No advice generated"
+    "noAdviceGenerated": "No advice generated",
+    "adviceLoadFailed": "Couldn't load advice.",
+    "notesSaveFailed": "Couldn't save the notes. Please try again.",
+    "retry": "Retry"
   },
   "localeToggle": {
     "switchToJapanese": "Switch to Japanese",
@@ -2542,16 +2721,21 @@
     "inviteDescription": "Send a teammate a link to join this salon. They'll get their own login and appear on your staff list.",
     "inviteEmailLabel": "Staff email",
     "inviteRoleLabel": "Role",
-    "role_ADMIN": "Admin",
-    "role_STYLIST": "Stylist",
-    "role_ASSISTANT": "Assistant",
+    "role_ADMIN": "Manager",
+    "role_STYLIST": "Staff",
+    "role_ASSISTANT": "Front desk",
+    "role_ADMIN_desc": "Runs the salon — settings, staff, data",
+    "role_STYLIST_desc": "Records, customers, bookings (own store)",
+    "role_ASSISTANT_desc": "Books and views customers only",
     "inviteCreate": "Create invite link",
     "inviteCreating": "Creating…",
     "inviteLinkReady": "Invite link ready — share it with your staff:",
     "copy": "Copy",
     "copied": "Copied",
     "pendingInvites": "Pending invites",
-    "revoke": "Revoke"
+    "revoke": "Revoke",
+    "inviteExistingLabel": "Invite an existing team member (optional)",
+    "inviteExistingNone": "New hire (email only)"
   },
   "permissions": {
     "roleLabel": "Role & permissions",
@@ -2572,7 +2756,9 @@
     "cap_data_export": "Export / import data",
     "cap_records_delete": "Delete records",
     "cap_records_write": "Record sessions & edit karute",
+    "cap_recordings_viewAll": "View every staff's recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",
+    "cap_stores_viewAll": "View all stores",
     "cap_customers_view": "View customers",
     "cap_bookings_manage": "Manage bookings"
   },

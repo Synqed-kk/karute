@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useSyncExternalStore } from 'react'
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, type RecordingTarget } from '@/lib/global-recorder'
 
 export function useGlobalRecorder() {
   const subscribe = useCallback(
@@ -26,11 +26,20 @@ export function useGlobalRecorder() {
     overrun: globalRecorder.overrun,
     /** The hard cap auto-stopped + saved the recording (~2.5h). */
     autoStopped: globalRecorder.autoStopped,
-    startRecording: (opts?: { noiseSuppression?: boolean }) =>
+    /** Customer/appointment the live recording is bound to (null when idle). */
+    target: globalRecorder.target,
+    /** Server-minted recording_sessions id for the live/last recording, once
+     *  resolved (null until then, or forever on failure). */
+    recordingSessionId: globalRecorder.recordingSessionId,
+    startRecording: (opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) =>
       globalRecorder.start(opts),
     stopRecording: () => globalRecorder.stop(),
     pauseRecording: () => globalRecorder.pause(),
     resumeRecording: () => globalRecorder.resume(),
     discardRecording: () => globalRecorder.discard(),
+    /** Await the recording-session mint briefly at save time (bounded — never
+     *  blocks the save indefinitely). See GlobalRecorder.awaitRecordingSessionId. */
+    awaitRecordingSessionId: (timeoutMs?: number) =>
+      globalRecorder.awaitRecordingSessionId(timeoutMs),
   }
 }

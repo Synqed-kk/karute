@@ -2,7 +2,7 @@
   "regions": ["hnd1"],
   "crons": [
     {
-      "path": "/api/sync/quickreserve",
+      "path": "/api/cleanup",
       "schedule": "0 8 * * *"
     }
   ]

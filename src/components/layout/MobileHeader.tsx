@@ -23,22 +23,26 @@
 //   center — page title looked up from pathname
 //   right — bell with notification count badge (hidden during recording)
 
-import { useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, ChevronLeft } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
-import { NotificationsPanel } from '@/components/notifications/NotificationsPanel'
-import { useUnreadCount } from '@/lib/notifications/hooks'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
+import { StoreSwitcher } from '@/components/layout/StoreSwitcher'
+import type { StoreRow } from '@/actions/stores'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 
-export function MobileHeader() {
+export function MobileHeader({
+  stores,
+  activeStoreId,
+}: {
+  stores: StoreRow[]
+  activeStoreId: string | null
+}) {
   const pathname = usePathname()
   const router = useRouter()
   const tSidebar = useTranslations('sidebar')
   const tCommon = useTranslations('common')
-  const unreadCount = useUnreadCount()
-  const [notificationsOpen, setNotificationsOpen] = useState(false)
   // Hide bell while recording — DiscreetRecordingIndicator (fixed
   // top-right, mounted at the (app) layout root) takes over the
   // corner. Staff aren't checking notifications mid-session anyway;
@@ -54,7 +58,16 @@ export function MobileHeader() {
       data-mobile-chrome="true"
       className="sticky top-0 z-30 border-b border-black/5 bg-white/80 pt-[env(safe-area-inset-top)] supports-backdrop-filter:bg-white/70 supports-backdrop-filter:backdrop-blur-xl md:hidden dark:border-white/10 dark:bg-neutral-900/85 supports-backdrop-filter:dark:bg-neutral-900/70"
     >
-      <div className="flex h-14 items-center gap-1 px-2">
+      <div className="relative flex h-14 items-center justify-between gap-1 px-2">
+        {/* Center — title absolutely centred on the whole bar so it stays put
+         *  no matter how wide the left/right clusters are (a wide store pill no
+         *  longer shoves it off-centre). pointer-events-none so taps fall
+         *  through to the back arrow / switcher / bell underneath; truncates
+         *  rather than overlapping them on a very long title. */}
+        <h1 className="pointer-events-none absolute left-1/2 top-1/2 max-w-[55%] -translate-x-1/2 -translate-y-1/2 truncate text-center text-[17px] font-semibold tracking-tight">
+          {title}
+        </h1>
+
         {/* Left — back arrow on sub-routes, spacer on bottom-tab roots */}
         {showBack ? (
           <button
@@ -69,40 +82,21 @@ export function MobileHeader() {
           <span aria-hidden className="size-11 shrink-0" />
         )}
 
-        <h1 className="flex-1 truncate px-1 text-center text-[17px] font-semibold tracking-tight">
-          {title}
-        </h1>
-
-        {/* Right — bell with unread badge. Hidden during recording so
-         *  DiscreetRecordingIndicator (layout-level fixed top-right)
-         *  can occupy the corner without overlapping. Spacer keeps
-         *  the title centered when the bell collapses. */}
-        {isRecording ? (
-          <span aria-hidden className="size-11 shrink-0" />
-        ) : (
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen(true)}
-            aria-label={tCommon('notifications')}
-            className="relative inline-flex size-11 items-center justify-center rounded-full text-gray-700 transition-colors active:bg-black/5 dark:text-gray-300"
-          >
-            <Bell className="size-5" />
-            {unreadCount > 0 && (
-              <span
-                aria-hidden
-                className="absolute right-1.5 top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-semibold leading-none tabular-nums text-white ring-2 ring-white dark:ring-neutral-900"
-              >
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-        )}
+        {/* Right — store switcher + shared NotificationBell (icon + unread
+         *  badge + panel). Both hidden during recording so the layout-level
+         *  DiscreetRecordingIndicator (fixed top-right) owns the corner without
+         *  overlapping; the spacer holds the slot when the bell collapses. */}
+        <div className="flex shrink-0 items-center gap-1">
+          {!isRecording && (
+            <StoreSwitcher stores={stores} activeStoreId={activeStoreId} variant="mobile" />
+          )}
+          {isRecording ? (
+            <span aria-hidden className="size-11 shrink-0" />
+          ) : (
+            <NotificationBell variant="mobile" />
+          )}
+        </div>
       </div>
-
-      <NotificationsPanel
-        open={notificationsOpen}
-        onClose={() => setNotificationsOpen(false)}
-      />
     </header>
   )
 }
@@ -151,7 +145,7 @@ function titleFor(
   if (tail.startsWith('/ask-ai')) return tSidebar('askAi')
   if (tail.startsWith('/data-import')) return tSidebar('dataImport')
   if (tail.startsWith('/data-export')) return tSidebar('dataExport')
-  if (tail.startsWith('/profile')) return tSidebar('settings')
+  if (tail.startsWith('/profile')) return tSidebar('profile')
   if (tail.startsWith('/settings')) return tSidebar('settings')
   if (tail.startsWith('/welcome')) return 'SYNQED'
   return 'SYNQED'

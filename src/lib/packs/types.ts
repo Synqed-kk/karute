@@ -49,6 +49,19 @@ export interface CustomerLifecycle {
   referral: boolean
 }
 
+/** Next 購入回数 for a NEW pack: highest STORED round + 1, never a row count.
+ *  The imports collapsed history to one row per customer (a round-4 regular
+ *  has 1 row), so COUNT-based numbering relabels regulars 初回. The stored
+ *  purchase_round carries the truth the sheet loaded. */
+export function nextPurchaseRound(packs: ReadonlyArray<Pick<TicketPack, 'kind' | 'purchase_round'>>): number {
+  const rounds = packs
+    .filter((p) => p.kind === 'pack')
+    // Legacy app-created packs stored 0-based rounds — read 0 as round 1 so
+    // the follow-up purchase becomes 2, not a second 初回.
+    .map((p) => Math.max(p.purchase_round, 1))
+  return rounds.length === 0 ? 1 : Math.max(...rounds) + 1
+}
+
 /** Compute usage for a pack from its redemption count — the ONE place the
  *  残回数/消化残高 math lives. Every surface goes through this. */
 export function withUsage(

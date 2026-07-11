@@ -16,37 +16,17 @@ export const testSupabase = createClient<Database>(
  * teardownTestData() uses these arrays to clean up in FK-safe order.
  */
 export const created = {
-  customerIds: [] as string[],
-  karuteRecordIds: [] as string[],
-  entryIds: [] as string[],
   profileIds: [] as string[],
 }
 
 /**
- * Deletes all test data in FK-safe order (children before parents):
- * entries -> karute_records -> customers -> profiles
+ * Deletes all test data. The karute domain (entries/karute_records/customers/
+ * appointments) now lives in synqed-core — those Supabase tables were dropped —
+ * so only profiles remain here.
  *
  * Call this in afterAll() of each test file.
  */
 export async function teardownTestData(): Promise<void> {
-  if (created.entryIds.length > 0) {
-    await testSupabase.from('entries').delete().in('id', created.entryIds)
-    created.entryIds = []
-  }
-
-  if (created.karuteRecordIds.length > 0) {
-    await testSupabase
-      .from('karute_records')
-      .delete()
-      .in('id', created.karuteRecordIds)
-    created.karuteRecordIds = []
-  }
-
-  if (created.customerIds.length > 0) {
-    await testSupabase.from('customers').delete().in('id', created.customerIds)
-    created.customerIds = []
-  }
-
   if (created.profileIds.length > 0) {
     await testSupabase.from('profiles').delete().in('id', created.profileIds)
     created.profileIds = []

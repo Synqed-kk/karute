@@ -13,6 +13,7 @@ const CATEGORY_TO_TONE: Record<string, SessionEntryTone> = {
   lifestyle: 'condition',
   treatment: 'treatment',
   product: 'product',
+  // synqed-ui's tone enum has no preference/note tones — nearest neighbors.
   preference: 'product',
   next_visit: 'next',
   next: 'next',
@@ -133,9 +134,14 @@ const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
   lifestyle: 'lifestyle',
   treatment: 'treatment',
   product: 'product',
-  preference: 'product',
+  // preference gets its OWN chip (好み) — it was shelved under 製品, which
+  // mislabeled correctly-categorized data (pressure prefs shown as a product).
+  preference: 'preference',
   next_visit: 'next',
   next: 'next',
+  // other = facts that fit no drawer; an honest メモ chip instead of silently
+  // masquerading as a 気になる点.
+  other: 'note',
 }
 
 export function karuteEntriesToSessionEntries(

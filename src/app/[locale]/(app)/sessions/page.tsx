@@ -3,11 +3,19 @@ import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { isReturningCustomer } from '@/lib/customers/list-enrich'
-import { getCustomer } from '@/lib/customers/queries'
+import { getCustomer, type CustomerWithStaff } from '@/lib/customers/queries'
+import {
+  classifyVisitSegment,
+  computeVisitRhythm,
+  type VisitSegment,
+  type VisitRhythm,
+} from '@/lib/visits/segment'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
-import { listCustomerPacks } from '@/lib/packs/store'
+import { listCustomerPacks, getCustomerLifecycleChecked } from '@/lib/packs/store'
+import type { PackWithUsage } from '@/lib/packs/types'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
+import { memoContent } from '@/lib/sync/qr-notes'
 import { getOrgSettings } from '@/actions/org-settings'
 import {
   getAppointmentsByDate,
@@ -15,7 +23,7 @@ import {
   type AppointmentRow,
 } from '@/actions/appointments'
 import { getCustomerKaruteRecords } from '@/actions/karute'
-import { getAiPreSessionBrief } from '@/lib/karute/ai-brief'
+import { getAiPreSessionBrief, type PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { RecordPageView } from '@/components/karute/redesign/record/RecordPageView'
@@ -59,15 +67,6 @@ export default async function SessionsPage({
   const { appointmentId: requestedAppointmentId, customerId: requestedCustomerId } =
     await searchParams
 
-  const activeStaffId = await getCurrentUserStaffId()
-  const staffList = await getStaffList()
-  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
-  // DISTINCT staff colors over the FULL roster — same map on every surface,
-  // no per-id hash collisions. Feeds the recording-picker avatar via
-  // staffColorKey on each booking below.
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
-  const tStatus = await getTranslations('reservation.status')
-
   const now = new Date()
 
   // Bookings for the record target + picker come from synqed-core (the source
@@ -81,10 +80,29 @@ export default async function SessionsPage({
   const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000)
   const todayStr = jstNow.toISOString().split('T')[0]
 
-  const [customers, todayAppts] = await Promise.all([
-    getCachedCustomerList(),
-    getAppointmentsByDate(todayStr),
-  ])
+  // Wave 1 — every read that needs nothing but the request itself, fired
+  // together instead of one-after-another. These previously ran single-file
+  // (staff id → staff list → translations → [customers, bookings]), and
+  // orgSettings was awaited dead-last behind the AI brief even though it
+  // depends on nothing — so on a cold load the page made ~half a dozen
+  // back-to-back round-trips before it could even resolve the recording
+  // target. They share no inputs, so they parallelise cleanly; orgSettings is
+  // hoisted up from the end of the function (it only feeds the pack-preset
+  // panel in the return).
+  const [activeStaffId, staffList, tStatus, customers, todayAppts, orgSettings] =
+    await Promise.all([
+      getCurrentUserStaffId(),
+      getStaffList(),
+      getTranslations('reservation.status'),
+      getCachedCustomerList(),
+      getAppointmentsByDate(todayStr),
+      getOrgSettings(),
+    ])
+  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
+  // DISTINCT staff colors over the FULL roster — same map on every surface,
+  // no per-id hash collisions. Feeds the recording-picker avatar via
+  // staffColorKey on each booking below.
+  const staffColors = assignStaffColors(staffList.map((s) => s.id))
 
   // Sequential karute number per customer — same deterministic helper + same
   // cached list (now carrying created_at) the 顧客 page + 予約 agenda use, so
@@ -289,26 +307,57 @@ export default async function SessionsPage({
     }
   })
 
-  // THIS customer's karute history from synqed-core (the Supabase mirror is
-  // empty post-migration). Fetched once + reused below for the first-visit
-  // brief. Scoped to the recording TARGET so the "recent recordings" card shows
-  // the selected customer's own sessions, not a salon-wide list.
-  // Fetch up to 10 so the pre-session brief can read the customer's full arc
-  // (trajectory across sessions); the "recent recordings" card below slices 5.
-  const customerKarute: KaruteRecord[] = nextAppointment?.customerId
-    ? await getCustomerKaruteRecords(nextAppointment.customerId, 10)
-    : []
+  // Wave 2 — everything keyed off the recording TARGET's customer, fired
+  // together. These four reads (karute history, the customer record, consent,
+  // 回数券 ledger) share only the customerId, so before this they ran needlessly
+  // single-file (karute → customer → consent → packs = four serial round-trips
+  // ahead of the AI brief). The AI brief still runs AFTER, since it reads the
+  // karute history + visit count produced here.
+  // Karute history is fetched up to 10 so the pre-session brief can read the
+  // customer's full arc (trajectory across sessions); the "recent recordings"
+  // card below slices 5. Error posture is unchanged from before the
+  // parallelisation: getCustomer + getCustomerConsent keep their own
+  // .catch(() => null); getCustomerKaruteRecords + listCustomerPacks swallow
+  // errors internally and return [], so the Promise.all can't reject and a
+  // hiccup never blanks the page.
+  const targetCustomerId = nextAppointment?.customerId ?? null
+  // 回数券 off (org setting, wave 1) → skip the pack read; targetPack stays
+  // null and the whole burn/outcome flow below never engages.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
+  const [customerKarute, targetCustomer, consentOnFile, targetPacks, lifecycleRead]: [
+    KaruteRecord[],
+    CustomerWithStaff | null,
+    Awaited<ReturnType<typeof getCustomerConsent>>['consent'],
+    PackWithUsage[],
+    Awaited<ReturnType<typeof getCustomerLifecycleChecked>>,
+  ] = targetCustomerId
+    ? await Promise.all([
+        getCustomerKaruteRecords(targetCustomerId, 10),
+        getCustomer(targetCustomerId).catch(() => null),
+        getCustomerConsent(targetCustomerId)
+          .then((r) => r.consent)
+          .catch(() => null),
+        ticketsEnabled
+          ? listCustomerPacks(targetCustomerId)
+          : Promise.resolve([] as PackWithUsage[]),
+        // Lifecycle (卒業/離客) — same signal the customer profile threads into
+        // classifyVisitSegment (customers/[id]/page.tsx). A terminal lifecycle
+        // decision outranks cadence, and a FAILED read must fail closed
+        // (suppress coaching), never masquerade as "active customer".
+        getCustomerLifecycleChecked(targetCustomerId),
+      ])
+    : [[], null, null, [], { ok: true as const, lifecycle: null }]
+  const targetLifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
+  const lifecycleUnknown = !lifecycleRead.ok
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
   const targetKaruteNumber = nextAppointment?.customerId
     ? (karuteNumberByClientId.get(nextAppointment.customerId) ?? null)
     : null
 
-  // The target customer's visit_count (from QuickReserve) — so a returning
-  // customer with a package (e.g. 50回券) but 0 synqed karute is NOT flagged 新規.
-  const targetCustomer = nextAppointment?.customerId
-    ? await getCustomer(nextAppointment.customerId).catch(() => null)
-    : null
+  // The target customer's visit_count (from QuickReserve, fetched in wave 2) —
+  // so a returning customer with a package (e.g. 50回券) but 0 synqed karute is
+  // NOT flagged 新規.
   const targetVisitCount = targetCustomer?.visit_count ?? 0
 
   const recentRecordings: RecentRecording[] = customerKarute.slice(0, 5).map((r) => {
@@ -343,20 +392,14 @@ export default async function SessionsPage({
     }
   })
 
-  // Consent on file (pretty date) — for the consent pill
+  // Consent on file (pretty date) — for the consent pill. consentOnFile comes
+  // from wave 2 (already null on a fetch failure, so the pill simply hides).
   let consentDate: string | null = null
-  if (nextAppointment?.customerId) {
-    try {
-      const { consent } = await getCustomerConsent(nextAppointment.customerId)
-      if (consent?.granted_at) {
-        consentDate = new Date(consent.granted_at).toLocaleDateString(
-          locale === 'ja' ? 'ja-JP' : 'en-US',
-          { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'short', day: 'numeric' },
-        )
-      }
-    } catch {
-      // ignore — pill simply doesn't render
-    }
+  if (consentOnFile?.granted_at) {
+    consentDate = new Date(consentOnFile.granted_at).toLocaleDateString(
+      locale === 'ja' ? 'ja-JP' : 'en-US',
+      { timeZone: 'Asia/Tokyo', year: 'numeric', month: 'short', day: 'numeric' },
+    )
   }
 
   // ─────────────────────────────────────────────────────────────
@@ -384,21 +427,36 @@ export default async function SessionsPage({
   // — never blocks the page. Both paths get targetVisitCount so a returning
   // customer with no synqed karute isn't flagged 新規.
   let brief: PreSessionBrief | null = null
+  // AI brief, streamed to the client and unwrapped with use() inside the brief
+  // card's Suspense boundary — so the page paints on the mechanical brief
+  // instantly instead of blocking on the gpt-4o call. .catch keeps a model/
+  // timeout failure from rejecting the streamed prop (it resolves to null and
+  // the card stays on the mechanical brief). Defaults to a resolved-null for the
+  // no-target path so the prop is always defined.
+  let aiBriefPromise: Promise<PreSessionBriefResult | null> = Promise.resolve(null)
   // The target's active 回数券 — drives the one-tap 消化 row in the post-session
   // outcome dialog (design #1). null when no pack / no sessions left.
   let targetPack: { id: string; remaining: number; size: number } | null = null
   // The picker prefill — the customer's most recent pack (any status; the
   // store returns purchased_at DESC, so [0] is newest).
   let previousPack: { size: number; unitPrice: number } | null = null
+  // Visit-frequency segment + rhythm bar geometry for the closing-tactic strip
+  // + rhythm panel below the recording target. Same classifyVisitSegment /
+  // computeVisitRhythm helpers CustomerIdentityCard + VisitPaceCard use on the
+  // customer profile (single source — never redoes the "how should staff close
+  // this" math), driven off targetCustomer (already fetched in wave 2) — no new
+  // fetch. Null when there's no recording target.
+  let visitSegment: VisitSegment | null = null
+  let visitRhythm: VisitRhythm | null = null
+  let targetHasTicketPack = false
   if (nextAppointment?.customerId) {
     // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
     // cached list — same fields the 顧客 list + profile use, so the recording
     // target's 新規 flag matches the customer's badge everywhere.
     const cc = customers.find((c) => c.id === nextAppointment.customerId)
-    // Real ticket_packs ledger for the target (graceful empty pre-migration) —
-    // a manually-registered pack holder is returning here too, matching the
-    // list/profile/agenda exactly.
-    const targetPacks = await listCustomerPacks(nextAppointment.customerId)
+    // Real ticket_packs ledger for the target (fetched in wave 2; graceful
+    // empty pre-migration) — a manually-registered pack holder is returning
+    // here too, matching the list/profile/agenda exactly.
     const targetHasActivePack = targetPacks.some(
       (p) => p.status === 'active' && p.kind === 'pack',
     )
@@ -421,29 +479,62 @@ export default async function SessionsPage({
       hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
       karuteCount: customerKarute.length,
     })
-    // AI brief (richer, business-type-aware) with the mechanical fallback — the
-    // fallback now gets the unified returning signal so its 新規 framing agrees.
-    brief =
-      (await getAiPreSessionBrief({
-        customerId: nextAppointment.customerId,
-        customerName: targetCustomerName,
-        visitCount: targetVisitCount,
-        records: customerKarute,
-        reservationMemo: nextAppointment.notes,
-        locale,
-        now,
-      })) ??
-      buildPreSessionBriefFor(
-        customerKarute,
-        nextAppointment.notes,
-        now,
-        locale,
-        targetReturning,
-      )
+    targetHasTicketPack = (cc?.hasTicketPack ?? false) || targetHasActivePack
+    const visitSignals = {
+      joinDateIso: targetCustomer?.created_at ?? null,
+      lastVisitIso: targetCustomer?.last_visit_at ?? null,
+      firstVisitIso: targetCustomer?.first_visit_at ?? null,
+      isExistingCustomer: targetCustomer?.is_existing_customer,
+      visitCount: targetCustomer?.visit_count,
+      karuteCount: customerKarute.length,
+      hasTicketPack: targetHasTicketPack,
+      // Terminal lifecycle (卒業/離客) nulls the segment — same gate the
+      // profile applies; never coach staff to close a released customer.
+      lifecycleStatus: targetLifecycle?.status,
+    }
+    // Fail closed on an errored lifecycle read: coaching a customer the salon
+    // may already have released is worse than briefly showing no coaching.
+    visitSegment = lifecycleUnknown ? null : classifyVisitSegment(visitSignals, now)
+    // Terminal lifecycle also suppresses the rhythm PANEL, not just the
+    // tactic segment — mirrors the profile, where computeVisitPace takes
+    // isTerminal and the pace card never renders for 卒業/離客
+    // (customers/[id]/page.tsx). classifyVisitSegment nulls itself; rhythm
+    // is a plain geometry helper with no lifecycle input, so gate it here.
+    const isTerminalLifecycle =
+      targetLifecycle?.status === 'graduated' || targetLifecycle?.status === 'lost'
+    visitRhythm =
+      isTerminalLifecycle || lifecycleUnknown ? null : computeVisitRhythm(visitSignals, now)
+    // Mechanical brief — pure + instant. Drives the FIRST paint and every
+    // cross-cutting 新規 flag (the recording-target badge + the post-session
+    // dialog), so those are correct on frame one and never flip.
+    // The memo staff see (and the AI analyzes): the appointment note's HUMAN
+    // content when it has any — the QR back-reference tag alone is plumbing —
+    // otherwise the customer's QuickReserve intake memo (customer.notes, the
+    // staff-typed 問診 the profile page shows). targetCustomer is already
+    // fetched above; no extra call.
+    const briefMemo =
+      memoContent(nextAppointment.notes) ?? memoContent(targetCustomer?.notes)
+    brief = buildPreSessionBriefFor(
+      customerKarute,
+      briefMemo,
+      now,
+      locale,
+      targetReturning,
+    )
+    // AI brief (richer, business-type-aware) — fired WITHOUT await. gpt-4o writes
+    // the memo analysis 兆候/期待/トーン/注意点 underneath while the page is already
+    // interactive; the brief card upgrades in place when it resolves. Resolves to
+    // null on no-signal/failure → the card simply stays on the mechanical brief.
+    aiBriefPromise = getAiPreSessionBrief({
+      customerId: nextAppointment.customerId,
+      customerName: targetCustomerName,
+      visitCount: targetVisitCount,
+      records: customerKarute,
+      reservationMemo: briefMemo,
+      locale,
+      now,
+    }).catch(() => null)
   }
-
-  // Owner pack presets + staff permission for the 新しい回数券 panel (cached).
-  const orgSettings = await getOrgSettings()
 
   return (
     <RecordPageView
@@ -452,12 +543,17 @@ export default async function SessionsPage({
       nextAppointment={nextAppointment}
       nearbyBookings={nearbyBookings}
       brief={brief}
+      aiBriefPromise={aiBriefPromise}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      visitSegment={visitSegment}
+      visitRhythm={visitRhythm}
+      targetHasTicketPack={targetHasTicketPack}
       targetPack={targetPack}
       packPresets={orgSettings?.pack_presets ?? []}
       staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
       previousPack={previousPack}
+      ticketsEnabled={ticketsEnabled}
       noiseSuppression={orgSettings?.noise_suppression !== false}
       currentStaffName={
         activeStaffId ? (staffNameById.get(activeStaffId) ?? null) : null
@@ -523,8 +619,14 @@ function buildPreSessionBriefFor(
     .map((e) => ({ title: e.content, body: null as string | null }))
 
   // Last concerns = symptom + treatment entries (clinical recap).
+  // Safety-critical facts extract as SYMPTOM and are ordered first by the
+  // prompt; sort symptom-before-treatment so the 3-slot cap can't push a
+  // contraindication out in favor of treatment notes.
   const concerns = entries
     .filter((e) => e.category === 'SYMPTOM' || e.category === 'TREATMENT')
+    .sort((a, b) =>
+      a.category === b.category ? 0 : a.category === 'SYMPTOM' ? -1 : 1,
+    )
     .slice(0, 3)
     .map((e) => e.content)
 
@@ -537,7 +639,10 @@ function buildPreSessionBriefFor(
   // Recommended focus = first next-visit entry (what the customer
   // said they wanted next time, or what staff flagged for follow-up).
   const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
-  const recommendedFocus = nextEntry?.content ?? last.ai_summary ?? null
+  // Fallback: only the summary's FIRST line — v3.1 summaries run 10+ labeled
+  // lines, and dumping the whole block into the focus slot drowns the card.
+  const recommendedFocus =
+    nextEntry?.content ?? (last.ai_summary?.split(/\r?\n/)[0]?.trim() || null)
 
   // Format the last visit date + relative "X日前".
   const lastDt = new Date(last.created_at)

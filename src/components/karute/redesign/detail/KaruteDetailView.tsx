@@ -15,38 +15,33 @@ import {
   CustomerMemoryCard,
   type CustomerMemorySnapshot,
 } from './CustomerMemoryCard'
-import {
-  AIBodyPredictionCard,
-  type BodyPrediction,
-} from './AIBodyPredictionCard'
-import {
-  AISuggestedMessageCard,
-  type SuggestedMessage,
-} from './AISuggestedMessageCard'
 import { KaruteCoachingPanel } from '@/components/coaching/redesign/KaruteCoachingPanel'
 import { OutcomeCard } from './OutcomeCard'
 import type { KaruteOutcomeRow } from '@/lib/karute/outcome'
-import {
-  AIBodyPredictionPreview,
-  AIOutreachPreview,
-} from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 
 export interface KaruteDetailViewProps {
   karuteId: string
   customerId: string | null
   header: Omit<CustomerHeaderProps, 'onEdit'>
   sessionDateLong: string
+  /** Raw session date (YYYY-MM-DD) — prompt anchor for AIで再生成. */
+  sessionDateIso?: string | null
   entries: SessionEntry[]
   summaryBullets: string[]
   transcript: string | null
   consentOnFile: boolean
   transcriptDurationLabel: string | null
+  /** A transcript exists but is withheld from this viewer (not the recording
+   *  staff). The shared summary/entries still render. */
+  transcriptRestricted?: boolean
   // photosSlot is streamed in via Suspense from the server page so the shell can
   // paint before the photo HTTP fetch resolves.
   photosSlot: ReactNode
   memory: CustomerMemorySnapshot | null
-  bodyPrediction: BodyPrediction | null
-  suggestedMessage: SuggestedMessage | null
+  /** Server-streamed via Suspense (photosSlot pattern) so the page shell never
+   *  waits on an AI call — the fallback is the 対応予定 preview. */
+  bodyPredictionSlot: ReactNode
+  suggestedMessageSlot: ReactNode
   outcome: KaruteOutcomeRow | null
 }
 
@@ -55,21 +50,22 @@ export function KaruteDetailView({
   customerId,
   header,
   sessionDateLong,
+  sessionDateIso,
   entries,
   summaryBullets,
   transcript,
   consentOnFile,
   transcriptDurationLabel,
+  transcriptRestricted,
   photosSlot,
   memory,
-  bodyPrediction,
-  suggestedMessage,
+  bodyPredictionSlot,
+  suggestedMessageSlot,
   outcome,
 }: KaruteDetailViewProps) {
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 p-4 md:p-6">
       <DetailBreadcrumb
-        karuteId={karuteId}
         customerId={customerId}
         customerName={header.customerName}
         karuteNumber={header.karuteNumber}
@@ -103,15 +99,7 @@ export function KaruteDetailView({
 
       <div className="grid gap-4 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <div className="flex flex-col gap-4">
-          {/* Show the 対応予定 scaffold when there's no prediction yet, so the
-           *  section stays visible as a reminder instead of vanishing (the card
-           *  itself returns null when empty). Lights up when Anthony's pipeline
-           *  passes a real prediction. */}
-          {bodyPrediction ? (
-            <AIBodyPredictionCard prediction={bodyPrediction} />
-          ) : (
-            <AIBodyPredictionPreview />
-          )}
+          {bodyPredictionSlot}
           <CurrentSessionCard
             sessionDate={sessionDateLong}
             entries={entries}
@@ -120,27 +108,21 @@ export function KaruteDetailView({
                 <RegenerateEntriesButton
                   karuteRecordId={karuteId}
                   transcript={transcript}
+                  customerName={header.customerName}
+                  sessionDate={sessionDateIso}
                 />
               ) : null
             }
           />
         </div>
         <div className="flex flex-col gap-4">
-          {/* Same pattern — 対応予定 scaffold when there's no draft yet. */}
-          {suggestedMessage ? (
-            <AISuggestedMessageCard
-              customerName={header.customerName}
-              customerId={customerId}
-              draft={suggestedMessage}
-            />
-          ) : (
-            <AIOutreachPreview />
-          )}
+          {suggestedMessageSlot}
           <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
           <RecordingTranscriptCard
             transcript={transcript}
             consentOnFile={consentOnFile}
             durationLabel={transcriptDurationLabel}
+            restricted={transcriptRestricted}
           />
           {/* Layer 1 staff-private coaching panel — renders null
            *  for owners (role gate inside the component). Currently

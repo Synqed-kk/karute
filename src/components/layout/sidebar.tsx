@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
+import { clearDraft } from '@/lib/karute/draft'
 import { useSession } from '@/providers/session-provider'
 import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
 
@@ -197,12 +198,17 @@ function getInitials(name: string): string {
 function SidebarProfileChip() {
   const session = useSession()
   const t = useTranslations('staff')
+  const tSidebar = useTranslations('sidebar')
   const router = useRouter()
   const [open, setOpen] = useState(false)
 
   const { activeStaff, orgName } = session
 
   async function handleLogout() {
+    // Wipe the recovery vault before leaving — it holds a customer transcript +
+    // AI summary, and this is a shared salon device (privacy: no next staff
+    // member inherits the previous one's unsaved session).
+    clearDraft()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login' as Parameters<typeof router.push>[0])
@@ -262,12 +268,12 @@ function SidebarProfileChip() {
               type="button"
               onClick={() => {
                 setOpen(false)
-                router.push('/settings' as Parameters<typeof router.push>[0])
+                router.push('/profile' as Parameters<typeof router.push>[0])
               }}
               className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-foreground hover:bg-muted/50 text-left"
             >
               <UserIcon className="size-3.5 text-muted-foreground" />
-              View profile
+              {tSidebar('profile')}
             </button>
             <button
               type="button"

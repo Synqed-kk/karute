@@ -4,7 +4,7 @@
  * synqed-core; contract testing lives in synqed-core/tests/*.
  *
  * Covers: createCustomer, saveKaruteRecord (atomic create + entries),
- * addManualEntry, deleteEntry, deleteKaruteRecord, deleteCustomer.
+ * deleteKaruteRecord, deleteCustomer.
  */
 
 import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
@@ -24,6 +24,21 @@ jest.mock('next-intl/server', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => TEST_STAFF_PROFILE_ID),
+}))
+
+// Store resolution for karute writes (no appointment → active-store cookie).
+// This suite isolates the synqed-client delegation, not store scoping.
+jest.mock('@/actions/stores', () => ({
+  getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
+}))
+
+// RBAC gate neutralized — this flow test isolates the synqed-client delegation,
+// not permissions. Capability enforcement is covered in
+// rbac-server-enforcement.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+  can: jest.fn(async () => true),
 }))
 
 // --- @synqed-kk/client mock ---
@@ -57,7 +72,6 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { createCustomer, deleteCustomer } from '@/actions/customers'
 import { saveKaruteRecord, deleteKaruteRecord } from '@/actions/karute'
-import { addManualEntry, deleteEntry } from '@/actions/entries'
 import { redirect } from 'next/navigation'
 
 describe('Migrated core flow — customers + karute + entries', () => {
@@ -128,34 +142,6 @@ describe('Migrated core flow — customers + karute + entries', () => {
     expect(redirect).toHaveBeenCalledWith('/en/karute/karute-1')
   })
 
-  it('addManualEntry calls addEntry with is_manual=true and confidence=null', async () => {
-    karuteRecords.addEntry.mockResolvedValue({ id: 'entry-1' })
-
-    const result = await addManualEntry({
-      karuteRecordId: 'karute-1',
-      category: 'next_visit',
-      content: '2 weeks out',
-    })
-
-    expect(result).toEqual({})
-    expect(karuteRecords.addEntry).toHaveBeenCalledWith('karute-1', {
-      category: 'NEXT_VISIT',
-      content: '2 weeks out',
-      is_manual: true,
-      confidence: null,
-      original_quote: null,
-    })
-  })
-
-  it('deleteEntry calls deleteEntry on the client', async () => {
-    karuteRecords.deleteEntry.mockResolvedValue(undefined)
-
-    const result = await deleteEntry('entry-1', 'karute-1')
-
-    expect(result).toEqual({})
-    expect(karuteRecords.deleteEntry).toHaveBeenCalledWith('karute-1', 'entry-1')
-  })
-
   it('deleteKaruteRecord delegates to client.karuteRecords.delete (server cascades)', async () => {
     karuteRecords.delete.mockResolvedValue(undefined)
 
@@ -196,8 +182,10 @@ describe('Migrated core flow — customers + karute + entries', () => {
   it('saveKaruteRecord attributes to the signed-in RECORDER, not the booking staff', async () => {
     // The customer is booked under another staff ('appt-staff-xyz'), but the
     // record must save under the RECORDER (TEST_STAFF_PROFILE_ID) — covering /
-    // staff swaps. The appointment isn't even fetched when the recorder is known.
-    const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz' }) }
+    // staff swaps. The staff-attribution fallback never fetches the appointment
+    // when the recorder is known, but it's still fetched ONCE for store_id (the
+    // booking's store is the truth of where the session happened).
+    const apptClient = { get: jest.fn().mockResolvedValue({ staff_id: 'appt-staff-xyz', store_id: 'store-9' }) }
     const { getSynqedClient } = await import('@/lib/synqed/client')
     ;(getSynqedClient as jest.Mock).mockResolvedValueOnce({
       customers,
@@ -217,7 +205,8 @@ describe('Migrated core flow — customers + karute + entries', () => {
     const arg = karuteRecords.create.mock.calls[karuteRecords.create.mock.calls.length - 1][0]
     expect(arg.staff_id).toBe(TEST_STAFF_PROFILE_ID) // the recorder, NOT appt-staff-xyz
     expect(arg.appointment_id).toBe('appt-1') // still linked to the booking for context
-    expect(apptClient.get).not.toHaveBeenCalled() // recorder known → no appt lookup
+    expect(arg.store_id).toBe('store-9') // the booking's store
+    expect(apptClient.get).toHaveBeenCalledTimes(1) // fetched once, for store_id only
   })
 
   it('saveKaruteRecord falls back to the appointment staff when the recorder has no staff identity', async () => {

@@ -4,14 +4,17 @@ import { getCustomer } from '@/lib/customers/queries'
 import { computeAge, jpGender, isBirthdayMonth } from '@/lib/customers/demographics'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
-import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { listCustomerPhotos } from '@/actions/customers'
+import { listCustomerPhotos, getCustomerConsent } from '@/actions/customers'
+import { isConsentCurrent } from '@/lib/consent'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import { buildCustomerMemory } from '@/lib/karute/memory-adapter'
+import { getCachedPassport } from '@/lib/karute/ai-passport'
+import { resolvePassportFields } from '@/lib/karute/business-ai-tokens'
+import { getOrgSettings } from '@/actions/org-settings'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
@@ -33,7 +36,7 @@ import {
 } from '@/lib/customers/identity'
 import type { CustomerSessionEntry } from '@/components/customers/redesign/profile/SessionsTabContent'
 import type { CustomerPhoto } from '@/components/customers/redesign/profile/PhotosTabContent'
-import { getCustomerLifecycle, listCustomerPacks } from '@/lib/packs/store'
+import { getCustomerLifecycleChecked, listCustomerPacks } from '@/lib/packs/store'
 
 interface CustomerProfilePageProps {
   params: Promise<{ id: string; locale: string }>
@@ -61,11 +64,8 @@ export default async function CustomerProfilePage({
   if (!customer) notFound()
 
   // Fetch supporting data in parallel: contact (cached), staff list (cached),
-  // karute_records for the customer, and photos.
+  // karute sessions (from synqed-core), and photos.
   const businessId = await getBusinessId()
-  const service = createServiceClient()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = service as any
 
   // Also fetch the full tenant customer list for the karute-number
   // helper (it prefers the persisted customers.karute_number and only
@@ -73,19 +73,10 @@ export default async function CustomerProfilePage({
   // consistent with the list page.
   const synqed = await getSynqedClient()
 
-  const [contact, staffList, karuteRes, photosResult, allCustomersList, synqedKaruteRows, enrichment] =
+  const [contact, staffList, photosResult, allCustomersList, synqedKaruteRows, enrichment, consentResult] =
     await Promise.all([
       getCustomerContact(id),
       getStaffList(),
-      sb
-        .from('karute_records')
-        .select(
-          'id, session_date, created_at, summary, staff_profile_id, customer_id, client_id, entries(count)',
-        )
-        .eq('customer_id', businessId)
-        .eq('client_id', id)
-        .order('session_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false }),
       listCustomerPhotos(id).catch(() => ({
         photos: [] as Array<{
           id: string
@@ -97,14 +88,16 @@ export default async function CustomerProfilePage({
       // Page to completion so an overflow customer (#500+) still resolves its
       // karute number + name here instead of falling back to #00000.
       listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
-      // synqed-core is the authoritative karute store; the Supabase query above
-      // is effectively empty. Union both so this customer's synqed-written
-      // sessions appear in their history.
+      // synqed-core is the sole karute store (the Supabase karute_records table
+      // is empty and being dropped).
       listSynqedKaruteRows(synqed, { customerId: id }),
       // 担当 fallback: the booking's staff when this customer has no 指名
       // (assigned_staff_id) — QR-synced customers never do. Same source as the
       // list page so the profile's 担当 matches the card.
       enrichCustomers(businessId, [id]),
+      // Recording consent — same read the pre-session brief uses, so the
+      // Privacy tab's revoke row reflects the same "currently granted" truth.
+      getCustomerConsent(id).catch(() => ({ consent: null })),
     ])
 
   type KaruteRow = {
@@ -117,10 +110,8 @@ export default async function CustomerProfilePage({
     service?: string | null
     duration_minutes?: number | null
   }
-  const karuteRecords = mergeKaruteRows<KaruteRow>(
-    (karuteRes.data ?? []) as KaruteRow[],
-    synqedKaruteRows,
-  )
+  // mergeKaruteRows still gives the sort + cap; no Supabase side to union now.
+  const karuteRecords = mergeKaruteRows<KaruteRow>([], synqedKaruteRows)
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
@@ -156,14 +147,45 @@ export default async function CustomerProfilePage({
       }
     }
   }
-  const customerMemory = buildCustomerMemory(memoryItems, id)
+  // Passport (これまで box): pure cache read — generation happens only inside
+  // 再学習, so an LLM call can never block this page. Field labels come from
+  // the business tokens; staff-override rows merge in buildCustomerMemory.
+  const [aiPassport, orgSettingsForPassport] = await Promise.all([
+    getCachedPassport(id),
+    getOrgSettings().catch(() => null),
+  ])
+  const passportFieldDefs = resolvePassportFields(
+    orgSettingsForPassport?.business_type,
+    locale,
+  )
+  // 初回来店 is mechanical truth — earliest recorded session, else the
+  // customer's registration date. Never asked of the AI.
+  const firstVisitAt =
+    synqedKaruteRows
+      .map((r) => r.session_date ?? r.created_at)
+      .filter((d): d is string => !!d)
+      .sort()[0] ??
+    customer.created_at ??
+    null
+  const customerMemory = buildCustomerMemory(memoryItems, id, {
+    fieldDefs: passportFieldDefs,
+    ai: aiPassport,
+    firstVisitAt: firstVisitAt ? firstVisitAt.slice(0, 10) : null,
+  })
 
   // 回数券 + lifecycle (卒業/離客/口コミ) — best-effort: empty card / no chips
   // until the ticket_packs migration is applied (store degrades gracefully).
-  const [packs, lifecycle] = await Promise.all([
-    listCustomerPacks(id),
-    getCustomerLifecycle(id),
+  // Tickets off (org setting) → skip the pack fetch entirely; lifecycle is
+  // customer-state, not a ticket feature, so it always loads.
+  const ticketsEnabled = orgSettingsForPassport?.ticket_packs_enabled ?? true
+  const [packs, lifecycleRead] = await Promise.all([
+    ticketsEnabled ? listCustomerPacks(id) : Promise.resolve([]),
+    // Checked read: a FAILED lifecycle fetch must fail closed for coaching
+    // (suppress the pace verdict below), not read as "active customer".
+    // Display consumers (status chip, lifecycle buttons) keep null-degrade.
+    getCustomerLifecycleChecked(id),
   ])
+  const lifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
   // Real ledger signal: any active counted pack → 回数券 holder, regardless of
   // whether the QR flag has synced. Joins the status resolver + the 回数券あり
   // chip so a manually-registered pack reads consistently everywhere.
@@ -219,11 +241,21 @@ export default async function CustomerProfilePage({
     datedVisitCount: enr?.datedVisitCount ?? 0,
     totalVisits: customerVisitCount(statusSignals),
     isReturning: isReturningCustomer(statusSignals),
-    isTerminal: lifecycle?.status === 'graduated' || lifecycle?.status === 'lost',
+    // Fail closed on an errored read — never coach a possibly-released customer.
+    isTerminal:
+      !lifecycleRead.ok || lifecycle?.status === 'graduated' || lifecycle?.status === 'lost',
   })
   const visitPaceLastVisitDate = formatCompactDate(lastVisitIso, locale, new Date(), {
     withWeekday: true,
   })
+
+  // "Currently granted" — same isConsentCurrent check the recording gate uses
+  // (a stale-policy-version consent doesn't count), so the Privacy tab's
+  // revoke row and the record-page consent pill never disagree.
+  const consentGranted = isConsentCurrent(consentResult.consent)
+  const consentGrantedAtLabel = consentResult.consent?.granted_at
+    ? prettyDate(consentResult.consent.granted_at, locale)
+    : null
 
   const photos: CustomerPhoto[] = (photosResult.photos ?? []).map((p) => ({
     id: p.id,
@@ -292,14 +324,14 @@ export default async function CustomerProfilePage({
     bookingStaffName: bookingStaffId
       ? (staffNameById.get(bookingStaffId) ?? null)
       : null,
-    nextVisitPredicted: status === 'dormant' ? 'Re-engage' : '—',
     status,
     visitPace,
     visitPaceLastVisitDate,
     visitPaceLastService: enr?.lastVisitService ?? null,
-    memoryCount: memoryItems.length,
+    memoryCount: customerMemory.items.length,
     sessionCount: karuteRecords.length,
     photoCount: photos.length,
+    noShowCount: enr?.noShowCount ?? 0,
   }
 
   return (
@@ -311,6 +343,9 @@ export default async function CustomerProfilePage({
       packs={packs}
       lifecycle={lifecycle}
       hasNextBooking={!!enrichment.get(id)?.nextAppointmentIso}
+      ticketsEnabled={ticketsEnabled}
+      consentGranted={consentGranted}
+      consentGrantedAtLabel={consentGrantedAtLabel}
     />
   )
 }

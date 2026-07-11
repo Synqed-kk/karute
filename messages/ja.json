@@ -25,6 +25,7 @@
     "email": "メールアドレス",
     "phone": "電話番号",
     "somethingWentWrong": "エラーが発生しました。",
+    "noPermission": "この操作を行う権限がありません。",
     "saved": "保存済み",
     "notifications": "通知"
   },
@@ -51,7 +52,27 @@
     "hasAccount": "アカウントをお持ちの方",
     "signinLink": "サインイン",
     "signupNoUser": "ユーザーが取得できませんでした。もう一度お試しください。",
-    "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。"
+    "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。",
+    "forgotPassword": "パスワードをお忘れですか？",
+    "resetTitle": "パスワード再設定",
+    "resetSubtitle": "登録済みのメールアドレスを入力してください。再設定用のリンクをお送りします。",
+    "resetSubmit": "再設定リンクを送信",
+    "resetSubmitting": "送信中...",
+    "resetSentTitle": "メールを送信しました",
+    "resetSentBody": "アカウントが存在する場合、パスワード再設定用のリンクをお送りしました。届かない場合は迷惑メールフォルダもご確認ください。",
+    "resetErrorGeneric": "送信に失敗しました。しばらくしてからもう一度お試しください。",
+    "backToLogin": "サインインに戻る",
+    "newPasswordTitle": "新しいパスワードを設定",
+    "newPasswordSubtitle": "新しいパスワードを入力してください。",
+    "newPassword": "新しいパスワード",
+    "newPasswordConfirm": "新しいパスワード（確認）",
+    "newPasswordSubmit": "パスワードを変更",
+    "newPasswordSubmitting": "変更中...",
+    "resetLinkChecking": "リンクを確認しています...",
+    "resetLinkInvalidTitle": "リンクが無効です",
+    "resetLinkInvalidBody": "このリンクは無効か、有効期限が切れています。お手数ですが、パスワード再設定をもう一度やり直してください。",
+    "resetRequestAgain": "再設定をやり直す",
+    "resetUpdateError": "パスワードを変更できませんでした。もう一度お試しください。"
   },
   "welcome": {
     "title": "店舗の初期設定",
@@ -106,6 +127,7 @@
     "askAi": "AI相談",
     "dataImport": "インポート",
     "dataExport": "エクスポート",
+    "profile": "プロフィール",
     "settings": "設定",
     "menu": "メニュー",
     "pickBooking": "予約を選択"
@@ -161,7 +183,49 @@
       "renewalFlag": "更新案内",
       "packLeft": "残{remaining}/{size}",
       "unrecorded": "未記録",
-      "nextUp": "次 ▸"
+      "nextUp": "次 ▸",
+      "cancelled": "キャンセル済み",
+      "noShow": "無断キャンセル"
+    },
+    "cancelSheet": {
+      "title": "この予約をキャンセルしますか？",
+      "ticketNote": "回数券は消化されません。無断キャンセルの消化は下の「無断キャンセル」から選べます。",
+      "holdLabel": "長押しでキャンセル",
+      "holdHint": "ボタンを約1秒間押し続けると確定します",
+      "holdKeep": "そのまま押し続けてください…",
+      "done": "{name}様の予約をキャンセルしました",
+      "cancelledTitle": "キャンセル済みの予約",
+      "cancelledBody": "この予約はキャンセルされています。回数券は消化されていません。",
+      "restore": "元に戻す",
+      "restoring": "戻しています…",
+      "restored": "{name}様の予約を元に戻しました",
+      "staffPrefix": "担当",
+      "close": "閉じる",
+      "noShowSectionLabel": "無断キャンセル",
+      "noShowReasons": {
+        "no-show-no-contact": "連絡なし",
+        "same-day-contacted": "当日連絡あり",
+        "first-time-no-show": "初回の無断キャンセル"
+      },
+      "burnPack": "回数券を1回消化する（残り{n}回）",
+      "noShowHoldLabel": "長押しで無断キャンセルにする",
+      "noShowDone": "{name}様の予約を無断キャンセルにしました",
+      "noShowRestoreTitle": "無断キャンセルの予約",
+      "noShowBody": "この予約は無断キャンセルとして記録されています。",
+      "reason": "理由",
+      "statusSetBy": "{name}が{date} {time}に操作",
+      "noShowError": {
+        "no_burnable_pack": "消化できる回数券がありません",
+        "already_terminal": "この予約はすでにキャンセルまたは無断キャンセルになっています"
+      },
+      "noShowBurnWarn": {
+        "below_zero": "{name}様の無断キャンセルは記録しました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません",
+        "already_burned": "{name}様の無断キャンセルは記録しました。この予約では回数券がすでに消化済みのため、再消化していません"
+      },
+      "noShowErrorGeneric": "操作に失敗しました",
+      "cancelErrorGeneric": "キャンセルに失敗しました。もう一度お試しください",
+      "restoreErrorGeneric": "元に戻せませんでした。予約の状態が変わっている可能性があります"
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
@@ -185,6 +249,7 @@
     "grid": {
       "blockOwner": "予約を受け付けていません（オーナー業務）",
       "staffMeta": "{role} ・ {count}件の予約",
+      "staffMetaNoRole": "{count}件の予約",
       "staffColumnLabel": "STAFF"
     },
     "totals": {
@@ -275,7 +340,6 @@
       "karute": "カルテ {date}"
     },
     "actions": {
-      "exportPdf": "PDFエクスポート",
       "share": "共有",
       "edit": "編集"
     },
@@ -316,7 +380,12 @@
       "confidence": "信頼度",
       "vsLast": "前回比",
       "recommended": "次回推奨",
-      "rationale": "AI判断根拠"
+      "rationale": "AI判断根拠",
+      "delta": {
+        "improving": "改善傾向",
+        "worsening": "悪化傾向",
+        "stable": "横ばい"
+      }
     },
     "suggestedMessage": {
       "title": "AI提案メッセージ",
@@ -333,7 +402,9 @@
         "condition": "部位",
         "lifestyle": "ライフスタイル",
         "product": "製品",
-        "next": "次回"
+        "next": "次回",
+        "preference": "好み",
+        "note": "メモ"
       }
     },
     "regenerate": {
@@ -355,7 +426,9 @@
       "title": "録音 ・ 文字起こし",
       "consentOnFile": "同意確認済",
       "duration": "再生時間 {duration}",
-      "noTranscript": "文字起こしはまだありません"
+      "noTranscript": "文字起こしはまだありません",
+      "restrictedTitle": "録音 ・ 文字起こし",
+      "restricted": "この文字起こしは録音を担当したスタッフのみ閲覧できます。上の要約は共有されます。"
     }
   },
   "recording": {
@@ -493,6 +566,8 @@
       "lastProduct": "前回の商品提案",
       "recommendedFocus": "本日のおすすめフォーカス",
       "reservationMemo": "ご予約時のメモ",
+      "memoShowAll": "すべて表示",
+      "memoCollapse": "閉じる",
       "memoAnalysisLabel": "AIによる事前読み取り",
       "firstTimeHeader": "初めてのお客様",
       "firstTimeBody": "{name}様は本日が初めてのご来店です。まずはご来店の決め手やご期待を伺って、お悩みを丁寧にお聞きしましょう。",
@@ -503,7 +578,15 @@
       "aiHintHooks": "過去のカルテ・会話履歴から、自然な雑談のきっかけ（ペット・家族・趣味・最近の出来事など）をAIが抽出し、本日の会話の糸口として提示します。",
       "aiHintConcerns": "前回までのカルテから主訴・施術内容・経過観察ポイントをAIが時系列で整理し、本日のセッションで確認すべき事項を要約します。",
       "aiHintLastProduct": "前回提案した商品・サービスと、お客様の反応（購入／検討中／断りの言い回し）をAIがカルテから抽出し、本日の提案戦略のヒントとして表示します。",
-      "aiHintRecommendedFocus": "カルテ履歴・商品反応・季節要因・サロン目標を踏まえ、本日のセッションで重点的に扱うべき角度（深掘り質問・提案商品・ケア方針）をAIが提案します。"
+      "aiHintRecommendedFocus": "カルテ履歴・商品反応・季節要因・サロン目標を踏まえ、本日のセッションで重点的に扱うべき角度（深掘り質問・提案商品・ケア方針）をAIが提案します。",
+      "opener": "会話の第一声",
+      "lastWords": "前回の言葉",
+      "cautions": "注意（施術前に必ず）",
+      "today": "今日やること",
+      "detailShow": "詳しい経過を見る",
+      "detailHide": "詳しい経過を閉じる",
+      "rhythmEarly": "{days}日ぶり・通常より早め",
+      "rhythmLate": "{days}日ぶり・間隔があいています"
     },
     "source": {
       "phoneMic": "スマホマイク",
@@ -549,7 +632,10 @@
       "body": "セッション中に次の回数券のお話を。録音終了後に結果（購入した／案内した）を記録できます。",
       "bodyLast": "本日が最後の1回です。セッション中に必ず次の回数券のご案内を — 録音終了後に結果を記録できます。"
     },
-    "otherStaffBooking": "{staff}さんの予約のお客様 — この記録は {you} さんの担当として保存されます"
+    "otherStaffBooking": "{staff}さんの予約のお客様 — この記録は {you} さんの担当として保存されます",
+    "recoverTitle": "保存されていない録音があります。",
+    "recoverAction": "復元する",
+    "recoverDiscard": "破棄"
   },
   "customers": {
     "title": "顧客",
@@ -605,7 +691,13 @@
       "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
       "deleteCta": "データを削除",
       "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
-      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です",
+      "consentRevokeTitle": "録音同意",
+      "consentRevokeBody": "{date}に取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeBodyNoDate": "同意取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeCta": "録音同意を取り消す",
+      "consentRevokeConfirm": "録音の同意を取り消しますか？次回の録音前に、スタッフが改めて同意を取得する必要があります。",
+      "consentRevokeSuccess": "録音同意を取り消しました。"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
@@ -728,6 +820,7 @@
         "redeemConfirm": "記録する",
         "redeemDone": "消化を記録しました",
         "redeemFailed": "記録できませんでした",
+        "redeemNoSessionsLeft": "残回数がないため消化できません",
         "cancel": "キャンセル",
         "lowRemaining": "残りわずか — 次回ご来店時に次の回数券のご案内を",
         "lifecycleLabel": "ステータス",
@@ -762,6 +855,12 @@
       "ageValue": "{age}歳",
       "visitCountSuffix": " 回",
       "staffPrefix": "担当",
+      "bookingMemo": {
+        "edit": "メモを編集",
+        "hint": "▶項目名: の形を保つと整理表示されます。保存後は予約システムからの上書きはありません。",
+        "save": "保存",
+        "cancel": "キャンセル"
+      },
       "edit": "編集",
       "editDialogTitle": "顧客情報を編集",
       "editDialogDescription": "このお客様の連絡先情報を更新します。保存内容は他の画面にも反映されます。"
@@ -817,7 +916,8 @@
         "ageValue": "{age}歳",
         "bookingDate": "予約 {date}",
         "bookingNone": "予約なし",
-        "packFraction": "残{n}/{m}"
+        "packFraction": "残{n}/{m}",
+        "noShowChip": "無断欠席{count}回"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
@@ -912,8 +1012,6 @@
     "staff": "スタッフ",
     "date": "日付",
     "customer": "顧客",
-    "exportPdf": "PDF出力",
-    "exportText": "テキスト出力",
     "noKarute": "カルテがまだありません",
     "saveKarute": "カルテを保存",
     "saving": "保存中...",
@@ -988,7 +1086,7 @@
       "addManually": "手動で追加",
       "lastUpdated": "最終更新: {date}",
       "sectionEmpty": "対応予定 — このカテゴリーにはまだ情報がありません",
-      "comingSoonPill": "対応予定",
+      "comingSoonPill": "未学習",
       "intakeEmpty": "初診情報は初回の問診票が完了すると、ここに表示されます。",
       "intakeFields": {
         "firstVisit": "初診",
@@ -1014,7 +1112,18 @@
       "deleted": "削除しました",
       "actionFailed": "操作に失敗しました",
       "pinnedToast": "ピン留めしました",
-      "unpinned": "ピン留めを解除しました"
+      "unpinned": "ピン留めを解除しました",
+      "relearnConfirm": "タップで再学習を実行",
+      "relearnConfirmTooltip": "AIが抽出した項目を作り直します。ピン留め・スタッフ追加・編集済みの項目はそのまま残ります。",
+      "relearnRunning": "再学習中…",
+      "relearnFailed": "再学習できませんでした（録音の文字起こしが見つからないか、エラーが発生しました）",
+      "relearnDone": "再学習が完了しました（{n}件）",
+      "passportHint": "点線の値はタップで根拠の発言を表示。鉛筆で修正でき、修正した値はAIが上書きしません。",
+      "passportQuoteHint": "タップで根拠の発言を表示",
+      "passportEdit": "{field}を編集",
+      "passportSave": "保存",
+      "passportCancel": "キャンセル",
+      "passportSaveFailed": "保存できませんでした"
     },
     "tabHeading": "カルテ",
     "recordList": {
@@ -1467,6 +1576,69 @@
     }
   },
   "dashboard": {
+    "flow": {
+      "ownerChip": "オーナー",
+      "nextCustomer": "次のお客様",
+      "customerHonorific": "{name} 様",
+      "minsLeft": "あと{n}分",
+      "hoursMinsLeft": "あと{h}時間{m}分",
+      "inSession": "施術中",
+      "firstVisit": "初回",
+      "nthVisit": "{n}回目",
+      "repeat": "リピーター",
+      "remainingOf": "残/{m}",
+      "durationMin": "{n}分",
+      "requestLabel": "ご要望：",
+      "lastVisitLabel": "前回（{date}）：",
+      "openKarute": "カルテを開く",
+      "swipeHint": "スワイプで次の予約",
+      "tomorrowFirst": "明日の最初のお客様",
+      "tomorrowCount": "明日は{n}件の予約",
+      "dayDoneTitle": "本日終了",
+      "dayDone": "{n}件完了、おつかれさまでした",
+      "todosTitle": "やること（本日 {n}件）",
+      "karuteMissing": "カルテ未作成 · {name}様（{time}）",
+      "redeemMissing": "消化未処理 · {name}様",
+      "recordCta": "録音する",
+      "redeemCta": "消化",
+      "redeemed": "{name}様の回数券を消化しました",
+      "redeemFailed": "消化に失敗しました",
+      "undo": "元に戻す",
+      "attentionTitle": "本日の要注目",
+      "attentionOf": "{n}名 / {total}件",
+      "badgeLastOne": "残1",
+      "badgePackDone": "券終了",
+      "badgeComeback": "{n}日ぶり",
+      "badgeMemo": "メモ",
+      "attentionFootnote": "注目点のないお客様は表示されません · タップでお客様ページへ",
+      "actionsTitle": "推奨アクション",
+      "renewalTitle": "{name}様 — 残り1回",
+      "renewalBodyCycle": "平均{cycle}日サイクルの常連。本日{time}にご来店 — 施術後が次回券ご案内のタイミング。",
+      "renewalBody": "本日{time}にご来店 — 施術後に次回券のご案内を。",
+      "rebookTitle": "リブック提案 — 次回予約のない{n}名",
+      "rebookItem": "{name}様(残{remaining}) → {due}頃",
+      "winbackTitle": "お久しぶりのお客様 — 声かけ候補{n}名",
+      "winbackItem": "{name}様(残{remaining}・{days}日)",
+      "winbackBody": "回数券が残ったまま足が遠のいています",
+      "openCustomer": "お客様を開く",
+      "actionsFootnote": "来店リズムは実来店データから計算 · 毎朝更新",
+      "tomorrowTitle": "明日 {date}",
+      "tomorrowLine": "{n}名 · 初回{f}名 · 最初は {time} {name}様",
+      "ownerBandTitle": "オーナー",
+      "riskTitle": "回収リスク",
+      "riskSub": "要連絡 {n}名",
+      "liabilityTitle": "未消化残高",
+      "liabilitySub": "{n}名分の前払い",
+      "contactRow": "要連絡のお客様",
+      "backlogRow": "未処理の来店（過去分）",
+      "lastOneRow": "残り1回のお客様",
+      "lastOneMeta": "{n}名 · 予約あり{m}名",
+      "hasBooking": "予約あり",
+      "personCount": "{n}名",
+      "itemCount": "{n}件",
+      "pulseRow": "直近7日",
+      "pulseValue": "消化 {r}回 · カルテ {k}件"
+    },
     "title": "予約",
     "dashboardTitle": "ダッシュボード",
     "welcomeBack": "おかえりなさい、{name}さん",
@@ -1590,6 +1762,7 @@
       "redeemed": "{date}の分を消化しました",
       "undo": "取り消す",
       "redeemFailed": "消化できませんでした",
+      "redeemNoSessionsLeft": "残回数がないため消化できません",
       "dismissed": "来店なしとして記録しました",
       "dismissFailed": "記録できませんでした",
       "more": "他{n}件（処理すると順に表示されます）"
@@ -1673,6 +1846,9 @@
       "addStore": "追加",
       "limitReached": "店舗数が現在のプランの上限に達しています",
       "primaryBadge": "本店",
+      "switcherTitle": "店舗を切り替え",
+      "allStores": "全店舗",
+      "allStoresSub": "横断ビュー",
       "activeBadge": "営業中",
       "staffUnit": "スタッフ{n}名",
       "customersUnit": "顧客{n}名",
@@ -1680,7 +1856,7 @@
       "switchTo": "切り替え",
       "edit": "編集",
       "emptyState": "店舗が登録されていません。「追加」から登録してください。",
-      "activeStoreScopeNote": "「切り替え」は現在UI表示のみのプレビューです。各タブのデータが選択店舗に絞り込まれる挙動は、店舗テーブルの実装後に有効化されます。",
+      "activeStoreScopeNote": "店舗を切り替えると、顧客リスト・ダッシュボード・予約が選択中の店舗に絞り込まれます（店舗ごとの集計はその店舗でのイベントから算出）。カルテ一覧の完全な絞り込みは、synqed-core側のカルテ店舗フィルタの反映後に有効化されます。",
       "addStoreSubscription": {
         "freeAtLimitTitle": "店舗追加にはアップグレードが必要です",
         "freeAtLimitBody": "Freeプランは1店舗までです。スタンダードまたはプロフェッショナルにアップグレードすると、店舗を追加できます。",
@@ -1717,6 +1893,7 @@
         "saved": "保存しました"
       },
       "assignLabel": "店舗（所属）",
+      "assignMultiHint": "複数選択できます。未選択の場合は全店舗に表示されます。",
       "unassigned": "未割り当て"
     },
     "coaching": {
@@ -1854,8 +2031,6 @@
     "consentRequiredDescription": "モードCのみ有効です。",
     "consentTemplate": "同意テンプレート文",
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
-    "enrollVoice": "音声を登録",
-    "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
@@ -2040,6 +2215,8 @@
     "packsDescription": "回数券のプリセットとスタッフ権限",
     "packs": {
       "label": "回数券",
+      "enableTitle": "回数券機能を使う",
+      "enableHint": "オフにすると、回数券に関する表示（顧客プロフィールの回数券カード、ダッシュボードの未消化・要連絡、録音後の消化・成約ダイアログ）がすべて非表示になります。データは削除されません。",
       "presetsTitle": "回数券プリセット",
       "presetsHint": "録音停止後の「新しい回数券」パネルに表示される回数・単価の選択肢です。前回購入がある顧客はその内容が優先で自動入力されます。",
       "sizeLabel": "回数",
@@ -2066,7 +2243,9 @@
     "nextTreatment": "次回施術",
     "followUp": "フォローアップ",
     "talkingPoint": "話題",
-    "general": "一般"
+    "general": "一般",
+    "loadFailed": "おすすめアクションを読み込めませんでした。",
+    "retry": "再試行"
   },
   "dataImport": {
     "title": "データインポート",
@@ -2246,14 +2425,11 @@
     "title": "お知らせ",
     "description": "最新のお知らせを確認できます。",
     "markAllRead": "すべて既読",
-    "clearRead": "既読を削除",
     "today": "今日",
     "thisWeek": "今週",
     "older": "それ以前",
     "emptyTitle": "新しいお知らせはありません",
-    "emptyBody": "予約・請求・メモリー確認・コーチングなどのお知らせがここに表示されます。",
-    "scaffoldLabel": "対応予定",
-    "scaffoldBody": "通知システムは実装中です。AnthonyがSupabaseの通知テーブルとリアルタイム購読を実装後、予約・請求・コーチング等のイベントがここに自動表示されます。",
+    "emptyBody": "本日のご予約・新規予約・要フォロー・未保存カルテ・同期待ちのお知らせがここに表示されます。",
     "justNow": "たった今",
     "minutesAgo": "{n}分前",
     "hoursAgo": "{n}時間前",
@@ -2377,7 +2553,10 @@
     "noAiHistoryYet": "AI履歴がまだありません",
     "aiSummariesAppearAfterSessions": "セッション録音後にAIサマリーがここに表示されます",
     "aiSummary": "AIサマリー",
-    "noAdviceGenerated": "アドバイスは生成されていません"
+    "noAdviceGenerated": "アドバイスは生成されていません",
+    "adviceLoadFailed": "アドバイスを読み込めませんでした。",
+    "notesSaveFailed": "メモを保存できませんでした。もう一度お試しください。",
+    "retry": "再試行"
   },
   "localeToggle": {
     "switchToJapanese": "日本語に切り替え",
@@ -2542,16 +2721,21 @@
     "inviteDescription": "スタッフにこのサロンへの参加リンクを送ります。各自のログインが作成され、スタッフ一覧に表示されます。",
     "inviteEmailLabel": "スタッフのメールアドレス",
     "inviteRoleLabel": "役割",
-    "role_ADMIN": "管理者",
-    "role_STYLIST": "スタイリスト",
-    "role_ASSISTANT": "アシスタント",
+    "role_ADMIN": "マネージャー",
+    "role_STYLIST": "スタッフ",
+    "role_ASSISTANT": "受付",
+    "role_ADMIN_desc": "サロン全体を管理（設定・スタッフ・データ）",
+    "role_STYLIST_desc": "カルテ記録・顧客・予約（担当店舗）",
+    "role_ASSISTANT_desc": "予約と顧客の閲覧のみ",
     "inviteCreate": "招待リンクを作成",
     "inviteCreating": "作成しています…",
     "inviteLinkReady": "招待リンクができました。スタッフに共有してください：",
     "copy": "コピー",
     "copied": "コピーしました",
     "pendingInvites": "保留中の招待",
-    "revoke": "取り消す"
+    "revoke": "取り消す",
+    "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
+    "inviteExistingNone": "新しいスタッフ（メールのみ）"
   },
   "permissions": {
     "roleLabel": "権限",
@@ -2572,7 +2756,9 @@
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_write": "録音・カルテ編集",
+    "cap_recordings_viewAll": "全スタッフの録音を閲覧",
     "cap_analytics_viewAll": "全店舗の分析",
+    "cap_stores_viewAll": "全店舗の閲覧",
     "cap_customers_view": "顧客の閲覧",
     "cap_bookings_manage": "予約の管理"
   },
