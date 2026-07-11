@@ -23,6 +23,10 @@ jest.mock('next-intl/server', () => ({
 }))
 
 jest.mock('@synqed-kk/client', () => ({
+  // The react-hooks immutability lint mistakes this capitalized mock CLASS for
+  // a React component and flags its constructor (false positive — plain jest
+  // factory, no hooks). Scoped suppress so the repo-wide lint stays green.
+  /* eslint-disable react-hooks/immutability */
   SynqedError: class SynqedError extends Error {
     status: number
     constructor(status: number, message: string) {
@@ -30,6 +34,7 @@ jest.mock('@synqed-kk/client', () => ({
       this.status = status
     }
   },
+  /* eslint-enable react-hooks/immutability */
 }))
 
 const can = jest.fn(async (_cap: string) => true)
