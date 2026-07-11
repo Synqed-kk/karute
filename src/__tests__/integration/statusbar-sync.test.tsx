@@ -26,7 +26,6 @@ window.matchMedia = ((query: string) => ({
 let setThemeRef: ((t: string) => void) | null = null
 function GrabSetTheme() {
   const { setTheme } = useTheme()
-  // eslint-disable-next-line react-hooks/immutability -- test harness grabs the context setter; not app code
   setThemeRef = setTheme
   return null
 }
@@ -149,7 +148,6 @@ test('children do NOT re-render when theme changes (only StatusBarSync consumes 
 
   let childRenders = 0
   function CountingChild() {
-    // eslint-disable-next-line react-hooks/immutability -- render counter is the point of this test
     childRenders++
     return <p>child</p>
   }

@@ -22,6 +22,17 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    // The compiler-powered immutability rule misreads test-harness patterns —
+    // capitalized mock classes, outer-variable render counters — as React
+    // components, and its diagnostics IGNORE inline eslint-disable comments
+    // (verified on CI: suppressed lines kept erroring, directives reported
+    // unused). Tests aren't components; turn it off for the test tree only.
+    files: ["src/__tests__/**"],
+    rules: {
+      "react-hooks/immutability": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;
