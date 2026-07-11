@@ -764,12 +764,7 @@ export function RecordPageView({
             <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             <Suspense
               key={nextAppointment?.customerId ?? 'none'}
-              fallback={
-                <PreSessionBriefCard
-                  brief={brief}
-                  customerName={nextAppointment?.customerName ?? null}
-                />
-              }
+              fallback={<BriefLoadingCard />}
             >
               <StreamingBriefCard
                 aiBriefPromise={aiBriefPromise}
@@ -797,12 +792,7 @@ export function RecordPageView({
           <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           <Suspense
             key={nextAppointment?.customerId ?? 'none'}
-            fallback={
-              <PreSessionBriefCard
-                brief={brief}
-                customerName={nextAppointment?.customerName ?? null}
-              />
-            }
+            fallback={<BriefLoadingCard />}
           >
             <StreamingBriefCard
               aiBriefPromise={aiBriefPromise}
@@ -1010,6 +1000,30 @@ function pad2(n: number): string {
 // recorder/mic/elapsed timer mid-session. isFirstTimeVisit is pinned to the
 // mechanical value so the card's 新規-vs-returning framing can't flip a beat
 // after paint (the same signal the target badge + post-session dialog use).
+// Shimmer shown while the AI brief resolves. The old fallback rendered the
+// MECHANICAL brief here, so staff read one brief for a beat and then watched
+// it morph into the AI version (Liam, 2026-07-09) — content must paint ONCE.
+// The mechanical brief still renders, but only as StreamingBriefCard's
+// fallback when the AI call actually fails.
+function BriefLoadingCard() {
+  return (
+    <section
+      aria-busy
+      className="animate-pulse rounded-2xl border border-blue-200/50 bg-blue-50/30 p-5 dark:border-blue-500/20 dark:bg-blue-500/[0.05]"
+    >
+      <div className="mb-4 flex items-center gap-2.5">
+        <div className="size-8 rounded-full bg-blue-200/60 dark:bg-blue-500/20" />
+        <div className="h-3.5 w-40 rounded bg-blue-200/60 dark:bg-blue-500/20" />
+      </div>
+      <div className="space-y-2.5">
+        <div className="h-14 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+        <div className="h-14 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+        <div className="h-9 w-2/3 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+      </div>
+    </section>
+  )
+}
+
 function StreamingBriefCard({
   aiBriefPromise,
   fallbackBrief,

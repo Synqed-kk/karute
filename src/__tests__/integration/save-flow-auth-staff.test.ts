@@ -28,6 +28,7 @@ jest.mock('@/lib/staff', () => ({
 // This suite isolates staff attribution, so the cookie lookup is stubbed out.
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 
 // RBAC gate is neutralized here — these tests isolate staff attribution, not

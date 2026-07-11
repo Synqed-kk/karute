@@ -65,6 +65,19 @@ export default function RootLayout({
           {children}
         </ThemeProvider>
         <Toaster />
+        {/* Native-shell splash handshake: drop the shell's launch screen on the
+            FIRST PAINTED FRAME (double requestAnimationFrame after this
+            end-of-body script parses) instead of after hydration — pixels beat
+            interactivity by up to ~1s on slow devices. The SplashScreen proxy
+            is injected into the page by the shell itself; normal browsers bail
+            on the first check. global-error.tsx keeps its own hide call (it
+            replaces this layout entirely when the layout crashes). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){if(!window.Capacitor)return;requestAnimationFrame(function(){requestAnimationFrame(function(){var p=window.Capacitor.Plugins;p&&p.SplashScreen&&p.SplashScreen.hide&&p.SplashScreen.hide()})})})();",
+          }}
+        />
       </body>
     </html>
   );

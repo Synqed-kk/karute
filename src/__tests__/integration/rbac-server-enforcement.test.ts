@@ -48,6 +48,7 @@ jest.mock('@/actions/org-settings', () => ({
 }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),

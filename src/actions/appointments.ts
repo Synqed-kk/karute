@@ -188,6 +188,9 @@ export async function getAppointmentsByDate(
         from: dayStartUTC.toISOString(),
         to: dayEndUTC.toISOString(),
         page_size: 200,
+        // Same store lens as the appointments read above — records of
+        // out-of-scope appointments can't match the map anyway.
+        store_id: scope.storeId ?? undefined,
       }),
       synqed.staff.list({ page_size: 200 }),
     ])
