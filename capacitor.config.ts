@@ -3,6 +3,13 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'jp.synqed.karute',
   appName: 'Karute',
+  // Tag every WebView request's User-Agent so the SERVER can tell shell from
+  // web from the first byte (client-side isNativeShell() only knows after
+  // hydration). Inert until a binary built with this ships; then the web app
+  // may server-render web-only surfaces (purchase CTAs) for browsers while
+  // omitting them for the shell — no hydration pop-in, no shell flash. Applies
+  // to iOS and (parked) Android alike. Version suffix = UA-parse stability.
+  appendUserAgent: 'KaruteShell/1',
   // NEW minimal folder — NOT public/. Holds only the offline fallback page so
   // zero Next.js assets are bundled into the native binary.
   webDir: 'capacitor-shell',
