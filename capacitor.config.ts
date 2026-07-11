@@ -10,22 +10,11 @@ const config: CapacitorConfig = {
   // omitting them for the shell — no hydration pop-in, no shell flash. Applies
   // to iOS and (parked) Android alike. Version suffix = UA-parse stability.
   appendUserAgent: 'KaruteShell/1',
-  // NEW minimal folder — NOT public/. Holds only the offline fallback page so
-  // zero Next.js assets are bundled into the native binary.
-  webDir: 'capacitor-shell',
-  server: {
-    // Remote-URL shell: the iOS WebView loads the LIVE production site, so the
-    // app is visually identical to the website because it IS the website.
-    // karute-omega.vercel.app is the PUBLIC production alias (verified HTTP 200);
-    // the karute-synqed-kk / git-main aliases are behind Vercel SSO (HTTP 401).
-    // Swap to a custom domain (e.g. https://karute.synqed.jp) before public launch.
-    url: 'https://karute-omega.vercel.app',
-    // Prod is HTTPS end-to-end — no cleartext HTTP. Keep false for App Store ATS.
-    cleartext: false,
-    // Keep in-app navigation (booking, sync, all internal routing) INSIDE the
-    // WebView instead of bouncing to mobile Safari. Single prod host only.
-    allowNavigation: ['karute-omega.vercel.app'],
-  },
+  // SPIKE ONLY (spike/auth-client-session): local bundle, no server.url. The
+  // WebView loads spike-auth/index.html from capacitor://localhost so we can
+  // test plain supabase-js client auth on-device with NO remote site. Never
+  // let this webDir / removed-server change reach any other branch.
+  webDir: 'spike-auth',
   plugins: {
     // Hold the native launch screen until the site reports it has painted —
     // the web app's SplashHide component calls SplashScreen.hide() right
@@ -34,7 +23,9 @@ const config: CapacitorConfig = {
     // and first paint on cold start. CookieVC's failsafe force-hides at +8s
     // so a failed hide call can never strand the user on the splash.
     SplashScreen: {
-      launchAutoHide: false,
+      // SPIKE: auto-hide — the spike page does not call SplashScreen.hide(),
+      // so let the OS drop the splash itself instead of waiting on the failsafe.
+      launchAutoHide: true,
     },
   },
   ios: {

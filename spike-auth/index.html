@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Karute Auth Spike</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+  body { margin: 0; padding: env(safe-area-inset-top) 12px 12px; background: #0b0f14; color: #e6edf3;
+         font-family: -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 15px; opacity: .5; margin: 8px 0 6px; font-weight: 600; letter-spacing: .5px; }
+  #driver { background: #10233b; color: #7dd3fc; border: 1px solid #0ea5e9; font-weight: 700; }
+  #state { font-size: 30px; font-weight: 800; line-height: 1.15; padding: 14px; border-radius: 12px;
+           margin-bottom: 8px; word-break: break-all; white-space: pre-line; }
+  #state.ok  { background: #0f2f1a; color: #4ade80; border: 2px solid #22c55e; }
+  #state.bad { background: #2f1215; color: #f87171; border: 2px solid #ef4444; }
+  .info { font-size: 16px; font-weight: 600; padding: 8px 12px; border-radius: 8px; background: #141b24;
+          margin-bottom: 6px; word-break: break-all; }
+  #chaos.on { background: #3a1d02; color: #fbbf24; border: 1px solid #f59e0b; }
+  .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+  button { font-size: 17px; font-weight: 700; padding: 16px 10px; border: none; border-radius: 10px;
+           background: #1f6feb; color: #fff; }
+  button.warn { background: #b45309; }
+  button.chaos { background: #7c2d12; }
+  button.out { background: #374151; }
+  button:active { opacity: .6; }
+  #log { font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.45;
+         background: #05080b; color: #9fb3c8; padding: 10px; border-radius: 10px; height: 34vh;
+         overflow-y: auto; white-space: pre-wrap; margin: 0; -webkit-user-select: text; user-select: text; }
+</style>
+</head>
+<body>
+  <div class="info" id="driver">driver: —</div>
+  <div id="state" class="bad">…</div>
+  <div class="info" id="expiry">access token: —</div>
+  <div class="info" id="storage">storage: —</div>
+  <div class="info" id="chaos">CHAOS: off</div>
+
+  <div class="btns">
+    <button id="btn-in">Sign in</button>
+    <button id="btn-out" class="out">Sign out</button>
+    <button id="btn-exp" class="warn">Force-expire token</button>
+    <button id="btn-chaos" class="chaos">Toggle Chaos</button>
+  </div>
+
+  <h1>onAuthStateChange event log (newest first)</h1>
+  <pre id="log"></pre>
+
+  <script src="supabase.umd.js"></script>
+  <script src="config.js"></script>
+  <script>
+  (function () {
+    var STORAGE_KEY = 'sb-spike-auth';   // custom key so we can find/rewrite the session
+    var CHAOS_KEY = 'spike-chaos';
+    var PHASE_KEY = 'spike-phase';        // auto-driver progress, one step per cold launch
+    var AUTH_PATH = '/auth/v1';
+
+    var logEl = document.getElementById('log');
+    function log(msg) {
+      var t = new Date().toISOString().slice(11, 23);
+      logEl.textContent = '[' + t + '] ' + msg + '\n' + logEl.textContent;
+    }
+
+    // --- Chaos monkey-patch: installed BEFORE createClient and persisted across
+    //     relaunch so scenario 4 (force-expire -> chaos ON -> relaunch) actually
+    //     blocks the init-time refresh. ponytail: one gated wrapper, not a lib. ---
+    var chaosOn = localStorage.getItem(CHAOS_KEY) === '1';
+    var realFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      var u = '';
+      try { u = (typeof input === 'string') ? input : (input && input.url) || String(input); } catch (e) {}
+      if (chaosOn && u.indexOf(AUTH_PATH) !== -1) {
+        log('CHAOS blocked fetch ' + u.replace(window.SPIKE.SUPABASE_URL, ''));
+        return Promise.reject(new TypeError('chaos: simulated network down'));
+      }
+      return realFetch(input, init);
+    };
+    if (chaosOn) log('startup: CHAOS is ON (persisted) — auth network calls will fail');
+
+    var client = supabase.createClient(window.SPIKE.SUPABASE_URL, window.SPIKE.SUPABASE_ANON_KEY, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: false,
+        storage: window.localStorage,   // explicit = we can honestly display the backend
+        storageKey: STORAGE_KEY
+      }
+    });
+
+    var stateEl = document.getElementById('state');
+    var expiryEl = document.getElementById('expiry');
+    var storageEl = document.getElementById('storage');
+    var chaosEl = document.getElementById('chaos');
+    var driverEl = document.getElementById('driver');
+
+    function render() {
+      client.auth.getSession().then(function (r) {
+        var s = r.data && r.data.session;
+        if (s) {
+          stateEl.textContent = 'SIGNED IN\n' + s.user.email;
+          stateEl.className = 'ok';
+          var now = Math.floor(Date.now() / 1000);
+          var d = s.expires_at - now;
+          expiryEl.textContent = 'expires_at: ' + s.expires_at +
+            (d >= 0 ? ' (in ' + d + 's)' : ' (' + (-d) + 's AGO — EXPIRED)');
+        } else {
+          stateEl.textContent = 'SIGNED OUT';
+          stateEl.className = 'bad';
+          expiryEl.textContent = 'access token: —';
+        }
+        var stored = localStorage.getItem(STORAGE_KEY);
+        storageEl.textContent = 'storage: window.localStorage | persisted session key: ' + (stored ? 'PRESENT' : 'absent');
+        chaosEl.textContent = 'CHAOS (kill auth network): ' + (chaosOn ? 'ON' : 'off');
+        chaosEl.className = 'info' + (chaosOn ? ' on' : '');
+      });
+    }
+
+    // Display from STORED session only — never calls getSession(), which would
+    // eagerly refresh an expired token on read (observed: getSession triggers
+    // TOKEN_REFRESHED). Used after force-expire / chaos-on so the expired state
+    // survives to the NEXT cold launch, which is the actual thing under test.
+    function showStored(note) {
+      var raw = localStorage.getItem(STORAGE_KEY), s = null;
+      try { var o = JSON.parse(raw); s = o.currentSession || o; } catch (e) {}
+      if (s && s.access_token) {
+        var now = Math.floor(Date.now() / 1000), d = s.expires_at - now;
+        stateEl.textContent = 'SIGNED IN (stored)\n' + ((s.user && s.user.email) || '');
+        stateEl.className = 'ok';
+        expiryEl.textContent = 'expires_at: ' + s.expires_at + (d >= 0 ? ' (in ' + d + 's)' : ' (' + (-d) + 's AGO — EXPIRED)');
+      } else {
+        stateEl.textContent = 'SIGNED OUT'; stateEl.className = 'bad'; expiryEl.textContent = 'access token: —';
+      }
+      storageEl.textContent = 'storage: window.localStorage | persisted session key: ' + (raw ? 'PRESENT' : 'absent') + (note ? ' | ' + note : '');
+      chaosEl.textContent = 'CHAOS (kill auth network): ' + (chaosOn ? 'ON' : 'off');
+      chaosEl.className = 'info' + (chaosOn ? ' on' : '');
+    }
+
+    client.auth.onAuthStateChange(function (event, session) {
+      log('onAuthStateChange: ' + event + (session ? ' | ' + session.user.email : ' | (no session)'));
+      render();
+    });
+
+    // ---- named actions (buttons AND the auto-driver both call these) ----
+    function signIn(done) {
+      log('sign-in: signInWithPassword(' + window.SPIKE.EMAIL + ')');
+      client.auth.signInWithPassword({ email: window.SPIKE.EMAIL, password: window.SPIKE.PASSWORD })
+        .then(function (r) {
+          if (r.error) log('sign-in ERROR: ' + r.error.message);
+          else log('sign-in OK: ' + (r.data.user && r.data.user.email));
+          render(); if (done) done(!r.error);
+        });
+    }
+    function signOut(done) {
+      log('sign-out: signOut()');
+      client.auth.signOut().then(function (r) {
+        log(r.error ? 'sign-out ERROR: ' + r.error.message : 'sign-out OK (storage cleared)');
+        render(); if (done) done(!r.error);
+      });
+    }
+    // Force-expire: rewrite STORED expiry into the past, KEEP the refresh token,
+    // stop the in-memory auto-refresh timer so it can't refresh before force-quit.
+    function forceExpire() {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) { log('force-expire: NO stored session'); return; }
+      var obj; try { obj = JSON.parse(raw); } catch (e) { log('force-expire: parse failed'); return; }
+      var sess = obj.currentSession ? obj.currentSession : obj;   // v2 stores session directly
+      var past = Math.floor(Date.now() / 1000) - 3600;
+      sess.expires_at = past; sess.expires_in = 0;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+      client.auth.stopAutoRefresh();
+      log('force-expire: expires_at=' + past + ' (1h ago), refresh_token kept, auto-refresh stopped');
+      showStored('force-expired');   // NOT render() — getSession would refresh it right back
+    }
+    function setChaos(on) {
+      chaosOn = on;
+      localStorage.setItem(CHAOS_KEY, on ? '1' : '0');
+      log('CHAOS -> ' + (on ? 'ON' : 'OFF'));
+      if (on) {
+        showStored('chaos-on');   // don't getSession while arming — keep stored token expired
+      } else {
+        log('chaos OFF: getSession() to observe retry/recovery');
+        client.auth.getSession().then(function (r) {
+          log('getSession after chaos-off: ' + (r.data.session ? 'SESSION ' + r.data.session.user.email : 'null'));
+          render();
+        });
+      }
+    }
+
+    document.getElementById('btn-in').onclick = function () { signIn(); };
+    document.getElementById('btn-out').onclick = function () { signOut(); };
+    document.getElementById('btn-exp').onclick = function () { forceExpire(); };
+    document.getElementById('btn-chaos').onclick = function () { setChaos(!chaosOn); };
+
+    // ---- auto-driver: one scenario step per cold launch, persisted in localStorage ----
+    // Host side only does simctl terminate/launch/screenshot; every action below is
+    // the SAME real supabase-js call a manual button press makes.
+    var phase = parseInt(localStorage.getItem(PHASE_KEY) || '0', 10);
+    function setPhase(p) { phase = p; localStorage.setItem(PHASE_KEY, String(p)); }
+    function banner(txt) { driverEl.textContent = 'DRIVER phase ' + phase + ' — ' + txt; log('DRIVER: ' + txt); }
+
+    function runDriver() {
+      switch (phase) {
+        case 0: banner('S1 sign-in'); signIn(function () { setPhase(1); }); break;
+        case 1: banner('S2 observe persisted session (no network sign-in)'); setPhase(2); break;
+        case 2: banner('S3 setup: force-expire, then relaunch'); forceExpire(); setPhase(3); break;
+        case 3: banner('S3 observe: auto-refresh on relaunch (network up)'); setPhase(4); break;
+        case 4: banner('S4 setup: force-expire + CHAOS on, then relaunch'); forceExpire(); setChaos(true); setPhase(5); break;
+        case 5: banner('S4 observe: refresh attempted with CHAOS on'); setPhase(6); break;
+        case 6: banner('S4 recovery: CHAOS off, observe retry'); setChaos(false); setPhase(7); break;
+        case 7: banner('S5 setup: sign-out, then relaunch'); signOut(function () { setPhase(8); }); break;
+        case 8: banner('S5 observe: persisted signed-out'); setPhase(9); break;
+        default: banner('DONE — all scenarios run (reinstall to reset)');
+      }
+    }
+
+    log('page loaded @ ' + location.href);
+    render();
+    // let init INITIAL_SESSION settle first, then drive
+    setTimeout(runDriver, 900);
+  })();
+  </script>
+</body>
+</html>
