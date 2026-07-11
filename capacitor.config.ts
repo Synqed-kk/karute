@@ -19,6 +19,17 @@ const config: CapacitorConfig = {
     // WebView instead of bouncing to mobile Safari. Single prod host only.
     allowNavigation: ['karute-omega.vercel.app'],
   },
+  plugins: {
+    // Hold the native launch screen until the site reports it has painted —
+    // the web app's SplashHide component calls SplashScreen.hide() right
+    // after hydration (the plugin proxy is bridge-injected into the remote
+    // page; the site bundles nothing). Kills the white gap between splash
+    // and first paint on cold start. CookieVC's failsafe force-hides at +8s
+    // so a failed hide call can never strand the user on the splash.
+    SplashScreen: {
+      launchAutoHide: false,
+    },
+  },
   ios: {
     // Default WKWebView scheme; leave as-is. Do NOT set to http/https.
     scheme: 'capacitor',

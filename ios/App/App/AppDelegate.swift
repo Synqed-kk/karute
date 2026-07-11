@@ -77,6 +77,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private static let locales: Set<String> = ["ja", "en"]
 
     override func viewDidLoad() {
+        scheduleSplashFailsafe()
         guard
             let store = webView?.configuration.websiteDataStore.httpCookieStore,
             let saved = SessionCookieStore.load(), !saved.isEmpty
@@ -122,6 +123,21 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         // Watchdog: never block the load forever if a setCookie completion is
         // dropped (documented) — a missed completion must not white-screen.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: proceed)
+    }
+
+    // Splash failsafe. launchAutoHide=false (capacitor.config.ts) keeps the
+    // launch screen up until the site hydrates and calls SplashScreen.hide()
+    // (the web app's SplashHide component). If that call never comes — site JS
+    // crashed, hydration failed — force-hide through the bridge so nobody is
+    // stranded on the splash. Ceiling: if the page never loaded AT ALL there is
+    // no JS context to eval into and the splash stays up — the same terminal
+    // state as today's endless white screen, now branded. (A pure-native hide
+    // would need a CAPPluginCall, which has no public initializer in Cap 8.)
+    private func scheduleSplashFailsafe() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            NSLog("[CookieVC] splash failsafe (8s) — force-hiding if still up")
+            self?.bridge?.eval(js: "window.Capacitor?.Plugins?.SplashScreen?.hide()")
+        }
     }
 
     private func startObservers() {
