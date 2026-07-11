@@ -77,13 +77,13 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private static let locales: Set<String> = ["ja", "en"]
 
     override func viewDidLoad() {
-        scheduleSplashFailsafe()
         guard
             let store = webView?.configuration.websiteDataStore.httpCookieStore,
             let saved = SessionCookieStore.load(), !saved.isEmpty
         else {
             NSLog("[CookieVC] restore: nothing saved (first launch / logged out) — loading normally")
             super.viewDidLoad()
+            scheduleSplashFailsafe()
             startObservers()
             return
         }
@@ -105,6 +105,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             self.didLoadOnce = true
             NSLog("[CookieVC] restore: loading web")
             super.viewDidLoad()
+            self.scheduleSplashFailsafe()
             self.startObservers()
         }
         // setCookie's completion means the cookie is IN THE STORE — but NOT that
@@ -129,10 +130,13 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     // launch screen up until the site hydrates and calls SplashScreen.hide()
     // (the web app's SplashHide component). If that call never comes — site JS
     // crashed, hydration failed — force-hide through the bridge so nobody is
-    // stranded on the splash. Ceiling: if the page never loaded AT ALL there is
-    // no JS context to eval into and the splash stays up — the same terminal
-    // state as today's endless white screen, now branded. (A pure-native hide
-    // would need a CAPPluginCall, which has no public initializer in Cap 8.)
+    // stranded on the splash. Scheduled where navigation actually STARTS (both
+    // viewDidLoad paths), not at viewDidLoad entry, so the cookie-restore beat
+    // never eats into the 8s page-load budget on slow networks. Ceiling: if the
+    // page never loaded AT ALL there is no JS context to eval into and the
+    // splash stays up — the same terminal state as today's endless white
+    // screen, now branded. (A pure-native hide would need a CAPPluginCall,
+    // which has no public initializer in Cap 8.)
     private func scheduleSplashFailsafe() {
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
             NSLog("[CookieVC] splash failsafe (8s) — force-hiding if still up")
