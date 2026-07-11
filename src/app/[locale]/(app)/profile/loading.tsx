@@ -19,6 +19,20 @@ export default function ProfileLoading() {
         </div>
       </section>
 
+      {/* Activity stats section — renders for staff accounts (the majority
+          role): label + 4 stat tiles + hint banner. Owners get one spare
+          block that collapses on mount — a far smaller shift than staff
+          getting a whole section inserted. */}
+      <section className="border-b border-black/5 bg-card p-4 dark:border-white/5 md:rounded-xl md:border-0 md:p-5 md:ring-1 md:ring-black/5 md:dark:ring-white/5">
+        <div className="mb-3 h-3 w-20 rounded bg-muted" />
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-16 rounded-lg bg-muted" />
+          ))}
+        </div>
+        <div className="mt-3 h-12 w-full rounded-lg bg-muted/60" />
+      </section>
+
       {/* Two settings-section cards */}
       {Array.from({ length: 2 }).map((_, i) => (
         <section
