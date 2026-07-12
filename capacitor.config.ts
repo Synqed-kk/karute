@@ -8,7 +8,17 @@ import type { CapacitorConfig } from '@capacitor/cli';
 //                              bundled binary to the remote shell — no code change.
 // The choice is a single env var read at `cap sync`/build time; nothing about the
 // app code differs between modes.
-const SHELL_MODE = process.env.KARUTE_SHELL_MODE === 'local' ? 'local' : 'remote';
+//
+// UNSET may default to remote HERE ONLY (dev convenience — identical to today's
+// shipped remote shell). A non-empty typo ('locol') must THROW, never silently
+// build the wrong shell; release.mjs is stricter still (explicit mode required).
+const rawMode = process.env.KARUTE_SHELL_MODE;
+if (rawMode !== undefined && rawMode !== 'local' && rawMode !== 'remote') {
+  throw new Error(
+    `[capacitor] KARUTE_SHELL_MODE must be 'local' or 'remote', got: ${JSON.stringify(rawMode)}`,
+  );
+}
+const SHELL_MODE = rawMode ?? 'remote';
 
 const base: CapacitorConfig = {
   appId: 'jp.synqed.karute',

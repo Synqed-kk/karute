@@ -29,13 +29,15 @@ const sh = (cmd) => execSync(cmd, { stdio: 'inherit' })
 const cap = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim()
 
 // Deterministic sha256 over the built bundle (sorted paths) — proves the binary
-// carries exactly this web output.
+// carries exactly this web output. build-manifest.json is skipped on BOTH sides
+// of the pre/post-sync comparison (it embeds this very hash — circular).
 function assetHash(dir) {
   const h = createHash('sha256')
   const walk = (d) =>
     readdirSync(d)
       .sort()
       .forEach((n) => {
+        if (n === 'build-manifest.json') return
         const p = join(d, n)
         if (statSync(p).isDirectory()) walk(p)
         else {
@@ -47,32 +49,83 @@ function assetHash(dir) {
   return h.digest('hex').slice(0, 16)
 }
 
+// Required Vite env for a NON-white-screen bundle. thin/.env is gitignored and
+// machine-local — a fresh CI runner has neither it nor the vars, and without
+// this preflight it would archive a guaranteed white-screen binary while
+// printing "✓ verified" (Fable review round 1, critical 3a).
+const REQUIRED_VITE = ['VITE_FACADE_URL', 'VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY']
+function preflightViteEnv() {
+  const dotenv = {}
+  if (existsSync('thin/.env')) {
+    for (const line of readFileSync('thin/.env', 'utf8').split('\n')) {
+      const m = line.match(/^([A-Z_]+)=(.+)$/)
+      if (m) dotenv[m[1]] = m[2]
+    }
+  }
+  const missing = REQUIRED_VITE.filter((k) => !process.env[k] && !dotenv[k])
+  if (missing.length > 0) {
+    throw new Error(
+      `✗ preflight: missing required Vite env (no fallback default): ${missing.join(', ')}. ` +
+        'Set them in the environment or thin/.env — refusing to build a white-screen bundle.',
+    )
+  }
+}
+
 function main() {
-  const mode = process.env.KARUTE_SHELL_MODE === 'local' ? 'local' : 'remote'
+  // Mode is EXPLICIT here — no default at all. A mislabeled probe binary
+  // corrupts the A/B numbers that decide CONTINUE/ABORT (Fable review round 1).
+  const mode = process.env.KARUTE_SHELL_MODE
+  if (mode !== 'local' && mode !== 'remote') {
+    throw new Error(
+      `✗ KARUTE_SHELL_MODE must be explicitly 'local' or 'remote' (got ${JSON.stringify(mode)}). ` +
+        'No default: the release pipeline must never guess which shell it is building.',
+    )
+  }
   const commit =
     process.env.VERCEL_GIT_COMMIT_SHA || cap('git rev-parse --short HEAD')
   const last = existsSync(STATE) ? Number(readFileSync(STATE, 'utf8').trim()) || 0 : 0
   const buildNumber = nextBuildNumber(last)
 
   // 1. Build the thin target (web-lane config). Injects commit + build number so
-  //    the manifest emitted INTO the bundle matches the native embed.
+  //    the manifest emitted INTO the bundle matches the native embed. Env is
+  //    preflighted FIRST — vite build must never start with missing config.
   if (RUN) {
+    preflightViteEnv()
     sh(
       `VITE_SHELL_MODE=${mode} VITE_BUILD_COMMIT=${commit} VITE_BUILD_NUMBER=${buildNumber} ` +
         `npx vite build --config thin/vite.config.ts`,
     )
   }
 
-  // 2. Asset hash of the built bundle (local mode only; remote ships no bundle).
-  const hash = mode === 'local' && existsSync(DIST) ? assetHash(DIST) : 'remote'
+  // 2. Asset hash of the built bundle. remote ships no bundle; 'none' = local
+  //    mode with no dist yet (dry-run) — never the 'remote' sentinel in a
+  //    local-mode manifest.
+  const hash =
+    mode === 'local' ? (existsSync(DIST) ? assetHash(DIST) : 'none') : 'remote'
 
   // 3. Non-secret env manifest, written beside the bundle AND printed for CI.
   const manifest = { mode, commit, buildNumber, assetHash: hash, builtAt: new Date().toISOString() }
   if (existsSync(DIST)) writeFileSync(join(DIST, 'build-manifest.json'), JSON.stringify(manifest, null, 2))
   console.log('build manifest:', JSON.stringify(manifest))
 
-  // 4. cap sync — copies webDir + plugins into the native project.
-  if (RUN) sh(`KARUTE_SHELL_MODE=${mode} npx cap sync ios`)
+  // 4. cap sync — copies webDir + plugins into the native project. Then VERIFY
+  //    the synced copy: re-hash what actually landed in the native web dir and
+  //    compare to the pre-sync bundle hash (same readback pattern as the
+  //    CFBundleVersion check below) — the manifest must prove what is IN the
+  //    archive, not what we intended to put there.
+  if (RUN) {
+    sh(`KARUTE_SHELL_MODE=${mode} npx cap sync ios`)
+    if (mode === 'local') {
+      const synced = assetHash('ios/App/App/public')
+      if (synced !== hash) {
+        throw new Error(
+          `✗ verify failed: synced ios/App/App/public hash=${synced} != thin/dist hash=${hash} — ` +
+            'cap sync did not faithfully copy the bundle (stale webDir? partial copy?).',
+        )
+      }
+      console.log(`✓ verified synced assets match bundle (hash=${hash})`)
+    }
+  }
 
   // 5. Embed CFBundleVersion (monotonic build number) + VERIFY the readback.
   if (RUN) {
@@ -83,6 +136,9 @@ function main() {
     }
     writeFileSync(STATE, String(buildNumber))
     console.log(`✓ verified CFBundleVersion=${buildNumber}, commit=${commit}, hash=${hash}`)
+    console.log(
+      `[reminder] ${PLIST} was modified (CFBundleVersion=${buildNumber}) — commit or discard it after this run.`,
+    )
   } else {
     console.log(`[dry-run] would embed CFBundleVersion=${buildNumber} into ${PLIST} and verify`)
   }

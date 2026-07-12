@@ -8,6 +8,12 @@
 // increasing and unique across normal build cadence; the `last + 1` floor
 // guarantees strict monotonicity even for two builds in the same second (CI
 // bursts, retries). Pure fn is unit-tested; the CLI persists the last value.
+//
+// ponytail: read→compute→write is not atomic — two PARALLEL builds on the same
+// machine can mint the same number (duplicate, never backwards; App Store
+// upload rejects the duplicate loudly). Ceiling accepted: builds are single-
+// machine sequential today. Upgrade path: a lockfile (or CI-provided run
+// number) if parallel release builds ever exist.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
