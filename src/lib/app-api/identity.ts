@@ -82,14 +82,18 @@ export async function resolveBearerIdentity(
   const resolved = await resolveFacadeIdentity({ token, endpoint, config, getUser })
   const authUserId = resolved.userId
 
-  // businessIdForUser IS the membership gate: no profile row → no active
-  // membership → fail-closed. Map its throw to a 403 (not a 500) so a
-  // terminated / never-provisioned user gets a clear rejection.
+  // businessIdForUser IS the membership gate AND classifies its own failures:
+  // an absent profile row → membership_inactive (403, fail-closed); a transient
+  // lookup/connection failure → upstream_unavailable (502). Preserve that
+  // classification. Only a truly unexpected throw (e.g. a network reject that
+  // never became an AppApiError) falls through as internal — NEVER a false 403
+  // that reads to the client as "you were removed".
   let businessId: string
   try {
     businessId = await businessIdForUser(authUserId)
-  } catch {
-    throw new AppApiError('membership_inactive', 'No active business membership for this user')
+  } catch (err) {
+    if (err instanceof AppApiError) throw err
+    throw new AppApiError('internal', 'Business membership resolution failed')
   }
 
   const capabilities = await capabilitiesForUser(authUserId)

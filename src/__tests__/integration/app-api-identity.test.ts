@@ -3,6 +3,7 @@
 // auth-user, and revocation-sensitive endpoints re-verify via getUser.
 import { createHmac } from 'node:crypto'
 import { resolveBearerIdentity } from '@/lib/app-api/identity'
+import { AppApiError } from '@/lib/app-api/errors'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 
 jest.mock('@/lib/staff', () => ({
@@ -69,10 +70,28 @@ describe('resolveBearerIdentity', () => {
   })
 
   it('maps a missing business membership → 403 membership_inactive (fail-closed)', async () => {
-    ;(businessIdForUser as jest.Mock).mockRejectedValue(new Error('Business profile not found'))
+    ;(businessIdForUser as jest.Mock).mockRejectedValue(
+      new AppApiError('membership_inactive', 'No active business membership for this user'),
+    )
     await expect(
       resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', { config: CONFIG, getUser: okUser }),
     ).rejects.toMatchObject({ code: 'membership_inactive' })
+  })
+
+  it('preserves a transient lookup failure → 502 upstream_unavailable (NOT a false 403)', async () => {
+    ;(businessIdForUser as jest.Mock).mockRejectedValue(
+      new AppApiError('upstream_unavailable', 'Business membership lookup failed'),
+    )
+    await expect(
+      resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', { config: CONFIG, getUser: okUser }),
+    ).rejects.toMatchObject({ code: 'upstream_unavailable' })
+  })
+
+  it('maps an UNEXPECTED membership throw (raw reject) → 500 internal, never membership_inactive', async () => {
+    ;(businessIdForUser as jest.Mock).mockRejectedValue(new Error('socket hang up'))
+    await expect(
+      resolveBearerIdentity(req({ authorization: `Bearer ${token()}` }), 'customer.read', { config: CONFIG, getUser: okUser }),
+    ).rejects.toMatchObject({ code: 'internal' })
   })
 
   it('surfaces an expired token as the verifier error (handler maps it to 401)', async () => {

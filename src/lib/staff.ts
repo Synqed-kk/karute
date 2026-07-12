@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
+import { AppApiError } from '@/lib/app-api/errors'
 
 export interface StaffMember {
   id: string
@@ -256,12 +257,26 @@ export const getBusinessId = cache(async (): Promise<string> => {
  */
 export async function businessIdForUser(userId: string): Promise<string> {
   const service = createServiceClient()
-  const { data } = await service
+  const { data, error } = await service
     .from('profiles')
     .select('customer_id')
     .eq('id', userId)
     .single()
 
-  if (!data?.customer_id) throw new Error('Business profile not found')
+  // Distinguish a genuinely-absent membership from a failed lookup. `.single()`
+  // returns PGRST116 when the row does not exist — that IS "no active
+  // membership" (fail-closed 403). ANY OTHER error is a transient lookup /
+  // connection failure and must NOT masquerade as an absent membership: a mobile
+  // client reads membership_inactive as "you were removed", so surface it as a
+  // retryable upstream failure (502) instead of a false eviction.
+  if (error) {
+    if (error.code === 'PGRST116') {
+      throw new AppApiError('membership_inactive', 'No active business membership for this user')
+    }
+    throw new AppApiError('upstream_unavailable', 'Business membership lookup failed')
+  }
+  if (!data?.customer_id) {
+    throw new AppApiError('membership_inactive', 'No active business membership for this user')
+  }
   return data.customer_id
 }
