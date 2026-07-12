@@ -1,11 +1,14 @@
 /**
  * @jest-environment jsdom
  *
- * Signup submit must never hang (fix/signup-hang). Two contracts:
+ * Signup submit must never hang (fix/signup-hang). Contracts:
  *   1. a rejected signUp resets the loading state and surfaces an error — the
  *      button re-enables instead of freezing on "アカウント作成中...".
  *   2. a signUp that resolves WITHOUT a session (email confirmation required)
- *      shows the confirm-email notice and does NOT call bootstrap/redirect.
+ *      still calls bootstrap (session-independent by design — salonName exists
+ *      only in this submission), shows the confirm-email notice, and does NOT
+ *      redirect. A bootstrap failure on that path surfaces the error, not the
+ *      notice.
  *
  * next-intl is mocked to echo keys (repo tsx-test convention); supabase client,
  * the bootstrap server action, and next/navigation are stubbed so we assert the
@@ -64,15 +67,32 @@ describe('SignupForm — never hang', () => {
     expect(mockBootstrap).not.toHaveBeenCalled()
   })
 
-  it('shows the confirm-email notice and does NOT bootstrap when signUp returns no session', async () => {
+  it('bootstraps, shows the confirm-email notice, and does NOT redirect when signUp returns no session', async () => {
     signUp.mockResolvedValue({
       data: { user: { id: 'u1', identities: [{ id: 'i1' }] }, session: null },
       error: null,
     })
+    mockBootstrap.mockResolvedValue({ ok: true, businessId: 'b1' })
     fillAndSubmit()
 
     await waitFor(() => expect(screen.getByText('checkEmailToConfirm')).toBeInTheDocument())
-    expect(mockBootstrap).not.toHaveBeenCalled()
+    // Bootstrap MUST run even without a session — it's session-independent
+    // (explicit userId), and the salonName is lost after this submission.
+    expect(mockBootstrap).toHaveBeenCalledWith('Salon', 'u1')
+    expect(push).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'signup' })).not.toBeDisabled()
+  })
+
+  it('surfaces a bootstrap failure (not the notice) on the no-session path', async () => {
+    signUp.mockResolvedValue({
+      data: { user: { id: 'u1', identities: [{ id: 'i1' }] }, session: null },
+      error: null,
+    })
+    mockBootstrap.mockResolvedValue({ ok: false, error: 'bootstrap blew up' })
+    fillAndSubmit()
+
+    await waitFor(() => expect(screen.getByText('bootstrap blew up')).toBeInTheDocument())
+    expect(screen.queryByText('checkEmailToConfirm')).not.toBeInTheDocument()
     expect(push).not.toHaveBeenCalled()
     expect(screen.getByRole('button', { name: 'signup' })).not.toBeDisabled()
   })

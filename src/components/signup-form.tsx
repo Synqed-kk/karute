@@ -69,21 +69,29 @@ export function SignupForm({ locale }: { locale: string }) {
         return
       }
 
-      // With email confirmation ON, signUp returns a user but NO session.
-      // Bootstrapping/redirecting here would push the user to /sessions, where
-      // the (app) layout bounces them to /login with no explanation. Instead,
-      // tell them to confirm via email and stop. Once the owner turns
-      // autoconfirm off, a session is present and the normal flow runs.
-      if (!data.session) {
-        setNotice(t('checkEmailToConfirm'))
-        return
-      }
-
+      // Bootstrap BEFORE the session check — deliberate. bootstrap.ts is
+      // session-independent by design: it takes an explicit userId and
+      // verifies it via service-role getUserById (its own doc comment: "the
+      // client can pass user.id from supabase.auth.signUp's response without
+      // waiting for session cookies to sync"). With email confirmation ON
+      // there is no session here, and the salonName typed into this form
+      // exists nowhere else — skipping bootstrap would strand confirm-later
+      // users with no profile/business row.
       const result = await withTimeout(
         bootstrapBusinessForNewUser(salonName, data.user.id),
       )
       if (!result.ok) {
         setError(result.error)
+        return
+      }
+
+      // With email confirmation ON, signUp returns a user but NO session.
+      // Redirecting would push the user to /sessions, where the (app) layout
+      // bounces them to /login with no explanation. Tell them to confirm via
+      // email and stop; once the owner turns autoconfirm off, a session is
+      // present and the normal redirect runs.
+      if (!data.session) {
+        setNotice(t('checkEmailToConfirm'))
         return
       }
 
