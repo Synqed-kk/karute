@@ -60,3 +60,6 @@ record-redesign-*.png
 *.jks
 *.keystore
 android/keystore.properties
+
+# monotonic build-number state (machine-local)
+scripts/shell/.last-build-number
