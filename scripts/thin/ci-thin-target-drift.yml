@@ -6,23 +6,22 @@
 name: thin-target-drift
 
 # Fast drift gate for the thin shell bundle. Triggered by the thin build's FULL
-# dependency closure — NOT just the component subtree — so nothing the bundle
-# depends on can change silently (R3 #20). Scoped by paths so unrelated web
-# merges (docs, API routes, e2e) never pay for it.
+# dependency closure so nothing the bundle depends on can change silently
+# (R3 #20). `src/**` wholesale — Fable review round 1: a hand-picked subdir list
+# missed real closure members (src/lib/packs, visits, date, sync, badge-styles,
+# messages/ja.json …); the bundle reaches deep into src/lib and the honest trade
+# is a fast check running on more PRs, not a narrow filter that lies. Docs, e2e,
+# API-route-only changes outside src/ still skip it.
 on:
   pull_request:
     paths:
+      - 'src/**'                 # full shared closure: components, lib, hooks, styles
+      - 'messages/**'            # bundled locale messages (ja.json is in the graph)
       - 'thin/**'
-      - 'src/lib/ports/**'
-      - 'src/lib/app-root/**'
-      - 'src/components/**'      # shared UI = the bundle's component subtree
-      - 'src/hooks/**'
-      - 'src/app/globals.css'    # scoped styles the bundle imports
-      - 'src/app/layout.tsx'     # AppRoot parity source
+      - 'scripts/thin/**'
       - 'postcss.config.mjs'
       - 'tsconfig.json'
       - 'package-lock.json'      # lockfile — a shared dep bump is a closure change
-      - 'scripts/thin/**'
       - '.github/workflows/thin-target-drift.yml'
 
 jobs:

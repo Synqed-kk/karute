@@ -78,6 +78,10 @@ export function Link({
   )
 }
 
+// `import Link from 'next/link'` — the vite config aliases next/link here, and
+// Next's Link is a default export; ours is prop-compatible for the shared usage.
+export default Link
+
 /** Forward API for components migrated off `next/navigation`. */
 export function useNavPort(): NavPort {
   const router = useRouter()

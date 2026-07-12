@@ -10,7 +10,8 @@ import {
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
-import { enrichCustomers, isReturningCustomer } from '@/lib/customers/list-enrich'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { isReturningCustomer } from '@/lib/customers/status-signals'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'

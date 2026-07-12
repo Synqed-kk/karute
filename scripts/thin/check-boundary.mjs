@@ -3,8 +3,16 @@
 // component/lib calls a raw `/api/*` fetch instead of routing through the
 // DataPort — the one thing a bundler alias CANNOT redirect (it's a string, not
 // an import), so it must be caught at source. The complementary drift check —
-// a shared component adopting a Next-only API — is caught by the thin typecheck
-// + build step in the workflow (an unaliased Next import fails to resolve).
+// a shared component adopting an unported Next API — is caught by the boundary
+// plugin in thin/vite.config.ts: its resolveId hook THROWS on any `next/*`
+// import from our code that has no thin port (next/cache, next/link, … are real
+// installed modules and would otherwise resolve fine).
+//
+// ponytail: line-regex ceiling — a variable URL (`fetch(base + path)`) or a
+// split string evades this grep. The real nets behind it: the resolveId plugin
+// judges every import by resolved path, and an unrouted call 404s loudly at
+// shell runtime (capacitor://localhost has no /api). Upgrade path: an ESLint
+// no-restricted-syntax rule on the shared subtree if evasions actually appear.
 //
 // No deps; run from the repo root: `node scripts/thin/check-boundary.mjs`.
 

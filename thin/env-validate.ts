@@ -27,7 +27,15 @@ export function validateThinEnv(env: Record<string, string | undefined>): ThinEn
         'Set these explicitly — the thin bundle must never silently default to a host.',
     )
   }
-  const mode = env.VITE_SHELL_MODE === 'local' ? 'local' : 'remote'
+  // Mode is EXPLICIT — no default (Fable review round 1). A mislabeled probe
+  // binary corrupts the A/B numbers that decide CONTINUE/ABORT; only
+  // capacitor.config.ts may default (dev convenience = today's shipped remote).
+  const mode = env.VITE_SHELL_MODE
+  if (mode !== 'local' && mode !== 'remote') {
+    throw new Error(
+      `[thin] VITE_SHELL_MODE must be explicitly 'local' or 'remote', got: ${JSON.stringify(mode)}`,
+    )
+  }
   return {
     facadeUrl: env.VITE_FACADE_URL!,
     supabaseUrl: env.VITE_SUPABASE_URL!,

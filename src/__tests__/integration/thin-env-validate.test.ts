@@ -11,6 +11,7 @@ const FULL = {
   VITE_FACADE_URL: 'https://karute-omega.vercel.app',
   VITE_SUPABASE_URL: 'https://proj.supabase.co',
   VITE_SUPABASE_ANON_KEY: 'anon-key-public',
+  VITE_SHELL_MODE: 'remote',
 }
 
 describe('validateThinEnv', () => {
@@ -20,14 +21,20 @@ describe('validateThinEnv', () => {
     expect(() => validateThinEnv({})).toThrow(/VITE_SUPABASE_ANON_KEY/)
   })
 
-  it('accepts a full env and defaults mode to remote', () => {
+  it('accepts a full env with an explicit mode', () => {
     const env = validateThinEnv(FULL)
     expect(env.facadeUrl).toBe(FULL.VITE_FACADE_URL)
     expect(env.mode).toBe('remote')
+    expect(validateThinEnv({ ...FULL, VITE_SHELL_MODE: 'local' }).mode).toBe('local')
   })
 
-  it('honors VITE_SHELL_MODE=local', () => {
-    expect(validateThinEnv({ ...FULL, VITE_SHELL_MODE: 'local' }).mode).toBe('local')
+  it('mode is explicit: unset throws, typo throws (no silent remote default)', () => {
+    expect(() =>
+      validateThinEnv({ ...FULL, VITE_SHELL_MODE: undefined }),
+    ).toThrow(/VITE_SHELL_MODE/)
+    expect(() =>
+      validateThinEnv({ ...FULL, VITE_SHELL_MODE: 'locol' }),
+    ).toThrow(/locol/)
   })
 
   it('manifest is non-secret: omits the anon key', () => {
