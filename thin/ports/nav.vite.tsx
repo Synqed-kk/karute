@@ -46,6 +46,25 @@ export function usePathname(): string {
   return path
 }
 
+/** next/navigation useSearchParams drop-in — read surface only (the shared
+ *  components read params; mutation goes through router.push, like Next).
+ *  Same listener subscription as usePathname so pushState updates propagate. */
+export function useSearchParams(): URLSearchParams {
+  const [search, setSearch] = useState(
+    typeof location !== 'undefined' ? location.search : '',
+  )
+  useEffect(() => {
+    const on = () => setSearch(location.search)
+    listeners.add(on)
+    window.addEventListener('popstate', on)
+    return () => {
+      listeners.delete(on)
+      window.removeEventListener('popstate', on)
+    }
+  }, [])
+  return new URLSearchParams(search)
+}
+
 export function redirect(href: string): void {
   navigate(href, true)
 }
