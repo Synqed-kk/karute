@@ -195,7 +195,17 @@ export async function completeOnboarding(input: {
   }) as Promise<{ success: true } | { error: string }>
 }
 
-export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
+/**
+ * INTERNAL org-settings writer — the merge-and-upsert core write with NO
+ * capability gate. Callers MUST enforce their own authorization first:
+ *   - upsertOrgSettings gates on `settings.manage` (owner/manager settings mgmt).
+ *   - the voice service gates on voice OWNERSHIP (a staffer enrolls only their
+ *     own voice; owner/manager may act on others) — voice_enrollments is
+ *     staff-owned data, so it must NOT require settings.manage.
+ * Splitting the write from the gate is what lets one blob field (voice_enrollments)
+ * carry a different authz rule than the rest without a settings.manage back door.
+ */
+export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   const nextSettings: Partial<OrgSettings> = { ...settings }
 
   if (settings.operating_hours) {
@@ -228,4 +238,20 @@ export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
+}
+
+/**
+ * Owner/manager settings write (packet 03, gap 1). Previously this action had NO
+ * capability gate, so any signed-in staff could rewrite org settings. It now
+ * requires `settings.manage` — the same capability the settings UI is presented
+ * under — before delegating to the ungated blob writer.
+ */
+export async function upsertOrgSettings(settings: Partial<OrgSettings>) {
+  const { getMyCapabilities, ensureCapability } = await import('@/lib/auth/require-permission')
+  try {
+    ensureCapability(await getMyCapabilities(), 'settings.manage')
+  } catch {
+    return { error: 'You do not have permission to change settings.' }
+  }
+  return writeOrgSettingsBlob(settings)
 }

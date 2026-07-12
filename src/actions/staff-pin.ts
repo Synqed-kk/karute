@@ -3,6 +3,11 @@
 import { updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getCurrentUserStaffId } from '@/lib/staff'
+import {
+  checkPinThrottle,
+  recordPinFailure,
+  recordPinSuccess,
+} from '@/lib/auth/pin-throttle'
 
 /**
  * Set or update a staff member's 4-digit PIN. Hashing happens server-side.
@@ -53,9 +58,25 @@ export async function removeStaffPin(staffId: string): Promise<{ error?: string 
  * If no PIN is set, returns { valid: true, noPin: true }.
  */
 export async function verifyStaffPin(staffId: string, pin: string): Promise<{ valid: boolean; noPin?: boolean; error?: string }> {
+  // Throttle per (actor, target). Actor = the signed-in staff switching profiles;
+  // fall back to a stable label so an unauthenticated actor is still bounded.
+  const actor = (await getCurrentUserStaffId()) ?? 'anon'
+
+  const decision = checkPinThrottle(actor, staffId)
+  if (!decision.allowed) {
+    // Same generic shape as a wrong PIN → does not reveal lockout vs. bad PIN
+    // vs. unknown staff (enumeration-resistant).
+    return { valid: false, error: 'Too many attempts. Try again shortly.' }
+  }
+
   try {
     const synqed = await getSynqedClient()
     const result = await synqed.staff.verifyPin(staffId, pin)
+    if (result.valid) {
+      recordPinSuccess(actor, staffId)
+    } else {
+      recordPinFailure(actor, staffId)
+    }
     return { valid: result.valid, ...(result.no_pin ? { noPin: true } : {}) }
   } catch (err) {
     return { valid: false, error: err instanceof Error ? err.message : 'Unknown error' }
