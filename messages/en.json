@@ -54,6 +54,8 @@
     "signinLink": "Sign in",
     "signupNoUser": "Signup did not return a user. Try again.",
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+    "checkEmailToConfirm": "We've sent a confirmation email. Click the link in it to activate your account.",
+    "signupTimeout": "The request timed out. Check your connection and try again.",
     "forgotPassword": "Forgot your password?",
     "resetTitle": "Reset password",
     "resetSubtitle": "Enter your registered email address and we'll send you a reset link.",

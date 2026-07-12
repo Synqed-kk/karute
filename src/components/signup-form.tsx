@@ -6,9 +6,21 @@ import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'
 
+// ponytail: reject after `ms` so a stalled Supabase email-send / server action
+// can never freeze the submit button forever (root cause of the signup hang).
+function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('timeout')), ms),
+    ),
+  ])
+}
+
 export function SignupForm({ locale }: { locale: string }) {
   const t = useTranslations('auth')
   const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const supabase = createClient()
   const router = useRouter()
@@ -17,6 +29,7 @@ export function SignupForm({ locale }: { locale: string }) {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setNotice(null)
     const formData = new FormData(e.currentTarget)
     const salonName = (formData.get('salonName') as string).trim()
     const email = formData.get('email') as string
@@ -35,36 +48,53 @@ export function SignupForm({ locale }: { locale: string }) {
       return
     }
 
-    const { data, error: signupError } = await supabase.auth.signUp({ email, password })
-    if (signupError) {
-      setError(signupError.message)
-      setLoading(false)
-      return
-    }
-    if (!data.user) {
-      setError(t('signupNoUser'))
-      setLoading(false)
-      return
-    }
-    // Supabase returns an obfuscated user object (identities: []) when the
-    // email is already registered — meant to block account enumeration.
-    // Without this guard, bootstrap would fail later with a confusing
-    // "User not found in auth" because the id may not resolve.
-    if (data.user.identities && data.user.identities.length === 0) {
-      setError(t('emailAlreadyRegistered'))
-      setLoading(false)
-      return
-    }
+    try {
+      const { data, error: signupError } = await withTimeout(
+        supabase.auth.signUp({ email, password }),
+      )
+      if (signupError) {
+        setError(signupError.message)
+        return
+      }
+      if (!data.user) {
+        setError(t('signupNoUser'))
+        return
+      }
+      // Supabase returns an obfuscated user object (identities: []) when the
+      // email is already registered — meant to block account enumeration.
+      // Without this guard, bootstrap would fail later with a confusing
+      // "User not found in auth" because the id may not resolve.
+      if (data.user.identities && data.user.identities.length === 0) {
+        setError(t('emailAlreadyRegistered'))
+        return
+      }
 
-    const result = await bootstrapBusinessForNewUser(salonName, data.user.id)
-    if (!result.ok) {
-      setError(result.error)
-      setLoading(false)
-      return
-    }
+      // With email confirmation ON, signUp returns a user but NO session.
+      // Bootstrapping/redirecting here would push the user to /sessions, where
+      // the (app) layout bounces them to /login with no explanation. Instead,
+      // tell them to confirm via email and stop. Once the owner turns
+      // autoconfirm off, a session is present and the normal flow runs.
+      if (!data.session) {
+        setNotice(t('checkEmailToConfirm'))
+        return
+      }
 
-    router.push(`/${locale}/sessions`)
-    router.refresh()
+      const result = await withTimeout(
+        bootstrapBusinessForNewUser(salonName, data.user.id),
+      )
+      if (!result.ok) {
+        setError(result.error)
+        return
+      }
+
+      router.push(`/${locale}/sessions`)
+      router.refresh()
+    } catch {
+      // Timeout or network/unexpected error — never leave the button stuck.
+      setError(t('signupTimeout'))
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -112,6 +142,7 @@ export function SignupForm({ locale }: { locale: string }) {
         />
       </div>
       {error && <p className="text-sm text-red-400">{error}</p>}
+      {notice && <p className="text-sm text-muted-foreground">{notice}</p>}
       <Button type="submit" className="w-full" disabled={loading}>
         {loading ? t('signingUp') : t('signup')}
       </Button>
