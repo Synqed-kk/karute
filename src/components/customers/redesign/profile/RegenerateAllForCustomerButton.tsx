@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 // ⚠️ TEMPORARY BUILD TOOL — remove once historical karute are backfilled with the
 // latest prompts. Re-runs extraction + summary across ALL of a customer's karute
 // in one pass (reusing the per-karute regenerate flow), so improving a prompt can
@@ -39,12 +41,12 @@ export function RegenerateAllForCustomerButton({
     for (const k of list) {
       try {
         const [ex, su] = await Promise.all([
-          fetch('/api/ai/extract', {
+          getDataPort().apiFetch('/api/ai/extract', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transcript: k.transcript, locale }),
           }),
-          fetch('/api/ai/summarize', {
+          getDataPort().apiFetch('/api/ai/summarize', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transcript: k.transcript, locale }),

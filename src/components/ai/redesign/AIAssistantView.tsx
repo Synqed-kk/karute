@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import type { BusinessProfile, ConsultationQuestion } from '@/lib/welcome/business-types'
@@ -56,7 +58,7 @@ export function AIAssistantView({
     setLoading(true)
 
     try {
-      const res = await fetch('/api/ai/chat', {
+      const res = await getDataPort().apiFetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
