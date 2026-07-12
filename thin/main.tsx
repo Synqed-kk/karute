@@ -5,6 +5,7 @@ import '../src/app/globals.css'
 import './fonts.css'
 import { AppRoot } from '@/lib/app-root/AppRoot'
 import { hideNativeSplash, releaseSplashOnFirstPaint } from '@/lib/app-root/splash'
+import { ThinShell } from './shell'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
@@ -43,18 +44,20 @@ function main(): void {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppRoot dataPort={viteDataPort} locale="ja" messages={messages}>
-        <CustomerProfileView
-          customer={profile}
-          sessions={sessions}
-          photos={photos}
-          customerMemory={undefined}
-          packs={[]}
-          lifecycle={null}
-          hasNextBooking={false}
-          ticketsEnabled={true}
-          consentGranted={true}
-          consentGrantedAtLabel="2026年4月1日"
-        />
+        <ThinShell>
+          <CustomerProfileView
+            customer={profile}
+            sessions={sessions}
+            photos={photos}
+            customerMemory={undefined}
+            packs={[]}
+            lifecycle={null}
+            hasNextBooking={false}
+            ticketsEnabled={true}
+            consentGranted={true}
+            consentGrantedAtLabel="2026年4月1日"
+          />
+        </ThinShell>
       </AppRoot>
     </StrictMode>,
   )
