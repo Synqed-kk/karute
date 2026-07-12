@@ -17,7 +17,7 @@ import {
 } from '@/lib/customers/list-enrich'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { hmInJst, ymdInJst, nowUtc, jstDaysBetween } from '@/lib/date/jst'
-import { getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import {
   pickHeroSlides,
   pickKaruteTodos,
@@ -285,7 +285,12 @@ export default async function DashboardPage() {
       lastSummary: lastKarute.get(i.clientId)?.text ?? extra.get(i.clientId) ?? null,
     }))
   })
-  const activeStoreId = await getActiveStoreId().catch(() => null)
+  // Same clamped store as the dashboard data scope: the attention-AI cache key
+  // must not key on the raw cookie (a branch-restricted staff with an unset
+  // cookie would key/scope by the primary store, not their assigned one).
+  const activeStoreId = await resolveStoreScope()
+    .then((s) => s.storeId)
+    .catch(() => null)
   const attentionLines = await t.phase('attentionAI', () =>
     getDailyAttentionLines({
       items: attentionInputs,

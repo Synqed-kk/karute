@@ -101,20 +101,35 @@ export async function createAppointment(input: AppointmentInput) {
 
   try {
     // All three are independent → resolve in parallel (resolveSynqedStaffId may
-    // hit the DB; getActiveStoreId is a cookie read). The active store is a
-    // server-side view label, never client-supplied. Business scope (x-business-id)
-    // is untouched; store is only a view/default-booking label, never isolation.
+    // hit the DB; getActiveStoreId is a cookie read). The active-store cookie is
+    // now an ISOLATION input, not just a view label: it is clamped below against
+    // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
+    // booking into another branch. Business scope (x-business-id) is still applied
+    // by core regardless; this clamp is additive.
     const [synqed, synqedStaffId, activeStore] = await Promise.all([
       getSynqedClient(),
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
     ])
-    // A booking always lands at a real store. The all-stores view (the default)
-    // would save store_id NULL here — same hole the June core-side import hit
-    // (28 QR-origin rows landed storeless and fell out of every per-store
-    // calendar). Closing it app-side before staff get the app; the extra
-    // lookups only run in that view, so a pinned-store booking costs nothing.
-    const storeId = activeStore ?? (await defaultBookingStore(synqed, synqedStaffId))
+    // Clamp the cookie, then land the booking at a real store. Honor the cookie
+    // ONLY when the viewer may act in that store (viewAll → allowedStoreIds null,
+    // or it's one of their assigned stores — the same clamp getAppointmentById
+    // applies to reads); a branch-restricted staff's stale / out-of-scope cookie
+    // is treated as unset. The unset path falls through to defaultBookingStore —
+    // NOT resolveStoreScope().storeId, which would regress a viewAll staff's
+    // unset-cookie booking from "the booked staff's store" to "primary store".
+    // That default still resolves a real store (never NULL — the June import hole
+    // where 28 QR rows landed storeless and dropped out of every per-store
+    // calendar). The scope lookup only runs when a cookie is actually set.
+    let cookieStore: string | null = null
+    if (activeStore) {
+      const scope = await resolveStoreScope()
+      cookieStore =
+        !scope.allowedStoreIds || scope.allowedStoreIds.includes(activeStore)
+          ? activeStore
+          : null
+    }
+    const storeId = cookieStore ?? (await defaultBookingStore(synqed, synqedStaffId))
     const appt = await synqed.appointments.create({
       customer_id: input.clientId,
       staff_id: synqedStaffId,
