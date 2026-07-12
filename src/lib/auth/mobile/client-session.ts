@@ -70,7 +70,11 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
   })
 
   const recover = async (): Promise<Session | null> => {
-    const { data } = await client.auth.getSession()
+    const { data, error } = await client.auth.getSession()
+    // A failed session READ is not a logout. Surfacing the in-band error as a
+    // reject makes the boot gate hold `recovering` — only an explicit null
+    // session may sign the UI out (the gate's core invariant).
+    if (error && !data.session) throw error
     return data.session
   }
 
@@ -102,7 +106,10 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
     signOut() {
       return signOutAndPurge({
         signOutRemote: async () => {
-          await client.auth.signOut()
+          // supabase-js reports remote revocation failures IN-BAND — rethrow so
+          // signOutAndPurge records remoteOk: false truthfully (purge still runs).
+          const { error } = await client.auth.signOut()
+          if (error) throw error
         },
         purgeLocal: opts.purgeLocalCaches,
       })

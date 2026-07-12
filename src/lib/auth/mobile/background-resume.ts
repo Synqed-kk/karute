@@ -46,17 +46,26 @@ export function createResumeCoordinator<S>(args: {
   /** Bound before falling through to `recovering`. Default 4000ms (matches boot). */
   timeoutMs?: number
 }): ResumeCoordinator {
+  // TWO single-flight layers, both needed:
+  //  - recoverOnce shares one getSession across resumes — a resume that timed
+  //    out leaves its recovery running, and the NEXT foreground must join it,
+  //    not fan out a second refresh.
+  //  - resumeOnce single-flights the WHOLE quiesce → gate → emit sequence, so a
+  //    burst of foreground events runs the lifecycle callbacks once per resume
+  //    (onQuiesce/onResumed may not be idempotent), exactly as documented.
   const recoverOnce = createSingleFlight(args.recover)
   const timeoutMs = args.timeoutMs ?? 4000
 
+  const resumeOnce = createSingleFlight(async () => {
+    args.onQuiesce?.()
+    // onResumed is the single sink: bootSessionGate reports a post-timeout
+    // eventual through it, and we emit the immediate/returned state through it
+    // too — never both for the same settle.
+    const state = await bootSessionGate<S>(recoverOnce, timeoutMs, args.onResumed)
+    args.onResumed(state)
+  })
+
   return {
-    async onAppActive() {
-      args.onQuiesce?.()
-      // onResumed is the single sink: bootSessionGate reports a post-timeout
-      // eventual through it, and we emit the immediate/returned state through it
-      // too — never both for the same settle.
-      const state = await bootSessionGate<S>(recoverOnce, timeoutMs, args.onResumed)
-      args.onResumed(state)
-    },
+    onAppActive: resumeOnce,
   }
 }

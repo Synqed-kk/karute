@@ -92,7 +92,24 @@ describe('createResumeCoordinator', () => {
     await Promise.all([coord.onAppActive(), coord.onAppActive(), coord.onAppActive()])
     expect(recoveries).toBe(1)
     expect(onResumed).toHaveBeenCalledWith({ status: 'signed-in', session })
-    expect(onQuiesce).toHaveBeenCalled()
+    // The WHOLE resume is single-flighted: a burst runs the lifecycle callbacks
+    // once, not once per foreground event (they may not be idempotent).
+    expect(onQuiesce).toHaveBeenCalledTimes(1)
+    expect(onResumed).toHaveBeenCalledTimes(1)
+  })
+
+  it('sequential (non-overlapping) foregrounds still each run a full resume', async () => {
+    const onResumed = jest.fn()
+    const onQuiesce = jest.fn()
+    const coord = createResumeCoordinator<{ token: string }>({
+      recover: async () => ({ token: 't' }),
+      onQuiesce,
+      onResumed,
+    })
+    await coord.onAppActive()
+    await coord.onAppActive()
+    expect(onQuiesce).toHaveBeenCalledTimes(2)
+    expect(onResumed).toHaveBeenCalledTimes(2)
   })
 
   it('recovery REJECTS (offline) → recovering, NEVER a forced signed-out', async () => {
