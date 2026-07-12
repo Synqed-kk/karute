@@ -8,12 +8,17 @@
  * onboarding flow itself). The fix writes display_role + permission_role = 'owner'
  * on BOTH the trigger-created (update) path and the fallback insert path — the
  * same fields invites.ts sets for invited staff.
+ *
+ * The stamp is GATED on a role-less row: the action takes userId from the
+ * (pre-session-sync) client and only verifies the user EXISTS, so it must never
+ * change a role someone already holds — a call with an invited staffer's userId
+ * keeps their invites.ts-written role.
  */
 import { effectiveCapabilities, synqedRoleToPreset } from '@/lib/auth/permissions'
 
 const UPDATE = jest.fn((_vals: unknown) => ({ eq: async () => ({ error: null }) }))
 const INSERT = jest.fn(async (_vals: unknown) => ({ error: null }))
-let profileRow: { customer_id: string; full_name: string } | null = null
+let profileRow: { customer_id: string; full_name: string; permission_role?: string | null } | null = null
 
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => ({
@@ -54,12 +59,24 @@ beforeEach(() => {
 })
 
 describe('bootstrapBusinessForNewUser — owner role write', () => {
-  it('trigger-created row: UPDATE carries display_role + permission_role = owner', async () => {
-    profileRow = { customer_id: 'biz-1', full_name: 'owner@example.com' }
+  it('trigger-created ROLE-LESS row: UPDATE carries display_role + permission_role = owner', async () => {
+    profileRow = { customer_id: 'biz-1', full_name: 'owner@example.com', permission_role: null }
     const res = await bootstrapBusinessForNewUser('My Salon', 'user-1')
     expect(res).toEqual({ ok: true, businessId: 'biz-1' })
     expect(UPDATE).toHaveBeenCalledWith(
       expect.objectContaining({ display_role: 'owner', permission_role: 'owner' }),
+    )
+  })
+
+  it('a row that ALREADY has a role keeps it — no owner stamp, full_name still updates', async () => {
+    // e.g. an invited staffer's userId passed to this client-callable action:
+    // their invites.ts-written role must not be escalated to owner.
+    profileRow = { customer_id: 'biz-1', full_name: 'Staffer', permission_role: 'practitioner' }
+    const res = await bootstrapBusinessForNewUser('My Salon', 'user-1')
+    expect(res).toEqual({ ok: true, businessId: 'biz-1' })
+    expect(UPDATE).toHaveBeenCalledWith({ full_name: 'My Salon' })
+    expect(UPDATE).not.toHaveBeenCalledWith(
+      expect.objectContaining({ permission_role: expect.anything() }),
     )
   })
 
