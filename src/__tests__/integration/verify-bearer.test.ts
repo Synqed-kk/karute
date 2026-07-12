@@ -178,6 +178,66 @@ describe('verifyBearer — asymmetric ES256 via JWKS (key-rotation path)', () =>
     )
     expect(fetchImpl).toHaveBeenCalled() // proves it fetched on the unknown kid
   })
+
+  const esConfig = (fetchImpl: unknown): VerifierConfig => ({
+    issuer: ISSUER, audience: AUD, jwksUri: JWKS_URI, algorithms: ['ES256'],
+    jwksFetch: fetchImpl as VerifierConfig['jwksFetch'],
+  })
+
+  it('JWKS fetch rejects (network) → rejected (jwks_unavailable), never a native error', async () => {
+    const { token } = makeEs256(validClaims(), 'kid-1')
+    const fetchImpl = jest.fn(async () => { throw new Error('ECONNREFUSED') })
+    await expectReject(token, esConfig(fetchImpl), 'jwks_unavailable')
+  })
+
+  it('JWKS non-200 → rejected (jwks_unavailable)', async () => {
+    const { token } = makeEs256(validClaims(), 'kid-1')
+    const fetchImpl = jest.fn(async () => ({ ok: false, status: 503, json: async () => ({}) }))
+    await expectReject(token, esConfig(fetchImpl), 'jwks_unavailable')
+  })
+
+  it('JWKS body is not JSON → rejected (jwks_unavailable)', async () => {
+    const { token } = makeEs256(validClaims(), 'kid-1')
+    const fetchImpl = jest.fn(async () => ({
+      ok: true, status: 200, json: async () => { throw new SyntaxError('bad json') },
+    }))
+    await expectReject(token, esConfig(fetchImpl), 'jwks_unavailable')
+  })
+
+  it('JWKS serves an unusable key for the kid → rejected (jwks_unavailable)', async () => {
+    const { token } = makeEs256(validClaims(), 'kid-1')
+    // matching kid, garbage key material — createPublicKey cannot import it
+    const fetchImpl = jwksFetchOf({ kid: 'kid-1', kty: 'EC', x: '!!', y: '!!', crv: 'P-256' })
+    await expectReject(token, esConfig(fetchImpl), 'jwks_unavailable')
+  })
+
+  it('kid-miss inside the cooldown window → NO second upstream fetch', async () => {
+    const { token: t1 } = makeEs256(validClaims(), 'unknown-a')
+    const { token: t2 } = makeEs256(validClaims(), 'unknown-b')
+    const fetchImpl = jwksFetchOf({ kid: 'real-kid', kty: 'EC' })
+    await expectReject(t1, esConfig(fetchImpl), 'signature') // fetches, caches
+    await expectReject(t2, esConfig(fetchImpl), 'signature') // cooldown: no refetch
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
+  it('cache older than the TTL → refetched even on a kid hit (removed key stops verifying)', async () => {
+    jest.useFakeTimers({ doNotFake: ['performance'] })
+    try {
+      jest.setSystemTime(new Date('2026-07-12T00:00:00Z'))
+      const { token, jwk } = makeEs256(validClaims(), 'kid-ttl')
+      const first = jwksFetchOf(jwk)
+      const cfg1 = esConfig(first)
+      await expect(verifyBearer(token, cfg1)).resolves.toMatchObject({ sub: 'user-uuid-123' })
+
+      // key removed upstream; move past the TTL
+      jest.setSystemTime(new Date('2026-07-12T00:11:00Z'))
+      const rotatedOut = jwksFetchOf({ kid: 'other-kid', kty: 'EC' })
+      await expectReject(token, esConfig(rotatedOut), 'signature')
+      expect(rotatedOut).toHaveBeenCalledTimes(1) // proves the stale cache was refetched
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })
 
 describe('verifierConfigFromEnv — derived config, no hardcoded project', () => {

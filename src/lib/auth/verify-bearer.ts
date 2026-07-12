@@ -47,6 +47,10 @@ export type BearerErrorCode =
   | 'audience'
   | 'claims'
   | 'config'
+  // The verifier could not CHECK the token (JWKS endpoint down / unusable key).
+  // The facade must map this to 503, never 401 — an upstream outage is not a
+  // statement about the token.
+  | 'jwks_unavailable'
 
 export class BearerVerifyError extends Error {
   code: BearerErrorCode
@@ -133,7 +137,15 @@ function assertRegisteredClaims(
 
 type Jwk = { kid?: string; kty: string; alg?: string; [k: string]: unknown }
 
-const jwksCache = new Map<string, Jwk[]>()
+/** Cache freshness: entries older than the TTL are refetched even on a kid hit,
+ *  so a key removed upstream stops being trusted within one TTL. */
+const JWKS_TTL_MS = 10 * 60_000
+/** Minimum gap between kid-miss refetches per URI, so a stream of tokens minted
+ *  with arbitrary kids cannot turn auth requests into unbounded JWKS traffic. */
+const JWKS_COOLDOWN_MS = 30_000
+
+type JwksEntry = { keys: Jwk[]; fetchedAt: number }
+const jwksCache = new Map<string, JwksEntry>()
 
 /** Test seam: clear the module-level JWKS cache between cases. */
 export function _resetJwksCache(): void {
@@ -141,13 +153,23 @@ export function _resetJwksCache(): void {
 }
 
 async function fetchJwks(uri: string, fetchImpl: JsonFetch): Promise<Jwk[]> {
-  const res = await fetchImpl(uri)
-  if (!res.ok) {
-    throw new BearerVerifyError('signature', `JWKS fetch failed: ${res.status}`)
+  let res: Awaited<ReturnType<JsonFetch>>
+  try {
+    res = await fetchImpl(uri)
+  } catch {
+    throw new BearerVerifyError('jwks_unavailable', 'JWKS fetch failed')
   }
-  const body = (await res.json()) as { keys?: Jwk[] }
+  if (!res.ok) {
+    throw new BearerVerifyError('jwks_unavailable', `JWKS fetch failed: ${res.status}`)
+  }
+  let body: { keys?: Jwk[] }
+  try {
+    body = (await res.json()) as { keys?: Jwk[] }
+  } catch {
+    throw new BearerVerifyError('jwks_unavailable', 'JWKS response is not JSON')
+  }
   if (!Array.isArray(body?.keys)) {
-    throw new BearerVerifyError('signature', 'malformed JWKS response')
+    throw new BearerVerifyError('jwks_unavailable', 'malformed JWKS response')
   }
   return body.keys
 }
@@ -158,14 +180,16 @@ async function getSigningKey(
   fetchImpl: JsonFetch,
 ): Promise<Jwk> {
   const find = (keys?: Jwk[]) => keys?.find((k) => k.kid === kid)
+  const nowMs = Date.now()
+  const entry = jwksCache.get(uri)
+  const age = entry ? nowMs - entry.fetchedAt : Infinity
 
-  let jwk = find(jwksCache.get(uri))
-  if (!jwk) {
-    // Key rotation: an unknown kid triggers a (re)fetch of the JWKS.
-    // ponytail: no per-uri cooldown; add one if attacker-driven unknown-kid
-    // requests ever create a fetch storm.
+  let jwk = age < JWKS_TTL_MS ? find(entry!.keys) : undefined
+  if (!jwk && age >= JWKS_COOLDOWN_MS) {
+    // Key rotation: an unknown kid (or a stale cache) triggers a JWKS refetch.
+    // The cooldown bounds refetch traffic; the TTL bounds stale-key trust.
     const keys = await fetchJwks(uri, fetchImpl)
-    jwksCache.set(uri, keys)
+    jwksCache.set(uri, { keys, fetchedAt: nowMs })
     jwk = find(keys)
   }
   if (!jwk) {
@@ -194,7 +218,8 @@ function verifyAsymmetric(
 /**
  * Verify a Supabase Bearer JWT: signature + issuer + audience + expiry, with an
  * algorithm allow-list. Returns the claims on success; throws BearerVerifyError
- * with a stable `code` on any failure.
+ * with a stable `code` on any failure — including `jwks_unavailable` when the
+ * verifier itself could not check the token (facade: 503, not 401).
  *
  * This is signature/claims verification ONLY. It does NOT detect a token that
  * was revoked server-side before its `exp` — that is the revocation resolver's
@@ -250,7 +275,15 @@ export async function verifyBearer(
       throw new BearerVerifyError('malformed', 'asymmetric token missing kid')
     }
     const jwk = await getSigningKey(config.jwksUri, header.kid, config.jwksFetch ?? (fetch as JsonFetch))
-    if (!verifyAsymmetric(signingInput, signature, jwk, alg)) {
+    let ok: boolean
+    try {
+      ok = verifyAsymmetric(signingInput, signature, jwk, alg)
+    } catch {
+      // The trusted endpoint served a key node:crypto cannot import — a
+      // verifier-side failure, not a statement about the token.
+      throw new BearerVerifyError('jwks_unavailable', 'JWKS key unusable for verification')
+    }
+    if (!ok) {
       throw new BearerVerifyError('signature', 'asymmetric signature mismatch')
     }
   } else {
