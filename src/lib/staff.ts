@@ -243,7 +243,18 @@ async function resolveUserId(): Promise<string> {
 // many places per page (every Supabase scope check, every synqed client init)
 // so deduping the auth + profile lookup is worth the wrapper.
 export const getBusinessId = cache(async (): Promise<string> => {
-  const userId = await resolveUserId()
+  return businessIdForUser(await resolveUserId())
+})
+
+/**
+ * Resolve a user's business id from an EXPLICIT auth-user id — the identity seam
+ * shared by the cookie path (getBusinessId) and the facade Bearer path. This
+ * INDEXED per-request lookup on the primary key (profiles.id) is also the
+ * authoritative membership gate: a user with no profile row in any business has
+ * no active membership and is rejected fail-closed (NOT the 24h roster cache,
+ * which is unfit for a security gate). Throws when there is no membership.
+ */
+export async function businessIdForUser(userId: string): Promise<string> {
   const service = createServiceClient()
   const { data } = await service
     .from('profiles')
@@ -253,4 +264,4 @@ export const getBusinessId = cache(async (): Promise<string> => {
 
   if (!data?.customer_id) throw new Error('Business profile not found')
   return data.customer_id
-})
+}
