@@ -89,6 +89,9 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         recover,
         onQuiesce: opts.onQuiesce,
         onResumed: opts.onSessionState,
+        // Same bound as boot — a hung resume falls through to `recovering`,
+        // never leaves the app silently quiesced.
+        timeoutMs: opts.bootTimeoutMs,
       })
       // Single-flighted inside the coordinator: rapid foregrounds → one recovery.
       opts.appState.onActive(() => {

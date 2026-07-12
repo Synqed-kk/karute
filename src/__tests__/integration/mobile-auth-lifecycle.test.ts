@@ -95,17 +95,38 @@ describe('createResumeCoordinator', () => {
     expect(onQuiesce).toHaveBeenCalled()
   })
 
-  it('recovery error → onError, NOT a forced signed-out', async () => {
+  it('recovery REJECTS (offline) → recovering, NEVER a forced signed-out', async () => {
     const onResumed = jest.fn()
-    const onError = jest.fn()
+    const onQuiesce = jest.fn()
     const coord = createResumeCoordinator({
       recover: async () => { throw new Error('offline') },
+      onQuiesce,
       onResumed,
-      onError,
     })
     await coord.onAppActive()
-    expect(onError).toHaveBeenCalled()
-    expect(onResumed).not.toHaveBeenCalled()
+    expect(onQuiesce).toHaveBeenCalled()
+    expect(onResumed).toHaveBeenCalledWith({ status: 'recovering' })
+    expect(onResumed).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'signed-out' }),
+    )
+  })
+
+  it('recovery HANGS (offline + expired token — the spike behavior) → recovering, never silently stuck', async () => {
+    // The gap this closes: boot bounds getSession(), but the resume path reused
+    // the same unguarded call. A hang (NOT a reject — the spike's proven offline
+    // behavior) would leave the app quiesced forever. The bounded gate must fall
+    // through to a VISIBLE recovering state instead.
+    const onResumed = jest.fn()
+    const onQuiesce = jest.fn()
+    const coord = createResumeCoordinator<{ token: string }>({
+      recover: () => new Promise(() => {}), // never settles — the hang
+      onQuiesce,
+      onResumed,
+      timeoutMs: 10,
+    })
+    await coord.onAppActive()
+    expect(onQuiesce).toHaveBeenCalled()
+    expect(onResumed).toHaveBeenCalledWith({ status: 'recovering' })
   })
 })
 
