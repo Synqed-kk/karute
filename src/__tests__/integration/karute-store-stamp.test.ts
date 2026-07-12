@@ -62,18 +62,58 @@ const baseInput = { customerId: 'cust-1', transcript: 't', summary: 's', entries
 beforeEach(() => {
   jest.clearAllMocks()
   karuteRecords.create.mockResolvedValue({ id: 'kr-1' })
+  // Default: an unrestricted (viewAll / floating) scope so the appointment-store
+  // authz clamp is satisfied. Per-test overrides set a restricted scope.
+  resolveStoreScopeMock.mockResolvedValue(scope('store-default'))
 })
 
 describe('saveKaruteRecordInline — store_id resolution', () => {
-  it("(a) with appointmentId: stamps the BOOKING's store_id", async () => {
+  it("(a) with appointmentId: stamps the BOOKING's store_id (authz-checked, in scope)", async () => {
     appointments.get.mockResolvedValue({ id: 'ap-1', staff_id: 'other-staff', store_id: 'store-A' })
+    // In-scope caller (assigned to store-A) → the clamp passes and the record
+    // is stamped with the booking's store.
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-A',
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+    })
 
     await saveKaruteRecordInline({ ...baseInput, appointmentId: 'ap-1' })
 
     expect(appointments.get).toHaveBeenCalledWith('ap-1')
-    expect(resolveStoreScopeMock).not.toHaveBeenCalled()
     expect(karuteRecords.create).toHaveBeenCalledWith(
       expect.objectContaining({ appointment_id: 'ap-1', store_id: 'store-A' }),
+    )
+  })
+
+  it('(e) OUT-OF-SCOPE appointmentId: rejects the save, stamps nothing', async () => {
+    // A branch-restricted staff (銀座-only) handed a 代官山 booking id: the record
+    // must NOT be created — never re-stamped to the caller's own store either.
+    appointments.get.mockResolvedValue({ id: 'ap-x', staff_id: 'other-staff', store_id: 'store-daikanyama' })
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    })
+
+    const res = await saveKaruteRecordInline({ ...baseInput, appointmentId: 'ap-x' })
+
+    expect(res).toEqual({ error: expect.any(String) })
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+  })
+
+  it('(f) in-scope appointmentId for a restricted staff: still saves with the booking store', async () => {
+    appointments.get.mockResolvedValue({ id: 'ap-g', staff_id: 'other-staff', store_id: 'store-ginza' })
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    })
+
+    await saveKaruteRecordInline({ ...baseInput, appointmentId: 'ap-g' })
+
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ appointment_id: 'ap-g', store_id: 'store-ginza' }),
     )
   })
 
