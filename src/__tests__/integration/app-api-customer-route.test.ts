@@ -8,6 +8,20 @@ import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k }))
+
+// customer.update is revocation-sensitive (ROUTE 3), so the PATCH path round-trips
+// getUser. Mock supabase-js's createClient so defaultGetUser confirms the token
+// subject (or, when overridden, reports the token as revoked → 401).
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+const mockGetUser = jest.fn(
+  async (): Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> => ({
+    data: { user: { id: 'auth-user-1' } },
+    error: null,
+  }),
+)
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({ auth: { getUser: () => mockGetUser() } }),
+}))
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   getBusinessId: jest.fn(async () => 'business-1'),
@@ -58,7 +72,10 @@ const auth = { authorization: `Bearer ${bearer()}` }
 const routeFor = (id: string) => ({ params: Promise.resolve({ id }) })
 const req = (init: RequestInit = {}) => new Request('https://s/api/app/v1/customers/x', init)
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
+})
 
 describe('GET /api/app/v1/customers/[id]', () => {
   it('returns the validated profile DTO for a customer in the caller tenant', async () => {
@@ -108,6 +125,14 @@ describe('PATCH /api/app/v1/customers/[id]', () => {
     const res = await PATCH(req({ method: 'PATCH', headers: { ...auth, 'content-type': 'application/json', 'if-match': CUSTOMER_ROW.updated_at }, body: JSON.stringify({ notes: 'x' }) }), routeFor('cust-1'))
     expect(res.status).toBe(200)
     expect(update).toHaveBeenCalled()
+  })
+
+  it('a REVOKED user → 401 revoked, no write (customer.update is revocation-sensitive, ROUTE 3)', async () => {
+    mockGetUser.mockResolvedValueOnce({ data: { user: null }, error: { message: 'token revoked' } })
+    const res = await PATCH(req({ method: 'PATCH', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ notes: 'VIP' }) }), routeFor('cust-1'))
+    expect(res.status).toBe(401)
+    expect((await res.json()).error.code).toBe('revoked')
+    expect(update).not.toHaveBeenCalled()
   })
 })
 

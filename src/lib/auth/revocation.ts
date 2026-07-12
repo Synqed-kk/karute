@@ -32,6 +32,11 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'orgSettings.update',
   // export
   'export',
+  // facade resource WRITES — as a rule every facade mutation re-checks
+  // revocation, so a just-terminated staffer cannot edit data (e.g. customer PII)
+  // on the local fast-path until token expiry. Cost = one getUser per edit
+  // (writes are infrequent — acceptable for a fail-closed foundation).
+  'customer.update',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */
