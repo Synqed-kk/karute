@@ -52,13 +52,17 @@ export async function bootstrapBusinessForNewUser(
   let businessId: string
   if (existingProfile?.customer_id) {
     businessId = existingProfile.customer_id as string
-    // Update full_name to the salon name if it's still the default (email).
-    if (existingProfile.full_name !== salonName) {
-      await service
-        .from('profiles')
-        .update({ full_name: salonName })
-        .eq('id', user.id)
-    }
+    // Write the salon name AND the OWNER role onto the trigger-created row. The
+    // Supabase trigger seeds the profile with NO role, so without this the first
+    // owner resolves to `practitioner` (synqedRoleToPreset's default) and is
+    // refused by every capability gate — including `settings.manage` on
+    // completeOnboarding's "Finish setup", which then blocks onboarding itself.
+    // Invited staff get their role via invites.ts; the first owner gets it here.
+    // permission_role is what capabilitiesForUser reads first.
+    await service
+      .from('profiles')
+      .update({ full_name: salonName, display_role: 'owner', permission_role: 'owner' })
+      .eq('id', user.id)
   } else {
     businessId = randomUUID()
     const { error: profileErr } = await service.from('profiles').insert({
@@ -66,6 +70,8 @@ export async function bootstrapBusinessForNewUser(
       customer_id: businessId,
       full_name: salonName,
       email: user.email ?? null,
+      display_role: 'owner',
+      permission_role: 'owner',
     })
     if (profileErr) {
       return { ok: false, error: `Failed to create profile: ${profileErr.message}` }
