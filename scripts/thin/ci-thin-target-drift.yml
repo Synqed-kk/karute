@@ -1,0 +1,52 @@
+# ── FOR ANTHONY: move this to .github/workflows/thin-target-drift.yml ──
+# Committed here (not under .github/workflows) because the automation token that
+# opened this PR lacks GitHub `workflow` scope. The gate LOGIC is all runnable
+# now: `node scripts/thin/check-boundary.mjs`, `npx tsc --noEmit`,
+# `npx vite build --config thin/vite.config.ts`, `node scripts/thin/check-bundle-budget.mjs`.
+name: thin-target-drift
+
+# Fast drift gate for the thin shell bundle. Triggered by the thin build's FULL
+# dependency closure — NOT just the component subtree — so nothing the bundle
+# depends on can change silently (R3 #20). Scoped by paths so unrelated web
+# merges (docs, API routes, e2e) never pay for it.
+on:
+  pull_request:
+    paths:
+      - 'thin/**'
+      - 'src/lib/ports/**'
+      - 'src/lib/app-root/**'
+      - 'src/components/**'      # shared UI = the bundle's component subtree
+      - 'src/hooks/**'
+      - 'src/app/globals.css'    # scoped styles the bundle imports
+      - 'src/app/layout.tsx'     # AppRoot parity source
+      - 'postcss.config.mjs'
+      - 'tsconfig.json'
+      - 'package-lock.json'      # lockfile — a shared dep bump is a closure change
+      - 'scripts/thin/**'
+      - '.github/workflows/thin-target-drift.yml'
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+      # 1. Boundary: no raw /api fetch in the shared subtree.
+      - run: node scripts/thin/check-boundary.mjs
+      # 2. Typecheck the closure (root tsconfig already includes thin/**).
+      - run: npx tsc --noEmit
+      # 3. Thin build — proves the whole closure still bundles.
+      - run: npx vite build --config thin/vite.config.ts
+        env:
+          VITE_FACADE_URL: https://karute-omega.vercel.app
+          VITE_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          VITE_SHELL_MODE: local
+      # 4. Bundle budget — parse/compile cost can't regress silently.
+      - run: node scripts/thin/check-bundle-budget.mjs
