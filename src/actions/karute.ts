@@ -7,7 +7,7 @@ import { getCurrentUserStaffId } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
-import { getDefaultStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
@@ -21,10 +21,14 @@ import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
  * appointment-linked save is stamped with ITS store_id — fetched fresh unless
  * the caller already pulled the appointment (e.g. for staff-id fallback), in
  * which case that's reused so a save never fetches the same appointment
- * twice. With no appointment, fall back to the viewer's active-store cookie,
- * else the primary store (getDefaultStoreId) — never mint a NULL-store record
- * for a viewer who simply hasn't touched the switcher, or it vanishes from
- * every store-scoped カルテ list.
+ * twice. With no appointment, fall back to the viewer's RESOLVED store scope
+ * (resolveStoreScope): the active-store cookie for cross-store viewers, but a
+ * branch-restricted staff is clamped to their assigned store — so an unset
+ * cookie can't stamp the record with the primary store of a branch they're not
+ * in (the write-side twin of the Ginza dashboard leak). Still non-null for any
+ * business that has stores, so a viewer who simply hasn't touched the switcher
+ * never mints a NULL-store record that vanishes from every store-scoped
+ * カルテ list.
  */
 async function resolveKaruteStoreId(
   synqed: SynqedClient,
@@ -35,7 +39,7 @@ async function resolveKaruteStoreId(
     const appt = fetchedAppointment ?? (await synqed.appointments.get(appointmentId).catch(() => null))
     return appt?.store_id ?? null
   }
-  return getDefaultStoreId()
+  return (await resolveStoreScope()).storeId
 }
 
 /**

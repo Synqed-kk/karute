@@ -68,6 +68,12 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 // Isolates the payload shape, not permissions (covered elsewhere).
+// Karute store default now resolves via resolveStoreScope (RBAC clamp). These
+// suites don't exercise store scoping, so stub it to the all-stores lens.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
+
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),

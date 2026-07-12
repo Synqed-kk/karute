@@ -7,9 +7,10 @@
  * store-less in a multi-store business. Resolution order:
  *   1. appointmentId present → the BOOKING's store (the truth of where the
  *      session happened) — fetched via synqed.appointments.get(), .catch(null)
- *   2. no appointmentId → getDefaultStoreId (active-store cookie, else the
- *      primary store — never mint a NULL-store record for a viewer who just
- *      hasn't touched the switcher)
+ *   2. no appointmentId → resolveStoreScope().storeId (the RBAC-clamped store:
+ *      active-store cookie for cross-store viewers, but a branch-restricted staff
+ *      is clamped to their assigned store; never mint a NULL-store record for a
+ *      viewer who just hasn't touched the switcher)
  */
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
@@ -34,10 +35,12 @@ jest.mock('@/lib/auth/require-permission', () => ({
   can: jest.fn(async () => true),
 }))
 
-const getDefaultStoreIdMock = jest.fn()
-jest.mock('@/actions/stores', () => ({
-  getDefaultStoreId: (...args: unknown[]) => getDefaultStoreIdMock(...args),
+const resolveStoreScopeMock = jest.fn()
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: (...args: unknown[]) => resolveStoreScopeMock(...args),
 }))
+// Helper: wrap a storeId in the StoreScope shape resolveStoreScope returns.
+const scope = (storeId: string | null) => ({ storeId, viewAll: false, allowedStoreIds: null })
 
 const karuteRecords = { create: jest.fn() }
 const appointments = { get: jest.fn() }
@@ -68,14 +71,14 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     await saveKaruteRecordInline({ ...baseInput, appointmentId: 'ap-1' })
 
     expect(appointments.get).toHaveBeenCalledWith('ap-1')
-    expect(getDefaultStoreIdMock).not.toHaveBeenCalled()
+    expect(resolveStoreScopeMock).not.toHaveBeenCalled()
     expect(karuteRecords.create).toHaveBeenCalledWith(
       expect.objectContaining({ appointment_id: 'ap-1', store_id: 'store-A' }),
     )
   })
 
-  it('(b) without appointmentId: stamps the default store (cookie, else primary)', async () => {
-    getDefaultStoreIdMock.mockResolvedValue('store-B')
+  it('(b) without appointmentId: stamps the resolved store scope (clamped, cookie, else primary)', async () => {
+    resolveStoreScopeMock.mockResolvedValue(scope('store-B'))
 
     await saveKaruteRecordInline({ ...baseInput })
 
@@ -85,8 +88,25 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     )
   })
 
-  it('(c) without appointmentId and no default store (business has no stores): null', async () => {
-    getDefaultStoreIdMock.mockResolvedValue(null)
+  it('(b2) branch-restricted staff, unset cookie: stamps their ASSIGNED store, not the primary', async () => {
+    // resolveStoreScope clamps a restricted staff with no cookie to their first
+    // assigned store (store-ginza) — the write-side twin of the dashboard leak,
+    // where getDefaultStoreId would have stamped the business primary (代官山).
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    })
+
+    await saveKaruteRecordInline({ ...baseInput })
+
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ appointment_id: null, store_id: 'store-ginza' }),
+    )
+  })
+
+  it('(c) without appointmentId and no resolved store (business has no stores): null', async () => {
+    resolveStoreScopeMock.mockResolvedValue(scope(null))
 
     await saveKaruteRecordInline({ ...baseInput })
 
@@ -97,7 +117,7 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
 
   it('(d) appointment fetch failure: store_id is null (no secondary default-store fallback)', async () => {
     appointments.get.mockRejectedValue(new Error('not found'))
-    getDefaultStoreIdMock.mockResolvedValue('store-B')
+    resolveStoreScopeMock.mockResolvedValue(scope('store-B'))
 
     await saveKaruteRecordInline({ ...baseInput, appointmentId: 'missing' })
 
@@ -106,7 +126,7 @@ describe('saveKaruteRecordInline — store_id resolution', () => {
     )
     // The booking's store is the only source of truth for an appointment-linked
     // save — a failed lookup means "unknown", not "assume the viewer's store".
-    expect(getDefaultStoreIdMock).not.toHaveBeenCalled()
+    expect(resolveStoreScopeMock).not.toHaveBeenCalled()
   })
 })
 
@@ -126,8 +146,8 @@ describe('saveKaruteRecord — store_id resolution reuses the staff-fallback app
 })
 
 describe('createManualKaruteRecord — store_id resolution', () => {
-  it('has no appointment concept: always falls back to the default store', async () => {
-    getDefaultStoreIdMock.mockResolvedValue('store-D')
+  it('has no appointment concept: always falls back to the resolved store scope', async () => {
+    resolveStoreScopeMock.mockResolvedValue(scope('store-D'))
 
     await createManualKaruteRecord({
       customerId: 'cust-1',
