@@ -56,10 +56,14 @@ export class RevocationError extends Error {
 }
 
 /**
- * getUser round-trip signature. In the BFF this is
- * `(token) => supabase.auth.getUser(token)`; injected here so the resolver is
- * testable without network. Returns the confirmed user, or null/throws when the
- * token has been revoked server-side.
+ * getUser round-trip signature. In the BFF, ADAPT supabase's response shape —
+ * it is NOT `supabase.auth.getUser` directly (that resolves
+ * `{ data: { user }, error }`, always a truthy object, so a naive `!user` check
+ * would never fire and `.id` would be undefined). Wire it as:
+ *   (token) => supabase.auth.getUser(token).then(({ data, error }) =>
+ *     error || !data.user ? null : { id: data.user.id })
+ * Injected here so the resolver is testable without network. Returns the
+ * confirmed user, or null/throws when the token has been revoked server-side.
  */
 export type GetUserFn = (
   token: string,
