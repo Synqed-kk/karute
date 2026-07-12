@@ -58,9 +58,17 @@ export async function removeStaffPin(staffId: string): Promise<{ error?: string 
  * If no PIN is set, returns { valid: true, noPin: true }.
  */
 export async function verifyStaffPin(staffId: string, pin: string): Promise<{ valid: boolean; noPin?: boolean; error?: string }> {
-  // Throttle per (actor, target). Actor = the signed-in staff switching profiles;
-  // fall back to a stable label so an unauthenticated actor is still bounded.
-  const actor = (await getCurrentUserStaffId()) ?? 'anon'
+  // Throttle per (actor, target). Actor = the signed-in staff switching profiles.
+  // verifyStaffPin is only reachable AFTER login (profile switch on a shared,
+  // signed-in device), so an unauthenticated caller is never legitimate — refuse
+  // the way setPin/removePin already do. The previous 'anon' fallback was a
+  // SHARED throttle bucket: one unauthenticated caller could exhaust another's
+  // attempt budget for the same staffId. The throttle now only ever keys a real
+  // actor id, so buckets can't collide.
+  const actor = await getCurrentUserStaffId()
+  if (!actor) {
+    return { valid: false, error: 'Not authorized to verify a PIN' }
+  }
 
   const decision = checkPinThrottle(actor, staffId)
   if (!decision.allowed) {
