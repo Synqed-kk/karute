@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_JP } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ColdStartOverlay } from "@/components/shell/ColdStartOverlay";
 import "./globals.css";
 
 const inter = Inter({
@@ -65,6 +66,9 @@ export default function RootLayout({
           {children}
         </ThemeProvider>
         <Toaster />
+        {/* perf(debug) — flag-gated cold-start overlay, see ColdStartOverlay.
+            Separate from the splash handshake below; does not touch it. */}
+        <ColdStartOverlay />
         {/* Native-shell splash handshake: drop the shell's launch screen on the
             FIRST PAINTED FRAME (double requestAnimationFrame after this
             end-of-body script parses) instead of after hydration — pixels beat

@@ -6,7 +6,8 @@ import { getLocale } from 'next-intl/server'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { getDefaultStoreId } from '@/actions/stores'
+import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
@@ -20,10 +21,16 @@ import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
  * appointment-linked save is stamped with ITS store_id — fetched fresh unless
  * the caller already pulled the appointment (e.g. for staff-id fallback), in
  * which case that's reused so a save never fetches the same appointment
- * twice. With no appointment, fall back to the viewer's active-store cookie,
- * else the primary store (getDefaultStoreId) — never mint a NULL-store record
- * for a viewer who simply hasn't touched the switcher, or it vanishes from
- * every store-scoped カルテ list.
+ * twice. That store is authz-clamped: an out-of-scope appointmentId (a store
+ * the caller isn't assigned to) REJECTS the save rather than stamping across
+ * branches. With no appointment, fall back to the viewer's RESOLVED store scope
+ * (resolveStoreScope): the active-store cookie for cross-store viewers, but a
+ * branch-restricted staff is clamped to their assigned store — so an unset
+ * cookie can't stamp the record with the primary store of a branch they're not
+ * in (the write-side twin of the Ginza dashboard leak). Still non-null for any
+ * business that has stores, so a viewer who simply hasn't touched the switcher
+ * never mints a NULL-store record that vanishes from every store-scoped
+ * カルテ list.
  */
 async function resolveKaruteStoreId(
   synqed: SynqedClient,
@@ -32,9 +39,25 @@ async function resolveKaruteStoreId(
 ): Promise<string | null> {
   if (appointmentId) {
     const appt = fetchedAppointment ?? (await synqed.appointments.get(appointmentId).catch(() => null))
-    return appt?.store_id ?? null
+    const apptStore = appt?.store_id ?? null
+    // Authz clamp (write-side twin of getAppointmentById's read clamp): the
+    // booking's store is the truth of where the session happened, but a
+    // branch-restricted staff handed an OUT-OF-SCOPE appointmentId (stale client
+    // state, a crafted server-action call) must not stamp a record into a store
+    // they're not assigned to. Allowed when the scope is viewAll (allowedStoreIds
+    // null) or the store is one of the caller's assigned stores; otherwise REJECT
+    // the save — never silently re-stamp to the caller's own store, which would
+    // attach the record to an appointment sitting in a different store. A
+    // NULL-store appointment keeps today's behavior (pre-existing, out of scope).
+    if (apptStore) {
+      const scope = await resolveStoreScope()
+      if (scope.allowedStoreIds && !scope.allowedStoreIds.includes(apptStore)) {
+        throw new Error('This booking belongs to a store you are not assigned to.')
+      }
+    }
+    return apptStore
   }
-  return getDefaultStoreId()
+  return (await resolveStoreScope()).storeId
 }
 
 /**
@@ -156,6 +179,17 @@ export async function saveKaruteRecord(
 
     const synqed = await getSynqedClient()
 
+    // Consent gate, server-enforced: a record must never persist for a customer
+    // whose recording consent isn't CURRENT. The record page gates the START of
+    // a booked take, but the walk-in flow attaches its customer only here at
+    // save — the client shows the consent dialog first (ReviewScreen matches on
+    // CONSENT_REQUIRED_ERROR), and this makes the rule hold regardless of path.
+    // Fail closed: an unreadable consent rejects the save, never bypasses it.
+    const { consent } = await synqed.customers.getConsent(input.customerId)
+    if (!isConsentCurrent(consent)) {
+      throw new Error(CONSENT_REQUIRED_ERROR)
+    }
+
     // Attribute the record to whoever RECORDED it — the signed-in staff — NOT
     // the booking's staff. For your own bookings these are identical; when you
     // record a customer booked under ANOTHER staff (covering, swaps, days off),
@@ -249,6 +283,16 @@ export async function saveKaruteRecordInline(
     await requireCapability('records.write')
 
     const synqed = await getSynqedClient()
+
+    // Same server-enforced consent gate as saveKaruteRecord. Autosave takes are
+    // appointment-bound (start-gated on the record page), so this normally
+    // passes untouched; if it ever rejects (consent revoked mid-session), the
+    // pipeline's error path falls back to review, whose consent dialog handles
+    // it — the take is never lost.
+    const { consent } = await synqed.customers.getConsent(input.customerId)
+    if (!isConsentCurrent(consent)) {
+      throw new Error(CONSENT_REQUIRED_ERROR)
+    }
 
     // Same recorder-first attribution + appointment-staff fallback as
     // saveKaruteRecord: autosave only ever fires for appointment-bound takes

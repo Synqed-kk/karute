@@ -14,6 +14,8 @@
  *   - The save path never touches next/headers (no cookie read)
  */
 
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
   return {
@@ -93,6 +95,12 @@ jest.mock('@/lib/supabase/service', () => ({
 // RBAC gate neutralized — this suite isolates staff attribution, not
 // permissions. Capability enforcement is covered in
 // rbac-server-enforcement.test.ts.
+// Karute store default now resolves via resolveStoreScope (RBAC clamp). These
+// suites don't exercise store scoping, so stub it to the all-stores lens.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
+
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
@@ -100,11 +108,19 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 const karuteRecords = { create: jest.fn() }
 const appointments = { get: jest.fn() }
+// Save-gate consent check (src/actions/karute.ts) — current-version consent by
+// default so this suite's staff-attribution assertions reach create() untouched.
+const customers = {
+  getConsent: jest.fn(async () => ({
+    consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+  })),
+}
 
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn().mockImplementation(() => ({
     karuteRecords,
     appointments,
+    customers,
   })),
 }))
 
