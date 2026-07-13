@@ -18,8 +18,8 @@ import {
 import {
   effectiveLastVisitIso,
   enrichCustomers,
-  resolveCustomerStatus,
 } from '@/lib/customers/list-enrich'
+import { resolveCustomerStatus } from '@/lib/customers/status-signals'
 import { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'

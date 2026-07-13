@@ -2,7 +2,7 @@ import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
-import { isReturningCustomer } from '@/lib/customers/list-enrich'
+import { isReturningCustomer } from '@/lib/customers/status-signals'
 import { getCustomer, type CustomerWithStaff } from '@/lib/customers/queries'
 import {
   classifyVisitSegment,

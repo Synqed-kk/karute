@@ -6,8 +6,6 @@ import { CustomersListView } from '@/components/customers/redesign/list/Customer
 import type { CustomerListRow } from '@/components/customers/redesign/types'
 import {
   defaultAiPredict,
-  resolveCustomerStatus,
-  customerVisitCount,
   enrichCustomers,
   effectiveLastVisitIso,
   formatCompactDate,
@@ -15,6 +13,10 @@ import {
   formatLastVisit,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
+import {
+  resolveCustomerStatus,
+  customerVisitCount,
+} from '@/lib/customers/status-signals'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,

@@ -20,15 +20,17 @@ import type { MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
-  customerVisitCount,
   effectiveLastVisitIso,
   effectiveFirstVisitIso,
-  isReturningCustomer,
-  resolveCustomerStatus,
   enrichCustomers,
   formatJoinDate,
   formatCompactDate,
 } from '@/lib/customers/list-enrich'
+import {
+  customerVisitCount,
+  isReturningCustomer,
+  resolveCustomerStatus,
+} from '@/lib/customers/status-signals'
 import { computeVisitPace } from '@/lib/visits/pace'
 import {
   assignSequentialKaruteNumbers,

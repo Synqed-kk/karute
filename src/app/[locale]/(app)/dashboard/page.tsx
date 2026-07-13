@@ -15,9 +15,9 @@ import { can } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import {
   enrichCustomers,
-  isReturningCustomer,
   type CustomerEnrichment,
 } from '@/lib/customers/list-enrich'
+import { isReturningCustomer } from '@/lib/customers/status-signals'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { hmInJst, ymdInJst, nowUtc, jstDaysBetween } from '@/lib/date/jst'
 import { resolveStoreScope } from '@/lib/auth/store-scope'

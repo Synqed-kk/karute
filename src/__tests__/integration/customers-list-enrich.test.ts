@@ -45,15 +45,17 @@ jest.mock('next/cache', () => ({
 
 import {
   enrichCustomers,
-  deriveStatus,
-  resolveCustomerStatus,
-  isReturningCustomer,
-  customerVisitCount,
   formatJoinDate,
   formatLastVisit,
   defaultAiPredict,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
+import {
+  deriveStatus,
+  resolveCustomerStatus,
+  isReturningCustomer,
+  customerVisitCount,
+} from '@/lib/customers/status-signals'
 import { isRepeatNoShow } from '@/components/customers/redesign/types'
 
 beforeEach(() => {
@@ -373,7 +375,7 @@ describe('formatCompactDate (案A card rails)', () => {
 })
 
 describe('lifecycle decisions outrank cadence (案B)', () => {
-  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/list-enrich')
+  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/status-signals')
   const old = new Date(Date.now() - 219 * 86_400_000).toISOString()
   const join = new Date(Date.now() - 365 * 86_400_000).toISOString()
   it('卒業 + 219 days absent → graduated, NOT dormant', () => {
@@ -440,7 +442,7 @@ describe('isRepeatNoShow — the >= 2 threshold (a single no-show is not flagged
 })
 
 describe('a future booking clears the chase states (Liam: booked ≠ follow-up)', () => {
-  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/list-enrich')
+  const { resolveCustomerStatus } = jest.requireActual('@/lib/customers/status-signals')
   const old65 = new Date(Date.now() - 65 * 86_400_000).toISOString()
   const old200 = new Date(Date.now() - 200 * 86_400_000).toISOString()
   const join = new Date(Date.now() - 400 * 86_400_000).toISOString()
