@@ -15,8 +15,18 @@
 //
 // Unified pointer events so touch (mobile) + mouse (desktop)
 // behave identically.
+//
+// Movement tolerance: a drag is neither a tap nor a hold. The
+// original relied on the browser's scroll firing pointercancel,
+// but when the content FITS the viewport nothing scrolls, no
+// pointercancel comes, and a scroll attempt fell through as a
+// tap (or a hold, past the threshold). Any pointer travel past
+// 10px (iOS's own long-press slop) now cancels both outcomes.
 
 import { useCallback, useRef } from 'react'
+
+/** Pointer travel past this cancels tap AND hold (px, straight-line). */
+const MOVE_TOLERANCE_PX = 10
 
 interface UseLongPressOptions {
   /** Threshold in ms. Default 450. */
@@ -34,9 +44,13 @@ export function useLongPress({
 }: UseLongPressOptions) {
   const timer = useRef<number | null>(null)
   const firedLong = useRef(false)
+  const origin = useRef<{ x: number; y: number } | null>(null)
+  const moved = useRef(false)
 
-  const start = useCallback(() => {
+  const start = useCallback((e: React.PointerEvent) => {
     firedLong.current = false
+    moved.current = false
+    origin.current = { x: e.clientX, y: e.clientY }
     if (typeof window === 'undefined') return
     timer.current = window.setTimeout(() => {
       firedLong.current = true
@@ -51,15 +65,26 @@ export function useLongPress({
     }
   }, [])
 
+  const move = useCallback((e: React.PointerEvent) => {
+    if (moved.current || origin.current === null) return
+    const dx = e.clientX - origin.current.x
+    const dy = e.clientY - origin.current.y
+    if (dx * dx + dy * dy > MOVE_TOLERANCE_PX * MOVE_TOLERANCE_PX) {
+      moved.current = true
+      cancel()
+    }
+  }, [cancel])
+
   const end = useCallback(() => {
     cancel()
-    if (!firedLong.current && onShortTap) {
+    if (!firedLong.current && !moved.current && onShortTap) {
       onShortTap()
     }
   }, [cancel, onShortTap])
 
   return {
     onPointerDown: start,
+    onPointerMove: move,
     onPointerUp: end,
     onPointerLeave: cancel,
     onPointerCancel: cancel,

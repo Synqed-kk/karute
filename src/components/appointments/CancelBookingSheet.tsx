@@ -165,8 +165,12 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
         mode === 'confirm' ? t('title') : booking.isNoShow ? t('noShowRestoreTitle') : t('cancelledTitle')
       }
     >
+      {/* select-none: the sheet opens UNDER a finger that is still mid
+       *  long-press (that's how it's summoned) — without it, iOS's native
+       *  text-selection gesture lands on the customer name the moment the
+       *  sheet renders. */}
       <div
-        className="w-full max-w-md rounded-t-2xl bg-background p-5 pb-8 shadow-xl md:rounded-2xl md:pb-5"
+        className="w-full max-w-md select-none rounded-t-2xl bg-background p-5 pb-8 shadow-xl md:rounded-2xl md:pb-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-start justify-between">
