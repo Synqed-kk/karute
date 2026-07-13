@@ -1295,6 +1295,37 @@
         "durationMin": "{n} min",
         "assignedBy": "from {name}",
         "emptyHint": "Modules assigned by your owner — with progress — surface here. Lights up when Anthony wires the module-assignment retrieval."
+      },
+      "dataView": {
+        "title": "Your performance",
+        "emptyHint": "Once your sessions are analyzed, your closing rate, rebooking rate and specific, evidenced findings surface here. Lights up when Anthony wires useStaffCoachingData().",
+        "closingRate": "Closing rate",
+        "rebookingRate": "Rebooking rate",
+        "satisfaction": "Satisfaction",
+        "avgRevenue": "Avg. spend",
+        "basedOn": "From {n} sessions",
+        "findingsTitle": "This period’s findings",
+        "sevPriority": "Priority",
+        "sevWatch": "Watch",
+        "sevStrength": "Strength",
+        "doThis": "Do this",
+        "categoriesTitle": "Conversation skills (vs top performers)",
+        "top": "top",
+        "thisWeek": "This week’s move",
+        "practice": "Practice",
+        "trendTitle": "Trend (closing rate)",
+        "nowLabel": "Now",
+        "reasonsTitle": "Why deals slipped ({n} this month)",
+        "pendingTitle": "{n} outcomes still on “decide later”",
+        "pendingBody": "Resolving them sharpens your coaching — and deferring every close may itself be where the sales slip away.",
+        "learnTitle": "Learn from the top",
+        "reason": {
+          "budget": "Budget",
+          "considering": "Considering",
+          "mismatch": "Not a fit",
+          "follow_up": "Follow-up later",
+          "other": "Other"
+        }
       }
     },
     "owner": {

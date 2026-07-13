@@ -165,18 +165,44 @@ export interface FocusRecommendation {
 
 // ── The three view projections (the visibility wall, in types) ────────────────
 
+/** A staff member's own outcome mix for the window — their conversion signal, L1.
+ *  `declineReasons` are the DeclineReason keys from outcome-types.ts; `pendingCount`
+ *  is the "decide later" backlog — chronically deferring a close is itself a coaching
+ *  signal (and quietly rots the training data until it's resolved). */
+export interface OutcomesSummary {
+  noDealTotal: number
+  declineReasons: Array<{ reason: string; count: number }>
+  /** 後で決める / 'pending' outcomes not yet resolved. */
+  pendingCount: number
+}
+
+/** An anonymized top-performer technique (from §14) surfaced for this staff to
+ *  learn from — win-only, never a name, never >20 chars verbatim. */
+export interface TeamPattern {
+  id: string
+  categoryKey: string
+  /** The transferable behavior, anonymized. */
+  behavior: string
+  /** e.g. "トップ層の9割が実践" — no individual is ever named. */
+  adoptionNote: string
+}
+
 /** L1 — the staff member's own mirror. Full depth: real metrics, trend,
  *  per-category gap-to-top, ranked honest findings WITH receipts, strengths,
  *  focus. This is the only view that carries FindingEvidence / transcript. */
 export interface StaffCoachingView {
   scope: 'staff-self'
   metrics: CoreMetrics
-  /** 6-month (or available) trend for the headline metrics. */
+  /** Trend of the primary metric (closing rate) over the available window. */
   progressHistory: MetricPoint[]
   categories: CategoryScore[]
   /** Ranked by severity/impact. Includes strengths (severity 'strength'). */
   findings: HonestFinding[]
   focus: FocusRecommendation[]
+  /** This staff's own no-deal reasons + the unresolved "decide later" backlog. */
+  outcomes: OutcomesSummary
+  /** Anonymized top-performer techniques to learn from (§14). */
+  learnFromTop: TeamPattern[]
   /** Overall honesty caveat for the whole view when the tenant is young. */
   maturityNote: string | null
 }
