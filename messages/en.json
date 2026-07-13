@@ -2671,7 +2671,13 @@
     "scopeKarute": "Karute",
     "scopeCustomers": "Customers",
     "scopeBookings": "Bookings",
-    "scopeRecordings": "Recordings"
+    "scopeRecordings": "Recordings",
+    "todayHints": "Today's tips",
+    "todayHintsHint": "Auto-suggested from today's bookings and karute records.",
+    "deepConsult": "In-depth consultation",
+    "open": "Open",
+    "reference": "Referenced {label}",
+    "copyReply": "Copy reply"
   },
   "karuteExport": {
     "title": "Karute",

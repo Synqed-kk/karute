@@ -2671,7 +2671,13 @@
     "scopeKarute": "カルテ",
     "scopeCustomers": "顧客",
     "scopeBookings": "予約",
-    "scopeRecordings": "録音"
+    "scopeRecordings": "録音",
+    "todayHints": "今日のヒント",
+    "todayHintsHint": "今日の予約とカルテから自動で提案しています",
+    "deepConsult": "じっくり相談",
+    "open": "開く",
+    "reference": "{label}を参照",
+    "copyReply": "返答をコピー"
   },
   "karuteExport": {
     "title": "カルテ",

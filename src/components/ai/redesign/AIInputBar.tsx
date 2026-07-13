@@ -31,7 +31,7 @@ export function AIInputBar({ value, onChange, onSend, disabled }: AIInputBarProp
 
   return (
     <div className="sticky bottom-0 z-10 -mx-4 border-t border-border bg-background/80 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
-      <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:border-sky-500">
+      <div className="flex items-end gap-2 rounded-2xl border border-border bg-card p-2 shadow-sm focus-within:border-foreground">
         <textarea
           ref={ref}
           value={value}
@@ -46,7 +46,7 @@ export function AIInputBar({ value, onChange, onSend, disabled }: AIInputBarProp
           onClick={onSend}
           disabled={!value.trim() || disabled}
           aria-label={t('sendAria')}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-sky-500 text-white transition-colors hover:bg-sky-600 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Send size={14} />
         </button>

@@ -1,9 +1,8 @@
 import { getTranslations } from 'next-intl/server'
-import { createClient } from '@/lib/supabase/server'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
+import { getTodaySignals } from '@/lib/karute/ai-signals'
 import {
   getBusinessProfile,
   getConsultationQuestions,
@@ -18,24 +17,15 @@ export default async function AskAIPage({
   const { locale } = await params
   const localeArg = locale === 'ja' ? 'ja' : 'en'
   const t = await getTranslations('askAi')
-  const supabase = await createClient()
 
   // Scope counts from synqed-core (the Supabase karute_records mirror is empty
   // post-migration — Karute + Recordings used to show 0).
   const synqedPromise = getSynqedClient()
   const nowIso = new Date().toISOString()
 
-  const [
-    {
-      data: { user },
-    },
-    orgSettings,
-    karuteRes,
-    customerList,
-    apptList,
-  ] = await Promise.all([
-    supabase.auth.getUser(),
-    getOrgSettings(),
+  const [orgSettings, karuteRes, customerList, apptList, signals] =
+    await Promise.all([
+      getOrgSettings(),
     synqedPromise.then((synqed) =>
       synqed.karuteRecords
         .list({ page_size: 200 })
@@ -49,6 +39,9 @@ export default async function AskAIPage({
         .list({ from: nowIso, page_size: 1 })
         .catch(() => ({ total: 0 })),
     ),
+    // Today's ranked signal chips (PKT-101); store-scoped internally, [] on error.
+    // Locale-selected tag/title/prompt strings come straight from the data.
+    getTodaySignals(localeArg),
   ])
 
   const scope: DataScopeItem[] = [
@@ -69,15 +62,12 @@ export default async function AskAIPage({
   const profile = businessType ? getBusinessProfile(businessType, localeArg) : null
   const prompts = getConsultationQuestions(businessType, localeArg).slice(0, 3)
 
-  const userName = user?.email?.split('@')[0] ?? 'You'
-
   return (
     <AIAssistantView
       scope={scope}
       profile={profile}
       prompts={prompts}
-      userName={userName}
-      userInitials={deriveFamilyInitials(userName)}
+      signals={signals}
       locale={locale}
     />
   )
