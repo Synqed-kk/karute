@@ -32,9 +32,11 @@
 // are never capped (is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-react'
+
+import { businessTypeLabel } from '@/lib/welcome/business-types'
 
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
@@ -77,6 +79,7 @@ function mapStoreRows(rows: StoreRow[]): Store[] {
     customerCount: r.customerCount,
     active: r.active,
     isPrimary: r.isPrimary,
+    businessType: r.businessType,
   }))
 }
 
@@ -88,6 +91,7 @@ export function StoresSection({
   initialEntitlement,
 }: StoresSectionProps) {
   const t = useTranslations('settings.stores')
+  const locale = useLocale()
   const tPlan = useTranslations('settings.stores.plan')
   const tTier = useTranslations('settings.subscription.tierLabels')
 
@@ -106,6 +110,7 @@ export function StoresSection({
         customerCount: 0,
         active: true,
         isPrimary: true,
+        businessType: orgSettings.business_type ?? null,
       },
     ]
   }, [orgSettings, t])
@@ -177,7 +182,13 @@ export function StoresSection({
   }
 
   const handleFormSave = async (values: StoreFormValues) => {
-    const payload = { name: values.name, address: values.address, phone: values.phone }
+    const payload = {
+      name: values.name,
+      address: values.address,
+      phone: values.phone,
+      // '' (legacy edit, type never chosen) → omit, so validation stays clean.
+      business_type: values.businessType || undefined,
+    }
     if (formMode?.kind === 'add') {
       const res = await createStore(payload)
       if ('error' in res) {
@@ -220,6 +231,7 @@ export function StoresSection({
       />
       <StoreFormDialog
         mode={formMode}
+        defaultBusinessType={orgSettings?.business_type ?? null}
         onClose={() => setFormMode(null)}
         onSave={handleFormSave}
       />
@@ -354,6 +366,14 @@ export function StoresSection({
                             {t('activeBadge')}
                           </span>
                         )}
+                        {(() => {
+                          const typeLabel = businessTypeLabel(store.businessType, locale)
+                          return typeLabel ? (
+                            <span className="inline-flex h-5 items-center rounded-full bg-muted px-1.5 text-[10px] font-medium text-foreground/70 ring-1 ring-border/60">
+                              {typeLabel}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
                       {store.address && (
                         <div className="mt-1 flex items-start gap-1 text-[12px] text-muted-foreground">

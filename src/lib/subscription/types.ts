@@ -24,6 +24,11 @@ export type SubscriptionStatus =
   | 'canceled'
   | 'free'
 
+/** One-time setup fee (初期費用) charged per ADDITIONAL store. 0 = disabled;
+ *  the add-store dialog renders the fee row automatically once Liam/Anthony fix
+ *  the amount here. Single source of truth — nothing else hardcodes it. */
+export const STORE_SETUP_FEE_JPY = 0
+
 /** Every tier, for validating externally-sourced tier strings (core rows,
  *  env overrides). Single list — add a tier here and TIER_FEATURES breaks
  *  the build until it's priced, which is the point. */
