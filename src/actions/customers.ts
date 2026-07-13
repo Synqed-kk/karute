@@ -64,6 +64,34 @@ const CustomerFormSchema = z.object({
 
 type CustomerFormInput = z.infer<typeof CustomerFormSchema>
 
+// Strict partial-update schema (packet 03, gap 3). The old partial path forwarded
+// `input as Record<string, unknown>` straight to synqed-core — any caller-supplied
+// key (e.g. tenant/business columns, visit counters) rode through unchecked.
+// `.strict()` REJECTS unknown keys so only these whitelisted, typed fields are
+// ever written on a partial update.
+const PartialCustomerSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required').max(100),
+    furigana: z.string().max(100),
+    phone: z.string().max(20),
+    email: z.string().email('Invalid email address').or(z.literal('')),
+    notes: z.string().max(4000),
+    assigned_staff_id: z.string().max(100),
+    date_of_birth: z.string().max(10),
+    gender: z.string().max(10),
+    occupation: z.string().max(100),
+    member_number: z.string().max(100),
+  })
+  .partial()
+  .strict()
+
+export type PartialCustomerInput = z.infer<typeof PartialCustomerSchema>
+
+// Fields whose '' sentinel means "clear to null" at the core boundary.
+const NULLABLE_PARTIAL_KEYS: (keyof PartialCustomerInput)[] = [
+  'furigana', 'phone', 'email', 'assigned_staff_id', 'date_of_birth', 'gender', 'occupation', 'member_number',
+]
+
 // ---------------------------------------------------------------------------
 // Return type
 // ---------------------------------------------------------------------------
@@ -189,49 +217,35 @@ export async function listAssignableStaff(): Promise<{ id: string; name: string 
 // updateCustomer
 // ---------------------------------------------------------------------------
 
-export async function updateCustomer(id: string, input: CustomerFormInput | Record<string, unknown>): Promise<ActionResult> {
+/**
+ * Shared update service — takes an EXPLICIT business-scoped client so BOTH the
+ * web server action (cookie identity) AND the facade PATCH handler (Bearer
+ * identity) run the identical strict validation + core write. All input goes
+ * through PartialCustomerSchema.strict(): unknown keys are rejected, never
+ * forwarded (packet 03, gap 3). Presence-guarded so a partial save (e.g. a
+ * booking-memo `{ notes }`) never wipes fields it didn't send.
+ */
+export async function updateCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+  input: Record<string, unknown>,
+): Promise<ActionResult> {
+  const parsed = PartialCustomerSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues.map((e) => e.message).join(', ') }
+  }
+  const data = parsed.data
+
+  const patch: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(data)) {
+    // '' clears a nullable field to null; name/notes pass through as-is.
+    patch[key] = (NULLABLE_PARTIAL_KEYS as string[]).includes(key)
+      ? (value as string) || null
+      : value
+  }
+
   try {
-    const synqed = await getSynqedClient()
-
-    if ('name' in input && typeof input.name === 'string') {
-      const parsed = CustomerFormSchema.safeParse(input)
-      if (!parsed.success) {
-        return {
-          success: false,
-          error: parsed.error.issues.map((e) => e.message).join(', '),
-        }
-      }
-      const { name, furigana, phone, email } = parsed.data
-      await synqed.customers.update(id, {
-        name,
-        furigana: furigana || null,
-        phone: phone || null,
-        email: email || null,
-        ...(('notes' in input && input.notes !== undefined) ? { notes: input.notes as string } : {}),
-        // 指名スタッフ: only touch it when the form actually sent the field, so
-        // partial updates (e.g. booking-memo saves) can't accidentally clear a
-        // customer's assigned stylist. '' → null (指名なし).
-        ...(('assigned_staff_id' in input)
-          ? { assigned_staff_id: (input.assigned_staff_id as string) || null }
-          : {}),
-        // 生年月日 / 性別 — presence-guarded so partial updates don't wipe them.
-        // The edit form seeds current values, so a normal save preserves them.
-        ...(('date_of_birth' in input)
-          ? { date_of_birth: (input.date_of_birth as string) || null }
-          : {}),
-        ...(('gender' in input) ? { gender: (input.gender as string) || null } : {}),
-        ...(('occupation' in input)
-          ? { occupation: (input.occupation as string) || null }
-          : {}),
-        ...(('member_number' in input)
-          ? { member_number: (input.member_number as string) || null }
-          : {}),
-      })
-    } else {
-      // Partial update
-      await synqed.customers.update(id, input as Record<string, unknown>)
-    }
-
+    await synqed.customers.update(id, patch)
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
     updateTag('customers')
@@ -240,6 +254,14 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
     console.error('[updateCustomer] backend error:', err)
     return { success: false, error: await translateBackendError(err) }
   }
+}
+
+export async function updateCustomer(
+  id: string,
+  input: CustomerFormInput | Record<string, unknown>,
+): Promise<ActionResult> {
+  const synqed = await getSynqedClient()
+  return updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
 }
 
 // ---------------------------------------------------------------------------

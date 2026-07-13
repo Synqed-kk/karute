@@ -45,20 +45,32 @@ export async function bootstrapBusinessForNewUser(
   // Fall back to creating one if the trigger isn't installed.
   const { data: existingProfile } = await service
     .from('profiles')
-    .select('customer_id, full_name')
+    .select('customer_id, full_name, permission_role')
     .eq('id', user.id)
     .maybeSingle()
 
   let businessId: string
   if (existingProfile?.customer_id) {
     businessId = existingProfile.customer_id as string
-    // Update full_name to the salon name if it's still the default (email).
-    if (existingProfile.full_name !== salonName) {
-      await service
-        .from('profiles')
-        .update({ full_name: salonName })
-        .eq('id', user.id)
-    }
+    // Write the salon name AND — only when the row has NO role yet — the OWNER
+    // role. The Supabase trigger seeds the profile with no role, so without the
+    // stamp the first owner resolves to `practitioner` (synqedRoleToPreset's
+    // default) and is refused by every capability gate — including
+    // `settings.manage` on completeOnboarding's "Finish setup". The stamp is
+    // GATED on a role-less row: this action takes userId from the
+    // (pre-session-sync) client and only verifies the user EXISTS, so it must
+    // never change a role someone already holds. Invited staff always carry
+    // permission_role from invites.ts, so their rows keep their role; the
+    // idempotent owner re-run still updates full_name.
+    await service
+      .from('profiles')
+      .update({
+        full_name: salonName,
+        ...(existingProfile.permission_role
+          ? {}
+          : { display_role: 'owner', permission_role: 'owner' }),
+      })
+      .eq('id', user.id)
   } else {
     businessId = randomUUID()
     const { error: profileErr } = await service.from('profiles').insert({
@@ -66,6 +78,8 @@ export async function bootstrapBusinessForNewUser(
       customer_id: businessId,
       full_name: salonName,
       email: user.email ?? null,
+      display_role: 'owner',
+      permission_role: 'owner',
     })
     if (profileErr) {
       return { ok: false, error: `Failed to create profile: ${profileErr.message}` }
