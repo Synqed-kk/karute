@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useState, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { useForm, useFieldArray } from 'react-hook-form'
@@ -95,7 +97,7 @@ export function ReviewScreen({
   useEffect(() => {
     async function fetchSuggestions() {
       try {
-        const res = await fetch('/api/ai/suggestions', {
+        const res = await getDataPort().apiFetch('/api/ai/suggestions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

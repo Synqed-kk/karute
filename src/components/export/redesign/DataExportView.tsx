@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
@@ -92,7 +94,7 @@ export function DataExportView({
       )
       if (filterPairs.length) params.set('filters', filterPairs.join('&'))
 
-      const res = await fetch(`/api/export?${params.toString()}`)
+      const res = await getDataPort().apiFetch(`/api/export?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
