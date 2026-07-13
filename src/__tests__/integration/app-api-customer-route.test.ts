@@ -13,6 +13,8 @@ jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) 
 // getUser. Mock supabase-js's createClient so defaultGetUser confirms the token
 // subject (or, when overridden, reports the token as revoked → 401).
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
+process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
 const mockGetUser = jest.fn(
   async (): Promise<{ data: { user: { id: string } | null }; error: { message: string } | null }> => ({
     data: { user: { id: 'auth-user-1' } },

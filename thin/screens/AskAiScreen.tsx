@@ -8,7 +8,6 @@ import {
   getBusinessProfile,
   getConsultationQuestions,
 } from '@/lib/welcome/business-types'
-import { deriveFamilyInitials } from '@/lib/customers/identity'
 import { AskAiScreenDTO, type AskAiScreenDTOType } from '@/lib/app-api/ask-ai-dto'
 import type { DataScopeItem } from '@/components/ai/redesign/AIPageHeader'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
@@ -36,8 +35,10 @@ export function AskAiScreen() {
             scope={scope}
             profile={profile}
             prompts={prompts}
-            userName={dto.userName}
-            userInitials={deriveFamilyInitials(dto.userName)}
+            // Today-signals need a live signals DTO field (web page derives them
+            // server-side); the thin screen ships without them until the facade
+            // exposes one — empty renders the header without signal chips.
+            signals={[]}
             locale="ja"
           />
         )

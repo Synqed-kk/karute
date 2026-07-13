@@ -11,6 +11,8 @@
 import { createHmac } from 'node:crypto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
+process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }) } }),
 }))
