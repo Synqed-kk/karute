@@ -33,6 +33,7 @@ const booking: ReservationView = {
   staffName: '原田 かなみ',
   startTimeHm: '18:00',
   durationMin: 60,
+  noShowCount: 0,
   customerName: '魚谷真佐美',
   customerInitials: '魚',
   karuteNumber: '#00529',
