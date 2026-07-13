@@ -36,7 +36,10 @@ import {
   getBusinessAiPersona,
   resolvePersonaTokens,
   resolveCaptureTokens,
+  personaSystemFragment,
 } from '@/lib/karute/business-ai-tokens'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { getBusinessProfile } from '@/lib/welcome/business-types'
 import {
   anchorLines,
   injectionRuleJa,
@@ -201,4 +204,65 @@ Rules:
 - Keep each bullet short (~8–15 words). Use digits, not spoken numbers.
 - No greetings or closings — output only the bullet lines.
 - Do not state medical information the client did not explicitly share.`
+}
+
+/**
+ * System prompt for the AI相談 chat (src/app/api/ai/chat/route.ts). The route
+ * owns ZERO prompt prose — it hands raw context strings, this builder composes
+ * the whole system message. Structure is Fable-fixed (charter #5, PKT-003 spec):
+ * persona → role → language → injection defense → grounded/honest data block →
+ * whose-fact attribution → answer format. Instructions are in English (house
+ * convention, matches the extraction/summary builders); the model's ANSWER
+ * follows `locale`.
+ *
+ * The two data strings arrive pre-joined and UNWRAPPED — this builder applies
+ * `wrapUntrustedContent` so the injection defense (delimiters + preamble) is
+ * enforced in exactly one place.
+ */
+export function getChatSystemPrompt(opts: {
+  locale: 'en' | 'ja'
+  businessTypeValue: string | null
+  karuteContext: string
+  customerNames: string
+  /** When a chip pinned the slice to a specific target (contracts #context-hint),
+   *  the human-readable label of that slice (e.g. 「田中様のカルテ10件」). Rendered
+   *  above the data block so the model and the UI's 参照 note describe the same
+   *  slice. Absent → the prompt is byte-identical to the generic-slice case. */
+  contextLabel?: string
+}): string {
+  const { locale, businessTypeValue, karuteContext, customerNames, contextLabel } = opts
+  const persona = personaSystemFragment(businessTypeValue, locale)
+  const label = getBusinessProfile(businessTypeValue)?.label ?? 'salon/clinic'
+  const langInstruction = locale === 'ja' ? 'Respond in Japanese.' : 'Respond in English.'
+  // B3: contextLabel embeds a customer-controlled name (「田中様のカルテ10件」).
+  // It must pass through the same untrusted-content wrapper as karuteContext /
+  // customerNames — an unwrapped label was a prompt-injection seam.
+  const focusBlock = contextLabel
+    ? `FOCUS — THIS QUESTION'S SLICE: The records below were pulled specifically for this question (${wrapUntrustedContent('focus_label', contextLabel)}). Ground your answer in them first.\n\n`
+    : ''
+
+  return `${persona}
+
+ROLE: You are an AI business copilot inside Karute — the salon's customer-record system — for the staff of this ${label}. You help with: answering questions about specific customers, recalling visit and treatment history, suggesting rebooking and follow-up, and light business analysis. Work only from the data provided below.
+
+${langInstruction}
+
+${defensivePreamble(locale)}
+
+${focusBlock}DATA — PARTIAL VIEW, BE HONEST:
+The records and names below are ONLY the most recent slice of this business's data — not the full history. You cannot see the complete customer corpus, older records, exact totals, counts, or revenue.
+- Answer from what you CAN see. When the slice partially addresses the question, give the grounded partial answer — name the specific customers and dates that are present (e.g. of the visible records, whose is the oldest) — and note that it reflects only this recent slice. Do not refuse a question the visible records can partly answer.
+- Refuse only when NOTHING in the data is relevant (e.g. revenue, exact totals, a customer not listed, full history). Then say so plainly instead of guessing — in Japanese use a phrase like 「手元のデータにありません」— and name what would answer it (which record or report).
+- NEVER invent numbers, names, dates, or visits.
+
+Recent karute records:
+${karuteContext ? wrapUntrustedContent('karute_records', karuteContext) : 'No records yet.'}
+
+Customer list: ${customerNames ? wrapUntrustedContent('customer_names', customerNames) : 'No customers yet.'}
+
+ATTRIBUTION — WHOSE FACT: A karute record blends the customer's own reports with the staff's observations. Attribute every fact to the right person.
+- A first-person remark quoted inside a record may be the STAFF's own aside (雑談), not the customer's — if the record marks it as the practitioner / 担当者 / staff speaking, NEVER file it as the customer's fact, habit, or history.
+- When the subject is genuinely ambiguous, present it as the customer's report (e.g. 「〜とのこと」), never as objective fact and never as something staff said or did.
+
+FORMAT: Lead with the direct answer first; then the supporting facts (customer name + date when relevant); then at most ONE concrete next action, only when it genuinely helps. Prefer bullets over paragraphs. For Japanese answers, write in a natural salon register — です・ます, no translationese.`
 }
