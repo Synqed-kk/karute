@@ -1,3 +1,4 @@
+import type { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { ymdInJst } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
@@ -219,55 +220,68 @@ export interface CustomerPackUsage {
 }
 
 /** Bulk pack usage for the customer LIST page — two business-scoped reads,
- *  grouped in memory. core returns active packs FIFO-ordered. */
-export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
+ *  grouped in memory. core returns active packs FIFO-ordered.
+ *  THROWS on failure (packet 04): the facade caller maps it to a classified
+ *  502 — a mobile cache must never freeze a silent "no packs" empty. The web
+ *  wrapper below keeps today's graceful-empty behavior. */
+export async function listAllPackUsageWithClient(
+  synqed: SynqedClient,
+): Promise<Map<string, CustomerPackUsage>> {
   const map = new Map<string, CustomerPackUsage>()
+  const [packs, redPackIds] = await Promise.all([
+    synqed.packs.listActivePacks(),
+    synqed.packs.listAllRedemptionPackIds(),
+  ])
+  const countByPack = new Map<string, number>()
+  for (const pid of redPackIds) {
+    countByPack.set(pid, (countByPack.get(pid) ?? 0) + 1)
+  }
+  for (const p of packs) {
+    if (p.kind !== 'pack') continue
+    const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
+    const cur = map.get(p.customer_id) ?? {
+      remaining: 0,
+      size: 0,
+      unconsumed: 0,
+      hasActivePack: false,
+      firstPackId: null,
+    }
+    cur.remaining += remaining
+    cur.size += p.pack_size
+    cur.unconsumed += remaining * p.unit_price
+    cur.hasActivePack = true
+    if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
+    map.set(p.customer_id, cur)
+  }
+  return map
+}
+
+export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
   try {
-    const synqed = await getSynqedClient()
-    const [packs, redPackIds] = await Promise.all([
-      synqed.packs.listActivePacks(),
-      synqed.packs.listAllRedemptionPackIds(),
-    ])
-    const countByPack = new Map<string, number>()
-    for (const pid of redPackIds) {
-      countByPack.set(pid, (countByPack.get(pid) ?? 0) + 1)
-    }
-    for (const p of packs) {
-      if (p.kind !== 'pack') continue
-      const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
-      const cur = map.get(p.customer_id) ?? {
-        remaining: 0,
-        size: 0,
-        unconsumed: 0,
-        hasActivePack: false,
-        firstPackId: null,
-      }
-      cur.remaining += remaining
-      cur.size += p.pack_size
-      cur.unconsumed += remaining * p.unit_price
-      cur.hasActivePack = true
-      if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
-      map.set(p.customer_id, cur)
-    }
-    return map
+    return await listAllPackUsageWithClient(await getSynqedClient())
   } catch (err) {
     warn('listAllPackUsage', err)
-    return map
+    return new Map()
   }
 }
 
 /** Bulk lifecycle for the list page — graduated/lost customers are excluded
- *  from alerts. */
-export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle>> {
+ *  from alerts. Throwing/graceful split identical to listAllPackUsage above. */
+export async function listAllLifecyclesWithClient(
+  synqed: SynqedClient,
+): Promise<Map<string, CustomerLifecycle>> {
   const map = new Map<string, CustomerLifecycle>()
+  const rows = await synqed.packs.listLifecycles()
+  for (const row of rows) map.set(row.customer_id, row as CustomerLifecycle)
+  return map
+}
+
+export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle>> {
   try {
-    const synqed = await getSynqedClient()
-    const rows = await synqed.packs.listLifecycles()
-    for (const row of rows) map.set(row.customer_id, row as CustomerLifecycle)
-    return map
+    return await listAllLifecyclesWithClient(await getSynqedClient())
   } catch (err) {
     warn('listAllLifecycles', err)
-    return map
+    return new Map()
   }
 }
 

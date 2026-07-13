@@ -25,7 +25,10 @@ export interface StaffMemberBasic {
 // Inside unstable_cache there's no request context (no cookies → no RLS),
 // so we use the service-role client and filter by businessId explicitly.
 // The cache key includes businessId so tenants never see each other's data.
-const staffListByBusiness = unstable_cache(
+// Exported for the facade (Bearer path), which resolves businessId from the
+// verified token. Plain lib module (NOT 'use server') — exporting this adds
+// no client-invocable action endpoint.
+export const staffListByBusiness = unstable_cache(
   async (businessId: string): Promise<StaffMember[]> => {
     const service = createServiceClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
