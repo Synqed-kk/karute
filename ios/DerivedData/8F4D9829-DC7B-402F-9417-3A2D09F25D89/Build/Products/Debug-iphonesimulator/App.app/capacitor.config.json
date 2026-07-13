@@ -1,0 +1,18 @@
+{
+	"appId": "jp.synqed.karute",
+	"appName": "Karute",
+	"webDir": "capacitor-shell",
+	"server": {
+		"url": "https://karute-omega.vercel.app",
+		"cleartext": false,
+		"allowNavigation": [
+			"karute-omega.vercel.app"
+		]
+	},
+	"ios": {
+		"scheme": "capacitor",
+		"backgroundColor": "#ffffff",
+		"preferredContentMode": "mobile"
+	},
+	"packageClassList": []
+}
