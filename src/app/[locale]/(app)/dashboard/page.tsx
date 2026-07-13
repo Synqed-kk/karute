@@ -3,7 +3,10 @@ import { getStaffList, getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData, type DashboardTodayAppointment } from '@/lib/dashboard/cached'
-import { getCachedCustomerList } from '@/lib/customers/cached'
+import {
+  getCachedCustomerList,
+  getCachedCustomerListFor,
+} from '@/lib/customers/cached'
 import { startTiming } from '@/lib/perf/timing'
 import { getPackAlerts } from '@/lib/packs/alerts'
 import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
@@ -57,6 +60,12 @@ function compactDayLabel(d: Date, locale: string): string {
 
 export default async function DashboardPage() {
   const t = startTiming('dashboard')
+  // RBAC store scope — resolved ONCE, shared by every store-scoped read on
+  // this page (pack alerts, reconcile, pack-usage lens, attention-AI cache
+  // key). Pack data has no store column server-side (#465 family), so the
+  // pack surfaces clamp by store MEMBERSHIP: drop holders outside the
+  // viewer's store-filtered customer list.
+  const storeScopePromise = resolveStoreScope().catch(() => null)
 
   const [
     staffList,
@@ -78,8 +87,12 @@ export default async function DashboardPage() {
     getLocale(),
     t.phase('customerList', () => getCachedCustomerList()),
     // 離客/upsell alerts — { [], [] } until the ticket_packs migration applies.
-    t.phase('packAlerts', () => getPackAlerts()),
-    t.phase('reconcile', () => loadUnprocessedVisits()),
+    t.phase('packAlerts', () =>
+      storeScopePromise.then((s) => getPackAlerts(undefined, s?.storeId)),
+    ),
+    t.phase('reconcile', () =>
+      storeScopePromise.then((s) => loadUnprocessedVisits(s?.storeId)),
+    ),
     // Manager+ only may dismiss (Kitano's rule) — alerts.manage capability.
     can('alerts.manage').catch(() => false),
     // Per-customer 残回数 — the ticket chips on hero + day flow.
@@ -96,7 +109,29 @@ export default async function DashboardPage() {
   // downstream chip/list/total then naturally disappears, and the two pack
   // cards are hidden outright via ticketsEnabled.
   const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
-  const packUsageView = ticketsEnabled ? packUsage : (new Map() as typeof packUsage)
+  // Store lens on the raw usage map (rebook rows + 残N chips + enrichment id
+  // set). getPackAlerts applies the same lens internally; the shared 60s
+  // customer-list cache makes the second read free. Fail CLOSED: if the lens
+  // fetch errors, show no pack rows rather than another store's.
+  const scope = await storeScopePromise
+  let packUsageLensed = packUsage
+  if (scope?.storeId && businessId && packUsage.size > 0) {
+    try {
+      const storeCustomers = await getCachedCustomerListFor(
+        businessId,
+        scope.storeId,
+      )
+      const inStore = new Set(storeCustomers.map((c) => c.id))
+      packUsageLensed = new Map(
+        [...packUsage].filter(([id]) => inStore.has(id)),
+      )
+    } catch {
+      packUsageLensed = new Map() as typeof packUsage
+    }
+  }
+  const packUsageView = ticketsEnabled
+    ? packUsageLensed
+    : (new Map() as typeof packUsage)
   const packAlertsView = ticketsEnabled
     ? packAlerts
     : {
@@ -288,9 +323,7 @@ export default async function DashboardPage() {
   // Same clamped store as the dashboard data scope: the attention-AI cache key
   // must not key on the raw cookie (a branch-restricted staff with an unset
   // cookie would key/scope by the primary store, not their assigned one).
-  const activeStoreId = await resolveStoreScope()
-    .then((s) => s.storeId)
-    .catch(() => null)
+  const activeStoreId = scope?.storeId ?? null
   const attentionLines = await t.phase('attentionAI', () =>
     getDailyAttentionLines({
       items: attentionInputs,
