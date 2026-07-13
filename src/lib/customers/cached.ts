@@ -32,7 +32,13 @@ export interface CachedCustomerOption {
 // so each tenant gets its own entry. The static tag lets mutation actions invalidate
 // every tenant's entry with a single revalidateTag('customers') call.
 const customerListByBusiness = unstable_cache(
-  async (businessId: string): Promise<CachedCustomerOption[]> => {
+  // storeId is optional AND part of the cache key (Next keys on args):
+  // undefined = the business-wide list every existing caller gets; a store id =
+  // that store's server-filtered lens (core derives membership from events).
+  async (
+    businessId: string,
+    storeId?: string,
+  ): Promise<CachedCustomerOption[]> => {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
     if (!baseUrl || !apiKey) {
@@ -48,6 +54,7 @@ const customerListByBusiness = unstable_cache(
         page_size: 500,
         sort_by: 'name',
         sort_order: 'asc',
+        store_id: storeId,
       })
       return { items: result.customers, total: result.total }
     })
@@ -90,9 +97,19 @@ export async function getCachedCustomerList(): Promise<CachedCustomerOption[]> {
  * call from inside an `unstable_cache` body. The notification feed deriver uses
  * it to cache its enrichment pass per business without an auth read in the
  * cache context. Same 60s cache + 'customers' tag as `getCachedCustomerList`.
+ *
+ * Pass storeId to get that store's server-filtered lens instead of the
+ * business-wide list (the caller resolves it via resolveStoreScope — never a
+ * raw cookie).
  */
 export function getCachedCustomerListFor(
   businessId: string,
+  storeId?: string,
 ): Promise<CachedCustomerOption[]> {
-  return customerListByBusiness(businessId)
+  // Arity matters: unstable_cache keys on the REAL argument array, so passing
+  // an explicit `undefined` would fork a second cache entry for the same
+  // business-wide list that getCachedCustomerList() populates.
+  return storeId === undefined
+    ? customerListByBusiness(businessId)
+    : customerListByBusiness(businessId, storeId)
 }
