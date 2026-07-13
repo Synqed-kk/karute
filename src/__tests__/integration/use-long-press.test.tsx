@@ -111,6 +111,22 @@ describe('useLongPress', () => {
     expect(onShortTap).not.toHaveBeenCalled()
   })
 
+  it('ignores a pointerup with no preceding pointerdown (overlay click-through)', () => {
+    const onLongPress = jest.fn()
+    const onShortTap = jest.fn()
+    const { result } = renderHook(() => useLongPress({ onLongPress, onShortTap }))
+    // mouseup lands here after a dialog overlay swallowed the mousedown
+    act(() => result.current.onPointerUp())
+    expect(onShortTap).not.toHaveBeenCalled()
+    expect(onLongPress).not.toHaveBeenCalled()
+    // a second stray pointerup after a completed tap is also not a tap
+    act(() => result.current.onPointerDown(pt()))
+    act(() => result.current.onPointerUp())
+    expect(onShortTap).toHaveBeenCalledTimes(1)
+    act(() => result.current.onPointerUp())
+    expect(onShortTap).toHaveBeenCalledTimes(1)
+  })
+
   it('tolerates sub-threshold finger jitter — a steady hold still fires', () => {
     const onLongPress = jest.fn()
     const { result } = renderHook(() => useLongPress({ onLongPress }))

@@ -77,7 +77,12 @@ export function useLongPress({
 
   const end = useCallback(() => {
     cancel()
-    if (!firedLong.current && !moved.current && onShortTap) {
+    // A pointerup with no matching pointerdown on this element is a phantom:
+    // e.g. mousedown on a dialog overlay closes it, the overlay unmounts, and
+    // the mouseup lands on the row underneath — that must not count as a tap.
+    const pressed = origin.current !== null
+    origin.current = null
+    if (pressed && !firedLong.current && !moved.current && onShortTap) {
       onShortTap()
     }
   }, [cancel, onShortTap])
