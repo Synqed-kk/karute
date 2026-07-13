@@ -7,6 +7,13 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   enforceAiRateLimit: jest.fn(async () => null),
 }))
 
+// The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
+// the rate limiter above. Allowed by default; the gate's own behavior is
+// covered in api-extract.test.ts + subscription-enforcement.test.ts.
+jest.mock('@/lib/subscription/feature-gate', () => ({
+  featureAllowed: jest.fn(async () => true),
+}))
+
 // Org settings drive the diarize flag — stub a permissive default.
 jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => ({ speaker_diarization: true })),

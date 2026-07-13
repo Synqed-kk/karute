@@ -37,6 +37,7 @@ import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
 import { ConsentPill } from './ConsentPill'
+import { RecordingConsentDialog } from './RecordingConsentDialog'
 import {
   RecentRecordingsCard,
   type RecentRecording,
@@ -296,7 +297,16 @@ export function RecordPageView({
     if (!customerIdForConsent) return
     setConsentSubmitting(true)
     setConsentError(null)
-    const r = await grantCustomerConsent(customerIdForConsent, { method: 'VERBAL' })
+    // Transport failures must release the dialog, not wedge it (same class of
+    // bug the review screen's consent confirm had — fixed in both places).
+    let r: Awaited<ReturnType<typeof grantCustomerConsent>>
+    try {
+      r = await grantCustomerConsent(customerIdForConsent, { method: 'VERBAL' })
+    } catch {
+      setConsentSubmitting(false)
+      setConsentError(tc('somethingWentWrong'))
+      return
+    }
     setConsentSubmitting(false)
     if (!r.ok) {
       setConsentError(r.error)
@@ -764,12 +774,7 @@ export function RecordPageView({
             <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             <Suspense
               key={nextAppointment?.customerId ?? 'none'}
-              fallback={
-                <PreSessionBriefCard
-                  brief={brief}
-                  customerName={nextAppointment?.customerName ?? null}
-                />
-              }
+              fallback={<BriefLoadingCard />}
             >
               <StreamingBriefCard
                 aiBriefPromise={aiBriefPromise}
@@ -797,12 +802,7 @@ export function RecordPageView({
           <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           <Suspense
             key={nextAppointment?.customerId ?? 'none'}
-            fallback={
-              <PreSessionBriefCard
-                brief={brief}
-                customerName={nextAppointment?.customerName ?? null}
-              />
-            }
+            fallback={<BriefLoadingCard />}
           >
             <StreamingBriefCard
               aiBriefPromise={aiBriefPromise}
@@ -903,44 +903,15 @@ export function RecordPageView({
       />
       )}
 
-      {/* Consent dialog */}
+      {/* Consent dialog — shared with the review screen's save-time gate */}
       {showConsentDialog && nextAppointment && (
-        <>
-          <div
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={() => !consentSubmitting && setShowConsentDialog(false)}
-          />
-          <div
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl bg-card p-6 shadow-xl ring-1 ring-border"
-          >
-            <h3 className="text-base font-semibold text-foreground">{t('consentDialogTitle')}</h3>
-            <p className="text-sm text-muted-foreground">{t('consentDialogInstructions')}</p>
-            <div className="rounded-md bg-muted p-4 text-sm leading-relaxed text-foreground">
-              {t('consentScript', { customerName: nextAppointment.customerName })}
-            </div>
-            {consentError && <p className="text-sm text-destructive">{consentError}</p>}
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                size="md"
-                className="flex-1"
-                onClick={() => setShowConsentDialog(false)}
-                disabled={consentSubmitting}
-              >
-                {tc('cancel')}
-              </Button>
-              <Button
-                variant="default"
-                size="md"
-                className="flex-1"
-                onClick={handleGrantConsent}
-                disabled={consentSubmitting}
-              >
-                {consentSubmitting ? tc('saving') : t('consentConfirmButton')}
-              </Button>
-            </div>
-          </div>
-        </>
+        <RecordingConsentDialog
+          customerName={nextAppointment.customerName}
+          submitting={consentSubmitting}
+          error={consentError}
+          onCancel={() => setShowConsentDialog(false)}
+          onConfirm={handleGrantConsent}
+        />
       )}
 
       {/* No-booking prompt */}
@@ -1010,6 +981,30 @@ function pad2(n: number): string {
 // recorder/mic/elapsed timer mid-session. isFirstTimeVisit is pinned to the
 // mechanical value so the card's 新規-vs-returning framing can't flip a beat
 // after paint (the same signal the target badge + post-session dialog use).
+// Shimmer shown while the AI brief resolves. The old fallback rendered the
+// MECHANICAL brief here, so staff read one brief for a beat and then watched
+// it morph into the AI version (Liam, 2026-07-09) — content must paint ONCE.
+// The mechanical brief still renders, but only as StreamingBriefCard's
+// fallback when the AI call actually fails.
+function BriefLoadingCard() {
+  return (
+    <section
+      aria-busy
+      className="animate-pulse rounded-2xl border border-blue-200/50 bg-blue-50/30 p-5 dark:border-blue-500/20 dark:bg-blue-500/[0.05]"
+    >
+      <div className="mb-4 flex items-center gap-2.5">
+        <div className="size-8 rounded-full bg-blue-200/60 dark:bg-blue-500/20" />
+        <div className="h-3.5 w-40 rounded bg-blue-200/60 dark:bg-blue-500/20" />
+      </div>
+      <div className="space-y-2.5">
+        <div className="h-14 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+        <div className="h-14 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+        <div className="h-9 w-2/3 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+      </div>
+    </section>
+  )
+}
+
 function StreamingBriefCard({
   aiBriefPromise,
   fallbackBrief,
