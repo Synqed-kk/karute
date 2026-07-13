@@ -4,10 +4,25 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
 import {
+<<<<<<< HEAD
+=======
+  defaultAiPredict,
+>>>>>>> origin/main
   enrichCustomers,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
+<<<<<<< HEAD
 import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
+=======
+import {
+  resolveCustomerStatus,
+  customerVisitCount,
+} from '@/lib/customers/status-signals'
+import {
+  assignSequentialKaruteNumbers,
+  deriveFamilyInitials,
+} from '@/lib/customers/identity'
+>>>>>>> origin/main
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'

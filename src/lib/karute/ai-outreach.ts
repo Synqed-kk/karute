@@ -72,7 +72,7 @@ export async function getSuggestedFollowUp(params: {
 
 【ルール】
 - 根拠：本日のカルテ要約に書かれている内容だけを使う。割引・特典・価格・予約日時など、要約に無いことは一切書かない（作った事実は信頼を壊す）。
-- 構成：(1) 本日の来店へのお礼 → (2) 本日の内容に軽く触れる（1点だけ、要約から） → (3) セルフケアの宿題があればやさしく一言 → (4) 体調の変化があればいつでもご連絡くださいと締める。
+- 構成：(1) 本日の来店へのお礼 → (2) 本日の内容に軽く触れる（1点だけ、要約から） → (3) ${persona.clinicalPosture !== 'service' ? 'セルフケアの宿題があればやさしく一言' : '宿題やおすすめしたケアがあればやさしく一言'} → (4) ${persona.clinicalPosture !== 'service' ? '体調の変化' : '気になる変化'}があればいつでもご連絡くださいと締める。
 - トーン：丁寧で温かい接客の日本語。絵文字は使わない。マークダウン・箇条書きは使わない（そのまま送れる普通の文章）。
 - 長さ：120〜220文字程度。LINEで読みやすい短さ。
 - 医療的な断定はしない：${clinicalGuardrail(persona.clinicalPosture, 'ja')}
@@ -83,7 +83,7 @@ ${defensivePreamble('ja')}`
 
 Rules:
 - Grounded ONLY in today's karute summary. Never invent discounts, offers, prices, or booking times not present in it.
-- Structure: (1) thank them for today's visit → (2) touch on ONE thing from the session → (3) gently mention the self-care homework if any → (4) close with "reach out anytime if anything changes."
+- Structure: (1) thank them for today's visit → (2) touch on ONE thing from the session → (3) gently mention any homework or recommended care → (4) close with "reach out anytime if anything changes."
 - Tone: warm, polite service language. No emoji, no markdown, no bullet points — plain sendable text.
 - Length: 2-4 short sentences.
 - No medical claims: ${clinicalGuardrail(persona.clinicalPosture, locale)}

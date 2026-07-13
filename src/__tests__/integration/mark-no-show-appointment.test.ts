@@ -96,8 +96,10 @@ beforeEach(() => {
 })
 
 describe('markNoShowAppointment — no-burn path', () => {
-  it('requires bookings.manage and sends exactly status + status_reason + acting_staff_id', async () => {
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: false })
+  it('requires bookings.manage and sends exactly status + the FIXED reason + acting_staff_id', async () => {
+    // Taxonomy fix 2026-07-10: 無断 = no contact by definition — the reason is
+    // stamped server-side, never caller input (the old chips are legacy-only).
+    const res = await markNoShowAppointment('appt-1', { burnPack: false })
     expect(requireCapability).toHaveBeenCalledWith('bookings.manage')
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', {
       status: 'NO_SHOW',
@@ -109,20 +111,20 @@ describe('markNoShowAppointment — no-burn path', () => {
 
   it('omits acting_staff_id entirely when there is no resolvable staff identity', async () => {
     getCurrentUserStaffId.mockResolvedValueOnce(null)
-    await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: false })
+    await markNoShowAppointment('appt-1', { burnPack: false })
     const [, patch] = apptUpdate.mock.calls[0] as unknown as [string, Record<string, unknown>]
     expect(Object.keys(patch).sort()).toEqual(['status', 'status_reason'])
   })
 
   it('never calls the pack machinery when burnPack is false', async () => {
-    await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: false })
+    await markNoShowAppointment('appt-1', { burnPack: false })
     expect(listCustomerPacks).not.toHaveBeenCalled()
     expect(addRedemption).not.toHaveBeenCalled()
   })
 
   it('denies cleanly when the capability check throws — no update, house error shape', async () => {
     requireCapability.mockRejectedValueOnce(new Error('You do not have permission to manage bookings.'))
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: false })
+    const res = await markNoShowAppointment('appt-1', { burnPack: false })
     expect(apptUpdate).not.toHaveBeenCalled()
     expect(res).toEqual({ error: 'You do not have permission to manage bookings.' })
   })
@@ -131,7 +133,7 @@ describe('markNoShowAppointment — no-burn path', () => {
 describe('markNoShowAppointment — burn path', () => {
   it('burns the FIFO-picked pack with counts_as_visit:false and this appointment_id', async () => {
     listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
     expect(addRedemption).toHaveBeenCalledWith(
       expect.objectContaining({
         packId: 'pack-1',
@@ -147,14 +149,14 @@ describe('markNoShowAppointment — burn path', () => {
 
   it('errors when the customer has no burnable pack — does not silently skip the burn', async () => {
     listCustomerPacks.mockResolvedValueOnce([])
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
     expect(res).toEqual({ error: expect.any(String), code: 'no_burnable_pack' })
     expect(apptUpdate).not.toHaveBeenCalled()
   })
 
   it('marks the status BEFORE burning — a failed burn can never strand a spent ticket', async () => {
     listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
-    await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    await markNoShowAppointment('appt-1', { burnPack: true })
     const updateOrder = apptUpdate.mock.invocationCallOrder[0]
     const burnOrder = addRedemption.mock.invocationCallOrder[0]
     expect(updateOrder).toBeLessThan(burnOrder)
@@ -163,7 +165,7 @@ describe('markNoShowAppointment — burn path', () => {
   it('reports a below_zero burn failure as partial success — no-show recorded, ticket not consumed', async () => {
     listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
     addRedemption.mockResolvedValueOnce({ ok: false, error: 'below_zero' })
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'NO_SHOW' }))
     expect(res).toEqual({ success: true, burnError: 'below_zero' })
   })
@@ -175,16 +177,10 @@ describe('markNoShowAppointment — burn path', () => {
       status: 'NO_SHOW',
       starts_at: '2026-07-06T03:00:00.000Z',
     })
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
     expect(res).toEqual({ error: expect.any(String), code: 'already_terminal' })
     expect(apptUpdate).not.toHaveBeenCalled()
     expect(addRedemption).not.toHaveBeenCalled()
-  })
-
-  it('rejects a reason outside the fixed codes — the audit trail is not a free-text field', async () => {
-    const res = await markNoShowAppointment('appt-1', { reason: 'because', burnPack: false })
-    expect(res).toEqual({ error: expect.any(String) })
-    expect(apptUpdate).not.toHaveBeenCalled()
   })
 
   it('one appointment burns ONE ticket ever — a restore → re-mark cycle must not double-burn', async () => {
@@ -193,7 +189,7 @@ describe('markNoShowAppointment — burn path', () => {
     listRecentRedemptions.mockResolvedValueOnce([
       { customer_id: 'cust-1', appointment_id: 'appt-1', redeemed_on: '2026-07-06' },
     ])
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
     // Status IS re-marked (the booking really is a no-show again)…
     expect(apptUpdate).toHaveBeenCalledWith('appt-1', expect.objectContaining({ status: 'NO_SHOW' }))
     // …but the ticket is NOT burned a second time, and staff hear why.
@@ -206,7 +202,7 @@ describe('markNoShowAppointment — burn path', () => {
     listRecentRedemptions.mockResolvedValueOnce([
       { customer_id: 'cust-1', appointment_id: 'appt-OTHER', redeemed_on: '2026-07-06' },
     ])
-    const res = await markNoShowAppointment('appt-1', { reason: 'no-show-no-contact', burnPack: true })
+    const res = await markNoShowAppointment('appt-1', { burnPack: true })
     expect(addRedemption).toHaveBeenCalledTimes(1)
     expect(res).toEqual({ success: true })
   })
