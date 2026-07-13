@@ -8,6 +8,7 @@
  */
 
 import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 // --- Next.js context mocks (must be top-level so jest.mock is hoisted) ---
 jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
@@ -36,6 +37,12 @@ jest.mock('@/actions/stores', () => ({
 // RBAC gate neutralized — this flow test isolates the synqed-client delegation,
 // not permissions. Capability enforcement is covered in
 // rbac-server-enforcement.test.ts.
+// Karute store default now resolves via resolveStoreScope (RBAC clamp). These
+// suites don't exercise store scoping, so stub it to the all-stores lens.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
+
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
@@ -49,6 +56,11 @@ const customers = {
   delete: jest.fn(),
   get: jest.fn(),
   checkDuplicate: jest.fn(),
+  // Save-gate consent check (src/actions/karute.ts) — current-version consent
+  // by default so this suite's saveKaruteRecord assertions reach create().
+  getConsent: jest.fn(async () => ({
+    consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+  })),
 }
 const appointments = {
   list: jest.fn(),

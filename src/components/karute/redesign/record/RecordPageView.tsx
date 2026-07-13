@@ -37,6 +37,7 @@ import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
 import { ConsentPill } from './ConsentPill'
+import { RecordingConsentDialog } from './RecordingConsentDialog'
 import {
   RecentRecordingsCard,
   type RecentRecording,
@@ -296,7 +297,16 @@ export function RecordPageView({
     if (!customerIdForConsent) return
     setConsentSubmitting(true)
     setConsentError(null)
-    const r = await grantCustomerConsent(customerIdForConsent, { method: 'VERBAL' })
+    // Transport failures must release the dialog, not wedge it (same class of
+    // bug the review screen's consent confirm had — fixed in both places).
+    let r: Awaited<ReturnType<typeof grantCustomerConsent>>
+    try {
+      r = await grantCustomerConsent(customerIdForConsent, { method: 'VERBAL' })
+    } catch {
+      setConsentSubmitting(false)
+      setConsentError(tc('somethingWentWrong'))
+      return
+    }
     setConsentSubmitting(false)
     if (!r.ok) {
       setConsentError(r.error)
@@ -893,44 +903,15 @@ export function RecordPageView({
       />
       )}
 
-      {/* Consent dialog */}
+      {/* Consent dialog — shared with the review screen's save-time gate */}
       {showConsentDialog && nextAppointment && (
-        <>
-          <div
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={() => !consentSubmitting && setShowConsentDialog(false)}
-          />
-          <div
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl bg-card p-6 shadow-xl ring-1 ring-border"
-          >
-            <h3 className="text-base font-semibold text-foreground">{t('consentDialogTitle')}</h3>
-            <p className="text-sm text-muted-foreground">{t('consentDialogInstructions')}</p>
-            <div className="rounded-md bg-muted p-4 text-sm leading-relaxed text-foreground">
-              {t('consentScript', { customerName: nextAppointment.customerName })}
-            </div>
-            {consentError && <p className="text-sm text-destructive">{consentError}</p>}
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                size="md"
-                className="flex-1"
-                onClick={() => setShowConsentDialog(false)}
-                disabled={consentSubmitting}
-              >
-                {tc('cancel')}
-              </Button>
-              <Button
-                variant="default"
-                size="md"
-                className="flex-1"
-                onClick={handleGrantConsent}
-                disabled={consentSubmitting}
-              >
-                {consentSubmitting ? tc('saving') : t('consentConfirmButton')}
-              </Button>
-            </div>
-          </div>
-        </>
+        <RecordingConsentDialog
+          customerName={nextAppointment.customerName}
+          submitting={consentSubmitting}
+          error={consentError}
+          onCancel={() => setShowConsentDialog(false)}
+          onConfirm={handleGrantConsent}
+        />
       )}
 
       {/* No-booking prompt */}
