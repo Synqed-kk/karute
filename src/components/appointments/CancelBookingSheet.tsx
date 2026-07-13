@@ -28,7 +28,12 @@ import {
   markNoShowAppointment,
   restoreAppointment,
 } from '@/actions/appointments'
-import { NO_SHOW_REASONS, type NoShowReason } from '@/lib/appointments/status'
+import {
+  CANCEL_REASONS,
+  LEGACY_NO_SHOW_REASONS,
+  NO_SHOW_REASON_NO_CONTACT,
+  type CancelReason,
+} from '@/lib/appointments/status'
 import { useHoldToConfirm } from '@/hooks/use-hold-to-confirm'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
 import { formatCompactDateJst, hmInJst } from '@/lib/date/jst'
@@ -50,7 +55,15 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
   const [busy, setBusy] = useState(false)
 
   const [noShowOpen, setNoShowOpen] = useState(false)
-  const [noShowReason, setNoShowReason] = useState<NoShowReason>(NO_SHOW_REASONS[0])
+  // Optional reason for the NORMAL cancel (taxonomy fix 2026-07-10): a cancel
+  // implies contact — the chips record how. Toggleable, none preselected (an
+  // un-reasoned cancel is valid; don't force a tap). The no-show side asks
+  // nothing: 無断 IS the reason, and first-time/repeat is DERIVED below.
+  const [cancelReason, setCancelReason] = useState<CancelReason | null>(null)
+  // Burn-on-cancel (Liam 2026-07-10): staff MAY consume a ticket on a
+  // same-day-contact cancel — the checkbox exists only while that chip is
+  // selected, and the server enforces the same pairing.
+  const [cancelBurn, setCancelBurn] = useState(false)
   const [burnPack, setBurnPack] = useState(false)
   const [packSummary, setPackSummary] = useState<{ packId: string; remaining: number } | null>(null)
   const packFetched = useRef(false)
@@ -58,40 +71,70 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
   // a slow response for a previous booking can't stamp its data on this one.
   const bookingIdRef = useRef<string | null>(null)
 
-  // Reset the no-show section whenever a different booking is targeted.
+  // Reset both sections whenever a different booking is targeted.
   useEffect(() => {
     bookingIdRef.current = booking?.id ?? null
     setNoShowOpen(false)
-    setNoShowReason(NO_SHOW_REASONS[0])
+    setCancelReason(null)
+    setCancelBurn(false)
     setBurnPack(false)
     setPackSummary(null)
     packFetched.current = false
   }, [booking?.id])
 
+  // The customer's burnable-pack summary, lazy-fetched the FIRST time either
+  // burn surface appears (no-show section open, or the same-day chip). The
+  // staleness guard keeps a slow fetch for booking A off booking B's sheet.
+  const ensurePackSummary = useCallback(() => {
+    if (packFetched.current || !booking) return
+    packFetched.current = true
+    const forBookingId = booking.id
+    void getBurnablePackSummary(booking.clientId).then((summary) => {
+      setPackSummary((prev) =>
+        bookingIdRef.current === forBookingId ? summary : prev,
+      )
+    })
+  }, [booking])
+
   const cancelHold = useHoldToConfirm(HOLD_MS, useCallback(async () => {
     if (!booking) return
-    const res = await cancelAppointment(booking.id)
+    const burning =
+      cancelBurn && cancelReason === 'cancel-same-day-contact' && !!packSummary
+    const res = await cancelAppointment(booking.id, {
+      ...(cancelReason ? { reason: cancelReason } : {}),
+      ...(burning ? { burnPack: true } : {}),
+    })
     if ('error' in res) {
       // Generic key, never res.error raw — server errors are English/internal
       // (requireCapability, SynqedError) and this is a Japanese-first UI.
-      // Same policy the no-show path below has had since it shipped.
-      toast.error(t('cancelErrorGeneric'))
+      // Same policy the no-show path below has had since it shipped. The two
+      // burn precondition codes reuse the no-show copy (identical meaning).
+      toast.error(
+        res.code === 'no_burnable_pack' || res.code === 'already_terminal'
+          ? t(`noShowError.${res.code}`)
+          : t('cancelErrorGeneric'),
+      )
       cancelHold.reset()
       return
     }
-    toast.success(t('done', { name: booking.customerName }))
+    if (res.burnError) {
+      // Partial outcome: the cancel IS recorded but the ticket was NOT
+      // consumed — staff must hear both halves, not a success toast.
+      toast.warning(t(`cancelBurnWarn.${res.burnError}`, { name: booking.customerName }))
+    } else {
+      toast.success(t('done', { name: booking.customerName }))
+    }
     router.refresh()
     setTimeout(() => {
       cancelHold.reset()
       onClose()
     }, 320)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booking, onClose, router, t]))
+  }, [booking, cancelBurn, cancelReason, onClose, packSummary, router, t]))
 
   const noShowHold = useHoldToConfirm(HOLD_MS, useCallback(async () => {
     if (!booking) return
     const res = await markNoShowAppointment(booking.id, {
-      reason: noShowReason,
       burnPack: burnPack && !!packSummary,
     })
     if ('error' in res) {
@@ -116,24 +159,12 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
       onClose()
     }, 320)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [booking, burnPack, noShowReason, onClose, packSummary, router, t]))
+  }, [booking, burnPack, onClose, packSummary, router, t]))
 
   const toggleNoShowSection = useCallback(() => {
     setNoShowOpen((v) => !v)
-    if (!packFetched.current && booking) {
-      packFetched.current = true
-      const forBookingId = booking.id
-      void getBurnablePackSummary(booking.clientId).then((summary) => {
-        // Staleness guard: a slow fetch for booking A resolving after the
-        // sheet re-targeted booking B must not attach A's pack count/burn
-        // availability to B's sheet. (The server re-derives the real burn
-        // target independently — this is display truth, not burn truth.)
-        setPackSummary((prev) =>
-          bookingIdRef.current === forBookingId ? summary : prev,
-        )
-      })
-    }
-  }, [booking])
+    ensurePackSummary()
+  }, [ensurePackSummary])
 
   const restore = useCallback(async () => {
     if (!booking || busy) return
@@ -152,8 +183,17 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
 
   if (!booking) return null
 
-  const reasonLabel = (code: string) =>
-    (NO_SHOW_REASONS as readonly string[]).includes(code) ? t(`noShowReasons.${code}`) : code
+  // Stored status_reason → label. Three vocabularies may appear on old/new
+  // rows: the fixed no-show code, the cancel chips, and the two LEGACY
+  // no-show chips (rows recorded before the 2026-07-10 taxonomy fix).
+  const reasonLabel = (code: string) => {
+    if (code === NO_SHOW_REASON_NO_CONTACT) return t(`noShowReasons.${code}`)
+    if ((LEGACY_NO_SHOW_REASONS as readonly string[]).includes(code))
+      return t(`noShowReasons.${code}`)
+    if ((CANCEL_REASONS as readonly string[]).includes(code))
+      return t(`cancelReasons.${code}`)
+    return code
+  }
 
   return (
     <div
@@ -165,8 +205,12 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
         mode === 'confirm' ? t('title') : booking.isNoShow ? t('noShowRestoreTitle') : t('cancelledTitle')
       }
     >
+      {/* select-none: the sheet opens UNDER a finger that is still mid
+       *  long-press (that's how it's summoned) — without it, iOS's native
+       *  text-selection gesture lands on the customer name the moment the
+       *  sheet renders. */}
       <div
-        className="w-full max-w-md rounded-t-2xl bg-background p-5 pb-8 shadow-xl md:rounded-2xl md:pb-5"
+        className="w-full max-w-md select-none rounded-t-2xl bg-background p-5 pb-8 shadow-xl md:rounded-2xl md:pb-5"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-1 flex items-start justify-between">
@@ -200,7 +244,57 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
         {mode === 'confirm' ? (
           <>
             <p className="mb-1 mt-3 text-sm font-medium">{t('title')}</p>
-            <p className="mb-4 text-xs leading-relaxed text-muted-foreground">{t('ticketNote')}</p>
+            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">{t('ticketNote')}</p>
+
+            {/* Optional cancel-reason chips (taxonomy fix 2026-07-10): a
+             *  cancel implies contact — record how. Toggleable; none required.
+             *  These were wrongly INSIDE the no-show section before, where
+             *  picking 当日連絡あり branded a customer who properly called as
+             *  a no-show (unfair strike + poisoned no_show_count). */}
+            <div className="mb-4">
+              <p className="mb-1.5 text-xs text-muted-foreground">{t('reasonOptional')}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CANCEL_REASONS.map((code) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() =>
+                      setCancelReason((cur) => {
+                        const next = cur === code ? null : code
+                        // Burn is same-day-only (server enforces the same
+                        // pairing) — leaving the chip drops any checked burn
+                        // so a hidden choice can never ride along.
+                        if (next !== 'cancel-same-day-contact') setCancelBurn(false)
+                        else ensurePackSummary()
+                        return next
+                      })
+                    }
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+                      cancelReason === code
+                        ? 'border-red-400 bg-red-50 text-red-700 dark:border-red-500/50 dark:bg-red-500/10 dark:text-red-300'
+                        : 'border-border text-muted-foreground',
+                    )}
+                  >
+                    {t(`cancelReasons.${code}`)}
+                  </button>
+                ))}
+              </div>
+              {/* 当日連絡あり may consume a ticket — staff's choice (Liam
+               *  2026-07-10). Rendered only while that chip is selected AND
+               *  the customer holds a burnable pack. */}
+              {cancelReason === 'cancel-same-day-contact' && packSummary && (
+                <label className="mt-2.5 flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={cancelBurn}
+                    onChange={(e) => setCancelBurn(e.target.checked)}
+                    className="size-4 rounded border-border"
+                  />
+                  {t('burnPack', { n: packSummary.remaining })}
+                </label>
+              )}
+            </div>
 
             {/* 案C (Liam, 2026-07-06): soft red tint — solid enough to read as
              *  a button on the white sheet, calm enough not to shout; the
@@ -256,29 +350,28 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
                 <span className="inline-flex items-center gap-1.5">
                   <AlertTriangle className="size-4" />
                   {t('noShowSectionLabel')}
+                  <span className="text-xs font-normal text-amber-700/70 dark:text-amber-400/70">
+                    {t('noShowSectionSub')}
+                  </span>
                 </span>
                 <ChevronDown className={cn('size-4 transition-transform', noShowOpen && 'rotate-180')} />
               </button>
 
               {noShowOpen && (
                 <div className="mt-3 space-y-3">
-                  <div className="flex flex-wrap gap-1.5">
-                    {NO_SHOW_REASONS.map((code) => (
-                      <button
-                        key={code}
-                        type="button"
-                        onClick={() => setNoShowReason(code)}
-                        className={cn(
-                          'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                          noShowReason === code
-                            ? 'border-amber-500 bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300'
-                            : 'border-border text-muted-foreground',
-                        )}
-                      >
-                        {reasonLabel(code)}
-                      </button>
-                    ))}
-                  </div>
+                  {/* DERIVED first-time/repeat context — never a staff choice
+                   *  (the old 初回の無断キャンセル chip could contradict the
+                   *  data). Same no_show_count the 顧客 list badge reads. */}
+                  {booking.noShowCount >= 1 ? (
+                    <p className="flex items-center gap-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 ring-1 ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25">
+                      <AlertTriangle className="size-3.5 shrink-0" />
+                      {t('noShowPriorCount', { n: booking.noShowCount })}
+                    </p>
+                  ) : (
+                    <p className="rounded-lg bg-muted/60 px-3 py-2 text-xs text-muted-foreground">
+                      {t('noShowFirstTime')}
+                    </p>
+                  )}
 
                   {packSummary && (
                     <label className="flex items-center gap-2 text-sm">
@@ -331,7 +424,10 @@ export function CancelBookingSheet({ booking, mode, onClose }: CancelBookingShee
               <Ban className="size-4 shrink-0" />
               {booking.isNoShow ? t('noShowBody') : t('cancelledBody')}
             </div>
-            {booking.isNoShow && booking.statusReason && (
+            {/* Reason line for BOTH terminal kinds now — cancels carry the
+             *  new optional chips, no-shows the fixed code (+ legacy chips on
+             *  pre-2026-07-10 rows). Absent reason → no line. */}
+            {booking.statusReason && (
               <p className="mt-2 text-xs text-muted-foreground">
                 {t('reason')}: {reasonLabel(booking.statusReason)}
               </p>
