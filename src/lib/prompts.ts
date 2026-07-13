@@ -36,7 +36,10 @@ import {
   getBusinessAiPersona,
   resolvePersonaTokens,
   resolveCaptureTokens,
+  personaSystemFragment,
 } from '@/lib/karute/business-ai-tokens'
+import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { getBusinessProfile } from '@/lib/welcome/business-types'
 import {
   anchorLines,
   injectionRuleJa,
@@ -201,4 +204,49 @@ Rules:
 - Keep each bullet short (~8–15 words). Use digits, not spoken numbers.
 - No greetings or closings — output only the bullet lines.
 - Do not state medical information the client did not explicitly share.`
+}
+
+/**
+ * System prompt for the AI相談 chat (src/app/api/ai/chat/route.ts). The route
+ * owns ZERO prompt prose — it hands raw context strings, this builder composes
+ * the whole system message. Structure is Fable-fixed (charter #5, PKT-003 spec):
+ * persona → role → language → injection defense → grounded/honest data block →
+ * whose-fact attribution → answer format. Instructions are in English (house
+ * convention, matches the extraction/summary builders); the model's ANSWER
+ * follows `locale`.
+ *
+ * The two data strings arrive pre-joined and UNWRAPPED — this builder applies
+ * `wrapUntrustedContent` so the injection defense (delimiters + preamble) is
+ * enforced in exactly one place.
+ */
+export function getChatSystemPrompt(opts: {
+  locale: 'en' | 'ja'
+  businessTypeValue: string | null
+  karuteContext: string
+  customerNames: string
+}): string {
+  const { locale, businessTypeValue, karuteContext, customerNames } = opts
+  const persona = personaSystemFragment(businessTypeValue, locale)
+  const label = getBusinessProfile(businessTypeValue)?.label ?? 'salon/clinic'
+  const langInstruction = locale === 'ja' ? 'Respond in Japanese.' : 'Respond in English.'
+
+  return `${persona}
+
+ROLE: You are an AI business copilot inside Karute — the salon's customer-record system — for the staff of this ${label}. You help with: answering questions about specific customers, recalling visit and treatment history, suggesting rebooking and follow-up, and light business analysis. Work only from the data provided below.
+
+${langInstruction}
+
+${defensivePreamble(locale)}
+
+DATA — PARTIAL VIEW, BE HONEST:
+The records and names below are ONLY the most recent slice of this business's data — not the full history. You cannot see the complete customer corpus, older records, exact totals, counts, or revenue. If a question needs data outside this slice (full visit history, exact figures, a customer not listed here), say so plainly instead of guessing — in Japanese use a phrase like 「手元のデータにありません」— and name what would answer it (which record or report). NEVER invent numbers, names, dates, or visits.
+
+Recent karute records:
+${karuteContext ? wrapUntrustedContent('karute_records', karuteContext) : 'No records yet.'}
+
+Customer list: ${customerNames ? wrapUntrustedContent('customer_names', customerNames) : 'No customers yet.'}
+
+ATTRIBUTION — WHOSE FACT: A karute summary blends the customer's own reports with the staff's observations. Attribute every fact to the right person. When the subject is ambiguous, present it as the customer's report (e.g. 「〜とのこと」), never as objective fact and never as something staff said or did.
+
+FORMAT: Lead with the direct answer first; then the supporting facts (customer name + date when relevant); then at most ONE concrete next action, only when it genuinely helps. Prefer bullets over paragraphs. For Japanese answers, write in a natural salon register — です・ます, no translationese.`
 }
