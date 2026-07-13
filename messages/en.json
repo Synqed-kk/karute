@@ -54,6 +54,9 @@
     "signinLink": "Sign in",
     "signupNoUser": "Signup did not return a user. Try again.",
     "emailAlreadyRegistered": "This email is already registered. Please sign in instead.",
+    "error_generic": "Something went wrong. Please try again.",
+    "checkEmail": "Confirmation email sent. Open the link in it to finish signing up.",
+    "confirmError": "That confirmation link is invalid or expired. Please sign up again.",
     "forgotPassword": "Forgot your password?",
     "resetTitle": "Reset password",
     "resetSubtitle": "Enter your registered email address and we'll send you a reset link.",
@@ -226,7 +229,21 @@
       },
       "noShowErrorGeneric": "Something went wrong.",
       "cancelErrorGeneric": "Could not cancel. Please try again.",
-      "restoreErrorGeneric": "Could not restore — the booking's status may have changed."
+      "restoreErrorGeneric": "Could not restore — the booking's status may have changed.",
+      "reasonOptional": "Reason (optional)",
+      "cancelReasons": {
+        "cancel-advance-contact": "Contacted in advance",
+        "cancel-same-day-contact": "Contacted same day",
+        "cancel-salon-initiated": "Salon-initiated"
+      },
+      "noShowSectionSub": "(no contact, did not arrive)",
+      "noShowFirstTime": "This is their first no-show",
+      "noShowPriorCount": "{n} prior no-shows on record",
+      "cancelBurnWarn": {
+        "below_zero": "Cancelled {name}'s booking. The ticket was NOT consumed — no sessions remain on the pack",
+        "burn_failed": "Cancelled {name}'s booking. The ticket was NOT consumed — the redemption failed",
+        "already_burned": "Cancelled {name}'s booking. A ticket was already consumed for this booking — not consumed again"
+      }
     },
     "actionSheet": {
       "subtitleFirst": "First-time customer. Recording will create a provisional karute.",
@@ -2667,7 +2684,17 @@
       "tunedFor": "Tuned for",
       "changeTitle": "Change business type in Settings",
       "change": "Change"
-    }
+    },
+    "scopeKarute": "Karute",
+    "scopeCustomers": "Customers",
+    "scopeBookings": "Bookings",
+    "scopeRecordings": "Recordings",
+    "todayHints": "Today's tips",
+    "todayHintsHint": "Auto-suggested from today's bookings and karute records.",
+    "deepConsult": "In-depth consultation",
+    "open": "Open",
+    "reference": "Referenced {label}",
+    "copyReply": "Copy reply"
   },
   "karuteExport": {
     "title": "Karute",
