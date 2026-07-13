@@ -3,10 +3,13 @@ import { LoginForm } from '@/components/login-form'
 
 export default async function LoginPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>
+  searchParams: Promise<{ error?: string }>
 }) {
   const { locale } = await params
+  const { error } = await searchParams
   const t = await getTranslations('auth')
   return (
     <div className="min-h-screen flex items-center justify-center bg-background">
@@ -15,6 +18,9 @@ export default async function LoginPage({
           <img src="/karute_logo.png" alt="Karute" className="h-12 object-contain dark:invert" />
           <p className="text-muted-foreground mt-2 text-sm">{t('subtitle')}</p>
         </div>
+        {error === 'confirm' && (
+          <p role="alert" className="text-sm text-red-400">{t('confirmError')}</p>
+        )}
         <LoginForm locale={locale} />
       </div>
     </div>
