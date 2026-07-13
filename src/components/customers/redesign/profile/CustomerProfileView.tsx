@@ -79,6 +79,10 @@ interface CustomerProfileViewProps {
   /** Org-level 回数券 master switch. Off → the pack card shows only the
    *  lifecycle row (卒業/離客/口コミ stays — it's customer state, not tickets). */
   ticketsEnabled?: boolean
+  /** Recording consent — same isConsentCurrent truth the recording gate
+   *  uses. Drives the Privacy tab's revoke row (shown only when granted). */
+  consentGranted?: boolean
+  consentGrantedAtLabel?: string | null
 }
 
 export function CustomerProfileView({
@@ -90,6 +94,8 @@ export function CustomerProfileView({
   lifecycle = null,
   hasNextBooking = false,
   ticketsEnabled = true,
+  consentGranted = false,
+  consentGrantedAtLabel = null,
 }: CustomerProfileViewProps) {
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
@@ -192,7 +198,14 @@ export function CustomerProfileView({
         {tab === 'photos' && (
           <PhotosTabContent customerId={customer.id} photos={photos} />
         )}
-        {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
+        {tab === 'privacy' && (
+          <PrivacyTabContent
+            customerId={customer.id}
+            customerName={customer.name}
+            consentGranted={consentGranted}
+            consentGrantedAtLabel={consentGrantedAtLabel}
+          />
+        )}
       </div>
     </main>
   )

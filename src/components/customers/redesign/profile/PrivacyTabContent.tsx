@@ -1,16 +1,49 @@
 'use client'
 
-import { AlertCircle, Clock, Upload } from 'lucide-react'
+import { useState } from 'react'
+import { AlertCircle, Clock, Mic, Upload } from 'lucide-react'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
+import { useRouter } from '@/i18n/navigation'
+import { revokeCustomerConsent } from '@/actions/customers'
 import { ComingSoonChip } from '../ComingSoonChip'
 
 interface PrivacyTabContentProps {
+  customerId: string
   customerName: string
+  /** "Currently granted" — same isConsentCurrent truth the recording gate
+   *  uses. Revoke row only renders when true. */
+  consentGranted: boolean
+  consentGrantedAtLabel: string | null
 }
 
-export function PrivacyTabContent({ customerName }: PrivacyTabContentProps) {
+export function PrivacyTabContent({
+  customerId,
+  customerName,
+  consentGranted,
+  consentGrantedAtLabel,
+}: PrivacyTabContentProps) {
   const t = useTranslations('customers.privacy')
+  const router = useRouter()
   const pendingTitle = t('wiringPending')
+  const [revoking, setRevoking] = useState(false)
+
+  async function handleRevoke() {
+    if (!window.confirm(t('consentRevokeConfirm'))) return
+    setRevoking(true)
+    try {
+      const res = await revokeCustomerConsent(customerId)
+      if (!res.ok) {
+        toast.error(res.error)
+        return
+      }
+      toast.success(t('consentRevokeSuccess'))
+      router.refresh()
+    } finally {
+      setRevoking(false)
+    }
+  }
+
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <header className="mb-4 flex items-start gap-3">
@@ -31,6 +64,31 @@ export function PrivacyTabContent({ customerName }: PrivacyTabContentProps) {
       </header>
 
       <ul className="flex flex-col gap-3">
+        {consentGranted && (
+          <li className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/5 p-3">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-500/15 text-red-700 dark:text-red-300">
+              <Mic size={16} />
+            </span>
+            <div className="flex flex-1 flex-col gap-1">
+              <div className="text-sm font-semibold text-foreground">
+                {t('consentRevokeTitle')}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {consentGrantedAtLabel
+                  ? t('consentRevokeBody', { date: consentGrantedAtLabel })
+                  : t('consentRevokeBodyNoDate')}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRevoke}
+              disabled={revoking}
+              className="inline-flex h-8 shrink-0 items-center rounded-full bg-red-500 px-3 text-xs font-semibold text-white hover:bg-red-600 disabled:opacity-60"
+            >
+              {t('consentRevokeCta')}
+            </button>
+          </li>
+        )}
         <PrivacyAction
           tone="blue"
           icon={<Clock size={16} />}
