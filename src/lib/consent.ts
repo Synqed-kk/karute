@@ -23,3 +23,12 @@ export function isConsentCurrent(
     !!consent && consent.policy_version === RECORDING_CONSENT_POLICY_VERSION
   )
 }
+
+/**
+ * The server-side save gate's rejection message (both karute save actions).
+ * Lives here (plain module) because 'use server' files may only export async
+ * functions — and the review screen matches on it to open the consent flow
+ * instead of a dead-end toast when a save is refused.
+ */
+export const CONSENT_REQUIRED_ERROR =
+  '保存には顧客の録音同意（現行バージョン）が必要です'

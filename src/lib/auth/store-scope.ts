@@ -12,11 +12,12 @@
 
 import { getMyCapabilities } from './require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
-import { getActiveStoreId, getStaffStores } from '@/actions/stores'
+import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
-   *  (a cross-store viewer who hasn't pinned a branch, or a floating staff). */
+   *  (only when the business has no stores at all / the lookup failed —
+   *  an unset cookie resolves to the primary store, matching the switcher). */
   storeId: string | null
   /** True when the viewer may see every store (owner / manager / SV). */
   viewAll: boolean
@@ -29,9 +30,11 @@ export interface StoreScope {
 /**
  * Resolve the signed-in user's store scope.
  *
- *   - viewAll capability        → the active-store cookie is the lens (null = all).
+ *   - viewAll capability        → the active-store cookie is the lens; unset
+ *                                  cookie falls back to the primary store.
  *   - no viewAll + no stores    → floating staff: works in every store (the
- *                                  documented empty-set convention) → no clamp.
+ *                                  documented empty-set convention) → no clamp,
+ *                                  same primary-store default.
  *   - no viewAll + has stores   → clamped: the cookie picks among the user's own
  *                                  stores; an out-of-scope / unset cookie falls
  *                                  back to their first assigned store.
@@ -44,14 +47,25 @@ export async function resolveStoreScope(): Promise<StoreScope> {
   ])
 
   if (caps.has('stores.viewAll')) {
-    return { storeId: activeStore, viewAll: true, allowedStoreIds: null }
+    // Unset cookie defaults to the PRIMARY store, not "all stores": the
+    // StoreSwitcher has no all-stores option and displays the primary as
+    // active when nothing is pinned, so the data must follow the same lens.
+    return {
+      storeId: activeStore ?? (await getPrimaryStoreId()),
+      viewAll: true,
+      allowedStoreIds: null,
+    }
   }
 
   const allowed = staffId ? await getStaffStores(staffId) : []
   if (allowed.length === 0) {
-    // Floating staff (assigned to no specific store) = every store, per the
-    // staff_stores convention. No clamp — behaves like today's single-store app.
-    return { storeId: activeStore, viewAll: false, allowedStoreIds: null }
+    // Floating staff (assigned to no specific store) = works in every store,
+    // per the staff_stores convention. Same unset-cookie default as above.
+    return {
+      storeId: activeStore ?? (await getPrimaryStoreId()),
+      viewAll: false,
+      allowedStoreIds: null,
+    }
   }
 
   const storeId =

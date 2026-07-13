@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import OpenAI from 'openai'
 import { getRecentKaruteForAI } from '@/lib/karute/ai-context'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
@@ -29,9 +30,16 @@ export async function POST(request: Request) {
   try {
     const { locale } = await request.json()
 
+    // Store scope (#347 semantics): clamp a branch-restricted staff's insights
+    // to their assigned store. Filter ONLY when allowedStoreIds is non-null;
+    // viewAll + floating staff = null = no filter (behavior unchanged).
+    const scope = await resolveStoreScope()
+    const scopedStoreId =
+      scope.allowedStoreIds !== null ? (scope.storeId ?? undefined) : undefined
+
     // Recent karute from synqed-core — the Supabase mirror is empty
     // post-migration, so this route returned NO insights until now.
-    const records = await getRecentKaruteForAI(10)
+    const records = await getRecentKaruteForAI(10, scopedStoreId)
 
     if (records.length === 0) {
       return NextResponse.json({ insights: [] })
