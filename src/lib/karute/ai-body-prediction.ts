@@ -18,7 +18,7 @@ const PredictionSchema = z.object({
   headline: z
     .string()
     .describe(
-      "One sentence: the customer's likely current state, grounded in the records (e.g. 「首の緊張は緩和傾向、ハムの硬さは要フォロー」). Never speculative beyond the records.",
+      "One sentence: the customer's likely current state, grounded in the records (e.g. 「主要な悩みは緩和傾向、新しい相談は要フォロー」). Never speculative beyond the records.",
     ),
   confidence: z
     .number()
@@ -39,7 +39,7 @@ const PredictionSchema = z.object({
   recommendedReason: z
     .string()
     .nullable()
-    .describe('Max ~15 chars/words: why that window (e.g. 「セルフケアの定着確認」). Null if nothing grounded.'),
+    .describe('Max ~15 chars/words: why that window (e.g. 「宿題の定着確認」). Null if nothing grounded.'),
   rationale: z
     .string()
     .describe(
