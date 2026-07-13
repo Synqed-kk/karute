@@ -28,6 +28,7 @@ import { useTranslations } from 'next-intl'
 import { useEffect, useState } from 'react'
 import { Radio } from 'lucide-react'
 import { PackPill } from '@/components/reservation/AppointmentCard'
+import { isRepeatNoShow } from '@/components/customers/redesign/types'
 import { useLongPress } from '@/hooks/use-long-press'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
@@ -227,6 +228,7 @@ function AgendaRow({
 }) {
   const t = useTranslations('reservation.card')
   const tStatus = useTranslations('reservation.status')
+  const tNoShow = useTranslations('customers.list')
   const visuals = STATUS_VISUALS[r.displayStatus]
   const isLive = r.displayStatus === 'in_session'
   const isCompleted = r.displayStatus === 'completed'
@@ -466,6 +468,15 @@ function AgendaRow({
             className={`inline-flex h-5 items-center rounded-full border px-2 text-[10px] font-medium ${BADGE_COLORS.amber.bg} ${BADGE_COLORS.amber.text} ${BADGE_COLORS.amber.border}`}
           >
             {t('unrecorded')}
+          </span>
+        )}
+        {/* Repeat no-show — customer-level signal (same >= 2 threshold +
+         *  styling as the 顧客 list row's chip, isRepeatNoShow), independent
+         *  of this row's own status: flags a booking-slip pattern staff
+         *  should watch for. */}
+        {isRepeatNoShow(r.noShowCount) && (
+          <span className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            {tNoShow('row.noShowChip', { count: r.noShowCount })}
           </span>
         )}
       </div>
