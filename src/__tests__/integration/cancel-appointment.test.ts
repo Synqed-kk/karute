@@ -90,12 +90,43 @@ describe('cancelAppointment', () => {
 
   // Updated deliberately (synqed-core #39): a plain cancel now stamps
   // acting_staff_id so status_set_by is populated — that's the point of this
-  // PR. No reason field on a plain cancel; still ticket-neutral (no burn/
-  // redemption field ever sent).
+  // PR. Still ticket-neutral (no burn/redemption field ever sent).
   it('never sends any ticket / redemption field — cancellation is ticket-neutral', async () => {
     await cancelAppointment('appt-1')
     const [, patch] = apptUpdate.mock.calls[0] as unknown as [string, Record<string, unknown>]
     expect(Object.keys(patch).sort()).toEqual(['acting_staff_id', 'status'])
+  })
+
+  // Taxonomy fix 2026-07-10: optional reason chips on the CANCEL side (a
+  // cancel implies contact — the chips record how). Fixed vocabulary only.
+  it('sends status_reason when a valid cancel reason is chosen', async () => {
+    const res = await cancelAppointment('appt-1', { reason: 'cancel-same-day-contact' })
+    expect(apptUpdate).toHaveBeenCalledWith('appt-1', {
+      status: 'CANCELLED',
+      status_reason: 'cancel-same-day-contact',
+      acting_staff_id: 'staff-1',
+    })
+    expect(res).toEqual({ success: true })
+  })
+
+  it('accepts every fixed cancel reason', async () => {
+    for (const reason of ['cancel-advance-contact', 'cancel-same-day-contact', 'cancel-salon-initiated']) {
+      const res = await cancelAppointment('appt-1', { reason })
+      expect(res).toEqual({ success: true })
+    }
+    expect(apptUpdate).toHaveBeenCalledTimes(3)
+  })
+
+  it('rejects a reason outside the fixed codes — the audit trail is not a free-text field', async () => {
+    const res = await cancelAppointment('appt-1', { reason: 'because' })
+    expect(res).toEqual({ error: expect.any(String) })
+    expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('legacy no-show chip codes are NOT valid cancel reasons', async () => {
+    const res = await cancelAppointment('appt-1', { reason: 'same-day-contacted' })
+    expect(res).toEqual({ error: expect.any(String) })
+    expect(apptUpdate).not.toHaveBeenCalled()
   })
 
   it('denies cleanly when the capability check throws — no update, house error shape', async () => {
