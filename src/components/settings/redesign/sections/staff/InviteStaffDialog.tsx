@@ -69,7 +69,8 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
     const res = await createInvite({ email, role, staffId: staffId || undefined })
     setLoading(false)
     if ('error' in res) {
-      setError(res.error)
+      // Machine code from the plan gate → honest copy (STORE_LIMIT precedent).
+      setError(res.error === 'STAFF_LIMIT_REACHED' ? t('staffLimitReached') : res.error)
       return
     }
     const origin = typeof window !== 'undefined' ? window.location.origin : ''

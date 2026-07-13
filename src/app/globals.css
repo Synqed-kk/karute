@@ -202,6 +202,19 @@
   }
 }
 
+@layer base {
+  /* Radix sheets/dialogs (BookingActionSheet in @synqed-kk/ui) auto-focus
+     their first action button on open; WKWebView then paints its blue focus
+     ring around カルテを見る even though the user never keyboard-navigated.
+     On a touch screen there is no keyboard context — the ring is pure noise.
+     Scoped to pointer:coarse so desktop keyboard users keep focus rings. */
+  @media (pointer: coarse) {
+    [role="dialog"] button:focus {
+      outline: none;
+    }
+  }
+}
+
 /* ─────────────────────────────────────────────────────────────
    Reservation phase-1 tokens — status tones + hatched pattern.
    Tones inherit from prototype STATUS_STYLES (helpers.jsx).
