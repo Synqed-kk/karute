@@ -81,6 +81,7 @@ jest.mock('@/lib/synqed/client', () => ({
 
 import { getPackAlerts } from '@/lib/packs/alerts'
 import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
+import { getBusinessId } from '@/lib/staff'
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -113,6 +114,13 @@ describe('getPackAlerts store lens', () => {
     expect(res.totals.holderCount).toBe(0)
     expect(res.contact).toEqual([])
     expect(res.low).toEqual([])
+  })
+
+  it('fails CLOSED when a lens is required but businessId is unavailable', async () => {
+    ;(getBusinessId as jest.Mock).mockResolvedValueOnce(null)
+    const res = await getPackAlerts(undefined, 'store-ginza')
+    expect(res.totals.holderCount).toBe(0)
+    expect(listForMock).not.toHaveBeenCalled()
   })
 })
 
