@@ -57,12 +57,13 @@ export async function getPackAlerts(
 
   let usage = usageAll
   let lifecycles = lifecyclesAll
+  let inStore: Set<string> | null = null
   if (storeId && businessId) {
     try {
       const storeCustomers = await getCachedCustomerListFor(businessId, storeId)
-      const inStore = new Set(storeCustomers.map((c) => c.id))
-      usage = new Map([...usageAll].filter(([id]) => inStore.has(id)))
-      lifecycles = new Map([...lifecyclesAll].filter(([id]) => inStore.has(id)))
+      inStore = new Set(storeCustomers.map((c) => c.id))
+      usage = new Map([...usageAll].filter(([id]) => inStore!.has(id)))
+      lifecycles = new Map([...lifecyclesAll].filter(([id]) => inStore!.has(id)))
     } catch {
       return empty
     }
@@ -70,12 +71,15 @@ export async function getPackAlerts(
   if (usage.size === 0) return empty
 
   // Latest contact per customer (rows arrive newest-first) + this month's set.
+  // Same store lens as usage/lifecycles: the 今月 対応→再来店 footer must count
+  // the viewer's store only, not company-wide contact volume.
   const recentContactAt = new Map<string, string>()
   const monthlyContactIds = new Set<string>()
   const monthStart = new Date()
   monthStart.setUTCDate(1)
   monthStart.setUTCHours(0, 0, 0, 0)
   for (const row of recentContacts) {
+    if (inStore && !inStore.has(row.customer_id)) continue
     if (!recentContactAt.has(row.customer_id)) {
       recentContactAt.set(row.customer_id, row.contacted_at)
     }
