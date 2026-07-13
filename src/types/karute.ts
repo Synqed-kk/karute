@@ -57,6 +57,11 @@ export type SaveKaruteInput = {
   appointmentId?: string
   /** Session outcome (the coaching label) chosen at save — best-effort persisted. */
   outcome?: SessionOutcome
+  /** Server-minted recording_sessions id (synqed-core) — forwarded to
+   *  synqed.karuteRecords.create() as recording_session_id so core's
+   *  idempotent-save dedupe (unique FK, PR #38) has something to key on.
+   *  undefined/null when the mint failed or hadn't resolved by save time. */
+  recordingSessionId?: string | null
 }
 
 /**

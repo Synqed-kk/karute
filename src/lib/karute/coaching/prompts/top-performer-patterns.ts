@@ -6,10 +6,7 @@
 // as "here's what your strongest colleagues do." This is the one prompt that takes
 // one person's conversation and teaches it to everyone — the most consequential
 // surface in the set. Two rules the whole design turns on, and (after adversarial
-// review) the corroboration gate is enforced in CODE here (a real filter, below).
-// Anonymization + single-performer suppression are backed by computed HARD FACTS fed
-// to the model, but the drop itself + the JA name-scrub are still prompt-instructed +
-// documented for Anthony's app layer — NOT code here yet. Don't over-read "enforced":
+// review) BOTH are enforced in code here, not just asked of the model:
 //
 //   1. THE CORROBORATION GATE (coaching-design-principle, the one surgical rule).
 //      A staff member's own 成約 label is trusted for THEIR OWN coaching but NOT
@@ -23,10 +20,8 @@
 //      circumstance (a datable life event, a named place). Attribution to a named
 //      performer is a separate app-layer double-consent decision, never here.
 //
-// ── Code-computed inputs that make the rules checkable (per the review) ──
-//   • corroboratedWin filter (the gate) — a real filter. NOTE: no assert/throw; an
-//     empty corroborated set just yields an empty prompt, so the app should treat
-//     "0 corroborated wins" as skip-the-run.
+// ── Enforced in code (not model-trusted), per the review ──
+//   • corroboratedWin filter (the gate) + assert the top set is non-empty.
 //   • single-performer suppression keys off the ACTUAL distinct top-performer count
 //     (a 20-person shop with one star still outs the star) — not just cohortSize.
 //   • contrast DENOMINATORS (# distinct performers per group) are computed here and
