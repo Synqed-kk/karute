@@ -43,6 +43,12 @@ export interface PipelineContext {
    *  happened — asking would pollute the coaching labels). true = autosave
    *  proceeds without one; the save simply writes no outcome row. */
   outcomeSkipped?: boolean
+  /** Server-minted recording_sessions id (synqed-core), captured at record-start
+   *  — carried to the save so core's idempotent-save dedupe (unique FK on
+   *  karute_records.recording_session_id) has something to key on. null when
+   *  the mint failed or hadn't resolved by save time (graceful degradation:
+   *  save proceeds, just without dedupe for that save). */
+  recordingSessionId?: string | null
 }
 
 export type PipelineState =

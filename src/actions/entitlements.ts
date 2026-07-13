@@ -20,6 +20,8 @@ export async function getEntitlement(): Promise<Entitlement> {
       features: TIER_FEATURES.free,
       staffLimit: TIER_FEATURES.free.staff,
       canAddStore: false,
+      enforced: false,
+      degraded: false,
     }
   }
   return loadEntitlement(businessId)

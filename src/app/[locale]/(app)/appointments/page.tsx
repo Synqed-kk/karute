@@ -111,7 +111,10 @@ export default async function AppointmentsPage({
     getCurrentUserStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(selectedDateStr),
+    // The agenda is the ONE consumer that wants cancelled rows — rendered as
+    // thin greyed キャンセル済み tombstones in their original slot. Every other
+    // getAppointmentsByDate caller keeps the hidden-by-default contract.
+    getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true }),
     getBusinessId().catch(() => null),
     weekRange
       ? getAppointmentsInRange(

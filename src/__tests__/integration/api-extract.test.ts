@@ -9,6 +9,12 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   estimateCostCents: jest.fn(() => 1),
 }))
 
+// The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
+// the rate limiter above. Default allowed; the 403 test flips it per-case.
+jest.mock('@/lib/subscription/feature-gate', () => ({
+  featureAllowed: jest.fn(async () => true),
+}))
+
 // Supabase server client is used for the org-settings lookup. Return a chain
 // stub so .from().select().limit().single() resolves without a real DB.
 jest.mock('@/lib/supabase/server', () => ({
@@ -66,6 +72,27 @@ describe('POST /api/ai/extract', () => {
         expect(body).toHaveProperty('entries')
         expect(Array.isArray(body.entries)).toBe(true)
         expect(body.entries).toHaveLength(mockExtractionResult.entries.length)
+      },
+    })
+  })
+
+  it('returns 403 PLAN_LOCKED when the plan gate says no', async () => {
+    const { featureAllowed } = jest.requireMock('@/lib/subscription/feature-gate')
+    ;(featureAllowed as jest.Mock).mockResolvedValueOnce(false)
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: 'anything', locale: 'ja' }),
+        })
+
+        expect(response.status).toBe(403)
+        const body = await response.json()
+        expect(body.error).toBe('PLAN_LOCKED')
+        expect(featureAllowed).toHaveBeenCalledWith('aiKaruteGeneration')
       },
     })
   })

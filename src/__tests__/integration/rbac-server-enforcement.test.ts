@@ -15,13 +15,15 @@
  *
  * CAPABILITY ↔ ACTION (must match src/lib/auth/permissions.ts presets):
  *   records.write   → saveKaruteRecord(Inline), createManualKaruteRecord,
- *                     addManualEntry, deleteEntry, regenerateKaruteEntries,
+ *                     regenerateKaruteEntries,
  *                     updateKaruteSummary   (owner/manager/senior/practitioner)
  *   records.delete  → deleteKaruteRecord    (owner/manager/senior)
  *                     + cross-staff assign on createManualKaruteRecord
  *   bookings.manage → createAppointment, updateAppointment, deleteAppointment
  *                     (every preset except empty custom)
  */
+
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
@@ -48,6 +50,7 @@ jest.mock('@/actions/org-settings', () => ({
 }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 jest.mock('@/lib/synqed/staff-map', () => ({
   resolveSynqedStaffId: jest.fn(async (id: string) => id),
@@ -85,6 +88,12 @@ jest.mock('@synqed-kk/client', () => {
 })
 
 // --- The gate under test: driven per-test via grant()/deny(). ---
+// Karute store default now resolves via resolveStoreScope (RBAC clamp). These
+// suites don't exercise store scoping, so stub it to the all-stores lens.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
+
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
@@ -109,7 +118,14 @@ jest.mock('@/lib/synqed/client', () => {
   }
   const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
   const stores = { list: jest.fn(async () => ({ stores: [] })) }
-  const client = { karuteRecords, appointments, staffStores, stores }
+  // Save-gate consent check (src/actions/karute.ts) — current-version consent
+  // by default so this suite's RBAC assertions reach create() untouched.
+  const customers = {
+    getConsent: jest.fn(async () => ({
+      consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+    })),
+  }
+  const client = { karuteRecords, appointments, staffStores, stores, customers }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
@@ -119,7 +135,6 @@ import {
   deleteKaruteRecord,
   createManualKaruteRecord,
 } from '@/actions/karute'
-import { addManualEntry, deleteEntry } from '@/actions/entries'
 import {
   regenerateKaruteEntries,
   updateKaruteSummary,
@@ -198,40 +213,6 @@ describe('RBAC — records.write actions', () => {
   it('saveKaruteRecordInline with records.write returns the new id', async () => {
     const result = await saveKaruteRecordInline({ ...baseSave })
     expect(result).toEqual({ id: 'karute-1' })
-  })
-
-  it('addManualEntry requires records.write; denial returns { error }', async () => {
-    deny('records.write')
-    const result = await addManualEntry({
-      karuteRecordId: 'k-1',
-      category: 'symptom',
-      content: 'x',
-    })
-    expect(result).toEqual({ error: DENIAL })
-    expect(karuteRecords.addEntry).not.toHaveBeenCalled()
-  })
-
-  it('addManualEntry with records.write writes the entry', async () => {
-    const result = await addManualEntry({
-      karuteRecordId: 'k-1',
-      category: 'symptom',
-      content: 'x',
-    })
-    expect(result).toEqual({})
-    expect(karuteRecords.addEntry).toHaveBeenCalledTimes(1)
-  })
-
-  it('deleteEntry requires records.write (editing, not destructive); denial blocks', async () => {
-    deny('records.write')
-    const result = await deleteEntry('entry-1', 'k-1')
-    expect(result).toEqual({ error: DENIAL })
-    expect(karuteRecords.deleteEntry).not.toHaveBeenCalled()
-  })
-
-  it('deleteEntry with records.write removes the entry', async () => {
-    const result = await deleteEntry('entry-1', 'k-1')
-    expect(result).toEqual({})
-    expect(karuteRecords.deleteEntry).toHaveBeenCalledWith('k-1', 'entry-1')
   })
 
   it('regenerateKaruteEntries requires records.write; denial returns { error } and does not mutate', async () => {

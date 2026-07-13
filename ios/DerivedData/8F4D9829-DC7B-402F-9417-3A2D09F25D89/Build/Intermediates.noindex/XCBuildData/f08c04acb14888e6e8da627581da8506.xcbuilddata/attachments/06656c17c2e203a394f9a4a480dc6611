@@ -1,0 +1,18 @@
+{
+  "" : {
+    "diagnostics" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM-master.dia",
+    "emit-module-dependencies" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM-master-emit-module.d",
+    "emit-module-diagnostics" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM-master-emit-module.dia",
+    "swift-dependencies" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM-master.swiftdeps"
+  },
+  "/Users/anthonylee/karute/ios/App/CapApp-SPM/Sources/CapApp-SPM/CapApp-SPM.swift" : {
+    "const-values" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.swiftconstvalues",
+    "dependencies" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.d",
+    "diagnostics" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.dia",
+    "index-unit-output-path" : "/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.o",
+    "llvm-bc" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.bc",
+    "object" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.o",
+    "swift-dependencies" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM.swiftdeps",
+    "swiftmodule" : "/Users/anthonylee/karute/ios/DerivedData/8F4D9829-DC7B-402F-9417-3A2D09F25D89/Build/Intermediates.noindex/CapApp-SPM.build/Debug-iphonesimulator/CapApp-SPM.build/Objects-normal/arm64/CapApp-SPM~partial.swiftmodule"
+  }
+}

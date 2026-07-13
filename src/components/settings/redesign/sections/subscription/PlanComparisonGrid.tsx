@@ -1,311 +1,382 @@
 'use client'
 
 // ─────────────────────────────────────────────────────────────
-// PlanComparisonGrid — 3 tiers + Enterprise tile
+// PlanComparisonGrid — the approved 4-tier paywall
 // ─────────────────────────────────────────────────────────────
-// LIFTED FROM SPIKE: components/settings/PlanComparisonGrid.tsx
-// Three primary tiles (Free / Standard / Professional) with
-// Professional highlighted as the conversion default (per Liam's
-// 3-tier psychology). Enterprise sits below as a quieter
-// contact-sales row.
+// Rebuilt to Liam's approved paywall-preview artifact: four equal
+// columns (Free / Standard / Professional highlighted / Enterprise)
+// + the 店舗を追加するとき fee box underneath. Every number derives
+// from the live plan model — TIER_PRICE_JPY, TIER_FEATURES,
+// staffLimitFor, STORE_SETUP_FEE_JPY — so this surface and the
+// server gates can never disagree.
 //
-// ANTHONY: upgradeTo / cancelSubscription mutations live in
-// src/lib/subscription/hooks.ts — each maps to a Stripe edge
-// function call. UI doesn't need to know; the hook contract
-// stays the same.
+// No self-serve checkout exists yet, so every plan-change CTA is an
+// honest mailto to sales — never a faked mutation. The old
+// localStorage subscription mock is gone from this component.
 
-import { Check, Crown, Sparkles, Star, X } from 'lucide-react'
-import { useLocale, useTranslations } from 'next-intl'
+import { useEffect, useState } from 'react'
+import { Building2, Check, Crown, Star, X } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 
 import {
-  useSubscription,
-  useSubscriptionMutations,
-} from '@/lib/subscription/hooks'
-import { TIER_PRICE_JPY, type SubscriptionTier } from '@/lib/subscription/types'
+  TIER_FEATURES,
+  TIER_PRICE_JPY,
+  type SubscriptionTier,
+} from '@/lib/subscription/types'
 import { staffLimitFor } from '@/lib/subscription/gating'
+import { STORE_SETUP_FEE_JPY } from '@/lib/subscription/fees'
+import { isNativeShell } from '@/lib/platform'
 
-const YEN = new Intl.NumberFormat('ja-JP', {
-  style: 'currency',
-  currency: 'JPY',
-  maximumFractionDigits: 0,
-})
+const SALES_MAILTO = 'mailto:sales@synqed.jp?subject=Karute%20plan%20change'
+const ENTERPRISE_MAILTO =
+  'mailto:sales@synqed.jp?subject=Enterprise%20plan%20inquiry'
 
-/** A tier's staff-account limit as a plan feature line, driven by the real model
- *  (staffLimitFor) so the grid and the server gate can never disagree. */
-function staffFeature(tier: SubscriptionTier, locale: string): string {
-  const n = staffLimitFor(tier)
-  const en = locale === 'en'
-  if (n === 'unlimited') return en ? 'Unlimited staff accounts' : 'スタッフ数 無制限'
-  return en ? `Up to ${n} staff accounts` : `スタッフ ${n}名まで`
+/** Half-width ¥ + ja grouping, matching the approved artifact ("¥5,980"). */
+const yen = (n: number) => `¥${n.toLocaleString('ja-JP')}`
+
+interface PlanComparisonGridProps {
+  /** Live tier from the real entitlement (marks the current plan). */
+  currentTier?: SubscriptionTier
+  /** Unlimited / comped account — banner + inert CTAs + the owner-free
+   *  fee row; no tier gets the "current" highlight (tier is orthogonal
+   *  to the unlimited override). */
+  isUnlimited?: boolean
 }
 
-export function PlanComparisonGrid() {
+interface FeatureRow {
+  label: string
+  on: boolean
+  /** The staff-limit row — emphasized, per the artifact. */
+  staff?: boolean
+  /** Professional's coaching row — emphasized, per the artifact. */
+  strong?: boolean
+}
+
+export function PlanComparisonGrid({
+  currentTier,
+  isUnlimited = false,
+}: PlanComparisonGridProps = {}) {
   const t = useTranslations('settings.subscription.plans')
-  const locale = useLocale()
-  const subscription = useSubscription()
-  const { upgradeTo, startTrial, cancelSubscription } =
-    useSubscriptionMutations()
 
-  const currentTier = subscription.tier
-  const trialAvailable =
-    currentTier === 'free' && subscription.status !== 'canceled'
+  // App-store safety (see lib/platform.ts): inside the native shell this
+  // pricing/upgrade surface must not exist — subscription changes happen on
+  // the web only. Effect-set so SSR/web hydration is byte-identical.
+  const [nativeShell, setNativeShell] = useState(false)
+  useEffect(() => {
+    setNativeShell(isNativeShell())
+  }, [])
 
-  const handleAction = (targetTier: SubscriptionTier) => {
-    if (targetTier === 'enterprise') {
-      if (typeof window !== 'undefined') {
-        window.location.href =
-          'mailto:sales@synqed.jp?subject=Enterprise%20plan%20inquiry'
-      }
-      return
+  const highlightTier: SubscriptionTier | null = isUnlimited
+    ? null
+    : (currentTier ?? null)
+
+  const staffRow = (tier: SubscriptionTier): FeatureRow => {
+    const n = staffLimitFor(tier)
+    return {
+      label:
+        n === 'unlimited' ? t('staffUnlimited') : t('staffUpTo', { n }),
+      on: true,
+      staff: true,
     }
-    if (targetTier === 'free') {
-      if (typeof window === 'undefined') return
-      if (!window.confirm(t('downgradeConfirm'))) return
-      cancelSubscription()
-      return
-    }
-    upgradeTo(targetTier)
+  }
+  const quotaLabel = (tier: SubscriptionTier): string => {
+    const f = TIER_FEATURES[tier]
+    // Both quotas are numeric on the capped tiers (free/standard); the
+    // uncapped tiers use the all-unlimited row instead of this one.
+    return t('quotaLimited', {
+      customers: f.customers as number,
+      recordings: f.recordingsPerMonth as number,
+    })
   }
 
-  const tierLabelFor = (tier: SubscriptionTier): string => {
-    if (tier === 'standard') return 'Standard'
-    if (tier === 'professional') return 'Professional'
-    return tier
+  const featuresFor = (tier: SubscriptionTier): FeatureRow[] => {
+    switch (tier) {
+      case 'free':
+        return [
+          staffRow('free'),
+          { label: t('storesLimited', { n: TIER_FEATURES.free.stores as number }), on: true },
+          { label: quotaLabel('free'), on: true },
+          { label: t('featAiKarte'), on: false },
+          { label: t('featCoaching'), on: false },
+        ]
+      case 'standard':
+        return [
+          staffRow('standard'),
+          { label: t('storesUnlimited'), on: true },
+          { label: quotaLabel('standard'), on: true },
+          { label: t('featAiSuite'), on: true },
+          { label: t('featCoaching'), on: false },
+        ]
+      case 'professional':
+        return [
+          staffRow('professional'),
+          { label: t('quotaAllUnlimited'), on: true },
+          { label: t('featAiSuite'), on: true },
+          { label: t('featCoachingPlus'), on: true, strong: true },
+          { label: t('featPrioritySupport'), on: true },
+        ]
+      default:
+        return [
+          staffRow('enterprise'),
+          { label: t('entVolume'), on: true },
+          { label: t('entAllPro'), on: true },
+          { label: t('entSupport'), on: true },
+        ]
+    }
   }
 
-  const actionLabelFor = (target: SubscriptionTier): string => {
-    if (currentTier === target) return t('actionCurrent')
-    if (target === 'free') return t('actionDowngradeFree')
-    return t('actionUpgrade', { tier: tierLabelFor(target) })
+  const actionLabelFor = (tier: SubscriptionTier): string => {
+    if (isUnlimited) return t('actionUnlimited')
+    if (highlightTier === tier) return t('actionCurrent')
+    if (tier === 'enterprise') return t('actionContact')
+    return t('actionUpgrade', { tier: TIER_NAMES[tier] })
+  }
+
+  const handleAction = (tier: SubscriptionTier) => {
+    if (typeof window === 'undefined') return
+    window.location.assign(tier === 'enterprise' ? ENTERPRISE_MAILTO : SALES_MAILTO)
+  }
+
+  if (nativeShell) {
+    return (
+      <p className="rounded-xl bg-muted/50 px-4 py-6 text-center text-[13px] text-muted-foreground">
+        {t('manageOnWeb')}
+      </p>
+    )
   }
 
   return (
-    <div className="space-y-4">
-      {trialAvailable && (
-        <div className="flex items-start gap-3 rounded-xl bg-blue-50/70 p-4 ring-1 ring-blue-200/70 dark:bg-blue-500/[0.08] dark:ring-blue-500/25">
-          <Sparkles
-            className="mt-0.5 size-5 shrink-0 text-blue-700 dark:text-blue-300"
+    <div className="space-y-5">
+      {isUnlimited && (
+        <div className="flex items-start gap-3 rounded-xl bg-amber-50/70 p-4 ring-1 ring-amber-200/70 dark:bg-amber-500/[0.08] dark:ring-amber-500/25">
+          <Crown
+            className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-300"
             aria-hidden
           />
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold text-blue-900 dark:text-blue-200">
-              {t('trialBannerTitle')}
+            <div className="text-[13px] font-semibold text-amber-900 dark:text-amber-200">
+              {t('unlimitedBannerTitle')}
             </div>
-            <p className="mt-0.5 text-[12px] leading-relaxed text-blue-800/90 dark:text-blue-300/85">
-              {t('trialBannerBody')}
+            <p className="mt-0.5 text-[12px] leading-relaxed text-amber-800/90 dark:text-amber-300/85">
+              {t('unlimitedBannerBody')}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={startTrial}
-            className="inline-flex h-9 shrink-0 items-center rounded-md bg-blue-600 px-4 text-[13px] font-medium text-white transition-colors hover:bg-blue-700"
-          >
-            {t('trialBannerCta')}
-          </button>
         </div>
       )}
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-        <PlanCard
-          tier="free"
-          title={t('freeTitle')}
-          price={t('freePrice')}
-          pitch={t('freePitch')}
-          features={[
-            staffFeature('free', locale),
-            t('freeFeature1'),
-            t('freeFeature2'),
-            t('freeFeature3'),
-            t('freeFeature4'),
-            t('freeFeature5'),
-            t('freeFeature6'),
-            t('freeFeature7'),
-          ]}
-          currentTier={currentTier}
-          actionLabel={actionLabelFor('free')}
-          onAction={handleAction}
-          currentPill={t('currentPill')}
-        />
-        <PlanCard
-          tier="standard"
-          title={t('standardTitle')}
-          price={t('standardPrice', {
-            price: YEN.format(TIER_PRICE_JPY.standard),
-          })}
-          pitch={t('standardPitch')}
-          features={[
-            staffFeature('standard', locale),
-            t('standardFeature1'),
-            t('standardFeature2'),
-            t('standardFeature3'),
-            t('standardFeature4'),
-            t('standardFeature5'),
-            t('standardFeature6'),
-            t('standardFeature7'),
-            t('standardFeature8'),
-            t('standardFeature9'),
-          ]}
-          currentTier={currentTier}
-          actionLabel={actionLabelFor('standard')}
-          onAction={handleAction}
-          currentPill={t('currentPill')}
-        />
-        <PlanCard
-          tier="professional"
-          title={t('professionalTitle')}
-          price={t('professionalPrice', {
-            price: YEN.format(TIER_PRICE_JPY.professional),
-          })}
-          pitch={t('professionalPitch')}
-          features={[
-            staffFeature('professional', locale),
-            t('professionalFeature1'),
-            t('professionalFeature2'),
-            t('professionalFeature3'),
-            t('professionalFeature4'),
-            t('professionalFeature5'),
-            t('professionalFeature6'),
-          ]}
-          currentTier={currentTier}
-          actionLabel={actionLabelFor('professional')}
-          onAction={handleAction}
-          highlight
-          mostPopular={t('mostPopular')}
-          currentPill={t('currentPill')}
-        />
+      <div className="grid grid-cols-1 gap-3.5 pt-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        {(['free', 'standard', 'professional', 'enterprise'] as const).map(
+          (tier) => (
+            <PlanCard
+              key={tier}
+              tier={tier}
+              price={
+                tier === 'enterprise'
+                  ? t('priceCustom')
+                  : yen(TIER_PRICE_JPY[tier])
+              }
+              priceSuffix={
+                tier === 'standard' || tier === 'professional'
+                  ? t('perStoreMonth')
+                  : undefined
+              }
+              pitch={t(`${tier}Pitch`)}
+              features={featuresFor(tier)}
+              isCurrent={highlightTier === tier}
+              disabled={isUnlimited || highlightTier === tier}
+              actionLabel={actionLabelFor(tier)}
+              onAction={() => handleAction(tier)}
+              mostPopular={tier === 'professional' ? t('mostPopular') : undefined}
+              currentPill={t('currentPill')}
+            />
+          ),
+        )}
       </div>
 
-      {/* Enterprise — quieter, alone */}
-      <div className="flex items-start gap-4 rounded-xl bg-gray-50/60 p-4 ring-1 ring-black/5 md:p-5 dark:bg-white/[0.03] dark:ring-white/10">
-        <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-          <Crown className="size-5" aria-hidden />
+      {/* 店舗を追加するとき — the add-store fee rules, driven by fees.ts */}
+      <div className="rounded-xl border border-amber-300/50 bg-amber-50/50 p-4 md:p-5 dark:border-amber-500/25 dark:bg-amber-500/[0.07]">
+        <h3 className="text-[13.5px] font-semibold text-amber-700 dark:text-amber-300">
+          {t('feesTitle')}
+        </h3>
+        <p className="mb-3 mt-0.5 text-[11.5px] text-muted-foreground">
+          {t('feesIntro')}
+        </p>
+        <div className="space-y-2.5">
+          <FeeRow
+            tagClass="bg-rose-500/10 text-rose-700 dark:text-rose-300"
+            tag={t('feeSetupTag')}
+            lead={t('feeSetupLead')}
+            rest={t('feeSetupRest', { fee: yen(STORE_SETUP_FEE_JPY) })}
+          />
+          <FeeRow
+            tagClass="bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+            tag={t('feeBranchTag')}
+            lead={t('feeBranchLead')}
+            rest={t('feeBranchRest')}
+          />
+          {/* Owner-free rule — real customers never see another account's
+           *  comp status, so this row renders only on the unlimited account. */}
+          {isUnlimited && (
+            <FeeRow
+              tagClass="bg-muted text-muted-foreground"
+              tag={t('feeOwnerTag')}
+              rest={t('feeOwnerBody')}
+            />
+          )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-semibold text-foreground">
-            {t('enterpriseTitle')}
-          </div>
-          <p className="mt-0.5 text-[12px] leading-relaxed text-muted-foreground">
-            {t('enterprisePitch')}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => handleAction('enterprise')}
-          className="inline-flex h-9 shrink-0 items-center rounded-md px-3.5 text-[13px] font-medium text-foreground ring-1 ring-black/10 transition-colors hover:bg-white dark:ring-white/15 dark:hover:bg-white/[0.05]"
-        >
-          {t('enterpriseCta')}
-        </button>
       </div>
     </div>
   )
 }
 
+const TIER_NAMES: Record<SubscriptionTier, string> = {
+  trial: 'Trial',
+  free: 'Free',
+  standard: 'Standard',
+  professional: 'Professional',
+  enterprise: 'Enterprise',
+}
+
 interface PlanCardProps {
   tier: SubscriptionTier
-  title: string
   price: string
+  priceSuffix?: string
   pitch: string
-  features: string[]
-  currentTier: SubscriptionTier
-  onAction: (t: SubscriptionTier) => void
+  features: FeatureRow[]
+  isCurrent: boolean
+  disabled: boolean
   actionLabel: string
-  highlight?: boolean
+  onAction: () => void
   mostPopular?: string
   currentPill: string
 }
 
 function PlanCard({
   tier,
-  title,
   price,
+  priceSuffix,
   pitch,
   features,
-  currentTier,
-  onAction,
+  isCurrent,
+  disabled,
   actionLabel,
-  highlight,
+  onAction,
   mostPopular,
   currentPill,
 }: PlanCardProps) {
-  const isCurrent = tier === currentTier
+  const highlight = tier === 'professional'
 
   return (
     <div
-      className={`relative flex h-full flex-col rounded-xl p-4 transition-colors ${
+      className={`relative flex h-full flex-col rounded-2xl bg-card p-5 ${
         highlight
-          ? 'bg-blue-50/40 ring-2 ring-blue-400 dark:bg-blue-500/[0.08] dark:ring-blue-500/60'
-          : isCurrent
-            ? 'bg-indigo-50/50 ring-1 ring-indigo-600 dark:bg-white/[0.04] dark:ring-indigo-300/40'
-            : 'bg-card ring-1 ring-black/5 dark:ring-white/10'
+          ? 'ring-2 ring-indigo-500 shadow-[0_8px_30px_-12px_rgba(79,70,229,0.35)] dark:ring-indigo-400/70'
+          : 'ring-1 ring-black/[0.07] dark:ring-white/10'
       }`}
     >
       {highlight && mostPopular && (
-        <span className="absolute -top-2.5 left-4 inline-flex h-5 items-center gap-1 rounded-full bg-blue-600 px-2 text-[10px] font-semibold text-white">
-          <Star className="size-2.5" aria-hidden />
+        <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-full bg-indigo-600 px-2.5 py-0.5 text-[10.5px] font-bold text-white">
           {mostPopular}
         </span>
       )}
-      {isCurrent && !highlight && (
-        <span className="absolute -top-2.5 left-4 inline-flex h-5 items-center gap-1 rounded-full bg-sage-800 px-2 text-[10px] font-semibold text-white">
+      {isCurrent && (
+        <span
+          className={`absolute -top-2.5 ${highlight ? 'right-3' : 'left-1/2 -translate-x-1/2'} whitespace-nowrap rounded-full bg-sage-800 px-2.5 py-0.5 text-[10.5px] font-bold text-white`}
+        >
           {currentPill}
         </span>
       )}
-      {isCurrent && highlight && (
-        <span className="absolute -top-2.5 right-4 inline-flex h-5 items-center gap-1 rounded-full bg-sage-800 px-2 text-[10px] font-semibold text-white">
-          {currentPill}
-        </span>
-      )}
-      <div className="text-[15px] font-semibold text-foreground">{title}</div>
-      <div className="mt-2 text-[22px] font-bold tracking-tight tabular-nums text-foreground">
-        {price}
+
+      <div className="flex items-center gap-1.5 text-[15px] font-semibold text-foreground">
+        {tier === 'professional' && (
+          <Star className="size-4 text-indigo-600 dark:text-indigo-300" aria-hidden />
+        )}
+        {tier === 'enterprise' && (
+          <Building2 className="size-4 text-amber-600 dark:text-amber-300" aria-hidden />
+        )}
+        {TIER_NAMES[tier]}
       </div>
-      <p className="mt-2 text-[12px] leading-relaxed text-muted-foreground">
+
+      <div className="mt-2.5 text-[26px] font-bold tracking-tight tabular-nums text-foreground">
+        {price}
+        {priceSuffix && (
+          <span className="ml-1 text-xs font-medium text-muted-foreground">
+            {priceSuffix}
+          </span>
+        )}
+      </div>
+
+      <p className="mb-3 mt-1 min-h-8 text-[11.5px] leading-relaxed text-muted-foreground">
         {pitch}
       </p>
 
-      <ul className="mt-4 flex-1 space-y-1.5">
-        {features.map((feat, i) => (
+      <ul className="flex-1 space-y-1.5">
+        {features.map((f) => (
           <li
-            key={i}
-            className="flex items-start gap-1.5 text-[12px] leading-relaxed text-foreground/85"
+            key={f.label}
+            className={`flex items-start gap-1.5 text-[12px] leading-relaxed ${
+              !f.on
+                ? 'text-muted-foreground opacity-70'
+                : f.staff
+                  ? 'font-semibold text-indigo-700 dark:text-indigo-300'
+                  : f.strong
+                    ? 'font-semibold text-foreground'
+                    : 'text-foreground/90'
+            }`}
           >
-            {feat.startsWith('×') ? (
-              <>
-                <X
-                  className="mt-0.5 size-3 shrink-0 text-gray-400 dark:text-gray-600"
-                  aria-hidden
-                />
-                <span className="text-muted-foreground">
-                  {feat.slice(1).trim()}
-                </span>
-              </>
+            {f.on ? (
+              <Check
+                className="mt-0.5 size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400"
+                aria-hidden
+              />
             ) : (
-              <>
-                <Check
-                  className="mt-0.5 size-3 shrink-0 text-green-600 dark:text-green-400"
-                  aria-hidden
-                />
-                <span>{feat}</span>
-              </>
+              <X className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" aria-hidden />
             )}
+            <span>{f.label}</span>
           </li>
         ))}
       </ul>
 
       <button
         type="button"
-        onClick={() => onAction(tier)}
-        disabled={isCurrent}
-        className={`mt-4 inline-flex h-10 w-full items-center justify-center rounded-md px-4 text-[13px] font-medium transition-colors ${
-          isCurrent
-            ? 'cursor-not-allowed bg-gray-100 text-muted-foreground dark:bg-white/[0.06]'
+        onClick={onAction}
+        disabled={disabled}
+        className={`mt-4 inline-flex h-10 w-full items-center justify-center rounded-lg px-3 text-[12.5px] font-semibold transition-colors ${
+          disabled
+            ? 'cursor-not-allowed bg-muted text-muted-foreground'
             : highlight
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-sage-800 text-white hover:bg-sage-900'
+              ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+              : 'bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 hover:bg-indigo-100 dark:bg-indigo-500/10 dark:text-indigo-300 dark:ring-indigo-400/30 dark:hover:bg-indigo-500/20'
         }`}
       >
         {actionLabel}
       </button>
+    </div>
+  )
+}
+
+function FeeRow({
+  tag,
+  tagClass,
+  lead,
+  rest,
+}: {
+  tag: string
+  tagClass: string
+  lead?: string
+  rest: string
+}) {
+  return (
+    <div className="flex items-start gap-2.5 text-[12.5px] leading-relaxed">
+      <span
+        className={`mt-0.5 shrink-0 rounded-md px-2 py-0.5 text-[10px] font-bold ${tagClass}`}
+      >
+        {tag}
+      </span>
+      <div className="min-w-0 text-muted-foreground">
+        {lead && <b className="font-semibold text-foreground">{lead} </b>}
+        {rest}
+      </div>
     </div>
   )
 }
