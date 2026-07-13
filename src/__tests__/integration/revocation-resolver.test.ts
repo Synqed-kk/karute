@@ -42,6 +42,12 @@ describe('endpoint classification', () => {
     expect(requiresRevocationCheck('customers.list')).toBe(false)
     expect(requiresRevocationCheck('dashboard.view')).toBe(false)
   })
+  it('a facade WRITE (customer.update) is sensitive; the paired READ is not', () => {
+    // Fail-closed: a just-terminated staffer must not edit customer PII on the
+    // local fast-path. The coarse GET (customer.read) keeps the fast-path.
+    expect(requiresRevocationCheck('customer.update')).toBe(true)
+    expect(requiresRevocationCheck('customer.read')).toBe(false)
+  })
   it('the constant is the single source of truth', () => {
     expect(REVOCATION_SENSITIVE_ENDPOINTS.has('export')).toBe(true)
   })

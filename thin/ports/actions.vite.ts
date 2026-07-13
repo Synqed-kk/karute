@@ -9,6 +9,8 @@
 // probe is unaffected; screen-conversion volume (post-checkpoint) wires each
 // action to its facade endpoint as the BFF lands.
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 function notWired(name: string) {
   return async (): Promise<never> => {
     throw new Error(
@@ -16,6 +18,24 @@ function notWired(name: string) {
         '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
     )
   }
+}
+
+// First REAL facade endpoint (packet 03 vertical slice). Routes through the
+// DataPort seam — the Authorization: Bearer header is the DataPort/auth-client's
+// job (packet 01 integration), NOT this port's; here we only call the seam.
+type ActionResult =
+  | { success: true; id: string }
+  | { success: false; error: string }
+
+async function facadeUpdateCustomer(id: string, input: unknown): Promise<ActionResult> {
+  const res = await getDataPort().apiFetch(`/api/app/v1/customers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  })
+  if (res.ok) return { success: true, id }
+  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+  return { success: false, error: body?.error?.message ?? `Update failed (${res.status})` }
 }
 
 // Any name resolves to a loud-throwing async fn (covers dynamic access).
@@ -32,7 +52,7 @@ export default proxy
 export const createCustomer = notWired('createCustomer')
 export const createQuickCustomer = notWired('createQuickCustomer')
 export const listAssignableStaff = notWired('listAssignableStaff')
-export const updateCustomer = notWired('updateCustomer')
+export const updateCustomer = facadeUpdateCustomer
 export const deleteCustomer = notWired('deleteCustomer')
 export const listCustomerPhotos = notWired('listCustomerPhotos')
 export const uploadCustomerPhoto = notWired('uploadCustomerPhoto')
