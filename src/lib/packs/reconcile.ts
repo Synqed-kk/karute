@@ -7,6 +7,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import {
   listAllLifecycles,
   listAllPackUsage,
@@ -36,7 +37,16 @@ export interface ReconcileData {
 
 const LOOKBACK_DAYS = 7
 
-export async function loadUnprocessedVisits(): Promise<ReconcileData> {
+/** storeId = the CLAMPED resolveStoreScope().storeId (never a raw cookie).
+ *  Store-filters the appointment window server-side so the 未処理来店 todos
+ *  only surface the viewer's own store's visits (#465 family). The karute
+ *  read stays unfiltered ON PURPOSE: it only feeds a has-karute lookup keyed
+ *  by the (already store-filtered) appointment ids — filtering it too would
+ *  false-positive a todo for any legacy record with a mis-stamped store.
+ *  null/undefined = no filter (business has no stores / lookup failed). */
+export async function loadUnprocessedVisits(
+  storeId?: string | null,
+): Promise<ReconcileData> {
   try {
     const synqed = await getSynqedClient()
     const todayJst = ymdInJst(new Date())
@@ -68,6 +78,7 @@ export async function loadUnprocessedVisits(): Promise<ReconcileData> {
         to: toIso,
         page,
         page_size: 200,
+        store_id: storeId ?? undefined,
       })
       appointments.push(
         ...(res.appointments as unknown as typeof appointments),
@@ -92,7 +103,7 @@ export async function loadUnprocessedVisits(): Promise<ReconcileData> {
       id: a.id,
       customerId: a.customer_id,
       visitDayJst: ymdInJst(new Date(a.starts_at)),
-      isCancelled: (a.status ?? '') === 'CANCELLED',
+      isCancelled: isTerminalStatus(a.status ?? ''),
       isImport: (a.notes ?? '').includes('sheet-import'),
       hasKarute: karuteByAppointment.has(a.id),
     }))

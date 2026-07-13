@@ -43,6 +43,11 @@ export type KaruteDraft = {
   /** The booked customer, when the session was tied to an appointment — lets a
    *  recovered draft skip re-selecting the customer. Absent for walk-ins. */
   appointmentCustomerId?: string
+  /** Server-minted recording_sessions id (synqed-core), carried through so a
+   *  crash-recovered draft still saves with it — the whole point of this field
+   *  is that RETRIED/RECOVERED saves dedupe too. Absent when the mint failed or
+   *  hadn't resolved before the take reached review. */
+  recordingSessionId?: string
   /** Auth user id (Supabase auth.uid) of the staff member who saved this draft.
    *  Recovery is gated on it: only the same signed-in user is ever offered the
    *  draft, so a shared device can't surface staff A's customer transcript to

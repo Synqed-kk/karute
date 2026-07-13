@@ -9,6 +9,13 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   estimateCostCents: jest.fn(() => 1),
 }))
 
+// The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
+// the rate limiter above. Allowed by default; the gate's own behavior is
+// covered in api-extract.test.ts + subscription-enforcement.test.ts.
+jest.mock('@/lib/subscription/feature-gate', () => ({
+  featureAllowed: jest.fn(async () => true),
+}))
+
 // Supabase server client is used for the org-settings lookup. Return a chain
 // stub so .from().select().limit().single() resolves without a real DB.
 jest.mock('@/lib/supabase/server', () => ({
