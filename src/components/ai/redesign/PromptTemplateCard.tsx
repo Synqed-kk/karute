@@ -1,7 +1,7 @@
 'use client'
 
 import { ArrowRight, Sparkles, TrendingUp, Users } from 'lucide-react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import type { ConsultationQuestion } from '@/lib/welcome/business-types'
 
 interface PromptTemplateCardProps {
@@ -24,10 +24,26 @@ const CATEGORY_TONES: Record<
   Strategy: { bg: 'bg-violet-500/15', text: 'text-violet-300' },
 }
 
+// Display-only localization of the category chip. The `category` field VALUE
+// stays English (it keys the icon/tone maps above) — only the rendered label
+// localizes. Kept as a local map so this stays inside PKT-002's scope fence
+// (messages/*.json is PKT-001's file).
+const CATEGORY_LABELS: Record<
+  ConsultationQuestion['category'],
+  { en: string; ja: string }
+> = {
+  Analysis: { en: 'Analysis', ja: '分析' },
+  Customer: { en: 'Customer', ja: '顧客' },
+  Strategy: { en: 'Strategy', ja: '戦略' },
+}
+
 export function PromptTemplateCard({ template, onPick }: PromptTemplateCardProps) {
   const t = useTranslations('askAi')
+  const locale = useLocale()
   const Icon = CATEGORY_ICONS[template.category]
   const tone = CATEGORY_TONES[template.category]
+  const categoryLabel =
+    CATEGORY_LABELS[template.category][locale === 'ja' ? 'ja' : 'en']
   return (
     <button
       type="button"
@@ -41,7 +57,7 @@ export function PromptTemplateCard({ template, onPick }: PromptTemplateCardProps
           <Icon size={12} />
         </span>
         <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {template.category}
+          {categoryLabel}
         </span>
       </div>
       <div className="text-sm font-semibold text-foreground">{template.title}</div>
