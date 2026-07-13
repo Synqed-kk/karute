@@ -20,6 +20,13 @@ export async function ingestSessionMemory(params: {
   const { customerId, businessId, transcript, locale, customerName, sessionDate } = params
   if (!transcript || !transcript.trim()) return
   try {
+    // Plan gate (P4): auto-extract is a paid capability once billing arms —
+    // silent skip here (this whole function is best-effort by contract; the
+    // record save it rides on must never fail on a plan check). Manual staff
+    // memory edits live in actions/memory.ts → customer-memory.ts and are
+    // deliberately NOT gated. Dynamic import per this file's header rule.
+    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
+    if (!(await featureAllowed('customerMemoryAutoExtract'))) return
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
       await Promise.all([
         import('@/actions/org-settings'),
@@ -56,6 +63,11 @@ export async function backfillMemoryFromTranscripts(params: {
   const usable = transcripts.filter((t) => t && t.trim())
   if (usable.length === 0) return []
   try {
+    // Plan gate (P4): same key + same silent-skip contract as
+    // ingestSessionMemory above. 再学習's user-facing "locked" copy is handled
+    // by its action checking BEFORE the wipe — by the time this runs, allowed.
+    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
+    if (!(await featureAllowed('customerMemoryAutoExtract'))) return []
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
       await Promise.all([
         import('@/actions/org-settings'),

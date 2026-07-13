@@ -26,6 +26,7 @@ type EnrichRow = {
   booking_staff_id: string | null
   next_appointment: string | null
   dated_visit_count: number
+  no_show_count?: number
 }
 let enrichmentRows: EnrichRow[] = []
 const customers = { enrichment: jest.fn(async () => enrichmentRows) }
@@ -50,10 +51,10 @@ import {
   customerVisitCount,
   formatJoinDate,
   formatLastVisit,
-  deriveKaruteNumber,
   defaultAiPredict,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
+import { isRepeatNoShow } from '@/components/customers/redesign/types'
 
 beforeEach(() => {
   enrichmentRows = []
@@ -81,6 +82,7 @@ describe('enrichCustomers', () => {
         booking_staff_id: 'staff-1',
         next_appointment: '2026-07-01T00:00:00Z',
         dated_visit_count: 5,
+        no_show_count: 3,
       },
     ]
     const map = await enrichCustomers('biz-1', ['a'])
@@ -93,7 +95,27 @@ describe('enrichCustomers', () => {
       bookingStaffId: 'staff-1',
       nextAppointmentIso: '2026-07-01T00:00:00Z',
       datedVisitCount: 5,
+      noShowCount: 3,
     })
+  })
+
+  it('defaults noShowCount to 0 when the row omits it (SDK types lag synqed-core #39)', async () => {
+    enrichmentRows = [
+      {
+        customer_id: 'a',
+        total_karute: 1,
+        last_visit: null,
+        first_visit: null,
+        past_appointment_count: 0,
+        last_visit_service: null,
+        booking_staff_id: null,
+        next_appointment: null,
+        dated_visit_count: 0,
+        // no_show_count intentionally omitted
+      },
+    ]
+    const map = await enrichCustomers('biz-1', ['a'])
+    expect(map.get('a')?.noShowCount).toBe(0)
   })
 
   it('returns a zeroed entry for every requested id with no core data', async () => {
@@ -109,6 +131,7 @@ describe('enrichCustomers', () => {
       nextAppointmentIso: null,
       firstVisitIso: null,
       datedVisitCount: 0,
+      noShowCount: 0,
     })
   })
 
@@ -319,34 +342,6 @@ describe('formatLastVisit', () => {
   })
 })
 
-describe('deriveKaruteNumber', () => {
-  it('produces a "#" + 5-digit decimal string', () => {
-    expect(deriveKaruteNumber('abcdef12-0000-0000-0000-000000000000')).toMatch(/^#\d{5}$/)
-  })
-
-  it('is deterministic for a given id', () => {
-    const id = '11111111-2222-3333-4444-555555555555'
-    expect(deriveKaruteNumber(id)).toBe(deriveKaruteNumber(id))
-  })
-
-  it('zero-pads small values to 5 digits', () => {
-    // First 6 hex chars "000001" → 1 → "#00001".
-    expect(deriveKaruteNumber('000001ab-0000-0000-0000-000000000000')).toBe('#00001')
-  })
-
-  it('applies modulo 100000 to keep it 5 digits', () => {
-    // First 6 hex chars "ffffff" = 16777215 % 100000 = 77215.
-    expect(deriveKaruteNumber('ffffff00-0000-0000-0000-000000000000')).toBe('#77215')
-  })
-
-  it('strips dashes before slicing the first 6 hex chars', () => {
-    // "ab-cdef" → "abcdef" so dashes inside the prefix don't poison the parse.
-    expect(deriveKaruteNumber('ab-cdef-00-0000-000000000000')).toBe(
-      deriveKaruteNumber('abcdef000000000000000000000000000000'),
-    )
-  })
-})
-
 describe('defaultAiPredict', () => {
   it('suggests reaching out this week for dormant customers', () => {
     expect(defaultAiPredict('dormant')).toEqual({ label: 'Reach out', when: 'This week' })
@@ -426,6 +421,21 @@ describe('案1 day math + formats', () => {
     const NOW = new Date('2026-06-11T03:00:00Z')
     const out = formatCompactDate('2026-06-15T01:00:00Z', 'ja', NOW, { withWeekday: true })
     expect(out).toMatch(/^6\/15\(.\)$/)
+  })
+})
+
+describe('isRepeatNoShow — the >= 2 threshold (a single no-show is not flagged)', () => {
+  it('flags 2 and above', () => {
+    expect(isRepeatNoShow(2)).toBe(true)
+    expect(isRepeatNoShow(3)).toBe(true)
+  })
+  it('does not flag 0 or 1', () => {
+    expect(isRepeatNoShow(0)).toBe(false)
+    expect(isRepeatNoShow(1)).toBe(false)
+  })
+  it('treats missing/undefined as 0 (not flagged)', () => {
+    expect(isRepeatNoShow(undefined)).toBe(false)
+    expect(isRepeatNoShow(null)).toBe(false)
   })
 })
 

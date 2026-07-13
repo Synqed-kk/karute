@@ -16,21 +16,11 @@
 //   OwnerTriageView     (L2, aggregate)       → triage bands + help actions only.
 //
 // A raw staff number, a transcript moment, or a named finding simply DOES NOT
-// EXIST on the owner/manager types — so a component built against THESE types
-// can't leak one, because there is no field to read it from. For that path the
-// guarantee is a compile-time fact; RLS enforces the same wall server-side
-// (defence in depth).
-//
-// ⚠ KNOWN OPEN EXCEPTION (audit, 2026-07-08) — this guarantee is NOT yet universal.
-// The live owner dashboard still renders the PRE-wall types in owner-types.ts
-// (StaffPerformanceTable, TopPerformersCard, and GapAnalysisList's raw
-// `gapFromTopPerformerPct`) with per-staff numbers + names, and consumes them, not
-// these types. DataDrivenStaffView / DataDrivenOwnerRoi use this contract; the old
-// dashboard cards do not yet. So do NOT read this header as "already enforced
-// everywhere": those cards MUST be migrated onto these banded types (and the
-// deterministic name/number leak-guard the prompt headers assume actually built)
-// BEFORE any real owner data hook is wired, or the leak this file calls impossible
-// fires for real on a live owner page. Tracked as a blocking pre-wire migration.
+// EXIST on the owner/manager types — so a mis-wired component can't leak one,
+// because there is no field to read it from. The privacy guarantee is a
+// compile-time fact, not a runtime hope. RLS enforces the same wall server-side
+// (defence in depth); this contract makes the client incapable of asking for
+// more than the viewer's scope.
 //
 // DATA-DRIVEN BACKBONE (coaching-design-principle, "not gamified"): the spine is
 // real business metrics — closing rate, rebooking rate, satisfaction, revenue,
@@ -267,6 +257,37 @@ export interface OwnerTriageView {
   /** How many staff have granted deeper manager access — a count only, never a
    *  per-person flag an owner could use as pressure. */
   sharingAdoption: { granted: number; total: number }
+}
+
+// ── Store coaching ROI (L2-owner) — the selling point, honestly ───────────────
+
+/** The measured lift on one store-level metric. Displays are pre-formatted for
+ *  locale/currency upstream ("+6pt", "+¥1,200") so the view is a pure renderer and
+ *  money stays multi-country. `confidence` comes straight from the effectiveness
+ *  engine (effectiveness.ts) and governs the honest label shown. */
+export interface StoreMetricLift {
+  key: string
+  liftDisplay: string
+  beforeDisplay: string
+  afterDisplay: string
+  confidence: 'early' | 'building' | 'mature'
+}
+
+/** L2-owner — coaching's measured impact on the STORE's sales: the surface that
+ *  sells the next business. EVERY number is a difference-in-differences lift vs
+ *  untreated control stores (effectiveness.ts), empirical-Bayes-shrunk and
+ *  confidence-labeled — never a raw before/after a good season could fake. Store
+ *  aggregate only; no individual staff appears here. */
+export interface StoreCoachingRoi {
+  scope: 'owner-aggregate'
+  headline: { key: string; liftDisplay: string; confidence: 'early' | 'building' | 'mature'; sinceMonths: number }
+  /** Treated (this store) vs control (untreated stores), same window; the marker
+   *  fraction is where coaching started along the series. */
+  trend: { treated: MetricPoint[]; control: MetricPoint[]; coachingStartFraction: number }
+  lifts: StoreMetricLift[]
+  /** The pays-for-itself estimate — the headline lift in money. Null when
+   *  confidence is too low to responsibly state one. */
+  monthlyValueEstimate: MoneyAmount | null
 }
 
 // ── The dormancy envelope (how every card handles "not wired yet") ────────────
