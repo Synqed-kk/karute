@@ -82,8 +82,9 @@ export async function bootstrapBusinessForNewUser(
       return userIdField === user.id
     })
     if (!alreadyRegistered) {
+      const ownerName = (user.email ?? '').split('@')[0] || 'owner'
       await synqed.staff.create({
-        name: salonName,
+        name: ownerName,
         email: user.email ?? null,
         user_id: user.id,
         role: 'OWNER',

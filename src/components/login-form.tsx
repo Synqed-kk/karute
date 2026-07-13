@@ -4,6 +4,7 @@ import { useTranslations } from 'next-intl'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
+import { authErrorKey } from '@/lib/auth/error-key'
 
 export function LoginForm({ locale }: { locale: string }) {
   const t = useTranslations('auth')
@@ -22,7 +23,7 @@ export function LoginForm({ locale }: { locale: string }) {
       password: formData.get('password') as string,
     })
     if (error) {
-      setError(error.message)
+      setError(t(authErrorKey(error)))
       setLoading(false)
     } else {
       router.push(`/${locale}/dashboard`)
