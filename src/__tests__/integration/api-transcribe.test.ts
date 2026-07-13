@@ -7,6 +7,13 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   enforceAiRateLimit: jest.fn(async () => null),
 }))
 
+// The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
+// the rate limiter above. Allowed by default; the gate's own behavior is
+// covered in api-extract.test.ts + subscription-enforcement.test.ts.
+jest.mock('@/lib/subscription/feature-gate', () => ({
+  featureAllowed: jest.fn(async () => true),
+}))
+
 // Org settings drive the diarize flag — stub a permissive default.
 jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => ({ speaker_diarization: true })),
@@ -19,6 +26,8 @@ const originalFetch = global.fetch
 beforeAll(() => {
   global.fetch = fetchMock as unknown as typeof global.fetch
   process.env.DEEPGRAM_API_KEY = 'test-key'
+  // Pin the SSRF allowlist host so the audioUrl guard is deterministic here.
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test-dummy.supabase.co'
 })
 afterAll(() => {
   global.fetch = originalFetch
@@ -172,7 +181,7 @@ describe('POST /api/ai/transcribe', () => {
   it('passes a Supabase signed URL straight through to Deepgram', async () => {
     fetchMock.mockResolvedValue(deepgramResponse('hello world'))
 
-    const audioUrl = 'https://example.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
+    const audioUrl = 'https://test-dummy.supabase.co/storage/v1/object/sign/audio.webm?token=abc'
 
     await testApiHandler({
       appHandler,
@@ -196,6 +205,26 @@ describe('POST /api/ai/transcribe', () => {
           'Content-Type': 'application/json',
         })
         expect((init as RequestInit).body).toBe(JSON.stringify({ url: audioUrl }))
+      },
+    })
+  })
+
+  it('rejects an audioUrl on a foreign host (SSRF guard) without fetching', async () => {
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioUrl: 'https://evil.example.com/internal/metadata',
+            locale: 'ja',
+          }),
+        })
+
+        expect(response.status).toBe(400)
+        // Never fetched — not the foreign host, not Deepgram.
+        expect(fetchMock).not.toHaveBeenCalled()
       },
     })
   })

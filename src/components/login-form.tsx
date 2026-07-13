@@ -58,6 +58,11 @@ export function LoginForm({ locale }: { locale: string }) {
         {loading ? t('submitting') : t('submit')}
       </Button>
       <p className="text-sm text-center text-muted-foreground">
+        <a href={`/${locale}/reset-password`} className="text-foreground underline underline-offset-4 hover:text-primary">
+          {t('forgotPassword')}
+        </a>
+      </p>
+      <p className="text-sm text-center text-muted-foreground">
         {t('noAccount')}{' '}
         <a href={`/${locale}/signup`} className="text-foreground underline underline-offset-4 hover:text-primary">
           {t('signupLink')}

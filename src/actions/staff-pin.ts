@@ -2,18 +2,26 @@
 
 import { updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getCurrentUserStaffId } from '@/lib/staff'
 
 /**
  * Set or update a staff member's 4-digit PIN. Hashing happens server-side.
+ * Core gates the change by the acting (signed-in) staff: you may set your own
+ * PIN, or an OWNER/ADMIN may set anyone's.
  */
 export async function setStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
   if (!/^\d{4}$/.test(pin)) {
     return { error: 'PIN must be exactly 4 digits' }
   }
 
+  const actingStaffId = await getCurrentUserStaffId()
+  if (!actingStaffId) {
+    return { error: 'Not authorized to set a PIN' }
+  }
+
   try {
     const synqed = await getSynqedClient()
-    await synqed.staff.setPin(staffId, pin)
+    await synqed.staff.setPin(staffId, pin, actingStaffId)
     updateTag('staff-list')
     return {}
   } catch (err) {
@@ -25,9 +33,14 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
  * Remove a staff member's PIN (allows switching without PIN).
  */
 export async function removeStaffPin(staffId: string): Promise<{ error?: string }> {
+  const actingStaffId = await getCurrentUserStaffId()
+  if (!actingStaffId) {
+    return { error: 'Not authorized to remove a PIN' }
+  }
+
   try {
     const synqed = await getSynqedClient()
-    await synqed.staff.removePin(staffId)
+    await synqed.staff.removePin(staffId, actingStaffId)
     updateTag('staff-list')
     return {}
   } catch (err) {

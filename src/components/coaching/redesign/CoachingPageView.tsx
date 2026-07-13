@@ -6,8 +6,9 @@ import { useLocale, useTranslations } from 'next-intl'
 import { ArrowRight, Shield, ShieldCheck } from 'lucide-react'
 
 import { CoachingHeader } from './CoachingHeader'
-import { StaffDashboardScaffold } from './StaffDashboardScaffold'
-import { OwnerDashboardScaffold } from './OwnerDashboardScaffold'
+import { DataDrivenStaffView } from './DataDrivenStaffView'
+import { DataDrivenOwnerRoi } from './DataDrivenOwnerRoi'
+import { SAMPLE_STAFF_VIEW, SAMPLE_STORE_ROI } from './sample-data'
 import { CoachingConsentDialog } from './CoachingConsentDialog'
 import {
   useCoachingConsent,
@@ -43,8 +44,13 @@ import { useEffectiveCoachingRole } from '@/lib/coaching-dev-preview/hooks'
 //    API-layer checks."
 export function CoachingPageView({
   role: realRole,
+  sampleData = false,
 }: {
   role: 'owner' | 'staff'
+  /** Unlimited/comped account (Liam) — render the screens with the labeled
+   *  サンプル dataset so the design is visible before the data layer exists.
+   *  Real businesses get the honest empty state (null view). */
+  sampleData?: boolean
 }) {
   // Dev preview override (env-gated): in production this always
   // collapses to realRole. In dev it lets Liam/Anthony QA the
@@ -125,7 +131,20 @@ export function CoachingPageView({
         </div>
       )}
 
-      {role === 'owner' ? <OwnerDashboardScaffold /> : <StaffDashboardScaffold />}
+      {/* Sample-data banner — only the comped/unlimited account sees sample
+       *  numbers, and they're labeled as such. Real businesses render the
+       *  honest empty state below instead. */}
+      {sampleData && (
+        <div className="rounded-lg border border-amber-300/50 bg-amber-50/60 px-4 py-2.5 text-[12px] text-amber-800 dark:border-amber-400/20 dark:bg-amber-500/[0.07] dark:text-amber-300">
+          {tData('sampleBanner')}
+        </div>
+      )}
+
+      {role === 'owner' ? (
+        <DataDrivenOwnerRoi roi={sampleData ? SAMPLE_STORE_ROI : null} />
+      ) : (
+        <DataDrivenStaffView view={sampleData ? SAMPLE_STAFF_VIEW : null} />
+      )}
 
       {/* Transparency page link — reachable from /coaching for
        *  both roles. Staff: their own privacy disclosure +

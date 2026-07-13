@@ -111,7 +111,10 @@ export default async function AppointmentsPage({
     getCurrentUserStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(selectedDateStr),
+    // The agenda is the ONE consumer that wants cancelled rows — rendered as
+    // thin greyed キャンセル済み tombstones in their original slot. Every other
+    // getAppointmentsByDate caller keeps the hidden-by-default contract.
+    getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true }),
     getBusinessId().catch(() => null),
     weekRange
       ? getAppointmentsInRange(
@@ -158,12 +161,16 @@ export default async function AppointmentsPage({
     new Set(dayAppointments.map((a) => a.client_id)),
   )
   // Pack usage loads in parallel — the 残3/10 pill on each agenda row. Empty
-  // map until the ticket_packs migration applies (graceful).
+  // map until the ticket_packs migration applies (graceful). 回数券 off (org
+  // setting, wave 1) → skip the read; the pills just don't render.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
   const [enrichment, packUsage] = await Promise.all([
     businessId && clientIdsForDay.length
       ? enrichCustomers(businessId, clientIdsForDay)
       : Promise.resolve(new Map()),
-    listAllPackUsage(),
+    ticketsEnabled
+      ? listAllPackUsage()
+      : Promise.resolve(new Map() as Awaited<ReturnType<typeof listAllPackUsage>>),
   ])
   // QR "returning customer" flag per client (cached 500-customer list). A known
   // existing customer is NEVER 新規 — even with no karute/past appointment yet

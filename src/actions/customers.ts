@@ -383,9 +383,8 @@ export async function revokeCustomerConsent(customerId: string) {
     updateTag('customer-consent')
     return { ok: true as const }
   } catch (err) {
-    return {
-      ok: false as const,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    }
+    // Same policy as the other mutating actions in this file: never leak a
+    // raw Prisma/synqed-core message into a user-facing toast.
+    return { ok: false as const, error: await translateBackendError(err) }
   }
 }

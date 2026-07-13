@@ -72,6 +72,11 @@ export interface OrgSettings {
   voice_enrollments: Record<string, VoiceEnrollment>
   /** Off → staff may only pick from presets (no free price/size input). */
   staff_can_customize_packs: boolean
+  /** Master switch for 回数券. Off → every pack surface hides (profile card,
+   *  dashboard reconcile/alerts, recording burn + outcome dialog) and pack
+   *  fetches are skipped. Historical rows stay untouched — switching back on
+   *  shows them again. Defaults on so existing salons keep today's behavior. */
+  ticket_packs_enabled: boolean
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -139,6 +144,10 @@ const orgSettingsByBusiness = unstable_cache(
           s.staff_can_customize_packs === undefined
             ? true
             : Boolean(s.staff_can_customize_packs),
+        ticket_packs_enabled:
+          s.ticket_packs_enabled === undefined
+            ? true
+            : Boolean(s.ticket_packs_enabled),
         voice_enrollments:
           s.voice_enrollments && typeof s.voice_enrollments === 'object'
             ? (s.voice_enrollments as Record<string, VoiceEnrollment>)

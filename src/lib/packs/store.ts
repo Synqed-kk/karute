@@ -1,5 +1,6 @@
 import { getSynqedClient } from '@/lib/synqed/client'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import {
   withUsage,
   type CustomerLifecycle,
@@ -94,6 +95,42 @@ export async function updatePackStatus(
   }
 }
 
+/** The customer's appointment on `dateYmd` (JST calendar day) to link a
+ *  redemption to when the caller didn't supply one — same customer_id +
+ *  JST-day window as getAppointmentsByDate/reconcile.ts, but scoped to the one
+ *  customer server-side so it's a single small page and immune to the agenda's
+ *  active-store view filter (a profile burn isn't store-scoped). Non-cancelled
+ *  bookings only (CANCELLED or NO_SHOW never match) — mirrors
+ *  getAppointmentsByDate. Multiple same-day
+ *  bookings: pick the one closest to now (the next upcoming), else — if every
+ *  booking that day has already passed — the day's first. null when there's no
+ *  booking that day — a valid walk-in, not an error. */
+export async function findCustomerAppointmentForDate(
+  customerId: string,
+  dateYmd: string,
+): Promise<string | null> {
+  try {
+    const synqed = await getSynqedClient()
+    const dayStartUTC = new Date(`${dateYmd}T00:00:00+09:00`)
+    const dayEndUTC = new Date(`${dateYmd}T23:59:59.999+09:00`)
+    const { appointments } = await synqed.appointments.list({
+      customer_id: customerId,
+      from: dayStartUTC.toISOString(),
+      to: dayEndUTC.toISOString(),
+      page_size: 200,
+    })
+    const candidates = appointments
+      .filter((a) => !isTerminalStatus(a.status))
+      .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
+    if (candidates.length === 0) return null
+    const nowIso = new Date().toISOString()
+    return (candidates.find((a) => a.starts_at >= nowIso) ?? candidates[0]).id
+  } catch (err) {
+    warn('findCustomerAppointmentForDate', err)
+    return null
+  }
+}
+
 export interface AddRedemptionInput {
   packId: string
   customerId: string
@@ -102,6 +139,11 @@ export interface AddRedemptionInput {
   karuteRecordId?: string | null
   source?: PackSource
   createdBy?: string | null
+  /** Whether this redemption counts as a completed visit — core defaults
+   *  true, so omit for the normal check-off. A no-show burn MUST send false:
+   *  the ticket is spent but no visit happened, so visit-count-driven surfaces
+   *  (lifecycle, dormancy) must not treat it as one. */
+  countsAsVisit?: boolean
 }
 
 /** Check one session off a pack. The caller decides WHEN consumption happens
@@ -111,7 +153,7 @@ export async function addRedemption(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const synqed = await getSynqedClient()
-    const { id } = await synqed.packs.addRedemption({
+    const payload = {
       pack_id: input.packId,
       customer_id: input.customerId,
       redeemed_on: input.redeemedOn,
@@ -119,12 +161,39 @@ export async function addRedemption(
       karute_record_id: input.karuteRecordId ?? null,
       source: input.source ?? 'manual',
       created_by: input.createdBy ?? null,
-    })
+      ...(input.countsAsVisit === undefined ? {} : { counts_as_visit: input.countsAsVisit }),
+    }
+    // SDK-skew cast: @synqed-kk/client 1.11.0's addRedemption() type doesn't
+    // declare counts_as_visit yet (synqed-core #39) — cast to send it.
+    const { id } = await synqed.packs.addRedemption(
+      payload as Parameters<typeof synqed.packs.addRedemption>[0],
+    )
     return { ok: true, id }
   } catch (err) {
     warn('addRedemption', err)
+    // Stable discriminator, NOT a user-facing string: every burn caller toasts
+    // an i18n key (never res.error, which carries English internals), so it
+    // branches on this to show the 残回数ゼロ message vs the generic failure.
+    if (isBelowZeroGuardError(err)) {
+      return { ok: false, error: 'below_zero' }
+    }
     return { ok: false, error: err instanceof Error ? err.message : 'unknown' }
   }
+}
+
+/** trg_pack_below_zero (assert_pack_not_over_redeemed in the prod DB) raises
+ *  `pack % over-redeemed: % burned > pack_size %` with SQLSTATE 23514. It
+ *  reaches us as a SynqedError whose message is whatever core's onError relayed
+ *  from Prisma — no structured code survives this HTTP boundary. 'over-redeemed'
+ *  is the trigger's own raise text and the only part guaranteed present; the
+ *  code/trigger-name matches cover Prisma formats that embed them. */
+function isBelowZeroGuardError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err)
+  return (
+    message.includes('over-redeemed') ||
+    message.includes('trg_pack_below_zero') ||
+    message.includes('23514')
+  )
 }
 
 export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {
@@ -350,6 +419,27 @@ export async function getCustomerLifecycle(
   } catch (err) {
     warn('getCustomerLifecycle', err)
     return null
+  }
+}
+
+/**
+ * Lifecycle read that DISTINGUISHES "no lifecycle row" (a normal active
+ * customer) from "the read failed". Coaching surfaces must fail CLOSED on
+ * error: a transient backend hiccup on a 卒業/離客 customer must not render
+ * closing tactics for someone the salon already released — treat an errored
+ * read as "unknown, suppress coaching", never as "active".
+ */
+export async function getCustomerLifecycleChecked(
+  customerId: string,
+): Promise<{ ok: true; lifecycle: CustomerLifecycle | null } | { ok: false }> {
+  if (!customerId) return { ok: true, lifecycle: null }
+  try {
+    const synqed = await getSynqedClient()
+    const lifecycle = (await synqed.packs.getLifecycle(customerId)) as CustomerLifecycle | null
+    return { ok: true, lifecycle }
+  } catch (err) {
+    warn('getCustomerLifecycleChecked', err)
+    return { ok: false }
   }
 }
 

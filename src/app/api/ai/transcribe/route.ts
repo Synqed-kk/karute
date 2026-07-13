@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { featureAllowed } from '@/lib/subscription/feature-gate'
 import {
   transcribeUrlWithDeepgram,
   transcribeWithDeepgram,
@@ -13,6 +14,27 @@ import type { OrgSettings } from '@/actions/org-settings'
 import { getOrgSettings } from '@/actions/org-settings'
 
 export const maxDuration = 300
+
+/**
+ * SSRF guard for the JSON path's caller-supplied audioUrl. The only legitimate
+ * value is a Supabase Storage URL on THIS project's host (the caller uploads the
+ * recording there, then passes the signed URL) — both this route and Deepgram
+ * fetch it server-side, so an unrestricted value could reach internal endpoints
+ * or arbitrary hosts. Require https + an exact host match against
+ * NEXT_PUBLIC_SUPABASE_URL. Anything unparseable or off-host is rejected.
+ */
+function isAllowedAudioUrl(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!base) return false
+  try {
+    const u = new URL(raw)
+    const allowedHost = new URL(base).host
+    return u.protocol === 'https:' && u.host === allowedHost
+  } catch {
+    return false
+  }
+}
 
 /**
  * POST /api/ai/transcribe
@@ -41,6 +63,14 @@ export const maxDuration = 300
 export async function POST(request: Request) {
   const limited = await enforceAiRateLimit('transcribe')
   if (limited) return limited
+  // Plan gate (P4): transcription is the front door of AI karute generation —
+  // same key as extract/summarize. Inert until billing arms (see feature-gate.ts).
+  if (!(await featureAllowed('aiKaruteGeneration'))) {
+    return NextResponse.json(
+      { error: 'PLAN_LOCKED', feature: 'aiKaruteGeneration' },
+      { status: 403 },
+    )
+  }
   try {
     const contentType = request.headers.get('content-type') ?? ''
 
@@ -53,6 +83,11 @@ export async function POST(request: Request) {
       const { audioUrl, locale: loc } = await request.json()
       if (!audioUrl) {
         return NextResponse.json({ error: 'No audioUrl provided' }, { status: 400 })
+      }
+      // SSRF guard: only our Supabase Storage host may be fetched (here + by
+      // Deepgram). Blocks internal-endpoint probing and arbitrary fetches.
+      if (!isAllowedAudioUrl(audioUrl)) {
+        return NextResponse.json({ error: 'Invalid audioUrl' }, { status: 400 })
       }
       const lang = (loc ?? 'ja') === 'en' ? 'en' : 'ja'
       const mode = speakerIdMode()

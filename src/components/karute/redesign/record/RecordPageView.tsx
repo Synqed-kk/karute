@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, use, useCallback, useEffect, useState } from 'react'
+import { Suspense, use, useCallback, useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button, ConsentCheckCard } from '@synqed-kk/ui'
 import { toast } from 'sonner'
@@ -9,6 +9,8 @@ import { useRouter } from '@/i18n/navigation'
 import { useGlobalRecorder } from '@/hooks/use-global-recorder'
 import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { ReviewScreen } from '@/components/review/ReviewScreen'
+import type { Entry } from '@/types/ai'
+import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -35,6 +37,7 @@ import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
 import { ConsentPill } from './ConsentPill'
+import { RecordingConsentDialog } from './RecordingConsentDialog'
 import {
   RecentRecordingsCard,
   type RecentRecording,
@@ -53,6 +56,9 @@ import {
 } from '@/actions/packs'
 import { resolveOutcomeMode } from '@/lib/packs/resolve'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
+import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
+import { ClosingTacticHint } from '@/components/visits/ClosingTacticHint'
 
 export interface RecordPageNextAppointment {
   id: string
@@ -92,6 +98,17 @@ export interface RecordPageViewProps {
   recentRecordings: RecentRecording[]
   /** Pre-formatted "Mar 12, 2026" (or locale equivalent). */
   consentDate: string | null
+  /** Recording target's visit-frequency segment (常連/安定/離脱気味/新規) — same
+   *  classifyVisitSegment the customer profile uses. Drives ClosingTacticHint;
+   *  null when there's no target or a terminal lifecycle decision owns them. */
+  visitSegment?: VisitSegment | null
+  /** Rhythm-bar geometry (days since last visit vs. usual interval) — same
+   *  computeVisitRhythm the customer profile's cadence math uses. Drives
+   *  VisitRhythmPanel; null without enough dated history. */
+  visitRhythm?: VisitRhythm | null
+  /** Whether the recording target holds a 回数券 — gates ClosingTacticHint's
+   *  pack vs. no-pack tactic line. */
+  targetHasTicketPack?: boolean
   /** The target customer's active 回数券 (sessions remaining) — drives the
    *  one-tap 消化 row in the post-session outcome dialog (design #1). */
   targetPack?: { id: string; remaining: number; size: number } | null
@@ -105,6 +122,11 @@ export interface RecordPageViewProps {
   /** Signed-in staff display name — shown in the 別のスタッフの予約 banner so
    *  staff see the record will save under THEM. */
   currentStaffName?: string | null
+  /** Org-level 回数券 master switch. Off → the stop flow neither burns a
+   *  session nor opens the outcome dialog (成約/回数券 questions are ticket
+   *  economics) — it saves the record exactly like the mid-pack auto path,
+   *  minus the redemption. */
+  ticketsEnabled?: boolean
 }
 
 function deriveInitials(name: string): string {
@@ -132,12 +154,16 @@ export function RecordPageView({
   aiBriefPromise,
   recentRecordings,
   consentDate,
+  visitSegment = null,
+  visitRhythm = null,
+  targetHasTicketPack = false,
   targetPack = null,
   packPresets = [],
   staffCanCustomizePacks = true,
   previousPack = null,
   noiseSuppression = true,
   currentStaffName = null,
+  ticketsEnabled = true,
 }: RecordPageViewProps) {
   const t = useTranslations('recording')
   const tc = useTranslations('common')
@@ -157,6 +183,7 @@ export function RecordPageView({
     startRecording,
     stopRecording,
     discardRecording,
+    awaitRecordingSessionId,
   } = useGlobalRecorder()
 
   // Background AI pipeline (transcribe → extract → summarize). Module-level
@@ -219,6 +246,30 @@ export function RecordPageView({
   // the background while they move on. It rides the pipeline context to save.
   const [outcomeOpen, setOutcomeOpen] = useState(false)
 
+  // Re-entry + staleness guards for the use-recording flow (it awaits the
+  // session-id mint, so it's no longer atomic): first tap wins, and a discard
+  // bumps the generation so an in-flight use drops its now-discarded take.
+  const usingRecording = useRef(false)
+  const useRecordingGen = useRef(0)
+
+  // Crash recovery: a draft persisted by ReviewScreen from a session that was
+  // never saved (WebView killed, tab reloaded). Loaded after mount (client-only,
+  // so no SSR hydration mismatch). `restoring` = the staffer chose to reopen it.
+  const [recoveredDraft, setRecoveredDraft] = useState<KaruteDraft | null>(null)
+  const [restoring, setRestoring] = useState(false)
+  useEffect(() => {
+    // loadDraft is async now — it returns the draft ONLY to the staff member who
+    // saved it (privacy on a shared device). Guard against a late resolve after
+    // unmount.
+    let cancelled = false
+    void loadDraft().then((d) => {
+      if (!cancelled) setRecoveredDraft(d)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const [consent, setConsent] = useState<{ granted: boolean; grantedAt: string | null } | null>(null)
   const [showConsentDialog, setShowConsentDialog] = useState(false)
   const [consentSubmitting, setConsentSubmitting] = useState(false)
@@ -246,7 +297,16 @@ export function RecordPageView({
     if (!customerIdForConsent) return
     setConsentSubmitting(true)
     setConsentError(null)
-    const r = await grantCustomerConsent(customerIdForConsent, { method: 'VERBAL' })
+    // Transport failures must release the dialog, not wedge it (same class of
+    // bug the review screen's consent confirm had — fixed in both places).
+    let r: Awaited<ReturnType<typeof grantCustomerConsent>>
+    try {
+      r = await grantCustomerConsent(customerIdForConsent, { method: 'VERBAL' })
+    } catch {
+      setConsentSubmitting(false)
+      setConsentError(tc('somethingWentWrong'))
+      return
+    }
     setConsentSubmitting(false)
     if (!r.ok) {
       setConsentError(r.error)
@@ -304,36 +364,61 @@ export function RecordPageView({
     startRecording({ noiseSuppression, target: null })
   }
   function handleDiscard() {
+    // Invalidate any in-flight handleUseRecording: its post-await body must
+    // not hand a take the staff just discarded to the pipeline.
+    useRecordingGen.current++
     discardRecording()
     setPhase('idle')
   }
-  function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
+  async function handleUseRecording(outcome?: SessionOutcome, outcomeSkipped = false) {
     if (!result) return
-    // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
-    // modal on this page). The top-corner chip shows progress; staff can leave
-    // and keep working. When it's done the chip brings them back to review+save.
-    // The outcome (chosen at stop) rides along so the save applies it without
-    // re-prompting at the end.
-    // `|| undefined`: a walk-in target (customer recorded with no booking)
-    // carries id='' — coerce it so the save writes appointment_id null, not ''.
-    const effectiveAppointmentId =
-      (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
-    const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
-      ? (recordingCustomerId ?? undefined)
-      : nextAppointment?.customerId)
-    globalPipeline.start(result.blob, {
-      locale,
-      customers,
-      duration: Math.round(result.durationMs / 1000),
-      appointmentId: effectiveAppointmentId,
-      appointmentCustomerId: effectiveCustomerId,
-      outcome,
-      outcomeSkipped,
-    })
-    // The pipeline now owns the audio; clear the recorder + return to idle so
-    // the page isn't stuck on the "review your take" screen.
-    discardRecording()
-    setPhase('idle')
+    // Re-entry guard. handleUseRecording gained an await (the session-id
+    // mint), opening a real window where a double-tap — or 自動 mode's
+    // handleAutoFlow, which ALSO burns a pack session — could run twice for
+    // one take. First entry wins; the generation check after the await
+    // catches a discard racing an in-flight use.
+    if (usingRecording.current) return
+    usingRecording.current = true
+    const gen = ++useRecordingGen.current
+    try {
+      // Hand the take to the BACKGROUND pipeline (was: a full-screen blocking
+      // modal on this page). The top-corner chip shows progress; staff can leave
+      // and keep working. When it's done the chip brings them back to review+save.
+      // The outcome (chosen at stop) rides along so the save applies it without
+      // re-prompting at the end.
+      // `|| undefined`: a walk-in target (customer recorded with no booking)
+      // carries id='' — coerce it so the save writes appointment_id null, not ''.
+      const effectiveAppointmentId =
+        (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
+      const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
+        ? (recordingCustomerId ?? undefined)
+        : nextAppointment?.customerId)
+      // Recording-session id was minted at start() (in parallel with getUserMedia)
+      // — by now (recording has run its full length) it has almost always
+      // resolved; this short await only covers the rare case it hasn't yet.
+      // null on timeout/failure → save proceeds without recording_session_id,
+      // exactly as before this feature existed (no dedupe for that save).
+      const recordingSessionId = await awaitRecordingSessionId()
+      // A discard during the await bumps the generation — this take no longer
+      // belongs to us; drop it instead of pipelining a discarded recording.
+      if (gen !== useRecordingGen.current) return
+      globalPipeline.start(result.blob, {
+        locale,
+        customers,
+        duration: Math.round(result.durationMs / 1000),
+        appointmentId: effectiveAppointmentId,
+        appointmentCustomerId: effectiveCustomerId,
+        outcome,
+        outcomeSkipped,
+        recordingSessionId,
+      })
+      // The pipeline now owns the audio; clear the recorder + return to idle so
+      // the page isn't stuck on the "review your take" screen.
+      discardRecording()
+      setPhase('idle')
+    } finally {
+      usingRecording.current = false
+    }
   }
   function handleNewSession() {
     discardRecording()
@@ -363,6 +448,10 @@ export function RecordPageView({
   // coaching labels. Consume 1 session (undo-able toast) + autosave without an
   // outcome row.
   function handleAutoFlow() {
+    // Same re-entry guard as handleUseRecording — this path ALSO burns a
+    // pack session (redeemSessionAction has no server-side idempotency), so
+    // a double-tap must not fire it twice for one take.
+    if (usingRecording.current) return
     if (targetPack && boundCustomerId) {
       const from = targetPack.remaining
       void redeemSessionAction({
@@ -389,7 +478,7 @@ export function RecordPageView({
               : undefined,
           )
         } else {
-          toast.error(tPacks('redeemFailed'))
+          toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
         }
       })
     }
@@ -410,13 +499,59 @@ export function RecordPageView({
         appointmentId={pipeline.context.appointmentId}
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
+        recordingSessionId={pipeline.context.recordingSessionId}
         onSaved={() => {
+          // Save persisted the record → drop the recovery draft (storage +
+          // in-memory), so no stale banner reoffers a finished session.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
         }}
         onDiscard={() => {
+          // Deliberate discard → drop the draft too, or it reappears as a
+          // recovery offer for a session the user intentionally threw away.
+          clearDraft()
+          setRecoveredDraft(null)
           globalPipeline.reset()
           handleNewSession()
+        }}
+      />
+    )
+  }
+
+  // Crash recovery: the staffer chose to reopen an unsaved draft (offered by the
+  // banner below). Re-mount ReviewScreen seeded from sessionStorage. Entry shape
+  // is mapped back from the draft's storage shape. No outcome is carried (it's
+  // not persisted) — the karute saves; any pack side-effect is handled manually.
+  if (restoring && recoveredDraft) {
+    return (
+      <ReviewScreen
+        transcript={recoveredDraft.transcript}
+        entries={recoveredDraft.entries.map(
+          (e): Entry => ({
+            category: e.category as Entry['category'],
+            title: e.content,
+            source_quote: e.sourceQuote ?? '',
+            confidence_score: e.confidenceScore,
+          }),
+        )}
+        summary={recoveredDraft.summary}
+        customers={customers}
+        duration={recoveredDraft.duration}
+        appointmentId={recoveredDraft.appointmentId}
+        appointmentCustomerId={recoveredDraft.appointmentCustomerId}
+        recordingSessionId={recoveredDraft.recordingSessionId}
+        onSaved={() => {
+          clearDraft()
+          setRecoveredDraft(null)
+          setRestoring(false)
+          handleNewSession()
+        }}
+        onDiscard={() => {
+          clearDraft()
+          setRecoveredDraft(null)
+          setRestoring(false)
         }}
       />
     )
@@ -523,7 +658,12 @@ export function RecordPageView({
           size="md"
           className="flex-1"
           onClick={() =>
-            outcomeMode === 'auto' ? handleAutoFlow() : setOutcomeOpen(true)
+            // Tickets off: straight save — no burn, no 成約/回数券 dialog.
+            !ticketsEnabled
+              ? handleUseRecording(undefined, true)
+              : outcomeMode === 'auto'
+                ? handleAutoFlow()
+                : setOutcomeOpen(true)
           }
         >
           {t('useRecording')}
@@ -575,6 +715,34 @@ export function RecordPageView({
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
 
+      {/* Crash-recovery offer — a session that reached the AI review but was
+       *  never saved. Shown only when fully idle so it never competes with a
+       *  live recording; non-hijacking (explicit 復元/破棄). */}
+      {recoveredDraft && !restoring && !live && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <span className="flex-1 text-amber-900 dark:text-amber-200">
+            {t('recoverTitle')}
+          </span>
+          <button
+            type="button"
+            onClick={() => setRestoring(true)}
+            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
+          >
+            {t('recoverAction')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              clearDraft()
+              setRecoveredDraft(null)
+            }}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
+          >
+            {t('recoverDiscard')}
+          </button>
+        </div>
+      )}
+
       {micError && (
         <div
           className="rounded-xl border px-4 py-3 text-sm"
@@ -598,14 +766,15 @@ export function RecordPageView({
             />
             {otherStaffBanner}
             <RepurchaseCueBanner pack={targetPack} />
+            {visitRhythm && (
+              <div className="overflow-hidden rounded-2xl border border-border">
+                <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
+              </div>
+            )}
+            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
             <Suspense
               key={nextAppointment?.customerId ?? 'none'}
-              fallback={
-                <PreSessionBriefCard
-                  brief={brief}
-                  customerName={nextAppointment?.customerName ?? null}
-                />
-              }
+              fallback={<BriefLoadingCard />}
             >
               <StreamingBriefCard
                 aiBriefPromise={aiBriefPromise}
@@ -625,14 +794,15 @@ export function RecordPageView({
           />
           {otherStaffBanner}
           <RepurchaseCueBanner pack={targetPack} />
+          {visitRhythm && (
+            <div className="overflow-hidden rounded-2xl border border-border">
+              <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
+            </div>
+          )}
+          <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
           <Suspense
             key={nextAppointment?.customerId ?? 'none'}
-            fallback={
-              <PreSessionBriefCard
-                brief={brief}
-                customerName={nextAppointment?.customerName ?? null}
-              />
-            }
+            fallback={<BriefLoadingCard />}
           >
             <StreamingBriefCard
               aiBriefPromise={aiBriefPromise}
@@ -654,7 +824,9 @@ export function RecordPageView({
 
       {/* Outcome — chosen at stop, BEFORE transcription, so staff aren't stuck
           waiting for the AI. Centered pop-up; the choice rides the pipeline
-          context to the save. */}
+          context to the save. Never mounts with tickets off — the stop button
+          saves directly and outcomeOpen can't turn true. */}
+      {ticketsEnabled && (
       <PostSessionResolutionDialog
         open={outcomeOpen}
         customerName={boundCustomerName ?? ''}
@@ -703,7 +875,7 @@ export function RecordPageView({
               appointmentId: boundAppointmentId ?? null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
-              else toast.error(tPacks('redeemFailed'))
+              else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
             })
           }
           // 購入した → close the loop: the NEW pack must be registered, or the
@@ -729,45 +901,17 @@ export function RecordPageView({
           handleUseRecording(outcome)
         }}
       />
+      )}
 
-      {/* Consent dialog */}
+      {/* Consent dialog — shared with the review screen's save-time gate */}
       {showConsentDialog && nextAppointment && (
-        <>
-          <div
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={() => !consentSubmitting && setShowConsentDialog(false)}
-          />
-          <div
-            className="fixed left-1/2 top-1/2 z-50 w-full max-w-md -translate-x-1/2 -translate-y-1/2 space-y-4 rounded-xl bg-card p-6 shadow-xl ring-1 ring-border"
-          >
-            <h3 className="text-base font-semibold text-foreground">{t('consentDialogTitle')}</h3>
-            <p className="text-sm text-muted-foreground">{t('consentDialogInstructions')}</p>
-            <div className="rounded-md bg-muted p-4 text-sm leading-relaxed text-foreground">
-              {t('consentScript', { customerName: nextAppointment.customerName })}
-            </div>
-            {consentError && <p className="text-sm text-destructive">{consentError}</p>}
-            <div className="flex gap-3">
-              <Button
-                variant="outline"
-                size="md"
-                className="flex-1"
-                onClick={() => setShowConsentDialog(false)}
-                disabled={consentSubmitting}
-              >
-                {tc('cancel')}
-              </Button>
-              <Button
-                variant="default"
-                size="md"
-                className="flex-1"
-                onClick={handleGrantConsent}
-                disabled={consentSubmitting}
-              >
-                {consentSubmitting ? tc('saving') : t('consentConfirmButton')}
-              </Button>
-            </div>
-          </div>
-        </>
+        <RecordingConsentDialog
+          customerName={nextAppointment.customerName}
+          submitting={consentSubmitting}
+          error={consentError}
+          onCancel={() => setShowConsentDialog(false)}
+          onConfirm={handleGrantConsent}
+        />
       )}
 
       {/* No-booking prompt */}
@@ -837,6 +981,30 @@ function pad2(n: number): string {
 // recorder/mic/elapsed timer mid-session. isFirstTimeVisit is pinned to the
 // mechanical value so the card's 新規-vs-returning framing can't flip a beat
 // after paint (the same signal the target badge + post-session dialog use).
+// Shimmer shown while the AI brief resolves. The old fallback rendered the
+// MECHANICAL brief here, so staff read one brief for a beat and then watched
+// it morph into the AI version (Liam, 2026-07-09) — content must paint ONCE.
+// The mechanical brief still renders, but only as StreamingBriefCard's
+// fallback when the AI call actually fails.
+function BriefLoadingCard() {
+  return (
+    <section
+      aria-busy
+      className="animate-pulse rounded-2xl border border-blue-200/50 bg-blue-50/30 p-5 dark:border-blue-500/20 dark:bg-blue-500/[0.05]"
+    >
+      <div className="mb-4 flex items-center gap-2.5">
+        <div className="size-8 rounded-full bg-blue-200/60 dark:bg-blue-500/20" />
+        <div className="h-3.5 w-40 rounded bg-blue-200/60 dark:bg-blue-500/20" />
+      </div>
+      <div className="space-y-2.5">
+        <div className="h-14 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+        <div className="h-14 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+        <div className="h-9 w-2/3 rounded-xl bg-black/[0.04] dark:bg-white/[0.05]" />
+      </div>
+    </section>
+  )
+}
+
 function StreamingBriefCard({
   aiBriefPromise,
   fallbackBrief,

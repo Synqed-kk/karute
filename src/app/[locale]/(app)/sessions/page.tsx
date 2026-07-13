@@ -4,9 +4,15 @@ import { assignStaffColors } from '@/lib/staff-colors'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { isReturningCustomer } from '@/lib/customers/list-enrich'
 import { getCustomer, type CustomerWithStaff } from '@/lib/customers/queries'
+import {
+  classifyVisitSegment,
+  computeVisitRhythm,
+  type VisitSegment,
+  type VisitRhythm,
+} from '@/lib/visits/segment'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { getCustomerConsent } from '@/actions/customers'
-import { listCustomerPacks } from '@/lib/packs/store'
+import { listCustomerPacks, getCustomerLifecycleChecked } from '@/lib/packs/store'
 import type { PackWithUsage } from '@/lib/packs/types'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { memoContent } from '@/lib/sync/qr-notes'
@@ -315,11 +321,15 @@ export default async function SessionsPage({
   // errors internally and return [], so the Promise.all can't reject and a
   // hiccup never blanks the page.
   const targetCustomerId = nextAppointment?.customerId ?? null
-  const [customerKarute, targetCustomer, consentOnFile, targetPacks]: [
+  // 回数券 off (org setting, wave 1) → skip the pack read; targetPack stays
+  // null and the whole burn/outcome flow below never engages.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
+  const [customerKarute, targetCustomer, consentOnFile, targetPacks, lifecycleRead]: [
     KaruteRecord[],
     CustomerWithStaff | null,
     Awaited<ReturnType<typeof getCustomerConsent>>['consent'],
     PackWithUsage[],
+    Awaited<ReturnType<typeof getCustomerLifecycleChecked>>,
   ] = targetCustomerId
     ? await Promise.all([
         getCustomerKaruteRecords(targetCustomerId, 10),
@@ -327,9 +337,18 @@ export default async function SessionsPage({
         getCustomerConsent(targetCustomerId)
           .then((r) => r.consent)
           .catch(() => null),
-        listCustomerPacks(targetCustomerId),
+        ticketsEnabled
+          ? listCustomerPacks(targetCustomerId)
+          : Promise.resolve([] as PackWithUsage[]),
+        // Lifecycle (卒業/離客) — same signal the customer profile threads into
+        // classifyVisitSegment (customers/[id]/page.tsx). A terminal lifecycle
+        // decision outranks cadence, and a FAILED read must fail closed
+        // (suppress coaching), never masquerade as "active customer".
+        getCustomerLifecycleChecked(targetCustomerId),
       ])
-    : [[], null, null, []]
+    : [[], null, null, [], { ok: true as const, lifecycle: null }]
+  const targetLifecycle = lifecycleRead.ok ? lifecycleRead.lifecycle : null
+  const lifecycleUnknown = !lifecycleRead.ok
 
   const targetCustomerName = nextAppointment?.customerName ?? 'Unknown'
   const targetKaruteNumber = nextAppointment?.customerId
@@ -421,6 +440,15 @@ export default async function SessionsPage({
   // The picker prefill — the customer's most recent pack (any status; the
   // store returns purchased_at DESC, so [0] is newest).
   let previousPack: { size: number; unitPrice: number } | null = null
+  // Visit-frequency segment + rhythm bar geometry for the closing-tactic strip
+  // + rhythm panel below the recording target. Same classifyVisitSegment /
+  // computeVisitRhythm helpers CustomerIdentityCard + VisitPaceCard use on the
+  // customer profile (single source — never redoes the "how should staff close
+  // this" math), driven off targetCustomer (already fetched in wave 2) — no new
+  // fetch. Null when there's no recording target.
+  let visitSegment: VisitSegment | null = null
+  let visitRhythm: VisitRhythm | null = null
+  let targetHasTicketPack = false
   if (nextAppointment?.customerId) {
     // SINGLE-SOURCE returning signal (visit_count / 回数券 / is_existing) from the
     // cached list — same fields the 顧客 list + profile use, so the recording
@@ -451,6 +479,31 @@ export default async function SessionsPage({
       hasTicketPack: (cc?.hasTicketPack ?? false) || targetHasActivePack,
       karuteCount: customerKarute.length,
     })
+    targetHasTicketPack = (cc?.hasTicketPack ?? false) || targetHasActivePack
+    const visitSignals = {
+      joinDateIso: targetCustomer?.created_at ?? null,
+      lastVisitIso: targetCustomer?.last_visit_at ?? null,
+      firstVisitIso: targetCustomer?.first_visit_at ?? null,
+      isExistingCustomer: targetCustomer?.is_existing_customer,
+      visitCount: targetCustomer?.visit_count,
+      karuteCount: customerKarute.length,
+      hasTicketPack: targetHasTicketPack,
+      // Terminal lifecycle (卒業/離客) nulls the segment — same gate the
+      // profile applies; never coach staff to close a released customer.
+      lifecycleStatus: targetLifecycle?.status,
+    }
+    // Fail closed on an errored lifecycle read: coaching a customer the salon
+    // may already have released is worse than briefly showing no coaching.
+    visitSegment = lifecycleUnknown ? null : classifyVisitSegment(visitSignals, now)
+    // Terminal lifecycle also suppresses the rhythm PANEL, not just the
+    // tactic segment — mirrors the profile, where computeVisitPace takes
+    // isTerminal and the pace card never renders for 卒業/離客
+    // (customers/[id]/page.tsx). classifyVisitSegment nulls itself; rhythm
+    // is a plain geometry helper with no lifecycle input, so gate it here.
+    const isTerminalLifecycle =
+      targetLifecycle?.status === 'graduated' || targetLifecycle?.status === 'lost'
+    visitRhythm =
+      isTerminalLifecycle || lifecycleUnknown ? null : computeVisitRhythm(visitSignals, now)
     // Mechanical brief — pure + instant. Drives the FIRST paint and every
     // cross-cutting 新規 flag (the recording-target badge + the post-session
     // dialog), so those are correct on frame one and never flip.
@@ -493,10 +546,14 @@ export default async function SessionsPage({
       aiBriefPromise={aiBriefPromise}
       recentRecordings={recentRecordings}
       consentDate={consentDate}
+      visitSegment={visitSegment}
+      visitRhythm={visitRhythm}
+      targetHasTicketPack={targetHasTicketPack}
       targetPack={targetPack}
       packPresets={orgSettings?.pack_presets ?? []}
       staffCanCustomizePacks={orgSettings?.staff_can_customize_packs ?? true}
       previousPack={previousPack}
+      ticketsEnabled={ticketsEnabled}
       noiseSuppression={orgSettings?.noise_suppression !== false}
       currentStaffName={
         activeStaffId ? (staffNameById.get(activeStaffId) ?? null) : null

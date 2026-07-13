@@ -3,9 +3,12 @@ import { getStaffList, getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData, type DashboardTodayAppointment } from '@/lib/dashboard/cached'
-import { getCachedCustomerList } from '@/lib/customers/cached'
+import {
+  getCachedCustomerList,
+  getCachedCustomerListFor,
+} from '@/lib/customers/cached'
 import { startTiming } from '@/lib/perf/timing'
-import { getPackAlerts } from '@/lib/packs/alerts'
+import { emptyPackAlerts, getPackAlerts } from '@/lib/packs/alerts'
 import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
 import { listAllPackUsage, listRecentRedemptions } from '@/lib/packs/store'
 import { can } from '@/lib/auth/require-permission'
@@ -17,7 +20,7 @@ import {
 } from '@/lib/customers/list-enrich'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { hmInJst, ymdInJst, nowUtc, jstDaysBetween } from '@/lib/date/jst'
-import { getActiveStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import {
   pickHeroSlides,
   pickKaruteTodos,
@@ -57,6 +60,12 @@ function compactDayLabel(d: Date, locale: string): string {
 
 export default async function DashboardPage() {
   const t = startTiming('dashboard')
+  // RBAC store scope — resolved ONCE, shared by every store-scoped read on
+  // this page (pack alerts, reconcile, pack-usage lens, attention-AI cache
+  // key). Pack data has no store column server-side (#465 family), so the
+  // pack surfaces clamp by store MEMBERSHIP: drop holders outside the
+  // viewer's store-filtered customer list.
+  const storeScopePromise = resolveStoreScope().catch(() => null)
 
   const [
     staffList,
@@ -78,8 +87,19 @@ export default async function DashboardPage() {
     getLocale(),
     t.phase('customerList', () => getCachedCustomerList()),
     // 離客/upsell alerts — { [], [] } until the ticket_packs migration applies.
-    t.phase('packAlerts', () => getPackAlerts()),
-    t.phase('reconcile', () => loadUnprocessedVisits()),
+    // Fail CLOSED on scope-resolution failure (s === null): empty pack data,
+    // never the unfiltered business-wide read. A RESOLVED scope with storeId
+    // null (no-stores business) keeps the unfiltered behavior.
+    t.phase('packAlerts', () =>
+      storeScopePromise.then((s) =>
+        s ? getPackAlerts(undefined, s.storeId) : emptyPackAlerts(),
+      ),
+    ),
+    t.phase('reconcile', () =>
+      storeScopePromise.then((s) =>
+        s ? loadUnprocessedVisits(s.storeId) : { entries: [], truncated: 0 },
+      ),
+    ),
     // Manager+ only may dismiss (Kitano's rule) — alerts.manage capability.
     can('alerts.manage').catch(() => false),
     // Per-customer 残回数 — the ticket chips on hero + day flow.
@@ -89,6 +109,51 @@ export default async function DashboardPage() {
 
   const now = nowUtc()
   const todayYmd = ymdInJst(now)
+
+  // 回数券 off (org setting): the fetch wave above stays fully parallel
+  // (orgSettings is inside it), so the three pack reads still run — cheap,
+  // cached, and harmless — and their RESULTS are blanked here instead. Every
+  // downstream chip/list/total then naturally disappears, and the two pack
+  // cards are hidden outright via ticketsEnabled.
+  const ticketsEnabled = orgSettings?.ticket_packs_enabled ?? true
+  // Store lens on the raw usage map (rebook rows + 残N chips + enrichment id
+  // set). getPackAlerts applies the same lens internally; the shared 60s
+  // customer-list cache makes the second read free. Fail CLOSED: if the lens
+  // fetch errors, show no pack rows rather than another store's.
+  const scope = await storeScopePromise
+  // scope === null (resolution failed) or a required lens without businessId
+  // → fail closed (no pack rows), matching the packAlerts/reconcile guards.
+  let packUsageLensed =
+    scope && !(scope.storeId && !businessId)
+      ? packUsage
+      : (new Map() as typeof packUsage)
+  if (scope?.storeId && businessId && packUsage.size > 0) {
+    try {
+      const storeCustomers = await getCachedCustomerListFor(
+        businessId,
+        scope.storeId,
+      )
+      const inStore = new Set(storeCustomers.map((c) => c.id))
+      packUsageLensed = new Map(
+        [...packUsage].filter(([id]) => inStore.has(id)),
+      )
+    } catch {
+      packUsageLensed = new Map() as typeof packUsage
+    }
+  }
+  const packUsageView = ticketsEnabled
+    ? packUsageLensed
+    : (new Map() as typeof packUsage)
+  const packAlertsView = ticketsEnabled
+    ? packAlerts
+    : {
+        contact: [],
+        low: [],
+        inProgress: [],
+        totals: { atRiskValue: 0, unconsumedTotal: 0, holderCount: 0 },
+        monthly: { contacted: 0, rebooked: 0 },
+      }
+  const reconcileView = ticketsEnabled ? reconcile : { entries: [], truncated: 0 }
 
   // ── shared lookups ────────────────────────────────────────────────
   const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
@@ -108,7 +173,7 @@ export default async function DashboardPage() {
       ...[...dashboard.todayAppointments, ...dashboard.tomorrowAppointments].map(
         (a) => a.client_id,
       ),
-      ...packUsage.keys(),
+      ...packUsageView.keys(),
     ]),
   ]
   // Owner detection up front — it gates the owner-only redemptions fetch.
@@ -175,11 +240,11 @@ export default async function DashboardPage() {
       visitCount: c?.visitCount,
       karuteCount: e?.totalKarute,
       pastAppointmentCount: e?.pastAppointmentCount,
-      hasTicketPack: (c?.hasTicketPack ?? false) || packUsage.has(clientId),
+      hasTicketPack: (c?.hasTicketPack ?? false) || packUsageView.has(clientId),
     })
   }
   const ticketFor = (clientId: string): { remaining: number; size: number } | null => {
-    const u = packUsage.get(clientId)
+    const u = packUsageView.get(clientId)
     return u?.hasActivePack ? { remaining: u.remaining, size: u.size } : null
   }
   // The reservation system outranks inference (Liam's rule): a 新規-course
@@ -217,7 +282,7 @@ export default async function DashboardPage() {
 
   // ── 要注目: today's noteworthy customers + one-line AI prep notes ──
   const candidates: AttentionCandidate[] = dashboard.todayAppointments.map((a) => {
-    const u = packUsage.get(a.client_id)
+    const u = packUsageView.get(a.client_id)
     const e = enrichment.get(a.client_id)
     return {
       appointmentId: a.id,
@@ -267,7 +332,10 @@ export default async function DashboardPage() {
       lastSummary: lastKarute.get(i.clientId)?.text ?? extra.get(i.clientId) ?? null,
     }))
   })
-  const activeStoreId = await getActiveStoreId().catch(() => null)
+  // Same clamped store as the dashboard data scope: the attention-AI cache key
+  // must not key on the raw cookie (a branch-restricted staff with an unset
+  // cookie would key/scope by the primary store, not their assigned one).
+  const activeStoreId = scope?.storeId ?? null
   const attentionLines = await t.phase('attentionAI', () =>
     getDailyAttentionLines({
       items: attentionInputs,
@@ -302,7 +370,7 @@ export default async function DashboardPage() {
         ),
       }
     })
-  const rebookRows: RebookRow[] = [...packUsage.entries()]
+  const rebookRows: RebookRow[] = [...packUsageView.entries()]
     .filter(([, u]) => u.hasActivePack && u.remaining > 0)
     .flatMap(([clientId, u]) => {
       const name = customerById.get(clientId)?.name
@@ -329,7 +397,7 @@ export default async function DashboardPage() {
       dueLabel: `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
     }
   })
-  const winbacks: WinbackView[] = [...packAlerts.contact]
+  const winbacks: WinbackView[] = [...packAlertsView.contact]
     .sort((a, b) => (b.daysSinceLastVisit ?? 0) - (a.daysSinceLastVisit ?? 0))
     .slice(0, 3)
     .map((c) => ({
@@ -347,7 +415,7 @@ export default async function DashboardPage() {
     customerName: nameFor(a),
     timeHm: hmInJst(new Date(a.start_time)),
   }))
-  const redeemTodosToday = reconcile.entries.filter(
+  const redeemTodosToday = reconcileView.entries.filter(
     (e) => e.visitDay === todayYmd && e.kind !== 'unrecorded',
   )
   const cappedKarute = karuteTodos.slice(0, 3)
@@ -399,15 +467,16 @@ export default async function DashboardPage() {
       rebooks={rebooks}
       winbacks={winbacks}
       tomorrow={tomorrowStrip}
-      packAlerts={packAlerts}
+      packAlerts={packAlertsView}
       // Today's unredeemed rows live in やること — the owner backlog shows
       // strictly-past days so the same visit never appears twice.
       reconcile={{
-        entries: reconcile.entries.filter((e) => e.visitDay !== todayYmd),
-        truncated: reconcile.truncated,
+        entries: reconcileView.entries.filter((e) => e.visitDay !== todayYmd),
+        truncated: reconcileView.truncated,
       }}
       canDismissAlerts={canDismissAlerts}
       pulse={{ redemptions: recentRedemptions.length, karute: dashboard.weekKaruteCount }}
+      ticketsEnabled={ticketsEnabled}
     />
   )
 }

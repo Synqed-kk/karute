@@ -51,6 +51,9 @@ interface TicketPackCardProps {
    *  how long it lasts at their cadence ("いまのペースで約N分"). null when no solid
    *  cadence. This is the ONE home for the span (it was duplicated in the pace card). */
   avgIntervalDays?: number | null
+  /** Org-level 回数券 master switch. Off → only the lifecycle row renders
+   *  (卒業/離客/口コミ is customer state, not a ticket feature). */
+  ticketsEnabled?: boolean
 }
 
 export function TicketPackCard({
@@ -59,6 +62,7 @@ export function TicketPackCard({
   lifecycle,
   hasNextBooking = false,
   avgIntervalDays = null,
+  ticketsEnabled = true,
 }: TicketPackCardProps) {
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
@@ -66,6 +70,14 @@ export function TicketPackCard({
   // 追加数: highest stored round + 1 (imports collapsed history to one row,
   // so counting rows relabels a round-4 regular as 初回).
   const nextRound = nextPurchaseRound(packs)
+
+  if (!ticketsEnabled) {
+    return (
+      <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
+        <LifecycleRow customerId={customerId} lifecycle={lifecycle} bare />
+      </section>
+    )
+  }
 
   return (
     <section className="rounded-2xl border border-border bg-card p-4 shadow-sm md:p-5">
@@ -192,7 +204,7 @@ function PackRow({
       toast.success(t('redeemDone'))
       router.refresh()
     } else {
-      toast.error(t('redeemFailed'))
+      toast.error(t(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
     }
   }
 
@@ -339,9 +351,12 @@ function PackRow({
 function LifecycleRow({
   customerId,
   lifecycle,
+  bare = false,
 }: {
   customerId: string
   lifecycle: CustomerLifecycle | null
+  /** Rendered as the card's only content (tickets off) — no divider above. */
+  bare?: boolean
 }) {
   const t = useTranslations('customers.profile.packs')
   const router = useRouter()
@@ -369,7 +384,13 @@ function LifecycleRow({
     }`
 
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3.5">
+    <div
+      className={
+        bare
+          ? 'flex flex-wrap items-center gap-1.5'
+          : 'mt-4 flex flex-wrap items-center gap-1.5 border-t border-border/60 pt-3.5'
+      }
+    >
       <span className="mr-1 text-[11px] text-muted-foreground">{t('lifecycleLabel')}</span>
       {(['active', 'graduated', 'lost'] as const).map((s) => (
         <button
