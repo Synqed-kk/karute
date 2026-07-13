@@ -224,11 +224,22 @@ export function getChatSystemPrompt(opts: {
   businessTypeValue: string | null
   karuteContext: string
   customerNames: string
+  /** When a chip pinned the slice to a specific target (contracts #context-hint),
+   *  the human-readable label of that slice (e.g. 「田中様のカルテ10件」). Rendered
+   *  above the data block so the model and the UI's 参照 note describe the same
+   *  slice. Absent → the prompt is byte-identical to the generic-slice case. */
+  contextLabel?: string
 }): string {
-  const { locale, businessTypeValue, karuteContext, customerNames } = opts
+  const { locale, businessTypeValue, karuteContext, customerNames, contextLabel } = opts
   const persona = personaSystemFragment(businessTypeValue, locale)
   const label = getBusinessProfile(businessTypeValue)?.label ?? 'salon/clinic'
   const langInstruction = locale === 'ja' ? 'Respond in Japanese.' : 'Respond in English.'
+  // B3: contextLabel embeds a customer-controlled name (「田中様のカルテ10件」).
+  // It must pass through the same untrusted-content wrapper as karuteContext /
+  // customerNames — an unwrapped label was a prompt-injection seam.
+  const focusBlock = contextLabel
+    ? `FOCUS — THIS QUESTION'S SLICE: The records below were pulled specifically for this question (${wrapUntrustedContent('focus_label', contextLabel)}). Ground your answer in them first.\n\n`
+    : ''
 
   return `${persona}
 
@@ -238,7 +249,7 @@ ${langInstruction}
 
 ${defensivePreamble(locale)}
 
-DATA — PARTIAL VIEW, BE HONEST:
+${focusBlock}DATA — PARTIAL VIEW, BE HONEST:
 The records and names below are ONLY the most recent slice of this business's data — not the full history. You cannot see the complete customer corpus, older records, exact totals, counts, or revenue.
 - Answer from what you CAN see. When the slice partially addresses the question, give the grounded partial answer — name the specific customers and dates that are present (e.g. of the visible records, whose is the oldest) — and note that it reflects only this recent slice. Do not refuse a question the visible records can partly answer.
 - Refuse only when NOTHING in the data is relevant (e.g. revenue, exact totals, a customer not listed, full history). Then say so plainly instead of guessing — in Japanese use a phrase like 「手元のデータにありません」— and name what would answer it (which record or report).

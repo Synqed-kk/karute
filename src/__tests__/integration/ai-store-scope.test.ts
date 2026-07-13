@@ -25,6 +25,11 @@ jest.mock('@/lib/ai-rate-limit', () => ({
 }))
 jest.mock('@/lib/karute/ai-context', () => ({
   getRecentKaruteForAI: jest.fn(async () => []),
+  // context-hint helpers the route now imports (PKT-101); the no-hint path only
+  // calls formatKaruteContext, so the others just need to exist.
+  getCustomerKaruteForAI: jest.fn(async () => ({ customerName: null, rows: [] })),
+  getTodayRosterKaruteForAI: jest.fn(async () => ({ rosterSize: 0, rows: [] })),
+  formatKaruteContext: jest.fn(() => ''),
 }))
 jest.mock('@/lib/prompts', () => ({
   getChatSystemPrompt: jest.fn(() => 'system'),
