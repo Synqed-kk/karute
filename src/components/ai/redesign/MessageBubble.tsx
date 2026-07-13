@@ -1,4 +1,7 @@
+'use client'
+
 import { Sparkles } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 
 export interface AICitation {
   type: string
@@ -25,6 +28,7 @@ export function MessageBubble({
   userName,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user'
+  const t = useTranslations('askAi')
   return (
     <div
       className={`flex items-start gap-3 ${isUser ? 'flex-row-reverse' : ''}`}
@@ -59,7 +63,7 @@ export function MessageBubble({
         {message.citations && message.citations.length > 0 && (
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-              Sources
+              {t('sources')}
             </span>
             {message.citations.map((c, i) => (
               <span

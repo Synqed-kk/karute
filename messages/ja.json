@@ -2667,7 +2667,11 @@
       "tunedFor": "最適化対象：",
       "changeTitle": "「設定」で業種を変更",
       "change": "変更"
-    }
+    },
+    "scopeKarute": "カルテ",
+    "scopeCustomers": "顧客",
+    "scopeBookings": "予約",
+    "scopeRecordings": "録音"
   },
   "karuteExport": {
     "title": "カルテ",
