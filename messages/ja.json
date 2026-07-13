@@ -238,7 +238,12 @@
       },
       "noShowSectionSub": "（連絡なく来店なし）",
       "noShowFirstTime": "この方は初めての無断キャンセルです",
-      "noShowPriorCount": "過去{n}回の無断キャンセルがあります"
+      "noShowPriorCount": "過去{n}回の無断キャンセルがあります",
+      "cancelBurnWarn": {
+        "below_zero": "{name}様の予約はキャンセルしました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の予約はキャンセルしました。回数券の消化に失敗したため、消化されていません",
+        "already_burned": "{name}様の予約はキャンセルしました。この予約では回数券がすでに消化済みのため、再消化していません"
+      }
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
