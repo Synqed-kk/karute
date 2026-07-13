@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import type OpenAI from 'openai'
 import { openai } from '@/lib/openai'
+import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getRecentKaruteForAI } from '@/lib/karute/ai-context'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getChatSystemPrompt } from '@/lib/prompts'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
@@ -26,6 +28,16 @@ function capHistory(history: ChatTurn[], budget = MAX_HISTORY_CHARS): ChatTurn[]
 }
 
 export async function POST(request: Request) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('chat')
   if (limited) return limited
   try {
@@ -48,12 +60,20 @@ export async function POST(request: Request) {
       ),
     )
 
+    // Store scope (#347 semantics): clamp a branch-restricted staff's AI context
+    // to their assigned store. Filter ONLY when allowedStoreIds is non-null (a
+    // clamped staff); viewAll + floating staff = null = no filter, so their
+    // context is byte-identical to pre-change (owner sees all stores).
+    const scope = await resolveStoreScope()
+    const scopedStoreId =
+      scope.allowedStoreIds !== null ? (scope.storeId ?? undefined) : undefined
+
     // Recent karute from synqed-core (the Supabase mirror is empty
     // post-migration — chat previously had NO session context).
-    const records = await getRecentKaruteForAI(5)
+    const records = await getRecentKaruteForAI(5, scopedStoreId)
 
     const synqed = await getSynqedClient()
-    const customerResult = await synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc' })
+    const customerResult = await synqed.customers.list({ page_size: 10, sort_by: 'updated_at', sort_order: 'desc', store_id: scopedStoreId })
 
     const karuteContext = records
       .map((r) => {

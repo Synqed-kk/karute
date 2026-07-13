@@ -20,11 +20,14 @@ export interface AiKaruteContextRow {
  */
 export async function getRecentKaruteForAI(
   limit: number,
+  storeId?: string,
 ): Promise<AiKaruteContextRow[]> {
   try {
     const synqed = await getSynqedClient()
     const [res, customers] = await Promise.all([
-      synqed.karuteRecords.list({ page_size: limit }),
+      // storeId absent (default) = today's behavior (no store filter). Callers
+      // that resolve a restricted staff's store scope pass it to clamp reads.
+      synqed.karuteRecords.list({ page_size: limit, store_id: storeId }),
       getCachedCustomerList(),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
