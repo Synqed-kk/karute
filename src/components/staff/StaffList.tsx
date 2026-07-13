@@ -91,6 +91,9 @@ interface StaffListProps {
   /** Server-persisted enrollments (org-settings voice_enrollments, status
    *  'saved'): staff profile id → consent_at ISO. */
   voiceEnrollments?: Record<string, string | null>
+  /** Plan staff cap (armed billing only) — shows the N/M meter and locks the
+   *  add button at the limit. Null → no cap UI (today's rendering). */
+  staffCap?: { limit: number; atLimit: boolean } | null
 }
 
 function formatJpDate(dateString: string, locale: 'ja' | 'en'): string {
@@ -117,6 +120,7 @@ export function StaffList({
   currentUserId,
   canManageStaff = false,
   voiceEnrollments,
+  staffCap,
 }: StaffListProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
@@ -163,13 +167,27 @@ export function StaffList({
           {ts('staffMembers')}
         </h3>
         <p className="text-xs text-muted-foreground">
-          {ts('staffCountSuffix', { n: staffList.length })}
+          {staffCap
+            ? ts('staffCountWithLimit', {
+                n: staffList.length,
+                limit: staffCap.limit,
+              })
+            : ts('staffCountSuffix', { n: staffList.length })}
         </p>
+        {/* Plan cap reached — the button below locks; the server enforces the
+            same gate (staffAddAllowed), this is just the honest heads-up. */}
+        {staffCap?.atLimit && canManageStaff && (
+          <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+            {ts('staffLimitHint')}
+          </p>
+        )}
       </div>
       {canManageStaff && (
         <Button
           size="sm"
           onClick={() => setShowCreateForm(true)}
+          disabled={staffCap?.atLimit}
+          title={staffCap?.atLimit ? ts('staffLimitHint') : undefined}
           className="inline-flex h-9 items-center gap-1.5"
         >
           <UserPlus className="size-4" aria-hidden />

@@ -482,14 +482,17 @@ function AgendaRow({
   if (interactive) {
     // No onClick: the hold hook's onShortTap carries the tap (and swallows the
     // click that trails a completed hold). touch-action pan-y keeps vertical
-    // scrolling native — a scroll fires pointercancel and aborts the hold.
+    // scrolling native — a scroll fires pointercancel and aborts the hold
+    // (the hook's own move tolerance covers the fits-on-one-screen case where
+    // no scroll ever starts). select-none + touch-callout keep iOS's native
+    // long-press text selection off a row whose long-press means "cancel".
     return (
       <button
         type="button"
         {...holdHandlers}
         onContextMenu={(e) => e.preventDefault()}
-        style={{ touchAction: 'pan-y' }}
-        className={`${rowClass} w-full`}
+        style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
+        className={`${rowClass} w-full select-none`}
       >
         {content}
       </button>
