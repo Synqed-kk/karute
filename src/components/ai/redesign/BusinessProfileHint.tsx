@@ -32,8 +32,8 @@ export function BusinessProfileHint({ profile }: BusinessProfileHintProps) {
     )
   }
   return (
-    <div className="flex items-start gap-3 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
-      <Target size={13} className="mt-0.5 shrink-0 text-sky-400" />
+    <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-500/20 dark:bg-amber-500/5">
+      <Target size={13} className="mt-0.5 shrink-0 text-amber-700 dark:text-amber-400" />
       <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-center gap-1.5 text-xs">
           <span className="text-muted-foreground">{t('profileHint.tunedFor')}</span>

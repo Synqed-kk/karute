@@ -18,7 +18,7 @@ export function AIPageHeader({ scope }: AIPageHeaderProps) {
   return (
     <header className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-sky-500/15 text-sky-300">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-700 dark:text-amber-300">
           <Sparkles size={18} />
         </div>
         <div className="flex-1">
