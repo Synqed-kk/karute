@@ -34,14 +34,17 @@ jest.mock('next/cache', () => ({
   revalidateTag: jest.fn(),
   updateTag: jest.fn(),
 }))
-// getDashboardData now reads the active-store cookie via getActiveStoreId(); no
-// cookie set = all-stores view.
-jest.mock('next/headers', () => ({
-  cookies: jest.fn(async () => ({ get: () => undefined })),
-}))
-
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => BIZ),
+}))
+
+// getDashboardData scopes every read via resolveStoreScope().storeId — the
+// RBAC-clamped store (a branch-restricted staff can't see another branch's day).
+// Default here to the all-stores lens (storeId null) so the existing shaping
+// tests are unaffected; individual tests override it.
+const resolveStoreScopeMock = jest.fn()
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScopeMock(),
 }))
 
 import { getDashboardData } from '@/lib/dashboard/cached'
@@ -66,6 +69,7 @@ function stageKarute(opts: {
 
 beforeEach(() => {
   jest.clearAllMocks()
+  resolveStoreScopeMock.mockResolvedValue({ storeId: null, viewAll: true, allowedStoreIds: null })
   appointments.list.mockResolvedValue({ appointments: [] })
   customers.list.mockResolvedValue({ customers: [] })
   staff.list.mockResolvedValue({ staff: [] })
@@ -153,6 +157,31 @@ describe('getDashboardData', () => {
     expect(result.todayAppointments).toEqual([])
     expect(result.tomorrowAppointments).toEqual([])
     expect(result.recentKarute).toEqual([])
+  })
+
+  it('scopes every read to the RBAC-clamped store (branch-restricted staff, unset cookie)', async () => {
+    // A Ginza-assigned staff with no store cookie: resolveStoreScope clamps to
+    // their assigned store, NOT the business primary (代官山). Every karute +
+    // appointment read must carry that store_id, or the dashboard leaks the
+    // other branch's day (the Apple-review bug).
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    })
+    stageKarute({ weekly: { total: 0 }, monthly: { total: 0 } })
+
+    await getDashboardData()
+
+    for (const call of karuteRecords.list.mock.calls) {
+      expect(call[0]).toMatchObject({ store_id: 'store-ginza' })
+    }
+    for (const call of appointments.list.mock.calls) {
+      expect(call[0]).toMatchObject({ store_id: 'store-ginza' })
+    }
+    // Sanity: reads actually happened (the assertions above are not vacuous).
+    expect(karuteRecords.list).toHaveBeenCalled()
+    expect(appointments.list).toHaveBeenCalled()
   })
 
   it('leaves an appointment unlinked when no karute references it', async () => {

@@ -77,6 +77,12 @@ export interface OrgSettings {
    *  fetches are skipped. Historical rows stay untouched — switching back on
    *  shows them again. Defaults on so existing salons keep today's behavior. */
   ticket_packs_enabled: boolean
+  /** Master switch for COACHING. Off (default) → every coaching surface hides AND
+   *  no AI generation fires (a real cost gate, not just UI). Owner-controlled and
+   *  tier-gated — the full decision lives in karute/coaching/access.ts. Optional
+   *  until Anthony adds the column (schema TODO in CoachingSection.tsx); reads as
+   *  false pre-migration, so coaching stays dark until deliberately turned on. */
+  coaching_enabled?: boolean
 }
 
 // businessId is the cache key — Next includes function args in the key automatically.
@@ -148,6 +154,11 @@ const orgSettingsByBusiness = unstable_cache(
           s.ticket_packs_enabled === undefined
             ? true
             : Boolean(s.ticket_packs_enabled),
+        // Coaching master switch — default OFF (opt-in, paid). Without this mapping
+        // the access gate would read undefined→false forever, so the toggle could
+        // never take effect even once the column + UI exist. (audit finding)
+        coaching_enabled:
+          s.coaching_enabled === undefined ? false : Boolean(s.coaching_enabled),
         voice_enrollments:
           s.voice_enrollments && typeof s.voice_enrollments === 'object'
             ? (s.voice_enrollments as Record<string, VoiceEnrollment>)
