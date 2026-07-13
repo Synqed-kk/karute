@@ -2,16 +2,15 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { bootstrapBusinessForNewUser } from '@/actions/bootstrap'
+import { authErrorKey } from '@/lib/auth/error-key'
 
 export function SignupForm({ locale }: { locale: string }) {
   const t = useTranslations('auth')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [sent, setSent] = useState(false)
   const supabase = createClient()
-  const router = useRouter()
 
   async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
@@ -35,9 +34,17 @@ export function SignupForm({ locale }: { locale: string }) {
       return
     }
 
-    const { data, error: signupError } = await supabase.auth.signUp({ email, password })
+    // Email confirmation is ON, so signUp returns a user but no session. Send
+    // the confirm link to our locale callback route, carrying the salon name
+    // in user metadata so the server can bootstrap after the code exchange.
+    const redirect = `${process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin}/${locale}/auth/callback`
+    const { data, error: signupError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: redirect, data: { salon_name: salonName } },
+    })
     if (signupError) {
-      setError(signupError.message)
+      setError(t(authErrorKey(signupError)))
       setLoading(false)
       return
     }
@@ -48,23 +55,27 @@ export function SignupForm({ locale }: { locale: string }) {
     }
     // Supabase returns an obfuscated user object (identities: []) when the
     // email is already registered — meant to block account enumeration.
-    // Without this guard, bootstrap would fail later with a confusing
-    // "User not found in auth" because the id may not resolve.
     if (data.user.identities && data.user.identities.length === 0) {
       setError(t('emailAlreadyRegistered'))
       setLoading(false)
       return
     }
 
-    const result = await bootstrapBusinessForNewUser(salonName, data.user.id)
-    if (!result.ok) {
-      setError(result.error)
-      setLoading(false)
-      return
-    }
+    setSent(true)
+    setLoading(false)
+  }
 
-    router.push(`/${locale}/sessions`)
-    router.refresh()
+  if (sent) {
+    return (
+      <div className="w-full max-w-sm space-y-4">
+        <p className="text-sm text-foreground">{t('checkEmail')}</p>
+        <p className="text-sm text-center text-muted-foreground">
+          <a href={`/${locale}/login`} className="text-foreground underline underline-offset-4 hover:text-primary">
+            {t('signinLink')}
+          </a>
+        </p>
+      </div>
+    )
   }
 
   return (

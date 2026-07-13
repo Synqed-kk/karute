@@ -5,6 +5,7 @@ import { Mic } from 'lucide-react'
 
 import type { DisplayStatus, ReservationView } from '@/lib/adapters/reservation-view'
 import { getStaffColorByKey } from '@/lib/staff-colors'
+import { isRepeatNoShow } from '@/components/customers/redesign/types'
 import { cn } from '@/lib/utils'
 
 interface StatusTone {
@@ -95,6 +96,7 @@ interface AgendaProps {
 
 export function AppointmentCard(props: GridProps | AgendaProps) {
   const t = useTranslations('reservation')
+  const tNoShow = useTranslations('customers.list')
   const { view, onSelect } = props
   const tone = STATUS_TONES[view.displayStatus]
   const isCompleted = view.displayStatus === 'completed'
@@ -158,6 +160,11 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
             <span className="truncate">{view.service}</span>
             {view.pack && (
               <PackPill remaining={view.pack.remaining} size={view.pack.size} />
+            )}
+            {isRepeatNoShow(view.noShowCount) && (
+              <span className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                {tNoShow('row.noShowChip', { count: view.noShowCount })}
+              </span>
             )}
           </div>
         </div>
@@ -224,6 +231,11 @@ export function AppointmentCard(props: GridProps | AgendaProps) {
             <span className="truncate">{view.service}</span>
             {view.pack && (
               <PackPill remaining={view.pack.remaining} size={view.pack.size} />
+            )}
+            {isRepeatNoShow(view.noShowCount) && (
+              <span className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                {tNoShow('row.noShowChip', { count: view.noShowCount })}
+              </span>
             )}
           </div>
         )}

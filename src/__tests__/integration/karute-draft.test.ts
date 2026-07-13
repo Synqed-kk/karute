@@ -71,6 +71,18 @@ describe('karute draft lifecycle', () => {
     expect(await loadDraft()).toBeNull()
   })
 
+  it('round-trips recordingSessionId — required for a crash-recovered draft to still dedupe on save', async () => {
+    await saveDraft({ ...baseDraft, recordingSessionId: 'rs-1' })
+    const got = await loadDraft()
+    expect(got!.recordingSessionId).toBe('rs-1')
+  })
+
+  it('leaves recordingSessionId undefined when the take never got one (mint failed/timed out)', async () => {
+    await saveDraft(baseDraft)
+    const got = await loadDraft()
+    expect(got!.recordingSessionId).toBeUndefined()
+  })
+
   it('Entry → draft → Entry round-trip preserves the four fields (the restore mapping)', async () => {
     // Mirrors ReviewScreen (save) and RecordPageView (restore) exactly.
     const original = {

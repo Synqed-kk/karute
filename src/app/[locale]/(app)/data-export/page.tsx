@@ -11,7 +11,7 @@ export default async function DataExportPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  const synqed = await getSynqedClient()
+  const synqedPromise = getSynqedClient()
 
   const [
     {
@@ -22,10 +22,16 @@ export default async function DataExportPage({
     karute,
   ] = await Promise.all([
     supabase.auth.getUser(),
-    synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
-    synqed.appointments.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    synqedPromise.then((synqed) =>
+      synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    ),
+    synqedPromise.then((synqed) =>
+      synqed.appointments.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    ),
     // karute total from synqed-core (the Supabase mirror is empty post-migration).
-    synqed.karuteRecords.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    synqedPromise.then((synqed) =>
+      synqed.karuteRecords.list({ page_size: 1 }).catch(() => ({ total: 0 })),
+    ),
   ])
 
   const karuteCount = karute.total ?? 0
