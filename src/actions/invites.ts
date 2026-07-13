@@ -78,6 +78,17 @@ export async function createInvite(
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
+  // Plan gate (P4): staff cap, shared with createStaff via staffAddAllowed —
+  // inert until billing arms. Machine code; the dialog maps it to copy.
+  // Skipped for re-invites (staffId present): those ATTACH to an existing
+  // staff row, adding nobody. acceptInvite stays ungated by design — the gate
+  // lives at door-open time, and pending brand-new invites are counted.
+  if (!parsed.data.staffId) {
+    const { staffAddAllowed } = await import('@/lib/subscription/feature-gate')
+    const gate = await staffAddAllowed()
+    if (!gate.allowed) return { error: 'STAFF_LIMIT_REACHED' }
+  }
+
   const { email, role, staffId } = parsed.data
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any

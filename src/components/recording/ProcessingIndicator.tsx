@@ -82,6 +82,7 @@ export function ProcessingIndicator() {
         duration: ctx.duration,
         appointmentId: ctx.appointmentId,
         outcome: ctx.outcome,
+        recordingSessionId: ctx.recordingSessionId,
       })
       if ('error' in res) {
         // Never silently lose a take — tell the staff, and drop THIS run to

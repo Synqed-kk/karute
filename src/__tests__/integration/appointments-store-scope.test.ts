@@ -70,7 +70,11 @@ jest.mock('@/lib/synqed/client', () => {
   }
   const karuteRecords = { list: jest.fn(async () => ({ karute_records: [] })) }
   const staff = { list: jest.fn(async () => ({ staff: [] })) }
-  const client = { appointments, karuteRecords, staff }
+  // defaultBookingStore (createAppointment's unset/rejected-cookie fallback)
+  // resolves the booked staff's single assigned store — store-ginza here.
+  const staffStores = { get: jest.fn(async () => ({ store_ids: ['store-ginza'] })) }
+  const stores = { list: jest.fn(async () => ({ stores: [{ id: 'store-ginza', is_primary: true }] })) }
+  const client = { appointments, karuteRecords, staff, staffStores, stores }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
@@ -78,8 +82,10 @@ import {
   getAppointmentsByDate,
   getAppointmentsInRange,
   getAppointmentById,
+  createAppointment,
 } from '@/actions/appointments'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { getActiveStoreId } from '@/actions/stores'
 import { getSynqedClient } from '@/lib/synqed/client'
 
 const scopeMock = resolveStoreScope as jest.Mock
@@ -180,5 +186,64 @@ describe('getAppointmentById — store scope', () => {
     get.mockResolvedValueOnce(makeSynqedAppointment(DAIKANYAMA))
     const row = await getAppointmentById('appt-x')
     expect(row?.id).toBe('appt-x')
+  })
+})
+
+describe('getAppointmentById — recording-target guard', () => {
+  it('a NO_SHOW appointment resolves to null — never a recording target', async () => {
+    crossStore(null)
+    const { get } = await appointmentsMock()
+    get.mockResolvedValueOnce({ ...makeSynqedAppointment(null), status: 'NO_SHOW' })
+    expect(await getAppointmentById('appt-x')).toBeNull()
+  })
+})
+
+describe('createAppointment — active-store cookie clamp (write-side isolation)', () => {
+  const bookingInput = {
+    staffProfileId: 'staff-1',
+    clientId: 'cust-1',
+    startTime: new Date('2026-07-06T02:00:00.000Z').toISOString(),
+    durationMinutes: 60,
+    tzOffsetMinutes: -540,
+  }
+
+  async function createMock() {
+    const client = await (getSynqedClient as jest.Mock)()
+    return client.appointments.create as jest.Mock
+  }
+
+  it('branch-restricted staff + cookie for a NOT-allowed store: books via defaultBookingStore, never the cookie', async () => {
+    clampedToGinza()
+    ;(getActiveStoreId as jest.Mock).mockResolvedValueOnce(DAIKANYAMA)
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    // The 代官山 cookie is out of scope → dropped → defaultBookingStore stamps
+    // their own 銀座 store, NOT the cookie's 代官山.
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+  })
+
+  it('cross-store viewer + cookie: the cookie is honored', async () => {
+    crossStore(DAIKANYAMA)
+    ;(getActiveStoreId as jest.Mock).mockResolvedValueOnce(DAIKANYAMA)
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: DAIKANYAMA }))
+  })
+
+  it('branch-restricted staff + unset cookie: unchanged — books via defaultBookingStore, scope not consulted', async () => {
+    clampedToGinza()
+    // getActiveStoreId default mock → null (no cookie)
+    const create = await createMock()
+
+    await createAppointment(bookingInput)
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
+    // No cookie to clamp → the scope lookup never runs (unset-cookie behavior
+    // is untouched — defaultBookingStore, not resolveStoreScope().storeId).
+    expect(scopeMock).not.toHaveBeenCalled()
   })
 })

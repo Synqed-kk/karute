@@ -17,6 +17,17 @@ export default function GlobalError({
 }) {
   useEffect(() => {
     Sentry.captureException(error)
+    // This screen REPLACES the root layout, so SplashHide never mounts. Inside
+    // the native shell the launch screen would sit on top of this recovery UI
+    // until the +8s failsafe — hide it now so the user sees the error + retry
+    // button immediately. No-op in normal browsers.
+    void (
+      window as {
+        Capacitor?: {
+          Plugins?: { SplashScreen?: { hide?: () => Promise<void> } }
+        }
+      }
+    ).Capacitor?.Plugins?.SplashScreen?.hide?.()
   }, [error])
 
   return (

@@ -18,10 +18,11 @@ import {
 import {
   effectiveLastVisitIso,
   enrichCustomers,
-  resolveCustomerStatus,
 } from '@/lib/customers/list-enrich'
+import { resolveCustomerStatus } from '@/lib/customers/status-signals'
 import { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import { getAppointmentsByDate } from '@/actions/appointments'
 import {
   assembleNotificationFeed,
@@ -44,10 +45,16 @@ const PAGE_SIZE = 200
  *
  * @param businessId tenant id (from getBusinessId()).
  * @param locale     'ja' | 'en' — only used to locale-prefix deep-link hrefs.
+ * @param storeId    the viewer's CLAMPED store lens (resolveStoreScope().storeId,
+ *                   threaded from the layout). Every store-scoped read below must
+ *                   pass it — a branch-restricted staff's bell must never show
+ *                   another store's bookings/drafts/counts (#465 family).
+ *                   null = no store filter (business has no stores / lookup failed).
  */
 export async function buildNotificationFeed(
   businessId: string,
   locale = 'ja',
+  storeId: string | null = null,
 ): Promise<NotificationItem[]> {
   const now = new Date()
   const lp = locale === 'en' ? '/en' : '/ja'
@@ -69,9 +76,9 @@ export async function buildNotificationFeed(
   const [todayAppointments, recentBookings, drafts, chaseAndSync] =
     await Promise.all([
       loadTodayAppointments(),
-      loadRecentBookings(businessId),
-      loadDraftKarute(businessId),
-      loadChaseAndSync(businessId),
+      loadRecentBookings(businessId, storeId),
+      loadDraftKarute(businessId, storeId),
+      loadChaseAndSync(businessId, storeId),
     ])
 
   return assembleNotificationFeed({
@@ -123,7 +130,9 @@ async function loadTodayAppointments(): Promise<FeedTodayAppointment[]> {
  *  assembler re-applies the precise starts_at >= now / recency rules with the
  *  request's real now. */
 const getCachedRecentBookings = unstable_cache(
-  async (businessId: string): Promise<FeedRecentBooking[]> => {
+  // storeId is a cache-key ARG on purpose (Next keys on function args) — one
+  // store's cached feed must never serve another store for the 60s window.
+  async (businessId: string, storeId: string | null): Promise<FeedRecentBooking[]> => {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
     if (!baseUrl || !apiKey) return []
@@ -132,14 +141,21 @@ const getCachedRecentBookings = unstable_cache(
     const fromIso = new Date(now.getTime() - 60_000).toISOString() // tiny pad
     const toIso = new Date(now.getTime() + 60 * 24 * 60 * 60 * 1000).toISOString()
     const [list, customers] = await Promise.all([
-      synqed.appointments.list({ from: fromIso, to: toIso, page_size: PAGE_SIZE }),
+      synqed.appointments.list({
+        from: fromIso,
+        to: toIso,
+        page_size: PAGE_SIZE,
+        store_id: storeId ?? undefined,
+      }),
+      // Name LOOKUP only (never listed) — stays business-wide so a booking by a
+      // not-yet-store-pinned customer still resolves its name.
       getCachedCustomerListFor(businessId),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
     const cutoff = now.getTime() - NEW_BOOKING_LOOKBACK_MS
     return list.appointments
-      // A cancelled booking is not a new booking.
-      .filter((a) => a.status !== 'CANCELLED')
+      // A cancelled or no-show booking is not a new booking.
+      .filter((a) => !isTerminalStatus(a.status))
       // Cheap pre-filter on the recency window (the assembler re-checks both
       // recency AND future, but trimming here keeps the mapped array small).
       .filter((a) => new Date(a.created_at).getTime() >= cutoff)
@@ -150,13 +166,16 @@ const getCachedRecentBookings = unstable_cache(
         startsAt: a.starts_at,
       }))
   },
-  ['notif-recent-bookings-v1'],
+  ['notif-recent-bookings-v2'],
   { revalidate: 60, tags: ['customers'] },
 )
 
-async function loadRecentBookings(businessId: string): Promise<FeedRecentBooking[]> {
+async function loadRecentBookings(
+  businessId: string,
+  storeId: string | null,
+): Promise<FeedRecentBooking[]> {
   try {
-    return await getCachedRecentBookings(businessId)
+    return await getCachedRecentBookings(businessId, storeId)
   } catch {
     return []
   }
@@ -171,7 +190,8 @@ async function loadRecentBookings(businessId: string): Promise<FeedRecentBooking
  *  every (app) page, so without the cache it re-paginated per navigation. Busted
  *  by the 'customers' tag. */
 const getCachedDraftKarute = unstable_cache(
-  async (businessId: string): Promise<FeedDraftRecord[]> => {
+  // storeId is a cache-key ARG on purpose — see getCachedRecentBookings.
+  async (businessId: string, storeId: string | null): Promise<FeedDraftRecord[]> => {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
     if (!baseUrl || !apiKey) return []
@@ -183,6 +203,7 @@ const getCachedDraftKarute = unstable_cache(
         status: 'DRAFT',
         page,
         page_size: PAGE_SIZE,
+        store_id: storeId ?? undefined,
       })
       for (const r of res.karute_records) {
         out.push({ customerId: r.customer_id ?? null, createdAt: r.created_at })
@@ -191,13 +212,16 @@ const getCachedDraftKarute = unstable_cache(
     }
     return out
   },
-  ['notif-draft-karute-v1'],
+  ['notif-draft-karute-v2'],
   { revalidate: 60, tags: ['customers'] },
 )
 
-async function loadDraftKarute(businessId: string): Promise<FeedDraftRecord[]> {
+async function loadDraftKarute(
+  businessId: string,
+  storeId: string | null,
+): Promise<FeedDraftRecord[]> {
   try {
-    return await getCachedDraftKarute(businessId)
+    return await getCachedDraftKarute(businessId, storeId)
   } catch {
     return []
   }
@@ -215,8 +239,12 @@ async function loadDraftKarute(businessId: string): Promise<FeedDraftRecord[]> {
  *  getCachedCustomerListFor + enrichCustomers are both businessId-explicit (no
  *  auth read). Invalidated by the 'customers' tag, same as the list. */
 const getCachedChaseSync = unstable_cache(
+  // storeId is a cache-key ARG on purpose — see getCachedRecentBookings. The
+  // roll-up counts over the STORE-scoped list, matching what the viewer's own
+  // 顧客 page shows (a Ginza-clamped staff must not see Daikanyama's 休眠 count).
   async (
     businessId: string,
+    storeId: string | null,
   ): Promise<{
     chase: { needsFollowup: number; dormant: number }
     syncPendingCount: number
@@ -225,7 +253,10 @@ const getCachedChaseSync = unstable_cache(
       chase: { needsFollowup: 0, dormant: 0 },
       syncPendingCount: 0,
     }
-    const customers = await getCachedCustomerListFor(businessId)
+    const customers = await getCachedCustomerListFor(
+      businessId,
+      storeId ?? undefined,
+    )
     if (customers.length === 0) return empty
     const enrichment = await enrichCustomers(
       businessId,
@@ -279,18 +310,21 @@ const getCachedChaseSync = unstable_cache(
       syncPendingCount: syncPending,
     }
   },
-  ['notif-chase-sync-v1'],
+  ['notif-chase-sync-v2'],
   { revalidate: 60, tags: ['customers'] },
 )
 
 /** Thin caller wrapper — the heavy work is the cached helper above; this just
  *  degrades to empty if even the cache read throws (best-effort feed). */
-async function loadChaseAndSync(businessId: string): Promise<{
+async function loadChaseAndSync(
+  businessId: string,
+  storeId: string | null,
+): Promise<{
   chase: { needsFollowup: number; dormant: number }
   syncPendingCount: number
 }> {
   try {
-    return await getCachedChaseSync(businessId)
+    return await getCachedChaseSync(businessId, storeId)
   } catch {
     return { chase: { needsFollowup: 0, dormant: 0 }, syncPendingCount: 0 }
   }
