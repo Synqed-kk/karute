@@ -59,6 +59,10 @@ export async function getPackAlerts(
     ])
   if (usageAll.size === 0) return empty
 
+  // A store lens is REQUIRED but businessId failed → fail closed (the lens
+  // can't be built without it; business-wide would leak).
+  if (storeId && !businessId) return empty
+
   let usage = usageAll
   let lifecycles = lifecyclesAll
   let inStore: Set<string> | null = null

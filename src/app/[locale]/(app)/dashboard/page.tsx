@@ -121,9 +121,12 @@ export default async function DashboardPage() {
   // customer-list cache makes the second read free. Fail CLOSED: if the lens
   // fetch errors, show no pack rows rather than another store's.
   const scope = await storeScopePromise
-  // scope === null = scope RESOLUTION failed → fail closed (no pack rows),
-  // matching the packAlerts/reconcile guards above.
-  let packUsageLensed = scope ? packUsage : (new Map() as typeof packUsage)
+  // scope === null (resolution failed) or a required lens without businessId
+  // → fail closed (no pack rows), matching the packAlerts/reconcile guards.
+  let packUsageLensed =
+    scope && !(scope.storeId && !businessId)
+      ? packUsage
+      : (new Map() as typeof packUsage)
   if (scope?.storeId && businessId && packUsage.size > 0) {
     try {
       const storeCustomers = await getCachedCustomerListFor(
