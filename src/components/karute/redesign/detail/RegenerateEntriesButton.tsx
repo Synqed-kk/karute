@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
@@ -52,7 +54,7 @@ export function RegenerateEntriesButton({
       // This is the backfill: refresh 本日のセッション (entries) + AI要約 (summary)
       // together, so improving the prompts upgrades past sessions' data.
       const [extractRes, summaryRes] = await Promise.all([
-        fetch('/api/ai/extract', {
+        getDataPort().apiFetch('/api/ai/extract', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -62,7 +64,7 @@ export function RegenerateEntriesButton({
             sessionDate: sessionDate ?? null,
           }),
         }),
-        fetch('/api/ai/summarize', {
+        getDataPort().apiFetch('/api/ai/summarize', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

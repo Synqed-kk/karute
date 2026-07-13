@@ -12,17 +12,19 @@ jest.mock('@/lib/auth/require-permission', () => ({ getMyCapabilities: jest.fn()
 jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn() }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(),
+  getPrimaryStoreId: jest.fn(),
   getStaffStores: jest.fn(),
 }))
 
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
-import { getActiveStoreId, getStaffStores } from '@/actions/stores'
+import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
 
 const mockCaps = getMyCapabilities as jest.Mock
 const mockStaffId = getCurrentUserStaffId as jest.Mock
 const mockActive = getActiveStoreId as jest.Mock
+const mockPrimary = getPrimaryStoreId as jest.Mock
 const mockStores = getStaffStores as jest.Mock
 
 const caps = (...c: Capability[]) => new Set<Capability>(c)
@@ -42,14 +44,22 @@ describe('resolveStoreScope', () => {
     expect(mockStores).not.toHaveBeenCalled()
   })
 
-  it('viewAll with no pinned store → null (all stores)', async () => {
+  it('viewAll with no pinned store → the PRIMARY store (the switcher shows it as active)', async () => {
     mockCaps.mockResolvedValue(caps('stores.viewAll'))
     mockActive.mockResolvedValue(null)
+    mockPrimary.mockResolvedValue('store-primary')
     expect(await resolveStoreScope()).toEqual({
-      storeId: null,
+      storeId: 'store-primary',
       viewAll: true,
       allowedStoreIds: null,
     })
+  })
+
+  it('viewAll, no pin, business has no stores → null (no filter)', async () => {
+    mockCaps.mockResolvedValue(caps('stores.viewAll'))
+    mockActive.mockResolvedValue(null)
+    mockPrimary.mockResolvedValue(null)
+    expect((await resolveStoreScope()).storeId).toBeNull()
   })
 
   it('no viewAll + empty staff_stores → floating staff, no clamp', async () => {
@@ -61,6 +71,16 @@ describe('resolveStoreScope', () => {
       viewAll: false,
       allowedStoreIds: null,
     })
+    // Cookie set → the primary lookup must not fire (it costs a core call).
+    expect(mockPrimary).not.toHaveBeenCalled()
+  })
+
+  it('no viewAll + empty staff_stores + no pin → primary-store default', async () => {
+    mockCaps.mockResolvedValue(caps('customers.view'))
+    mockActive.mockResolvedValue(null)
+    mockStores.mockResolvedValue([])
+    mockPrimary.mockResolvedValue('store-primary')
+    expect((await resolveStoreScope()).storeId).toBe('store-primary')
   })
 
   it('no viewAll + assigned: cookie inside the set is honored', async () => {

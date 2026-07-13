@@ -27,7 +27,8 @@
     "somethingWentWrong": "エラーが発生しました。",
     "noPermission": "この操作を行う権限がありません。",
     "saved": "保存済み",
-    "notifications": "通知"
+    "notifications": "通知",
+    "staffLimitReached": "スタッフ数がプランの上限に達しています。追加にはプランのアップグレードが必要です"
   },
   "auth": {
     "title": "カルテにサインイン",
@@ -53,6 +54,9 @@
     "signinLink": "サインイン",
     "signupNoUser": "ユーザーが取得できませんでした。もう一度お試しください。",
     "emailAlreadyRegistered": "このメールアドレスは既に登録されています。サインインしてください。",
+    "error_generic": "問題が発生しました。もう一度お試しください。",
+    "checkEmail": "確認メールを送信しました。メール内のリンクを開いて登録を完了してください。",
+    "confirmError": "確認リンクが無効または期限切れです。もう一度サインアップしてください。",
     "forgotPassword": "パスワードをお忘れですか？",
     "resetTitle": "パスワード再設定",
     "resetSubtitle": "登録済みのメールアドレスを入力してください。再設定用のリンクをお送りします。",
@@ -127,6 +131,7 @@
     "askAi": "AI相談",
     "dataImport": "インポート",
     "dataExport": "エクスポート",
+    "profile": "プロフィール",
     "settings": "設定",
     "menu": "メニュー",
     "pickBooking": "予約を選択"
@@ -182,7 +187,63 @@
       "renewalFlag": "更新案内",
       "packLeft": "残{remaining}/{size}",
       "unrecorded": "未記録",
-      "nextUp": "次 ▸"
+      "nextUp": "次 ▸",
+      "cancelled": "キャンセル済み",
+      "noShow": "無断キャンセル"
+    },
+    "cancelSheet": {
+      "title": "この予約をキャンセルしますか？",
+      "ticketNote": "回数券は消化されません。無断キャンセルの消化は下の「無断キャンセル」から選べます。",
+      "holdLabel": "長押しでキャンセル",
+      "holdHint": "ボタンを約1秒間押し続けると確定します",
+      "holdKeep": "そのまま押し続けてください…",
+      "done": "{name}様の予約をキャンセルしました",
+      "cancelledTitle": "キャンセル済みの予約",
+      "cancelledBody": "この予約はキャンセルされています。回数券は消化されていません。",
+      "restore": "元に戻す",
+      "restoring": "戻しています…",
+      "restored": "{name}様の予約を元に戻しました",
+      "staffPrefix": "担当",
+      "close": "閉じる",
+      "noShowSectionLabel": "無断キャンセル",
+      "noShowReasons": {
+        "no-show-no-contact": "連絡なし",
+        "same-day-contacted": "当日連絡あり",
+        "first-time-no-show": "初回の無断キャンセル"
+      },
+      "burnPack": "回数券を1回消化する（残り{n}回）",
+      "noShowHoldLabel": "長押しで無断キャンセルにする",
+      "noShowDone": "{name}様の予約を無断キャンセルにしました",
+      "noShowRestoreTitle": "無断キャンセルの予約",
+      "noShowBody": "この予約は無断キャンセルとして記録されています。",
+      "reason": "理由",
+      "statusSetBy": "{name}が{date} {time}に操作",
+      "noShowError": {
+        "no_burnable_pack": "消化できる回数券がありません",
+        "already_terminal": "この予約はすでにキャンセルまたは無断キャンセルになっています"
+      },
+      "noShowBurnWarn": {
+        "below_zero": "{name}様の無断キャンセルは記録しました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の無断キャンセルは記録しました。回数券の消化に失敗したため、消化されていません",
+        "already_burned": "{name}様の無断キャンセルは記録しました。この予約では回数券がすでに消化済みのため、再消化していません"
+      },
+      "noShowErrorGeneric": "操作に失敗しました",
+      "cancelErrorGeneric": "キャンセルに失敗しました。もう一度お試しください",
+      "restoreErrorGeneric": "元に戻せませんでした。予約の状態が変わっている可能性があります",
+      "reasonOptional": "理由（任意）",
+      "cancelReasons": {
+        "cancel-advance-contact": "事前連絡あり",
+        "cancel-same-day-contact": "当日連絡あり",
+        "cancel-salon-initiated": "店舗都合"
+      },
+      "noShowSectionSub": "（連絡なく来店なし）",
+      "noShowFirstTime": "この方は初めての無断キャンセルです",
+      "noShowPriorCount": "過去{n}回の無断キャンセルがあります",
+      "cancelBurnWarn": {
+        "below_zero": "{name}様の予約はキャンセルしました。回数券は残り回数がないため消化されていません",
+        "burn_failed": "{name}様の予約はキャンセルしました。回数券の消化に失敗したため、消化されていません",
+        "already_burned": "{name}様の予約はキャンセルしました。この予約では回数券がすでに消化済みのため、再消化していません"
+      }
     },
     "actionSheet": {
       "subtitleFirst": "初めてのお客様です。録音すると仮カルテを作成します。",
@@ -648,7 +709,13 @@
       "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
       "deleteCta": "データを削除",
       "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
-      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です"
+      "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です",
+      "consentRevokeTitle": "録音同意",
+      "consentRevokeBody": "{date}に取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeBodyNoDate": "同意取得済み。取り消すと、次回の録音前にスタッフが改めて同意を取得する必要があります。",
+      "consentRevokeCta": "録音同意を取り消す",
+      "consentRevokeConfirm": "録音の同意を取り消しますか？次回の録音前に、スタッフが改めて同意を取得する必要があります。",
+      "consentRevokeSuccess": "録音同意を取り消しました。"
     },
     "search": {
       "placeholder": "名前・読み・電話・メールで検索..."
@@ -867,7 +934,8 @@
         "ageValue": "{age}歳",
         "bookingDate": "予約 {date}",
         "bookingNone": "予約なし",
-        "packFraction": "残{n}/{m}"
+        "packFraction": "残{n}/{m}",
+        "noShowChip": "無断欠席{count}回"
       },
       "heading": "顧客",
       "showing": "{n}名を表示中",
@@ -1067,6 +1135,7 @@
       "relearnConfirmTooltip": "AIが抽出した項目を作り直します。ピン留め・スタッフ追加・編集済みの項目はそのまま残ります。",
       "relearnRunning": "再学習中…",
       "relearnFailed": "再学習できませんでした（録音の文字起こしが見つからないか、エラーが発生しました）",
+      "relearnLocked": "このプランではAIメモリーの再学習はご利用いただけません。プランのアップグレードをご検討ください",
       "relearnDone": "再学習が完了しました（{n}件）",
       "passportHint": "点線の値はタップで根拠の発言を表示。鉛筆で修正でき、修正した値はAIが上書きしません。",
       "passportQuoteHint": "タップで根拠の発言を表示",
@@ -1252,7 +1321,7 @@
       "mobileRowEmpty": "セッション中のリアルタイム提案",
       "collapseAria": "閉じる",
       "intro": "セッション中のリアルタイム提案です。オーナーやマネージャーには表示されません。",
-      "emptyHint": "セッション中、AIが約30秒ごとに最新2分間の会話を分析し、次の質問・トップパフォーマーのヒント・クロージングのタイミング等を提案します。AnthonyがHaikuベースの提案生成器とSupabase Realtimeチャネル（session_id + staff_id でフィルタ）を実装後、ここに自動表示されます。"
+      "emptyHint": "セッション中、AIが約30秒ごとに最新2分間の会話を分析し、次の質問・トップパフォーマーのヒント・クロージングのタイミング等を提案します。"
     },
     "header": {
       "title": "コーチング",
@@ -1262,46 +1331,77 @@
     "staff": {
       "monthlyGrowth": {
         "title": "今月の成長",
-        "subtitle": "あなたのスタッフ非公開データ（Layer 1）",
-        "body": "AIがあなたのセッションを分析し、月間スコア・先月比の変化・分析済みセッション数・習得済み／学習中パターン数を表示します。Anthonyが usePersonalGrowthData() を実装後に有効化されます。",
+        "subtitle": "あなた専用のデータ（他のスタッフには公開されません）",
+        "body": "AIがあなたのセッションを分析し、月間スコア・先月比の変化・分析済みセッション数・習得済み／学習中パターン数を表示します。",
         "vsLastMonth": "先月比",
         "statSessionsAnalyzed": "分析済みセッション",
         "statPatternsMastered": "習得済みパターン",
         "statPatternsInProgress": "学習中",
-        "emptyHint": "AIがあなたのセッションを分析し、月間スコアとパターン習得状況をここに表示します。Anthonyが成長データの取得を実装後に有効化されます。",
+        "emptyHint": "AIがあなたのセッションを分析し、月間スコアとパターン習得状況をここに表示します。",
         "seeFullGrowth": "詳細を見る"
       },
       "learnFromTop": {
         "title": "トップパフォーマーから学ぶ",
-        "subtitle": "匿名化されたチーム共有データ（Layer 2）",
+        "subtitle": "匿名化されたチーム共有データ",
         "body": "サロンのトップパフォーマーから抽出された接客パターンを、スタッフを特定できない形で表示します。AIが自然な会話の組み立て方や提案の言い回しを抽出し、本日のセッションでの応用方法を提示します。",
         "seeAll": "すべて見る",
-        "emptyHint": "トップパフォーマーの会話パターンをAIが抽出し、本日のセッションで応用できる形でここに表示します。Anthonyがパターン抽出パイプラインを実装後に有効化されます。"
+        "emptyHint": "トップパフォーマーの会話パターンをAIが抽出し、本日のセッションで応用できる形でここに表示します。"
       },
       "strengths": {
         "title": "あなたの強み",
-        "body": "過去のセッションから AI があなたの得意分野を抽出し、自信を持って提案できるカテゴリーや会話の運び方を提示します。スタッフ非公開（Layer 1）。",
-        "emptyHint": "AIがあなたの過去セッションを分析し、得意なカテゴリーや会話パターンを強みとしてここに表示します。Anthonyが成長データの取得を実装後に有効化されます。"
+        "body": "過去のセッションから AI があなたの得意分野を抽出し、自信を持って提案できるカテゴリーや会話の運び方を提示します。あなた専用のデータです。",
+        "emptyHint": "AIがあなたの過去セッションを分析し、得意なカテゴリーや会話パターンを強みとしてここに表示します。"
       },
       "nextFocus": {
         "title": "次のフォーカス",
-        "body": "成長機会のあるカテゴリーと、それを伸ばすために本日試せる具体的なアクションを AI が提案します。スタッフ非公開（Layer 1）。",
-        "emptyHint": "AIが成長機会のあるカテゴリーを特定し、本日試せる具体的なアクションをここに提案します。Anthonyが成長データの取得を実装後に有効化されます。"
+        "body": "成長機会のあるカテゴリーと、それを伸ばすために本日試せる具体的なアクションを AI が提案します。あなた専用のデータです。",
+        "emptyHint": "AIが成長機会のあるカテゴリーを特定し、本日試せる具体的なアクションをここに提案します。"
       },
       "recentModules": {
         "title": "最近の学習モジュール",
-        "subtitle": "あなたに割り当てられた学習モジュール（Layer 1）",
-        "body": "オーナーから割り当てられた学習モジュール（接客スクリプト・動画・テストなど）と進捗状況を表示します。Anthonyが useLearningModulesData() を実装後に有効化されます。",
+        "subtitle": "あなたに割り当てられた学習モジュール",
+        "body": "オーナーから割り当てられた学習モジュール（接客スクリプト・動画・テストなど）と進捗状況を表示します。",
         "durationMin": "{n}分",
         "assignedBy": "{name}から",
-        "emptyHint": "オーナーから割り当てられた学習モジュールと進捗状況をここに表示します。Anthonyがモジュール割り当ての取得を実装後に有効化されます。"
+        "emptyHint": "オーナーから割り当てられた学習モジュールと進捗状況をここに表示します。"
+      },
+      "dataView": {
+        "title": "あなたの成績",
+        "emptyHint": "セッションが分析されると、成約率・再来率などの成績と、根拠のある具体的な気づきがここに表示されます。",
+        "closingRate": "成約率",
+        "rebookingRate": "再来率",
+        "satisfaction": "満足度",
+        "avgRevenue": "平均客単価",
+        "basedOn": "{n}回のセッションから",
+        "findingsTitle": "今月の気づき",
+        "sevPriority": "重点",
+        "sevWatch": "注目",
+        "sevStrength": "強み",
+        "doThis": "次の一手",
+        "categoriesTitle": "会話スキル（トップ層との比較）",
+        "top": "トップ",
+        "thisWeek": "今週の一手",
+        "practice": "練習する",
+        "trendTitle": "推移（成約率）",
+        "nowLabel": "今月",
+        "reasonsTitle": "不成約の理由（今月{n}件）",
+        "pendingTitle": "「後で決める」が{n}件、未決定です",
+        "pendingBody": "決めるとコーチングの精度が上がります。クロージングを毎回保留にしていること自体が、成約を逃しているポイントかもしれません。",
+        "learnTitle": "トップ層から学ぶ",
+        "reason": {
+          "budget": "予算",
+          "considering": "検討中",
+          "mismatch": "店舗ミスマッチ",
+          "follow_up": "後日連絡予定",
+          "other": "その他"
+        }
       }
     },
     "owner": {
       "teamPerformance": {
         "title": "チームのパフォーマンス",
         "subtitle": "集計済みデータ（Layer 3）",
-        "body": "チーム全体の主要指標（売上・再来店率・顧客満足度・客単価）の月次サマリーを表示します。スタッフ個人を特定できない集計値のみ。Anthonyが useStaffPerformanceData() を実装後に有効化されます。",
+        "body": "チーム全体の主要指標（売上・再来店率・顧客満足度・客単価）の月次サマリーを表示します。スタッフ個人を特定できない集計値のみ。",
         "cardTitle": "店舗全体のパフォーマンス",
         "vsLastMonth": "先月比",
         "metricClosing": "平均成約率",
@@ -1309,7 +1409,7 @@
         "metricAvgRevenue": "平均客単価",
         "metricSatisfaction": "平均満足度",
         "totalSessionsLabel": "今月のセッション合計 ·",
-        "emptyHint": "店舗全体の主要指標の集計値をここに表示します。Anthonyがチームサマリーの取得を実装後に有効化されます。"
+        "emptyHint": "店舗全体の主要指標の集計値をここに表示します。"
       },
       "teamTrends": {
         "title": "チームのトレンド",
@@ -1318,14 +1418,14 @@
         "tileNeedsSupport": "サポート必要",
         "headCount": "名",
         "focusAreasHeader": "チーム全体のサポートエリア（頻度順）",
-        "emptyHint": "成長中／安定／サポート必要のスタッフ数と、AIが抽出したサポートエリアの頻度ランキングをここに表示します。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+        "emptyHint": "成長中／安定／サポート必要のスタッフ数と、AIが抽出したサポートエリアの頻度ランキングをここに表示します。"
       },
       "topPerformers": {
         "cardTitle": "トップパフォーマー",
         "cardIntro": "総合指標の上位層です。パターンライブラリの元ソースとしてスタッフに（匿名化した上で）共有されています。",
         "closingShort": "成約 {pct}%",
         "rebookingShort": "再来店 {pct}%",
-        "emptyHint": "トップパフォーマーのスタッフ名・役職・成約率・再来店率をここに表示します（オーナー専用、Layer 2 名前付き）。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+        "emptyHint": "トップパフォーマーのスタッフ名・役職・成約率・再来店率をここに表示します（オーナー専用）。"
       },
       "staffTable": {
         "cardTitle": "スタッフ一覧",
@@ -1339,14 +1439,40 @@
         "colTrend": "成長傾向",
         "sessionsCount": "セッション{n}件",
         "vsLastMonth": "先月比",
-        "emptyHint": "同意取得済みスタッフの月次パフォーマンス指標（成約率・再来店率・客単価・満足度・成長傾向）を一覧でここに表示します。各行は /coaching/staff/[id] のドリルダウンへリンクします。Anthonyが useStaffPerformanceData() を実装後に有効化されます。"
+        "emptyHint": "同意取得済みスタッフの月次パフォーマンス指標（成約率・再来店率・客単価・満足度・成長傾向）を一覧でここに表示します。各行から個人の詳細ページへ移動できます。"
       },
       "assignModules": {
         "cardTitle": "学習モジュールを割り当てる",
         "cardIntro": "モジュールを選んで、サポートしたいスタッフに割り当てます。割り当てを受けたスタッフに通知が届きます。",
         "durationMin": "{n}分",
         "seeAllModules": "すべてのモジュールを見る",
-        "emptyHint": "AIが推薦する未割り当ての上位3モジュールと、同意取得済みスタッフへのクイック割り当てチップをここに表示します。Anthonyが useLearningModulesData() と learning_assignments の挿入／削除サーバーアクションを実装後に有効化されます。"
+        "emptyHint": "AIが推薦する未割り当ての上位3モジュールと、同意取得済みスタッフへのクイック割り当てチップをここに表示します。"
+      },
+      "roi": {
+        "title": "コーチングの効果",
+        "emptyHint": "コーチングが店舗の売上をどれだけ押し上げているか、データが集まるとここに表示されます。",
+        "heroLabel": "コーチング導入後の売上への効果",
+        "heroSub": "導入からの{n}ヶ月で押し上がりました。季節や他の要因を差し引いた、コーチングによる純粋な効果です。",
+        "confidenceLead": "確からしさ",
+        "confMature": "確立",
+        "confBuilding": "構築中",
+        "confEarly": "初期",
+        "trendTitle": "店舗の成約率の推移",
+        "trendSub": "縦の点線がコーチング開始。以降、他店舗（未導入）との差が広がっています。",
+        "monthsAgo": "{n}ヶ月前",
+        "controlLabel": "他店舗平均",
+        "nowLabel": "今月",
+        "liftsTitle": "指標ごとの押し上げ",
+        "liftsSub": "それぞれ、他の要因を差し引いたコーチングによる効果。まだ判断が早いものは「初期」と表示します。",
+        "metric": {
+          "closingRate": "成約率",
+          "rebookingRate": "再来率",
+          "avgRevenue": "平均客単価",
+          "satisfaction": "満足度"
+        },
+        "honestyNote": "数字は「差分の差分法」で算出しています — コーチングを受けた分から、未導入の他店舗の自然な変化を差し引いた、純粋な押し上げ分だけを表示。少ないデータで大きく見えるものは自動的に抑えめに補正し、確からしさが十分でないものは正直に「構築中／初期」と表示します。誇張しません。",
+        "pitchTitle": "この機能は、費用を上回る売上を生んでいます",
+        "pitchSub": "この規模の店舗で、月あたり約 {amount} の売上に相当します。"
       }
     },
     "staffDrill": {
@@ -1362,17 +1488,17 @@
       "metricSatisfaction": "満足度",
       "metricSatisfactionValue": "{score} / 5.0",
       "metricScaffoldValue": "—",
-      "metricsScaffoldHint": "成約率・再来店率・平均客単価・満足度の月次集計をここに表示します。Anthonyが useStaffPerformanceData() を実装後に有効化されます。",
+      "metricsScaffoldHint": "成約率・再来店率・平均客単価・満足度の月次集計をここに表示します。",
       "chartTitle": "{name}さんの成長推移",
       "chartSubtitle": "カテゴリースコアの月次推移",
-      "chartEmptyHint": "カテゴリースコアの月次推移グラフをここに表示します。Layer 2 の集計のみ（AI不要）。Anthonyが trajectoryL2 を含む useStaffPerformanceData() を実装後に有効化されます。",
+      "chartEmptyHint": "カテゴリースコアの月次推移グラフをここに表示します。",
       "gapTitle": "成長エリアの分析",
       "gapSubtitle": "カテゴリー別 · トップパフォーマーとの差",
       "gapPriorityHigh": "優先度・高",
       "gapPriorityMedium": "優先度・中",
       "gapPriorityStable": "安定",
       "gapDiffFromTop": "トップ層との差 {pct}%",
-      "gapEmptyHint": "カテゴリー別の成長エリアと、トップパフォーマーとの差をここに表示します。週次バッチで claude-sonnet による分析を生成し、顧客名やセッション詳細を含まない「成長エリア」「サポートポイント」の語彙のみ使用します。Anthonyが useCategoricalInsightsData(staffId) を実装後に有効化されます。",
+      "gapEmptyHint": "カテゴリー別の成長エリアと、トップパフォーマーとの差をここに表示します。顧客名やセッションの詳細は含まれません。",
       "modal": {
         "title": "{name}さんの個別データを確認します",
         "description": "プライバシー保護のため、会話の録音・文字起こし・具体的なお客様とのやり取りは表示されません。パフォーマンス指標と成長エリア（カテゴリーレベル）のみ表示します。",
@@ -1400,7 +1526,7 @@
       "allCategories": "全カテゴリ",
       "emptyTitle": "該当するモジュールがありません",
       "emptyBody": "検索語やフィルターを変更するか、トップパフォーマーの新しいパターンから AI モジュールが生成されるまでお待ちください。",
-      "scaffoldHint": "AIが厳選した学習モジュールのカタログ、検索／タブ／カテゴリ絞り込み、3カラムのカードグリッド、そしてスタッフへの割り当てチップをここに表示します。Anthonyが useLearningModulesData() と useStaffPerformanceData() を実装後に有効化されます。割り当て書き込みは learning_assignments への INSERT／DELETE サーバーアクション（オーナー限定）で行います。",
+      "scaffoldHint": "AIが厳選した学習モジュールのカタログ、検索／タブ／カテゴリ絞り込み、スタッフへの割り当てをここに表示します。割り当てはオーナーのみ行えます。",
       "durationMin": "{n}分",
       "completion": "進捗",
       "assignTo": "スタッフに割り当て",
@@ -1414,7 +1540,7 @@
       "subtitleStaff": "トップパフォーマーの実例から、すぐに試せる型を学びましょう",
       "subtitleOwner": "チームで共有されているパターンライブラリ。スタッフには匿名化して表示されます。",
       "learnersFooter": "このパターンを学習中のスタッフ · {n}名",
-      "sectionEmptyHint": "AIがトップパフォーマーの会話から抽出したパターン例（実際の言い回し、学習中スタッフ数、オーナー向け出典名）をここに表示します。Anthonyが useTopPerformerPatternsData() を実装後に有効化されます。週次バッチ生成、スタッフには出典が匿名化されます。",
+      "sectionEmptyHint": "AIがトップパフォーマーの会話から抽出したパターン例（実際の言い回し、学習中スタッフ数など）をここに表示します。スタッフには出典が匿名化されます。",
       "categories": {
         "counseling_questions": {
           "title": "カウンセリング質問例",
@@ -1444,7 +1570,7 @@
       "subtitle": "あなただけが見ることができる、詳細な成長記録です。",
       "staffOnlyNotice": "このページはスタッフ個人のプライベートな成長ページです。オーナー・マネージャーには、カテゴリー別の成長エリアのみがコーチングダッシュボードからご確認いただけます。",
       "chartTitle": "成長の推移",
-      "chartEmptyHint": "あなたの月次成長スコアの推移グラフをここに表示します（Layer 1・スタッフ非公開）。Anthonyが usePersonalGrowthData() を実装後に有効化されます。",
+      "chartEmptyHint": "あなたの月次成長スコアの推移グラフをここに表示します（あなた専用・他のスタッフには公開されません）。",
       "monthAxisLabel": "{mm}月",
       "statSessions": "分析済みセッション",
       "statMastered": "習得済みパターン",
@@ -1454,10 +1580,10 @@
       "inProgressHeader": "学習中 · {n}件",
       "masteredEmpty": "まだ習得済みのパターンはありません。",
       "inProgressEmpty": "学習中のパターンはありません。",
-      "masteredEmptyHint": "あなたに割り当てられた学習モジュールの習得状況（完了率付き）をここに表示します。Anthonyが useLearningModulesData({ assignedTo }) を実装後に有効化されます。",
+      "masteredEmptyHint": "あなたに割り当てられた学習モジュールの習得状況（完了率付き）をここに表示します。",
       "insightsTitle": "最近受け取ったコーチング提案",
       "insightsIntro": "個別のセッションで受け取った具体的な提案です。あなた以外には表示されません。",
-      "insightsEmptyHint": "セッション中に受け取った具体的な提案と、それを試した結果（効果あり／試してみた／スキップ／未確認）の履歴をここに表示します。Anthonyが usePersonalCoachingInsightsData() を実装後に有効化されます。",
+      "insightsEmptyHint": "セッション中に受け取った具体的な提案と、それを試した結果（効果あり／試してみた／スキップ／未確認）の履歴をここに表示します。",
       "outcomeWorked": "効果あり",
       "outcomeTried": "試してみた",
       "outcomeSkipped": "スキップ",
@@ -1465,9 +1591,10 @@
       "transcriptsTitle": "会話の抜粋とコーチングメモ",
       "transcriptsIntro": "あなたのセッションからの抜粋と、AIが付けたコーチングメモです。オーナー・マネージャーには表示されません。",
       "coachingNoteLabel": "AIコーチングメモ",
-      "transcriptsEmptyHint": "あなたのセッションの会話抜粋と、AIが特定の発話に付けたコーチングメモをここに表示します（最も機密性が高いLayer 1の表面）。Anthonyが useSessionTranscriptsData() を実装後に有効化されます。"
+      "transcriptsEmptyHint": "あなたのセッションの会話抜粋と、AIが特定の発話に付けたコーチングメモをここに表示します（あなた専用）。"
     },
     "data": {
+      "sampleBanner": "プレビュー — サンプルデータで表示しています。実際のデータは、セッションの分析が始まると反映されます。",
       "back": "コーチングに戻る",
       "title": "あなたのデータについて",
       "subtitleStaff": "コーチング機能で扱われるあなたの情報と、オーナーに見える範囲を明確にしています。",
@@ -1523,6 +1650,13 @@
         "owner": "オーナー",
         "staff": "スタッフ"
       }
+    },
+    "locked": {
+      "badge": "Professionalプラン",
+      "title": "スタッフコーチング",
+      "body": "スタッフ一人ひとりの成長を、実際の接客データから可視化。強み・改善点・次に伸ばすべきポイントを、根拠とともに届けます。Professionalプランでご利用いただけます。",
+      "cta": "プランを見る",
+      "ctaHint": "設定 → 店舗 からいつでも変更できます"
     }
   },
   "dashboard": {
@@ -1788,6 +1922,13 @@
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
     "stores": {
+      "plan": {
+        "label": "現在のプラン",
+        "unlimitedLabel": "無制限",
+        "viewCta": "プランを見る・変更",
+        "dialogTitle": "料金プラン",
+        "dialogDesc": "店舗ごとの月額プランです。プランによって使える機能が変わります。"
+      },
       "title": "店舗一覧",
       "unnamedStore": "未設定の店舗",
       "ownerView": "オーナー権限",
@@ -1985,8 +2126,6 @@
     "consentRequiredDescription": "モードCのみ有効です。",
     "consentTemplate": "同意テンプレート文",
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
-    "enrollVoice": "音声を登録",
-    "voiceEnrollmentSoon": "音声登録 — 近日公開",
     "contactSales": "営業に相談",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
@@ -2038,49 +2177,45 @@
         "cancelBody": "Freeプランにダウングレードされ、AI機能は使えなくなります"
       },
       "plans": {
-        "trialBannerTitle": "14日間の無料トライアル",
-        "trialBannerBody": "Professional プランを14日間お試しいただけます。期間中はいつでもキャンセル可能です。",
-        "trialBannerCta": "トライアル開始",
-        "freeTitle": "Free",
-        "freePrice": "¥0",
-        "freePitch": "まずはお試しで。主要な AI 機能は含まれませんが、カルテ作成と顧客管理の基本が体験できます。",
-        "freeFeature1": "1店舗まで",
-        "freeFeature2": "15顧客まで",
-        "freeFeature3": "月10回の録音まで",
-        "freeFeature4": "× AIカルテ自動生成",
-        "freeFeature5": "× お客様メモリー自動抽出",
-        "freeFeature6": "× AI次回来店メッセージ",
-        "freeFeature7": "× コーチング分析",
-        "standardTitle": "Standard",
-        "standardPrice": "{price} / 店舗 / 月",
-        "standardPitch": "主要なAI機能が全て使えるメインプラン。ほとんどの美容系店舗はこちらで十分。",
-        "standardFeature1": "店舗数無制限",
-        "standardFeature2": "顧客数無制限",
-        "standardFeature3": "録音回数無制限",
-        "standardFeature4": "AIカルテ自動生成",
-        "standardFeature5": "お客様メモリー自動抽出",
-        "standardFeature6": "AI次回来店メッセージ",
-        "standardFeature7": "基本コーチングインサイト",
-        "standardFeature8": "× 高度なコーチング分析",
-        "standardFeature9": "× 優先サポート",
-        "professionalTitle": "Professional",
-        "professionalPrice": "{price} / 店舗 / 月",
-        "professionalPitch": "チーム運営・多店舗展開の方向け。コーチングの高度な分析 + SYNQED Reserve 連携割引。",
-        "professionalFeature1": "Standard の全機能",
-        "professionalFeature2": "高度なコーチング分析（カテゴリ別・成長推移）",
-        "professionalFeature3": "AIアクションの優先ランキング",
-        "professionalFeature4": "SYNQED Reserve 連携割引（開始時）",
-        "professionalFeature5": "優先サポート",
-        "professionalFeature6": "14日間無料トライアル可",
-        "enterpriseTitle": "Enterprise",
-        "enterprisePitch": "5店舗以上の多店舗チェーン・大型サロン向け。ボリューム割引・SLA・専任サポート・カスタム統合をご相談ください。",
-        "enterpriseCta": "お問い合わせ",
+        "unlimitedBannerTitle": "無制限アカウント",
+        "unlimitedBannerBody": "このアカウントはすべての機能を無制限でご利用いただけます。プラン変更は不要です。",
+        "mostPopular": "最も選ばれています",
+        "currentPill": "ご利用中",
+        "perStoreMonth": "/ 店舗 / 月",
+        "priceCustom": "応相談",
+        "staffUpTo": "スタッフ {n}名まで",
+        "staffUnlimited": "スタッフ 無制限",
+        "storesLimited": "店舗 {n}つ",
+        "storesUnlimited": "店舗 無制限",
+        "quotaLimited": "顧客 {customers}名 / 録音 月{recordings}回",
+        "quotaAllUnlimited": "店舗・顧客・録音 すべて無制限",
+        "featAiKarte": "AIカルテ自動生成",
+        "featAiSuite": "AIカルテ・メモリ・アウトリーチ",
+        "featCoaching": "コーチング",
+        "featCoachingPlus": "コーチング + 詳細分析",
+        "featPrioritySupport": "優先サポート",
+        "entVolume": "すべて無制限 + ボリューム割引",
+        "entAllPro": "Professionalの全機能",
+        "entSupport": "専任サポート",
+        "freePitch": "まず試したい個人・小規模向け。",
+        "standardPitch": "日々の記録をAIで自動化したい店舗向け。",
+        "professionalPitch": "コーチングまで、すべての機能を使いたい店舗向け。",
+        "enterprisePitch": "多店舗・チェーン向け。店舗あたりは割安に、規模に応じてご提案。",
         "actionCurrent": "ご利用中",
-        "actionDowngradeFree": "Freeにダウングレード",
         "actionUpgrade": "{tier}にアップグレード",
-        "downgradeConfirm": "Freeプランにダウングレードしますか？\n\n店舗数は1店舗に制限され、AIカルテ生成・メモリー抽出などの機能は使えなくなります。過去のデータは引き続き閲覧できます。",
-        "mostPopular": "人気",
-        "currentPill": "現プラン"
+        "actionContact": "お問い合わせ",
+        "actionUnlimited": "プラン変更は不要です",
+        "feesTitle": "店舗を追加するとき",
+        "feesIntro": "追加する店舗の種類によって料金が変わります（金額は調整可能）。",
+        "feeSetupTag": "初期費用",
+        "feeSetupLead": "別の業種の店舗を追加",
+        "feeSetupRest": "→ 一度きりの初期費用（例 {fee}）＋ 月額シート。新しい業種は独自の設定が必要なため。",
+        "feeBranchTag": "月額のみ",
+        "feeBranchLead": "同じ業種の支店を追加",
+        "feeBranchRest": "→ 初期費用なし、月額シートが1つ増えるだけです。",
+        "feeOwnerTag": "無料",
+        "feeOwnerBody": "オーナーアカウントは常に無料 — 上限も課金もかかりません。",
+        "manageOnWeb": "プランの確認・変更はWeb版の設定から行えます"
       },
       "cancel": {
         "dialogTitle": "本当に解約しますか？",
@@ -2186,7 +2321,10 @@
       "saving": "保存中…",
       "saved": "保存しました",
       "saveFailed": "保存できませんでした"
-    }
+    },
+    "staffCountWithLimit": "{n}/{limit}名のスタッフ",
+    "staffLimitHint": "プランのスタッフ上限に達しています。追加にはアップグレードが必要です",
+    "staffLimitInviteHint": "プランの上限のため新しいスタッフは招待できません（既存スタッフへの再招待は可能）"
   },
   "aiActions": {
     "title": "AIおすすめアクション",
@@ -2550,7 +2688,17 @@
       "tunedFor": "最適化対象：",
       "changeTitle": "「設定」で業種を変更",
       "change": "変更"
-    }
+    },
+    "scopeKarute": "カルテ",
+    "scopeCustomers": "顧客",
+    "scopeBookings": "予約",
+    "scopeRecordings": "録音",
+    "todayHints": "今日のヒント",
+    "todayHintsHint": "今日の予約とカルテから自動で提案しています",
+    "deepConsult": "じっくり相談",
+    "open": "開く",
+    "reference": "{label}を参照",
+    "copyReply": "返答をコピー"
   },
   "karuteExport": {
     "title": "カルテ",
@@ -2691,7 +2839,8 @@
     "pendingInvites": "保留中の招待",
     "revoke": "取り消す",
     "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
-    "inviteExistingNone": "新しいスタッフ（メールのみ）"
+    "inviteExistingNone": "新しいスタッフ（メールのみ）",
+    "staffLimitReached": "スタッフ数がプランの上限に達しているため、新しいスタッフを招待できません。既存スタッフへの再招待は可能です"
   },
   "permissions": {
     "roleLabel": "権限",

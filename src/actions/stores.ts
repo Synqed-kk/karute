@@ -1,5 +1,6 @@
 'use server'
 
+import { cache } from 'react'
 import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 
@@ -141,6 +142,36 @@ export async function listStores(): Promise<StoreRow[]> {
 export async function getActiveStoreId(): Promise<string | null> {
   const jar = await cookies()
   return jar.get(ACTIVE_STORE_COOKIE)?.value ?? null
+}
+
+// Per-request dedupe (React cache): layout + page + actions each resolve the
+// store scope, and a viewer with no pinned cookie (every single-store salon —
+// the switcher never renders for them) would otherwise pay one stores.list
+// core roundtrip per call site on every request.
+const primaryStoreIdOnce = cache(async (): Promise<string | null> => {
+  try {
+    const synqed = await getSynqedClient()
+    const { stores } = await synqed.stores.list()
+    return stores.find((s) => s.is_primary)?.id ?? stores[0]?.id ?? null
+  } catch {
+    return null
+  }
+})
+
+/** The business's primary store id (?? first store). Null when the business
+ *  has no stores yet or the lookup fails. */
+export async function getPrimaryStoreId(): Promise<string | null> {
+  return primaryStoreIdOnce()
+}
+
+/** The store that store-scoped reads/writes default to: the pinned cookie,
+ *  else the PRIMARY store. The StoreSwitcher displays the primary as active
+ *  when nothing is pinned ("there is always an active store") — data and
+ *  display must share that default, otherwise an unpinned cross-store viewer
+ *  sees a pill naming one store over a list mixing every store (the カルテ
+ *  leak Liam kept hitting). */
+export async function getDefaultStoreId(): Promise<string | null> {
+  return (await getActiveStoreId()) ?? getPrimaryStoreId()
 }
 
 /** Switch the active store. Validates the store is in the caller's business
