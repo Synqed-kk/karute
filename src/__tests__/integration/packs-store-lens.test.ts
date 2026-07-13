@@ -34,7 +34,12 @@ jest.mock('@/lib/packs/store', () => ({
   ),
   listAllLifecycles: jest.fn(async () => new Map()),
   listActiveDismissals: jest.fn(async () => new Set()),
-  listRecentContacts: jest.fn(async () => []),
+  // One this-month contact per store — the 今月 footer must count only the
+  // viewer's store.
+  listRecentContacts: jest.fn(async () => [
+    { customer_id: 'c-ginza', contacted_at: new Date().toISOString() },
+    { customer_id: 'c-daikanyama', contacted_at: new Date().toISOString() },
+  ]),
   listVisitReconcileDismissals: jest.fn(async () => []),
   listRecentRedemptions: jest.fn(async () => []),
 }))
@@ -89,11 +94,17 @@ describe('getPackAlerts store lens', () => {
     expect(res.totals.unconsumedTotal).toBe(10_000)
   })
 
+  it('clamps the 今月 contact footer to the store lens too', async () => {
+    const res = await getPackAlerts(undefined, 'store-ginza')
+    expect(res.monthly.contacted).toBe(1)
+  })
+
   it('no storeId = business-wide (pre-existing behavior preserved)', async () => {
     const res = await getPackAlerts()
     expect(listForMock).not.toHaveBeenCalled()
     expect(res.totals.holderCount).toBe(2)
     expect(res.totals.unconsumedTotal).toBe(100_000)
+    expect(res.monthly.contacted).toBe(2)
   })
 
   it('fails CLOSED when the lens fetch errors (empty shape, never cross-store)', async () => {
