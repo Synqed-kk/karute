@@ -1,3 +1,4 @@
+import { getTranslations } from 'next-intl/server'
 import { createClient } from '@/lib/supabase/server'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -15,6 +16,8 @@ export default async function AskAIPage({
   params: Promise<{ locale: string }>
 }) {
   const { locale } = await params
+  const localeArg = locale === 'ja' ? 'ja' : 'en'
+  const t = await getTranslations('askAi')
   const supabase = await createClient()
 
   // Scope counts from synqed-core (the Supabase karute_records mirror is empty
@@ -49,13 +52,13 @@ export default async function AskAIPage({
   ])
 
   const scope: DataScopeItem[] = [
-    { label: 'Karute', count: karuteRes.total ?? 0 },
-    { label: 'Customers', count: customerList.total ?? 0 },
-    { label: 'Bookings', count: apptList.total ?? 0 },
+    { label: t('scopeKarute'), count: karuteRes.total ?? 0 },
+    { label: t('scopeCustomers'), count: customerList.total ?? 0 },
+    { label: t('scopeBookings'), count: apptList.total ?? 0 },
     // Recordings = karute with a transcript, counted from the fetched page
     // (≤200). An exact synqed transcript-filtered count would be cleaner — Anthony.
     {
-      label: 'Recordings',
+      label: t('scopeRecordings'),
       count: (karuteRes.karute_records ?? []).filter(
         (r) => (r as { transcript?: string | null }).transcript != null,
       ).length,
@@ -63,8 +66,8 @@ export default async function AskAIPage({
   ]
 
   const businessType = orgSettings?.business_type ?? null
-  const profile = businessType ? getBusinessProfile(businessType) : null
-  const prompts = getConsultationQuestions(businessType).slice(0, 3)
+  const profile = businessType ? getBusinessProfile(businessType, localeArg) : null
+  const prompts = getConsultationQuestions(businessType, localeArg).slice(0, 3)
 
   const userName = user?.email?.split('@')[0] ?? 'You'
 
