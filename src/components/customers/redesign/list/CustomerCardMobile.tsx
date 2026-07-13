@@ -6,7 +6,7 @@ import { Link } from '@/i18n/navigation'
 import { formatJpPhone } from '@/lib/format/phone'
 import { type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
-import { STATUS_STYLES } from '../types'
+import { STATUS_STYLES, isRepeatNoShow } from '../types'
 import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerCardMobileProps {
@@ -103,6 +103,13 @@ export function CustomerCardMobile({
           <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
             {c.karuteNumber}
           </span>
+          {/* Repeat no-show — EXCEPTIONS-ONLY (>= 2; a single no-show isn't
+           *  flagged). Amber warning tone, same token as 要フォロー. */}
+          {isRepeatNoShow(c.noShowCount) && (
+            <span className="shrink-0 inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+              {t('row.noShowChip', { count: c.noShowCount ?? 0 })}
+            </span>
+          )}
           {/* EXCEPTIONS-ONLY chip (Liam): 継続中 is the default state — a green
            *  chip on ~90% of rows camouflaged the rare amber/red ones staff
            *  actually scan for. No chip = fine; 新規/要フォロー/休眠 pop. */}

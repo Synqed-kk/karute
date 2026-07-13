@@ -197,6 +197,7 @@ export default async function CustomersPage({
         new Date(),
         { withWeekday: true },
       ),
+      noShowCount: enriched?.noShowCount ?? 0,
     }
   })
 

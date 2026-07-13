@@ -155,7 +155,10 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
           <div className="grid grid-cols-3 gap-2">
             <ModeButton
               icon={<Sun className="size-3.5" />}
-              active={theme === 'light'}
+              // A stale/unknown persisted value (e.g. from a removed theme)
+              // renders as light, so highlight ライト for it — the picker must
+              // never show NO selection.
+              active={theme === 'light' || (!!theme && theme !== 'dark' && theme !== 'system')}
               onClick={() => setTheme('light')}
               label={t('modeLight')}
             />

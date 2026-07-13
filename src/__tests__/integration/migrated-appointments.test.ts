@@ -220,6 +220,71 @@ describe('Migrated appointment actions', () => {
       const rows = await getAppointmentsByDate('2026-05-10', 0)
       expect(rows).toEqual([])
     })
+
+    it('resolves status_set_by to a display name via the staff list', async () => {
+      appointments.list.mockResolvedValue({
+        appointments: [
+          {
+            id: 'appt-1',
+            staff_id: 'staff-1',
+            customer_id: 'cust-1',
+            starts_at: '2026-05-10T10:00:00.000Z',
+            duration_minutes: 60,
+            title: null,
+            notes: null,
+            created_at: '2026-05-10T00:00:00.000Z',
+            status: 'CANCELLED',
+            source: 'MANUAL',
+            status_set_by: 'staff-1',
+            status_set_at: '2026-05-10T09:00:00.000Z',
+          },
+        ],
+      })
+      cachedCustomerList.length = 0
+      cachedCustomerList.push({ id: 'cust-1', name: '山田' })
+      karuteRecords.list.mockResolvedValue({ karute_records: [] })
+      staff.list.mockResolvedValue({
+        staff: [{ id: 'staff-1', user_id: 'staff-1', name: 'Tanaka Misaki' }],
+      })
+
+      const rows = await getAppointmentsByDate('2026-05-10', 0, { includeCancelled: true })
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        status_set_by_name: 'Tanaka Misaki',
+        status_set_at: '2026-05-10T09:00:00.000Z',
+      })
+    })
+
+    it('leaves status_set_by_name null when status_set_by is absent (sync-cancelled rows)', async () => {
+      appointments.list.mockResolvedValue({
+        appointments: [
+          {
+            id: 'appt-1',
+            staff_id: 'staff-1',
+            customer_id: 'cust-1',
+            starts_at: '2026-05-10T10:00:00.000Z',
+            duration_minutes: 60,
+            title: null,
+            notes: null,
+            created_at: '2026-05-10T00:00:00.000Z',
+            status: 'CANCELLED',
+            source: 'QUICKRESERVE',
+          },
+        ],
+      })
+      cachedCustomerList.length = 0
+      cachedCustomerList.push({ id: 'cust-1', name: '山田' })
+      karuteRecords.list.mockResolvedValue({ karute_records: [] })
+      staff.list.mockResolvedValue({
+        staff: [{ id: 'staff-1', user_id: 'staff-1', name: 'Tanaka Misaki' }],
+      })
+
+      const rows = await getAppointmentsByDate('2026-05-10', 0, { includeCancelled: true })
+
+      expect(rows[0].status_set_by_name).toBeNull()
+      expect(rows[0].status_set_at).toBeNull()
+    })
   })
 
   describe('updateAppointment', () => {
