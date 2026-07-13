@@ -83,6 +83,11 @@ export interface ReservationView {
   /** Action flag (not a status): the booking's course marks a finished ticket
    *  pack (e.g. "6回券終了") → prompt a renewal/re-sell. Drives the 更新案内 chip. */
   needsRenewal: boolean
+  /** The customer's PRIOR no-show total (core no_show_count via the same
+   *  business-wide enrichment the 顧客 list reads — one source, numbers always
+   *  agree). Drives the cancel sheet's derived first-time/repeat line and the
+   *  repeat chip. 0 when the caller doesn't supply the map. */
+  noShowCount: number
 }
 
 function hm(iso: string): string {
@@ -141,6 +146,7 @@ export function appointmentsToReservationViews(
     string,
     { remaining: number; size: number }
   > = new Map(),
+  noShowCountByClient: ReadonlyMap<string, number> = new Map(),
 ): ReservationView[] {
   const staffNameById = new Map<string, string>()
   for (const s of staffList) {
@@ -194,6 +200,7 @@ export function appointmentsToReservationViews(
         ? packUsage.remaining === 0
         : (r.title ?? '').includes('終了'),
       pack: packUsage,
+      noShowCount: noShowCountByClient.get(r.client_id) ?? 0,
     }
   })
 }

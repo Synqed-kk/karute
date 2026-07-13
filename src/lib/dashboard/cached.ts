@@ -1,7 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
-import { getDefaultStoreId } from '@/actions/stores'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { ymdInJst, JST_OFFSET } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
 
@@ -221,9 +221,12 @@ export async function getDashboardData(): Promise<DashboardData> {
   // Active store threads in as an extra positional arg so it becomes part of the
   // cache key — a store-scoped dashboard is never served from another store's
   // cache entry. Read in request scope (unstable_cache runs outside it).
-  // getDefaultStoreId: an unset cookie means the PRIMARY store (what the
-  // switcher displays as active), not "all stores".
-  const activeStore = await getDefaultStoreId()
+  // resolveStoreScope: viewAll/floating viewers get the unset-cookie PRIMARY
+  // store default (what the switcher displays), but a branch-restricted staff is
+  // CLAMPED to their assigned store — so an unset/out-of-scope cookie can't leak
+  // another branch's dashboard (the Ginza Apple-review leak). getDefaultStoreId
+  // never applied that clamp here.
+  const activeStore = (await resolveStoreScope()).storeId
   return dashboardByDay(
     businessId,
     todayDay,
