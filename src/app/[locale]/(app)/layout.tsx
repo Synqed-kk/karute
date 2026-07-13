@@ -52,7 +52,10 @@ export default async function DashboardLayout({
     // never blocks the app shell.
     Promise.all([getBusinessId(), storeScopePromise])
       .then(([businessId, scope]) =>
-        buildNotificationFeed(businessId, locale, scope?.storeId ?? null),
+        // Fail CLOSED on scope-resolution failure (scope === null): an empty
+        // feed, never an unfiltered business-wide one. A RESOLVED scope with
+        // storeId null (business has no stores) keeps the unfiltered feed.
+        scope ? buildNotificationFeed(businessId, locale, scope.storeId) : [],
       )
       .catch(() => []),
     // Multi-store header switcher data (best-effort; [] / null → switcher hides).

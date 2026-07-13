@@ -106,5 +106,10 @@ export function getCachedCustomerListFor(
   businessId: string,
   storeId?: string,
 ): Promise<CachedCustomerOption[]> {
-  return customerListByBusiness(businessId, storeId)
+  // Arity matters: unstable_cache keys on the REAL argument array, so passing
+  // an explicit `undefined` would fork a second cache entry for the same
+  // business-wide list that getCachedCustomerList() populates.
+  return storeId === undefined
+    ? customerListByBusiness(businessId)
+    : customerListByBusiness(businessId, storeId)
 }
