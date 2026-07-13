@@ -32,6 +32,10 @@ export default async function DashboardLayout({
   const { locale } = await params
 
   const supabase = await createClient()
+  // RBAC store scope — resolved ONCE, shared by the switcher AND the
+  // notification feed (the feed must read through the same clamped lens as
+  // every other store-scoped surface — see #465).
+  const storeScopePromise = resolveStoreScope().catch(() => null)
   const [{ data: { user }, error }, staffList, activeStaffId, orgSettings, nextCustomer, notificationFeed, stores, activeStore, storeScope] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
@@ -46,15 +50,17 @@ export default async function DashboardLayout({
     // seeded here the same way the dashboard seeds packAlerts into its card.
     // Best-effort: a failure degrades to an empty feed (bell shows no badge),
     // never blocks the app shell.
-    getBusinessId()
-      .then((businessId) => buildNotificationFeed(businessId, locale))
+    Promise.all([getBusinessId(), storeScopePromise])
+      .then(([businessId, scope]) =>
+        buildNotificationFeed(businessId, locale, scope?.storeId ?? null),
+      )
       .catch(() => []),
     // Multi-store header switcher data (best-effort; [] / null → switcher hides).
     listStores().catch(() => []),
     getActiveStoreId().catch(() => null),
-    // RBAC store scope — drives which stores the switcher offers (a
-    // branch-restricted staff only sees their own) + which is active.
-    resolveStoreScope().catch(() => null),
+    // Which stores the switcher offers (a branch-restricted staff only sees
+    // their own) + which is active.
+    storeScopePromise,
   ])
   if (!user || error) {
     redirect(`/${locale}/login`)
