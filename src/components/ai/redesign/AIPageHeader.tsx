@@ -1,4 +1,7 @@
+'use client'
+
 import { FileText, Sparkles } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { ComingSoonChip } from '@/components/customers/redesign/ComingSoonChip'
 
 export interface DataScopeItem {
@@ -11,6 +14,7 @@ interface AIPageHeaderProps {
 }
 
 export function AIPageHeader({ scope }: AIPageHeaderProps) {
+  const t = useTranslations('askAi')
   return (
     <header className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
@@ -19,18 +23,17 @@ export function AIPageHeader({ scope }: AIPageHeaderProps) {
         </div>
         <div className="flex-1">
           <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-[26px]">
-            AI Assistant
+            {t('headerTitle')}
           </h1>
           <p className="mt-1 max-w-2xl text-xs text-muted-foreground md:text-sm">
-            Ask anything about your business — answers ground in your karute,
-            customer, and recording data.
+            {t('headerSubtitle')}
           </p>
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <span className="inline-flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
           <FileText size={11} />
-          <span>Data connected</span>
+          <span>{t('dataConnected')}</span>
         </span>
         {scope.map((s) => (
           <span

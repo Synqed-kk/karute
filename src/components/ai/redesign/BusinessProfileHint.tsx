@@ -1,6 +1,7 @@
 'use client'
 
 import { Settings, Target } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import { useRouter } from '@/i18n/navigation'
 import type { BusinessProfile } from '@/lib/welcome/business-types'
 
@@ -10,16 +11,14 @@ interface BusinessProfileHintProps {
 
 export function BusinessProfileHint({ profile }: BusinessProfileHintProps) {
   const router = useRouter()
+  const t = useTranslations('askAi')
   if (!profile) {
     return (
       <div className="flex items-start gap-3 rounded-xl border border-dashed border-border bg-card/40 p-3 text-xs text-muted-foreground">
         <Target size={13} className="mt-0.5 shrink-0 text-muted-foreground/70" />
         <div className="flex-1">
-          <div className="text-foreground">No business type set</div>
-          <p className="mt-0.5">
-            Set your business type in Settings to tune the AI to your salon&apos;s
-            vocabulary and surface industry-specific prompts.
-          </p>
+          <div className="text-foreground">{t('profileHint.notSet')}</div>
+          <p className="mt-0.5">{t('profileHint.notSetBody')}</p>
         </div>
         <button
           type="button"
@@ -27,7 +26,7 @@ export function BusinessProfileHint({ profile }: BusinessProfileHintProps) {
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-muted"
         >
           <Settings size={11} />
-          <span>Set up</span>
+          <span>{t('profileHint.setupCta')}</span>
         </button>
       </div>
     )
@@ -37,7 +36,7 @@ export function BusinessProfileHint({ profile }: BusinessProfileHintProps) {
       <Target size={13} className="mt-0.5 shrink-0 text-sky-400" />
       <div className="flex flex-1 flex-col gap-1">
         <div className="flex items-center gap-1.5 text-xs">
-          <span className="text-muted-foreground">Tuned for</span>
+          <span className="text-muted-foreground">{t('profileHint.tunedFor')}</span>
           <span className="font-semibold text-foreground">{profile.label}</span>
         </div>
         <p className="text-[11px] text-muted-foreground">{profile.tagline}</p>
@@ -46,10 +45,10 @@ export function BusinessProfileHint({ profile }: BusinessProfileHintProps) {
         type="button"
         onClick={() => router.push('/settings')}
         className="inline-flex h-7 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        title="Change business type in Settings"
+        title={t('profileHint.changeTitle')}
       >
         <Settings size={11} />
-        <span>Change</span>
+        <span>{t('profileHint.change')}</span>
       </button>
     </div>
   )

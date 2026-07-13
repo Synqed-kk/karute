@@ -105,10 +105,10 @@ export function AIAssistantView({
       <BusinessProfileHint profile={profile} />
 
       <div className="flex items-baseline justify-between gap-2">
-        <h2 className="text-sm font-semibold text-foreground">Recommended prompts</h2>
+        <h2 className="text-sm font-semibold text-foreground">{t('recommendedPrompts')}</h2>
         {profile && (
           <span className="text-[11px] text-muted-foreground">
-            Tuned for {profile.label}
+            {t('profileHint.tunedFor')} {profile.label}
           </span>
         )}
       </div>
@@ -122,11 +122,11 @@ export function AIAssistantView({
         ))}
       </div>
 
-      <h2 className="text-sm font-semibold text-foreground">Conversation</h2>
+      <h2 className="text-sm font-semibold text-foreground">{t('conversation')}</h2>
       <div className="flex flex-col gap-5 pb-2">
         {messages.length === 0 && !loading ? (
           <p className="rounded-xl border border-dashed border-border bg-card/40 px-4 py-6 text-center text-xs text-muted-foreground">
-            Tap a prompt above or type your own question to start a conversation.
+            {t('startHint')}
           </p>
         ) : (
           <>
@@ -143,7 +143,7 @@ export function AIAssistantView({
                 message={{
                   id: 'thinking',
                   role: 'ai',
-                  text: 'Thinking through your business data…',
+                  text: t('thinking'),
                   timestamp: nowHHMM(),
                 }}
                 userInitials={userInitials}

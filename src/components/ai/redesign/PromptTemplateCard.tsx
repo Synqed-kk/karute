@@ -1,6 +1,7 @@
 'use client'
 
 import { ArrowRight, Sparkles, TrendingUp, Users } from 'lucide-react'
+import { useTranslations } from 'next-intl'
 import type { ConsultationQuestion } from '@/lib/welcome/business-types'
 
 interface PromptTemplateCardProps {
@@ -24,6 +25,7 @@ const CATEGORY_TONES: Record<
 }
 
 export function PromptTemplateCard({ template, onPick }: PromptTemplateCardProps) {
+  const t = useTranslations('askAi')
   const Icon = CATEGORY_ICONS[template.category]
   const tone = CATEGORY_TONES[template.category]
   return (
@@ -45,7 +47,7 @@ export function PromptTemplateCard({ template, onPick }: PromptTemplateCardProps
       <div className="text-sm font-semibold text-foreground">{template.title}</div>
       <p className="line-clamp-2 text-xs text-muted-foreground">{template.preview}</p>
       <div className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-sky-400 group-hover:text-sky-300">
-        <span>Try this prompt</span>
+        <span>{t('tryPrompt')}</span>
         <ArrowRight size={11} />
       </div>
     </button>

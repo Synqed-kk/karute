@@ -2667,7 +2667,11 @@
       "tunedFor": "Tuned for",
       "changeTitle": "Change business type in Settings",
       "change": "Change"
-    }
+    },
+    "scopeKarute": "Karute",
+    "scopeCustomers": "Customers",
+    "scopeBookings": "Bookings",
+    "scopeRecordings": "Recordings"
   },
   "karuteExport": {
     "title": "Karute",
