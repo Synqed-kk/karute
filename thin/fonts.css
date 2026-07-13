@@ -1,0 +1,19 @@
+/* Local fonts for the thin shell — offline first paint is the whole point, so
+ * NOTHING is fetched at runtime (the web app pulls these from next/font/google
+ * at build; the bundle must carry them). globals.css maps
+ * `--font-sans: var(--font-inter), var(--font-noto-sans-jp), …`, so we register
+ * the @fontsource families and point those two vars at them.
+ *
+ * Noto weights 400/500/600/700 mirror layout.tsx (600 must be a real cut, not a
+ * synthesized bold). Japanese subset is mandatory — the app is Japanese-primary. */
+@import '@fontsource-variable/inter/index.css';
+@import '@fontsource/noto-sans-jp/japanese-400.css';
+@import '@fontsource/noto-sans-jp/japanese-500.css';
+@import '@fontsource/noto-sans-jp/japanese-600.css';
+@import '@fontsource/noto-sans-jp/japanese-700.css';
+@import '@fontsource/noto-sans-jp/latin-400.css';
+
+:root {
+  --font-inter: 'Inter Variable';
+  --font-noto-sans-jp: 'Noto Sans JP';
+}

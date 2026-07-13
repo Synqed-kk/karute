@@ -55,6 +55,9 @@ export interface CustomerListRow {
   /** Pretty compact date of the NEAREST upcoming booking (予約 6/15) — null
    *  when none. From enrichment.nextAppointmentIso, no extra query. */
   nextBookingDate?: string | null
+  /** Count of NO_SHOW appointments (from enrichment.noShowCount). Drives the
+   *  repeat-no-show chip — see isRepeatNoShow. */
+  noShowCount?: number
 }
 
 export interface CustomerProfileData {
@@ -117,6 +120,9 @@ export interface CustomerProfileData {
   /** Last treatment/course (from the most recent past appointment) for the pace
    *  card caption; null when unknown. */
   visitPaceLastService?: string | null
+  /** Count of NO_SHOW appointments (from enrichment.noShowCount). Drives the
+   *  repeat-no-show chip in the identity card — see isRepeatNoShow. */
+  noShowCount?: number
 }
 
 // Display strings live in `messages/{en,ja}.json` under
@@ -140,4 +146,11 @@ export const STATUS_STYLES: Record<CustomerStatusKey, BadgeStyle> = {
   // red/amber action budget stays trustworthy on the 200-row scan.
   graduated: BADGE_COLORS.slate,
   lost: BADGE_COLORS.slate,
+}
+
+/** Repeat-no-show threshold — a single no-show isn't flagged (booking slips
+ *  happen); 2+ is the pattern worth a staff-visible warning chip. One rule,
+ *  shared by the list rows + profile identity card. */
+export function isRepeatNoShow(noShowCount: number | null | undefined): boolean {
+  return (noShowCount ?? 0) >= 2
 }

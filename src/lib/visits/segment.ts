@@ -19,7 +19,7 @@ import {
   customerVisitCount,
   isReturningCustomer,
   type CustomerStatusSignals,
-} from '@/lib/customers/list-enrich'
+} from '@/lib/customers/status-signals'
 
 /** A customer running clearly LONGER than their own usual interval counts as
  *  drifting (離脱気味). 1.5× their 目安 interval — a flat 90-day rule (休眠) can't

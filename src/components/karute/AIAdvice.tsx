@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { Gift } from 'lucide-react'
@@ -38,7 +40,7 @@ export function AIAdvice({ summary, entries, locale }: AIAdviceProps) {
 
     async function fetchAdvice() {
       try {
-        const res = await fetch('/api/ai/advice', {
+        const res = await getDataPort().apiFetch('/api/ai/advice', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ summary, entries, locale }),

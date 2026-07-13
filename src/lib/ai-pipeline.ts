@@ -1,5 +1,6 @@
 import { Entry } from '@/types/ai'
 import { createClient } from '@/lib/supabase/client'
+import { getDataPort } from '@/lib/ports/data-port'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -103,7 +104,7 @@ export async function runAIPipeline(
   }
 
   const transcribeRes = await fetchWithRetry(() =>
-    fetch('/api/ai/transcribe', {
+    getDataPort().apiFetch('/api/ai/transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ audioUrl: signedData.signedUrl, locale }),
@@ -147,7 +148,7 @@ export async function runAIPipeline(
 
   const [extractRes, summarizeRes] = await Promise.all([
     fetchWithRetry(() =>
-      fetch('/api/ai/extract', {
+      getDataPort().apiFetch('/api/ai/extract', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -161,7 +162,7 @@ export async function runAIPipeline(
       throw new Error(`Extraction failed: ${err instanceof Error ? err.message : String(err)}`)
     }),
     fetchWithRetry(() =>
-      fetch('/api/ai/summarize', {
+      getDataPort().apiFetch('/api/ai/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

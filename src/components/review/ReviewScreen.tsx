@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useState, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
 import { useForm, useFieldArray } from 'react-hook-form'
@@ -13,6 +15,9 @@ import { saveKaruteRecord } from '@/actions/karute'
 import { saveDraft, clearDraft } from '@/lib/karute/draft'
 import { CustomerCombobox, type CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import { getCustomerConsent, grantCustomerConsent } from '@/actions/customers'
+import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import { RecordingConsentDialog } from '@/components/karute/redesign/record/RecordingConsentDialog'
 
 const ReviewFormSchema = z.object({
   summary: z.string().min(1),
@@ -32,6 +37,10 @@ interface ReviewScreenProps {
   /** Outcome chosen at stop (RecordPageView) — applied directly at save, so no
    *  dialog re-opens here. */
   outcome?: SessionOutcome
+  /** Server-minted recording_sessions id (synqed-core) — carried to the save so
+   *  core's idempotent-save dedupe has something to key on. null/undefined =
+   *  today's behavior (no dedupe for that save). */
+  recordingSessionId?: string | null
   onSaved: () => void
   /** Bail out without saving — clears the background pipeline + take. */
   onDiscard?: () => void
@@ -46,6 +55,7 @@ export function ReviewScreen({
   appointmentId,
   appointmentCustomerId,
   outcome,
+  recordingSessionId,
   onSaved,
   onDiscard,
 }: ReviewScreenProps) {
@@ -79,14 +89,15 @@ export function ReviewScreen({
       duration,
       appointmentId,
       appointmentCustomerId,
+      recordingSessionId: recordingSessionId ?? undefined,
     })
-  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId])
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
     async function fetchSuggestions() {
       try {
-        const res = await fetch('/api/ai/suggestions', {
+        const res = await getDataPort().apiFetch('/api/ai/suggestions', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -126,17 +137,55 @@ export function ReviewScreen({
     })
   }
 
+  // Save-time consent gate: the walk-in flow attaches its customer HERE — the
+  // record page's start gate never saw them (and a booked customer's consent
+  // could have been revoked since start). Same current-version rule as the
+  // start gate; the dialog captures the verbal grant and the save resumes.
+  //
+  // The pending payload freezes {data, customerId} TOGETHER at the moment Save
+  // was pressed — the grant + retry use this snapshot, never a re-read of live
+  // form/selection state, so a record can never save to a customer other than
+  // the one whose consent was just checked and attested. `saving` stays true
+  // for the dialog's whole lifetime (released only on cancel), which keeps the
+  // Save button, customer picker, and Discard disabled — closing the
+  // double-submit window the review flagged.
+  const [pendingConsentSave, setPendingConsentSave] =
+    useState<{ data: ReviewFormValues; customerId: string } | null>(null)
+  const [consentSubmitting, setConsentSubmitting] = useState(false)
+  const [consentError, setConsentError] = useState<string | null>(null)
+
   // Outcome is captured upstream (at stop, in RecordPageView) and arrives via
   // the `outcome` prop — applied directly here, no dialog.
   async function handleSave(data: ReviewFormValues) {
+    if (saving || pendingConsentSave) return
     if (!appointmentCustomerId && !selectedCustomerId) {
       toast.error(t('selectCustomer'))
       return
     }
+    const customerId = appointmentCustomerId ?? selectedCustomerId!
 
     setSaving(true)
+    // Fail closed: an unreadable consent opens the dialog — the grant write is
+    // an upsert, so re-granting an unreadable-but-granted consent is harmless.
+    let consentCurrent = false
     try {
-      const customerId = appointmentCustomerId ?? selectedCustomerId!
+      const { consent } = await getCustomerConsent(customerId)
+      consentCurrent = isConsentCurrent(consent)
+    } catch {
+      consentCurrent = false
+    }
+    if (!consentCurrent) {
+      // Keep saving=true → background stays locked while the dialog is up.
+      setConsentError(null)
+      setPendingConsentSave({ data, customerId })
+      return
+    }
+    await performSave(data, customerId)
+  }
+
+  async function performSave(data: ReviewFormValues, customerId: string) {
+    setSaving(true)
+    try {
       const result = await saveKaruteRecord({
         customerId,
         transcript,
@@ -150,11 +199,20 @@ export function ReviewScreen({
         duration,
         appointmentId,
         outcome,
+        recordingSessionId,
       })
 
       if (result && 'error' in result) {
-        toast.error(result.error)
-        setSaving(false)
+        // The server enforces the same gate — if consent got revoked between
+        // our pre-check and the save, reopen the dialog (saving stays locked),
+        // not a dead-end toast.
+        if (result.error === CONSENT_REQUIRED_ERROR) {
+          setConsentError(null)
+          setPendingConsentSave({ data, customerId })
+        } else {
+          toast.error(result.error)
+          setSaving(false)
+        }
       }
       // On success, saveKaruteRecord redirects
     } catch (err) {
@@ -172,6 +230,38 @@ export function ReviewScreen({
     }
   }
 
+  async function handleConsentConfirm() {
+    // Use the FROZEN snapshot — never re-derive from live selection/form state.
+    if (!pendingConsentSave || consentSubmitting) return
+    const { data, customerId } = pendingConsentSave
+    setConsentSubmitting(true)
+    setConsentError(null)
+    // Transport failures (dropped wifi mid-grant) must release the dialog, not
+    // wedge it — a bare await here left submitting stuck true with every
+    // button inert (adversarial-review blocker).
+    let r: Awaited<ReturnType<typeof grantCustomerConsent>>
+    try {
+      r = await grantCustomerConsent(customerId, { method: 'VERBAL' })
+    } catch {
+      setConsentSubmitting(false)
+      setConsentError(tc('somethingWentWrong'))
+      return
+    }
+    setConsentSubmitting(false)
+    if (!r.ok) {
+      setConsentError(r.error)
+      return
+    }
+    setPendingConsentSave(null)
+    await performSave(data, customerId)
+  }
+
+  function handleConsentCancel() {
+    if (consentSubmitting) return
+    setPendingConsentSave(null)
+    setSaving(false)
+  }
+
   const resolvedCustomerId = appointmentCustomerId ?? selectedCustomerId
   const customerName = resolvedCustomerId
     ? (customers.find((c) => c.id === resolvedCustomerId)?.name ?? null)
@@ -181,6 +271,13 @@ export function ReviewScreen({
 
   return (
     <div className="flex flex-col h-full min-h-0 gap-4">
+      {/* Everything behind the consent dialog goes INERT while it's open —
+          the frozen save snapshot means edits typed back here would be
+          silently dropped (and Shift+Tab could reach the never-disabled
+          editor fields past the dialog's focus). display:contents keeps the
+          flex layout byte-identical; inert kills focus/typing/clicks for the
+          whole subtree, current and future fields alike. */}
+      <div inert={!!pendingConsentSave} className="contents">
       {/* AI Suggestions */}
       {(suggestionsLoading || suggestions.length > 0) && (
         <div className="rounded-xl border border-border bg-card overflow-hidden">
@@ -315,6 +412,22 @@ export function ReviewScreen({
           </button>
         </div>
       </div>
+      </div>
+
+      {/* Save-time consent gate (walk-in attach / revoked-consent backstop).
+          Name comes from the FROZEN customerId — the script always names the
+          customer whose consent is actually being recorded. */}
+      {pendingConsentSave && (
+        <RecordingConsentDialog
+          customerName={
+            customers.find((c) => c.id === pendingConsentSave.customerId)?.name ?? ''
+          }
+          submitting={consentSubmitting}
+          error={consentError}
+          onCancel={handleConsentCancel}
+          onConfirm={handleConsentConfirm}
+        />
+      )}
     </div>
   )
 }

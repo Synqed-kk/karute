@@ -43,6 +43,13 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
     return { error: parsed.error.issues.map((e) => e.message).join(', ') }
   }
 
+  // Plan gate (P4): same staffAddAllowed as createInvite — one gate, two
+  // doors (join-link + direct add). Inert until billing arms.
+  const { staffAddAllowed } = await import('@/lib/subscription/feature-gate')
+  if (!(await staffAddAllowed()).allowed) {
+    return { error: t('staffLimitReached') }
+  }
+
   try {
     const email = parsed.data.email || null
     const userId = email ? await findProfileIdByEmail(email) : null

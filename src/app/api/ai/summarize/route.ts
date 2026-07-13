@@ -5,6 +5,7 @@ import { openai } from '@/lib/openai'
 import { getSummarySystemPrompt } from '@/lib/prompts'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
+import { featureAllowed } from '@/lib/subscription/feature-gate'
 import { defensivePreamble, wrapUntrustedContent, MAX_TRANSCRIPT_CHARS } from '@/lib/ai-safety'
 
 export const maxDuration = 120
@@ -12,6 +13,14 @@ export const maxDuration = 120
 export async function POST(request: Request) {
   const limited = await enforceAiRateLimit('summarize')
   if (limited) return limited
+  // Plan gate (P4): AI karute generation is a paid capability. Inert until
+  // billing arms (KARUTE_BILLING_ENFORCEMENT) — see feature-gate.ts.
+  if (!(await featureAllowed('aiKaruteGeneration'))) {
+    return NextResponse.json(
+      { error: 'PLAN_LOCKED', feature: 'aiKaruteGeneration' },
+      { status: 403 },
+    )
+  }
   try {
     const body = await request.json()
     const { transcript, locale, customerName, sessionDate } = body
