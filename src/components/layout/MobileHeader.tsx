@@ -145,7 +145,7 @@ function titleFor(
   if (tail.startsWith('/ask-ai')) return tSidebar('askAi')
   if (tail.startsWith('/data-import')) return tSidebar('dataImport')
   if (tail.startsWith('/data-export')) return tSidebar('dataExport')
-  if (tail.startsWith('/profile')) return tSidebar('settings')
+  if (tail.startsWith('/profile')) return tSidebar('profile')
   if (tail.startsWith('/settings')) return tSidebar('settings')
   if (tail.startsWith('/welcome')) return 'SYNQED'
   return 'SYNQED'

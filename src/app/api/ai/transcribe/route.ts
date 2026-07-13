@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
+import { featureAllowed } from '@/lib/subscription/feature-gate'
 import {
   transcribeUrlWithDeepgram,
   transcribeWithDeepgram,
@@ -62,6 +63,14 @@ function isAllowedAudioUrl(raw: unknown): boolean {
 export async function POST(request: Request) {
   const limited = await enforceAiRateLimit('transcribe')
   if (limited) return limited
+  // Plan gate (P4): transcription is the front door of AI karute generation —
+  // same key as extract/summarize. Inert until billing arms (see feature-gate.ts).
+  if (!(await featureAllowed('aiKaruteGeneration'))) {
+    return NextResponse.json(
+      { error: 'PLAN_LOCKED', feature: 'aiKaruteGeneration' },
+      { status: 403 },
+    )
+  }
   try {
     const contentType = request.headers.get('content-type') ?? ''
 

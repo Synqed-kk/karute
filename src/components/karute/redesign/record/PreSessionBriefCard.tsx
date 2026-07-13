@@ -148,9 +148,23 @@ export function PreSessionBriefCard({
   // opener, or whose body is the opener restated. Length floors keep short
   // strings from matching incidentally (Japanese has no word boundaries:
   // 海 is inside 北海道, 運動 inside 運動会).
+  // Degenerate-pair seat belt: a memo-only generation can emit a body that is
+  // just the title rephrased (「同棲中の彼氏 — 彼氏と同棲中」). Substring checks
+  // miss the word-order flip, so use character overlap: near-identical short
+  // pairs score high (同棲中の彼氏/彼氏と同棲中 ≈ 0.71), while a real memory
+  // detail dilutes far below the line — those bodies always survive. When it
+  // trips we keep the hook and drop only the echo body.
+  const dedupedHooks = effectiveBrief.hooks.map((h) => {
+    const title = normalizeForDedup(h.title)
+    const body = normalizeForDedup(h.body ?? '')
+    if (title.length >= 4 && body.length >= 4 && charOverlap(title, body) >= 0.6) {
+      return { ...h, body: null }
+    }
+    return h
+  })
   const openerNorm = normalizeForDedup(effectiveBrief.opener ?? '')
   const visibleHooks = openerNorm
-    ? effectiveBrief.hooks.filter((h) => {
+    ? dedupedHooks.filter((h) => {
         const title = normalizeForDedup(h.title)
         if (
           title.length >= 3 &&
@@ -162,7 +176,7 @@ export function PreSessionBriefCard({
           return false
         return true
       })
-    : effectiveBrief.hooks
+    : dedupedHooks
   const rhythm = effectiveBrief.rhythm ?? null
   const rhythmLabel = rhythm
     ? rhythm.usualGapDays && rhythm.usualGapDays > 0
@@ -491,6 +505,18 @@ export function PreSessionBriefCard({
 // still registers as a duplicate (筋トレ再開したそうですね。 vs 筋トレ再開).
 function normalizeForDedup(s: string): string {
   return s.replace(/[\s　、。・．，,.!！?？「」『』()（）〜~ー–—:：]/g, '')
+}
+
+/** Character-set Jaccard overlap — order-insensitive similarity for short
+ *  Japanese strings (no word boundaries). 1.0 = same characters; a body that
+ *  genuinely adds detail dilutes the union and scores low. */
+function charOverlap(a: string, b: string): number {
+  const ca = new Set(a)
+  const cb = new Set(b)
+  let shared = 0
+  for (const ch of ca) if (cb.has(ch)) shared++
+  const union = new Set([...ca, ...cb]).size
+  return union === 0 ? 0 : shared / union
 }
 
 // ─────────────────────────────────────────────────────────────

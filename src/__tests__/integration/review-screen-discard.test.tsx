@@ -10,6 +10,7 @@
  *   2. onSaved fires on the NEXT_REDIRECT success branch so the chip is reset
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -17,6 +18,24 @@ jest.mock('next-intl', () => ({
 
 jest.mock('@/actions/karute', () => ({
   saveKaruteRecord: jest.fn(),
+}))
+
+// ReviewScreen now pre-checks consent (handleSave) before saving. '@/actions/
+// customers' is a 'use server' module (pulls in next/cache) that isn't safe to
+// load for real under jsdom — mock it with a current-version consent so the
+// discard/save-path tests below reach saveKaruteRecord untouched.
+jest.mock('@/actions/customers', () => ({
+  getCustomerConsent: jest.fn(async () => ({
+    consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+  })),
+  grantCustomerConsent: jest.fn(async () => ({ ok: true })),
+}))
+
+// None of the tests below ever get consent to go stale, so the dialog never
+// opens — stub it out rather than loading it for real, since it (transitively)
+// imports @synqed-kk/ui, an ESM package outside this suite's transform config.
+jest.mock('@/components/karute/redesign/record/RecordingConsentDialog', () => ({
+  RecordingConsentDialog: () => null,
 }))
 
 import { ReviewScreen } from '@/components/review/ReviewScreen'
