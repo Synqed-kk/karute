@@ -14,6 +14,8 @@
  *   - The save path never touches next/headers (no cookie read)
  */
 
+import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+
 jest.mock('react', () => {
   const actual = jest.requireActual('react')
   return {
@@ -41,6 +43,14 @@ jest.mock('next/headers', () => ({
     getAll: jest.fn(() => []),
     set: jest.fn(),
   })),
+}))
+
+// Store resolution for karute writes (no appointment → active-store cookie).
+// Mocked directly (rather than exercised through the real cookie jar above) so
+// this suite stays scoped to staff attribution.
+jest.mock('@/actions/stores', () => ({
+  getActiveStoreId: jest.fn(async () => null),
+  getDefaultStoreId: jest.fn(async () => null),
 }))
 
 delete process.env.SUPABASE_JWT_SECRET
@@ -85,6 +95,12 @@ jest.mock('@/lib/supabase/service', () => ({
 // RBAC gate neutralized — this suite isolates staff attribution, not
 // permissions. Capability enforcement is covered in
 // rbac-server-enforcement.test.ts.
+// Karute store default now resolves via resolveStoreScope (RBAC clamp). These
+// suites don't exercise store scoping, so stub it to the all-stores lens.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ storeId: null, viewAll: true, allowedStoreIds: null })),
+}))
+
 jest.mock('@/lib/auth/require-permission', () => ({
   requireCapability: jest.fn(async () => {}),
   can: jest.fn(async () => true),
@@ -92,11 +108,19 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 const karuteRecords = { create: jest.fn() }
 const appointments = { get: jest.fn() }
+// Save-gate consent check (src/actions/karute.ts) — current-version consent by
+// default so this suite's staff-attribution assertions reach create() untouched.
+const customers = {
+  getConsent: jest.fn(async () => ({
+    consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
+  })),
+}
 
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn().mockImplementation(() => ({
     karuteRecords,
     appointments,
+    customers,
   })),
 }))
 
@@ -175,9 +199,10 @@ describe('saveKaruteRecord — staff attribution', () => {
       { id: 'user-a', full_name: 'Ada', customer_id: 'biz-1', pin_hash: null },
     ]
     // The appointment is owned by a different staff member, but the record must
-    // save under the RECORDER (covering / swaps / off-schedule). The appointment
-    // isn't even fetched once the recorder is identified.
-    appointments.get.mockResolvedValue({ staff_id: 'other-staff' })
+    // save under the RECORDER (covering / swaps / off-schedule) — the staff
+    // fallback never fetches it. It's still fetched ONCE for store_id (the
+    // booking's store is the truth of where the session happened).
+    appointments.get.mockResolvedValue({ staff_id: 'other-staff', store_id: 'store-9' })
     karuteRecords.create.mockResolvedValue({ id: 'kr-2' })
 
     await saveKaruteRecord({
@@ -192,9 +217,10 @@ describe('saveKaruteRecord — staff attribution', () => {
       expect.objectContaining({
         staff_id: 'user-a', // the recorder, NOT other-staff
         appointment_id: 'appt-1',
+        store_id: 'store-9',
       }),
     )
-    expect(appointments.get).not.toHaveBeenCalled()
+    expect(appointments.get).toHaveBeenCalledTimes(1)
   })
 
   it("falls back to the appointment's staff_id only when the signer has no staff row", async () => {

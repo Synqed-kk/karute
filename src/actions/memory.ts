@@ -95,7 +95,7 @@ export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean 
  */
 export async function relearnCustomerMemoryAction(
   customerId: string,
-): Promise<{ ok: boolean; items: number }> {
+): Promise<{ ok: boolean; items: number; locked?: boolean }> {
   if (!customerId) return { ok: false, items: 0 }
   // Tracked outside the try so the catch can restore too — ANY throw after a
   // successful wipe (locale lookup, import, network) must not leave the
@@ -112,6 +112,15 @@ export async function relearnCustomerMemoryAction(
     const rows = await listSynqedKaruteRows(synqed, { customerId })
     const transcripts = rows.map((r) => r.transcript ?? '').filter((t) => t.trim())
     if (transcripts.length === 0) return { ok: false, items: 0 }
+
+    // Plan gate (P4): checked BEFORE the wipe — a locked plan must return with
+    // the customer's memory untouched (backfill would silently skip and the
+    // restore path would have to undo an avoidable wipe). `locked` lets the
+    // button show honest upgrade copy instead of a generic failure.
+    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
+    if (!(await featureAllowed('customerMemoryAutoExtract'))) {
+      return { ok: false, items: 0, locked: true }
+    }
 
     const wiped = await softDeleteAiExtractionItems(customerId)
     if (!wiped.ok) return { ok: false, items: 0 }
