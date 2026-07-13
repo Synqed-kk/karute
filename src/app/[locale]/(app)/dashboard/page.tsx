@@ -8,7 +8,7 @@ import {
   getCachedCustomerListFor,
 } from '@/lib/customers/cached'
 import { startTiming } from '@/lib/perf/timing'
-import { getPackAlerts } from '@/lib/packs/alerts'
+import { emptyPackAlerts, getPackAlerts } from '@/lib/packs/alerts'
 import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
 import { listAllPackUsage, listRecentRedemptions } from '@/lib/packs/store'
 import { can } from '@/lib/auth/require-permission'
@@ -87,11 +87,18 @@ export default async function DashboardPage() {
     getLocale(),
     t.phase('customerList', () => getCachedCustomerList()),
     // 離客/upsell alerts — { [], [] } until the ticket_packs migration applies.
+    // Fail CLOSED on scope-resolution failure (s === null): empty pack data,
+    // never the unfiltered business-wide read. A RESOLVED scope with storeId
+    // null (no-stores business) keeps the unfiltered behavior.
     t.phase('packAlerts', () =>
-      storeScopePromise.then((s) => getPackAlerts(undefined, s?.storeId)),
+      storeScopePromise.then((s) =>
+        s ? getPackAlerts(undefined, s.storeId) : emptyPackAlerts(),
+      ),
     ),
     t.phase('reconcile', () =>
-      storeScopePromise.then((s) => loadUnprocessedVisits(s?.storeId)),
+      storeScopePromise.then((s) =>
+        s ? loadUnprocessedVisits(s.storeId) : { entries: [], truncated: 0 },
+      ),
     ),
     // Manager+ only may dismiss (Kitano's rule) — alerts.manage capability.
     can('alerts.manage').catch(() => false),
@@ -114,7 +121,9 @@ export default async function DashboardPage() {
   // customer-list cache makes the second read free. Fail CLOSED: if the lens
   // fetch errors, show no pack rows rather than another store's.
   const scope = await storeScopePromise
-  let packUsageLensed = packUsage
+  // scope === null = scope RESOLUTION failed → fail closed (no pack rows),
+  // matching the packAlerts/reconcile guards above.
+  let packUsageLensed = scope ? packUsage : (new Map() as typeof packUsage)
   if (scope?.storeId && businessId && packUsage.size > 0) {
     try {
       const storeCustomers = await getCachedCustomerListFor(

@@ -31,17 +31,21 @@ export type { PackAlertEntry, PackAlerts } from './alerts-core'
  *  store-filtered customer list is dropped before the alert/totals math.
  *  Fail CLOSED: if the lens fetch errors, return the empty shape rather than
  *  another store's holders. */
-export async function getPackAlerts(
-  thresholdDays?: number,
-  storeId?: string | null,
-): Promise<PackAlerts> {
-  const empty: PackAlerts = {
+export function emptyPackAlerts(): PackAlerts {
+  return {
     contact: [],
     low: [],
     inProgress: [],
     totals: { atRiskValue: 0, unconsumedTotal: 0, holderCount: 0 },
     monthly: { contacted: 0, rebooked: 0 },
   }
+}
+
+export async function getPackAlerts(
+  thresholdDays?: number,
+  storeId?: string | null,
+): Promise<PackAlerts> {
+  const empty = emptyPackAlerts()
   const [usageAll, lifecyclesAll, dismissed, customers, businessId, recentContacts] =
     await Promise.all([
       listAllPackUsage(),
