@@ -22,6 +22,17 @@ const eslintConfig = defineConfig([
       "react-hooks/set-state-in-effect": "off",
     },
   },
+  {
+    // The compiler-powered purity rules misread test-harness patterns as React
+    // components: capitalized mock classes (immutability), outer-variable
+    // setter grabs and render counters (globals). Tests aren't components —
+    // turn both off for the test tree only.
+    files: ["src/__tests__/**"],
+    rules: {
+      "react-hooks/immutability": "off",
+      "react-hooks/globals": "off",
+    },
+  },
 ]);
 
 export default eslintConfig;

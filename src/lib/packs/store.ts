@@ -1,5 +1,7 @@
+import type { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { ymdInJst } from '@/lib/date/jst'
+import { isTerminalStatus } from '@/lib/appointments/status'
 import {
   withUsage,
   type CustomerLifecycle,
@@ -98,8 +100,9 @@ export async function updatePackStatus(
  *  redemption to when the caller didn't supply one — same customer_id +
  *  JST-day window as getAppointmentsByDate/reconcile.ts, but scoped to the one
  *  customer server-side so it's a single small page and immune to the agenda's
- *  active-store view filter (a profile burn isn't store-scoped). Cancelled
- *  bookings never match — mirrors getAppointmentsByDate. Multiple same-day
+ *  active-store view filter (a profile burn isn't store-scoped). Non-cancelled
+ *  bookings only (CANCELLED or NO_SHOW never match) — mirrors
+ *  getAppointmentsByDate. Multiple same-day
  *  bookings: pick the one closest to now (the next upcoming), else — if every
  *  booking that day has already passed — the day's first. null when there's no
  *  booking that day — a valid walk-in, not an error. */
@@ -118,7 +121,7 @@ export async function findCustomerAppointmentForDate(
       page_size: 200,
     })
     const candidates = appointments
-      .filter((a) => a.status !== 'CANCELLED')
+      .filter((a) => !isTerminalStatus(a.status))
       .sort((a, b) => (a.starts_at < b.starts_at ? -1 : a.starts_at > b.starts_at ? 1 : 0))
     if (candidates.length === 0) return null
     const nowIso = new Date().toISOString()
@@ -137,6 +140,11 @@ export interface AddRedemptionInput {
   karuteRecordId?: string | null
   source?: PackSource
   createdBy?: string | null
+  /** Whether this redemption counts as a completed visit — core defaults
+   *  true, so omit for the normal check-off. A no-show burn MUST send false:
+   *  the ticket is spent but no visit happened, so visit-count-driven surfaces
+   *  (lifecycle, dormancy) must not treat it as one. */
+  countsAsVisit?: boolean
 }
 
 /** Check one session off a pack. The caller decides WHEN consumption happens
@@ -146,7 +154,7 @@ export async function addRedemption(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
     const synqed = await getSynqedClient()
-    const { id } = await synqed.packs.addRedemption({
+    const payload = {
       pack_id: input.packId,
       customer_id: input.customerId,
       redeemed_on: input.redeemedOn,
@@ -154,7 +162,13 @@ export async function addRedemption(
       karute_record_id: input.karuteRecordId ?? null,
       source: input.source ?? 'manual',
       created_by: input.createdBy ?? null,
-    })
+      ...(input.countsAsVisit === undefined ? {} : { counts_as_visit: input.countsAsVisit }),
+    }
+    // SDK-skew cast: @synqed-kk/client 1.11.0's addRedemption() type doesn't
+    // declare counts_as_visit yet (synqed-core #39) — cast to send it.
+    const { id } = await synqed.packs.addRedemption(
+      payload as Parameters<typeof synqed.packs.addRedemption>[0],
+    )
     return { ok: true, id }
   } catch (err) {
     warn('addRedemption', err)
@@ -206,55 +220,68 @@ export interface CustomerPackUsage {
 }
 
 /** Bulk pack usage for the customer LIST page — two business-scoped reads,
- *  grouped in memory. core returns active packs FIFO-ordered. */
-export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
+ *  grouped in memory. core returns active packs FIFO-ordered.
+ *  THROWS on failure (packet 04): the facade caller maps it to a classified
+ *  502 — a mobile cache must never freeze a silent "no packs" empty. The web
+ *  wrapper below keeps today's graceful-empty behavior. */
+export async function listAllPackUsageWithClient(
+  synqed: SynqedClient,
+): Promise<Map<string, CustomerPackUsage>> {
   const map = new Map<string, CustomerPackUsage>()
+  const [packs, redPackIds] = await Promise.all([
+    synqed.packs.listActivePacks(),
+    synqed.packs.listAllRedemptionPackIds(),
+  ])
+  const countByPack = new Map<string, number>()
+  for (const pid of redPackIds) {
+    countByPack.set(pid, (countByPack.get(pid) ?? 0) + 1)
+  }
+  for (const p of packs) {
+    if (p.kind !== 'pack') continue
+    const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
+    const cur = map.get(p.customer_id) ?? {
+      remaining: 0,
+      size: 0,
+      unconsumed: 0,
+      hasActivePack: false,
+      firstPackId: null,
+    }
+    cur.remaining += remaining
+    cur.size += p.pack_size
+    cur.unconsumed += remaining * p.unit_price
+    cur.hasActivePack = true
+    if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
+    map.set(p.customer_id, cur)
+  }
+  return map
+}
+
+export async function listAllPackUsage(): Promise<Map<string, CustomerPackUsage>> {
   try {
-    const synqed = await getSynqedClient()
-    const [packs, redPackIds] = await Promise.all([
-      synqed.packs.listActivePacks(),
-      synqed.packs.listAllRedemptionPackIds(),
-    ])
-    const countByPack = new Map<string, number>()
-    for (const pid of redPackIds) {
-      countByPack.set(pid, (countByPack.get(pid) ?? 0) + 1)
-    }
-    for (const p of packs) {
-      if (p.kind !== 'pack') continue
-      const remaining = Math.max(0, p.pack_size - (countByPack.get(p.id) ?? 0))
-      const cur = map.get(p.customer_id) ?? {
-        remaining: 0,
-        size: 0,
-        unconsumed: 0,
-        hasActivePack: false,
-        firstPackId: null,
-      }
-      cur.remaining += remaining
-      cur.size += p.pack_size
-      cur.unconsumed += remaining * p.unit_price
-      cur.hasActivePack = true
-      if (remaining > 0 && !cur.firstPackId) cur.firstPackId = p.id
-      map.set(p.customer_id, cur)
-    }
-    return map
+    return await listAllPackUsageWithClient(await getSynqedClient())
   } catch (err) {
     warn('listAllPackUsage', err)
-    return map
+    return new Map()
   }
 }
 
 /** Bulk lifecycle for the list page — graduated/lost customers are excluded
- *  from alerts. */
-export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle>> {
+ *  from alerts. Throwing/graceful split identical to listAllPackUsage above. */
+export async function listAllLifecyclesWithClient(
+  synqed: SynqedClient,
+): Promise<Map<string, CustomerLifecycle>> {
   const map = new Map<string, CustomerLifecycle>()
+  const rows = await synqed.packs.listLifecycles()
+  for (const row of rows) map.set(row.customer_id, row as CustomerLifecycle)
+  return map
+}
+
+export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle>> {
   try {
-    const synqed = await getSynqedClient()
-    const rows = await synqed.packs.listLifecycles()
-    for (const row of rows) map.set(row.customer_id, row as CustomerLifecycle)
-    return map
+    return await listAllLifecyclesWithClient(await getSynqedClient())
   } catch (err) {
     warn('listAllLifecycles', err)
-    return map
+    return new Map()
   }
 }
 
@@ -406,6 +433,27 @@ export async function getCustomerLifecycle(
   } catch (err) {
     warn('getCustomerLifecycle', err)
     return null
+  }
+}
+
+/**
+ * Lifecycle read that DISTINGUISHES "no lifecycle row" (a normal active
+ * customer) from "the read failed". Coaching surfaces must fail CLOSED on
+ * error: a transient backend hiccup on a 卒業/離客 customer must not render
+ * closing tactics for someone the salon already released — treat an errored
+ * read as "unknown, suppress coaching", never as "active".
+ */
+export async function getCustomerLifecycleChecked(
+  customerId: string,
+): Promise<{ ok: true; lifecycle: CustomerLifecycle | null } | { ok: false }> {
+  if (!customerId) return { ok: true, lifecycle: null }
+  try {
+    const synqed = await getSynqedClient()
+    const lifecycle = (await synqed.packs.getLifecycle(customerId)) as CustomerLifecycle | null
+    return { ok: true, lifecycle }
+  } catch (err) {
+    warn('getCustomerLifecycleChecked', err)
+    return { ok: false }
   }
 }
 

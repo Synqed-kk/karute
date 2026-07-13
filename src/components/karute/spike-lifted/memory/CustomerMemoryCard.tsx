@@ -477,7 +477,7 @@ function MemoryTrustBadge({
     startTransition(async () => {
       const res = await relearnCustomerMemoryAction(customerId)
       if (!res.ok) {
-        toast.error(t('relearnFailed'))
+        toast.error(t(res.locked ? 'relearnLocked' : 'relearnFailed'))
         return
       }
       toast.success(t('relearnDone', { n: res.items }))

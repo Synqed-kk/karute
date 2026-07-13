@@ -10,7 +10,8 @@ import {
   appointmentsToMonthCells,
 } from '@/lib/adapters/reservation'
 import { appointmentsToReservationViews } from '@/lib/adapters/reservation-view'
-import { enrichCustomers, isReturningCustomer } from '@/lib/customers/list-enrich'
+import { enrichCustomers } from '@/lib/customers/list-enrich'
+import { isReturningCustomer } from '@/lib/customers/status-signals'
 import { firstVisitFromBooking } from '@/lib/customers/first-visit'
 import { listAllPackUsage } from '@/lib/packs/store'
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
@@ -111,7 +112,10 @@ export default async function AppointmentsPage({
     getCurrentUserStaffId(),
     getOrgSettings(),
     getCachedCustomerList(),
-    getAppointmentsByDate(selectedDateStr),
+    // The agenda is the ONE consumer that wants cancelled rows — rendered as
+    // thin greyed キャンセル済み tombstones in their original slot. Every other
+    // getAppointmentsByDate caller keeps the hidden-by-default contract.
+    getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true }),
     getBusinessId().catch(() => null),
     weekRange
       ? getAppointmentsInRange(
@@ -212,6 +216,15 @@ export default async function AppointmentsPage({
   // `now` (wall-clock) is intentional here: computeDisplayStatus needs to
   // know whether an appointment is past/in-progress/future relative to right
   // now, not to the date being viewed.
+  // Prior no-show totals ride the SAME enrichment read fetched above (zero
+  // extra calls) — the cancel sheet derives its first-time/repeat line from
+  // this, and the repeat chip reads it, so all surfaces agree with the 顧客
+  // list's 無断欠席 badge.
+  const noShowCountByClient = new Map<string, number>()
+  for (const [id, e] of enrichment.entries()) {
+    noShowCountByClient.set(id, e.noShowCount)
+  }
+
   const allReservationViews = appointmentsToReservationViews(
     dayAppointments,
     staffList,
@@ -219,6 +232,7 @@ export default async function AppointmentsPage({
     isFirstTimeByClient,
     karuteNumberByClientId,
     packUsage,
+    noShowCountByClient,
   )
 
   // Apply the Self/All/specific-staff filter. URL is the source of truth so
