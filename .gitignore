@@ -53,3 +53,15 @@ playwright-report/
 .playwright-mcp/
 record-page-*.png
 record-redesign-*.png
+
+# thin target build output (never committed)
+thin/dist/
+# Android signing secrets — MUST stay out of git on EVERY branch (the android
+# branch has its own android/.gitignore, but that file doesn't exist on other
+# checkouts while the untracked android/ folder does — root rule closes the gap).
+*.jks
+*.keystore
+android/keystore.properties
+
+# monotonic build-number state (machine-local)
+scripts/shell/.last-build-number

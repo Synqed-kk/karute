@@ -11,10 +11,25 @@
 
 import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getBusinessId } from '@/lib/staff'
-import { getOrgSettings, upsertOrgSettings } from './org-settings'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { getOrgSettings, writeOrgSettingsBlob } from './org-settings'
 
 const MAX_SAMPLE_BYTES = 3 * 1024 * 1024 // ~15s of opus is well under this
+
+/**
+ * Voice ownership gate (packet 03, gap 2). The action trusted a caller-supplied
+ * `staffId` and wrote the enrollment for THAT id — so a request could overwrite
+ * or delete another staffer's voice sample. Rule: a staffer may act only on
+ * their OWN voice; owner/manager (`staff.manage`) may act on anyone's. Returns
+ * false (never throws) to keep the {ok:boolean} action contract.
+ */
+async function assertVoiceOwnership(targetStaffId: string): Promise<boolean> {
+  const caller = await getCurrentUserStaffId()
+  if (!caller) return false
+  if (caller === targetStaffId) return true
+  return (await getMyCapabilities()).has('staff.manage')
+}
 
 export async function enrollVoiceAction(
   staffId: string,
@@ -23,6 +38,7 @@ export async function enrollVoiceAction(
   try {
     const audio = formData.get('audio')
     if (!staffId || !(audio instanceof File)) return { ok: false }
+    if (!(await assertVoiceOwnership(staffId))) return { ok: false }
     if (audio.size === 0 || audio.size > MAX_SAMPLE_BYTES) return { ok: false }
     if (audio.type && !audio.type.startsWith('audio/')) return { ok: false }
 
@@ -60,7 +76,7 @@ export async function enrollVoiceAction(
         revoked_at: null,
       },
     }
-    const saved = await upsertOrgSettings({ voice_enrollments: next })
+    const saved = await writeOrgSettingsBlob({ voice_enrollments: next })
     if (!saved) return { ok: false }
     revalidatePath('/[locale]/(app)/settings', 'page')
     return { ok: true, enrolledAt }
@@ -74,6 +90,7 @@ export async function enrollVoiceAction(
 export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean }> {
   try {
     if (!staffId) return { ok: false }
+    if (!(await assertVoiceOwnership(staffId))) return { ok: false }
     const settings = await getOrgSettings()
     const current = settings?.voice_enrollments?.[staffId]
     if (!current) return { ok: false }
@@ -95,7 +112,7 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
         revoked_at: new Date().toISOString(),
       },
     }
-    const saved = await upsertOrgSettings({ voice_enrollments: next })
+    const saved = await writeOrgSettingsBlob({ voice_enrollments: next })
     if (!saved) return { ok: false }
     revalidatePath('/[locale]/(app)/settings', 'page')
     return { ok: true }

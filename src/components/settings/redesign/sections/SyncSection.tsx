@@ -1,5 +1,7 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
@@ -46,7 +48,7 @@ export function SyncSection() {
   const [lastResult, setLastResult] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/sync/quickreserve/config')
+    getDataPort().apiFetch('/api/sync/quickreserve/config')
       .then((r) => r.json())
       .then((data) => {
         if (data.username) setUsername(data.username)
@@ -59,7 +61,7 @@ export function SyncSection() {
   async function saveConfig() {
     setSyncing(true)
     try {
-      const res = await fetch('/api/sync/quickreserve/config', {
+      const res = await getDataPort().apiFetch('/api/sync/quickreserve/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, enabled }),
@@ -76,7 +78,7 @@ export function SyncSection() {
     setSyncing(true)
     setLastResult('Syncing...')
     try {
-      const res = await fetch('/api/sync/quickreserve', { method: 'POST' })
+      const res = await getDataPort().apiFetch('/api/sync/quickreserve', { method: 'POST' })
       const parsed = await readSyncResponse(res)
       if (!parsed.ok) {
         setLastResult(parsed.message)
