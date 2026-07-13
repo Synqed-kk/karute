@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
+import { AppApiError } from '@/lib/app-api/errors'
 
 export interface StaffMember {
   id: string
@@ -24,7 +25,10 @@ export interface StaffMemberBasic {
 // Inside unstable_cache there's no request context (no cookies → no RLS),
 // so we use the service-role client and filter by businessId explicitly.
 // The cache key includes businessId so tenants never see each other's data.
-const staffListByBusiness = unstable_cache(
+// Exported for the facade (Bearer path), which resolves businessId from the
+// verified token. Plain lib module (NOT 'use server') — exporting this adds
+// no client-invocable action endpoint.
+export const staffListByBusiness = unstable_cache(
   async (businessId: string): Promise<StaffMember[]> => {
     const service = createServiceClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -243,14 +247,39 @@ async function resolveUserId(): Promise<string> {
 // many places per page (every Supabase scope check, every synqed client init)
 // so deduping the auth + profile lookup is worth the wrapper.
 export const getBusinessId = cache(async (): Promise<string> => {
-  const userId = await resolveUserId()
+  return businessIdForUser(await resolveUserId())
+})
+
+/**
+ * Resolve a user's business id from an EXPLICIT auth-user id — the identity seam
+ * shared by the cookie path (getBusinessId) and the facade Bearer path. This
+ * INDEXED per-request lookup on the primary key (profiles.id) is also the
+ * authoritative membership gate: a user with no profile row in any business has
+ * no active membership and is rejected fail-closed (NOT the 24h roster cache,
+ * which is unfit for a security gate). Throws when there is no membership.
+ */
+export async function businessIdForUser(userId: string): Promise<string> {
   const service = createServiceClient()
-  const { data } = await service
+  const { data, error } = await service
     .from('profiles')
     .select('customer_id')
     .eq('id', userId)
     .single()
 
-  if (!data?.customer_id) throw new Error('Business profile not found')
+  // Distinguish a genuinely-absent membership from a failed lookup. `.single()`
+  // returns PGRST116 when the row does not exist — that IS "no active
+  // membership" (fail-closed 403). ANY OTHER error is a transient lookup /
+  // connection failure and must NOT masquerade as an absent membership: a mobile
+  // client reads membership_inactive as "you were removed", so surface it as a
+  // retryable upstream failure (502) instead of a false eviction.
+  if (error) {
+    if (error.code === 'PGRST116') {
+      throw new AppApiError('membership_inactive', 'No active business membership for this user')
+    }
+    throw new AppApiError('upstream_unavailable', 'Business membership lookup failed')
+  }
+  if (!data?.customer_id) {
+    throw new AppApiError('membership_inactive', 'No active business membership for this user')
+  }
   return data.customer_id
-})
+}

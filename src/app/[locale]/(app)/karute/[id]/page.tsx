@@ -46,12 +46,14 @@ export default async function KaruteDetailPage({
 
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
-  const synqed = await getSynqedClient()
+  const synqedPromise = getSynqedClient()
   const [karute, allCustomers, outcome, viewerStaffId, canViewAllRecordings] =
     await Promise.all([
       getKaruteRecord(id),
       // Page to completion so the karute number resolves for an overflow customer.
-      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      synqedPromise.then((synqed) =>
+        listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      ),
       getKaruteOutcome(id),
       // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
       // may read every staff's raw recordings (owner/manager). Both independent

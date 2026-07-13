@@ -1,5 +1,6 @@
 'use server'
 
+import { cache } from 'react'
 import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 
@@ -38,6 +39,16 @@ export interface StoreRow {
   active: boolean
   staffCount: number
   customerCount: number
+  /** This location's vertical (BUSINESS_TYPES value). Null until core's
+   *  stores.business_type column exists / backfills (brief 2026-07-08). */
+  businessType: string | null
+}
+
+/** Read business_type off a core store row tolerantly — the SDK types gain the
+ *  field with Anthony's core change; until then it's simply absent. */
+function coreBusinessType(row: unknown): string | null {
+  const v = (row as { business_type?: unknown }).business_type
+  return typeof v === 'string' && v.length > 0 ? v : null
 }
 
 async function requireOwnerBusiness(): Promise<string> {
@@ -123,6 +134,7 @@ export async function listStores(): Promise<StoreRow[]> {
     active: s.active,
     staffCount: staffByStore.get(s.id) ?? 0,
     customerCount: customersByStore.get(s.id) ?? 0,
+    businessType: coreBusinessType(s),
   }))
 }
 
@@ -130,6 +142,36 @@ export async function listStores(): Promise<StoreRow[]> {
 export async function getActiveStoreId(): Promise<string | null> {
   const jar = await cookies()
   return jar.get(ACTIVE_STORE_COOKIE)?.value ?? null
+}
+
+// Per-request dedupe (React cache): layout + page + actions each resolve the
+// store scope, and a viewer with no pinned cookie (every single-store salon —
+// the switcher never renders for them) would otherwise pay one stores.list
+// core roundtrip per call site on every request.
+const primaryStoreIdOnce = cache(async (): Promise<string | null> => {
+  try {
+    const synqed = await getSynqedClient()
+    const { stores } = await synqed.stores.list()
+    return stores.find((s) => s.is_primary)?.id ?? stores[0]?.id ?? null
+  } catch {
+    return null
+  }
+})
+
+/** The business's primary store id (?? first store). Null when the business
+ *  has no stores yet or the lookup fails. */
+export async function getPrimaryStoreId(): Promise<string | null> {
+  return primaryStoreIdOnce()
+}
+
+/** The store that store-scoped reads/writes default to: the pinned cookie,
+ *  else the PRIMARY store. The StoreSwitcher displays the primary as active
+ *  when nothing is pinned ("there is always an active store") — data and
+ *  display must share that default, otherwise an unpinned cross-store viewer
+ *  sees a pill naming one store over a list mixing every store (the カルテ
+ *  leak Liam kept hitting). */
+export async function getDefaultStoreId(): Promise<string | null> {
+  return (await getActiveStoreId()) ?? getPrimaryStoreId()
 }
 
 /** Switch the active store. Validates the store is in the caller's business
@@ -210,13 +252,24 @@ export async function createStore(
   const entitlement = await loadEntitlement(businessId)
   if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
 
+  // New stores must declare their vertical (edits stay tolerant — see schema).
+  if (!parsed.data.business_type) return { error: 'Business type is required' }
+
   const synqed = await getSynqedClient()
   try {
-    const store = await synqed.stores.create({
+    // business_type persists in core (stores.business_type — Anthony's column,
+    // brief 2026-07-08). Until the column + SDK field land, core's parser strips
+    // the key; it starts persisting the moment the column exists. Deliberately
+    // NO Karute-side shadow copy — core stays the single source of truth.
+    const payload: Parameters<typeof synqed.stores.create>[0] & {
+      business_type?: string
+    } = {
       name: parsed.data.name,
       address: parsed.data.address || null,
       phone: parsed.data.phone || null,
-    })
+      business_type: parsed.data.business_type,
+    }
+    const store = await synqed.stores.create(payload)
     revalidatePath('/settings')
     return { id: store.id }
   } catch (e) {
@@ -240,11 +293,16 @@ export async function updateStore(
   }
   const synqed = await getSynqedClient()
   try {
-    await synqed.stores.update(id, {
+    // Same passthrough as createStore — see the note there.
+    const payload: Parameters<typeof synqed.stores.update>[1] & {
+      business_type?: string
+    } = {
       name: parsed.data.name,
       address: parsed.data.address || null,
       phone: parsed.data.phone || null,
-    })
+      business_type: parsed.data.business_type,
+    }
+    await synqed.stores.update(id, payload)
     revalidatePath('/settings')
     return { ok: true }
   } catch (e) {
