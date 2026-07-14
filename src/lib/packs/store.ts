@@ -21,25 +21,34 @@ import {
 
 const warn = (fn: string, err: unknown) => console.warn(`[packs] ${fn} failed:`, err)
 
+/** Client-threaded core of listCustomerPacks — takes an EXPLICIT business-scoped
+ *  client (facade Bearer path). THROWS on failure (the facade caller decides
+ *  graceful vs 502; packet 06 keeps packs page-parity graceful). */
+export async function listCustomerPacksWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  customerId: string,
+): Promise<PackWithUsage[]> {
+  const [packs, reds] = await Promise.all([
+    synqed.packs.listPacks(customerId),
+    synqed.packs.listRedemptions(customerId),
+  ])
+  const countByPack = new Map<string, number>()
+  const lastByPack = new Map<string, string>()
+  for (const r of reds) {
+    countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
+    const cur = lastByPack.get(r.pack_id)
+    if (!cur || r.redeemed_on > cur) lastByPack.set(r.pack_id, r.redeemed_on)
+  }
+  return (packs as unknown as TicketPack[]).map((p) =>
+    withUsage(p, countByPack.get(p.id) ?? 0, lastByPack.get(p.id) ?? null),
+  )
+}
+
 /** All of a customer's packs (newest first) with redemption counts folded in. */
 export async function listCustomerPacks(customerId: string): Promise<PackWithUsage[]> {
   if (!customerId) return []
   try {
-    const synqed = await getSynqedClient()
-    const [packs, reds] = await Promise.all([
-      synqed.packs.listPacks(customerId),
-      synqed.packs.listRedemptions(customerId),
-    ])
-    const countByPack = new Map<string, number>()
-    const lastByPack = new Map<string, string>()
-    for (const r of reds) {
-      countByPack.set(r.pack_id, (countByPack.get(r.pack_id) ?? 0) + 1)
-      const cur = lastByPack.get(r.pack_id)
-      if (!cur || r.redeemed_on > cur) lastByPack.set(r.pack_id, r.redeemed_on)
-    }
-    return (packs as unknown as TicketPack[]).map((p) =>
-      withUsage(p, countByPack.get(p.id) ?? 0, lastByPack.get(p.id) ?? null),
-    )
+    return await listCustomerPacksWithClient(await getSynqedClient(), customerId)
   } catch (err) {
     warn('listCustomerPacks', err)
     return []
@@ -448,7 +457,24 @@ export async function getCustomerLifecycleChecked(
 ): Promise<{ ok: true; lifecycle: CustomerLifecycle | null } | { ok: false }> {
   if (!customerId) return { ok: true, lifecycle: null }
   try {
-    const synqed = await getSynqedClient()
+    return await getCustomerLifecycleCheckedWithClient(await getSynqedClient(), customerId)
+  } catch (err) {
+    warn('getCustomerLifecycleChecked', err)
+    return { ok: false }
+  }
+}
+
+/** Client-threaded checked read (facade Bearer path). Keeps the checked-read
+ *  semantics EXACTLY (packet 06 §Build 2 exception): ok:false on an errored
+ *  read → the caller suppresses the pace verdict + degrades display to null.
+ *  That is product logic (never coach a possibly-released customer), NOT a
+ *  swallowed failure — carried onto the facade deliberately. */
+export async function getCustomerLifecycleCheckedWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  customerId: string,
+): Promise<{ ok: true; lifecycle: CustomerLifecycle | null } | { ok: false }> {
+  if (!customerId) return { ok: true, lifecycle: null }
+  try {
     const lifecycle = (await synqed.packs.getLifecycle(customerId)) as CustomerLifecycle | null
     return { ok: true, lifecycle }
   } catch (err) {

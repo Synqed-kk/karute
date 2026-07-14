@@ -37,6 +37,16 @@ export async function getCustomerContact(
   return customerContactById(businessId, customerId)
 }
 
+/** Bearer/facade entry point — same cached read, EXPLICIT businessId (from the
+ *  verified token, not a cookie). Graceful-empty like the cookie wrapper
+ *  (contact is not on packet-06's must-throw list). */
+export async function getCustomerContactForBusiness(
+  businessId: string,
+  customerId: string,
+): Promise<CustomerContact> {
+  return customerContactById(businessId, customerId)
+}
+
 interface ConsentRecord {
   granted_at?: string | null
   [key: string]: unknown

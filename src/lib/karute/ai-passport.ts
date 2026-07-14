@@ -61,11 +61,22 @@ function cacheKey(customerId: string, businessType: string | null) {
 export async function getCachedPassport(
   customerId: string,
 ): Promise<CustomerPassport | null> {
+  const orgSettings = await getOrgSettings().catch(() => null)
+  return getCachedPassportForBusiness(customerId, orgSettings?.business_type ?? null)
+}
+
+/** Bearer/facade entry point — same cache-only read with an EXPLICIT
+ *  business_type (the facade already read org-settings, so it avoids the cookie
+ *  getOrgSettings the web wrapper uses; passing the same business_type keeps the
+ *  cache key — and thus the resolved passport — identical to the web page). */
+export async function getCachedPassportForBusiness(
+  customerId: string,
+  businessType: string | null,
+): Promise<CustomerPassport | null> {
   try {
-    const orgSettings = await getOrgSettings().catch(() => null)
     const cached = (await getCachedAI(
       'customer_passport',
-      cacheKey(customerId, orgSettings?.business_type ?? null),
+      cacheKey(customerId, businessType),
     ).catch(() => null)) as CustomerPassport | null
     return cached?.fields ? cached : null
   } catch {
