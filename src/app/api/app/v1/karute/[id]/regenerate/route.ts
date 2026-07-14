@@ -44,6 +44,7 @@ export const POST = facadeHandler<Params>('karute.regenerate', async (ctx) => {
     viewerStaffId,
     canViewAll,
     locale: readLocale(ctx),
+    businessId: ctx.identity.businessId,
   })
   return ok(ctx, result)
 })
