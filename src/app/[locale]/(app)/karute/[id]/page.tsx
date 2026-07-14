@@ -9,11 +9,6 @@ import {
   PhotoRecordsSkeleton,
 } from '@/components/karute/redesign/detail/PhotoRecordsServer'
 import {
-  karuteToHeader,
-  karuteEntriesToSessionEntries,
-  karuteSummaryToBullets,
-} from '@/lib/adapters/karute-detail'
-import {
   getCustomerContact,
   getCachedCustomerConsent,
 } from '@/lib/customers/customer-detail-cached'
@@ -28,12 +23,9 @@ import {
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { can } from '@/lib/auth/require-permission'
-import { canViewTranscript } from '@/lib/auth/recording-acl'
-import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
-import { computeAge, jpGender } from '@/lib/customers/demographics'
-import { formatJoinDate } from '@/lib/customers/list-enrich'
+import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -63,104 +55,47 @@ export default async function KaruteDetailPage({
     ])
   if (!karute) notFound()
 
-  const customerId =
-    (karute as unknown as { client_id?: string | null }).client_id ?? null
-  const header = karuteToHeader(karute)
-  const sessionEntries = karuteEntriesToSessionEntries(karute)
-  const summaryBullets = karuteSummaryToBullets(karute)
-  const transcript =
-    (karute as unknown as { transcript?: string | null }).transcript ?? null
-  // Recording privacy (#4): the raw transcript is private to the staff who
-  // recorded the session — only they (or a recordings.viewAll role) see the
-  // text. The AI summary + entries below stay shared with everyone. A record
-  // with no owner (legacy/manual) is treated as shared. Withholding the
-  // transcript also hides the "regenerate entries from transcript" action,
-  // which reads the same raw text.
-  const ownerStaffId =
-    (karute as unknown as { staff_profile_id?: string | null })
-      .staff_profile_id ?? null
-  const canSeeTranscript = canViewTranscript({
-    ownerStaffId,
-    viewerStaffId,
-    canViewAll: canViewAllRecordings,
-  })
-  const visibleTranscript = canSeeTranscript ? transcript : null
-  const transcriptRestricted = !canSeeTranscript && Boolean(transcript)
-  // Sequential per-tenant number from the shared customer list — matches the
-  // karute list and customer profile (#00007). Replaces deriveKaruteNumber(id),
-  // which hex-sliced the karute UUID into an alphanumeric #427C2 that disagreed
-  // with every other surface. Numbers-only, consistent.
-  const karuteNumber = customerId
-    ? (assignSequentialKaruteNumbers(allCustomers.customers).get(customerId) ??
-      '#00000')
-    : '#00000'
+  const customerId = karute.client_id ?? null
 
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a
   // Suspense boundary below so the shell paints first.
-  let phone: string | null = null
-  let email: string | null = null
-  let consentOnFile = false
-  // Deep-crawl identity for the header (年齢/性別/回数/前回) — the same fields the
-  // customer hub surfaces, so the karute-detail header matches it instead of
-  // showing only name/#/date/contact.
-  let headerExtras: {
-    age: number | null
-    gender: string | null
-    visitNumber: number | null
-    lastVisitDate: string | null
-  } = { age: null, gender: null, visitNumber: null, lastVisitDate: null }
-  if (customerId) {
-    const [contact, consentResult, customer] = await Promise.all([
-      getCustomerContact(customerId),
-      getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
-      getCustomer(customerId).catch(() => null),
-    ])
-    phone = contact.phone
-    email = contact.email
-    consentOnFile = Boolean(consentResult.consent)
-    if (customer) {
-      headerExtras = {
-        age: computeAge(customer.date_of_birth),
-        gender: jpGender(customer.gender),
-        visitNumber: customer.visit_count,
-        lastVisitDate: customer.last_visit_at
-          ? formatJoinDate(customer.last_visit_at, locale)
-          : null,
-      }
-    }
-  }
+  const [contact, consentResult, customer] = customerId
+    ? await Promise.all([
+        getCustomerContact(customerId),
+        getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
+        getCustomer(customerId).catch(() => null),
+      ])
+    : [null, null, null]
+
+  // Post-fetch assembly is shared with the facade screen GET (packet 07) so web
+  // and thin can never derive a different view-model from the same raw wave.
+  const built = buildKaruteDetailScreen({
+    karute,
+    allCustomers,
+    outcome,
+    viewerStaffId,
+    canViewAllRecordings,
+    contact,
+    consentResult,
+    customer,
+    locale,
+  })
 
   return (
     <KaruteDetailView
-      karuteId={id}
-      customerId={customerId}
-      outcome={outcome}
-      header={{
-        customerName: header.customerName,
-        initials: header.customerInitials,
-        karuteNumber,
-        service: null,
-        sessionDateLong: header.sessionDateLong,
-        staffName: header.staffName === '—' ? null : header.staffName,
-        phone,
-        email,
-        age: headerExtras.age,
-        gender: headerExtras.gender,
-        visitNumber: headerExtras.visitNumber,
-        lastVisitDate: headerExtras.lastVisitDate,
-      }}
-      sessionDateLong={header.sessionDateLong}
-      sessionDateIso={
-        ((karute as unknown as { session_date?: string | null }).session_date ??
-          (karute as unknown as { created_at?: string | null }).created_at)?.slice(0, 10) ?? null
-      }
-      entries={sessionEntries}
-      summaryBullets={summaryBullets}
-      transcript={visibleTranscript}
-      consentOnFile={consentOnFile}
-      transcriptDurationLabel={null}
-      transcriptRestricted={transcriptRestricted}
+      karuteId={built.karuteId}
+      customerId={built.customerId}
+      outcome={built.outcome}
+      header={built.header}
+      sessionDateLong={built.sessionDateLong}
+      sessionDateIso={built.sessionDateIso}
+      entries={built.entries}
+      summaryBullets={built.summaryBullets}
+      transcript={built.transcript}
+      consentOnFile={built.consentOnFile}
+      transcriptDurationLabel={built.transcriptDurationLabel}
+      transcriptRestricted={built.transcriptRestricted}
       photosSlot={
         customerId ? (
           <Suspense fallback={<PhotoRecordsSkeleton />}>
@@ -183,8 +118,8 @@ export default async function KaruteDetailPage({
           <AISuggestedMessageSlot
             karuteId={id}
             customerId={customerId}
-            customerName={header.customerName}
-            summary={(karute as unknown as { summary?: string | null }).summary ?? null}
+            customerName={built.header.customerName}
+            summary={karute.summary ?? null}
             locale={locale}
           />
         </Suspense>
