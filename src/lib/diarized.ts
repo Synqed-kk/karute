@@ -100,7 +100,40 @@ export function buildDiarizedTranscript(
             : 'unknown'
     return { role, speaker: p.speaker, text: p.text, start: p.start, end: p.end }
   })
-  return { turns, speakerCount: speakers.length }
+  return { turns: repairAndCoalesce(turns), speakerCount: speakers.length }
+}
+
+/** Deepgram splits mid-sentence when diarization flips, stranding the closing
+ *  punctuation at the head of the NEXT turn (「施術者: 。はい」) and shredding
+ *  one utterance into many tiny labeled fragments. Both damage the readers:
+ *  staff auditing the transcript and the LLM whose attribution rules trust the
+ *  labels. Repair = give leading punctuation back to whoever spoke last, then
+ *  merge consecutive same-role turns into one. */
+const LEADING_PUNCT = /^[。、．，,.!！?？…]+/
+
+function repairAndCoalesce(turns: readonly DiarizedTurn[]): DiarizedTurn[] {
+  const out: DiarizedTurn[] = []
+  for (const t of turns) {
+    const prev = out[out.length - 1]
+    let text = t.text
+    if (prev) {
+      const m = text.match(LEADING_PUNCT)
+      if (m) {
+        prev.text += m[0]
+        text = text.slice(m[0].length).trimStart()
+      }
+    }
+    if (!text) continue
+    if (prev && prev.role === t.role) {
+      // Same voice continuing — one turn. Space matches how deepgram.ts joins
+      // paragraph sentences.
+      prev.text += ` ${text}`
+      prev.end = t.end
+    } else {
+      out.push({ ...t, text })
+    }
+  }
+  return out
 }
 
 /** Mean word confidence inside the paragraph's time range; 1 when unknown
