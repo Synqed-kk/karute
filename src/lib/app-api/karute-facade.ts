@@ -22,17 +22,34 @@ type KaruteClient = Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'karuteRec
  * which collapses EVERY failure to null → notFound(). The facade errs toward a
  * retryable 5xx on a genuine outage (errors.ts contract; batch-1 ruling 3).
  */
+function classifyGetError(err: unknown, resource: string): never {
+  const status =
+    err && typeof err === 'object' && 'status' in err
+      ? (err as { status: unknown }).status
+      : undefined
+  if (status === 404) {
+    throw new AppApiError('not_found', `${resource} not found in this business`)
+  }
+  throw new AppApiError('upstream_unavailable', `${resource} read failed`)
+}
+
 export async function readKaruteRaw(synqed: KaruteClient, id: string) {
   try {
     return await synqed.karuteRecords.get(id)
   } catch (err) {
-    const status =
-      err && typeof err === 'object' && 'status' in err
-        ? (err as { status: unknown }).status
-        : undefined
-    if (status === 404) {
-      throw new AppApiError('not_found', 'karute not found in this business')
-    }
-    throw new AppApiError('upstream_unavailable', 'karute record read failed')
+    classifyGetError(err, 'karute')
+  }
+}
+
+type CustomerClient = Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'customers'>
+
+/** Status-aware customer tenancy proof (packet 07 §Build 4) — a cross-tenant /
+ *  missing id → not_found BEFORE any LLM/cache call; a genuine upstream failure →
+ *  502. Used by the AI body-prediction read (the customer is its tenancy anchor). */
+export async function readCustomerRaw(synqed: CustomerClient, id: string) {
+  try {
+    return await synqed.customers.get(id)
+  } catch (err) {
+    classifyGetError(err, 'customer')
   }
 }

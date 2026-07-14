@@ -3,7 +3,8 @@ import { z } from 'zod'
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { openai } from '@/lib/openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { getOrgSettings } from '@/actions/org-settings'
+import { getOrgSettings, orgSettingsWithClient, type OrgSettings } from '@/actions/org-settings'
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   getBusinessAiPersona,
   resolvePersonaTokens,
@@ -29,12 +30,50 @@ const OutreachSchema = z.object({
  * (karute, summary) so the LLM runs once per record, not per view. Best-effort:
  * null on any failure → the card keeps its 対応予定 preview.
  */
-export async function getSuggestedFollowUp(params: {
+interface OutreachParams {
   karuteId: string
   customerName: string
   summary: string | null
   locale: string
-}): Promise<SuggestedMessage | null> {
+}
+
+/** Web (cookie) entry — cookie org-settings + cookie feature gate. */
+export async function getSuggestedFollowUp(
+  params: OutreachParams,
+): Promise<SuggestedMessage | null> {
+  return computeSuggestedFollowUp(
+    params,
+    () => getOrgSettings().catch(() => null),
+    // Dynamic import keeps test import-chains light.
+    async () => {
+      const { featureAllowed } = await import('@/lib/subscription/feature-gate')
+      return featureAllowed('aiOutreachDrafts')
+    },
+  )
+}
+
+/** Facade (Bearer) entry — identity-threaded org-settings + business-scoped
+ *  feature gate (packet 07 Decision 1). Same generator core, no cookie. */
+export async function getSuggestedFollowUpWithClient(
+  synqed: Pick<SynqedClient, 'orgSettings'>,
+  businessId: string,
+  params: OutreachParams,
+): Promise<SuggestedMessage | null> {
+  return computeSuggestedFollowUp(
+    params,
+    () => orgSettingsWithClient(synqed).catch(() => null),
+    async () => {
+      const { featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
+      return featureAllowedForBusiness(businessId, 'aiOutreachDrafts')
+    },
+  )
+}
+
+async function computeSuggestedFollowUp(
+  params: OutreachParams,
+  resolveOrgSettings: () => Promise<OrgSettings | null>,
+  checkOutreachAllowed: () => Promise<boolean>,
+): Promise<SuggestedMessage | null> {
   const { karuteId, summary, locale } = params
   if (!summary?.trim()) return null
   // Same treatment as every other prompt anchor: the name is DATA — clamp and
@@ -45,10 +84,9 @@ export async function getSuggestedFollowUp(params: {
     if (!process.env.OPENAI_API_KEY) return null
     // Plan gate (P4): outreach drafts are a paid capability once billing arms.
     // Locked → null, and the card keeps its 対応予定 preview (this function is
-    // best-effort by contract). Dynamic import keeps test import-chains light.
-    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
-    if (!(await featureAllowed('aiOutreachDrafts'))) return null
-    const orgSettings = await getOrgSettings().catch(() => null)
+    // best-effort by contract).
+    if (!(await checkOutreachAllowed())) return null
+    const orgSettings = await resolveOrgSettings()
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const tok = resolvePersonaTokens(persona, locale)
 
