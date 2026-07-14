@@ -65,6 +65,16 @@ const runSummary = jest.fn(async (): Promise<{ result: { summary: string }; usag
 jest.mock('@/lib/ai/karute-extract', () => ({ runKaruteExtraction: () => runExtract() }))
 jest.mock('@/lib/ai/karute-summarize', () => ({ runKaruteSummary: () => runSummary() }))
 
+// Plan gate (P4) — default open (billing disarmed posture); the plan-locked test flips it.
+const planGate = jest.fn(async (..._args: unknown[]) => {
+  void _args // typed rest keeps the 2-arg facade call signature; de2cf37 lint pattern
+  return true
+})
+jest.mock('@/lib/subscription/feature-gate', () => ({
+  featureAllowed: (...args: unknown[]) => planGate(...args),
+  featureAllowedForBusiness: (...args: unknown[]) => planGate(...args),
+}))
+
 import { POST as regenerate, OPTIONS as regenerateOptions } from '@/app/api/app/v1/karute/[id]/regenerate/route'
 import { POST as outcome, OPTIONS as outcomeOptions } from '@/app/api/app/v1/karute/[id]/outcome/route'
 
@@ -91,6 +101,7 @@ beforeEach(() => {
   revoked.current = false
   REC.current = { id: 'kar-1', created_at: '2026-06-01T03:00:00Z', transcript: 'RAW', staff_id: 'auth-user-1', customer_id: 'cust-1', entries: [{ id: 'old-1' }] }
   consume.mockResolvedValue({ allowed: true })
+  planGate.mockResolvedValue(true)
   runExtract.mockResolvedValue({ result: { entries: [{ category: 'symptom', title: '肩こり', source_quote: 'q', confidence_score: 0.9 }] }, usage: { tokensIn: 10, tokensOut: 5 } })
   runSummary.mockResolvedValue({ result: { summary: '・肩こり改善傾向' }, usage: { tokensIn: 8, tokensOut: 3 } })
 })
@@ -130,6 +141,18 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
     expect(res.status).toBe(200)
     expect(addEntry).toHaveBeenCalled()
+  })
+
+  it('plan-locked (aiKaruteGeneration) → 403, NO quota consume, NO LLM, NO write', async () => {
+    planGate.mockResolvedValue(false)
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    expect(res.status).toBe(403)
+    expect(consume).not.toHaveBeenCalled() // gated BEFORE quota burn
+    expect(runExtract).not.toHaveBeenCalled()
+    expect(addEntry).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+    // Facade Bearer path threads the verified business id explicitly.
+    expect(planGate).toHaveBeenCalledWith(expect.any(String), 'aiKaruteGeneration')
   })
 
   it('extract failure → NO write, old entries intact', async () => {
