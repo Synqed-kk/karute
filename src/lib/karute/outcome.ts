@@ -53,12 +53,15 @@ export interface KaruteOutcomeRow {
   auto_decided: boolean
 }
 
-/** Read a session's outcome (null if none recorded). */
-export async function getKaruteOutcome(
+/** Read a session's outcome on an EXPLICIT business-scoped client — the facade
+ *  Bearer path (packet 07). Best-effort null-on-failure, EXACTLY like the cookie
+ *  reader below (product semantics — a missing/failed outcome is "none recorded",
+ *  the pre-ruled exception to the screen GET's must-502 rule). */
+export async function getKaruteOutcomeWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'karuteOutcomes'>,
   karuteRecordId: string,
 ): Promise<KaruteOutcomeRow | null> {
   try {
-    const synqed = await getSynqedClient()
     const o = await synqed.karuteOutcomes.get(karuteRecordId)
     if (!o) return null
     return {
@@ -71,4 +74,11 @@ export async function getKaruteOutcome(
   } catch {
     return null
   }
+}
+
+/** Read a session's outcome (null if none recorded). */
+export async function getKaruteOutcome(
+  karuteRecordId: string,
+): Promise<KaruteOutcomeRow | null> {
+  return getKaruteOutcomeWithClient(await getSynqedClient(), karuteRecordId)
 }
