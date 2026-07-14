@@ -56,6 +56,15 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // coaching label. Both re-check revocation (no local fast-path).
   'karute.regenerate',
   'karute.outcome.set',
+  // recording-flow mutations (packet 08 batch 5 — customer VOICE data). Consent
+  // grant, the recording-session mint, and the signed-upload-url mint are all
+  // non-GET facade writes → they re-check revocation (no local fast-path) so a
+  // just-terminated staffer cannot grant consent, mint sessions, or stage audio.
+  // upload-url mints no durable state but is a POST, so it re-checks too (the
+  // "every facade mutation re-checks revocation" rule; the coverage test enforces it).
+  'customer.consent.grant',
+  'recordings.session.mint',
+  'recordings.uploadUrl',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

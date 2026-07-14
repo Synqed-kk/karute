@@ -345,3 +345,31 @@ describe('OPTIONS preflight — shell-origin CORS, no auth', () => {
     expect(uploadPhoto).not.toHaveBeenCalled()
   })
 })
+
+// ── F8 over-cap direct rejection (batch-4 schemas — packet 08 §Build 3 hygiene) ─
+// Send an over-cap payload to each batch-4 F8 schema and assert the validation
+// error (400) + no write. The batch-4 review noted these caps were structurally
+// present but never directly rejection-tested; this closes that gap.
+describe('F8 over-cap rejection (batch-4 schemas)', () => {
+  const over = (n: number) => 'x'.repeat(n)
+  it('AddMemory label > 100 → 400, no write', async () => {
+    const res = await memoryAdd(jsonReq({ category: 'goal', label: over(101) }), route({ id: 'cust-1' }))
+    expect(res.status).toBe(400)
+    expect(addStaffMemoryItem).not.toHaveBeenCalled()
+  })
+  it('AddMemory detail > 4000 → 400, no write', async () => {
+    const res = await memoryAdd(jsonReq({ category: 'goal', label: 'ok', detail: over(4001) }), route({ id: 'cust-1' }))
+    expect(res.status).toBe(400)
+    expect(addStaffMemoryItem).not.toHaveBeenCalled()
+  })
+  it('PatchMemory label > 100 → 400, no write', async () => {
+    const res = await memoryPatch(jsonReq({ label: over(101) }), route({ id: '-', itemId: 'item-1' }))
+    expect(res.status).toBe(400)
+    expect(updateMemoryItem).not.toHaveBeenCalled()
+  })
+  it('Passport value > 4000 → 400, no write', async () => {
+    const res = await passportUpsert(jsonReq({ fieldKey: 'goal_focus', value: over(4001) }), route({ id: 'cust-1' }))
+    expect(res.status).toBe(400)
+    expect(upsertPassportField).not.toHaveBeenCalled()
+  })
+})
