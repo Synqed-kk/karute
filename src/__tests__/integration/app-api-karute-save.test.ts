@@ -159,6 +159,12 @@ describe('POST /api/app/v1/karute (save)', () => {
 })
 
 describe('POST /api/app/v1/packs/redemptions/[id]/undo', () => {
+  // Undo mirrors the batch-3 redeem route: customers.view (pack-mutation class),
+  // NOT records.write — redeem/undo stay symmetric, and the dashboard reconcile
+  // surfaces that call undoRedemptionAction aren't records.write territory.
+  beforeEach(() => {
+    capabilities.current = new Set(['customers.view'])
+  })
   it('happy → { ok:true }', async () => {
     const res = await undoPOST(new Request('https://s/x', { method: 'POST', headers: { ...auth, ...idem } }), undoRoute())
     expect(res.status).toBe(200)
@@ -179,8 +185,8 @@ describe('POST /api/app/v1/packs/redemptions/[id]/undo', () => {
     const res = await undoPOST(new Request('https://s/x', { method: 'POST', headers: auth }), undoRoute())
     expect(res.status).toBe(400)
   })
-  it('missing capability → 403', async () => {
-    capabilities.current = new Set(['customers.view'])
+  it('missing capability → 403 (records.write alone is NOT enough — the mirror is customers.view)', async () => {
+    capabilities.current = new Set(['records.write', 'stores.viewAll'])
     const res = await undoPOST(new Request('https://s/x', { method: 'POST', headers: { ...auth, ...idem } }), undoRoute())
     expect(res.status).toBe(403)
   })
