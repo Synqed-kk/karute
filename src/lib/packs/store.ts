@@ -235,11 +235,23 @@ function isBelowZeroGuardError(err: unknown): boolean {
 export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {
   try {
     const synqed = await getSynqedClient()
-    return await synqed.packs.removeRedemption(redemptionId)
+    return await removeRedemptionWithClient(synqed, redemptionId)
   } catch (err) {
     warn('removeRedemption', err)
     return { ok: false }
   }
+}
+
+/** Client-threaded core of removeRedemption (packet 08 §Smaller pre-rulings). The
+ *  business-scoped client IS the tenancy proof — a cross-tenant/missing
+ *  redemptionId is not this business's row, so removeRedemption rejects it. THROWS
+ *  on failure so the facade route classifies (404 vs 502); the web action keeps
+ *  its graceful { ok:false } wrapper. */
+export async function removeRedemptionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  redemptionId: string,
+): Promise<{ ok: boolean }> {
+  return synqed.packs.removeRedemption(redemptionId)
 }
 
 export interface CustomerPackUsage {

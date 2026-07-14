@@ -77,7 +77,7 @@ async function resolveKaruteStoreId(
  * Residual race (concurrent first saves both passing the lookup) falls back
  * to core's dedupe, which is correct there: both carry identical content.
  */
-async function createOrUpdateKaruteRecord(
+export async function createOrUpdateKaruteRecord(
   synqed: SynqedClient,
   payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
