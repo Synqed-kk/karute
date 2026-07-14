@@ -145,6 +145,15 @@ export default async function AppointmentsPage({
   const visibleStaff = storeStaffIds
     ? staffList.filter((s) => storeStaffIds.has(s.id))
     : staffList
+  // Clamp the dialog default the same way: a cross-store viewer pinned to a
+  // store they're not assigned to must not silently file a booking under
+  // their own (hidden) id — treat it like an absent id (Greptile on #496).
+  // The self-filter below keeps the RAW activeStaffId: "my bookings" is
+  // about the viewer, not the store's picker.
+  const visibleActiveStaffId =
+    activeStaffId && storeStaffIds && !storeStaffIds.has(activeStaffId)
+      ? null
+      : activeStaffId
 
   const staff = visibleStaff.map((s) => ({
     id: s.id,
@@ -314,7 +323,7 @@ export default async function AppointmentsPage({
   return (
     <AppointmentsView
       staff={staff}
-      activeStaffId={activeStaffId ?? staff[0]?.id ?? null}
+      activeStaffId={visibleActiveStaffId ?? staff[0]?.id ?? null}
       authProfileId={authProfileId}
       customers={customers}
       locale={locale}

@@ -329,7 +329,13 @@ export default async function KaruteRecordsListPage() {
         name: s.full_name ?? 'Unknown',
         initials: deriveFamilyInitials(s.full_name ?? ''),
       }))}
-      currentStaffId={currentStaffId}
+      currentStaffId={
+        // Same clamp as the picker: the New-カルテ dialog must not default to
+        // a staff the store filter hides (Greptile on #496).
+        currentStaffId && storeStaffIds && !storeStaffIds.has(currentStaffId)
+          ? null
+          : currentStaffId
+      }
       customerOptions={customerOptions}
     />
   )
