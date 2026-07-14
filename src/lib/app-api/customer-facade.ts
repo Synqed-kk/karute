@@ -25,9 +25,16 @@ export async function proveCustomerInBusiness(synqed: ScopedClient, id: string):
 /** Resolve the memory item's customer and prove tenancy → 404 on a missing or
  *  cross-tenant item id, before any write. Returns the owning customerId. */
 export async function proveMemoryItemInBusiness(synqed: ScopedClient, itemId: string): Promise<string> {
+  // ONE message for both misses (missing item / cross-tenant item) — distinct
+  // messages let a caller confirm a foreign item id exists (existence oracle,
+  // Fable spot-audit finding; same class the AI相談 review killed).
   const customerId = await getMemoryItemCustomerId(itemId)
-  if (!customerId) throw new AppApiError('not_found', 'memory item not found')
-  await proveCustomerInBusiness(synqed, customerId)
+  if (!customerId) throw new AppApiError('not_found', 'memory item not found in this business')
+  try {
+    await proveCustomerInBusiness(synqed, customerId)
+  } catch {
+    throw new AppApiError('not_found', 'memory item not found in this business')
+  }
   return customerId
 }
 

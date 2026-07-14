@@ -63,6 +63,7 @@ jest.mock('@/lib/synqed/client', () => ({
 jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
 
 import { PATCH, OPTIONS } from '@/app/api/app/v1/customers/[id]/route'
+import { capabilitiesForUser } from '@/lib/auth/require-permission'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -113,6 +114,13 @@ describe('PATCH /api/app/v1/customers/[id]', () => {
     const res = await PATCH(req({ method: 'PATCH', headers: { ...auth, 'content-type': 'application/json', 'if-match': CUSTOMER_ROW.updated_at }, body: JSON.stringify({ notes: 'x' }) }), routeFor('cust-1'))
     expect(res.status).toBe(200)
     expect(update).toHaveBeenCalled()
+  })
+
+  it('missing capability → 403, no write (review F4: PII edits gate customers.view)', async () => {
+    ;(capabilitiesForUser as jest.Mock).mockResolvedValueOnce(new Set())
+    const res = await PATCH(req({ method: 'PATCH', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ notes: 'VIP' }) }), routeFor('cust-1'))
+    expect(res.status).toBe(403)
+    expect(update).not.toHaveBeenCalled()
   })
 
   it('a REVOKED user → 401 revoked, no write (customer.update is revocation-sensitive, ROUTE 3)', async () => {

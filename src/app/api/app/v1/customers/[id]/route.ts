@@ -171,6 +171,9 @@ export const GET = facadeHandler<Params>('customer.read', async (ctx) => {
 // match the current version (updatedAt) or the write is refused as a conflict.
 // TOCTOU window is documented at-least-once (true CAS is a core-side ask, Anthony).
 export const PATCH = facadeHandler<Params>('customer.update', async (ctx) => {
+  // Same customers-class gate as every batch-3 write (review F4): PII edits
+  // must never be reachable on a capability-less custom role.
+  ensureCapability(ctx.identity.capabilities, 'customers.view')
   const id = await customerId(ctx)
   const synqed = newSynqedClient(ctx.identity.businessId)
 
