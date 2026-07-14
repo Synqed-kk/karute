@@ -22,7 +22,7 @@ import { SessionsScreenDTO } from '@/lib/app-api/sessions-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { staffListByBusiness } from '@/lib/staff'
+import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { listSynqedKaruteRowsOrThrow } from '@/lib/karute/synqed-records'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
@@ -51,10 +51,12 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
 
   let screen: ReturnType<typeof buildSessionsListScreen>
   try {
-    // One wave mirroring the page's Promise.all (getStaffList → staffListByBusiness,
-    // getCurrentUserStaffId → the roster-membership check below, cookie scope →
-    // the header clamp). listAllCustomers / the karute read / appointments+staff
-    // all propagate synqed failures into the 502 catch.
+    // One wave mirroring the page's Promise.all (getStaffList →
+    // staffListByBusinessOrThrow, getCurrentUserStaffId → the roster-membership
+    // check below, cookie scope → the header clamp). EVERY upstream read in the
+    // wave throws into the 502 catch — the staff read included (fix round 1:
+    // the graceful staffListByBusiness resolves [] on failure, which would ship
+    // a schema-legal 200 with an empty roster / 'Unknown' names).
     const [
       staffList,
       allCustomersList,
@@ -63,7 +65,7 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       apptList,
       synqedStaff,
     ] = await Promise.all([
-      staffListByBusiness(ctx.identity.businessId),
+      staffListByBusinessOrThrow(ctx.identity.businessId),
       // Clamped (non-viewAll): scoped + enforceStore (RBAC clamp). Otherwise
       // business-wide so names resolve + a walk-in カルテ can be created.
       clamped
