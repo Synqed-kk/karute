@@ -1,5 +1,6 @@
 'use server'
 
+import type { SynqedClient } from '@synqed-kk/client'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -28,25 +29,45 @@ export async function startRecordingSession(input: {
 
     const synqed = await getSynqedClient()
 
-    // Same staff_id resolution as saveKaruteRecord: attribute to whoever is
-    // RECORDING (the signed-in staff), falling back to the appointment's staff
-    // only when the account has no staff identity of its own.
-    let staffId: string | null = await getCurrentUserStaffId()
-    if (!staffId && input.appointmentId) {
-      const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
-      staffId = appt?.staff_id ?? null
-    }
-    if (!staffId) return null
-
-    // No store_id: saveKaruteRecord's create() call doesn't send one either.
-    const recording = await synqed.recordings.create({
-      staff_id: staffId,
-      customer_id: input.customerId ?? null,
-      appointment_id: input.appointmentId ?? null,
-    })
-    return { id: recording.id }
+    // Recorder-first attribution (the signed-in staff), appointment-staff
+    // fallback only when the account has no staff identity of its own.
+    const staffId = await getCurrentUserStaffId()
+    return await startRecordingSessionWithClient(synqed, { ...input, selfStaffId: staffId })
   } catch (err) {
     console.error('[startRecordingSession] failed:', err)
     return null
   }
+}
+
+/**
+ * Recording-session mint core — EXPLICIT business-scoped client + a resolved
+ * self staff id, no cookie (packet 08 §Build 3). Shared by the web action
+ * (cookie → getCurrentUserStaffId) and the facade route (Bearer → selfStaffId).
+ * Recorder-first attribution with the appointment-staff fallback; a null on any
+ * unresolvable staff preserves the web action's fail-OPEN contract (capture
+ * proceeds without dedupe — never blocked on the mint). Throws only on a genuine
+ * SDK failure, which the callers swallow to null.
+ */
+export async function startRecordingSessionWithClient(
+  synqed: Pick<SynqedClient, 'appointments' | 'recordings'>,
+  input: {
+    customerId?: string | null
+    appointmentId?: string | null
+    selfStaffId: string | null
+  },
+): Promise<{ id: string } | null> {
+  let staffId: string | null = input.selfStaffId
+  if (!staffId && input.appointmentId) {
+    const appt = await synqed.appointments.get(input.appointmentId).catch(() => null)
+    staffId = appt?.staff_id ?? null
+  }
+  if (!staffId) return null
+
+  // No store_id: saveKaruteRecord's create() call doesn't send one either.
+  const recording = await synqed.recordings.create({
+    staff_id: staffId,
+    customer_id: input.customerId ?? null,
+    appointment_id: input.appointmentId ?? null,
+  })
+  return { id: recording.id }
 }
