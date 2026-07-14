@@ -11,12 +11,14 @@
 import { usePathname } from './ports/nav.vite'
 import { AskAiScreen } from './screens/AskAiScreen'
 import { CustomersScreen } from './screens/CustomersScreen'
+import { SessionsScreen } from './screens/SessionsScreen'
 import { ProfileProbeScreen } from './screens/ProfileProbeScreen'
 
 export function ThinRouter() {
   const pathname = usePathname()
   if (pathname === '/ask-ai') return <AskAiScreen />
   if (pathname === '/customers') return <CustomersScreen />
+  if (pathname === '/karute') return <SessionsScreen />
   // Default (incl. the shell's /index.html entry): the packet-02 probe screen,
   // until batch 3 converts the profile to live data.
   return <ProfileProbeScreen />

@@ -76,6 +76,9 @@ export const toggleMemoryPinAction = notWired('toggleMemoryPinAction')
 export const deleteMemoryItemAction = notWired('deleteMemoryItemAction')
 export const relearnCustomerMemoryAction = notWired('relearnCustomerMemoryAction')
 export const upsertPassportFieldAction = notWired('upsertPassportFieldAction')
+// -- karute (sessions list — packet 05; New カルテ create stays notWired,
+//    read-only batch)
+export const createManualKaruteRecord = notWired('createManualKaruteRecord')
 // -- regenerate-karute
 export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
