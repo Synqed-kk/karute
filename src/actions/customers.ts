@@ -315,6 +315,18 @@ export async function listCustomerPhotos(customerId: string) {
   return synqed.customers.listPhotos(customerId)
 }
 
+/** Photo-upload core — business-scoped client, no cookie. Shared by the web
+ *  action and the facade route (which validates the file at the trust boundary
+ *  BEFORE calling this). Throws on backend failure; callers classify. */
+export async function uploadCustomerPhotoWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  customerId: string,
+  file: File,
+  options: { category?: string; caption?: string } = {},
+) {
+  return synqed.customers.uploadPhoto(customerId, file, options)
+}
+
 export async function uploadCustomerPhoto(
   customerId: string,
   formData: FormData,
@@ -327,7 +339,7 @@ export async function uploadCustomerPhoto(
 
   try {
     const synqed = await getSynqedClient()
-    const photo = await synqed.customers.uploadPhoto(customerId, file, {
+    const photo = await uploadCustomerPhotoWithClient(synqed, customerId, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
     })
@@ -398,6 +410,20 @@ export async function grantCustomerConsent(
   }
 }
 
+/** Consent-revoke core — business-scoped client + a RESOLVED staff id, no cookie.
+ *  Shared by the web action (cookie identity → getCurrentUserStaffId) and the
+ *  facade route (Bearer identity → selfStaffId). Throws on backend failure so
+ *  each caller classifies (web → toast, facade → AppApiError). The #452 posture
+ *  (fail closed on an unresolvable staff id) is enforced by the CALLERS before
+ *  they reach here — this core never runs without a staff id. */
+export async function revokeCustomerConsentWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  customerId: string,
+  staffId: string,
+): Promise<void> {
+  await synqed.customers.revokeConsent(customerId, staffId)
+}
+
 export async function revokeCustomerConsent(customerId: string) {
   const { getCurrentUserStaffId } = await import('@/lib/staff')
   const staffId = await getCurrentUserStaffId()
@@ -406,7 +432,7 @@ export async function revokeCustomerConsent(customerId: string) {
   }
   try {
     const synqed = await getSynqedClient()
-    await synqed.customers.revokeConsent(customerId, staffId)
+    await revokeCustomerConsentWithClient(synqed, customerId, staffId)
     revalidatePath(`/customers/${customerId}`)
     updateTag('customer-consent')
     return { ok: true as const }

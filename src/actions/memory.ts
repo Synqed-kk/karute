@@ -21,6 +21,14 @@ import {
   upsertPassportField,
 } from '@/lib/karute/customer-memory'
 import type { MemoryItem } from '@/lib/karute/memory-types'
+// Type-only (erased at runtime — preserves this file's dynamic-import discipline;
+// the client itself is imported dynamically inside the web wrappers below).
+import type { getSynqedClient } from '@/lib/synqed/client'
+
+/** Business-scoped client — the ownership oracle threaded through every core so
+ *  the cookie web path and the Bearer facade path share ONE tenancy gate. */
+type ScopedClient = Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>
+type FullClient = Awaited<ReturnType<typeof getSynqedClient>>
 
 const revalidateProfile = () =>
   revalidatePath('/[locale]/(app)/customers/[id]', 'page')
@@ -33,20 +41,20 @@ const revalidateProfile = () =>
 // the business-scoped core client, so it rejects any customer outside the
 // caller's business — making it the ownership oracle for both cases.
 
-/** True when the caller's business owns the customer this memory item belongs
- *  to. False when the item is missing or belongs to another business. */
-async function callerOwnsMemoryItem(id: string): Promise<boolean> {
-  const customerId = await getMemoryItemCustomerId(id)
-  if (!customerId) return false
-  return callerOwnsCustomer(customerId)
+/** True when this business-scoped client owns the customer — a cross-tenant id
+ *  reads as not-found through the business-scoped core client. The ownership
+ *  oracle for the customerId-addressed writes, on BOTH identity paths. */
+async function ownsCustomerWithClient(synqed: ScopedClient, customerId: string): Promise<boolean> {
+  const { getCustomerWithClient } = await import('@/lib/customers/queries')
+  return !!(await getCustomerWithClient(synqed, customerId).catch(() => null))
 }
 
-/** True when the caller's business owns this customer (business-scoped lookup
- *  rejects a cross-tenant id). Used for the customerId-addressed writes. */
-async function callerOwnsCustomer(customerId: string): Promise<boolean> {
-  const { getCustomer } = await import('@/lib/customers/queries')
-  const customer = await getCustomer(customerId).catch(() => null)
-  return !!customer
+/** True when the client's business owns the customer this memory item belongs to.
+ *  Missing item or a cross-tenant item id → false (→ not_found on the facade). */
+async function ownsMemoryItemWithClient(synqed: ScopedClient, id: string): Promise<boolean> {
+  const customerId = await getMemoryItemCustomerId(id)
+  if (!customerId) return false
+  return ownsCustomerWithClient(synqed, customerId)
 }
 
 const CATEGORIES: MemoryItem['category'][] = [
@@ -57,17 +65,27 @@ const CATEGORIES: MemoryItem['category'][] = [
   'lifestyle',
 ]
 
-export async function addMemoryItemAction(input: {
-  customerId: string
-  category: MemoryItem['category']
-  label: string
-  detail?: string | null
-}): Promise<{ ok: boolean }> {
+// ── WithClient cores (SINGLE SOURCE) ─────────────────────────────────────────
+// Each core takes the business-scoped client (ownership oracle) + explicit
+// identity, runs the SAME validation + ownership guard + service-role write, and
+// returns WITHOUT revalidating (a web-only concern). The web actions wrap with
+// the cookie client + revalidateProfile; the facade routes wrap with
+// newSynqedClient(businessId). Logic lives HERE, never copied into a route.
+
+export async function addMemoryItemWithClient(
+  synqed: ScopedClient,
+  businessId: string | null,
+  input: {
+    customerId: string
+    category: MemoryItem['category']
+    label: string
+    detail?: string | null
+  },
+): Promise<{ ok: boolean }> {
   const label = input.label?.trim()
   if (!input.customerId || !label) return { ok: false }
   if (!CATEGORIES.includes(input.category)) return { ok: false }
-  if (!(await callerOwnsCustomer(input.customerId))) return { ok: false }
-  const businessId = await getBusinessId().catch(() => null)
+  if (!(await ownsCustomerWithClient(synqed, input.customerId))) return { ok: false }
   const result = await addStaffMemoryItem({
     customerId: input.customerId,
     businessId,
@@ -75,102 +93,103 @@ export async function addMemoryItemAction(input: {
     label,
     detail: input.detail?.trim() || null,
   })
-  if (result.ok) revalidateProfile()
   return { ok: result.ok }
 }
 
-export async function updateMemoryItemAction(input: {
-  id: string
-  label: string
-  detail?: string | null
-}): Promise<{ ok: boolean }> {
+export async function updateMemoryItemWithClient(
+  synqed: ScopedClient,
+  input: { id: string; label: string; detail?: string | null },
+): Promise<{ ok: boolean }> {
   const label = input.label?.trim()
   if (!input.id || !label) return { ok: false }
-  if (!(await callerOwnsMemoryItem(input.id))) return { ok: false }
-  const result = await updateMemoryItem(input.id, {
-    label,
-    detail: input.detail?.trim() || null,
-  })
-  if (result.ok) revalidateProfile()
-  return result
+  if (!(await ownsMemoryItemWithClient(synqed, input.id))) return { ok: false }
+  return updateMemoryItem(input.id, { label, detail: input.detail?.trim() || null })
 }
 
-export async function toggleMemoryPinAction(
+export async function toggleMemoryPinWithClient(
+  synqed: ScopedClient,
   id: string,
   pinned: boolean,
 ): Promise<{ ok: boolean }> {
   if (!id) return { ok: false }
-  if (!(await callerOwnsMemoryItem(id))) return { ok: false }
-  const result = await setMemoryItemPinned(id, pinned)
-  if (result.ok) revalidateProfile()
-  return result
+  if (!(await ownsMemoryItemWithClient(synqed, id))) return { ok: false }
+  return setMemoryItemPinned(id, pinned)
 }
 
-export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean }> {
+export async function deleteMemoryItemWithClient(
+  synqed: ScopedClient,
+  id: string,
+): Promise<{ ok: boolean }> {
   if (!id) return { ok: false }
-  if (!(await callerOwnsMemoryItem(id))) return { ok: false }
-  const result = await softDeleteMemoryItem(id)
-  if (result.ok) revalidateProfile()
-  return result
+  if (!(await ownsMemoryItemWithClient(synqed, id))) return { ok: false }
+  return softDeleteMemoryItem(id)
 }
 
+/** Staff edit of a passport field. `businessType` (org-settings) is threaded so
+ *  the allowlist resolves identically on both paths; keys are locale-invariant
+ *  so the JA definition set is canonical. */
+export async function upsertPassportFieldWithClient(
+  synqed: ScopedClient,
+  businessId: string | null,
+  businessType: string | null | undefined,
+  input: { customerId: string; fieldKey: string; value: string },
+): Promise<{ ok: boolean }> {
+  const value = input.value?.trim()
+  if (!input.customerId || !input.fieldKey || !value) return { ok: false }
+  if (!(await ownsCustomerWithClient(synqed, input.customerId))) return { ok: false }
+  const { resolvePassportFields } = await import('@/lib/karute/business-ai-tokens')
+  const allowedKeys = new Set(
+    resolvePassportFields(businessType ?? null, 'ja').map((f) => f.key),
+  )
+  if (!allowedKeys.has(input.fieldKey)) return { ok: false }
+  const result = await upsertPassportField({
+    customerId: input.customerId,
+    businessId,
+    fieldKey: input.fieldKey,
+    value,
+  })
+  return { ok: result.ok }
+}
 
 /**
- * 再学習 — rebuild this customer's AI memory from their transcripts with the
- * CURRENT prompt. Wipes only the AI's own unpinned items (staff-added, pinned,
- * and staff-edited items survive), then re-runs the same backfill the profile
- * page bootstraps with. Existing customers get today's extraction quality on
- * demand instead of waiting for their next session.
+ * 再学習 core — rebuild this customer's AI memory from transcripts with the
+ * CURRENT prompt. Wipes only the AI's own unpinned items, then re-runs the
+ * backfill the profile page bootstraps with. `planAllowed` is resolved by the
+ * caller with ITS identity (web → featureAllowed; facade →
+ * featureAllowedForBusiness) and checked BEFORE the wipe. The wipe→restore
+ * safety (any throw after a non-empty wipe restores) is preserved.
  */
-export async function relearnCustomerMemoryAction(
+export async function relearnCustomerMemoryWithClient(
+  synqed: FullClient,
+  opts: { businessId: string | null; locale: string; planAllowed: boolean },
   customerId: string,
 ): Promise<{ ok: boolean; items: number; locked?: boolean }> {
   if (!customerId) return { ok: false, items: 0 }
-  // Tracked outside the try so the catch can restore too — ANY throw after a
-  // successful wipe (locale lookup, import, network) must not leave the
-  // customer's memory empty.
   let wipedIds: string[] = []
   try {
-    const [{ getSynqedClient }, { listSynqedKaruteRows }, { backfillMemoryFromTranscripts }] =
-      await Promise.all([
-        import('@/lib/synqed/client'),
-        import('@/lib/karute/synqed-records'),
-        import('@/lib/karute/memory-ingest'),
-      ])
-    const synqed = await getSynqedClient()
+    const [{ listSynqedKaruteRows }, { backfillMemoryFromTranscripts }] = await Promise.all([
+      import('@/lib/karute/synqed-records'),
+      import('@/lib/karute/memory-ingest'),
+    ])
     const rows = await listSynqedKaruteRows(synqed, { customerId })
     const transcripts = rows.map((r) => r.transcript ?? '').filter((t) => t.trim())
     if (transcripts.length === 0) return { ok: false, items: 0 }
 
-    // Plan gate (P4): checked BEFORE the wipe — a locked plan must return with
-    // the customer's memory untouched (backfill would silently skip and the
-    // restore path would have to undo an avoidable wipe). `locked` lets the
-    // button show honest upgrade copy instead of a generic failure.
-    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
-    if (!(await featureAllowed('customerMemoryAutoExtract'))) {
-      return { ok: false, items: 0, locked: true }
-    }
+    // Plan gate — BEFORE the wipe (a locked plan leaves memory untouched).
+    if (!opts.planAllowed) return { ok: false, items: 0, locked: true }
 
     const wiped = await softDeleteAiExtractionItems(customerId)
     if (!wiped.ok) return { ok: false, items: 0 }
     wipedIds = wiped.ids
 
-    const businessId = await getBusinessId().catch(() => null)
-    const locale = await getLocale()
-    // Passport (これまで box) regenerates alongside the memory items — same
-    // sources, same tap. Best-effort: a passport failure never fails 再学習.
-    const [{ generateCustomerPassport }, { getCustomer }] = await Promise.all([
+    const [{ generateCustomerPassport }, { getCustomerWithClient }] = await Promise.all([
       import('@/lib/karute/ai-passport'),
       import('@/lib/customers/queries'),
     ])
     const [items, customer] = await Promise.all([
-      backfillMemoryFromTranscripts({ customerId, businessId, transcripts, locale }),
-      getCustomer(customerId).catch(() => null),
+      backfillMemoryFromTranscripts({ customerId, businessId: opts.businessId, transcripts, locale: opts.locale }),
+      getCustomerWithClient(synqed, customerId).catch(() => null),
     ])
-    // Wipe→backfill isn't atomic. backfill is best-effort ([] on any internal
-    // failure), so an empty result after a non-empty wipe means the re-learn
-    // FAILED — restore the wiped items instead of leaving the memory empty.
-    // (Checked BEFORE the passport spends tokens on a failed run.)
     if (items.length === 0 && wipedIds.length > 0) {
       await restoreMemoryItems(wipedIds)
       return { ok: false, items: 0 }
@@ -181,46 +200,89 @@ export async function relearnCustomerMemoryAction(
       customerName: customer?.name ?? '',
       transcripts,
       intakeMemo: memoContent(customer?.notes),
-      locale,
+      locale: opts.locale,
     }).catch(() => null)
-    revalidateProfile()
     return { ok: true, items: items.length }
   } catch (err) {
-    console.error('[relearnCustomerMemoryAction] failed:', err)
+    console.error('[relearnCustomerMemoryWithClient] failed:', err)
     if (wipedIds.length > 0) await restoreMemoryItems(wipedIds).catch(() => {})
     return { ok: false, items: 0 }
   }
 }
 
-/** Staff edit of a passport field — durable human truth (source='staff',
- *  pinned). The AI passport renders underneath but never overrides it. */
+// ── Web server actions (cookie identity → delegate to the cores) ─────────────
+
+export async function addMemoryItemAction(input: {
+  customerId: string
+  category: MemoryItem['category']
+  label: string
+  detail?: string | null
+}): Promise<{ ok: boolean }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const [synqed, businessId] = await Promise.all([getSynqedClient(), getBusinessId().catch(() => null)])
+  const result = await addMemoryItemWithClient(synqed, businessId, input)
+  if (result.ok) revalidateProfile()
+  return result
+}
+
+export async function updateMemoryItemAction(input: {
+  id: string
+  label: string
+  detail?: string | null
+}): Promise<{ ok: boolean }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const result = await updateMemoryItemWithClient(await getSynqedClient(), input)
+  if (result.ok) revalidateProfile()
+  return result
+}
+
+export async function toggleMemoryPinAction(id: string, pinned: boolean): Promise<{ ok: boolean }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const result = await toggleMemoryPinWithClient(await getSynqedClient(), id, pinned)
+  if (result.ok) revalidateProfile()
+  return result
+}
+
+export async function deleteMemoryItemAction(id: string): Promise<{ ok: boolean }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const result = await deleteMemoryItemWithClient(await getSynqedClient(), id)
+  if (result.ok) revalidateProfile()
+  return result
+}
+
+export async function relearnCustomerMemoryAction(
+  customerId: string,
+): Promise<{ ok: boolean; items: number; locked?: boolean }> {
+  const [{ getSynqedClient }, { featureAllowed }] = await Promise.all([
+    import('@/lib/synqed/client'),
+    import('@/lib/subscription/feature-gate'),
+  ])
+  const [synqed, businessId, locale, planAllowed] = await Promise.all([
+    getSynqedClient(),
+    getBusinessId().catch(() => null),
+    getLocale(),
+    featureAllowed('customerMemoryAutoExtract'),
+  ])
+  const result = await relearnCustomerMemoryWithClient(synqed, { businessId, locale, planAllowed }, customerId)
+  if (result.ok) revalidateProfile()
+  return result
+}
+
 export async function upsertPassportFieldAction(input: {
   customerId: string
   fieldKey: string
   value: string
 }): Promise<{ ok: boolean }> {
-  const value = input.value?.trim()
-  if (!input.customerId || !input.fieldKey || !value) return { ok: false }
-  if (!(await callerOwnsCustomer(input.customerId))) return { ok: false }
-  // Only known passport field keys are storable — an arbitrary string would
-  // create orphan rows no UI ever renders. Keys are locale-invariant, so the
-  // JA definition set is the canonical allowlist.
-  const [{ resolvePassportFields }, { getOrgSettings }] = await Promise.all([
-    import('@/lib/karute/business-ai-tokens'),
+  const [{ getSynqedClient }, { getOrgSettings }] = await Promise.all([
+    import('@/lib/synqed/client'),
     import('@/actions/org-settings'),
   ])
-  const orgSettings = await getOrgSettings().catch(() => null)
-  const allowedKeys = new Set(
-    resolvePassportFields(orgSettings?.business_type, 'ja').map((f) => f.key),
-  )
-  if (!allowedKeys.has(input.fieldKey)) return { ok: false }
-  const businessId = await getBusinessId().catch(() => null)
-  const result = await upsertPassportField({
-    customerId: input.customerId,
-    businessId,
-    fieldKey: input.fieldKey,
-    value,
-  })
+  const [synqed, businessId, orgSettings] = await Promise.all([
+    getSynqedClient(),
+    getBusinessId().catch(() => null),
+    getOrgSettings().catch(() => null),
+  ])
+  const result = await upsertPassportFieldWithClient(synqed, businessId, orgSettings?.business_type, input)
   if (result.ok) revalidateProfile()
-  return { ok: result.ok }
+  return result
 }
