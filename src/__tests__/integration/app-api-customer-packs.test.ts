@@ -116,13 +116,13 @@ describe('POST packs/redeem', () => {
     expect(res.status).toBe(201)
     expect(findCustomerAppointmentForDateWithClient).toHaveBeenCalled()
     // The derived appointment reaches the write.
-    expect(addRedemptionWithClient.mock.calls[0][1]).toMatchObject({ appointmentId: 'appt-derived', customerId: 'cust-1' })
+    expect((addRedemptionWithClient.mock.calls[0] as unknown[])[1]).toMatchObject({ appointmentId: 'appt-derived', customerId: 'cust-1' })
   })
   it('explicit appointmentId → derivation NOT invoked', async () => {
     const res = await packRedeem(post(IDEM, { packId: 'pack-1', appointmentId: 'appt-explicit' }), route('cust-1'))
     expect(res.status).toBe(201)
     expect(findCustomerAppointmentForDateWithClient).not.toHaveBeenCalled()
-    expect(addRedemptionWithClient.mock.calls[0][1]).toMatchObject({ appointmentId: 'appt-explicit' })
+    expect((addRedemptionWithClient.mock.calls[0] as unknown[])[1]).toMatchObject({ appointmentId: 'appt-explicit' })
   })
   it('cross-tenant / wrong-customer packId → 404, no write', async () => {
     listCustomerPacksWithClient.mockResolvedValue([{ id: 'pack-1' }]) // pack-evil not present

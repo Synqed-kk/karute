@@ -14,12 +14,15 @@
 // business-scoped client is threaded as the first arg); the money defaulting is
 // what we assert on the forwarded input.
 const mockCreatePack = jest.fn(
-  async (_synqed: unknown, _input: { totalPrice?: number | null }): Promise<{ ok: boolean; id?: string; error?: string }> => ({
-    ok: true,
-    id: 'pack-1',
-  }),
+  async (_synqed: unknown, _input: { totalPrice?: number | null }): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    void _synqed
+    return { ok: true, id: 'pack-1' }
+  },
 )
-const mockListCustomerPacks = jest.fn(async (_synqed: unknown, _customerId: string): Promise<unknown[]> => [])
+const mockListCustomerPacks = jest.fn(async (_synqed: unknown, _customerId: string): Promise<unknown[]> => {
+  void _synqed
+  return []
+})
 
 jest.mock('@/lib/packs/store', () => ({
   createPackWithClient: (synqed: unknown, input: unknown) => mockCreatePack(synqed, input as { totalPrice?: number | null }),

@@ -16,13 +16,16 @@
 // business-scoped client is threaded as the first arg). These tests assert what
 // the action forwards to addRedemptionWithClient; the client arg is opaque here.
 const mockAddRedemption = jest.fn(
-  async (_synqed: unknown, _input: { appointmentId?: string | null }): Promise<{ ok: boolean; id?: string; error?: string }> => ({
-    ok: true,
-    id: 'red-1',
-  }),
+  async (_synqed: unknown, _input: { appointmentId?: string | null }): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    void _synqed
+    return { ok: true, id: 'red-1' }
+  },
 )
 const mockFindCustomerAppointmentForDate = jest.fn(
-  async (_synqed: unknown, _customerId: string, _dateYmd: string): Promise<string | null> => 'a-resolved',
+  async (_synqed: unknown, _customerId: string, _dateYmd: string): Promise<string | null> => {
+    void _synqed
+    return 'a-resolved'
+  },
 )
 
 jest.mock('@/lib/packs/store', () => ({
