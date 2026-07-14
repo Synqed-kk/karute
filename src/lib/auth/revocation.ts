@@ -48,6 +48,9 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.memory.delete',
   'customer.memory.relearn',
   'customer.passport.upsert',
+  'customer.pack.create',
+  'customer.pack.redeem',
+  'customer.lifecycle.set',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

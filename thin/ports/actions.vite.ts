@@ -161,6 +161,67 @@ async function facadeRevokeCustomerConsent(
   return { ok: false, error: body?.error?.message ?? `Revoke failed (${res.status})` }
 }
 
+// -- packs (packet 06 §Build 5) ----------------------------------------------
+// create + redeem are effectful → send an Idempotency-Key (at-least-once). The
+// facade re-derives 購入回数 / 合計金額 / burn pairing server-side, so the port
+// forwards the client's fields verbatim and never derives money or pairing.
+const idemPost = (body?: unknown): RequestInit => ({
+  method: 'POST',
+  headers: {
+    'Idempotency-Key': crypto.randomUUID(),
+    ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+  },
+  ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+})
+
+async function facadeCreatePack(input: {
+  customerId: string
+  kind: string
+  packSize: number
+  unitPrice: number
+  totalPrice?: number | null
+  purchaseRound?: number
+  purchasedAt?: string | null
+  notes?: string | null
+}): Promise<{ ok: boolean; error?: string }> {
+  const { customerId, ...rest } = input
+  const res = await getDataPort().apiFetch(`/api/app/v1/customers/${enc(customerId)}/packs`, idemPost(rest))
+  if (res.ok) return { ok: true }
+  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+  return { ok: false, error: body?.error?.message ?? `Create failed (${res.status})` }
+}
+
+async function facadeRedeemSession(input: {
+  packId: string
+  customerId: string
+  redeemedOn?: string
+  appointmentId?: string | null
+  karuteRecordId?: string | null
+  source?: 'manual' | 'backfill'
+}): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+  const { customerId, ...rest } = input
+  const res = await getDataPort().apiFetch(
+    `/api/app/v1/customers/${enc(customerId)}/packs/redeem`,
+    idemPost(rest),
+  )
+  const body = (await res.json().catch(() => null)) as
+    | { redemptionId?: string; error?: { message?: string } }
+    | null
+  if (res.ok) return { ok: true, redemptionId: body?.redemptionId }
+  return { ok: false, error: body?.error?.message ?? `Redeem failed (${res.status})` }
+}
+
+async function facadeSetLifecycle(input: {
+  customerId: string
+  status: string
+  referral: boolean
+}): Promise<{ ok: boolean }> {
+  return okCall(
+    `/api/app/v1/customers/${enc(input.customerId)}/lifecycle`,
+    jsonInit('POST', { status: input.status, referral: input.referral }),
+  )
+}
+
 // Any name resolves to a loud-throwing async fn (covers dynamic access).
 const proxy = new Proxy(
   {},
@@ -184,14 +245,14 @@ export const getCustomerConsent = notWired('getCustomerConsent')
 export const grantCustomerConsent = notWired('grantCustomerConsent') // grant = batch 5
 export const revokeCustomerConsent = facadeRevokeCustomerConsent
 // -- packs
-export const createPackAction = notWired('createPackAction')
-export const setPackStatusAction = notWired('setPackStatusAction')
-export const redeemSessionAction = notWired('redeemSessionAction')
+export const createPackAction = facadeCreatePack
+export const setPackStatusAction = notWired('setPackStatusAction') // status flip = later batch
+export const redeemSessionAction = facadeRedeemSession
 export const dismissVisitReconcileAction = notWired('dismissVisitReconcileAction')
-export const undoRedemptionAction = notWired('undoRedemptionAction')
+export const undoRedemptionAction = notWired('undoRedemptionAction') // undo = later batch
 export const logCustomerContactAction = notWired('logCustomerContactAction')
 export const dismissPackAlertAction = notWired('dismissPackAlertAction')
-export const setLifecycleAction = notWired('setLifecycleAction')
+export const setLifecycleAction = facadeSetLifecycle
 // -- memory
 export const addMemoryItemAction = facadeAddMemoryItem
 export const updateMemoryItemAction = facadeUpdateMemoryItem

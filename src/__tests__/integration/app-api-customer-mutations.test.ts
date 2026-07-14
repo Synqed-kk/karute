@@ -99,7 +99,9 @@ function bearer(sub = 'auth-user-1') {
   return `${header}.${payload}.${sig}`
 }
 const auth = { authorization: `Bearer ${bearer()}` }
-const route = (p: Record<string, string>) => ({ params: Promise.resolve(p) })
+const route = (p: Record<string, string>): { params: Promise<{ id: string; itemId: string }> } => ({
+  params: Promise.resolve(p as { id: string; itemId: string }),
+})
 const jsonReq = (body: unknown, headers: Record<string, string> = auth) =>
   new Request('https://s/x', { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) })
 
@@ -308,7 +310,8 @@ describe('POST memory/relearn', () => {
 
 // ── OPTIONS preflight (shell origin) on every new route ──────────────────────
 describe('OPTIONS preflight — shell-origin CORS, no auth', () => {
-  const handlers: Array<[string, (req: Request, r?: unknown) => Promise<Response>]> = [
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- handlers differ in Params generic; any sidesteps the variance
+  const handlers: Array<[string, (req: Request, r: any) => Promise<Response>]> = [
     ['consent/revoke', consentOptions],
     ['photos', photoOptions],
     ['memory', memoryOptions],

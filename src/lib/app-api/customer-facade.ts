@@ -31,6 +31,22 @@ export async function proveMemoryItemInBusiness(synqed: ScopedClient, itemId: st
   return customerId
 }
 
+/** Prove a pack belongs to this customer (whose tenancy is proven separately) →
+ *  a clean 404 on a cross-tenant or wrong-customer packId BEFORE any redemption.
+ *  The business-scoped client only lists THIS business's packs for the customer,
+ *  so a packId absent from that list is not reachable here. */
+export async function provePackForCustomer(
+  synqed: Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'packs'>,
+  customerId: string,
+  packId: string,
+): Promise<void> {
+  const { listCustomerPacksWithClient } = await import('@/lib/packs/store')
+  const packs = await listCustomerPacksWithClient(synqed, customerId)
+  if (!packs.some((p) => p.id === packId)) {
+    throw new AppApiError('not_found', 'pack not found for this customer')
+  }
+}
+
 /** Require an Idempotency-Key on an effectful POST (contract §8). Presence is
  *  enforced here so a client can't omit it; de-duplication itself is a
  *  backend/store concern (Anthony) not yet built, so the current guarantee is
