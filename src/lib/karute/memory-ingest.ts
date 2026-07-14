@@ -66,8 +66,13 @@ export async function backfillMemoryFromTranscripts(params: {
     // Plan gate (P4): same key + same silent-skip contract as
     // ingestSessionMemory above. 再学習's user-facing "locked" copy is handled
     // by its action checking BEFORE the wipe — by the time this runs, allowed.
-    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
-    if (!(await featureAllowed('customerMemoryAutoExtract'))) return []
+    // Identity-threaded when a businessId is present (packet 08 Decision 1 — the
+    // facade brief has no cookie); the cookie path is unchanged for web callers.
+    const { featureAllowed, featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
+    const gateOk = businessId
+      ? await featureAllowedForBusiness(businessId, 'customerMemoryAutoExtract')
+      : await featureAllowed('customerMemoryAutoExtract')
+    if (!gateOk) return []
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
       await Promise.all([
         import('@/actions/org-settings'),

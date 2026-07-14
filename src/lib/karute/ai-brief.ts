@@ -4,7 +4,8 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { openai } from '@/lib/openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { getOrgSettings } from '@/actions/org-settings'
+import { getOrgSettings, orgSettingsWithClient, type OrgSettings } from '@/actions/org-settings'
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   getBusinessAiPersona,
   resolvePersonaTokens,
@@ -155,7 +156,7 @@ export interface PreSessionBriefResult extends PreSessionBrief {
  * 可動域/体組成). Cached 1 day per (customer, memo, locale). Returns null on any
  * failure so the caller falls back to the mechanical brief — never blocks the page.
  */
-export async function getAiPreSessionBrief(params: {
+interface BriefParams {
   customerId: string
   customerName: string
   visitCount: number
@@ -163,7 +164,38 @@ export async function getAiPreSessionBrief(params: {
   reservationMemo: string | null
   locale: string
   now: Date
-}): Promise<PreSessionBriefResult | null> {
+}
+
+/** Web (cookie) entry — resolves org-settings via the cookie path; the backfill
+ *  memory-write side-effect gates via the cookie featureAllowed. */
+export async function getAiPreSessionBrief(
+  params: BriefParams,
+): Promise<PreSessionBriefResult | null> {
+  return computeAiPreSessionBrief(params, () => getOrgSettings().catch(() => null))
+}
+
+/** Facade (Bearer) entry — identity-threaded org-settings on the business-scoped
+ *  client (packet 08 Decision 1). Same generator core; the memory backfill's
+ *  customerMemoryAutoExtract gate goes business-threaded (never a cookie). The
+ *  memory READ/WRITE store is keyed by customerId (service client), so the proven
+ *  customer is its tenancy anchor — no cookie consulted. */
+export async function getAiPreSessionBriefWithClient(
+  synqed: Pick<SynqedClient, 'orgSettings'>,
+  businessId: string,
+  params: BriefParams,
+): Promise<PreSessionBriefResult | null> {
+  return computeAiPreSessionBrief(
+    params,
+    () => orgSettingsWithClient(synqed).catch(() => null),
+    businessId,
+  )
+}
+
+async function computeAiPreSessionBrief(
+  params: BriefParams,
+  resolveOrgSettings: () => Promise<OrgSettings | null>,
+  businessId?: string,
+): Promise<PreSessionBriefResult | null> {
   const { customerId, customerName, visitCount, records, reservationMemo, locale, now } = params
 
   // First visit = no prior karute AND no prior visits anywhere (QR visit_count).
@@ -181,7 +213,7 @@ export async function getAiPreSessionBrief(params: {
   try {
     if (!process.env.OPENAI_API_KEY) return null
 
-    const orgSettings = await getOrgSettings().catch(() => null)
+    const orgSettings = await resolveOrgSettings()
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const tok = resolvePersonaTokens(persona, locale)
 
@@ -193,6 +225,7 @@ export async function getAiPreSessionBrief(params: {
     if (memory.length === 0 && records.some((r) => r.transcript)) {
       memory = await backfillMemoryFromTranscripts({
         customerId,
+        businessId,
         transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
         locale,
       })
