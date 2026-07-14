@@ -50,7 +50,6 @@ export function KaruteDetailView({
   customerId,
   header,
   sessionDateLong,
-  sessionDateIso,
   entries,
   summaryBullets,
   transcript,
@@ -105,12 +104,7 @@ export function KaruteDetailView({
             entries={entries}
             headerAction={
               transcript ? (
-                <RegenerateEntriesButton
-                  karuteRecordId={karuteId}
-                  transcript={transcript}
-                  customerName={header.customerName}
-                  sessionDate={sessionDateIso}
-                />
+                <RegenerateEntriesButton karuteRecordId={karuteId} />
               ) : null
             }
           />

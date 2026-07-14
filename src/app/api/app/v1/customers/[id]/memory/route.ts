@@ -19,8 +19,10 @@ type Params = { id: string }
 const AddMemorySchema = z
   .object({
     category: z.enum(['personal', 'body', 'preference', 'goal', 'lifestyle']),
-    label: z.string().min(1),
-    detail: z.string().nullable().optional(),
+    // F8 hygiene (packet 07 §Build 3): length caps consistent with
+    // PartialCustomerSchema (label-class → 100, free text → 4000).
+    label: z.string().min(1).max(100),
+    detail: z.string().max(4000).nullable().optional(),
   })
   .strict()
 

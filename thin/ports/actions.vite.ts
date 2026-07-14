@@ -221,6 +221,55 @@ async function facadeSetLifecycle(input: {
   )
 }
 
+// -- session detail: outcome + regenerate (packet 07 Decision 2 + §Build 3) ----
+// The web updateKaruteOutcome takes (karuteRecordId, customerId, outcome), but the
+// facade DERIVES customerId server-side from the karute record (never trusts the
+// client) — so the port drops the customerId arg and forwards only the outcome.
+async function facadeUpdateKaruteOutcome(
+  karuteRecordId: string,
+  _customerId: string,
+  outcome: { status: string; reason?: string | null; isFirstVisit?: boolean },
+): Promise<{ error?: string }> {
+  void _customerId // path is karuteRecordId; customerId is server-derived
+  const res = await getDataPort().apiFetch(
+    `/api/app/v1/karute/${enc(karuteRecordId)}/outcome`,
+    jsonInit('POST', {
+      status: outcome.status,
+      reason: outcome.reason ?? null,
+      isFirstVisit: outcome.isFirstVisit,
+    }),
+  )
+  if (res.ok) return {}
+  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+  return { error: body?.error?.message ?? `Update failed (${res.status})` }
+}
+
+// Effectful + expensive → Idempotency-Key (at-least-once). The whole extract →
+// summarize → apply runs server-side; the client sends only the id. Returns the
+// button's RegenerateResult shape — a non-2xx (403 ACL / 429 rate-limit / 404) is
+// mapped to { error } so the button toasts it exactly like the web action does.
+async function facadeRegenerateKarute(
+  karuteRecordId: string,
+): Promise<{ error?: string; warning?: string; added?: number; removed?: number }> {
+  const res = await getDataPort().apiFetch(
+    `/api/app/v1/karute/${enc(karuteRecordId)}/regenerate`,
+    { method: 'POST', headers: { 'Idempotency-Key': crypto.randomUUID() } },
+  )
+  const body = (await res.json().catch(() => null)) as
+    | { error?: unknown; warning?: string; added?: number; removed?: number }
+    | null
+  if (!res.ok) {
+    const message = (body as { error?: { message?: string } } | null)?.error?.message
+    return { error: message ?? `Regenerate failed (${res.status})` }
+  }
+  return {
+    error: typeof body?.error === 'string' ? body.error : undefined,
+    warning: body?.warning,
+    added: body?.added,
+    removed: body?.removed,
+  }
+}
+
 // Any name resolves to a loud-throwing async fn (covers dynamic access).
 const proxy = new Proxy(
   {},
@@ -270,7 +319,12 @@ export const createManualKaruteRecord = async (): Promise<{ error: string }> => 
     '[thin] createManualKaruteRecord is not wired to a facade endpoint yet ' +
     '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
 })
-// -- regenerate-karute
+// -- karute-outcome (packet 07 §Build 3)
+export const updateKaruteOutcome = facadeUpdateKaruteOutcome
+// -- regenerate-karute (packet 07 Decision 2). regenerateKarute is the new
+//    server-side orchestration; the entries/summary cores + the bulk backfill
+//    tool stay web-internal (notWired — Decision 2 pre-ruling).
+export const regenerateKarute = facadeRegenerateKarute
 // Capability READ, not a mutation: false = the dev-regen button never renders
 // in thin (dev tools are owner web-only; mirrors the action's own fail-closed
 // catch). NOT notWired — a throw here would break profile/memory render paths

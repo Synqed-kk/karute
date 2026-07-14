@@ -51,6 +51,11 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.pack.create',
   'customer.pack.redeem',
   'customer.lifecycle.set',
+  // session-detail mutations (packet 07 batch 4 — recording-privacy + AI-on-PII).
+  // regenerate reads the raw transcript + runs the LLM; outcome upserts the
+  // coaching label. Both re-check revocation (no local fast-path).
+  'karute.regenerate',
+  'karute.outcome.set',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */
