@@ -23,9 +23,12 @@ import type { CustomerProfileData } from '../types'
 
 interface Props {
   customer: CustomerProfileData
+  /** Optional pre-loaded staff roster (thin app threads it from the screen
+   *  DTO); omitted on web → CustomerForm self-fetches. */
+  assignableStaff?: { id: string; name: string }[]
 }
 
-export function CustomerEditDialog({ customer }: Props) {
+export function CustomerEditDialog({ customer, assignableStaff }: Props) {
   const t = useTranslations('customers.profile')
   const tCustomers = useTranslations('customers')
   const [open, setOpen] = useState(false)
@@ -77,6 +80,7 @@ export function CustomerEditDialog({ customer }: Props) {
                 }
               : null
           }
+          assignableStaff={assignableStaff}
           onSuccess={handleSuccess}
           onCancel={() => setOpen(false)}
         />
