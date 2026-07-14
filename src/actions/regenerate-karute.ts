@@ -1,9 +1,26 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { getLocale } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { requireCapability } from '@/lib/auth/require-permission'
+import { requireCapability, can } from '@/lib/auth/require-permission'
+import { getCurrentUserStaffId } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
+import { readKaruteRaw } from '@/lib/app-api/karute-facade'
+import { canViewTranscript } from '@/lib/auth/recording-acl'
+import {
+  enforceAiRateLimitWithClient,
+  reportAiUsageWithClient,
+} from '@/lib/ai-rate-limit'
+import { runKaruteExtraction } from '@/lib/ai/karute-extract'
+import { runKaruteSummary } from '@/lib/ai/karute-summarize'
+import { orgSettingsWithClient } from '@/actions/org-settings'
 import type { Entry } from '@/types/ai'
+
+type SynqedRecordsClient = Pick<
+  Awaited<ReturnType<typeof getSynqedClient>>,
+  'karuteRecords' | 'customers' | 'aiRateLimit' | 'orgSettings'
+>
 
 type SynqedCategory =
   | 'SYMPTOM'
@@ -55,7 +72,13 @@ export interface RegenerateResult {
  *     synqed-authoritative — so a successful regenerate always reflects the
  *     change on the detail page.
  */
-export async function regenerateKaruteEntries(
+/** Integrity CORE (packet 07 Decision 2) — the add-then-delete rollback dance on
+ *  an EXPLICIT business-scoped client, shared by the cookie web action and the
+ *  server-side regenerate orchestration. NO capability check (the caller gates)
+ *  and NO revalidatePath (the caller revalidates). The rollback is carried
+ *  VERBATIM — it survived an adversarial review; do not redesign it. */
+export async function regenerateKaruteEntriesWithClient(
+  synqed: SynqedRecordsClient,
   karuteRecordId: string,
   newEntries: Entry[],
 ): Promise<RegenerateResult> {
@@ -66,12 +89,6 @@ export async function regenerateKaruteEntries(
   }
 
   try {
-    // Re-writing a record's AI entries = records.write. Thrown → caught below →
-    // house { error } shape the RegenerateEntriesButton already surfaces.
-    await requireCapability('records.write')
-
-    const synqed = await getSynqedClient()
-
     // 1. Snapshot existing entry ids BEFORE mutating (authoritative server read,
     //    not trusting any client-passed ids).
     const before = (await synqed.karuteRecords.get(karuteRecordId)) as
@@ -137,7 +154,6 @@ export async function regenerateKaruteEntries(
       }
     }
 
-    revalidatePath('/[locale]/(app)/karute/[id]', 'page')
     return {
       added: addedIds.length,
       removed,
@@ -147,6 +163,25 @@ export async function regenerateKaruteEntries(
         ? { warning: `${deleteFailures} old row(s) could not be removed — re-run to finish cleanup.` }
         : {}),
     }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** Cookie web wrapper — records.write gate + business-scoped client + revalidate,
+ *  then the shared integrity core. Web callers keep the same signature/behavior. */
+export async function regenerateKaruteEntries(
+  karuteRecordId: string,
+  newEntries: Entry[],
+): Promise<RegenerateResult> {
+  try {
+    // Re-writing a record's AI entries = records.write. Thrown → caught below →
+    // house { error } shape the RegenerateEntriesButton already surfaces.
+    await requireCapability('records.write')
+    const synqed = await getSynqedClient()
+    const result = await regenerateKaruteEntriesWithClient(synqed, karuteRecordId, newEntries)
+    revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
@@ -162,7 +197,11 @@ export async function regenerateKaruteEntries(
  * exactly as the recording flow stores it. A single-field update — idempotent, no
  * rollback needed (unlike the add/delete entry dance).
  */
-export async function updateKaruteSummary(
+/** Summary-update CORE on an EXPLICIT client (shared by the cookie wrapper + the
+ *  regenerate orchestration). Single-field, idempotent, no rollback; no cap check
+ *  and no revalidate (the caller owns both). */
+export async function updateKaruteSummaryWithClient(
+  synqed: SynqedRecordsClient,
   karuteRecordId: string,
   summary: string,
 ): Promise<{ ok: true } | { error: string }> {
@@ -172,15 +211,155 @@ export async function updateKaruteSummary(
     return { error: 'No new summary to write — keeping the existing one.' }
   }
   try {
+    await synqed.karuteRecords.update(karuteRecordId, { ai_summary: summary })
+    return { ok: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+export async function updateKaruteSummary(
+  karuteRecordId: string,
+  summary: string,
+): Promise<{ ok: true } | { error: string }> {
+  try {
     // Replacing a record's AI summary = records.write. Thrown → caught below →
     // house { error } shape.
     await requireCapability('records.write')
-
     const synqed = await getSynqedClient()
-    await synqed.karuteRecords.update(karuteRecordId, { ai_summary: summary })
+    const result = await updateKaruteSummaryWithClient(synqed, karuteRecordId, summary)
     revalidatePath('/[locale]/(app)/karute/[id]', 'page')
-    return { ok: true }
+    return result
   } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Server-side regenerate orchestration (packet 07 Decision 2) — the SINGLE source
+ * for BOTH worlds. Client sends NOTHING but the id; this reads the authoritative
+ * transcript, enforces the recording-privacy ACL server-side (a viewer who can't
+ * see the transcript can't regenerate — it reads the same raw text), consumes the
+ * AI rate limit through the shared client-threaded accounting, runs the extract +
+ * summarize cores in parallel, and applies via the integrity cores (entries
+ * add-then-delete rollback; summary best-effort). Prompt anchors (customerName /
+ * sessionDate) are DERIVED server-side — never client-supplied.
+ *
+ * Throws AppApiError for tenancy (not_found), ACL (forbidden), and rate limit
+ * (rate_limited) so the facade maps a status; returns the button's RegenerateResult
+ * shape ({error|warning|added|removed}) for the normal + soft-failure flow.
+ */
+export async function regenerateKaruteWithClient(
+  synqed: SynqedRecordsClient,
+  params: {
+    karuteRecordId: string
+    viewerStaffId: string | null
+    canViewAll: boolean
+    locale: string
+  },
+): Promise<RegenerateResult> {
+  const { karuteRecordId, viewerStaffId, canViewAll, locale } = params
+
+  // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
+  const record = await readKaruteRaw(synqed, karuteRecordId)
+  const transcript = (record.transcript as string | null) ?? null
+  if (!transcript || !transcript.trim()) {
+    return { error: 'No transcript to regenerate from.' }
+  }
+
+  // Recording-privacy ACL server-gate (#4): withholding the transcript also
+  // withholds the regenerate — it reads the same raw text. Fail closed.
+  const ownerStaffId = (record.staff_id as string | null) ?? null
+  if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll })) {
+    throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
+  }
+
+  // Cost guard BEFORE the LLM calls — ONE shared accounting path (extract +
+  // summarize both bill at gpt-4o). A cap hit throws rate_limited (→ 429).
+  await enforceAiRateLimitWithClient(synqed, 'extract')
+  await enforceAiRateLimitWithClient(synqed, 'summarize')
+
+  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+  const businessType = orgSettings?.business_type
+  const sessionDate = (record.created_at as string | null)?.slice(0, 10) ?? null
+  // Server-derived name anchor (best-effort) — never client-supplied.
+  const clientId = (record.customer_id as string | null) ?? null
+  const customerName = clientId
+    ? await synqed.customers.get(clientId).then((c) => c.name ?? null).catch(() => null)
+    : null
+
+  let entries: Entry[]
+  let summaryText: string | null = null
+  // Summary is best-effort — a summarize failure never fails the whole run, but
+  // it IS surfaced as a soft warning (entries still get applied).
+  let summaryFailed = false
+  try {
+    const [extract, summary] = await Promise.all([
+      runKaruteExtraction({ transcript, locale, customerName, sessionDate, businessType }),
+      runKaruteSummary({ transcript, locale, customerName, sessionDate, businessType }).catch(
+        () => {
+          summaryFailed = true
+          return null
+        },
+      ),
+    ])
+    if (extract.usage) {
+      void reportAiUsageWithClient(synqed, 'extract', extract.usage.tokensIn, extract.usage.tokensOut)
+    }
+    if (summary?.usage) {
+      void reportAiUsageWithClient(synqed, 'summarize', summary.usage.tokensIn, summary.usage.tokensOut)
+    }
+    entries = extract.result.entries
+    summaryText = summary?.result.summary ?? null
+  } catch (err) {
+    // Extract failure → NO write, old entries intact.
+    return {
+      error: `Could not regenerate (${err instanceof Error ? err.message : 'unknown'}). No changes applied.`,
+    }
+  }
+
+  if (entries.length === 0) {
+    // Nothing extracted → NO delete, old entries kept.
+    return { error: 'No entries extracted — keeping the existing record.' }
+  }
+
+  const result = await regenerateKaruteEntriesWithClient(synqed, karuteRecordId, entries)
+  if (result.error) return result // hard failure, already rolled back
+
+  // Entries are applied — a summary miss (LLM or write) is a soft warning, not a
+  // failure of the whole run.
+  if (summaryText && summaryText.trim()) {
+    const sum = await updateKaruteSummaryWithClient(synqed, karuteRecordId, summaryText)
+    if ('error' in sum) summaryFailed = true
+  }
+  if (summaryFailed) {
+    return { ...result, warning: result.warning ?? 'summary_update_failed' }
+  }
+  return result
+}
+
+/** Cookie web action (packet 07 Decision 2) — resolves the caller's identity
+ *  server-side and runs the shared orchestration. Replaces the button's old
+ *  client-orchestrated extract+summarize+apply round-trip. */
+export async function regenerateKarute(karuteRecordId: string): Promise<RegenerateResult> {
+  try {
+    await requireCapability('records.write')
+    const synqed = await getSynqedClient()
+    const [viewerStaffId, canViewAll, locale] = await Promise.all([
+      getCurrentUserStaffId(),
+      can('recordings.viewAll'),
+      getLocale(),
+    ])
+    const result = await regenerateKaruteWithClient(synqed, {
+      karuteRecordId,
+      viewerStaffId,
+      canViewAll,
+      locale,
+    })
+    revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    return result
+  } catch (err) {
+    if (err instanceof AppApiError) return { error: err.message }
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }

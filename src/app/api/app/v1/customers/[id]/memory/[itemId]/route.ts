@@ -24,8 +24,9 @@ type Params = { id: string; itemId: string }
 // and `detail` only travels WITH a label (the edit model updates them together).
 const PatchMemorySchema = z
   .object({
-    label: z.string().min(1).optional(),
-    detail: z.string().nullable().optional(),
+    // F8 hygiene (packet 07 §Build 3): caps consistent with PartialCustomerSchema.
+    label: z.string().min(1).max(100).optional(),
+    detail: z.string().max(4000).nullable().optional(),
     pinned: z.boolean().optional(),
   })
   .strict()
