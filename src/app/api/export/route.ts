@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { can } from '@/lib/auth/require-permission'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listCustomers } from '@/lib/customers/queries'
 import { SCOPES, isWired, type ScopeKey, type FormatKey } from '@/lib/export/scopes'
 
@@ -46,8 +47,26 @@ export async function GET(request: Request) {
     )
   }
 
+  // Store clamp (#465 family): a branch-restricted staff's export must not
+  // leave their store lens. viewAll / floating staff keep the business-wide
+  // export — data portability is their entitlement, same convention as
+  // customer search (list-all.ts). Fail CLOSED: unresolved scope = no export,
+  // never a business-wide one.
+  let storeId: string | undefined
+  try {
+    const storeScope = await resolveStoreScope()
+    storeId = storeScope.allowedStoreIds
+      ? (storeScope.storeId ?? undefined)
+      : undefined
+  } catch {
+    return NextResponse.json(
+      { error: 'Could not resolve your store scope.' },
+      { status: 403 },
+    )
+  }
+
   if (scope === 'customers') {
-    return exportCustomers({ columns, format, privacy })
+    return exportCustomers({ columns, format, privacy, storeId })
   }
 
   return NextResponse.json({ error: 'Unsupported scope' }, { status: 400 })
@@ -57,10 +76,12 @@ async function exportCustomers({
   columns,
   format,
   privacy,
+  storeId,
 }: {
   columns: string[]
   format: FormatKey
   privacy: boolean
+  storeId?: string
 }) {
   const rows: Record<string, unknown>[] = []
   let page = 1
@@ -70,6 +91,7 @@ async function exportCustomers({
       pageSize: MAX_PAGE_SIZE,
       sortBy: 'updated_at',
       sortOrder: 'desc',
+      storeId,
     })
     for (const c of customers) {
       const row: Record<string, unknown> = {

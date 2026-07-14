@@ -21,13 +21,22 @@ jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => tru
 jest.mock('@/lib/customers/queries', () => ({
   listCustomers: jest.fn(async () => ({ customers: [], totalPages: 1 })),
 }))
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: 'store-primary',
+    viewAll: true,
+    allowedStoreIds: null,
+  })),
+}))
 
 import { GET } from '@/app/api/export/route'
 import { can as canImport } from '@/lib/auth/require-permission'
 import { listCustomers as listCustomersImport } from '@/lib/customers/queries'
+import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 
 const can = canImport as jest.Mock
 const listCustomers = listCustomersImport as jest.Mock
+const resolveStoreScope = resolveStoreScopeImport as jest.Mock
 
 function req(qs = 'scope=customers&format=json&columns=customer_id,name') {
   return new Request(`http://localhost/api/export?${qs}`)
@@ -36,6 +45,11 @@ function req(qs = 'scope=customers&format=json&columns=customer_id,name') {
 beforeEach(() => {
   jest.clearAllMocks()
   can.mockImplementation(async () => true)
+  resolveStoreScope.mockImplementation(async () => ({
+    storeId: 'store-primary',
+    viewAll: true,
+    allowedStoreIds: null,
+  }))
 })
 
 describe('GET /api/export — data.export enforcement', () => {
@@ -67,5 +81,50 @@ describe('GET /api/export — data.export enforcement', () => {
     const res = await GET(req())
     expect(res.status).toBe(401)
     expect(can).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/export — store clamp (#465 family)', () => {
+  it('clamps a branch-restricted staff to their store lens', async () => {
+    resolveStoreScope.mockImplementation(async () => ({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    }))
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect(listCustomers).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: 'store-ginza' }),
+    )
+  })
+
+  it('keeps the business-wide export for viewAll staff', async () => {
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect(listCustomers).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: undefined }),
+    )
+  })
+
+  it('keeps the business-wide export for floating staff (no store assignment)', async () => {
+    resolveStoreScope.mockImplementation(async () => ({
+      storeId: 'store-primary',
+      viewAll: false,
+      allowedStoreIds: null,
+    }))
+    const res = await GET(req())
+    expect(res.status).toBe(200)
+    expect(listCustomers).toHaveBeenCalledWith(
+      expect.objectContaining({ storeId: undefined }),
+    )
+  })
+
+  it('fails CLOSED when scope resolution throws — 403, no rows read', async () => {
+    resolveStoreScope.mockImplementation(async () => {
+      throw new Error('scope lookup failed')
+    })
+    const res = await GET(req())
+    expect(res.status).toBe(403)
+    expect(listCustomers).not.toHaveBeenCalled()
   })
 })

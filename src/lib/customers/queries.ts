@@ -16,6 +16,9 @@ export interface ListCustomersOptions {
   sortOrder?: 'asc' | 'desc'
   staffId?: string
   customerType?: string
+  /** Store lens (#465 family). Pass resolveStoreScope().storeId — never a raw
+   *  cookie. When set, the read is server-filtered to that store. */
+  storeId?: string
 }
 
 export interface ListCustomersResult {
@@ -34,6 +37,7 @@ interface FetchArgs {
   pageSize: number
   sortBy: 'name' | 'created_at' | 'updated_at'
   sortOrder: 'asc' | 'desc'
+  storeId?: string
 }
 
 async function fetchCustomers(
@@ -48,6 +52,7 @@ async function fetchCustomers(
   const client = new SynqedClient({ baseUrl, apiKey, businessId })
   const result = await client.customers.list({
     search: args.search,
+    store_id: args.storeId,
     page: args.page,
     page_size: args.pageSize,
     sort_by: args.sortBy,
@@ -95,12 +100,16 @@ export async function listCustomers({
   pageSize = 10,
   sortBy = 'updated_at',
   sortOrder = 'desc',
+  storeId,
 }: ListCustomersOptions = {}): Promise<ListCustomersResult> {
   const isLanding =
     !query?.trim() &&
     page === 1 &&
     sortBy === 'updated_at' &&
-    sortOrder === 'desc'
+    sortOrder === 'desc' &&
+    // The landing cache is keyed business-wide; a store-lensed read must never
+    // be served from (or poison) it.
+    !storeId
 
   if (isLanding) {
     const businessId = await getBusinessId()
@@ -117,6 +126,7 @@ export async function listCustomers({
     pageSize,
     sortBy: sortBy as 'name' | 'created_at' | 'updated_at',
     sortOrder,
+    storeId,
   })
 }
 
