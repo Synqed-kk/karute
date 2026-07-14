@@ -22,12 +22,15 @@ jest.mock('next-intl/server', () => ({
     return t
   },
 }))
+const mockStaffList = jest.fn(async () => [
+  { id: 'auth-user-1', full_name: '佐藤 美咲' },
+  { id: 'staff-2', full_name: '田中 太郎' },
+])
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
-  staffListByBusiness: jest.fn(async () => [
-    { id: 'auth-user-1', full_name: '佐藤 美咲' },
-    { id: 'staff-2', full_name: '田中 太郎' },
-  ]),
+  // Carry-forward from batch 2 (reviewer F-BATCH1): the route now uses the
+  // THROWING variant so a staff read failure is a 502, never a degraded 200.
+  staffListByBusinessOrThrow: (...a: unknown[]) => mockStaffList(...(a as [])),
 }))
 const mockCapabilities = jest.fn(async () => new Set(['customers.view', 'stores.viewAll']))
 jest.mock('@/lib/auth/require-permission', () => {
@@ -226,6 +229,13 @@ describe('authn / validation / failure contract', () => {
 
   it('packs failure → 502 (throwing WithClient variant, no silent empty)', async () => {
     listActivePacks.mockRejectedValueOnce(new Error('packs down'))
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+
+  it('staff read failure → 502, never a degraded 200 (carry-forward F-BATCH1)', async () => {
+    mockStaffList.mockRejectedValueOnce(new Error('roster down'))
     const res = await GET(req({ headers: auth }), route)
     expect(res.status).toBe(502)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
