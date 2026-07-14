@@ -24,6 +24,23 @@ import {
   type EntitlementFeature,
 } from '@/lib/subscription/gating'
 
+/** Entitlement gate for an EXPLICIT business id — the identity seam shared by the
+ *  cookie path (featureAllowed) and the facade Bearer path (businessId from the
+ *  verified token, no cookie). Same fail-open posture. */
+export async function featureAllowedForBusiness(
+  businessId: string,
+  feature: EntitlementFeature,
+): Promise<boolean> {
+  if (!billingEnforced()) return true
+  try {
+    const ent = await loadEntitlement(businessId)
+    if (!ent.enforced || ent.degraded) return true
+    return entitlementHasFeature(ent, feature)
+  } catch {
+    return true
+  }
+}
+
 export async function featureAllowed(
   feature: EntitlementFeature,
 ): Promise<boolean> {
@@ -32,10 +49,7 @@ export async function featureAllowed(
   // finding: 3 backend calls per AI request that decided nothing).
   if (!billingEnforced()) return true
   try {
-    const businessId = await getBusinessId()
-    const ent = await loadEntitlement(businessId)
-    if (!ent.enforced || ent.degraded) return true
-    return entitlementHasFeature(ent, feature)
+    return await featureAllowedForBusiness(await getBusinessId(), feature)
   } catch {
     return true
   }
