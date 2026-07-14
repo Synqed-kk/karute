@@ -47,17 +47,17 @@ export async function GET(request: Request) {
     )
   }
 
-  // Store clamp (#465 family): a branch-restricted staff's export must not
-  // leave their store lens. viewAll / floating staff keep the business-wide
-  // export — data portability is their entitlement, same convention as
-  // customer search (list-all.ts). Fail CLOSED: unresolved scope = no export,
-  // never a business-wide one.
+  // Store clamp (#465 family): only stores.viewAll (owner / manager / SV) gets
+  // the business-wide export. Everyone else — restricted AND floating staff —
+  // clamps to their resolved store lens. Deliberately STRICTER than the
+  // customer-search convention (floating = every store): getStaffStores
+  // swallows lookup failures to [], which reads as floating, and a transient
+  // lookup error must not widen a bulk-PII export to the whole business
+  // (Greptile P1 on this PR). Fail CLOSED: unresolved scope = no export.
   let storeId: string | undefined
   try {
     const storeScope = await resolveStoreScope()
-    storeId = storeScope.allowedStoreIds
-      ? (storeScope.storeId ?? undefined)
-      : undefined
+    storeId = storeScope.viewAll ? undefined : (storeScope.storeId ?? undefined)
   } catch {
     return NextResponse.json(
       { error: 'Could not resolve your store scope.' },

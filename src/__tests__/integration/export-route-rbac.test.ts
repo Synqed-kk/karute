@@ -106,7 +106,7 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     )
   })
 
-  it('keeps the business-wide export for floating staff (no store assignment)', async () => {
+  it('clamps floating staff (no store assignment) to their resolved lens — a swallowed staff-store lookup failure must not widen a bulk-PII export', async () => {
     resolveStoreScope.mockImplementation(async () => ({
       storeId: 'store-primary',
       viewAll: false,
@@ -115,7 +115,7 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
     expect(listCustomers).toHaveBeenCalledWith(
-      expect.objectContaining({ storeId: undefined }),
+      expect.objectContaining({ storeId: 'store-primary' }),
     )
   })
 

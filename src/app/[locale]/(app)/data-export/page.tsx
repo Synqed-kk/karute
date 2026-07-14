@@ -12,14 +12,15 @@ export default async function DataExportPage({
   const { locale } = await params
   const supabase = await createClient()
 
-  // Store clamp (#465 family), matching /api/export: a branch-restricted
-  // staff's counts stay inside their store lens; viewAll / floating staff see
-  // business-wide totals. Fail CLOSED: unresolved scope → zero counts, never
-  // business-wide ones.
+  // Store clamp (#465 family), matching /api/export: only viewAll sees
+  // business-wide totals; restricted AND floating staff see their store lens
+  // (see the route for why floating clamps here — Greptile P1). Fail CLOSED:
+  // unresolved scope → zero counts, never business-wide ones.
   const storeScope = await resolveStoreScope().catch(() => null)
-  const storeId = storeScope?.allowedStoreIds
-    ? (storeScope.storeId ?? undefined)
-    : undefined
+  const storeId =
+    storeScope && !storeScope.viewAll
+      ? (storeScope.storeId ?? undefined)
+      : undefined
   const scopeFailed = storeScope === null
 
   const synqedPromise = getSynqedClient()
