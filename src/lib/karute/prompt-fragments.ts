@@ -16,7 +16,7 @@
 
 /** Bump on ANY behavioral prompt change. Included in ai-cache keys and logs so
  *  output can always be traced to the prompt that produced it. */
-export const KARUTE_PROMPT_VERSION = 'v3.3-2026-07-09'
+export const KARUTE_PROMPT_VERSION = 'v3.4-2026-07-15'
 
 export interface PromptContext {
   /** Customer's display name — anchors WHO-decisions and lets the model reject
