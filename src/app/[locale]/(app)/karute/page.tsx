@@ -3,7 +3,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { assignStaffColors } from '@/lib/staff-colors'
 import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import {
   assignSequentialKaruteNumbers,
   deriveFamilyInitials,
@@ -124,14 +124,23 @@ export default async function KaruteRecordsListPage() {
   // 200-cap; there's no longer a Supabase side to union in.
   const records = mergeKaruteRows<RecordRow>([], synqedKaruteRows)
 
-  // Build lookup maps
+  // Build lookup maps — name resolution stays BUSINESS-WIDE so a record
+  // written by another branch's staff still shows their name, but the 担当
+  // picker below only offers staff assigned to the active store (or floating
+  // staff) — the full roster was leaking every branch's staff names into
+  // every store's dropdown.
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
   )
-  // DISTINCT staff colors over the FULL roster — identical map on every
-  // surface, no per-id hash collisions. Resolved into staffColorKey on each
-  // row below so KaruteListRow can render via getStaffColorByKey.
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
+  const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
+  const visibleStaff = storeStaffIds
+    ? staffList.filter((s) => storeStaffIds.has(s.id))
+    : staffList
+  // DISTINCT staff colors over the VISIBLE roster — the same list feeds the
+  // selector (which derives its own colors from it), so chip and row-stripe
+  // colors agree. An out-of-store staff's old rows fall back to the neutral
+  // color via getStaffColorByKey.
+  const staffColors = assignStaffColors(visibleStaff.map((s) => s.id))
   const customerById = new Map(
     allCustomersList.customers.map((c) => [c.id, c]),
   )
@@ -315,12 +324,18 @@ export default async function KaruteRecordsListPage() {
       items={items}
       monthCount={monthCount}
       placeholders={placeholders}
-      staffList={staffList.map((s) => ({
+      staffList={visibleStaff.map((s) => ({
         id: s.id,
         name: s.full_name ?? 'Unknown',
         initials: deriveFamilyInitials(s.full_name ?? ''),
       }))}
-      currentStaffId={currentStaffId}
+      currentStaffId={
+        // Same clamp as the picker: the New-カルテ dialog must not default to
+        // a staff the store filter hides (Greptile on #496).
+        currentStaffId && storeStaffIds && !storeStaffIds.has(currentStaffId)
+          ? null
+          : currentStaffId
+      }
       customerOptions={customerOptions}
     />
   )

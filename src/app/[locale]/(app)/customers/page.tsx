@@ -9,7 +9,7 @@ import {
 } from '@/lib/customers/list-enrich'
 import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
 import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
@@ -90,6 +90,14 @@ export default async function CustomersPage({
     ticketPacksEnabled: orgSettings?.ticket_packs_enabled ?? true,
   })
 
+  // Clamp the 担当 filter pills to the active store's staff (floating staff
+  // included). Filtered AFTER buildCustomersListScreen so row 担当 names keep
+  // resolving business-wide — only the picker narrows.
+  const storeStaffIds = await storeStaffIdSet(staffList, scope.storeId)
+  const pickerStaff = storeStaffIds
+    ? screen.staffList.filter((s) => storeStaffIds.has(s.id))
+    : screen.staffList
+
   return (
     <CustomersListView
       rows={screen.rows}
@@ -97,7 +105,7 @@ export default async function CustomersPage({
       query={query}
       selfStaffId={activeStaffId}
       bookingDataAvailable={screen.bookingDataAvailable}
-      staffList={screen.staffList}
+      staffList={pickerStaff}
     />
   )
 }
