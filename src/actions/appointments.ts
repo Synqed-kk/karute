@@ -172,14 +172,10 @@ export async function getAppointmentsByDate(
     includeCancelled?: boolean
   },
 ): Promise<AppointmentRow[]> {
-  // dateStr is a JST calendar day (YYYY-MM-DD). Frame the fetch window as
-  // JST midnight → next-day JST midnight by appending the +09:00 offset
-  // directly; the runtime then converts to the correct UTC instants for
-  // synqed-core's `from`/`to` filter. The legacy tzOffsetMinutes parameter
-  // is kept for call-site compatibility but ignored — karute is JST-only.
-  const dayStartUTC = new Date(`${dateStr}T00:00:00+09:00`)
-  const dayEndUTC = new Date(`${dateStr}T23:59:59.999+09:00`)
-
+  // dateStr is a JST calendar day (YYYY-MM-DD). The shared helper frames the
+  // fetch window (JST midnight → next-day JST midnight) — karute is JST-only, so
+  // the legacy tzOffsetMinutes parameter is kept for call-site compatibility but
+  // ignored.
   try {
     // Store filter: resolveStoreScope, NOT the raw active-store cookie. For a
     // branch-restricted staff (no stores.viewAll) scope.storeId is ALWAYS one of
@@ -188,82 +184,25 @@ export async function getAppointmentsByDate(
     // cross-store leak the Apple-review account exposed. For cross-store viewers
     // scope.storeId IS the cookie, so their behavior is unchanged. synqed-core
     // always applies the business scope regardless; this filter is additive.
-    const [synqed, scope] = await Promise.all([
+    // Store filter: resolveStoreScope, NOT the raw active-store cookie (the
+    // cross-store leak the Apple-review account exposed). Customer names come
+    // from the already-cached tenant list (60s TTL). The fetch + row-mapping now
+    // lives in the shared getAppointmentsByDateWithClient (packet 08 §Build 2) so
+    // the facade record-screen GET reproduces the same recording-target set;
+    // this delegates with the cookie store-scope + cached names.
+    const [synqed, scope, cachedCustomers] = await Promise.all([
       getSynqedClient(),
       resolveStoreScope(),
-    ])
-    const list = await synqed.appointments.list({
-      from: dayStartUTC.toISOString(),
-      to: dayEndUTC.toISOString(),
-      page_size: 200,
-      store_id: scope.storeId ?? undefined,
-    })
-
-    // Customer names come from the already-cached tenant customer list (60s
-    // TTL per tenant), so on warm requests there's no extra HTTP roundtrip.
-    // Previously this fanned out N parallel customers.get(id) calls per page
-    // load — visibly slow once the day had a handful of unique customers.
-    const [cachedCustomers, karuteList, staffList] = await Promise.all([
       getCachedCustomerList(),
-      synqed.karuteRecords.list({
-        from: dayStartUTC.toISOString(),
-        to: dayEndUTC.toISOString(),
-        page_size: 200,
-        // Same store lens as the appointments read above — records of
-        // out-of-scope appointments can't match the map anyway.
-        store_id: scope.storeId ?? undefined,
-      }),
-      synqed.staff.list({ page_size: 200 }),
     ])
-    const nameById = new Map(cachedCustomers.map((c) => [c.id, c.name]))
-    const karuteByAppointment = new Map<string, string>()
-    for (const k of karuteList.karute_records) {
-      if (k.appointment_id) karuteByAppointment.set(k.appointment_id, k.id)
-    }
-    // synqed staff id → supabase profile id (which equals synqed staff.user_id).
-    // Appointments arrive keyed by synqed staff id; the rest of the app keys
-    // staff off the supabase profile id, so we translate at the boundary.
-    const profileByStaffId = new Map(
-      staffList.staff
-        .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
-        .map((s) => [s.id, s.user_id]),
-    )
-    // status_set_by (core staff id) -> display name, resolved here since this
-    // is the one place that already has the full staff list in hand.
-    const nameByStaffId = new Map(staffList.staff.map((s) => [s.id, s.name]))
-
-    return list.appointments
-      // Terminal (CANCELLED/NO_SHOW) bookings are hidden by DEFAULT — the QR
-      // sync marks a reservation CANCELLED when it vanishes upstream, and this
-      // list feeds the /sessions recording-target picker, so a terminal slot
-      // must never be auto-selected as a recording target. The 予約 agenda
-      // alone passes includeCancelled to render them as thin tombstone rows
-      // (grey キャンセル済み / warning-tinted 無断キャンセル) in their original
-      // time slot (the freed slot stays visible to staff).
-      .filter((a) => (opts?.includeCancelled ? true : !isTerminalStatus(a.status)))
-      .map((a) => {
-        // SDK-skew: status_reason/status_set_by/status_set_at aren't in the
-        // installed client's Appointment type yet (synqed-core #39); cast to
-        // read them.
-        const statusSetBy = (a as typeof a & { status_set_by?: string | null }).status_set_by ?? null
-        return {
-          id: a.id,
-          staff_profile_id: profileByStaffId.get(a.staff_id) ?? a.staff_id,
-          client_id: a.customer_id,
-          start_time: a.starts_at,
-          duration_minutes: a.duration_minutes ?? 0,
-          title: a.title,
-          notes: a.notes,
-          karute_record_id: karuteByAppointment.get(a.id) ?? null,
-          created_at: a.created_at,
-          customers: nameById.has(a.customer_id) ? { name: nameById.get(a.customer_id)! } : null,
-          synqed_status: a.status,
-          source: a.source,
-          status_reason: (a as typeof a & { status_reason?: string | null }).status_reason ?? null,
-          status_set_by_name: statusSetBy ? nameByStaffId.get(statusSetBy) ?? null : null,
-          status_set_at: (a as typeof a & { status_set_at?: string | null }).status_set_at ?? null,
-        }
-      })
+    const { getAppointmentsByDateWithClient } = await import('@/lib/appointments/by-date')
+    // `return await` (not a bare `return` of the promise) so a rejection lands in
+    // this try/catch → the swallowed-[] contract holds.
+    return await getAppointmentsByDateWithClient(synqed, dateStr, {
+      storeId: scope.storeId ?? undefined,
+      nameById: new Map(cachedCustomers.map((c) => [c.id, c.name])),
+      includeCancelled: opts?.includeCancelled,
+    })
   } catch {
     return []
   }
