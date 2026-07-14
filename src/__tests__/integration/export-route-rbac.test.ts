@@ -119,6 +119,17 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     )
   })
 
+  it('fails CLOSED when a non-viewAll scope has no resolvable store lens (double lookup failure) — 403, no rows read', async () => {
+    resolveStoreScope.mockImplementation(async () => ({
+      storeId: null,
+      viewAll: false,
+      allowedStoreIds: null,
+    }))
+    const res = await GET(req())
+    expect(res.status).toBe(403)
+    expect(listCustomers).not.toHaveBeenCalled()
+  })
+
   it('fails CLOSED when scope resolution throws — 403, no rows read', async () => {
     resolveStoreScope.mockImplementation(async () => {
       throw new Error('scope lookup failed')

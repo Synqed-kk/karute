@@ -53,10 +53,18 @@ export async function GET(request: Request) {
   // customer-search convention (floating = every store): getStaffStores
   // swallows lookup failures to [], which reads as floating, and a transient
   // lookup error must not widen a bulk-PII export to the whole business
-  // (Greptile P1 on this PR). Fail CLOSED: unresolved scope = no export.
+  // (Greptile P1 ×2 on this PR). Fail CLOSED at both layers: a thrown scope
+  // resolution AND a non-viewAll scope with no resolvable store lens (double
+  // lookup failure) both refuse the export — never fall through business-wide.
   let storeId: string | undefined
   try {
     const storeScope = await resolveStoreScope()
+    if (!storeScope.viewAll && !storeScope.storeId) {
+      return NextResponse.json(
+        { error: 'Could not resolve your store scope.' },
+        { status: 403 },
+      )
+    }
     storeId = storeScope.viewAll ? undefined : (storeScope.storeId ?? undefined)
   } catch {
     return NextResponse.json(
