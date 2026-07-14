@@ -65,6 +65,15 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.consent.grant',
   'recordings.session.mint',
   'recordings.uploadUrl',
+  // recording-flow AI compute (packet 08 Decision 1/2 — LLM/transcription on
+  // customer voice). All are POSTs (no durable write, hence no Idempotency-Key —
+  // the recorded compute-POST exemption), so the coverage assertion requires
+  // their keys here: a just-terminated staffer must not run transcription /
+  // extraction / summary / suggestions on customer voice.
+  'ai.transcribe',
+  'ai.extract',
+  'ai.summarize',
+  'ai.suggestions',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */
