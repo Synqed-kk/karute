@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server'
-import { zodResponseFormat } from 'openai/helpers/zod'
-import { ExtractionResultSchema } from '@/types/ai'
-import { openai } from '@/lib/openai'
-import { getExtractionSystemPrompt } from '@/lib/prompts'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { featureAllowed } from '@/lib/subscription/feature-gate'
-import { defensivePreamble, wrapUntrustedContent, MAX_TRANSCRIPT_CHARS } from '@/lib/ai-safety'
+import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 
 export const maxDuration = 120
 
@@ -30,42 +26,17 @@ export async function POST(request: Request) {
     }
 
     // Business type from synqed-core → extraction tuned per business (整体 vs gym
-    // vs dental). Best-effort: falls back to the neutral persona on failure.
+    // vs dental). Best-effort: falls back to the neutral persona on failure. The
+    // LLM call itself lives in the shared core (packet 07 §Build 1(ii)).
     const orgSettings = await getOrgSettings().catch(() => null)
-    const systemPrompt = getExtractionSystemPrompt(
-      locale ?? 'en',
-      orgSettings?.business_type,
-      {
-        customerName: typeof customerName === 'string' ? customerName : null,
-        sessionDate: typeof sessionDate === 'string' ? sessionDate : null,
-      },
-    )
-
-    const completion = await openai.chat.completions.parse({
-      // gpt-4o (not -mini): the extraction must FOLLOW detailed instructions
-      // (carry concrete dates into titles, consolidate next_visit) — exactly
-      // where mini is weakest. DEDICATED env var (not the shared AI_MODEL) so a
-      // system-wide AI_MODEL=gpt-4o-mini cost setting can't silently revert this
-      // to the very model that caused the bug. gpt-4o supports json_schema
-      // structured outputs (zodResponseFormat).
-      model: process.env.AI_EXTRACT_MODEL || 'gpt-4o',
-      // Deterministic extraction — unpinned this ran at the API default (1.0),
-      // which is run-to-run category flapping. Same 0.2 as memory-extract.
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
-        {
-          role: 'user',
-          content: `Extract karute entries from this session transcript:\n\n${wrapUntrustedContent('transcript', transcript, MAX_TRANSCRIPT_CHARS)}`,
-        },
-      ],
-      response_format: zodResponseFormat(ExtractionResultSchema, 'extraction_result'),
+    const { result, usage } = await runKaruteExtraction({
+      transcript,
+      locale: locale ?? 'en',
+      customerName: typeof customerName === 'string' ? customerName : null,
+      sessionDate: typeof sessionDate === 'string' ? sessionDate : null,
+      businessType: orgSettings?.business_type,
     })
-
-    const result = completion.choices[0].message.parsed
-    if (completion.usage) {
-      void reportAiUsage('extract', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
-    }
+    if (usage) void reportAiUsage('extract', usage.tokensIn, usage.tokensOut)
     return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
