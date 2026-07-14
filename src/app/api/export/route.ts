@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { can } from '@/lib/auth/require-permission'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listCustomers } from '@/lib/customers/queries'
 import { SCOPES, isWired, type ScopeKey, type FormatKey } from '@/lib/export/scopes'
 
@@ -46,8 +47,34 @@ export async function GET(request: Request) {
     )
   }
 
+  // Store clamp (#465 family): only stores.viewAll (owner / manager / SV) gets
+  // the business-wide export. Everyone else — restricted AND floating staff —
+  // clamps to their resolved store lens. Deliberately STRICTER than the
+  // customer-search convention (floating = every store): getStaffStores
+  // swallows lookup failures to [], which reads as floating, and a transient
+  // lookup error must not widen a bulk-PII export to the whole business
+  // (Greptile P1 ×2 on this PR). Fail CLOSED at both layers: a thrown scope
+  // resolution AND a non-viewAll scope with no resolvable store lens (double
+  // lookup failure) both refuse the export — never fall through business-wide.
+  let storeId: string | undefined
+  try {
+    const storeScope = await resolveStoreScope()
+    if (!storeScope.viewAll && !storeScope.storeId) {
+      return NextResponse.json(
+        { error: 'Could not resolve your store scope.' },
+        { status: 403 },
+      )
+    }
+    storeId = storeScope.viewAll ? undefined : (storeScope.storeId ?? undefined)
+  } catch {
+    return NextResponse.json(
+      { error: 'Could not resolve your store scope.' },
+      { status: 403 },
+    )
+  }
+
   if (scope === 'customers') {
-    return exportCustomers({ columns, format, privacy })
+    return exportCustomers({ columns, format, privacy, storeId })
   }
 
   return NextResponse.json({ error: 'Unsupported scope' }, { status: 400 })
@@ -57,10 +84,12 @@ async function exportCustomers({
   columns,
   format,
   privacy,
+  storeId,
 }: {
   columns: string[]
   format: FormatKey
   privacy: boolean
+  storeId?: string
 }) {
   const rows: Record<string, unknown>[] = []
   let page = 1
@@ -70,6 +99,7 @@ async function exportCustomers({
       pageSize: MAX_PAGE_SIZE,
       sortBy: 'updated_at',
       sortOrder: 'desc',
+      storeId,
     })
     for (const c of customers) {
       const row: Record<string, unknown> = {

@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { DataExportView } from '@/components/export/redesign/DataExportView'
 import type { ScopeKey } from '@/lib/export/scopes'
 
@@ -11,7 +12,21 @@ export default async function DataExportPage({
   const { locale } = await params
   const supabase = await createClient()
 
+  // Store clamp (#465 family), matching /api/export: only viewAll sees
+  // business-wide totals; restricted AND floating staff see their store lens
+  // (see the route for why floating clamps here — Greptile P1 ×2). Fail
+  // CLOSED: a thrown scope resolution AND a non-viewAll scope with no
+  // resolvable store lens both render zero counts, never business-wide ones.
+  const storeScope = await resolveStoreScope().catch(() => null)
+  const storeId =
+    storeScope && !storeScope.viewAll
+      ? (storeScope.storeId ?? undefined)
+      : undefined
+  const scopeFailed =
+    storeScope === null || (!storeScope.viewAll && !storeScope.storeId)
+
   const synqedPromise = getSynqedClient()
+  const zero = { total: 0 }
 
   const [
     {
@@ -22,16 +37,28 @@ export default async function DataExportPage({
     karute,
   ] = await Promise.all([
     supabase.auth.getUser(),
-    synqedPromise.then((synqed) =>
-      synqed.customers.list({ page_size: 1 }).catch(() => ({ total: 0 })),
-    ),
-    synqedPromise.then((synqed) =>
-      synqed.appointments.list({ page_size: 1 }).catch(() => ({ total: 0 })),
-    ),
+    scopeFailed
+      ? zero
+      : synqedPromise.then((synqed) =>
+          synqed.customers
+            .list({ page_size: 1, store_id: storeId })
+            .catch(() => zero),
+        ),
+    scopeFailed
+      ? zero
+      : synqedPromise.then((synqed) =>
+          synqed.appointments
+            .list({ page_size: 1, store_id: storeId })
+            .catch(() => zero),
+        ),
     // karute total from synqed-core (the Supabase mirror is empty post-migration).
-    synqedPromise.then((synqed) =>
-      synqed.karuteRecords.list({ page_size: 1 }).catch(() => ({ total: 0 })),
-    ),
+    scopeFailed
+      ? zero
+      : synqedPromise.then((synqed) =>
+          synqed.karuteRecords
+            .list({ page_size: 1, store_id: storeId })
+            .catch(() => zero),
+        ),
   ])
 
   const karuteCount = karute.total ?? 0
