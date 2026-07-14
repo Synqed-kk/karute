@@ -380,6 +380,26 @@ export async function getCustomerConsent(customerId: string) {
   return synqed.customers.getConsent(customerId)
 }
 
+/** Consent-grant core — business-scoped client + a RESOLVED staff id, no cookie.
+ *  Shared by the web action (cookie identity → getCurrentUserStaffId) and the
+ *  facade route (Bearer identity → selfStaffId). policy_version is SERVER-pinned
+ *  here (never client-supplied). Throws on backend failure so each caller
+ *  classifies (web → toast, facade → AppApiError). The #452 fail-closed posture
+ *  (unresolvable staff id) is enforced by the CALLERS before they reach here —
+ *  this core never runs without a staff id. */
+export async function grantCustomerConsentWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  customerId: string,
+  staffId: string,
+  method: 'VERBAL' | 'WRITTEN',
+) {
+  return synqed.customers.grantConsent(customerId, {
+    granted_by_staff_id: staffId,
+    policy_version: RECORDING_CONSENT_POLICY_VERSION,
+    method,
+  })
+}
+
 export async function grantCustomerConsent(
   customerId: string,
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
@@ -394,11 +414,12 @@ export async function grantCustomerConsent(
   }
   try {
     const synqed = await getSynqedClient()
-    const consent = await synqed.customers.grantConsent(customerId, {
-      granted_by_staff_id: staffId,
-      policy_version: RECORDING_CONSENT_POLICY_VERSION,
-      method: input.method ?? 'VERBAL',
-    })
+    const consent = await grantCustomerConsentWithClient(
+      synqed,
+      customerId,
+      staffId,
+      input.method ?? 'VERBAL',
+    )
     revalidatePath(`/customers/${customerId}`)
     updateTag('customer-consent')
     return { ok: true as const, consent }
