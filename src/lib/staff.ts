@@ -29,45 +29,7 @@ export interface StaffMemberBasic {
 // verified token. Plain lib module (NOT 'use server') — exporting this adds
 // no client-invocable action endpoint.
 export const staffListByBusiness = unstable_cache(
-  async (businessId: string): Promise<StaffMember[]> => {
-    const service = createServiceClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (service as any)
-      .from('profiles')
-      .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
-      .eq('customer_id', businessId)
-      .not('full_name', 'is', null)
-      .not('full_name', 'ilike', '_system_%')
-      .order('full_name', { ascending: true })
-
-    if (error) {
-      console.error('[getStaffList] Supabase error:', error.message)
-      return []
-    }
-
-    const profileStaff = (data ?? []).map(
-      ({
-        pin_hash,
-        customer_id: _customer_id,
-        ...rest
-      }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
-        ...rest,
-        has_pin: !!pin_hash,
-      }),
-    ) as StaffMember[]
-
-    // Owner-created teammates land in synqed-core with user_id=null and have
-    // NO Supabase profile row until they sign up (a profile is auto-created on
-    // signup via the on_auth_user_created trigger; the link is then resolved
-    // in src/lib/synqed/staff-map.ts). Reading profiles alone made those
-    // freshly-added staff invisible in the roster — the "add staff → it
-    // vanishes" bug. Append any synqed-core staff not already represented by a
-    // profile row, matched on the same user_id / email link the staff-map
-    // resolver uses. synqed-core stays the authoritative write target; profiles
-    // remain the canonical id + enrichment source for signed-up staff.
-    const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff)
-    return [...profileStaff, ...synqedOnly]
-  },
+  async (businessId: string): Promise<StaffMember[]> => staffListCore(businessId, false),
   // Staff onboarding is a once-in-a-while admin event, not a per-session
   // thing — every karute mutation that changes a staff row (create/update/
   // delete/avatar upload in src/actions/staff.ts) already calls
@@ -79,6 +41,72 @@ export const staffListByBusiness = unstable_cache(
   ['staff-list-v2'],
   { revalidate: 86400, tags: ['staff-list'] },
 )
+
+/**
+ * Throwing sibling of {@link staffListByBusiness} for the BFF facade (packet 05
+ * fix round 1): the SAME read + mapping, but a profiles query error OR a
+ * synqed-core roster fetch failure THROWS instead of resolving []. The facade
+ * must never ship a schema-legal 200 with an empty staffList / 'Unknown' names
+ * because a staff read silently failed — upstream failure is a classified 502
+ * (packet-03 failure contract; listSynqedKaruteRowsOrThrow precedent). Web
+ * callers keep the graceful cached version above, INCLUDING its partial
+ * degradation (synqed-core failure → profiles-only roster) — which is why both
+ * share staffListCore with a flag rather than the graceful one delegating
+ * through a single try/catch (that would collapse profiles-only into []).
+ * Uncached: facade requests pay one DB read each (roster reads are cheap; the
+ * unstable_cache layer stays a web concern).
+ */
+export async function staffListByBusinessOrThrow(
+  businessId: string,
+): Promise<StaffMember[]> {
+  return staffListCore(businessId, true)
+}
+
+/** Shared roster assembly — `orThrow` picks the facade (throwing) or web
+ *  (graceful, degrade-to-partial) failure behavior on BOTH internal reads. */
+async function staffListCore(
+  businessId: string,
+  orThrow: boolean,
+): Promise<StaffMember[]> {
+  const service = createServiceClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (service as any)
+    .from('profiles')
+    .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
+    .eq('customer_id', businessId)
+    .not('full_name', 'is', null)
+    .not('full_name', 'ilike', '_system_%')
+    .order('full_name', { ascending: true })
+
+  if (error) {
+    if (orThrow) throw new Error(`staff profiles read failed: ${error.message}`)
+    console.error('[getStaffList] Supabase error:', error.message)
+    return []
+  }
+
+  const profileStaff = (data ?? []).map(
+    ({
+      pin_hash,
+      customer_id: _customer_id,
+      ...rest
+    }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
+      ...rest,
+      has_pin: !!pin_hash,
+    }),
+  ) as StaffMember[]
+
+  // Owner-created teammates land in synqed-core with user_id=null and have
+  // NO Supabase profile row until they sign up (a profile is auto-created on
+  // signup via the on_auth_user_created trigger; the link is then resolved
+  // in src/lib/synqed/staff-map.ts). Reading profiles alone made those
+  // freshly-added staff invisible in the roster — the "add staff → it
+  // vanishes" bug. Append any synqed-core staff not already represented by a
+  // profile row, matched on the same user_id / email link the staff-map
+  // resolver uses. synqed-core stays the authoritative write target; profiles
+  // remain the canonical id + enrichment source for signed-up staff.
+  const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff, orThrow)
+  return [...profileStaff, ...synqedOnly]
+}
 
 /**
  * Returns synqed-core staff that have NO matching Supabase profile row yet —
@@ -95,6 +123,7 @@ export const staffListByBusiness = unstable_cache(
 async function synqedStaffWithoutProfile(
   businessId: string,
   profileStaff: StaffMember[],
+  orThrow = false,
 ): Promise<StaffMember[]> {
   const baseUrl = process.env.SYNQED_CORE_URL
   const apiKey = process.env.SYNQED_CORE_API_KEY
@@ -134,6 +163,7 @@ async function synqedStaffWithoutProfile(
         created_at: s.created_at,
       })) as StaffMember[]
   } catch (err) {
+    if (orThrow) throw err
     console.error('[getStaffList] synqed-core roster fetch failed:', err)
     return []
   }

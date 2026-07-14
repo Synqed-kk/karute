@@ -17,12 +17,16 @@ process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({ auth: { getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }) } }),
 }))
+const STAFF = [
+  { id: 'auth-user-1', full_name: '佐藤 美咲' },
+  { id: 'staff-2', full_name: '田中 太郎' },
+]
+const staffListOrThrow = jest.fn(async () => STAFF)
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
-  staffListByBusiness: jest.fn(async () => [
-    { id: 'auth-user-1', full_name: '佐藤 美咲' },
-    { id: 'staff-2', full_name: '田中 太郎' },
-  ]),
+  // The route uses the THROWING variant (fix round 1) — a staff-read failure
+  // must land in the 502 catch, never resolve [] into a schema-legal 200.
+  staffListByBusinessOrThrow: () => staffListOrThrow(),
 }))
 const mockCapabilities = jest.fn(async () => new Set(['customers.view', 'stores.viewAll']))
 jest.mock('@/lib/auth/require-permission', () => {
@@ -128,6 +132,9 @@ describe('GET /api/app/v1/screens/sessions — happy path', () => {
 
     expect(dto.currentStaffId).toBe('auth-user-1') // on the roster
     expect(dto.customerOptions).toHaveLength(3)
+    // Companion to the staff-failure 502 test: the degraded-200 shape
+    // (staffList [] / names 'Unknown') must never be the happy path.
+    expect(dto.staffList.length).toBeGreaterThan(0)
     expect(dto.staffList).toEqual([
       { id: 'auth-user-1', name: '佐藤 美咲', initials: expect.any(String) },
       { id: 'staff-2', name: '田中 太郎', initials: expect.any(String) },
@@ -220,6 +227,13 @@ describe('authn / failure contract', () => {
 
   it('customer read failure → 502 upstream_unavailable', async () => {
     listCustomers.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+
+  it('staff read failure → 502, never a degraded 200 with an empty roster (fix round 1)', async () => {
+    staffListOrThrow.mockRejectedValueOnce(new Error('profiles down'))
     const res = await GET(req({ headers: auth }), route)
     expect(res.status).toBe(502)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
