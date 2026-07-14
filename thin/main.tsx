@@ -9,7 +9,14 @@ import { ThinShell } from './shell'
 import { ThinRouter } from './router'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
+import { viteRecordingPort } from './ports/recording.vite'
+import { setRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { mark, reportMarks, MARKS } from './probe/marks'
+
+// Recording pipeline runs the facade upload + /api/app/v1/ai legs in the shell
+// (packet 08 Decision 2). Set before render so any capture started on first
+// paint uses the thin upload path, never the web supabase-js flow.
+setRecordingPipelinePort(viteRecordingPort)
 
 // Thin shell entry. Mounts the router SYNCHRONOUSLY inside the platform-
 // neutral AppRoot (theme/toaster/locale/data/error/safe-area) — first paint is
