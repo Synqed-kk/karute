@@ -79,7 +79,8 @@ jest.mock('@/lib/karute/customer-memory', () => ({
 jest.mock('@/lib/karute/business-ai-tokens', () => ({
   resolvePassportFields: () => [{ key: 'goal_focus' }, { key: 'lifestyle_note' }],
 }))
-jest.mock('@/actions/org-settings', () => ({ orgSettingsWithClient: async () => ({ business_type: 'salon' }) }))
+const orgSettingsRead = jest.fn(async (): Promise<{ business_type: string } | null> => ({ business_type: 'salon' }))
+jest.mock('@/actions/org-settings', () => ({ orgSettingsWithClient: () => orgSettingsRead() }))
 
 import { POST as consentRevoke, OPTIONS as consentOptions } from '@/app/api/app/v1/customers/[id]/consent/revoke/route'
 import { POST as photoUpload, OPTIONS as photoOptions } from '@/app/api/app/v1/customers/[id]/photos/route'
@@ -239,6 +240,11 @@ describe('PATCH/DELETE memory/[itemId]', () => {
     const res = await memoryPatch(jsonReq({ pinned: true }), route({ id: '-', itemId: 'item-missing' }))
     expect(res.status).toBe(404)
   })
+  it('missing and cross-tenant 404s are INDISTINGUISHABLE (no existence oracle)', async () => {
+    const missing = (await (await memoryPatch(jsonReq({ pinned: true }), route({ id: '-', itemId: 'item-missing' }))).json()).error
+    const foreign = (await (await memoryPatch(jsonReq({ pinned: true }), route({ id: '-', itemId: 'item-other' }))).json()).error
+    expect({ code: missing.code, message: missing.message }).toEqual({ code: foreign.code, message: foreign.message })
+  })
   it('delete → 200', async () => {
     const res = await memoryDelete(new Request('https://s/x', { method: 'DELETE', headers: auth }), route({ id: '-', itemId: 'item-1' }))
     expect(res.status).toBe(200)
@@ -262,6 +268,17 @@ describe('POST passport', () => {
     const res = await passportUpsert(jsonReq({ fieldKey: 'evil_key', value: 'v' }), route({ id: 'cust-1' }))
     expect(res.status).toBe(400)
     expect(upsertPassportField).not.toHaveBeenCalled()
+  })
+  it('org-settings OUTAGE → 502 per the failure contract, never a false 400 (review F3)', async () => {
+    orgSettingsRead.mockRejectedValueOnce(new Error('core down'))
+    const res = await passportUpsert(jsonReq({ fieldKey: 'goal_focus', value: 'v' }), route({ id: 'cust-1' }))
+    expect(res.status).toBe(502)
+    expect(upsertPassportField).not.toHaveBeenCalled()
+  })
+  it('unconfigured salon (null settings row) still resolves the default field set', async () => {
+    orgSettingsRead.mockResolvedValueOnce(null)
+    const res = await passportUpsert(jsonReq({ fieldKey: 'goal_focus', value: 'v' }), route({ id: 'cust-1' }))
+    expect(res.status).toBe(200)
   })
 })
 
