@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { staffRoleLabel } from '@/lib/staff/role-label'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -106,6 +107,7 @@ export default async function AppointmentsPage({
     businessId,
     weekRangeAppts,
     monthRangeAppts,
+    storeScope,
   ] = await Promise.all([
     supabase.auth.getUser(),
     getStaffList(),
@@ -129,11 +131,22 @@ export default async function AppointmentsPage({
           monthRange.rangeTo.toISOString(),
         )
       : Promise.resolve(null),
+    resolveStoreScope(),
   ])
 
   const authProfileId = user?.id ?? null
 
-  const staff = staffList.map((s) => ({
+  // The 担当 pickers/filters below only offer the active store's staff
+  // (floating staff included) — the full roster leaked every branch's staff
+  // names into every store. Row-name resolution keeps the FULL staffList
+  // (appointmentsToReservationViews) so a booking recorded by another
+  // branch's staff still renders their name.
+  const storeStaffIds = await storeStaffIdSet(staffList, storeScope.storeId)
+  const visibleStaff = storeStaffIds
+    ? staffList.filter((s) => storeStaffIds.has(s.id))
+    : staffList
+
+  const staff = visibleStaff.map((s) => ({
     id: s.id,
     name: s.full_name ?? 'Unknown',
     avatarInitials: (s.full_name ?? 'U').slice(0, 2).toUpperCase(),
@@ -142,7 +155,7 @@ export default async function AppointmentsPage({
 
   const now = new Date()
 
-  const reservationStaff: ReservationStaff[] = staffList.map((s) => ({
+  const reservationStaff: ReservationStaff[] = visibleStaff.map((s) => ({
     id: s.id,
     name: s.full_name ?? 'Unknown',
     // The person's own 役職 first; else the authority code mapped to Japanese

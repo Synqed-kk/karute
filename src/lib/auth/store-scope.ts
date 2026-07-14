@@ -10,8 +10,9 @@
 //
 // Server-only — it reads capabilities + staff_stores via the service/SDK clients.
 
+import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
 
 export interface StoreScope {
@@ -71,4 +72,108 @@ export async function resolveStoreScope(): Promise<StoreScope> {
   const storeId =
     activeStore && allowed.includes(activeStore) ? activeStore : allowed[0]
   return { storeId, viewAll: false, allowedStoreIds: allowed }
+}
+
+// ─── Store-scoped staff PICKER filtering ────────────────────────────────────
+// The 担当 selectors (予約 / 顧客 / カルテ) must only offer staff who work in
+// the active store — the business-wide roster leaked every branch's staff
+// names into every store's dropdowns. This filters the PICKER lists only;
+// name-lookup maps stay business-wide so records written by another branch's
+// staff still render their name instead of "Unknown" (same rule as the
+// customer-map audit: business-wide maps are fine for .get(id), never for
+// lists).
+
+export interface StaffStoreAssignment {
+  /** synqed-core staff id */
+  id: string
+  /** Supabase profile id link (canonical), when the staff has signed up. */
+  user_id: string | null
+  /** Lower-cased email fallback link — same two-tier match as staff-map.ts. */
+  email: string | null
+  /** Assigned stores; empty = floating staff who works in every store. */
+  store_ids: string[]
+}
+
+// One cached fetch per business: the full staff→stores assignment map.
+// staffStores has no bulk read, so this fans out one get() per staff — bounded
+// by the roster (≤200) and amortized by the day-long cache. Every staff or
+// assignment mutation (src/actions/staff.ts, setStaffStores) already bumps the
+// 'staff-list' tag, invalidating this alongside the roster caches.
+const staffStoreAssignmentsByBusiness = unstable_cache(
+  async (businessId: string): Promise<StaffStoreAssignment[]> => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) throw new Error('synqed-core env not configured')
+    // Lazy import for the same reason as src/lib/staff.ts — keep the ESM
+    // client out of graphs (and tests) that never reach this path.
+    const { SynqedClient } = await import('@synqed-kk/client')
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    const { staff } = await client.staff.list({ page_size: 200 })
+    return Promise.all(
+      staff.map(async (s) => ({
+        id: s.id,
+        user_id: (s as { user_id?: string | null }).user_id ?? null,
+        email: s.email ? s.email.toLowerCase() : null,
+        store_ids: (await client.staffStores.get(s.id)).store_ids,
+      })),
+    )
+  },
+  ['staff-store-assignments-v1'],
+  { revalidate: 86400, tags: ['staff-list'] },
+)
+
+/**
+ * Pure core (exported for tests): which of these roster members may appear in
+ * this store's pickers? Roster ids are profile ids for signed-up staff and
+ * synqed staff ids for profile-less teammates (see staffListByBusiness), so a
+ * member links to its assignment by synqed id, then user_id, then email — the
+ * same two-tier match staff-map.ts uses.
+ *
+ * Kept: assigned to this store, floating (no assignment = every store, the
+ * documented staff_stores convention), or unlinkable (no synqed record — this
+ * is a picker filter, not an auth gate, so unknowns fail open; the read-side
+ * clamps on the data itself stay authoritative).
+ */
+export function filterStaffIdsToStore(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  assignments: StaffStoreAssignment[],
+  storeId: string,
+): Set<string> {
+  const bySynqedId = new Map(assignments.map((a) => [a.id, a]))
+  const byUserId = new Map(
+    assignments.filter((a) => a.user_id).map((a) => [a.user_id as string, a]),
+  )
+  const byEmail = new Map(
+    assignments.filter((a) => a.email).map((a) => [a.email as string, a]),
+  )
+  const kept = new Set<string>()
+  for (const m of staff) {
+    const a =
+      bySynqedId.get(m.id) ??
+      byUserId.get(m.id) ??
+      (m.email ? byEmail.get(m.email.toLowerCase()) : undefined)
+    if (!a || a.store_ids.length === 0 || a.store_ids.includes(storeId)) {
+      kept.add(m.id)
+    }
+  }
+  return kept
+}
+
+/**
+ * The ids from `staff` that may appear in the active store's 担当 pickers, or
+ * null when no filtering applies (no store lens, or the assignment fetch is
+ * unavailable) — callers treat null as "show the full list" (fail open, see
+ * filterStaffIdsToStore).
+ */
+export async function storeStaffIdSet(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  storeId: string | null,
+): Promise<Set<string> | null> {
+  if (!storeId) return null
+  try {
+    const assignments = await staffStoreAssignmentsByBusiness(await getBusinessId())
+    return filterStaffIdsToStore(staff, assignments, storeId)
+  } catch {
+    return null
+  }
 }
