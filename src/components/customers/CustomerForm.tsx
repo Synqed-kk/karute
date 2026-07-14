@@ -65,6 +65,13 @@ interface CustomerFormProps {
    * appears as the current selection instead of silently blanking.
    */
   currentStaff?: { id: string; name: string } | null
+  /**
+   * Pre-loaded 指名スタッフ roster. When supplied (the thin app threads it
+   * from the profile-screen DTO — its facade doesn't expose the
+   * listAssignableStaff server action), the picker seeds from this and skips
+   * the client-side fetch. Omitted (the web app) → self-fetch as before.
+   */
+  assignableStaff?: { id: string; name: string }[]
   onSuccess?: () => void
   onCancel?: () => void
 }
@@ -77,6 +84,7 @@ export function CustomerForm({
   customerId,
   defaultValues,
   currentStaff,
+  assignableStaff,
   onSuccess,
   onCancel,
 }: CustomerFormProps) {
@@ -86,8 +94,12 @@ export function CustomerForm({
   // currently-assigned stylist (currentStaff) is merged in up front so the
   // select renders the right selection before the roster resolves and never
   // drops a since-departed stylist from view.
-  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>([])
+  const [staffOptions, setStaffOptions] = useState<{ id: string; name: string }[]>(
+    assignableStaff ?? [],
+  )
   useEffect(() => {
+    // Roster supplied by the caller (thin app) → no client-side fetch needed.
+    if (assignableStaff) return
     let active = true
     listAssignableStaff()
       .then((list) => {
@@ -99,7 +111,7 @@ export function CustomerForm({
     return () => {
       active = false
     }
-  }, [])
+  }, [assignableStaff])
   const staffChoices = useMemo(() => {
     const list = [...staffOptions]
     if (currentStaff && !list.some((s) => s.id === currentStaff.id)) {

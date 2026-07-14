@@ -162,6 +162,7 @@ export const CustomerProfileScreenDTO = CustomerProfileDTO.extend({
   hasNextBooking: z.boolean(),
   ticketsEnabled: z.boolean(),
   consentGrantedAtLabel: z.string().nullable(),
+  assignableStaff: z.array(z.object({ id: z.string(), name: z.string() })),
 })
 
 export type CustomerProfileScreenDTOType = z.infer<typeof CustomerProfileScreenDTO>
@@ -205,5 +206,6 @@ export function toCustomerProfileScreenDTO(
     ticketsEnabled: screen.ticketsEnabled,
     consentGranted: screen.consentGranted,
     consentGrantedAtLabel: screen.consentGrantedAtLabel,
+    assignableStaff: screen.assignableStaff,
   })
 }

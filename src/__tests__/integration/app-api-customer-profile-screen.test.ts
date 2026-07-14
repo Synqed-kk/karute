@@ -130,6 +130,7 @@ const FIXED_SCREEN = {
   customerMemory: { customerId: 'cust-1', items: [], intake: null, lastUpdatedAt: '2026-06-01', updatedThisVisit: 0 },
   packs: [], lifecycle: null, hasNextBooking: false, ticketsEnabled: true,
   consentGranted: true, consentGrantedAtLabel: '2026年6月1日',
+  assignableStaff: [{ id: 'profile-9', name: '田中' }],
 }
 jest.mock('@/lib/customers/profile-screen', () => ({
   buildCustomerProfileScreen: jest.fn(async () => FIXED_SCREEN),
@@ -177,6 +178,9 @@ describe('GET /api/app/v1/customers/[id] — full profile screen (packet 06 §Bu
     expect(dto.ticketsEnabled).toBe(true)
     expect(dto.consentGranted).toBe(true)
     expect(dto.consentGrantedAtLabel).toBe('2026年6月1日')
+    // Staff roster folded into the DTO (§Build 3 client-read trace): the thin
+    // edit dialog seeds its 指名スタッフ picker from here, not a facade read.
+    expect(dto.assignableStaff).toEqual([{ id: 'profile-9', name: '田中' }])
   })
 
   it('cross-tenant customer id → 404 not_found, BEFORE any wave read', async () => {
