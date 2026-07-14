@@ -4,19 +4,20 @@ import { revalidatePath } from 'next/cache'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import {
-  listCustomerPacks,
+  listCustomerPacksWithClient,
   addVisitReconcileDismissal,
   addCustomerContact,
   addPackAlertDismissal,
-  addRedemption,
-  createPack,
-  findCustomerAppointmentForDate,
+  addRedemptionWithClient,
+  createPackWithClient,
+  findCustomerAppointmentForDateWithClient,
   removeRedemption,
-  setCustomerLifecycle,
+  setCustomerLifecycleWithClient,
   updatePackStatus,
   type ContactChannel,
   type CreatePackInput,
 } from '@/lib/packs/store'
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   nextPurchaseRound,
   type LifecycleStatus,
@@ -31,7 +32,7 @@ import {
 const revalidateProfile = () =>
   revalidatePath('/[locale]/(app)/customers/[id]', 'page')
 
-export async function createPackAction(input: {
+interface CreatePackActionInput {
   customerId: string
   kind: PackKind
   packSize: number
@@ -40,41 +41,51 @@ export async function createPackAction(input: {
   purchaseRound?: number
   purchasedAt?: string | null
   notes?: string | null
-}): Promise<{ ok: boolean; error?: string }> {
+}
+
+/** Create-pack core (SINGLE SOURCE): the money rules (single⇒packSize 1,
+ *  server-derived 購入回数 + 合計金額) live HERE, threaded a business-scoped
+ *  client + the acting staff id. The web action wraps with the cookie client;
+ *  the facade wraps with newSynqedClient + selfStaffId. */
+export async function createPackActionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  staffId: string | null,
+  input: CreatePackActionInput,
+): Promise<{ ok: boolean; error?: string }> {
   if (!input.customerId) return { ok: false, error: 'customerId required' }
   if (!Number.isFinite(input.packSize) || input.packSize <= 0)
     return { ok: false, error: 'packSize must be > 0' }
   if (!Number.isFinite(input.unitPrice) || input.unitPrice < 0)
     return { ok: false, error: 'unitPrice must be >= 0' }
   // A single session is one session — server-enforced so no future caller can
-  // send kind:'single' with packSize 10 and inflate the derived total_price
-  // (today's forms clamp this client-side; the money rule lives here).
+  // send kind:'single' with packSize 10 and inflate the derived total_price.
   if (input.kind === 'single' && input.packSize !== 1)
     return { ok: false, error: 'single kind must have packSize 1' }
-  const staffId = await getCurrentUserStaffId().catch(() => null)
-  // SERVER-derived 購入回数 when the caller doesn't supply one (the stop-dialog
-  // picker doesn't): highest STORED round + 1, never a row count — the imports
-  // collapsed history to one row per customer, so counting relabels a round-4
-  // regular as 初回 (§7.4 — the first-timer nightmare in money clothing).
-  // Identical to TicketPackCard's nextRound; business-wide, store-blind.
+  // SERVER-derived 購入回数: highest STORED round + 1, never a row count (the
+  // imports collapsed history to one row per customer). Business-wide, store-blind.
   const purchaseRound =
-    input.purchaseRound ?? nextPurchaseRound(await listCustomerPacks(input.customerId))
-  // SERVER-derived 合計金額 when the caller doesn't supply one — NEITHER form
-  // does (profile AddPackDialog, stop-dialog picker), which saved every pack
-  // with total_price null and zeroed pack revenue. The app prices per-session
-  // (単価 field, unconsumedValue = remaining × unit_price), so the amount the
-  // customer paid IS unit × size. Defaulted here, not in the forms, so every
-  // caller — present and future — is covered by one rule.
+    input.purchaseRound ?? nextPurchaseRound(await listCustomerPacksWithClient(synqed, input.customerId))
+  // SERVER-derived 合計金額: unit × size (the app prices per-session), so pack
+  // revenue is never zeroed. One rule covers every present + future caller.
   const totalPrice = input.totalPrice ?? input.unitPrice * input.packSize
-  const result = await createPack({
+  const result = await createPackWithClient(synqed, {
     ...(input as CreatePackInput),
     totalPrice,
     purchaseRound,
     source: 'manual',
     createdBy: staffId,
   })
-  if (result.ok) revalidateProfile()
   return result.ok ? { ok: true } : { ok: false, error: result.error }
+}
+
+export async function createPackAction(
+  input: CreatePackActionInput,
+): Promise<{ ok: boolean; error?: string }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
+  const result = await createPackActionWithClient(synqed, staffId, input)
+  if (result.ok) revalidateProfile()
+  return result
 }
 
 export async function setPackStatusAction(
@@ -87,8 +98,7 @@ export async function setPackStatusAction(
   return result
 }
 
-/** Check one session off a pack (manual check-off; date defaults to today JST). */
-export async function redeemSessionAction(input: {
+interface RedeemSessionActionInput {
   packId: string
   customerId: string
   redeemedOn?: string
@@ -98,21 +108,26 @@ export async function redeemSessionAction(input: {
   karuteRecordId?: string | null
   /** 'backfill' when the reconcile strip redeems retroactively. */
   source?: 'manual' | 'backfill'
-}): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+}
+
+/** Redeem core (SINGLE SOURCE): burn pairing is SERVER-derived here — when the
+ *  caller omits appointmentId the server finds the customer's booking for the
+ *  day; an explicit id (incl. null) is accepted as-is (reconcile-strip
+ *  semantics), never overridden. Threaded a business-scoped client + staff id.
+ *  The below-zero double-burn guard lives in addRedemptionWithClient. */
+export async function redeemSessionActionWithClient(
+  synqed: Pick<SynqedClient, 'packs' | 'appointments'>,
+  staffId: string | null,
+  input: RedeemSessionActionInput,
+): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
   if (!input.packId || !input.customerId) return { ok: false, error: 'ids required' }
-  const staffId = await getCurrentUserStaffId().catch(() => null)
   const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10)
   const redeemedOn = input.redeemedOn ?? jstToday
-  // The customer-profile burn button never sends an appointmentId, so those
-  // redemptions landed appointment_id NULL even when the customer actually had
-  // a booking that day. Only fill in when the caller left it unset — never
-  // override an explicit id (e.g. the reconcile strip's specific booking).
-  // No match (walk-in / no booking that day) is expected, not an error.
   const appointmentId =
     input.appointmentId !== undefined
       ? input.appointmentId
-      : await findCustomerAppointmentForDate(input.customerId, redeemedOn)
-  const result = await addRedemption({
+      : await findCustomerAppointmentForDateWithClient(synqed, input.customerId, redeemedOn)
+  const result = await addRedemptionWithClient(synqed, {
     packId: input.packId,
     customerId: input.customerId,
     redeemedOn,
@@ -121,11 +136,20 @@ export async function redeemSessionAction(input: {
     source: input.source ?? 'manual',
     createdBy: staffId,
   })
-  if (result.ok) revalidateProfile()
-  // redemptionId lets the auto-consume toast offer 取り消す (undoRedemptionAction).
   return result.ok
     ? { ok: true, redemptionId: result.id }
     : { ok: false, error: result.error }
+}
+
+/** Check one session off a pack (manual check-off; date defaults to today JST). */
+export async function redeemSessionAction(
+  input: RedeemSessionActionInput,
+): Promise<{ ok: boolean; redemptionId?: string; error?: string }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
+  const result = await redeemSessionActionWithClient(synqed, staffId, input)
+  if (result.ok) revalidateProfile()
+  return result
 }
 
 /** 来店なし — the visit didn't actually happen; the reconcile row never
@@ -209,19 +233,30 @@ export async function dismissPackAlertAction(input: {
   return result.ok ? { ok: true } : { ok: false, error: 'write failed' }
 }
 
-export async function setLifecycleAction(input: {
+interface SetLifecycleActionInput {
   customerId: string
   status: LifecycleStatus
   referral: boolean
-}): Promise<{ ok: boolean }> {
+}
+
+/** Lifecycle-set core (SINGLE SOURCE), threaded a business-scoped client + staff
+ *  id. Web wraps with the cookie client; facade with newSynqedClient +
+ *  selfStaffId. */
+export async function setLifecycleActionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  staffId: string | null,
+  input: SetLifecycleActionInput,
+): Promise<{ ok: boolean }> {
   if (!input.customerId) return { ok: false }
-  const staffId = await getCurrentUserStaffId().catch(() => null)
-  const result = await setCustomerLifecycle(
-    input.customerId,
-    input.status,
-    input.referral,
-    staffId,
-  )
+  return setCustomerLifecycleWithClient(synqed, input.customerId, input.status, input.referral, staffId)
+}
+
+export async function setLifecycleAction(
+  input: SetLifecycleActionInput,
+): Promise<{ ok: boolean }> {
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
+  const result = await setLifecycleActionWithClient(synqed, staffId, input)
   if (result.ok) revalidateProfile()
   return result
 }

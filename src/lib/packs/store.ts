@@ -71,8 +71,16 @@ export interface CreatePackInput {
 export async function createPack(
   input: CreatePackInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  return createPackWithClient(await getSynqedClient(), input)
+}
+
+/** Business-scoped create — the facade path (Bearer client), single-sourced with
+ *  the cookie createPack above. */
+export async function createPackWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  input: CreatePackInput,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
-    const synqed = await getSynqedClient()
     const pack = await synqed.packs.createPack({
       customer_id: input.customerId,
       kind: input.kind,
@@ -119,8 +127,17 @@ export async function findCustomerAppointmentForDate(
   customerId: string,
   dateYmd: string,
 ): Promise<string | null> {
+  return findCustomerAppointmentForDateWithClient(await getSynqedClient(), customerId, dateYmd)
+}
+
+/** Business-scoped appointment-of-day lookup — the facade burn-pairing path
+ *  (Bearer client), single-sourced with the cookie wrapper above. */
+export async function findCustomerAppointmentForDateWithClient(
+  synqed: Pick<SynqedClient, 'appointments'>,
+  customerId: string,
+  dateYmd: string,
+): Promise<string | null> {
   try {
-    const synqed = await getSynqedClient()
     const dayStartUTC = new Date(`${dateYmd}T00:00:00+09:00`)
     const dayEndUTC = new Date(`${dateYmd}T23:59:59.999+09:00`)
     const { appointments } = await synqed.appointments.list({
@@ -161,8 +178,17 @@ export interface AddRedemptionInput {
 export async function addRedemption(
   input: AddRedemptionInput,
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  return addRedemptionWithClient(await getSynqedClient(), input)
+}
+
+/** Business-scoped redemption — the facade burn path (Bearer client), single-
+ *  sourced with the cookie addRedemption above. Keeps the below-zero
+ *  (double-burn / over-redeem) discriminator. */
+export async function addRedemptionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  input: AddRedemptionInput,
+): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   try {
-    const synqed = await getSynqedClient()
     const payload = {
       pack_id: input.packId,
       customer_id: input.customerId,
@@ -490,10 +516,29 @@ export async function setCustomerLifecycle(
   updatedBy?: string | null,
   reason?: string | null,
 ): Promise<{ ok: boolean }> {
+  return setCustomerLifecycleWithClient(
+    await getSynqedClient(),
+    customerId,
+    status,
+    referral,
+    updatedBy,
+    reason,
+  )
+}
+
+/** Business-scoped lifecycle set — the facade path (Bearer client), single-
+ *  sourced with the cookie setCustomerLifecycle above. */
+export async function setCustomerLifecycleWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  customerId: string,
+  status: CustomerLifecycle['status'],
+  referral: boolean,
+  updatedBy?: string | null,
+  reason?: string | null,
+): Promise<{ ok: boolean }> {
   try {
     // status_changed_at (the churn-model LABEL DATE) is written server-side only
     // on an actual status transition — core handles that in setLifecycle.
-    const synqed = await getSynqedClient()
     return await synqed.packs.setLifecycle({
       customer_id: customerId,
       status,
