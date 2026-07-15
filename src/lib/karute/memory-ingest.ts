@@ -56,7 +56,12 @@ export async function ingestSessionMemory(params: {
 export async function backfillMemoryFromTranscripts(params: {
   customerId: string
   businessId?: string | null
-  transcripts: string[]
+  /** Plain strings keep working (undated — no header injected). Callers that
+   *  have the session row should pass { text, date } so the model gets real
+   *  dates: without them it either omits time anchors (rule 7) or — observed
+   *  in the field 2026-07-15 — imitates dates found in the seeded existing
+   *  items, stamping new facts with another session's month. */
+  transcripts: Array<string | { text: string; date?: string | null }>
   locale: string
   /** Cap the walk for latency-sensitive callers (page render / brief): chunks
    *  of newest sessions processed, NOT the full history. The explicit 再学習
@@ -64,7 +69,9 @@ export async function backfillMemoryFromTranscripts(params: {
   maxChunks?: number
 }): Promise<MemoryItem[]> {
   const { customerId, businessId, transcripts, locale, maxChunks } = params
-  const usable = transcripts.filter((t) => t && t.trim())
+  const usable = transcripts
+    .map((t) => (typeof t === 'string' ? { text: t, date: null as string | null } : { text: t.text, date: t.date ?? null }))
+    .filter((t) => t.text && t.text.trim())
   if (usable.length === 0) return []
   try {
     // Plan gate (P4): same key + same silent-skip contract as
@@ -100,7 +107,24 @@ export async function backfillMemoryFromTranscripts(params: {
     const CHUNK_SIZE = 5
     const CHUNK_LIMIT = 10 // ponytail: 50 sessions per backfill; a server-side batch job if a real customer exceeds it
     const chunkCap = Math.min(maxChunks ?? CHUNK_LIMIT, CHUNK_LIMIT)
-    let chunks: string[][] = []
+    // Date header per transcript (server-generated value, rendered inside the
+    // untrusted wrap): rule 7 converts relative time to absolute only when it
+    // knows the session date — a dateless backfill made the model fabricate
+    // anchors instead. Format-validated like prompt-fragments' anchorLines so
+    // a malformed DB value renders no header at all.
+    // ponytail: header lives inside the untrusted span — transcript text
+    // could theoretically spoof a second date line; ceiling = a wrong month
+    // on a staff-editable memory anchor, strictly better than the fabricated
+    // anchors this replaces. Per-transcript trusted framing if it ever bites.
+    const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/
+    const withDateHeader = (t: { text: string; date: string | null }) => {
+      const body = t.text.slice(0, 16000)
+      const dm = t.date?.match(DATE_RE)
+      if (!dm || +dm[2] < 1 || +dm[2] > 12 || +dm[3] < 1 || +dm[3] > 31) return body
+      const d = dm[0]
+      return locale === 'ja' ? `【セッション日 ${d}】\n${body}` : `[Session date: ${d}]\n${body}`
+    }
+    let chunks: Array<typeof usable> = []
     for (let i = 0; i < usable.length; i += CHUNK_SIZE) {
       chunks.push(usable.slice(i, i + CHUNK_SIZE))
     }
@@ -115,9 +139,10 @@ export async function backfillMemoryFromTranscripts(params: {
     for (const chunk of chunks) {
       const ops = await extractCustomerMemory({
         // The chunk itself is newest-first (input order) — reverse it so the
-        // model READS oldest→newest too; the joined blob carries no dates, so
-        // reading order is the only chronology signal it gets.
-        transcripts: [...chunk].reverse().map((t) => t.slice(0, 16000)),
+        // model READS oldest→newest too; each transcript carries its session
+        // date as a header when the caller provided one (reading order stays
+        // the chronology signal for undated legacy callers).
+        transcripts: [...chunk].reverse().map(withDateHeader),
         existing,
         persona,
         locale,

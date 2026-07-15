@@ -230,7 +230,9 @@ export async function getAiPreSessionBrief(params: {
       if (!attempted) {
         memory = await backfillMemoryFromTranscripts({
           customerId,
-          transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
+          transcripts: records
+            .filter((r) => (r.transcript ?? '').trim())
+            .map((r) => ({ text: r.transcript as string, date: r.created_at ?? null })),
           locale,
           // Bounded for the render path (records is already ≤10 here); the
           // full-depth walk belongs to the explicit 再学習 action.
