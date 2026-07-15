@@ -60,8 +60,29 @@ describe('ai-brief memory block v12', () => {
     expect(SRC).not.toContain('if (memory.length === 0 && records.some')
   })
 
-  it('cache version bumped to 13', () => {
-    expect(SRC).toContain('v: 13,')
+  it('cache version bumped to 14', () => {
+    expect(SRC).toContain('v: 14,')
+  })
+
+  // Field bug 2026-07-15: 「強めの圧が好み」 (a preference) rendered inside the
+  // 注意（施術前に必ず） safety box next to real cautions — line 357 blanket-
+  // licensed preference items into cautions and the taxonomy's 「強さの注意」
+  // matched a LIKED intensity. Cautions are now restrictions-only.
+  it('preference items are barred from the caution box', () => {
+    expect(SRC).toContain('RESTRICTIONS ONLY')
+    expect(SRC).toContain('a preference is never a caution')
+    expect(SRC).toContain('「強めが好き」等の好みは注意ではない')
+    expect(SRC).toContain('a liked/preferred intensity is a preference, never a caution')
+    expect(SRC).not.toContain("'body'/'preference' items inform concerns AND cautions")
+  })
+
+  // Adversarial review on the bar itself: barred from cautions, a standing
+  // preference needed a GUARANTEED home or it would vanish from the brief
+  // entirely (concerns wants trajectory; recommendedFocus was null-unless-
+  // beyond-actions). recommendedFocus now explicitly owns it.
+  it('a standing preference has a guaranteed home in recommendedFocus', () => {
+    expect(SRC).toContain("this field is that preference's home, cautions is not")
+    expect(SRC).toContain('belongs HERE as part of the approach, never in cautions')
   })
 
   // Re-audit 2026-07-15 (fleet S15): passport rows reached the model as
