@@ -174,8 +174,8 @@ export default async function CustomerProfilePage({
       (b.created_at ?? '').localeCompare(a.created_at ?? ''),
     )
     const transcripts = rowsNewestFirst
-      .map((r) => r.transcript ?? '')
-      .filter((t) => t.trim())
+      .map((r) => ({ text: r.transcript ?? '', date: r.session_date ?? r.created_at ?? null }))
+      .filter((t) => t.text.trim())
     if (transcripts.length > 0) {
       const cacheKey = { c: id, t: rowsNewestFirst.map((r) => r.id) }
       const cached = (await getCachedAI('memory-backfill', cacheKey)) as

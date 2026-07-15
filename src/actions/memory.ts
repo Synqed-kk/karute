@@ -142,7 +142,9 @@ export async function relearnCustomerMemoryAction(
     // Newest-first — backfill's contract (its over-cap keep + oldest→newest
     // chunk processing both assume it; core's list order is not guaranteed).
     rows.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-    const transcripts = rows.map((r) => r.transcript ?? '').filter((t) => t.trim())
+    const transcripts = rows
+      .map((r) => ({ text: r.transcript ?? '', date: r.session_date ?? r.created_at ?? null }))
+      .filter((t) => t.text.trim())
     if (transcripts.length === 0) return { ok: false, items: 0 }
 
     // Plan gate (P4): checked BEFORE the wipe — a locked plan must return with
@@ -182,7 +184,9 @@ export async function relearnCustomerMemoryAction(
     await generateCustomerPassport({
       customerId,
       customerName: customer?.name ?? '',
-      transcripts,
+      // The passport prompt takes bare strings (its own cache/versioning
+      // lane); the dated objects exist for the memory backfill above.
+      transcripts: transcripts.map((t) => t.text),
       intakeMemo: memoContent(customer?.notes),
       locale,
     }).catch(() => null)

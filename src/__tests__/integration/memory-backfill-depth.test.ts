@@ -154,4 +154,57 @@ describe('backfill render-path callers (source contract)', () => {
     expect(brief).toContain("getCachedAI('memory-backfill', attemptKey)")
     expect(brief).toContain('maxChunks: 2')
   })
+
+  // Field bug 2026-07-15: all three callers passed bare strings — the model
+  // had no session dates and imitated dates from the seeded existing items
+  // (new facts stamped with another session's month). Every caller now
+  // threads the row's date through.
+  it('all three callers pass dated transcripts', () => {
+    expect(page).toContain('date: r.session_date ?? r.created_at ?? null')
+    expect(brief).toContain('date: r.created_at ?? null')
+    const action = readFileSync('src/actions/memory.ts', 'utf8')
+    expect(action).toContain('date: r.session_date ?? r.created_at ?? null')
+  })
+})
+
+// Field bug 2026-07-15: backfill passed bare transcript strings — rule 7 only
+// anchors facts to a session date it KNOWS, so the model either omitted time
+// anchors or imitated the dates it saw in the seeded existing items (new
+// facts stamped with another session's month). Dated callers now get a
+// per-transcript date header; plain strings stay byte-identical (legacy).
+describe('backfillMemoryFromTranscripts — session-date headers', () => {
+  it('dated transcripts reach the model with a ja date header, oldest→newest', async () => {
+    await backfillMemoryFromTranscripts({
+      customerId: 'c-1',
+      transcripts: [
+        { text: 't1 会話', date: '2026-07-14T09:00:00Z' },
+        { text: 't2 会話', date: '2026-06-30' },
+      ],
+      locale: 'ja',
+    })
+    expect(mockExtract.mock.calls[0][0].transcripts).toEqual([
+      '【セッション日 2026-06-30】\nt2 会話',
+      '【セッション日 2026-07-14】\nt1 会話',
+    ])
+  })
+
+  it('en locale renders the en header', async () => {
+    await backfillMemoryFromTranscripts({
+      customerId: 'c-1',
+      transcripts: [{ text: 'hello session', date: '2026-06-30' }],
+      locale: 'en',
+    })
+    expect(mockExtract.mock.calls[0][0].transcripts).toEqual([
+      '[Session date: 2026-06-30]\nhello session',
+    ])
+  })
+
+  it('plain strings and dateless objects stay headerless; blank texts drop', async () => {
+    await backfillMemoryFromTranscripts({
+      customerId: 'c-1',
+      transcripts: ['t1 会話', { text: '   ' }, { text: 't3 会話' }],
+      locale: 'ja',
+    })
+    expect(mockExtract.mock.calls[0][0].transcripts).toEqual(['t3 会話', 't1 会話'])
+  })
 })
