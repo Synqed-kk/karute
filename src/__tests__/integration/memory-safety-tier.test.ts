@@ -53,6 +53,16 @@ describe('memory-extract rule 5b — safety tier (JA + EN)', () => {
     expect(SRC).toContain('安全項目を落とすことは理由の欠落より有害')
     expect(SRC).toContain('write the what plus "reason not stated" in detail and STILL record the item')
   })
+
+  // Greptile on #513: principle 3 ("when unsure, emit nothing") overrides all
+  // rules — a literal model could read a missing reason as "unsure" and drop
+  // the safety item 5b just ordered it to keep. Principle 3 now scopes its
+  // doubt (whose fact / was it said) and names the 5b carve-out explicitly.
+  it('principle 3 doubt is scoped so a missing reason cannot drop a safety item', () => {
+    expect(SRC).toContain('誰の事実か・本当に発言があったか迷ったら出力しない')
+    expect(SRC).toContain('「迷い」ではない — 5b の通り「理由は未言及」で必ず記録する')
+    expect(SRC).toContain('A safety instruction missing only its reason is NOT doubt: record it per 5b')
+  })
 })
 
 // Re-audit 2026-07-15 (fleet S11/S20): the 0.70 confidence floor gated ONLY

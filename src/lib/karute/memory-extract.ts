@@ -105,7 +105,7 @@ ${whoRuleMemoryJa()}
 9. 医療的な扱い：${clinicalGuardrail(persona.clinicalPosture, 'ja')}
 10. ${injectionRuleJa('memory')}
 
-最重要3原則（他のすべてに優先）：(1) スタッフ自身・第三者の話をお客様の事実にしない。(2) 発言に根拠のない事実を作らない。(3) 迷ったら出力しない — 空の ops は正しい結果。
+最重要3原則（他のすべてに優先）：(1) スタッフ自身・第三者の話をお客様の事実にしない。(2) 発言に根拠のない事実を作らない。(3) 誰の事実か・本当に発言があったか迷ったら出力しない — 空の ops は正しい結果。ただし、安全項目の理由が語られなかっただけの場合は「迷い」ではない — 5b の通り「理由は未言及」で必ず記録する。
 
 ${defensivePreamble('ja')}`
       : `You are the customer-memory curator for a ${tok.businessNoun} (focus: ${tok.primaryFocus}). You read session transcript(s) and the customer's existing memory, then emit a JSON delta (add/update/remove) of DURABLE facts about THE CUSTOMER only.
@@ -134,7 +134,7 @@ Rules:
 9. Medical: ${clinicalGuardrail(persona.clinicalPosture, locale)}
 10. ${injectionRuleEn('memory')}
 
-Top 3 principles (override everything else): (1) never turn staff or third-party talk into customer facts; (2) never invent facts; (3) when unsure, emit nothing — an empty ops array is a correct result.
+Top 3 principles (override everything else): (1) never turn staff or third-party talk into customer facts; (2) never invent facts; (3) when unsure WHOSE fact it is or whether it was actually said, emit nothing — an empty ops array is a correct result. A safety instruction missing only its reason is NOT doubt: record it per 5b with "reason not stated".
 
 ${defensivePreamble(locale)}`
 
