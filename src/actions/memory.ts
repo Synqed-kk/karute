@@ -126,6 +126,13 @@ export async function relearnCustomerMemoryAction(
   customerId: string,
 ): Promise<{ ok: boolean; items: number; locked?: boolean }> {
   if (!customerId) return { ok: false, items: 0 }
+  // 再学習 is an owner-only dev tool (Liam 2026-07-16): its cost scales with
+  // the customer's ENTIRE session history. Server-side twin of the UI gate —
+  // same key (dev-tools.ts), so hiding the chip is never the only defense.
+  // Dynamic import like the rest of this action: keeps the auth/service-client
+  // chain out of the module graph for callers that never relearn.
+  const { canUseDevRegen } = await import('@/actions/dev-tools')
+  if (!(await canUseDevRegen())) return { ok: false, items: 0 }
   // Tracked outside the try so the catch can restore too — ANY throw after a
   // successful wipe (locale lookup, import, network) must not leave the
   // customer's memory empty.

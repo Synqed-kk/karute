@@ -26,7 +26,7 @@
 //   4. Replace the Coming-Soon dialog with the lifted MemoryItemDialog
 //      (separate lift task, ~150 lines)
 
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   Activity,
   Brain,
@@ -66,6 +66,7 @@ import {
   relearnCustomerMemoryAction,
   upsertPassportFieldAction,
 } from '@/actions/memory'
+import { canUseDevRegen } from '@/actions/dev-tools'
 import {
   EMPTY_MEMORY,
   type CustomerIntake,
@@ -472,6 +473,18 @@ function MemoryTrustBadge({
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [pending, startTransition] = useTransition()
+  // 再学習 is owner-only (dev tool — its cost scales with the customer's whole
+  // session history). Default false = staff see the plain trust chip.
+  const [canRelearn, setCanRelearn] = useState(false)
+  useEffect(() => {
+    let alive = true
+    canUseDevRegen().then((ok) => {
+      if (alive) setCanRelearn(ok)
+    }).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
   const relearn = () => {
     setConfirming(false)
     startTransition(async () => {
@@ -507,8 +520,9 @@ function MemoryTrustBadge({
   // (staff-added / pinned / staff-edited always survive).
   if (pastSessionCount > 0) {
     // Scaffold shells pass customerId='' — render the plain trust chip; the
-    // relearn trigger only exists for a real customer.
-    if (!customerId) {
+    // relearn trigger only exists for a real customer AND an owner viewer
+    // (再学習 = owner-only dev tool, Liam 2026-07-16).
+    if (!customerId || !canRelearn) {
       return (
         <span
           className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15"
