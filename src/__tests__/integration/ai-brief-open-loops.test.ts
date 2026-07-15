@@ -27,8 +27,19 @@ describe('ai-brief RE-ENTRY — every open loop surfaces, medical first', () => 
   })
 
   it('EACH open loop gets its own action (not just the single most important)', () => {
-    expect(SRC).toContain('EACH genuine open loop surfaces as its own todayActions item')
+    expect(SRC).toContain('EACH open loop still open surfaces as its own todayActions item')
     expect(SRC).not.toContain('the single most important one MUST surface')
+  })
+
+  it('multi-session: earlier-session loops survive a missed ask; resolved loops close', () => {
+    // A customer with many sessions (e.g. the test customer with multiple
+    // recordings) must not lose the MRI question just because the last
+    // session forgot to ask — and must not be re-asked once a later session
+    // answered it.
+    expect(SRC).toContain('Scan ALL sessions shown, newest first')
+    expect(SRC).toContain('an unasked question must survive a missed session')
+    expect(SRC).toContain('it is CLOSED — do not re-ask')
+    expect(SRC).not.toContain("RE-ENTRY (highest value): the most recent session's")
   })
 
   it('medical results outrank homework in the ordering', () => {
