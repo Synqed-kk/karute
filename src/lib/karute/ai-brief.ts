@@ -60,7 +60,7 @@ const AiBriefSchema = z.object({
   cautions: z
     .array(z.string())
     .describe(
-      'Safety/service cautions the staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory: safety-relevant history (allergies, medication, past reactions or trouble; clinical items like surgery/metal where applicable), intensity cautions, service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
+      'Safety/service cautions the staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory: safety-relevant history (allergies, medication, past reactions or trouble; clinical items like surgery/metal where applicable), intensity RESTRICTIONS (an intensity that must be avoided or reduced for safety/comfort — a liked/preferred intensity is a preference, never a caution), service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
     ),
   todayActions: z
     .array(z.string())
@@ -267,7 +267,10 @@ export async function getAiPreSessionBrief(params: {
       // v9: de-bodywork — per-type caution taxonomy + neutral examples.
       // v13: passport rows filtered from the memory block; history truncation
       // drops oldest sessions instead of the newest (re-audit fixes).
-      v: 13,
+      // v14: cautions = restrictions only — a liked intensity/style preference
+      // is barred from the caution box (field bug 2026-07-15: 「強めの圧が好み」
+      // rendered inside 注意（施術前に必ず） next to real safety facts).
+      v: 14,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -305,7 +308,7 @@ export async function getAiPreSessionBrief(params: {
       // the business's clinical posture — a nail salon never reads 体内金属.
       const clinical = tok.clinicalPosture !== 'service'
       const cautionTaxonomy = clinical
-        ? '既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所や強さの注意・サービスへの不安'
+        ? '既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所・強さの上限や禁止の指示（「強くしないで」等 — 「強めが好き」等の好みは注意ではない）・サービスへの不安'
         : 'アレルギー・体質・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'
       const synthesisExample = clinical
         ? 'e.g. memo has 胃の不調 + 内臓調整希望 → 「内臓調整は強度を弱めにして様子を見る」'
@@ -330,7 +333,7 @@ Rules:
 - RE-ENTRY (highest value): the sessions shown may carry 次回 lines — open loops that progress between visits: a pending medical result or appointment the customer mentioned (an MRI, a doctor visit), homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. Scan ALL sessions shown, newest first: an open loop from an EARLIER session still counts when nothing in a LATER session shows it was addressed or resolved — an unasked question must survive a missed session, never die silently. When a later session's content answers it (the result was discussed, the homework reviewed), it is CLOSED — do not re-ask. EACH open loop still open surfaces as its own todayActions item (within the max-3 cap; a pending medical result outranks homework — ${clinical ? 'e.g. 「MRIの結果を確認」 before 「宿題のハムストレッチの実施状況を確認」' : 'e.g. 「検査の結果を確認」 before 「宿題の実施状況を確認」'}), phrased as an action — and ONLY there: concerns and recommendedFocus must not repeat them. Asking 「MRIは行かれましたか？」 unprompted is the "this place remembers me" moment; a promise the staff forgets is trust lost. Only what the records actually say — never invent.
 - opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. The topic it uses is CONSUMED as rapport material — it must not reappear in hooks or lastWords (it MAY still inform recommendedFocus as clinical rationale). Null when no genuine material exists — a forced opener is worse than none.
 - lastWords: ONLY a verbatim customer line already quoted in 『』 or 「」 in the latest session's summary/entries, copied exactly, brackets included. Never manufacture a quote. Null when the quote is about the opener's topic — the opener owns that moment.
-- cautions: what staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory (a memory item like 「肘：施術回避 — 医師にMRI検査」 is a first-class cautions source): ${cautionTaxonomy}. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
+- cautions: what staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory (a memory item like 「手首：体内プレートと釘 — 手術歴」 is a first-class cautions source): ${cautionTaxonomy}. RESTRICTIONS ONLY: a caution is something that harms or distresses the customer if violated — a liked/requested intensity or style (「強めの圧が好み」) is a preference, NOT a caution; it may inform recommendedFocus or concerns but must never appear here. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
 - todayActions: up to 3 imperative actions (≤30 chars each) the staff executes today — ONE grounded action is a complete answer; never pad to fill slots. FIRST = the still-open re-entry loops per the RE-ENTRY rule above (from ALL sessions shown, not only the latest) when present; then today's focus; then an intensity/pace adjustment ONLY if it changes today's plan beyond what cautions already states (an adjustment that merely rephrases a caution is a duplicate — drop it). This is the ONLY field that carries actions — no other field may restate them.
 - concerns: HISTORY, never actions — the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). No imperative phrasing; never restate a todayActions item (when homework/a promise re-checks a concern, describe the concern's STATE here — ${clinical ? 'e.g. 「ハムストリングスの張り：前回セルフケア指導」' : 'e.g. 「継続中の悩み：前回アドバイス済み」'} — while the check itself stays in todayActions). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
@@ -354,7 +357,7 @@ ${defensivePreamble(locale)}`
           ? `Booking memo (the customer's / front-desk's own words):\n${wrapUntrustedContent('reservation_memo', memo)}`
           : 'Booking memo: (none)',
         memory.length > 0
-          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body'/'preference' items inform concerns AND cautions, but a safety-relevant item (metal, surgery, allergy, an avoid-this-area instruction) belongs in cautions only; /PINNED marks facts staff explicitly locked — never drop those from consideration; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory), MAX_HISTORY_CHARS)}`
+          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body' items inform concerns AND cautions; 'preference' items inform concerns/recommendedFocus ONLY — a preference is never a caution unless the item itself states an avoid-instruction or an adverse reaction; a safety-relevant item (metal, surgery, allergy, an avoid-this-area instruction) belongs in cautions only; /PINNED marks facts staff explicitly locked — never drop those from consideration; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory), MAX_HISTORY_CHARS)}`
           : 'Durable memory: (none yet)',
         records.length > 0
           ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), MAX_HISTORY_CHARS)}`
