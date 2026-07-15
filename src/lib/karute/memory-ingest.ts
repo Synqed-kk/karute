@@ -58,8 +58,12 @@ export async function backfillMemoryFromTranscripts(params: {
   businessId?: string | null
   transcripts: string[]
   locale: string
+  /** Cap the walk for latency-sensitive callers (page render / brief): chunks
+   *  of newest sessions processed, NOT the full history. The explicit 再学習
+   *  action omits this and gets the full CHUNK_LIMIT depth. */
+  maxChunks?: number
 }): Promise<MemoryItem[]> {
-  const { customerId, businessId, transcripts, locale } = params
+  const { customerId, businessId, transcripts, locale, maxChunks } = params
   const usable = transcripts.filter((t) => t && t.trim())
   if (usable.length === 0) return []
   try {
@@ -86,29 +90,34 @@ export async function backfillMemoryFromTranscripts(params: {
     // it we keep the NEWEST sessions and log the drop, never silently.
     // Seeding `existing` from the store (was hardcoded []) also stops a relearn
     // from re-adding facts that survive the wipe as staff-owned/pinned rows.
-    // CONTRACT: `transcripts` arrives NEWEST-first (both bootstrap callers pass
-    // getCustomerKaruteRecords order; the 再学習 action's order follows core's
-    // list default until its post-stack-merge follow-up). We keep the newest
-    // CHUNK_LIMIT×CHUNK_SIZE sessions when over the cap (logged, never silent),
-    // then process chunks OLDEST→NEWEST so facts evolve forward the way they
-    // happened (the dog is alive before it passes away, not after).
+    // CONTRACT: `transcripts` arrives NEWEST-first — every caller sorts
+    // explicitly before calling (core's list order is not guaranteed):
+    // customers/[id]/page.tsx, ai-brief.ts (getCustomerKaruteRecords sorts),
+    // actions/memory.ts. We keep the newest CHUNK_LIMIT×CHUNK_SIZE sessions
+    // when over the cap (logged, never silent), then process chunks
+    // OLDEST→NEWEST so facts evolve forward the way they happened (the dog is
+    // alive before it passes away, not after).
     const CHUNK_SIZE = 5
     const CHUNK_LIMIT = 10 // ponytail: 50 sessions per backfill; a server-side batch job if a real customer exceeds it
+    const chunkCap = Math.min(maxChunks ?? CHUNK_LIMIT, CHUNK_LIMIT)
     let chunks: string[][] = []
     for (let i = 0; i < usable.length; i += CHUNK_SIZE) {
       chunks.push(usable.slice(i, i + CHUNK_SIZE))
     }
-    if (chunks.length > CHUNK_LIMIT) {
+    if (chunks.length > chunkCap) {
       console.warn(
-        `[backfillMemoryFromTranscripts] ${customerId}: ${usable.length} transcripts exceeds the ${CHUNK_LIMIT * CHUNK_SIZE} cap — keeping the newest, dropping ${usable.length - CHUNK_LIMIT * CHUNK_SIZE}`,
+        `[backfillMemoryFromTranscripts] ${customerId}: ${usable.length} transcripts exceeds the ${chunkCap * CHUNK_SIZE} cap — keeping the newest, dropping ${usable.length - chunkCap * CHUNK_SIZE}`,
       )
-      chunks = chunks.slice(0, CHUNK_LIMIT)
+      chunks = chunks.slice(0, chunkCap)
     }
     chunks.reverse()
     let existing = await store.getCustomerMemory(customerId)
     for (const chunk of chunks) {
       const ops = await extractCustomerMemory({
-        transcripts: chunk.map((t) => t.slice(0, 16000)),
+        // The chunk itself is newest-first (input order) — reverse it so the
+        // model READS oldest→newest too; the joined blob carries no dates, so
+        // reading order is the only chronology signal it gets.
+        transcripts: [...chunk].reverse().map((t) => t.slice(0, 16000)),
         existing,
         persona,
         locale,

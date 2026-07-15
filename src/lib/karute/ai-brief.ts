@@ -205,11 +205,29 @@ export async function getAiPreSessionBrief(params: {
     // bootstrap (a passport row alone previously suppressed it forever).
     const hasRealMemory = memory.some((m) => (MEMORY_CATEGORIES as string[]).includes(m.category))
     if (!hasRealMemory && records.some((r) => r.transcript)) {
-      memory = await backfillMemoryFromTranscripts({
-        customerId,
-        transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
-        locale,
-      })
+      // Zero-yield guard (same idea as the customer page's memory-backfill
+      // cache): when a past attempt over these exact records produced no real
+      // memory, don't re-run the LLM walk on every brief render — the mem
+      // cache key is unchanged, so the cached brief gets served anyway and
+      // the walk is pure waste. 1-day TTL; a new record changes the key.
+      const attemptKey = { k: 'brief-membf', c: customerId, t: records.map((r) => r.id) }
+      const attempted = await getCachedAI('memory-backfill', attemptKey).catch(() => null)
+      if (!attempted) {
+        memory = await backfillMemoryFromTranscripts({
+          customerId,
+          transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
+          locale,
+          // Bounded for the render path (records is already ≤10 here); the
+          // full-depth walk belongs to the explicit 再学習 action.
+          maxChunks: 2,
+        })
+        const stillEmpty = !memory.some((m) =>
+          (MEMORY_CATEGORIES as string[]).includes(m.category),
+        )
+        if (stillEmpty) {
+          await setCachedAI('memory-backfill', attemptKey, { attempted: true }, 1).catch(() => {})
+        }
+      }
     }
 
     const cacheInput = {

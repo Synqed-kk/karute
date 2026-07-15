@@ -16,7 +16,7 @@ import { getCachedPassport } from '@/lib/karute/ai-passport'
 import { resolvePassportFields } from '@/lib/karute/business-ai-tokens'
 import { getOrgSettings } from '@/actions/org-settings'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import type { MemoryItem } from '@/lib/karute/memory-types'
+import { MEMORY_CATEGORIES, type MemoryItem } from '@/lib/karute/memory-types'
 import { CustomerProfileView } from '@/components/customers/redesign/profile/CustomerProfileView'
 import type { CustomerProfileData } from '@/components/customers/redesign/types'
 import {
@@ -159,13 +159,25 @@ export default async function CustomerProfilePage({
   // store itself short-circuits the backfill (items.length > 0). Best-effort:
   // empty card if the table is absent.
   let memoryItems = memoryItemsRead
-  if (memoryItems.length === 0) {
+  // Trigger on REAL memory only (same rule as ai-brief.ts): the table also
+  // holds 'passport' rows, and a staff-filled passport with zero memory items
+  // must still bootstrap — a passport row alone suppressed it forever.
+  const hasRealMemory = memoryItemsRead.some((m) =>
+    (MEMORY_CATEGORIES as string[]).includes(m.category),
+  )
+  if (!hasRealMemory) {
     // synqedKaruteRows (not the merged KaruteRow) carry the transcript field.
-    const transcripts = synqedKaruteRows
+    // Newest-first BEFORE slicing — backfill's contract (its over-cap keep and
+    // oldest→newest chunk walk both assume it; core's list order is not
+    // guaranteed). Same sort as the 再学習 action (actions/memory.ts).
+    const rowsNewestFirst = [...synqedKaruteRows].sort((a, b) =>
+      (b.created_at ?? '').localeCompare(a.created_at ?? ''),
+    )
+    const transcripts = rowsNewestFirst
       .map((r) => r.transcript ?? '')
       .filter((t) => t.trim())
     if (transcripts.length > 0) {
-      const cacheKey = { c: id, t: synqedKaruteRows.map((r) => r.id) }
+      const cacheKey = { c: id, t: rowsNewestFirst.map((r) => r.id) }
       const cached = (await getCachedAI('memory-backfill', cacheKey)) as
         | MemoryItem[]
         | null
@@ -177,6 +189,10 @@ export default async function CustomerProfilePage({
           businessId,
           transcripts,
           locale,
+          // This await sits INSIDE the server render: bound it to the newest
+          // 2 chunks (10 sessions ≈ 2 sequential LLM calls). The full history
+          // walk belongs to the explicit 再学習 action, not a page load.
+          maxChunks: 2,
         })
         await setCachedAI('memory-backfill', cacheKey, memoryItems, 1)
       }

@@ -68,10 +68,31 @@ describe('backfillMemoryFromTranscripts — depth + dedupe seeding', () => {
       locale: 'ja',
     })
     const batches = mockExtract.mock.calls.map((c) => c[0].transcripts)
-    // Newest-first input t1..t12 → chunks [t1-5],[t6-10],[t11-12] → processed
-    // reversed: the oldest chunk (t11-12) first, the newest (t1-5) last.
-    expect(batches[0]).toEqual(['t11 会話', 't12 会話'])
-    expect(batches[2][0]).toBe('t1 会話')
+    // Newest-first input t1..t12 → chunks [t1-5],[t6-10],[t11-12] → chunk
+    // order reversed (oldest chunk first) AND each chunk reversed internally,
+    // so the model reads strictly oldest→newest: t12 is the very first
+    // transcript it sees, t1 (the newest) the very last. The joined blob
+    // carries no dates — reading order is the only chronology signal.
+    expect(batches[0]).toEqual(['t12 会話', 't11 会話'])
+    expect(batches[2][0]).toBe('t5 会話')
+    expect(batches[2][batches[2].length - 1]).toBe('t1 会話')
+  })
+
+  it('maxChunks caps the walk to the NEWEST sessions (page/brief latency bound)', async () => {
+    await backfillMemoryFromTranscripts({
+      customerId: 'c-1',
+      transcripts: transcripts(23),
+      locale: 'ja',
+      maxChunks: 2,
+    })
+    // 23 sessions, cap 2 chunks → only the newest 10 (t1..t10) are read,
+    // still oldest→newest: [t10..t6] then [t5..t1].
+    expect(mockExtract).toHaveBeenCalledTimes(2)
+    const batches = mockExtract.mock.calls.map((c) => c[0].transcripts)
+    expect(batches[0][0]).toBe('t10 会話')
+    expect(batches[1][batches[1].length - 1]).toBe('t1 会話')
+    const allSent = batches.flat()
+    expect(allSent).not.toContain('t11 会話')
   })
 
   it('seeds existing from the store — staff/pinned rows are visible for dedupe', async () => {
@@ -108,5 +129,29 @@ describe('backfillMemoryFromTranscripts — depth + dedupe seeding', () => {
       locale: 'ja',
     })
     expect(mockApplyDelta).not.toHaveBeenCalled()
+  })
+})
+
+// The two render-path callers must (a) sort newest-first before calling —
+// core's list order is not guaranteed, and backfill's over-cap keep +
+// oldest→newest walk both assume newest-first input — (b) bound the walk with
+// maxChunks: 2 (the full depth belongs to the explicit 再学習 action), and
+// (c) trigger on REAL memory categories only (passport rows must not suppress
+// the bootstrap). Source-pinned like ai-brief-memory-depth.test.ts: both call
+// sites are module-private render paths.
+describe('backfill render-path callers (source contract)', () => {
+  const { readFileSync } = jest.requireActual('fs') as typeof import('fs')
+  const page = readFileSync('src/app/[locale]/(app)/customers/[id]/page.tsx', 'utf8')
+  const brief = readFileSync('src/lib/karute/ai-brief.ts', 'utf8')
+
+  it('customer page: sorts newest-first, real-category trigger, maxChunks 2', () => {
+    expect(page).toContain("(b.created_at ?? '').localeCompare(a.created_at ?? '')")
+    expect(page).toContain('(MEMORY_CATEGORIES as string[]).includes(m.category)')
+    expect(page).toContain('maxChunks: 2')
+  })
+
+  it('brief: zero-yield attempt marker + maxChunks 2', () => {
+    expect(brief).toContain("getCachedAI('memory-backfill', attemptKey)")
+    expect(brief).toContain('maxChunks: 2')
   })
 })
