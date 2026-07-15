@@ -22,9 +22,16 @@ import { join } from 'path'
 const SRC = readFileSync(join(process.cwd(), 'src/lib/karute/ai-brief.ts'), 'utf8')
 
 describe('ai-brief memory block v12', () => {
-  it('memory is ordered pinned → talking-point → rest (truncation eats the tail)', () => {
-    expect(SRC).toContain("const rank = (m: MemoryItem) => (m.pinned ? 0 : m.suggestTalkingPoint ? 1 : 2)")
+  it('memory ordered pinned → safety categories → talking-point → rest', () => {
+    // When the cap bites, rapport dies before safety (Greptile P1 on #509).
+    expect(SRC).toContain(
+      "m.pinned ? 0 : m.category === 'body' || m.category === 'preference' ? 1 : m.suggestTalkingPoint ? 2 : 3",
+    )
     expect(SRC).toContain('.sort((a, b) => rank(a) - rank(b))')
+  })
+
+  it('pin state busts the brief cache (key carries pinned, not just ids)', () => {
+    expect(SRC).toContain('mem: memory.map((m) => `${m.id}${m.pinned ? \'!\' : \'\'}`)')
   })
 
   it('pinned items are visible to the model and declared never-droppable', () => {
