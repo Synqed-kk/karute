@@ -77,18 +77,48 @@ export async function backfillMemoryFromTranscripts(params: {
       ])
     const orgSettings = await getOrgSettings().catch(() => null)
     const persona = getBusinessAiPersona(orgSettings?.business_type)
-    const ops = await extractCustomerMemory({
-      // Cap the one-off bootstrap to the most recent few transcripts AND cap each
-      // transcript's length — a single 90-min ASR transcript can be tens of
-      // thousands of chars; 5 uncapped could blow the model context / cost. ~16k
-      // chars (~4k tokens) each × 5 keeps the call bounded.
-      transcripts: usable.slice(0, 5).map((t) => t.slice(0, 16000)),
-      existing: [],
-      persona,
-      locale,
-    })
-    await store.applyMemoryDelta({ customerId, businessId, ops })
-    return store.getCustomerMemory(customerId)
+    // Chunked walk over the history instead of the old silent `.slice(0, 5)`:
+    // that cap made 再学習 and the bootstrap read only 5 sessions ever — a fact
+    // mentioned once in session 6+ of a long history could never enter memory.
+    // Each call stays bounded (5 transcripts × 16k chars ≈ 20k tokens); chunks
+    // run sequentially so each one reconciles against the memory the previous
+    // chunk produced. CHUNK_LIMIT bounds a pathological history's cost — beyond
+    // it we keep the NEWEST sessions and log the drop, never silently.
+    // Seeding `existing` from the store (was hardcoded []) also stops a relearn
+    // from re-adding facts that survive the wipe as staff-owned/pinned rows.
+    // CONTRACT: `transcripts` arrives NEWEST-first (both bootstrap callers pass
+    // getCustomerKaruteRecords order; the 再学習 action's order follows core's
+    // list default until its post-stack-merge follow-up). We keep the newest
+    // CHUNK_LIMIT×CHUNK_SIZE sessions when over the cap (logged, never silent),
+    // then process chunks OLDEST→NEWEST so facts evolve forward the way they
+    // happened (the dog is alive before it passes away, not after).
+    const CHUNK_SIZE = 5
+    const CHUNK_LIMIT = 10 // ponytail: 50 sessions per backfill; a server-side batch job if a real customer exceeds it
+    let chunks: string[][] = []
+    for (let i = 0; i < usable.length; i += CHUNK_SIZE) {
+      chunks.push(usable.slice(i, i + CHUNK_SIZE))
+    }
+    if (chunks.length > CHUNK_LIMIT) {
+      console.warn(
+        `[backfillMemoryFromTranscripts] ${customerId}: ${usable.length} transcripts exceeds the ${CHUNK_LIMIT * CHUNK_SIZE} cap — keeping the newest, dropping ${usable.length - CHUNK_LIMIT * CHUNK_SIZE}`,
+      )
+      chunks = chunks.slice(0, CHUNK_LIMIT)
+    }
+    chunks.reverse()
+    let existing = await store.getCustomerMemory(customerId)
+    for (const chunk of chunks) {
+      const ops = await extractCustomerMemory({
+        transcripts: chunk.map((t) => t.slice(0, 16000)),
+        existing,
+        persona,
+        locale,
+      })
+      if (ops.length > 0) {
+        await store.applyMemoryDelta({ customerId, businessId, ops })
+        existing = await store.getCustomerMemory(customerId)
+      }
+    }
+    return existing
   } catch (err) {
     console.error('[backfillMemoryFromTranscripts] failed:', err)
     return []
