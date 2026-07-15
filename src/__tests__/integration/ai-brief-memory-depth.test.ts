@@ -60,7 +60,33 @@ describe('ai-brief memory block v12', () => {
     expect(SRC).not.toContain('if (memory.length === 0 && records.some')
   })
 
-  it('cache version bumped to 12', () => {
-    expect(SRC).toContain('v: 12,')
+  it('cache version bumped to 13', () => {
+    expect(SRC).toContain('v: 13,')
+  })
+
+  // Re-audit 2026-07-15 (fleet S15): passport rows reached the model as
+  // [passport] lines with raw EN field keys and hijacked the pinned-first
+  // ranking; they also sat in the cache key. Filtered AFTER the bootstrap so
+  // the backfill's full-store return can't reintroduce them.
+  it('passport rows are filtered out of the prompt memory and the cache key', () => {
+    expect(SRC).toContain(
+      "memory = memory.filter((m) => (m.category as string) !== PASSPORT_CATEGORY)",
+    )
+    const filterIdx = SRC.indexOf('!== PASSPORT_CATEGORY')
+    const bootstrapIdx = SRC.indexOf('backfillMemoryFromTranscripts({')
+    const cacheIdx = SRC.indexOf('const cacheInput = {')
+    expect(bootstrapIdx).toBeGreaterThan(-1)
+    expect(filterIdx).toBeGreaterThan(bootstrapIdx)
+    expect(cacheIdx).toBeGreaterThan(filterIdx)
+  })
+
+  // Re-audit 2026-07-15 (fleet S06): the safety clip keeps the string HEAD,
+  // and the history block is oldest→newest — an over-long history silently
+  // lost its TAIL: the newest session, the only entries-bearing one and the
+  // only place a RE-ENTRY-closing answer can live. Truncation now drops the
+  // OLDEST whole sessions instead.
+  it('karute history over the cap drops the oldest sessions, never the newest', () => {
+    expect(SRC).toContain('while (blocks.length > 1 && out.length > MAX_HISTORY_CHARS)')
+    expect(SRC).toContain('blocks.shift()')
   })
 })

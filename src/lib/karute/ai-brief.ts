@@ -10,7 +10,7 @@ import {
   resolvePersonaTokens,
   clinicalGuardrail,
 } from '@/lib/karute/business-ai-tokens'
-import { getCustomerMemory } from '@/lib/karute/customer-memory'
+import { getCustomerMemory, PASSPORT_CATEGORY } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import { MEMORY_CATEGORIES, type MemoryItem } from '@/lib/karute/memory-types'
 import { defensivePreamble, wrapUntrustedContent, MAX_HISTORY_CHARS } from '@/lib/ai-safety'
@@ -89,7 +89,7 @@ function buildContext(records: KaruteRecord[]): string {
   // Oldest → newest so the model reads the timeline chronologically and the
   // "direction" instruction can't invert. Entries attach to whichever record
   // carries them (getCustomerKaruteRecords fetches entries for the most recent).
-  return [...records]
+  const blocks = [...records]
     .reverse()
     .map((r) => {
       const when = r.created_at?.slice(0, 10) ?? ''
@@ -99,7 +99,22 @@ function buildContext(records: KaruteRecord[]): string {
         : ''
       return `Session ${when}: ${summary}${entries}`
     })
-    .join('\n\n')
+  // The downstream safety clip keeps the HEAD of the string — which here is
+  // the OLDEST session, so an over-long history would silently lose the tail:
+  // the newest session, the only entries-bearing one and the only place a
+  // loop-closing answer (RE-ENTRY), a lastWords quote, or the latest state can
+  // live. Drop OLDEST whole sessions instead until the block fits the cap.
+  let out = blocks.join('\n\n')
+  let dropped = 0
+  while (blocks.length > 1 && out.length > MAX_HISTORY_CHARS) {
+    blocks.shift()
+    dropped++
+    out = blocks.join('\n\n')
+  }
+  if (dropped > 0) {
+    console.warn(`[ai-brief] karute_history over ${MAX_HISTORY_CHARS} chars — dropped the ${dropped} oldest session(s), kept the newest ${blocks.length}`)
+  }
+  return out
 }
 
 // The customer's durable memory, grouped for the prompt — personal items (with a
@@ -229,6 +244,14 @@ export async function getAiPreSessionBrief(params: {
         }
       }
     }
+    // Passport (これまで) override rows share the table but are NOT durable
+    // memory: unfiltered they rendered into the prompt as [passport] lines
+    // with raw English field keys, ranked ahead of real memory whenever a
+    // staff-edited row carried pinned, and sat in the cache key (a passport
+    // edit invalidated the brief). Same exclusion memory-adapter applies.
+    // AFTER the bootstrap: backfill returns the full store state, so filtering
+    // earlier would let passport rows sneak back in on the bootstrap path.
+    memory = memory.filter((m) => (m.category as string) !== PASSPORT_CATEGORY)
 
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
@@ -242,7 +265,9 @@ export async function getAiPreSessionBrief(params: {
       // another customer's reservation memo).
       // v10: hooks may not source from the memo + body must add beyond title.
       // v9: de-bodywork — per-type caution taxonomy + neutral examples.
-      v: 12,
+      // v13: passport rows filtered from the memory block; history truncation
+      // drops oldest sessions instead of the newest (re-audit fixes).
+      v: 13,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
