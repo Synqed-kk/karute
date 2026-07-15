@@ -57,7 +57,8 @@ describe('ai-brief RE-ENTRY — every open loop surfaces, medical first', () => 
   })
 
   it('cache version bumped so stale briefs regenerate under the new rule', () => {
-    expect(SRC).toContain('v: 11,')
+    // v10 was the pre-open-loops version; the exact current version is owned
+    // by ai-brief-memory-depth.test.ts (later bumps supersede this branch's).
     expect(SRC).not.toContain('v: 10,')
   })
 })
