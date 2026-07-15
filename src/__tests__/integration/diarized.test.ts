@@ -111,6 +111,23 @@ describe('repairAndCoalesce — fragment merging + orphan punctuation (AI-qualit
     )
   })
 
+  it('never merges two different bystanders (same role, different speakers)', () => {
+    // staff(0) → bystander(2) → bystander(3): both map to 'unknown' but they
+    // are different people — fusing them would put two voices on one line.
+    const d = buildDiarizedTranscript(
+      [
+        para(0, 'こんにちは、今日はどうされましたか', 0, 3),
+        para(1, '腰が痛くて', 3, 5),
+        para(2, '隣の話です', 5, 7),
+        para(3, '別の人の話です', 7, 9),
+      ],
+      [],
+      0.9,
+    )!
+    expect(d.turns.map((t) => t.speaker)).toEqual([0, 1, 2, 3])
+    expect(d.turns).toHaveLength(4)
+  })
+
   it('never merges across different roles', () => {
     const d = buildDiarizedTranscript(
       [

@@ -124,9 +124,11 @@ function repairAndCoalesce(turns: readonly DiarizedTurn[]): DiarizedTurn[] {
       }
     }
     if (!text) continue
-    if (prev && prev.role === t.role) {
+    if (prev && prev.role === t.role && prev.speaker === t.speaker) {
       // Same voice continuing — one turn. Space matches how deepgram.ts joins
-      // paragraph sentences.
+      // paragraph sentences. Speaker must match too: two DIFFERENT bystanders
+      // both land role 'unknown', and merging them would fuse two people's
+      // speech into one 周囲の会話 line.
       prev.text += ` ${text}`
       prev.end = t.end
     } else {
