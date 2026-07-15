@@ -139,6 +139,9 @@ export async function relearnCustomerMemoryAction(
       ])
     const synqed = await getSynqedClient()
     const rows = await listSynqedKaruteRows(synqed, { customerId })
+    // Newest-first — backfill's contract (its over-cap keep + oldest→newest
+    // chunk processing both assume it; core's list order is not guaranteed).
+    rows.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
     const transcripts = rows.map((r) => r.transcript ?? '').filter((t) => t.trim())
     if (transcripts.length === 0) return { ok: false, items: 0 }
 
