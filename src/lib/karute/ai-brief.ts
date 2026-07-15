@@ -12,7 +12,7 @@ import {
 } from '@/lib/karute/business-ai-tokens'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
-import type { MemoryItem } from '@/lib/karute/memory-types'
+import { MEMORY_CATEGORIES, type MemoryItem } from '@/lib/karute/memory-types'
 import { defensivePreamble, wrapUntrustedContent, MAX_HISTORY_CHARS } from '@/lib/ai-safety'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
 
@@ -60,7 +60,7 @@ const AiBriefSchema = z.object({
   cautions: z
     .array(z.string())
     .describe(
-      'Safety/service cautions the staff must know before the session begins, stated ANYWHERE in the memo or the karute: safety-relevant history (allergies, medication, past reactions or trouble; clinical items like surgery/metal where applicable), intensity cautions, service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
+      'Safety/service cautions the staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory: safety-relevant history (allergies, medication, past reactions or trouble; clinical items like surgery/metal where applicable), intensity cautions, service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
     ),
   todayActions: z
     .array(z.string())
@@ -104,11 +104,18 @@ function buildContext(records: KaruteRecord[]): string {
 
 // The customer's durable memory, grouped for the prompt — personal items (with a
 // talking-point flag) feed hooks; body/preference/goal/lifestyle inform concerns.
+// ORDER = truncation policy: the block is length-capped downstream, and the
+// store returns updated_at DESC — which put the OLDEST never-revisited items
+// (the cat from 50 sessions ago) exactly at the cut line. Pinned items (staff's
+// explicit "always remember this") go first, then talking-points, then the
+// rest newest-first; whatever truncation eats is the least load-bearing tail.
 function formatMemory(items: MemoryItem[]): string {
-  return items
+  const rank = (m: MemoryItem) => (m.pinned ? 0 : m.suggestTalkingPoint ? 1 : 2)
+  return [...items]
+    .sort((a, b) => rank(a) - rank(b))
     .map(
       (m) =>
-        `[${m.category}${m.suggestTalkingPoint ? '/talking-point' : ''}] ${m.label}${m.detail ? ` — ${m.detail}` : ''}`,
+        `[${m.category}${m.pinned ? '/PINNED' : ''}${m.suggestTalkingPoint ? '/talking-point' : ''}] ${m.label}${m.detail ? ` — ${m.detail}` : ''}`,
     )
     .join('\n')
 }
@@ -190,7 +197,11 @@ export async function getAiPreSessionBrief(params: {
     // bootstrap it once so an existing customer's brief is personal immediately;
     // thereafter the on-save loop keeps it fresh.
     let memory = await getCustomerMemory(customerId)
-    if (memory.length === 0 && records.some((r) => r.transcript)) {
+    // Trigger on REAL memory only: the same table holds 'passport' rows, and a
+    // customer with a staff-filled passport but zero memory items must still
+    // bootstrap (a passport row alone previously suppressed it forever).
+    const hasRealMemory = memory.some((m) => (MEMORY_CATEGORIES as string[]).includes(m.category))
+    if (!hasRealMemory && records.some((r) => r.transcript)) {
       memory = await backfillMemoryFromTranscripts({
         customerId,
         transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
@@ -210,7 +221,7 @@ export async function getAiPreSessionBrief(params: {
       // another customer's reservation memo).
       // v10: hooks may not source from the memo + body must add beyond title.
       // v9: de-bodywork — per-type caution taxonomy + neutral examples.
-      v: 11,
+      v: 12,
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
@@ -260,7 +271,7 @@ export async function getAiPreSessionBrief(params: {
 Before a session you read the customer's booking memo and their past karute (session records), and produce a brief the ${tok.role} can skim in 30 seconds.
 
 Rules:
-- GROUNDING: every item must be backed by the memo or the karute. NEVER invent. An empty array / null is the CORRECT answer when there is nothing real — a fabricated item is harmful.
+- GROUNDING: every item must be backed by the memo, the karute, or the durable memory block. NEVER invent. An empty array / null is the CORRECT answer when there is nothing real — a fabricated item is harmful.
 - NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses. EXCEPTION: a safety fact stated in the memo still goes to cautions — safety is the one thing worth restating.
 - LAYER CONTRACT (no fact appears twice): the card renders two layers. SKIM layer (always visible) = opener + lastWords + cautions + todayActions + memoAnalysis — owns TODAY. DETAIL layer (folded behind a 経過 toggle) = hooks + concerns + lastProduct + recommendedFocus — owns HISTORY & CONTEXT. Ownership when two fields could claim the same fact: a SAFETY fact belongs to cautions ONLY (wherever it was stated); ACTIONS belong to todayActions ONLY; the opener's personal topic may not reappear in hooks or lastWords. TOPIC overlap is NOT duplication — concerns may describe the state of a concern that todayActions checks today, and recommendedFocus may use the opener's topic as clinical rationale; only the same claim in the same framing is a repeat. Before returning, re-read your own output and delete any item in ANY field that restates another field's item.
 - memoAnalysis: the ${tok.role}'s READ of the memo — include only the applicable of these, never forced to fill all:
@@ -271,7 +282,7 @@ Rules:
 - RE-ENTRY (highest value): the sessions shown may carry 次回 lines — open loops that progress between visits: a pending medical result or appointment the customer mentioned (an MRI, a doctor visit), homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. Scan ALL sessions shown, newest first: an open loop from an EARLIER session still counts when nothing in a LATER session shows it was addressed or resolved — an unasked question must survive a missed session, never die silently. When a later session's content answers it (the result was discussed, the homework reviewed), it is CLOSED — do not re-ask. EACH open loop still open surfaces as its own todayActions item (within the max-3 cap; a pending medical result outranks homework — ${clinical ? 'e.g. 「MRIの結果を確認」 before 「宿題のハムストレッチの実施状況を確認」' : 'e.g. 「検査の結果を確認」 before 「宿題の実施状況を確認」'}), phrased as an action — and ONLY there: concerns and recommendedFocus must not repeat them. Asking 「MRIは行かれましたか？」 unprompted is the "this place remembers me" moment; a promise the staff forgets is trust lost. Only what the records actually say — never invent.
 - opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. The topic it uses is CONSUMED as rapport material — it must not reappear in hooks or lastWords (it MAY still inform recommendedFocus as clinical rationale). Null when no genuine material exists — a forced opener is worse than none.
 - lastWords: ONLY a verbatim customer line already quoted in 『』 or 「」 in the latest session's summary/entries, copied exactly, brackets included. Never manufacture a quote. Null when the quote is about the opener's topic — the opener owns that moment.
-- cautions: what staff must know before the session begins, stated ANYWHERE in the memo or the karute: ${cautionTaxonomy}. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
+- cautions: what staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory (a memory item like 「肘：施術回避 — 医師にMRI検査」 is a first-class cautions source): ${cautionTaxonomy}. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
 - todayActions: up to 3 imperative actions (≤30 chars each) the staff executes today — ONE grounded action is a complete answer; never pad to fill slots. FIRST = the still-open re-entry loops per the RE-ENTRY rule above (from ALL sessions shown, not only the latest) when present; then today's focus; then an intensity/pace adjustment ONLY if it changes today's plan beyond what cautions already states (an adjustment that merely rephrases a caution is a duplicate — drop it). This is the ONLY field that carries actions — no other field may restate them.
 - concerns: HISTORY, never actions — the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). No imperative phrasing; never restate a todayActions item (when homework/a promise re-checks a concern, describe the concern's STATE here — ${clinical ? 'e.g. 「ハムストリングスの張り：前回セルフケア指導」' : 'e.g. 「継続中の悩み：前回アドバイス済み」'} — while the check itself stays in todayActions). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
@@ -295,7 +306,7 @@ ${defensivePreamble(locale)}`
           ? `Booking memo (the customer's / front-desk's own words):\n${wrapUntrustedContent('reservation_memo', memo)}`
           : 'Booking memo: (none)',
         memory.length > 0
-          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body' items inform concerns AND cautions, but a safety-relevant body item (metal, surgery, allergy) belongs in cautions only; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
+          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body'/'preference' items inform concerns AND cautions, but a safety-relevant item (metal, surgery, allergy, an avoid-this-area instruction) belongs in cautions only; /PINNED marks facts staff explicitly locked — never drop those from consideration; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory), MAX_HISTORY_CHARS)}`
           : 'Durable memory: (none yet)',
         records.length > 0
           ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), MAX_HISTORY_CHARS)}`
