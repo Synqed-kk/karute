@@ -21,18 +21,22 @@ const DeltaSchema = z.object({
       z.object({
         action: z.enum(['add', 'update', 'remove']),
         id: z.string().nullable().describe('existing item id — required for update/remove, null for add'),
+        // 「お客様本人の事実のみ」 AND the 5b safety tier are duplicated into the
+        // schema layer on purpose: this prompt may run on a small model
+        // (AI_MEMORY_MODEL) and field descriptions are where small models
+        // attend best. Field bug 2026-07-15 ×2 customers: the system-prompt
+        // 5b carve-out alone still dropped implanted hardware / pending-exam
+        // facts — the schema layer is the half small models actually read.
         category: z
           .enum(['personal', 'body', 'preference', 'goal', 'lifestyle'])
-          .nullable(),
-        // 「お客様本人の事実のみ」 duplicated into the schema layer on purpose:
-        // this prompt may run on a small model (AI_MEMORY_MODEL) and field
-        // descriptions are where small models attend best.
+          .nullable()
+          .describe('personal / body / preference / goal / lifestyle. SAFETY (5b): a surgery, implanted metal/medical device, or avoid/caution instruction (手術歴・体内金属・医療機器・回避指示) is ALWAYS body and ALWAYS emitted, even from a single mention — never skip it as today-only detail.'),
         label: z
           .string()
           .nullable()
-          .describe('short durable fact about THE CUSTOMER THEMSELVES ONLY (お客様本人の事実のみ), ≤30 chars (e.g. 愛犬チビ(柴犬))'),
-        detail: z.string().nullable().describe('context, ≤120 chars'),
-        confidence: z.number().nullable().describe('0.70–1.0; below 0.70 do NOT emit'),
+          .describe('short durable fact about THE CUSTOMER THEMSELVES ONLY (お客様本人の事実のみ), ≤30 chars (e.g. 愛犬チビ(柴犬)). A safety fact (手術歴・体内金属・医療機器・回避指示) always gets an item even when mentioned once.'),
+        detail: z.string().nullable().describe('context, ≤120 chars. REQUIRED for a safety fact: what + why; when no reason was spoken write 理由は未言及 and still emit the item.'),
+        confidence: z.number().nullable().describe('0.70–1.0; below 0.70 do NOT emit. A clearly spoken safety fact scores 0.80+ per rule 5 — never under-score it below the floor.'),
         suggestTalkingPoint: z
           .boolean()
           .nullable()

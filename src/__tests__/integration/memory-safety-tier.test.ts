@@ -103,6 +103,21 @@ describe('memory-extract rule 5b — safety tier (JA + EN)', () => {
     expect(SRC).toContain('「迷い」ではない — 5b の通り「理由は未言及」で必ず記録する')
     expect(SRC).toContain('A safety instruction missing only its reason is NOT doubt: record it per 5b')
   })
+
+  // Field bug 2026-07-15 ROUND 2 (both test customers, post-#516 relearn):
+  // the system-prompt 5b carve-out alone STILL dropped implanted hardware and
+  // a pending-exam fact. This extractor may run on a small model
+  // (AI_MEMORY_MODEL || AI_MODEL — the one cost-tunable path in the prompt
+  // suite), and the repo's own doctrine says field descriptions are where
+  // small models attend best — the WHO-rule was already duplicated into the
+  // schema for exactly this reason; 5b now is too.
+  it('the 5b safety tier is duplicated into the schema layer', () => {
+    expect(SRC).toContain('ALWAYS body and ALWAYS emitted, even from a single mention')
+    expect(SRC).toContain('always gets an item even when mentioned once')
+    expect(SRC).toContain('when no reason was spoken write 理由は未言及 and still emit the item')
+    expect(SRC).toContain('never under-score it below the floor')
+    expect(SRC).toContain('the schema layer is the half small models actually read')
+  })
 })
 
 // Re-audit 2026-07-15 (fleet S11/S20): the 0.70 confidence floor gated ONLY
