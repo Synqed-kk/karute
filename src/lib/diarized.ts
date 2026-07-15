@@ -110,6 +110,12 @@ export function buildDiarizedTranscript(
  *  labels. Repair = give leading punctuation back to whoever spoke last, then
  *  merge consecutive same-role turns into one. */
 const LEADING_PUNCT = /^[。、．，,.!！?？…]+/
+// '…' is the one ambiguous leading char: a stranded closer when the fragment
+// is punctuation-only, but a hesitation marker OPENING a new utterance when
+// real content follows (「…実は、ちょっと言いにくいんですけど」— common right
+// before a reluctant disclosure). Closers are stolen back always; '…' only
+// when nothing follows it.
+const LEADING_CLOSERS = /^[。、．，,.!！?？]+/
 
 function repairAndCoalesce(turns: readonly DiarizedTurn[]): DiarizedTurn[] {
   const out: DiarizedTurn[] = []
@@ -117,10 +123,17 @@ function repairAndCoalesce(turns: readonly DiarizedTurn[]): DiarizedTurn[] {
     const prev = out[out.length - 1]
     let text = t.text
     if (prev) {
-      const m = text.match(LEADING_PUNCT)
-      if (m) {
-        prev.text += m[0]
-        text = text.slice(m[0].length).trimStart()
+      const whole = text.match(LEADING_PUNCT)
+      if (whole && !text.slice(whole[0].length).trim()) {
+        // Punctuation-only fragment (incl. bare '…') — dissolve into prev.
+        prev.text += whole[0]
+        text = ''
+      } else {
+        const m = text.match(LEADING_CLOSERS)
+        if (m) {
+          prev.text += m[0]
+          text = text.slice(m[0].length).trimStart()
+        }
       }
     }
     if (!text) continue
