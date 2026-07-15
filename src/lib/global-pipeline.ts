@@ -110,11 +110,28 @@ class GlobalPipeline {
     if (!this.blob || !this.context) return
     const runId = ++this.runId
     try {
-      const result = await runAIPipeline(this.blob, this.context.locale, (step) => {
-        if (runId !== this.runId) return
-        this.step = step
-        this.notify()
-      })
+      // Anchor context for the extraction/summary prompts. Without it the JA
+      // prompts run with a generic このお客様 and no absolute date to resolve
+      // 来月/再来週 against — the regenerate path derives both server-side, but
+      // the first pass only knows the customer when the take came from a
+      // booking. Walk-ins stay null (the prompt's generic fallback).
+      const customerName =
+        this.context.customers.find((c) => c.id === this.context?.appointmentCustomerId)
+          ?.name ?? null
+      // Device-local date, not toISOString (UTC would mislabel late-night JST
+      // sessions as the previous day).
+      const now = new Date()
+      const sessionDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      const result = await runAIPipeline(
+        this.blob,
+        this.context.locale,
+        (step) => {
+          if (runId !== this.runId) return
+          this.step = step
+          this.notify()
+        },
+        { customerName, sessionDate },
+      )
       if (runId !== this.runId) return
       this.result = result
       // Auto-save when nothing more is needed from the staff: a known customer
