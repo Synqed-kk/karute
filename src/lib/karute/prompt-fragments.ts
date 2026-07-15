@@ -14,9 +14,15 @@
  * session). Change it only together with scripts/eval-prompts fixtures.
  */
 
-/** Bump on ANY behavioral prompt change. Included in ai-cache keys and logs so
- *  output can always be traced to the prompt that produced it. */
-export const KARUTE_PROMPT_VERSION = 'v3.4-2026-07-15'
+/** Version key for the CACHED AI surfaces (passport / outreach / body-prediction
+ *  — their cache keys embed this). Bump ONLY when one of THOSE prompts changes:
+ *  the passport is cache-read-only on the customer page (its sole writer is the
+ *  manual 再学習 action), so a bump blanks every customer's これまで box until
+ *  each is manually relearned. The 2026-07-15 v3.4 extraction/summary rewrite
+ *  learned this live: those prompts aren't cached at all (their outputs persist
+ *  on the record), so the bump bought nothing and blanked passports — reverted.
+ *  Extraction/summary prompt history is traceable via git, not this key. */
+export const KARUTE_PROMPT_VERSION = 'v3.3-2026-07-09'
 
 export interface PromptContext {
   /** Customer's display name — anchors WHO-decisions and lets the model reject

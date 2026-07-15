@@ -74,7 +74,11 @@ describe('prompt v3.4 — salience, source attribution, follow-up pairing', () =
     }
   })
 
-  it('version bumped so cached AI outputs regenerate under v3.4', () => {
-    expect(KARUTE_PROMPT_VERSION).toBe('v3.4-2026-07-15')
+  it('cache version key stays v3.3 — the CACHED prompts did not change', () => {
+    // v3.4 changed extraction/summary, which are NOT ai-cached; bumping this key
+    // blanks the cache-read-only passport (これまで) for every customer until a
+    // manual per-customer 再学習. Bump only when passport/outreach/prediction
+    // prompts themselves change.
+    expect(KARUTE_PROMPT_VERSION).toBe('v3.3-2026-07-09')
   })
 })
