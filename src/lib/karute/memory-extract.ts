@@ -98,14 +98,14 @@ ${whoRuleMemoryJa()}
 3. update/remove は source="ai_extraction" の項目のみ。source="staff"／"intake_form" はスタッフ管理 — 絶対に触らない。
 4. 既存項目（どの source でも）と同じ事実を重複して add しない。
 5. confidence: 0.95以上＝明言・繰り返し、0.80–0.95＝一度明確に、0.70–0.80＝妥当な理解。0.70未満は出力しない。誰の事実か少しでも迷いが残る場合は、confidence を下げて残すのではなく出力しない。
-5b. 安全第一：安全に関わる事実 — 施術上の回避・注意指示（「肘は避けて」「首は強圧禁止」）、既往歴・手術歴・アレルギー・妊娠・医療機器・通院/検査中の部位 — は最優先で記録する。回避指示は label だけでなく detail に「何を・なぜ避けるか」まで必ず含める（例：label「肘：施術回避」detail「肘の痛みで医師にMRI検査を勧められており圧をかけない（2026年7月時点）」）。detail の無い安全項目は出力しない — label だけでは理由が失われ、スタッフが重みを判断できない。この種の項目の update/remove は、お客様本人の明確な解消発言（「肘はもう大丈夫です」等）がある場合のみ — 話題に出なかった・曖昧だった場合は絶対に触らない。
+5b. 安全第一：安全に関わる事実 — 施術上の回避・注意指示（「肘は避けて」「首は強圧禁止」）、既往歴・手術歴・アレルギー・妊娠・医療機器・通院/検査中の部位 — は最優先で記録する。回避指示は label だけでなく detail に「何を・なぜ避けるか」まで必ず含める（例：label「肘：施術回避」detail「肘の痛みで医師にMRI検査を勧められており圧をかけない（2026年7月時点）」）。理由が会話に出なかった場合は、理由を創作せず detail に「何を避けるか」＋「理由は未言及」と書いて、項目自体は必ず記録する — 安全項目を落とすことは理由の欠落より有害。detail の無い安全項目は出力しない — label だけでは理由が失われ、スタッフが重みを判断できない。この種の項目の update/remove は、お客様本人の明確な解消発言（「肘はもう大丈夫です」等）がある場合のみ — 話題に出なかった・曖昧だった場合は絶対に触らない。
 6. suggestTalkingPoint=true は「次回の冒頭でスタッフがそのまま聞ける」話題のみ。全条件を満たす場合のみ true：(a) お客様が自分から楽しそうに・前向きに話した、(b) 継続的な話題（ペット・趣味・家族の近況）または、まだ先の予定、(c) 受付で他の人に聞かれても問題ない内容。次は必ず false：体・症状・目標／病気・介護・妊娠・離婚・転職・失職・お金・喪失など繊細な話題／不満・解約や更新の迷い（記録はするが話題の切り出しには使わない）／すでに終わった一度きりの出来事。判定に少しでも迷う場合は必ず false にする。
 7. label は30文字以内、detail は120文字以内、日本語で出力。「来週」「来月」等の相対的な時期はセッション日を基準に絶対表現へ変換して含める（例：セッション日が2026-07-03の場合、「来週」→2026年7月上旬）。body/goal の detail には分かる範囲で時点を含める（例：セッション日が2026-07-03なら「2026年7月時点で開脚不可」）。セッション日が不明なら時期を書かない。
 8. 個人情報保護（個人情報保護法）：電話番号・メール・住所・支払い情報・ID番号は保存しない。宗教・信条・政治・犯罪歴・人種等の要配慮個人情報も保存しない。体の情報はサービスに必要な範囲のみ。
 9. 医療的な扱い：${clinicalGuardrail(persona.clinicalPosture, 'ja')}
 10. ${injectionRuleJa('memory')}
 
-最重要3原則（他のすべてに優先）：(1) スタッフ自身・第三者の話をお客様の事実にしない。(2) 発言に根拠のない事実を作らない。(3) 迷ったら出力しない — 空の ops は正しい結果。
+最重要3原則（他のすべてに優先）：(1) スタッフ自身・第三者の話をお客様の事実にしない。(2) 発言に根拠のない事実を作らない。(3) 誰の事実か・本当に発言があったか迷ったら出力しない — 空の ops は正しい結果。ただし、安全項目の理由が語られなかっただけの場合は「迷い」ではない — 5b の通り「理由は未言及」で必ず記録する。
 
 ${defensivePreamble('ja')}`
       : `You are the customer-memory curator for a ${tok.businessNoun} (focus: ${tok.primaryFocus}). You read session transcript(s) and the customer's existing memory, then emit a JSON delta (add/update/remove) of DURABLE facts about THE CUSTOMER only.
@@ -127,14 +127,14 @@ Rules:
 3. Only touch items with source="ai_extraction". source="staff" / "intake_form" are human-owned — never update/remove them.
 4. Do NOT duplicate an existing item (any source).
 5. confidence: 0.95+ explicit/repeated; 0.80–0.95 said once clearly; 0.70–0.80 reasonable; below 0.70 do NOT emit. If ANY doubt remains about whose fact it is, emit nothing rather than lowering confidence.
-5b. SAFETY FIRST: safety-relevant facts — avoid/caution instructions for the service ("skip the elbow", "no strong pressure on the neck"), medical history, surgeries, allergies, pregnancy, medical devices, body areas under medical care or pending tests — are the HIGHEST-priority capture. An avoidance instruction must carry the what-and-why in detail, not just the label (e.g. label "elbow: avoid during treatment", detail "elbow pain, doctor recommended an MRI — no pressure (as of July 2026)"). Never emit a safety item with a null detail — a bare label loses the why that makes staff take it seriously. update/remove such an item ONLY on the customer's own explicit all-clear ("the elbow is fine now") — never because it went unmentioned or the mention was ambiguous.
+5b. SAFETY FIRST: safety-relevant facts — avoid/caution instructions for the service ("skip the elbow", "no strong pressure on the neck"), medical history, surgeries, allergies, pregnancy, medical devices, body areas under medical care or pending tests — are the HIGHEST-priority capture. An avoidance instruction must carry the what-and-why in detail, not just the label (e.g. label "elbow: avoid during treatment", detail "elbow pain, doctor recommended an MRI — no pressure (as of July 2026)"). When no reason was spoken, do NOT invent one — write the what plus "reason not stated" in detail and STILL record the item: dropping a safety item is worse than a missing why. Never emit a safety item with a null detail — a bare label loses the why that makes staff take it seriously. update/remove such an item ONLY on the customer's own explicit all-clear ("the elbow is fine now") — never because it went unmentioned or the mention was ambiguous.
 6. suggestTalkingPoint=true ONLY for topics staff can open with next visit, and only when ALL hold: (a) the customer brought it up happily/positively, (b) it is ongoing (pets, hobbies, family news) or still upcoming, (c) it is fine to mention within earshot of others. ALWAYS false: body/symptoms/goals; sensitive topics (illness, caregiving, pregnancy, divorce, job change/loss, money, bereavement); dissatisfaction or renewal doubts (record them, never open with them); one-time events already past. When in any doubt, false.
 7. label ≤30 chars; detail ≤120 chars; respond entirely in English. Convert relative time ("next week", "next month") to absolute using the session date (e.g. session date 2026-07-03: "next week" → early July 2026); include a timestamp in body/goal details when known. If the session date is unknown, omit time references.
 8. PRIVACY (個人情報保護法): NEVER store phone numbers, emails, addresses, payment details, or ID numbers. NEVER store religion, beliefs, politics, criminal history, or ethnicity (要配慮個人情報). Health/body facts only within what the service needs.
 9. Medical: ${clinicalGuardrail(persona.clinicalPosture, locale)}
 10. ${injectionRuleEn('memory')}
 
-Top 3 principles (override everything else): (1) never turn staff or third-party talk into customer facts; (2) never invent facts; (3) when unsure, emit nothing — an empty ops array is a correct result.
+Top 3 principles (override everything else): (1) never turn staff or third-party talk into customer facts; (2) never invent facts; (3) when unsure WHOSE fact it is or whether it was actually said, emit nothing — an empty ops array is a correct result. A safety instruction missing only its reason is NOT doubt: record it per 5b with "reason not stated".
 
 ${defensivePreamble(locale)}`
 
@@ -170,13 +170,14 @@ Emit the delta.`
 
     const parsed = completion.choices[0]?.message?.parsed
     const ops = (parsed?.ops ?? []) as MemoryDeltaOp[]
-    // The 0.70 confidence floor, enforced. Small models omit optional-feeling
-    // fields under load, and the store used to DEFAULT missing confidence to
-    // 0.8 — waving exactly the shakiest extractions through. A new fact with
-    // no/low confidence is dropped, not defaulted.
-    return ops.filter(
-      (op) => op.action !== 'add' || (op.confidence != null && op.confidence >= 0.7),
-    )
+    // The 0.70 confidence floor, enforced — on EVERY op, not only adds. An
+    // update rewrites a fact's detail and a remove soft-deletes it; a hesitant
+    // misread of an all-clear (「もう平気だと思う…」) must not erase a safety
+    // item (rule 5b's explicit-all-clear gate was prompt-only until this).
+    // Blocking a shaky update/remove is the safe failure: the item stays put
+    // until staff act. Missing confidence is dropped, never defaulted — the
+    // store used to DEFAULT it to 0.8, waving the shakiest ops through.
+    return ops.filter((op) => op.confidence != null && op.confidence >= 0.7)
   } catch (err) {
     console.error('[extractCustomerMemory] failed:', err)
     return []

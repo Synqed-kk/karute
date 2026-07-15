@@ -69,9 +69,11 @@ export async function applyMemoryDelta(params: {
     const nowIso = new Date().toISOString()
     for (const op of ops) {
       // Confidence floor enforced at the store too (belt and braces with the
-      // extractor's post-parse filter): an add with missing/low confidence is
-      // dropped, never defaulted — defaulting waved the shakiest items through.
-      if (op.action === 'add' && (op.confidence == null || op.confidence < 0.7)) {
+      // extractor's post-parse filter), on EVERY op: update rewrites a fact,
+      // remove soft-deletes it — a shaky or confidence-less op must not touch
+      // the store (a misread all-clear could erase a safety item). Dropped,
+      // never defaulted — defaulting waved the shakiest items through.
+      if (op.confidence == null || op.confidence < 0.7) {
         continue
       }
       if (op.action === 'add' && op.label && op.category) {
