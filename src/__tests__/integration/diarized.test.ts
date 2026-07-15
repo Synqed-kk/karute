@@ -81,6 +81,35 @@ describe('repairAndCoalesce — fragment merging + orphan punctuation (AI-qualit
     expect(d.turns[0].end).toBe(5)
   })
 
+  // Re-audit 2026-07-15 (fleet S03): '…' opening a turn WITH content is a
+  // hesitation marker before a disclosure, not a stranded closer — it stays
+  // on the speaker who hesitated. A bare '…' fragment still dissolves.
+  it("keeps a hesitation '…' on the new speaker's turn when content follows", () => {
+    const d = buildDiarizedTranscript(
+      [
+        para(0, '今日はどうされましたか', 0, 3),
+        para(1, '…実は、ちょっと言いにくいんですけど', 3, 8),
+      ],
+      [],
+      0.9,
+    )!
+    expect(d.turns[0].text).toBe('今日はどうされましたか')
+    expect(d.turns[1].text).toBe('…実は、ちょっと言いにくいんですけど')
+  })
+
+  it("dissolves a punctuation-only fragment (incl. bare '…') into the previous turn", () => {
+    const d = buildDiarizedTranscript(
+      [
+        para(0, 'そうですね', 0, 2),
+        para(1, '…。', 2, 3),
+        para(1, '腰が痛くて', 3, 6),
+      ],
+      [],
+      0.9,
+    )!
+    expect(d.turns.map((t) => t.text)).toEqual(['そうですね…。', '腰が痛くて'])
+  })
+
   it('moves leading punctuation back to the previous turn', () => {
     const d = buildDiarizedTranscript(
       [
