@@ -23,6 +23,13 @@ describe('RBAC permission model', () => {
     expect(m.has('records.delete')).toBe(true)
   })
 
+  it('raw recordings are recorder-private: only the owner keeps recordings.viewAll (Liam 7/16)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('recordings.viewAll')).toBe(true)
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('recordings.viewAll')).toBe(false)
+    }
+  })
+
   it('practitioner records work but cannot administer', () => {
     const p = new Set(ROLE_PRESETS.practitioner)
     expect(p.has('records.write')).toBe(true)
