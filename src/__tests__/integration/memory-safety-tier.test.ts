@@ -32,6 +32,11 @@ describe('memory-extract rule 5b — safety tier (JA + EN)', () => {
     expect(SRC).toContain('what-and-why in detail')
   })
 
+  it('a safety item without detail is banned (bare label loses the why)', () => {
+    expect(SRC).toContain('detail の無い安全項目は出力しない')
+    expect(SRC).toContain('Never emit a safety item with a null detail')
+  })
+
   it('update/remove of a safety item needs the customer\'s explicit all-clear', () => {
     expect(SRC).toContain('明確な解消発言')
     expect(SRC).toContain('「肘はもう大丈夫です」')
