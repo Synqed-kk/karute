@@ -50,8 +50,10 @@ describe('ai-brief RE-ENTRY — every open loop surfaces, medical first', () => 
     // The file's own IMPORTANT comment: .describe() ships to the model and
     // silently overrides the rules if it drifts. Both must carry the rule.
     expect(SRC).toContain(
-      'FIRST actions = the re-entry items when the latest 次回 line carries open loops',
+      'FIRST actions = the still-open re-entry loops from the sessions shown, per the RE-ENTRY rule',
     )
+    // The stale latest-session anchor must be gone from BOTH prompt surfaces.
+    expect(SRC).not.toContain('from the latest 次回 line')
   })
 
   it('cache version bumped so stale briefs regenerate under the new rule', () => {
