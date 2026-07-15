@@ -110,7 +110,10 @@ function buildContext(records: KaruteRecord[]): string {
 // explicit "always remember this") go first, then talking-points, then the
 // rest newest-first; whatever truncation eats is the least load-bearing tail.
 function formatMemory(items: MemoryItem[]): string {
-  const rank = (m: MemoryItem) => (m.pinned ? 0 : m.suggestTalkingPoint ? 1 : 2)
+  // Safety-carrying categories (body/preference — the 「肘は避けて」 class)
+  // outrank small-talk: when the cap bites, rapport dies before safety.
+  const rank = (m: MemoryItem) =>
+    m.pinned ? 0 : m.category === 'body' || m.category === 'preference' ? 1 : m.suggestTalkingPoint ? 2 : 3
   return [...items]
     .sort((a, b) => rank(a) - rank(b))
     .map(
@@ -225,7 +228,9 @@ export async function getAiPreSessionBrief(params: {
       c: customerId,
       memo,
       ids: records.map((r) => r.id),
-      mem: memory.map((m) => m.id),
+      // Pin state joins the key: pinning re-ranks the block + adds /PINNED —
+      // a cached brief must not survive a pin flip for up to a day.
+      mem: memory.map((m) => `${m.id}${m.pinned ? '!' : ''}`),
       bt: orgSettings?.business_type ?? null,
       locale,
     }
