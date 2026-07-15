@@ -76,6 +76,15 @@ describe('ai-brief memory block v12', () => {
     expect(SRC).not.toContain("'body'/'preference' items inform concerns AND cautions")
   })
 
+  // Adversarial review on the bar itself: barred from cautions, a standing
+  // preference needed a GUARANTEED home or it would vanish from the brief
+  // entirely (concerns wants trajectory; recommendedFocus was null-unless-
+  // beyond-actions). recommendedFocus now explicitly owns it.
+  it('a standing preference has a guaranteed home in recommendedFocus', () => {
+    expect(SRC).toContain("this field is that preference's home, cautions is not")
+    expect(SRC).toContain('belongs HERE as part of the approach, never in cautions')
+  })
+
   // Re-audit 2026-07-15 (fleet S15): passport rows reached the model as
   // [passport] lines with raw EN field keys and hijacked the pinned-first
   // ranking; they also sat in the cache key. Filtered AFTER the bootstrap so
