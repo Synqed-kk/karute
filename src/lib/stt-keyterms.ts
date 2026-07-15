@@ -10,9 +10,11 @@
  * high-value — every term added dilutes the boost of the others.
  *
  * ja-only today: EN sessions are rare and these terms are Japanese. The
- * bodywork list is validated against a real production session (2026-07-14);
- * other verticals get the generic salon/clinic base until someone validates
- * a list for them — an unvalidated guess can boost the WRONG homophone.
+ * bodywork list is validated against real production sessions (2026-07-14,
+ * plus two 2026-06 eval sessions whose transcripts showed each added term
+ * misrecognized in the wild); other verticals get the generic salon/clinic
+ * base until someone validates a list for them — an unvalidated guess can
+ * boost the WRONG homophone.
  */
 
 /** Every business type: the vocabulary of running a Karute session at all. */
@@ -54,6 +56,18 @@ const BODYWORK_JA = [
   '坐骨神経痛',
   'MRI',
   'レントゲン',
+  // Observed misrecognized in the 2026-06 eval transcripts (garble → term):
+  '筋繊維', // 金銭医・金銭破壊
+  '筋力', // 金運力
+  '筋トレ', // 胃の筋トレ
+  '負荷', // 服
+  '挫傷', // 座礁
+  '腕橈骨筋', // 腕頭骨筋
+  '胸鎖乳突筋', // 胸背、乳突筋
+  'ストレートネック',
+  'クールダウン', // クールムーブ
+  'ふくらはぎ', // 心ふくらはぎ
+  'TFCC', // survived once but its sentence collapsed around it
 ]
 
 /** Keyterms for a transcription request. Empty for non-ja (nothing validated). */
