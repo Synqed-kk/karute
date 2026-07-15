@@ -107,13 +107,21 @@ export async function backfillMemoryFromTranscripts(params: {
     const CHUNK_SIZE = 5
     const CHUNK_LIMIT = 10 // ponytail: 50 sessions per backfill; a server-side batch job if a real customer exceeds it
     const chunkCap = Math.min(maxChunks ?? CHUNK_LIMIT, CHUNK_LIMIT)
-    // Date header per transcript (inside the untrusted wrap, server-generated):
-    // rule 7 converts relative time to absolute only when it knows the session
-    // date — a dateless backfill made the model fabricate anchors instead.
+    // Date header per transcript (server-generated value, rendered inside the
+    // untrusted wrap): rule 7 converts relative time to absolute only when it
+    // knows the session date — a dateless backfill made the model fabricate
+    // anchors instead. Format-validated like prompt-fragments' anchorLines so
+    // a malformed DB value renders no header at all.
+    // ponytail: header lives inside the untrusted span — transcript text
+    // could theoretically spoof a second date line; ceiling = a wrong month
+    // on a staff-editable memory anchor, strictly better than the fabricated
+    // anchors this replaces. Per-transcript trusted framing if it ever bites.
+    const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/
     const withDateHeader = (t: { text: string; date: string | null }) => {
       const body = t.text.slice(0, 16000)
-      if (!t.date) return body
-      const d = t.date.slice(0, 10)
+      const dm = t.date?.match(DATE_RE)
+      if (!dm || +dm[2] < 1 || +dm[2] > 12 || +dm[3] < 1 || +dm[3] > 31) return body
+      const d = dm[0]
       return locale === 'ja' ? `【セッション日 ${d}】\n${body}` : `[Session date: ${d}]\n${body}`
     }
     let chunks: Array<typeof usable> = []

@@ -208,3 +208,16 @@ describe('backfillMemoryFromTranscripts — session-date headers', () => {
     expect(mockExtract.mock.calls[0][0].transcripts).toEqual(['t3 会話', 't1 会話'])
   })
 })
+
+// Adversarial review: the header value is format-validated (anchorLines'
+// own pattern) — a malformed DB date renders no header rather than garbage.
+describe('backfillMemoryFromTranscripts — malformed dates render no header', () => {
+  it('a non-ISO date yields a headerless transcript', async () => {
+    await backfillMemoryFromTranscripts({
+      customerId: 'c-1',
+      transcripts: [{ text: 't1 会話', date: 'not-a-date' }, { text: 't2 会話', date: '2026-13-40' }],
+      locale: 'ja',
+    })
+    expect(mockExtract.mock.calls[0][0].transcripts).toEqual(['t2 会話', 't1 会話'])
+  })
+})
