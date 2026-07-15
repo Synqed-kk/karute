@@ -59,6 +59,89 @@ describe('toSpeakerText — the ONE rendering for prompts AND storage', () => {
   })
 })
 
+describe('repairAndCoalesce — fragment merging + orphan punctuation (AI-quality lane A1)', () => {
+  // Real production failure (Liam's 7/14 代官山 session): diarization flips
+  // mid-sentence, so the rendered transcript reads 「お客様: …です 施術者: 。
+  // でも…」 — labels every few words, punctuation stranded on the wrong voice.
+  it('merges consecutive same-role turns into one', () => {
+    const d = buildDiarizedTranscript(
+      [
+        para(0, 'こんにちは', 0, 2),
+        para(0, '今日はどうされましたか', 2, 5),
+        para(1, '腰が痛くて', 5, 8),
+      ],
+      [],
+      0.9,
+    )!
+    expect(d.turns.map((t) => t.text)).toEqual([
+      'こんにちは 今日はどうされましたか',
+      '腰が痛くて',
+    ])
+    expect(d.turns[0].start).toBe(0)
+    expect(d.turns[0].end).toBe(5)
+  })
+
+  it('moves leading punctuation back to the previous turn', () => {
+    const d = buildDiarizedTranscript(
+      [
+        para(0, '聞こえてますか', 0, 2),
+        para(1, '。はい、大丈夫です', 2, 5),
+      ],
+      [],
+      0.9,
+    )!
+    expect(toSpeakerText(d)).toBe(
+      '施術者: 聞こえてますか。\nお客様: はい、大丈夫です',
+    )
+  })
+
+  it('drops a punctuation-only fragment and merges the turns around it', () => {
+    const d = buildDiarizedTranscript(
+      [
+        para(0, 'なるほど', 0, 2),
+        para(1, '。', 2, 3),
+        para(0, 'では始めますね', 3, 6),
+        para(1, 'お願いします', 6, 8),
+      ],
+      [],
+      0.9,
+    )!
+    expect(toSpeakerText(d)).toBe(
+      '施術者: なるほど。 では始めますね\nお客様: お願いします',
+    )
+  })
+
+  it('never merges two different bystanders (same role, different speakers)', () => {
+    // staff(0) → bystander(2) → bystander(3): both map to 'unknown' but they
+    // are different people — fusing them would put two voices on one line.
+    const d = buildDiarizedTranscript(
+      [
+        para(0, 'こんにちは、今日はどうされましたか', 0, 3),
+        para(1, '腰が痛くて', 3, 5),
+        para(2, '隣の話です', 5, 7),
+        para(3, '別の人の話です', 7, 9),
+      ],
+      [],
+      0.9,
+    )!
+    expect(d.turns.map((t) => t.speaker)).toEqual([0, 1, 2, 3])
+    expect(d.turns).toHaveLength(4)
+  })
+
+  it('never merges across different roles', () => {
+    const d = buildDiarizedTranscript(
+      [
+        para(0, 'こんにちは', 0, 2),
+        para(1, 'どうも', 2, 4),
+        para(0, '今日は', 4, 6),
+      ],
+      [],
+      0.9,
+    )!
+    expect(d.turns).toHaveLength(3)
+  })
+})
+
 describe('staffHint — voiceprint proof beats the first-speaker heuristic', () => {
   // Session where the CUSTOMER speaks first (the heuristic's failure case).
   const CUSTOMER_FIRST = [
