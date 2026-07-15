@@ -6,6 +6,7 @@ import {
   transcribeWithDeepgram,
   type DeepgramTranscribeResult,
 } from '@/lib/deepgram'
+import { sttKeyterms } from '@/lib/stt-keyterms'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { identifyStaffSegments } from '@/lib/speaker-id/openai'
@@ -78,6 +79,7 @@ export async function POST(request: Request) {
     // (matches OrgSettings getter default + spike spec).
     const orgSettings = await getOrgSettings().catch(() => null)
     const diarize = orgSettings?.speaker_diarization !== false
+    const businessType = orgSettings?.business_type ?? null
 
     if (contentType.includes('application/json')) {
       const { audioUrl, locale: loc } = await request.json()
@@ -119,6 +121,7 @@ export async function POST(request: Request) {
       const result = await transcribeUrlWithDeepgram(audioUrl, {
         language: lang,
         diarize,
+        keyterms: sttKeyterms(businessType, lang),
       })
       const speakerId = alignAndLog(result, await segsPromise, mode)
       return NextResponse.json({
@@ -153,6 +156,7 @@ export async function POST(request: Request) {
       language: lang,
       mimeType,
       diarize,
+      keyterms: sttKeyterms(businessType, lang),
     })
     const speakerId = alignAndLog(result, await segsPromise, mode)
     return NextResponse.json({

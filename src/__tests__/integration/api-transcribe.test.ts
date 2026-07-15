@@ -153,6 +153,69 @@ describe('POST /api/ai/transcribe', () => {
     })
   })
 
+  it('sends domain keyterms for ja (base set; bodywork terms only for that family)', async () => {
+    fetchMock.mockResolvedValue(deepgramResponse('テスト'))
+
+    const formData = new FormData()
+    formData.append('audio', new Blob(['fake-audio'], { type: 'audio/webm' }), 'audio.webm')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        await fetch({ method: 'POST', body: formData })
+        const url = new URL(String(fetchMock.mock.calls[0][0]))
+        const terms = url.searchParams.getAll('keyterm')
+        // Default org mock has no business_type → the generic base list only.
+        expect(terms).toContain('カルテ')
+        expect(terms).toContain('施術')
+        expect(terms).not.toContain('もみ返し')
+      },
+    })
+  })
+
+  it('adds bodywork keyterms when the org is a bodywork business type', async () => {
+    const { getOrgSettings } = jest.requireMock('@/actions/org-settings')
+    getOrgSettings.mockResolvedValueOnce({
+      speaker_diarization: true,
+      business_type: 'massage',
+    })
+    fetchMock.mockResolvedValue(deepgramResponse('テスト'))
+
+    const formData = new FormData()
+    formData.append('audio', new Blob(['fake-audio'], { type: 'audio/webm' }), 'audio.webm')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        await fetch({ method: 'POST', body: formData })
+        const url = new URL(String(fetchMock.mock.calls[0][0]))
+        const terms = url.searchParams.getAll('keyterm')
+        expect(terms).toContain('もみ返し')
+        expect(terms).toContain('可動域')
+        // Deepgram hard-caps 500 tokens across all terms — the curated list
+        // stays an order of magnitude under it.
+        expect(terms.length).toBeLessThanOrEqual(50)
+      },
+    })
+  })
+
+  it('sends no keyterms for en (nothing validated for that locale)', async () => {
+    fetchMock.mockResolvedValue(deepgramResponse('test'))
+
+    const formData = new FormData()
+    formData.append('audio', new Blob(['fake-audio'], { type: 'audio/webm' }), 'audio.webm')
+    formData.append('locale', 'en')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        await fetch({ method: 'POST', body: formData })
+        const url = new URL(String(fetchMock.mock.calls[0][0]))
+        expect(url.searchParams.getAll('keyterm')).toEqual([])
+      },
+    })
+  })
+
   it('passes mp4 content-type through to Deepgram (iOS Safari)', async () => {
     fetchMock.mockResolvedValue(deepgramResponse('ok'))
 

@@ -18,12 +18,16 @@ export interface DeepgramTranscribeOptions {
   mimeType: string
   /** Ask Deepgram to return speaker labels in word[].speaker. */
   diarize?: boolean
+  /** Domain vocabulary for Keyterm Prompting (nova-3). See stt-keyterms.ts. */
+  keyterms?: readonly string[]
 }
 
 export interface DeepgramTranscribeUrlOptions {
   language?: 'ja' | 'en'
   model?: string
   diarize?: boolean
+  /** Domain vocabulary for Keyterm Prompting (nova-3). See stt-keyterms.ts. */
+  keyterms?: readonly string[]
 }
 
 export interface DeepgramWord {
@@ -95,6 +99,7 @@ function buildDeepgramUrl(opts: {
   model?: string
   language?: 'ja' | 'en'
   diarize?: boolean
+  keyterms?: readonly string[]
 }): string {
   const params = new URLSearchParams({
     model: opts.model ?? 'nova-3',
@@ -103,6 +108,9 @@ function buildDeepgramUrl(opts: {
     punctuate: 'true',
   })
   if (opts.diarize) params.set('diarize', 'true')
+  // Keyterm Prompting (nova-3): one repeated param per term, hard cap 500
+  // tokens across all terms (docs/keyterm). Callers pass a curated short list.
+  for (const term of opts.keyterms ?? []) params.append('keyterm', term)
   return `${DEEPGRAM_URL}?${params.toString()}`
 }
 
