@@ -25,6 +25,11 @@ const EXTRACTION_CLAUSES = [
   '主題の厚み',
   '最も長く・繰り返し扱われた話題',
   '安全に関わる情報の直後に主題',
+  // Re-audit 2026-07-15: 統合's mandated final pre-output sweep carried no
+  // 主題 exception — a literal model could re-merge the dominant topic's
+  // facet entries at the last step. The exception is stated inside the
+  // 主題の厚み rule (a v3.4 line; the v3.2 canon block is untouched).
+  '出力直前の見直し」でも、主題の側面エントリー同士は統合しない',
   '出所の明示',
   '医師にMRI検査を勧められた',
   '次回の確認事項',
