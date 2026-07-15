@@ -28,8 +28,48 @@ describe('memory-extract rule 5b — safety tier (JA + EN)', () => {
 
   it('avoidance instructions carry the what-and-why in detail', () => {
     expect(SRC).toContain('「何を・なぜ避けるか」まで必ず含める')
-    expect(SRC).toContain('医師にMRI検査を勧められており圧をかけない')
+    expect(SRC).toContain('本人の希望で肘への施術を回避')
     expect(SRC).toContain('what-and-why in detail')
+  })
+
+  // Field bug 2026-07-15 (2 customers): permanent hardware (手首のプレート) and
+  // a doctor-recommended MRI never became memory items — the DURABLE-FACTS-ONLY
+  // preamble ("today's details live on the karute") filtered them out before
+  // rule 5b was ever consulted. The preamble now carves out 5b safety facts.
+  it("safety facts are exempt from the today's-detail exclusion", () => {
+    expect(SRC).toContain('ただし5bの安全事実')
+    expect(SRC).toContain('今日の話題として語られた場合でも「今日の細部」ではなく')
+    expect(SRC).toContain('体内金属')
+    expect(SRC).toContain("NEVER excluded as \"today's detail\"")
+    expect(SRC).toContain('implanted metal')
+  })
+
+  // Field bug 2026-07-15: the old 5b example itself taught pain+pending-exam →
+  // 「施術回避」. The label must mirror the strength of what was spoken.
+  it('avoid/forbid labels require a spoken instruction', () => {
+    expect(SRC).toContain('label は発言の強さを鏡写しにする')
+    expect(SRC).toContain('「回避」「禁止」とは書かず')
+    expect(SRC).toContain('肘痛：MRI検査予定')
+    expect(SRC).toContain('The label mirrors the strength of what was SPOKEN')
+    expect(SRC).toContain('never write "avoid"/"forbidden"')
+  })
+
+  // Field bug 2026-07-15: relearn re-added a pinned survivor as
+  // 「ゴルフ肘：施術回避」 next to pinned 「ゴルフ肘」 — the model never saw the
+  // pinned flag and rule 4 had no same-fact-different-label clause.
+  it('pinned items are visible to the model and locked; reworded duplicates banned', () => {
+    expect(SRC).toContain('pinned: m.pinned')
+    expect(SRC).toContain('pinned=true の項目はスタッフが固定した事実')
+    expect(SRC).toContain('同じ部位・同じ事象なら同一の事実')
+    expect(SRC).toContain('ANY pinned item are human-locked')
+    expect(SRC).toContain('STILL a duplicate')
+  })
+
+  // Field bug 2026-07-15: a clearly spoken pressure preference yielded zero
+  // preference items across 18 sessions — single clear statements now qualify.
+  it('standing preferences are recordable from one clear statement', () => {
+    expect(SRC).toContain('一度明確に言われたら記録する')
+    expect(SRC).toContain('record once clearly stated')
   })
 
   it('a safety item without detail is banned (bare label loses the why)', () => {
@@ -88,5 +128,14 @@ describe('memory delta confidence floor — every op, both layers', () => {
     expect(STORE).not.toContain(
       "op.action === 'add' && (op.confidence == null || op.confidence < 0.7)",
     )
+  })
+
+  // Field bug 2026-07-15: the store now backstops reworded duplicate adds
+  // (same category + same label stem before 「：」) — prompt rule 4 teaches it,
+  // this holds when the model doesn't listen.
+  it('store apply layer skips duplicate adds by category + label stem', () => {
+    expect(STORE).toContain("label.split(/[：:]/)[0].trim().toLowerCase()")
+    expect(STORE).toContain('duplicate add skipped')
+    expect(STORE).toContain("ops.some((o) => o.action === 'add')")
   })
 })

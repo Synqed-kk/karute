@@ -67,6 +67,26 @@ export async function applyMemoryDelta(params: {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sb = createServiceClient() as any
     const nowIso = new Date().toISOString()
+    // Dedup backstop for adds (field bug 2026-07-15: relearn re-added a pinned
+    // survivor under a new suffix — 「ゴルフ肘：施術回避」 next to pinned
+    // 「ゴルフ肘」). Prompt rule 4 teaches the model not to; this holds when it
+    // doesn't listen. Match = same category + same label prefix before 「：」/:.
+    // ponytail: prefix match only — real similarity scoring only if the field
+    // shows a duplicate shape this misses.
+    const normalizeLabel = (label: string) => label.split(/[：:]/)[0].trim().toLowerCase()
+    let liveLabelKeys: Set<string> | null = null
+    if (ops.some((o) => o.action === 'add')) {
+      const { data } = await sb
+        .from(TABLE)
+        .select('category, label')
+        .eq('customer_id', customerId)
+        .is('deleted_at', null)
+      liveLabelKeys = new Set(
+        ((data ?? []) as Array<{ category: string; label: string }>).map(
+          (r) => `${r.category}|${normalizeLabel(r.label)}`,
+        ),
+      )
+    }
     for (const op of ops) {
       // Confidence floor enforced at the store too (belt and braces with the
       // extractor's post-parse filter), on EVERY op: update rewrites a fact,
@@ -77,6 +97,16 @@ export async function applyMemoryDelta(params: {
         continue
       }
       if (op.action === 'add' && op.label && op.category) {
+        const labelKey = `${op.category}|${normalizeLabel(op.label)}`
+        if (liveLabelKeys?.has(labelKey)) {
+          console.warn(
+            '[applyMemoryDelta] duplicate add skipped (same category + label stem):',
+            op.category,
+            op.label,
+          )
+          continue
+        }
+        liveLabelKeys?.add(labelKey)
         const { error } = await sb.from(TABLE).insert({
           customer_id: customerId,
           business_id: businessId ?? null,
