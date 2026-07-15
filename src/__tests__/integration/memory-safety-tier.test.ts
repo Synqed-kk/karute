@@ -43,4 +43,40 @@ describe('memory-extract rule 5b — safety tier (JA + EN)', () => {
     expect(SRC).toContain("customer's own explicit all-clear")
     expect(SRC).toContain('never because it went unmentioned')
   })
+
+  // Re-audit 2026-07-15: the mandatory what-and-why read as "no why spoken →
+  // don't emit", which inverts 5b into dropping exactly the safety facts it
+  // exists to capture (customers often give instructions with no reason).
+  // The why is mandatory WHEN SPOKEN; unspoken → 理由は未言及, item recorded.
+  it('a why-less safety instruction is still recorded, reason marked unstated', () => {
+    expect(SRC).toContain('「理由は未言及」と書いて、項目自体は必ず記録する')
+    expect(SRC).toContain('安全項目を落とすことは理由の欠落より有害')
+    expect(SRC).toContain('write the what plus "reason not stated" in detail and STILL record the item')
+  })
+})
+
+// Re-audit 2026-07-15 (fleet S11/S20): the 0.70 confidence floor gated ONLY
+// action='add' at both layers — a hesitant misread of an all-clear could
+// soft-delete a safety item with no gate at all. Now every op is gated, in
+// the extractor filter AND the store (belt and braces, matching the add gate).
+describe('memory delta confidence floor — every op, both layers', () => {
+  const EXTRACT = SRC
+  const STORE = readFileSync(
+    join(process.cwd(), 'src/lib/karute/customer-memory.ts'),
+    'utf8',
+  )
+
+  it('extractor filter gates update/remove too', () => {
+    expect(EXTRACT).toContain(
+      'return ops.filter((op) => op.confidence != null && op.confidence >= 0.7)',
+    )
+    expect(EXTRACT).not.toContain("op.action !== 'add' ||")
+  })
+
+  it('store apply layer gates every op', () => {
+    expect(STORE).toContain('if (op.confidence == null || op.confidence < 0.7)')
+    expect(STORE).not.toContain(
+      "op.action === 'add' && (op.confidence == null || op.confidence < 0.7)",
+    )
+  })
 })
