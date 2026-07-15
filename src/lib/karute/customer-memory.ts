@@ -71,6 +71,12 @@ export async function applyMemoryDelta(params: {
     // survivor under a new suffix — 「ゴルフ肘：施術回避」 next to pinned
     // 「ゴルフ肘」). Prompt rule 4 teaches the model not to; this holds when it
     // doesn't listen. Match = same category + same label prefix before 「：」/:.
+    // SCOPED to unpinned ai_extraction rows on purpose: a stem collision with a
+    // pinned/staff row must NOT suppress the add — those rows are frozen to the
+    // AI (update is impossible), so suppression would leave a genuinely NEW
+    // fact about the same body part (e.g. pinned 「腰」 + new 「腰：手術予定」)
+    // with no path into memory at all. Dropping a safety fact is worse than a
+    // duplicate row; vs pinned rows the prompt layer is the only dedup.
     // ponytail: prefix match only — real similarity scoring only if the field
     // shows a duplicate shape this misses.
     const normalizeLabel = (label: string) => label.split(/[：:]/)[0].trim().toLowerCase()
@@ -80,6 +86,8 @@ export async function applyMemoryDelta(params: {
         .from(TABLE)
         .select('category, label')
         .eq('customer_id', customerId)
+        .eq('source', 'ai_extraction')
+        .eq('pinned', false)
         .is('deleted_at', null)
       liveLabelKeys = new Set(
         ((data ?? []) as Array<{ category: string; label: string }>).map(

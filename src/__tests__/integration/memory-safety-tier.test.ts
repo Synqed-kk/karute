@@ -138,4 +138,20 @@ describe('memory delta confidence floor — every op, both layers', () => {
     expect(STORE).toContain('duplicate add skipped')
     expect(STORE).toContain("ops.some((o) => o.action === 'add')")
   })
+
+  // Adversarial review on the guard itself: a stem collision with a PINNED or
+  // staff row must NOT suppress the add — those rows are frozen to the AI
+  // (update impossible), so suppression would strand a genuinely new fact
+  // about the same body part with no path into memory. The guard's collision
+  // set is scoped to rows the AI could have updated instead.
+  it('the add-guard never suppresses against pinned/staff rows', () => {
+    const guardBlock = STORE.slice(
+      STORE.indexOf('ops.some((o) => o.action ==='),
+      STORE.indexOf('for (const op of ops)'),
+    )
+    expect(guardBlock).toContain(".eq('source', 'ai_extraction')")
+    expect(guardBlock).toContain(".eq('pinned', false)")
+    expect(SRC).toContain('「新しい別の事実」')
+    expect(SRC).toContain('is NOT a duplicate — always add it')
+  })
 })
