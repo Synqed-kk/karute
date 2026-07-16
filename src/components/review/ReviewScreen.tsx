@@ -19,9 +19,18 @@ import { getCustomerConsent, grantCustomerConsent } from '@/actions/customers'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { RecordingConsentDialog } from '@/components/karute/redesign/record/RecordingConsentDialog'
 
+// Form-local extension of the GPT contract (src/types/ai.ts EntrySchema is the
+// structured-output shape — never touched). `is_manual` rides the row VALUE so
+// a promotion survives useFieldArray remove/append index shifts; confidence is
+// widened to allow null on hand-added rows.
+const ReviewEntrySchema = EntrySchema.extend({
+  confidence_score: z.number().min(0).max(1).nullable(),
+  is_manual: z.boolean(),
+})
+
 const ReviewFormSchema = z.object({
   summary: z.string().min(1),
-  entries: z.array(EntrySchema),
+  entries: z.array(ReviewEntrySchema),
 })
 
 type ReviewFormValues = z.infer<typeof ReviewFormSchema>
@@ -120,7 +129,8 @@ export function ReviewScreen({
 
   const { control, handleSubmit } = useForm<ReviewFormValues>({
     resolver: zodResolver(ReviewFormSchema),
-    defaultValues: { summary, entries },
+    // AI-extracted rows start as AI (is_manual: false); EntryCard promotes on edit.
+    defaultValues: { summary, entries: entries.map((e) => ({ ...e, is_manual: false })) },
   })
 
   const { fields, append, remove } = useFieldArray({
@@ -129,11 +139,13 @@ export function ReviewScreen({
   })
 
   function handleAddEntry() {
+    // Hand-added row: human from birth, no AI confidence (null, not a fake 1).
     append({
       category: ENTRY_CATEGORIES[0],
       title: '',
       source_quote: '',
-      confidence_score: 1,
+      confidence_score: null,
+      is_manual: true,
     })
   }
 
@@ -195,6 +207,7 @@ export function ReviewScreen({
           content: e.title,
           sourceQuote: e.source_quote,
           confidenceScore: e.confidence_score,
+          isManual: e.is_manual,
         })),
         duration,
         appointmentId,

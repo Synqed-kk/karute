@@ -11,7 +11,7 @@ import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SaveKaruteInput } from '@/types/karute'
-import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
+import type { KaruteRecord, KaruteEntry, KaruteEntryInput, SynqedClient, Appointment } from '@synqed-kk/client'
 
 /**
  * Resolve which store a karute record write should be stamped with. Reads are
@@ -61,6 +61,56 @@ async function resolveKaruteStoreId(
 }
 
 /**
+ * Occurrence-aware multiset merge that shields human-authored rows across an
+ * idempotent save-retry. Core's update() FULL-REPLACES entries, so a stale
+ * retry whose payload dropped (or never carried) a hand-authored row would
+ * erase it — and a same-text AI row would DEMOTE it to regen-deletable. For
+ * each existing is_manual row we claim ONE payload row that is itself human and
+ * shares category+content (duplicates matched one-for-one, never double-claimed);
+ * an AI payload row can never satisfy a human row. Matched rows inherit the
+ * stored tags/sort_order the form omits (a retry never resets metadata); an
+ * unmatched human row is re-appended whole. Promotion only — nothing demotes.
+ * (I1: no path erases a human entry short of an explicit staff delete.)
+ */
+function mergeSurvivingHumanEntries(
+  existing: KaruteEntry[],
+  payload: KaruteEntryInput[],
+): KaruteEntryInput[] {
+  const merged = [...payload]
+  const claimed = new Set<number>()
+  for (const ex of existing) {
+    if (!ex.is_manual) continue
+    let matchIdx = -1
+    for (let i = 0; i < merged.length; i++) {
+      if (claimed.has(i)) continue
+      const p = merged[i]
+      if (p.is_manual && p.category === ex.category && p.content === ex.content) {
+        matchIdx = i
+        break
+      }
+    }
+    if (matchIdx >= 0) {
+      // Matched: carry the stored metadata the form-side payload leaves off.
+      claimed.add(matchIdx)
+      const p = merged[matchIdx]
+      merged[matchIdx] = { ...p, tags: p.tags ?? ex.tags, sort_order: p.sort_order ?? ex.sort_order }
+    } else {
+      // Unmatched: re-append with every writable field so nothing is lost.
+      merged.push({
+        category: ex.category,
+        content: ex.content,
+        original_quote: ex.original_quote,
+        confidence: ex.confidence,
+        tags: ex.tags,
+        sort_order: ex.sort_order,
+        is_manual: ex.is_manual,
+      })
+    }
+  }
+  return merged
+}
+
+/**
  * Create the karute record — or, if this recording session was ALREADY saved,
  * UPDATE that record with the newest content instead.
  *
@@ -90,7 +140,7 @@ export async function createOrUpdateKaruteRecord(
     // prevent. Structural status check (not instanceof) so partial test
     // mocks of the client package can't break the detection.
     const existing = await synqed.karuteRecords
-      .getByRecordingSession(recordingSessionId)
+      .getByRecordingSession(recordingSessionId, { include_entries: true })
       .catch((err: unknown) => {
         const status =
           err && typeof err === 'object' && 'status' in err
@@ -100,10 +150,13 @@ export async function createOrUpdateKaruteRecord(
         throw err
       })
     if (existing) {
+      // Full-replace would drop human rows the retry payload lost — merge them
+      // back (occurrence-aware; promotion only) before handing core the replace.
+      const entries = mergeSurvivingHumanEntries(existing.entries ?? [], payload.entries ?? [])
       await synqed.karuteRecords.update(existing.id, {
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
-        entries: payload.entries,
+        entries,
         appointment_id: payload.appointment_id,
       })
       return {
@@ -230,7 +283,7 @@ export async function saveKaruteRecord(
         content: entry.content,
         original_quote: entry.sourceQuote ?? null,
         confidence: entry.confidenceScore,
-        is_manual: false,
+        is_manual: entry.isManual ?? false,
       })),
     })
     recordId = id
@@ -334,7 +387,7 @@ export async function saveKaruteRecordInline(
         content: entry.content,
         original_quote: entry.sourceQuote ?? null,
         confidence: entry.confidenceScore,
-        is_manual: false,
+        is_manual: entry.isManual ?? false,
       })),
     })
 

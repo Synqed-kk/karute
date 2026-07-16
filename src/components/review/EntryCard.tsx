@@ -48,9 +48,21 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
     control,
     name: `entries.${index}.confidence_score`,
   })
+  const { field: isManualField } = useController({
+    control,
+    name: `entries.${index}.is_manual`,
+  })
+
+  // Edit-time promotion: the first staff change to any editable field flips this
+  // row to human IN ITS VALUE, so the flag survives useFieldArray index shifts.
+  // Promotion only — never demotes.
+  const promote = () => {
+    if (!isManualField.value) isManualField.onChange(true)
+  }
 
   const category = categoryField.value as EntryCategory
-  const confidencePercent = Math.round((confidenceField.value as number) * 100)
+  const rawConfidence = confidenceField.value as number | null
+  const isManual = Boolean(isManualField.value)
   const categoryColor = CATEGORY_COLORS[category] ?? 'bg-gray-500/20 text-gray-600 border-gray-500/30 dark:text-gray-300'
 
   // Display label comes from the shared category config so the dropdown
@@ -67,6 +79,10 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
       <div className="flex items-center justify-between gap-2">
         <select
           {...categoryField}
+          onChange={(e) => {
+            categoryField.onChange(e)
+            promote()
+          }}
           className={`text-xs font-medium px-2 py-1 rounded-full border ${categoryColor} bg-transparent cursor-pointer focus:outline-none`}
         >
           {ENTRY_CATEGORIES.map((cat) => (
@@ -77,9 +93,14 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
         </select>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
-            {confidencePercent}%
-          </span>
+          {/* Confidence badge is an AI signal — hidden for hand-added/edited
+              rows (is_manual) and for null confidence. Keys on provenance, never
+              the number alone (a manual row core stores as 0 must still hide). */}
+          {!isManual && rawConfidence != null && (
+            <span className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground border border-border">
+              {Math.round(rawConfidence * 100)}%
+            </span>
+          )}
           <button
             type="button"
             onClick={onRemove}
@@ -107,6 +128,10 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
       {/* Title — inline editable input styled as text */}
       <input
         {...titleField}
+        onChange={(e) => {
+          titleField.onChange(e)
+          promote()
+        }}
         type="text"
         placeholder={t('entryTitlePlaceholder')}
         className="w-full bg-transparent text-foreground font-medium text-sm placeholder-muted-foreground border-b border-transparent hover:border-border focus:border-ring focus:outline-none py-0.5 transition-colors"
@@ -115,6 +140,10 @@ export function EntryCard({ index, control, onRemove }: EntryCardProps) {
       {/* Source quote — inline editable, italicized */}
       <input
         {...sourceQuoteField}
+        onChange={(e) => {
+          sourceQuoteField.onChange(e)
+          promote()
+        }}
         type="text"
         placeholder={t('sourceQuotePlaceholder')}
         className="w-full bg-transparent text-muted-foreground text-xs italic placeholder-muted-foreground/50 border-b border-transparent hover:border-border focus:border-ring focus:outline-none py-0.5 transition-colors"

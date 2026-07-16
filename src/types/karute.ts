@@ -51,7 +51,10 @@ export type SaveKaruteInput = {
     category: EntryCategory
     content: string
     sourceQuote?: string
-    confidenceScore: number
+    /** null for hand-added rows (no AI confidence) — see isManual. */
+    confidenceScore: number | null
+    /** True when staff authored/edited this row in review; absent = AI. */
+    isManual?: boolean
   }>
   duration?: number
   appointmentId?: string

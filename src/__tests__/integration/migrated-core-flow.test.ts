@@ -154,6 +154,26 @@ describe('Migrated core flow — customers + karute + entries', () => {
     expect(redirect).toHaveBeenCalledWith('/en/karute/karute-1')
   })
 
+  it('saveKaruteRecord marks staff-authored entries is_manual: true, AI rows false', async () => {
+    karuteRecords.create.mockResolvedValue({ id: 'karute-m' })
+
+    await saveKaruteRecord({
+      customerId: 'cust-1',
+      transcript: 't',
+      summary: 's',
+      entries: [
+        // Hand-added row: human, no AI confidence (null).
+        { category: 'other', content: 'hand added', confidenceScore: null, isManual: true },
+        // Untouched AI row: isManual absent → defaults false.
+        { category: 'symptom', content: 'ai row', sourceQuote: 'q', confidenceScore: 0.9 },
+      ],
+    })
+
+    const arg = karuteRecords.create.mock.calls[karuteRecords.create.mock.calls.length - 1][0]
+    expect(arg.entries[0]).toMatchObject({ content: 'hand added', confidence: null, is_manual: true })
+    expect(arg.entries[1]).toMatchObject({ content: 'ai row', confidence: 0.9, is_manual: false })
+  })
+
   it('deleteKaruteRecord delegates to client.karuteRecords.delete (server cascades)', async () => {
     karuteRecords.delete.mockResolvedValue(undefined)
 

@@ -75,7 +75,10 @@ const SaveEntrySchema = z.object({
   category: z.string().max(MAX_CATEGORY_CHARS),
   content: z.string().max(MAX_ENTRY_CONTENT_CHARS),
   sourceQuote: z.string().max(MAX_QUOTE_CHARS).nullish(),
-  confidenceScore: z.number(),
+  // null for hand-added rows (no AI confidence); isManual carries provenance
+  // (JSON null tolerated from older clients → false at the mapper).
+  confidenceScore: z.number().nullable(),
+  isManual: z.boolean().nullish(),
 })
 
 export const SaveKaruteSchema = z
