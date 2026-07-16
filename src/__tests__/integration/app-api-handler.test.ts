@@ -2,6 +2,13 @@
 // → 503 mapping THROUGH the handler (an upstream JWKS outage must not read as a
 // 401), the OPTIONS preflight short-circuit, request-id echo, and 403 for a
 // handler that rejects on capability.
+// resolveBearerIdentity eagerly builds defaultGetUser() (revocation client)
+// even when deps.config is injected — it needs the anon key or throws 'config',
+// which turns every assertion here into a 500. Local runs always pass because
+// next/jest loads .env; CI has no .env, so default it like the sibling
+// app-api-* suites do.
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+
 import { createHmac, generateKeyPairSync, sign as cryptoSign } from 'node:crypto'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
