@@ -13,7 +13,13 @@ import { getMyCapabilities } from '@/lib/auth/require-permission'
 
 export async function canUseDevRegen(): Promise<boolean> {
   try {
-    return (await getMyCapabilities()).has('business.manage')
+    const caps = await getMyCapabilities()
+    // BOTH keys, not just the dev key: these tools read raw transcripts, and
+    // recordings.viewAll is strip-protected owner-only (permissions.ts) while
+    // business.manage is a grantable toggle. Requiring both pins the tools to
+    // the owner IDENTITY — an owner granting business.manage to a manager can
+    // never silently re-open bulk transcript access (3-lens fleet followup).
+    return caps.has('business.manage') && caps.has('recordings.viewAll')
   } catch {
     // Fail closed: if capabilities can't be read, no dev tools.
     return false
