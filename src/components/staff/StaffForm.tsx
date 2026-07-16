@@ -315,7 +315,11 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       {tp('permissionsLabel')}
                     </p>
-                    {CAPABILITIES.map((c) => (
+                    {/* recordings.viewAll is owner-only (recorder-private) and
+                     *  stripped at resolve time for every other role — showing
+                     *  its toggle here would be a checkbox that never sticks.
+                     *  This form only ever edits non-owner staff. */}
+                    {CAPABILITIES.filter((c) => c !== 'recordings.viewAll').map((c) => (
                       <label key={c} className="flex cursor-pointer items-center justify-between gap-3 text-xs">
                         <span className="text-foreground/90">{tp(`cap_${c.replace('.', '_')}`)}</span>
                         <input

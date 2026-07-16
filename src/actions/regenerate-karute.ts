@@ -197,6 +197,14 @@ export async function listCustomerKaruteForRegen(
   customerId: string,
 ): Promise<Array<{ id: string; transcript: string }>> {
   if (!customerId) return []
+  // This is the ONE action that RETURNS raw transcripts (the whole history at
+  // once), and raw recordings are recorder-private — so it rides the owner dev
+  // key, same as 再学習 (memory.ts). Server-side twin of the UI gate: hiding
+  // the 全カルテ再生成 button is never the only defense. Dynamic import mirrors
+  // that gate — keeps the auth chain out of the module graph for callers that
+  // never bulk-regen.
+  const { canUseDevRegen } = await import('@/actions/dev-tools')
+  if (!(await canUseDevRegen())) return []
   try {
     const synqed = await getSynqedClient()
     const res = (await synqed.karuteRecords.list({

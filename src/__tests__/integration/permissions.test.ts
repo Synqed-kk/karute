@@ -72,6 +72,24 @@ describe('RBAC permission model', () => {
     expect(caps.size).toBe(1)
   })
 
+  it('recordings.viewAll strips from every non-owner at resolve time — stale overrides included', () => {
+    // A manager customized BEFORE the recorder-private ruling: their stored
+    // override still carries recordings.viewAll. The preset change alone
+    // can't fix that row — the resolve-time strip must.
+    const stale = [...presetCapabilities('manager'), 'recordings.viewAll']
+    const caps = effectiveCapabilities('manager', stale)
+    expect(caps.has('recordings.viewAll')).toBe(false)
+    // The rest of the override survives untouched.
+    expect(caps.has('staff.manage')).toBe(true)
+    // Owner keeps it (the dev/support key) — preset or explicit override.
+    expect(effectiveCapabilities('owner', null).has('recordings.viewAll')).toBe(true)
+    expect(effectiveCapabilities('owner', ['recordings.viewAll']).has('recordings.viewAll')).toBe(true)
+    // No other role can hold it, even via an explicit grant.
+    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(effectiveCapabilities(role, ['recordings.viewAll']).has('recordings.viewAll')).toBe(false)
+    }
+  })
+
   it('a null override falls back to the role preset', () => {
     expect(effectiveCapabilities('practitioner', null)).toEqual(
       new Set(presetCapabilities('practitioner')),

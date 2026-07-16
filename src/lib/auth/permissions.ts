@@ -113,7 +113,15 @@ export function effectiveCapabilities(
 ): Set<Capability> {
   const valid = new Set<string>(CAPABILITIES)
   const source = override ?? presetCapabilities(role)
-  return new Set(source.filter((c): c is Capability => valid.has(c)))
+  const caps = new Set(source.filter((c): c is Capability => valid.has(c)))
+  // recordings.viewAll is owner-only (recorder-private ruling, Liam 7/16) and
+  // is enforced HERE, not just in the presets: a per-staff override stored
+  // before the ruling still carries it, and this function is the single
+  // chokepoint every read path (capabilitiesForUser, cookie + Bearer) and the
+  // override WRITE path (setStaffPermissions) pass through. Stripping at
+  // resolve time self-heals stale rows with no data migration.
+  if (role !== 'owner') caps.delete('recordings.viewAll')
+  return caps
 }
 
 export function can(caps: Set<Capability>, capability: Capability): boolean {
