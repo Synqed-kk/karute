@@ -5,6 +5,11 @@ on:
     branches:
       - integration
       - main
+  # Run on main pushes too — squash merges can compose into a state no PR ever
+  # tested (the 2026-07-13 merge campaign broke main invisibly for two days).
+  push:
+    branches:
+      - main
 
 jobs:
   ci:
