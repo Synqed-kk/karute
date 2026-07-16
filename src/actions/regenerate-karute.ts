@@ -92,9 +92,11 @@ export async function regenerateKaruteEntriesWithClient(
     // 1. Snapshot existing entry ids BEFORE mutating (authoritative server read,
     //    not trusting any client-passed ids).
     const before = (await synqed.karuteRecords.get(karuteRecordId)) as
-      | { entries?: Array<{ id?: string | null }> }
+      | { entries?: Array<{ id?: string | null; is_manual?: boolean | null }> }
       | null
+    // I1: delete only AI rows (missing flag → AI) — never a human (is_manual) row.
     const oldIds: string[] = (before?.entries ?? [])
+      .filter((e) => !e?.is_manual)
       .map((e) => e?.id)
       .filter((id): id is string => Boolean(id))
 

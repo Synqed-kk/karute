@@ -119,6 +119,25 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     expect(update).toHaveBeenCalledWith('kar-1', { ai_summary: '・肩こり改善傾向' })
   })
 
+  it('mixed provenance: regen deletes AI + legacy rows, keeps the human row (I1)', async () => {
+    REC.current = {
+      ...REC.current,
+      entries: [
+        { id: 'ai-1', is_manual: false },
+        { id: 'hum-1', is_manual: true },
+        { id: 'legacy-1' }, // no flag → AI → deletable
+      ],
+    }
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.added).toBe(1)
+    expect(body.removed).toBe(2) // ai-1 + legacy-1, NOT hum-1
+    expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'ai-1')
+    expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'legacy-1')
+    expect(deleteEntry).not.toHaveBeenCalledWith('kar-1', 'hum-1')
+  })
+
   it('missing Idempotency-Key → 400, no LLM/no write', async () => {
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: auth }), routeFor('kar-1'))
     expect(res.status).toBe(400)
