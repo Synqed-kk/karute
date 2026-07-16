@@ -45,9 +45,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ insights: [] })
     }
 
-    // Cache key based on record IDs + locale
+    // synqed-core org settings (the previous `from('organization_settings')`
+    // hit a Supabase table that doesn't exist — it silently 500'd to the default).
+    // Resolved BEFORE the cache key: business type reshapes the persona/prompt, so
+    // it must participate in the key (a type change now invalidates cached insights).
+    const orgSettings = await getOrgSettings()
+    const businessProfile = orgSettings?.business_type
+      ? getBusinessProfile(orgSettings.business_type)
+      : null
+    const businessType = businessProfile?.label || 'salon/clinic'
+
+    // Cache key mirrors what the prompt consumes (names, dates, effective
+    // summaries, entries, business type) so a regenerated/edited summary or entry
+    // rebuilds instead of serving a stale insight for the 1-day TTL.
     const cacheInput = {
       ids: records.map((r) => r.id),
+      recs: records.map((r) => ({
+        name: r.customerName,
+        d: r.createdAt,
+        s: r.summary,
+        e: r.entries.map((e) => ({ c: e.category, t: e.content })),
+      })),
+      bt: orgSettings?.business_type ?? null,
       locale,
     }
     const cached = await getCachedAI('insights', cacheInput)
@@ -67,14 +86,6 @@ export async function POST(request: Request) {
     const langInstruction = locale === 'ja'
       ? 'Respond entirely in Japanese.'
       : 'Respond entirely in English.'
-
-    // synqed-core org settings (the previous `from('organization_settings')`
-    // hit a Supabase table that doesn't exist — it silently 500'd to the default).
-    const orgSettings = await getOrgSettings()
-    const businessProfile = orgSettings?.business_type
-      ? getBusinessProfile(orgSettings.business_type)
-      : null
-    const businessType = businessProfile?.label || 'salon/clinic'
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 

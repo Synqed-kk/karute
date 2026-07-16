@@ -12,6 +12,7 @@ import {
   clinicalGuardrail,
 } from '@/lib/karute/business-ai-tokens'
 import { getCustomerMemory } from '@/lib/karute/customer-memory'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import type { MemoryItem } from '@/lib/karute/memory-types'
 import { defensivePreamble, wrapUntrustedContent, MAX_HISTORY_CHARS } from '@/lib/ai-safety'
@@ -94,7 +95,7 @@ function buildContext(records: KaruteRecord[]): string {
     .reverse()
     .map((r) => {
       const when = r.created_at?.slice(0, 10) ?? ''
-      const summary = r.ai_summary ?? '(no summary)'
+      const summary = effectiveSummary(r) ?? '(no summary)'
       const entries = r.entries?.length
         ? '\n' + r.entries.map((e) => `  [${String(e.category)}] ${e.content}`).join('\n')
         : ''
@@ -246,8 +247,26 @@ async function computeAiPreSessionBrief(
       v: 10,
       c: customerId,
       memo,
+      name: customerName,
+      visits: visitCount,
       ids: records.map((r) => r.id),
-      mem: memory.map((m) => m.id),
+      // Content the prompt actually reads (buildContext order: date, effective
+      // summary, entries category+content) so a regenerated/edited summary or
+      // entry rebuilds on the next open instead of hiding for the 1-day TTL.
+      recs: records.map((r) => ({
+        d: r.created_at?.slice(0, 10) ?? '',
+        s: effectiveSummary(r),
+        e: (r.entries ?? []).map((e) => ({ c: String(e.category), t: e.content })),
+      })),
+      // Durable-memory CONTENT exactly as formatMemory renders it (category,
+      // talking-point flag, label, detail) — keying ids alone missed an edit to
+      // a memory item's own text.
+      mem: memory.map((m) => ({
+        c: m.category,
+        tp: m.suggestTalkingPoint,
+        l: m.label,
+        d: m.detail,
+      })),
       bt: orgSettings?.business_type ?? null,
       locale,
     }

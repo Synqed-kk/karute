@@ -33,6 +33,7 @@ import { memoContent } from '@/lib/sync/qr-notes'
 import type { OrgSettings, PackPreset } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
 import type { KaruteRecord } from '@synqed-kk/client'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
@@ -331,7 +332,7 @@ export async function buildRecordScreen(input: {
       }),
       startTime: hhmm(dt),
       durationLabel: '—',
-      karuteLinked: !!r.ai_summary,
+      karuteLinked: !!effectiveSummary(r),
       entryCount: (r.entries?.length || r.entry_count) ?? 0,
       karuteId: r.id,
     }
@@ -483,7 +484,7 @@ function buildPreSessionBriefFor(
 
   const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
   const recommendedFocus =
-    nextEntry?.content ?? (last.ai_summary?.split(/\r?\n/)[0]?.trim() || null)
+    nextEntry?.content ?? (effectiveSummary(last)?.split(/\r?\n/)[0]?.trim() || null)
 
   const lastDt = new Date(last.created_at)
   const lastVisitDate = lastDt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {

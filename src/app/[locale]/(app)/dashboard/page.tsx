@@ -13,6 +13,7 @@ import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
 import { listAllPackUsage, listRecentRedemptions } from '@/lib/packs/store'
 import { can } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import {
   enrichCustomers,
   type CustomerEnrichment,
@@ -208,7 +209,7 @@ export default async function DashboardPage() {
         )
         const map = emptyKaruteMap()
         results.forEach((rec, i) => {
-          const text = summaryLine(rec?.ai_summary ?? null)
+          const text = summaryLine(effectiveSummary(rec))
           if (rec && text) {
             map.set(slides[i].appointment.client_id, {
               text,
@@ -315,7 +316,7 @@ export default async function DashboardPage() {
           ),
         )
         recs.forEach((rec, idx) => {
-          const text = summaryLine(rec?.ai_summary ?? null)
+          const text = summaryLine(effectiveSummary(rec))
           if (text) extra.set(missing[idx].clientId, text)
         })
       } catch {

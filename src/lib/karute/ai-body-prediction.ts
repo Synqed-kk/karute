@@ -12,6 +12,7 @@ import {
   clinicalGuardrail,
 } from '@/lib/karute/business-ai-tokens'
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import { KARUTE_PROMPT_VERSION } from '@/lib/karute/prompt-fragments'
 import type { BodyPrediction } from '@/components/karute/redesign/detail/AIBodyPredictionCard'
 
@@ -97,6 +98,14 @@ async function computeBodyPrediction(
       c: customerId,
       latest: dated[0]?.id ?? null,
       n: dated.length,
+      // Per-session date + effective summary in the prompt's oldest→newest order,
+      // so a regenerated/edited summary rebuilds instead of serving the stale row
+      // for the 1-day TTL. Entries are deliberately NOT keyed — this prompt reads
+      // dates + summaries only, so keying entries would be pure miss-cost.
+      recs: [...dated].reverse().map((r) => ({
+        d: r.created_at?.slice(0, 10) ?? '',
+        s: effectiveSummary(r),
+      })),
       bt: orgSettings?.business_type ?? null,
       locale,
     }
@@ -112,7 +121,7 @@ async function computeBodyPrediction(
     // of full transcripts. Dates matter: the model derives the visit rhythm.
     const history = [...dated]
       .reverse()
-      .map((r) => `Session ${r.created_at?.slice(0, 10)}: ${r.ai_summary ?? '(no summary)'}`)
+      .map((r) => `Session ${r.created_at?.slice(0, 10)}: ${effectiveSummary(r) ?? '(no summary)'}`)
       .join('\n\n')
 
     const ja = locale === 'ja'

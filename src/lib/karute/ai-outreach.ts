@@ -96,6 +96,9 @@ async function computeSuggestedFollowUp(
       // Full summary — the cache layer hashes the whole input, so a regenerated
       // summary always misses the old draft (a 2000-char slice could collide).
       s: summary,
+      // The prompt embeds the customer name (「${customerName}様」); key it so a
+      // corrected name redrafts instead of serving the stale addressing.
+      n: customerName,
       bt: orgSettings?.business_type ?? null,
       locale,
     }

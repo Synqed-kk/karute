@@ -1,6 +1,7 @@
 import 'server-only'
 import type { Appointment, KaruteRecord } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { JST_OFFSET, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
@@ -27,7 +28,7 @@ function mapKaruteRows(
         ? (nameById.get(r.customer_id) ?? 'Unknown')
         : 'Unknown',
       createdAt: r.created_at,
-      summary: r.ai_summary ?? null,
+      summary: effectiveSummary(r),
       entries: (r.entries ?? []).map((e) => ({
         category: String(e.category),
         content: e.content,
