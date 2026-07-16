@@ -22,9 +22,11 @@ export const CAPABILITIES = [
   'records.delete',    // delete customers / karute (destructive)
   'records.write',     // record sessions, create / edit karute
   'recordings.viewAll',// read EVERY staff's raw transcript/recording (vs. only
-                       // your OWN). Owner + manager (supervisory) by default; a
-                       // practitioner sees only the karute THEY recorded. The AI
-                       // summary + entries stay shared regardless.
+                       // your OWN). OWNER ONLY by default (Liam ruling 7/16:
+                       // recordings are private to whoever recorded them —
+                       // managers included; the owner keeps it as the dev/
+                       // support key). The AI summary + entries stay shared
+                       // regardless.
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
   'stores.viewAll',    // see EVERY store's karute + customers (vs. own store only).
                        // Without it, a staff member is clamped to their
@@ -55,9 +57,13 @@ const ALL: Capability[] = [...CAPABILITIES]
 export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   // Full control.
   owner: ALL,
-  // Runs the salon — everything EXCEPT money + existential. Manages staff
-  // (Liam's call). No billing, no delete-the-business.
-  manager: ALL.filter((c) => c !== 'billing.manage' && c !== 'business.manage'),
+  // Runs the salon — everything EXCEPT money + existential + other people's
+  // raw recordings (Liam ruling 7/16: transcripts are recorder-private; the
+  // manager still sees every AI summary/entry). Manages staff (Liam's call).
+  // No billing, no delete-the-business.
+  manager: ALL.filter(
+    (c) => c !== 'billing.manage' && c !== 'business.manage' && c !== 'recordings.viewAll',
+  ),
   // Lead practitioner / SV (supervisor): does the work + sees whole-salon
   // analytics + exports + cross-store visibility; no settings/staff/billing.
   senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage'],
@@ -107,7 +113,15 @@ export function effectiveCapabilities(
 ): Set<Capability> {
   const valid = new Set<string>(CAPABILITIES)
   const source = override ?? presetCapabilities(role)
-  return new Set(source.filter((c): c is Capability => valid.has(c)))
+  const caps = new Set(source.filter((c): c is Capability => valid.has(c)))
+  // recordings.viewAll is owner-only (recorder-private ruling, Liam 7/16) and
+  // is enforced HERE, not just in the presets: a per-staff override stored
+  // before the ruling still carries it, and this function is the single
+  // chokepoint every read path (capabilitiesForUser, cookie + Bearer) and the
+  // override WRITE path (setStaffPermissions) pass through. Stripping at
+  // resolve time self-heals stale rows with no data migration.
+  if (role !== 'owner') caps.delete('recordings.viewAll')
+  return caps
 }
 
 export function can(caps: Set<Capability>, capability: Capability): boolean {

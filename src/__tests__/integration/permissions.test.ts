@@ -23,6 +23,13 @@ describe('RBAC permission model', () => {
     expect(m.has('records.delete')).toBe(true)
   })
 
+  it('raw recordings are recorder-private: only the owner keeps recordings.viewAll (Liam 7/16)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('recordings.viewAll')).toBe(true)
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('recordings.viewAll')).toBe(false)
+    }
+  })
+
   it('practitioner records work but cannot administer', () => {
     const p = new Set(ROLE_PRESETS.practitioner)
     expect(p.has('records.write')).toBe(true)
@@ -63,6 +70,24 @@ describe('RBAC permission model', () => {
     const caps = effectiveCapabilities('custom', ['records.write', 'not.a.real.cap'])
     expect(caps.has('records.write' as Capability)).toBe(true)
     expect(caps.size).toBe(1)
+  })
+
+  it('recordings.viewAll strips from every non-owner at resolve time — stale overrides included', () => {
+    // A manager customized BEFORE the recorder-private ruling: their stored
+    // override still carries recordings.viewAll. The preset change alone
+    // can't fix that row — the resolve-time strip must.
+    const stale = [...presetCapabilities('manager'), 'recordings.viewAll']
+    const caps = effectiveCapabilities('manager', stale)
+    expect(caps.has('recordings.viewAll')).toBe(false)
+    // The rest of the override survives untouched.
+    expect(caps.has('staff.manage')).toBe(true)
+    // Owner keeps it (the dev/support key) — preset or explicit override.
+    expect(effectiveCapabilities('owner', null).has('recordings.viewAll')).toBe(true)
+    expect(effectiveCapabilities('owner', ['recordings.viewAll']).has('recordings.viewAll')).toBe(true)
+    // No other role can hold it, even via an explicit grant.
+    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(effectiveCapabilities(role, ['recordings.viewAll']).has('recordings.viewAll')).toBe(false)
+    }
   })
 
   it('a null override falls back to the role preset', () => {
