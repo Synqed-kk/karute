@@ -104,19 +104,21 @@ export function CustomerListStatsStrip({
         </span>
       </button>
       )}
-      {/* Mobile line break after 予約なし (only while the 回数券 row exists) —
-       *  a breaker element, NOT basis-full on the button, so the selected
-       *  chip's fill hugs its text instead of painting the whole line. */}
-      {showNoBooking && showPackRemaining && (
-        <span aria-hidden className="basis-full md:hidden" />
-      )}
-      {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
-       *  current one smaller too"); selected = the same solid amber chip as
-       *  予約なし. Inactive counts render in foreground-black (orange = the
-       *  tappable word, black = the number — Liam 7/17); on the filled chip
-       *  both go white. Constant padding both states → no row shift on tap.
-       *  Individual bits never hide at 0 so the row doesn't jump around. */}
+      {/* 回数券 row — bits left, 未消化 right, ONE flex line: basis-full
+       *  breaks it under 予約なし on mobile with a single gap-y (a separate
+       *  breaker span formed its own zero-height flex line and doubled the
+       *  gap to 8px — fleet-measured); md:flex-1 lets it share 予約なし's
+       *  line and push 未消化 to the far right. basis-full lives on this
+       *  WRAPPER, not the 予約なし button, so the selected chip's fill hugs
+       *  its text instead of painting the whole line. */}
       {showPackRemaining && (
+        <span className="flex basis-full items-baseline md:flex-1 md:basis-auto">
+        {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
+         *  current one smaller too"); selected = the same solid amber chip as
+         *  予約なし. Inactive counts render in foreground-black (orange = the
+         *  tappable word, black = the number — Liam 7/17); on the filled chip
+         *  both go white. Constant padding both states → no row shift on tap.
+         *  Individual bits never hide at 0 so the row doesn't jump around. */}
         <span className="inline-flex items-baseline gap-1.5 text-[10px]">
           {PACK_REMAINING_OPTIONS.map((n) => (
             <button
@@ -147,16 +149,17 @@ export function CustomerListStatsStrip({
             </button>
           ))}
         </span>
-      )}
-      {/* 未消化 ¥ — right end of the 回数券 row (v3). View-scoped: the yen
-       *  sum of the CURRENTLY filtered list, so 残１×予約なし reads as "the
-       *  call-list is worth this much". ¥0 renders (it's a real answer for a
-       *  slice), keeping the layout stable. */}
-      {showUnconsumed && (
-        <span className="ml-auto font-semibold text-foreground">
-          {t('unconsumed', {
-            amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
-          })}
+        {/* 未消化 ¥ — right end of the 回数券 row (v3). View-scoped: the yen
+         *  sum of the CURRENTLY filtered list, so 残１×予約なし reads as "the
+         *  call-list is worth this much". ¥0 renders (it's a real answer for
+         *  a slice), keeping the layout stable. */}
+        {showUnconsumed && (
+          <span className="ml-auto font-semibold text-foreground">
+            {t('unconsumed', {
+              amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
+            })}
+          </span>
+        )}
         </span>
       )}
     </div>
