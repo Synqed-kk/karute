@@ -11,6 +11,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
+import { auditWeb } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
   inviteSchema,
@@ -108,9 +109,10 @@ export async function createInvite(
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
   const invitedBy = await getCurrentUserStaffId().catch(() => null)
 
+  let created: { id?: string }
   try {
     const synqed = await getSynqedClient()
-    await synqed.invites.create({
+    created = await synqed.invites.create({
       email,
       role,
       token,
@@ -121,6 +123,16 @@ export async function createInvite(
   } catch (e) {
     return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
   }
+
+  // ids only — the invite email is deliberately NOT logged (PII-free sink rule).
+  await auditWeb({
+    category: 'staff',
+    action: 'staff.invite_create',
+    businessId,
+    targetType: staffId ? 'staff' : undefined,
+    targetId: staffId ?? undefined,
+    detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
+  })
 
   updateTag('staff-invites')
   return { token }
@@ -167,6 +179,11 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Could not revoke invite.' }
   }
+  await auditWeb({
+    category: 'staff',
+    action: 'staff.invite_revoke',
+    detail: { invite_id: id },
+  })
   updateTag('staff-invites')
   return { ok: true }
 }
@@ -290,6 +307,19 @@ export async function acceptInvite(
     }
     return { error: `Could not join the salon: ${attachErr.message}` }
   }
+
+  // The join is real from here (steps 4–5 are best-effort): the invitee became
+  // a member of the business, actor = the new account itself (no session yet,
+  // so the ids are passed explicitly).
+  await auditWeb({
+    category: 'staff',
+    action: 'staff.add',
+    actorId: userId,
+    businessId: invite.business_id as string,
+    targetType: 'staff',
+    targetId: userId,
+    detail: { via: 'invite', invite_id: invite.id as string, role },
+  })
 
   // 4. Link the synqed-core staff record under the business. Prefer the staff row
   //    the invite was launched from (invited_staff_id) so re-inviting an existing

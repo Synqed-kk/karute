@@ -5,6 +5,7 @@ import { updateTag } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId } from '@/lib/staff'
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
+import { auditWeb } from '@/lib/audit-web'
 import {
   PERMISSION_ROLES,
   presetCapabilities,
@@ -122,6 +123,11 @@ export async function setStaffPermissions(
     (target.display_role ?? '').toLowerCase() === 'owner' || target.permission_role === 'owner'
   if (targetIsOwner) return { error: "The account owner's permissions can't be changed here." }
 
+  // Captured pre-write for the audit detail; mirrors the read path's derivation.
+  const beforeRole: PermissionRole =
+    (target.permission_role as PermissionRole | null) ??
+    synqedRoleToPreset(target.display_role ?? null)
+
   // Validate + filter the requested capabilities, then enforce no-escalation:
   // every granted capability must be one the caller holds themselves.
   const requested = effectiveCapabilities(permissionRole, capabilities)
@@ -142,6 +148,19 @@ export async function setStaffPermissions(
     .eq('id', staffId)
     .eq('customer_id', businessId)
   if (error) return { error: `Could not save permissions: ${error.message}` }
+
+  // An authority change is consequential (severity notice — same class as the
+  // audit.view grant ruling, design §9). Roles in detail; capability sets stay
+  // out of the line — `customized` records that an override array was stored.
+  await auditWeb({
+    category: 'settings',
+    action: 'settings.permissions_change',
+    severity: 'notice',
+    businessId,
+    targetType: 'staff',
+    targetId: staffId,
+    detail: { before_role: beforeRole, after_role: permissionRole, customized: !matchesPreset },
+  })
 
   updateTag('staff-list')
   return { ok: true }
