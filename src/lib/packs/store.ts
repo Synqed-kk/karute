@@ -1,6 +1,7 @@
 import type { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { ymdInJst } from '@/lib/date/jst'
+import { burnFetchSinceYmd, type BurnRedemption } from './burn'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import {
   withUsage,
@@ -382,6 +383,30 @@ export async function listRecentRedemptions(
   } catch (err) {
     warn('listRecentRedemptions', err)
     return []
+  }
+}
+
+/** Dated redemptions since the previous JST month began — feeds the 今月消化
+ *  strip stat. Returns null (NOT []) when core is unreachable: null hides the
+ *  stat, [] is a real "no burns" ¥0. Runtime-defensive on the priced fields:
+ *  until core ships pack_id/unit_price on this endpoint (SDK 1.12), rows
+ *  price as null and monthlyBurnByCustomer's allPriced gate keeps the stat
+ *  hidden — a partial sum must never render. */
+export async function listBurnRedemptions(): Promise<BurnRedemption[] | null> {
+  try {
+    const synqed = await getSynqedClient()
+    const rows = await synqed.packs.listRecentRedemptions(burnFetchSinceYmd())
+    return rows.map((r) => {
+      const priced = r as { unit_price?: unknown }
+      return {
+        customer_id: r.customer_id,
+        redeemed_on: r.redeemed_on,
+        unit_price: typeof priced.unit_price === 'number' ? priced.unit_price : null,
+      }
+    })
+  } catch (err) {
+    warn('listBurnRedemptions', err)
+    return null
   }
 }
 

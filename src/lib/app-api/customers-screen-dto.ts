@@ -6,6 +6,11 @@
 // PARITY, not redesign: all rows ship, exactly like today's page (which pages
 // synqed-core to completion). No invented pagination — the report records the
 // row-count reality so pagination can be a later, evidenced decision.
+//
+// Known deliberate gap: the web page's burnByCustomer prop (今月消化 strip
+// stat, 案A) is NOT in this DTO — web-only for now. If the mobile screens
+// strip grows the stat, add burn fields HERE (per-customer {mtd, prev}), not
+// a separate endpoint.
 
 import { z } from 'zod'
 

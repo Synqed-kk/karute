@@ -12,7 +12,8 @@ import { listAllCustomers } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
-import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
+import { listAllLifecycles, listAllPackUsage, listBurnRedemptions } from '@/lib/packs/store'
+import { monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 export default async function CustomersPage({
   searchParams,
@@ -68,11 +69,12 @@ export default async function CustomersPage({
   const customerIds = list.customers.map((c) => c.id)
   // Pack usage + lifecycle load in parallel with the enrichment — both come
   // back as empty maps until the ticket_packs migration applies (graceful).
-  const [enrichment, packUsageRaw, lifecycles, orgSettings] = await Promise.all([
+  const [enrichment, packUsageRaw, lifecycles, orgSettings, burnRows] = await Promise.all([
     t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
     listAllPackUsage(),
     listAllLifecycles(),
     getOrgSettings(),
+    listBurnRedemptions(),
   ])
   t.end()
 
@@ -98,6 +100,19 @@ export default async function CustomersPage({
     ? screen.staffList.filter((s) => storeStaffIds.has(s.id))
     : screen.staffList
 
+  // 今月消化 per-customer yen — plain Record (RSC boundary: no Maps). null =
+  // core unreachable → hidden everywhere. Unpriceable customers (orphaned
+  // packs) hide the stat only in views that contain them — the view stays
+  // exact, and one store's data problem can't blank the whole business.
+  const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+  if (burn && burn.unpricedCustomers.length > 0) {
+    console.warn(
+      `[packs] burn: ${burn.unpricedCustomers.length} customer(s) have unpriceable redemptions (orphaned packs) — 今月消化 hidden where they appear`,
+    )
+  }
+  const burnByCustomer = burn?.byCustomer ?? null
+  const burnUnpricedIds = burn?.unpricedCustomers ?? []
+
   return (
     <CustomersListView
       rows={screen.rows}
@@ -106,6 +121,8 @@ export default async function CustomersPage({
       selfStaffId={activeStaffId}
       bookingDataAvailable={screen.bookingDataAvailable}
       staffList={pickerStaff}
+      burnByCustomer={burnByCustomer}
+      burnUnpricedIds={burnUnpricedIds}
     />
   )
 }

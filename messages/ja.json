@@ -985,6 +985,11 @@
       "stats": {
         "noBooking": "予約なし {n}件",
         "unconsumed": "未消化 ¥{amount}",
+        "burnLabel": "今月消化",
+        "burnAmount": "¥{amount}",
+        "burnDeltaAriaUp": "先月同期間比 {delta}%増",
+        "burnDeltaAriaDown": "先月同期間比 {delta}%減",
+        "burnDeltaAriaFlat": "先月同期間比 増減なし",
         "packRemainingLabel1": "残１",
         "packRemainingLabel2": "残２",
         "packRemainingLabel3": "残３",
