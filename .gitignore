@@ -65,3 +65,8 @@ android/keystore.properties
 
 # monotonic build-number state (machine-local)
 scripts/shell/.last-build-number
+
+# Xcode build cache — 2,494 of these were committed by accident (evicted 7/18)
+ios/DerivedData/
+# Claude worktree gitlinks must never be committed (dangling-submodule warnings on Xcode Cloud)
+.claude/worktrees/
