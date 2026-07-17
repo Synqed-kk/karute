@@ -61,21 +61,35 @@ export function CustomerListStatsStrip({
     onSelect(active === key ? 'all' : key)
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] tabular-nums">
+      {/* Selected = SOLID amber chip, white text (Liam 7/17: the darker-amber
+       *  + underline state was too easy to miss; a background fill isn't).
+       *  Constant padding on both states so toggling never shifts the row.
+       *  One active language for the whole strip — 予約なし and the 残数 bits
+       *  fill the same way. Red was considered and rejected: in Karute red
+       *  means recording/warnings/無断, not "filter on". */}
       {showNoBooking && (
       <button
         type="button"
         aria-pressed={active === 'noBooking'}
         onClick={() => toggle('noBooking')}
-        className={`inline-flex items-baseline gap-1 rounded transition-colors ${
+        className={`inline-flex items-baseline gap-1 rounded-full px-2 py-0.5 transition-colors ${
           active === 'noBooking'
-            ? 'font-semibold text-amber-700 underline underline-offset-2 dark:text-amber-300'
+            ? 'bg-amber-700 text-white dark:bg-amber-500 dark:text-amber-950'
             : 'text-amber-700/90 hover:text-amber-700 dark:text-amber-400'
         }`}
       >
         <span className="font-semibold">
           {t('noBooking', { n: stats.noBooking })}
         </span>
-        <span className="text-muted-foreground">({pct}%)</span>
+        {/* Full opacity on the selected chip — /80·/70 alphas measured 3.8:1
+         *  (fail); hierarchy vs the label comes from weight, not opacity. */}
+        <span
+          className={
+            active === 'noBooking' ? 'text-white dark:text-amber-950' : 'text-muted-foreground'
+          }
+        >
+          ({pct}%)
+        </span>
       </button>
       )}
       {/* 未消化 keeps its ORIGINAL spot — line 1 right (案① Liam 7/17): on
@@ -96,33 +110,37 @@ export function CustomerListStatsStrip({
         </span>
       )}
       {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
-       *  current one smaller too"); active = the strip's existing underline
-       *  treatment. Counts render in foreground-black (same rule as the
-       *  未消化 amount: orange = the tappable word, black = the number —
-       *  Liam 7/17, the all-amber bits blended together). Individual bits
-       *  never hide at 0 so the row doesn't jump around while filtering. */}
+       *  current one smaller too"); selected = the same solid amber chip as
+       *  予約なし. Inactive counts render in foreground-black (orange = the
+       *  tappable word, black = the number — Liam 7/17); on the filled chip
+       *  both go white. Constant padding both states → no row shift on tap.
+       *  Individual bits never hide at 0 so the row doesn't jump around. */}
       {showPackRemaining && (
-        <span className="order-3 inline-flex basis-full items-baseline gap-3 text-[10px] md:order-2 md:basis-auto">
+        <span className="order-3 inline-flex basis-full items-baseline gap-1.5 text-[10px] md:order-2 md:basis-auto">
           {PACK_REMAINING_OPTIONS.map((n) => (
             <button
               key={n}
               type="button"
               aria-pressed={packFilter.has(n)}
               onClick={() => onPackToggle(n)}
-              className={`inline-flex items-baseline gap-1 rounded transition-colors ${
-                packFilter.has(n) ? 'underline underline-offset-2' : ''
+              className={`inline-flex items-baseline gap-1 rounded-full px-2 py-0.5 transition-colors ${
+                packFilter.has(n) ? 'bg-amber-700 dark:bg-amber-500' : ''
               }`}
             >
               <span
                 className={`font-semibold ${
                   packFilter.has(n)
-                    ? 'text-amber-700 dark:text-amber-300'
+                    ? 'text-white dark:text-amber-950'
                     : 'text-amber-600/90 dark:text-amber-400'
                 }`}
               >
                 {t(`packRemainingLabel${n}`)}
               </span>
-              <span className="font-semibold tabular-nums text-foreground">
+              <span
+                className={`font-semibold tabular-nums ${
+                  packFilter.has(n) ? 'text-white dark:text-amber-950' : 'text-foreground'
+                }`}
+              >
                 {t('packRemainingCount', { n: packCounts[n] ?? 0 })}
               </span>
             </button>
