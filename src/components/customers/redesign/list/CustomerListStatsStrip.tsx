@@ -78,34 +78,48 @@ export function CustomerListStatsStrip({
         <span className="text-muted-foreground">({pct}%)</span>
       </button>
       )}
+      {/* 未消化 keeps its ORIGINAL spot — line 1 right (案① Liam 7/17): on
+       *  mobile the 残数 bits break to their own second line (order+basis),
+       *  so no lone right-floated amount; ≥md everything fits one line. */}
+      {showUnconsumed && (
+        <span className="order-2 ml-auto font-semibold text-foreground md:order-3">
+          {t('unconsumed', {
+            amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
+          })}
+        </span>
+      )}
       {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
-       *  current one smaller too"); active = the strip's existing
-       *  underline treatment. Individual bits never hide at 0 so the row
-       *  doesn't jump around while filtering. */}
+       *  current one smaller too"); active = the strip's existing underline
+       *  treatment. Counts render in foreground-black (same rule as the
+       *  未消化 amount: orange = the tappable word, black = the number —
+       *  Liam 7/17, the all-amber bits blended together). Individual bits
+       *  never hide at 0 so the row doesn't jump around while filtering. */}
       {showPackRemaining && (
-        <span className="inline-flex items-baseline gap-2.5 text-[10px]">
+        <span className="order-3 inline-flex basis-full items-baseline gap-3 text-[10px] md:order-2 md:basis-auto">
           {PACK_REMAINING_OPTIONS.map((n) => (
             <button
               key={n}
               type="button"
               aria-pressed={packFilter.has(n)}
               onClick={() => onPackToggle(n)}
-              className={`rounded font-semibold transition-colors ${
-                packFilter.has(n)
-                  ? 'text-amber-700 underline underline-offset-2 dark:text-amber-300'
-                  : 'text-amber-600/90 hover:text-amber-700 dark:text-amber-400'
+              className={`inline-flex items-baseline gap-1 rounded transition-colors ${
+                packFilter.has(n) ? 'underline underline-offset-2' : ''
               }`}
             >
-              {t(`packRemaining${n}`, { n: packCounts[n] ?? 0 })}
+              <span
+                className={`font-semibold ${
+                  packFilter.has(n)
+                    ? 'text-amber-700 dark:text-amber-300'
+                    : 'text-amber-600/90 dark:text-amber-400'
+                }`}
+              >
+                {t(`packRemainingLabel${n}`)}
+              </span>
+              <span className="font-semibold tabular-nums text-foreground">
+                {t('packRemainingCount', { n: packCounts[n] ?? 0 })}
+              </span>
             </button>
           ))}
-        </span>
-      )}
-      {showUnconsumed && (
-        <span className="ml-auto font-semibold text-foreground">
-          {t('unconsumed', {
-            amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
-          })}
         </span>
       )}
     </div>

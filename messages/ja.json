@@ -985,9 +985,10 @@
       "stats": {
         "noBooking": "予約なし {n}件",
         "unconsumed": "未消化 ¥{amount}",
-        "packRemaining1": "残１ {n}人",
-        "packRemaining2": "残２ {n}人",
-        "packRemaining3": "残３ {n}人"
+        "packRemainingLabel1": "残１",
+        "packRemainingLabel2": "残２",
+        "packRemainingLabel3": "残３",
+        "packRemainingCount": "{n}人"
       },
       "filterNoMatch": "条件に一致するお客様はいません"
     },
