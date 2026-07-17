@@ -47,6 +47,18 @@ interface CustomersListViewProps {
   /** Booking enrichment loaded? false → the 予約なし stat hides (honesty gate). */
   bookingDataAvailable?: boolean
   /**
+   * Per-customer 今月消化 yen (this month-to-date + previous month same
+   * window), keyed by customer id. null = burn data unavailable → the strip
+   * hides the stat (honesty gate — a partial sum must never render).
+   */
+  burnByCustomer?: Record<string, { mtd: number; prev: number }> | null
+  /**
+   * Customers whose in-window burns could not be priced (orphaned packs).
+   * The stat hides in any view that CONTAINS one of them (its sum would be
+   * partial); views without them stay exact.
+   */
+  burnUnpricedIds?: string[]
+  /**
    * Full tenant staff roster (id + display name). Fed in from the server
    * page so the staff-filter pills can render every stylist, not just the
    * ones who happen to own customers in the current page of results.
@@ -82,6 +94,8 @@ export function CustomersListView({
   selfStaffId,
   staffList,
   bookingDataAvailable = true,
+  burnByCustomer = null,
+  burnUnpricedIds = [],
   karuteContext = false,
   hrefBase = '/customers',
   heading,
@@ -245,10 +259,28 @@ export function CustomersListView({
         (sum, r) => sum + (r.pack?.unconsumed ?? 0),
         0,
       ),
+      // 今月消化 follows the same view-scoping rule as 未消化: the yen the
+      // CURRENTLY visible customers burned, so both ¥ figures describe the
+      // same list (faceted-counts contract, #534).
+      burnMtd: burnByCustomer
+        ? filteredRows.reduce((sum, r) => sum + (burnByCustomer[r.id]?.mtd ?? 0), 0)
+        : 0,
+      burnPrev: burnByCustomer
+        ? filteredRows.reduce((sum, r) => sum + (burnByCustomer[r.id]?.prev ?? 0), 0)
+        : 0,
+      hasBurnData: burnByCustomer != null,
+      // View-scoped honesty gate: an unpriceable customer IN this view makes
+      // its sum partial → hide. Out of view, the sum stays exact → show.
+      burnUnpriceable:
+        burnUnpricedIds.length > 0 &&
+        (() => {
+          const unpriced = new Set(burnUnpricedIds)
+          return filteredRows.some((r) => unpriced.has(r.id))
+        })(),
       hasPackData: rows.some((r) => r.pack != null),
       hasBookingData: bookingDataAvailable,
     }),
-    [rows, rowsForStatusCounts.length, counts.noBooking, filteredRows, bookingDataAvailable],
+    [rows, rowsForStatusCounts.length, counts.noBooking, filteredRows, bookingDataAvailable, burnByCustomer, burnUnpricedIds],
   )
 
   // Slice the filtered list into the current page's window. `page` is

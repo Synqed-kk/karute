@@ -343,6 +343,92 @@ describe('案D stats strip', () => {
   })
 })
 
+describe('今月消化 burn stat (案A)', () => {
+  const packRows = () => [
+    row({ id: 'a', name: 'Alpha', pack: { remaining: 2, size: 6, unconsumed: 16000 }, nextBookingDate: null }),
+    row({ id: 'b', name: 'Beta', pack: { remaining: 5, size: 10, unconsumed: 40000 }, nextBookingDate: '6/16' }),
+  ]
+
+  it('renders the view-scoped mtd sum with the ▲% vs the prev same-period window', () => {
+    render(
+      <CustomersListView
+        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        burnByCustomer={{ a: { mtd: 16_000, prev: 10_000 }, b: { mtd: 40_000, prev: 40_000 } }}
+      />,
+    )
+    expect(screen.getByText('burnLabel')).toBeInTheDocument()
+    expect(screen.getByText('burnAmount:{"amount":"56,000"}')).toBeInTheDocument()
+    // (56000-50000)/50000 = +12%
+    expect(screen.getByText('▲12%')).toBeInTheDocument()
+  })
+
+  it('re-scopes to the filtered list — the ¥ always describes what you see (#534 rule)', () => {
+    render(
+      <CustomersListView
+        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        burnByCustomer={{ a: { mtd: 16_000, prev: 10_000 }, b: { mtd: 40_000, prev: 40_000 } }}
+      />,
+    )
+    // 予約なし filter leaves only Alpha → burn shows Alpha's slice.
+    fireEvent.click(screen.getByText('noBooking:{"n":1}'))
+    expect(screen.getByText('burnAmount:{"amount":"16,000"}')).toBeInTheDocument()
+    expect(screen.getByText('▲60%')).toBeInTheDocument()
+  })
+
+  it('hides the ▲% when the prev window is ¥0 (a % of zero is meaningless)', () => {
+    render(
+      <CustomersListView
+        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
+      />,
+    )
+    expect(screen.getByText('burnAmount:{"amount":"16,000"}')).toBeInTheDocument()
+    expect(screen.queryByText(/[▲▼±]/)).toBeNull()
+  })
+
+  it('honesty gate: no burn data (default) → the stat does not render', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.queryByText('burnLabel')).toBeNull()
+  })
+
+  it('honesty gate: burn data without pack data → hidden (it is a pack stat)', () => {
+    render(
+      <CustomersListView
+        rows={[row({ id: 'a', nextBookingDate: null })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]}
+        burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
+      />,
+    )
+    expect(screen.queryByText('burnLabel')).toBeNull()
+  })
+
+  it('honesty gate is VIEW-scoped: an unpriceable customer in view hides the stat…', () => {
+    render(
+      <CustomersListView
+        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
+        burnUnpricedIds={['b']}
+      />,
+    )
+    expect(screen.queryByText('burnLabel')).toBeNull()
+  })
+
+  it('…but filtering the unpriceable customer OUT restores the exact stat', () => {
+    render(
+      <CustomersListView
+        rows={packRows()} totalRegistered={2} query="" selfStaffId={null} staffList={[]}
+        burnByCustomer={{ a: { mtd: 16_000, prev: 0 } }}
+        burnUnpricedIds={['b']}
+      />,
+    )
+    // 予約なし filter leaves only Alpha (a) — b's data problem no longer
+    // affects the view, whose sum is exact.
+    fireEvent.click(screen.getByText('noBooking:{"n":1}'))
+    expect(screen.getByText('burnAmount:{"amount":"16,000"}')).toBeInTheDocument()
+  })
+})
+
 describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
   // 6/30 Kitano meeting → Liam-approved mock 7/17: the strip's old 残り1回
   // stat is three smaller tappable bits, exact remaining-count filters,

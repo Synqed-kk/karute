@@ -16,6 +16,7 @@
 // (pre-import they'd read a confident-but-false 0). 予約なし is real today.
 
 import { useTranslations } from 'next-intl'
+import { burnDeltaPct } from '@/lib/packs/burn'
 import type { CustomerListFilterKey } from './CustomersStatusFilters'
 import { PACK_REMAINING_OPTIONS } from './CustomersStatusFilters'
 
@@ -27,6 +28,16 @@ export interface ListStats {
   noBooking: number
   /** ¥ over the CURRENT view (all dimensions) — the slice's stranded money. */
   unconsumedTotal: number
+  /** 今月消化 ¥ over the CURRENT view — this month-to-date burn (案A). */
+  burnMtd: number
+  /** Previous month, SAME day-window (1st..today's day, clamped) — the ▲%
+   *  base. Part-month vs full-month would always read as a crash. */
+  burnPrev: number
+  /** Burn rows loaded? false → stat hides (core unreachable / pre-1.12). */
+  hasBurnData: boolean
+  /** An unpriceable customer is IN the current view → its sum would be
+   *  partial → hide (honesty gate, view-scoped like the sums). */
+  burnUnpriceable: boolean
   /** Any pack data at all? false pre-import → pack stats hide. UNFILTERED. */
   hasPackData: boolean
   /** Booking enrichment actually loaded? When the synqed-core env is missing,
@@ -59,6 +70,10 @@ export function CustomerListStatsStrip({
   // (same guard the hide-when-zero pills use).
   const showPackRemaining = stats.hasPackData || packFilter.size > 0
   const showUnconsumed = stats.hasPackData
+  // 今月消化 (案A, Liam-approved 7/17) — a pack stat, so it shares the pack
+  // honesty gate on top of its own (burn fetch ok + no unpriceable customer
+  // in the current view).
+  const showBurn = stats.hasBurnData && stats.hasPackData && !stats.burnUnpriceable
   if (!showNoBooking && !showPackRemaining && !showUnconsumed) return null
   const pct =
     stats.scopedTotal > 0
@@ -103,6 +118,52 @@ export function CustomerListStatsStrip({
           ({pct}%)
         </span>
       </button>
+      )}
+      {/* 今月消化 (案A) — line-1 right: the month's burn FLOW next to the
+       *  未消化 STOCK below it. Display-only (no list to produce, so no tap —
+       *  the faceted contract applies to controls). ▲ = emerald (the app's
+       *  positive-money color, TicketPackCard); ▼ = muted, NOT red (red means
+       *  recording/warnings/無断 here). % hides when the prev window is ¥0. */}
+      {showBurn && (
+        <span className="ml-auto inline-flex items-baseline gap-1 whitespace-nowrap">
+          <span className="text-muted-foreground">{t('burnLabel')}</span>
+          <span className="font-semibold text-foreground">
+            {t('burnAmount', { amount: stats.burnMtd.toLocaleString('ja-JP') })}
+          </span>
+          {(() => {
+            const delta = burnDeltaPct(stats.burnMtd, stats.burnPrev)
+            if (delta == null) return null
+            return (
+              // aria-label on a role-less span is unreliable ARIA naming —
+              // sr-only text carries the 先月同期比 context instead (same
+              // pattern as VisitHistoryChain), the arrow glyphs stay hidden.
+              // Direction lives in WORDS (増/減), never in a +/- sign: screen
+              // readers at default verbosity skip a bare hyphen-minus, which
+              // would announce ▼12% and ▲12% identically (fleet-verified
+              // against the real next-intl render).
+              <span
+                className={`font-semibold ${
+                  delta > 0
+                    // emerald-700: 5.48:1 on white (600 measured 3.77 — AA
+                    // fail at 11px); dark emerald-400 measures 10.35:1.
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                <span aria-hidden="true">
+                  {delta > 0 ? `▲${delta}%` : delta < 0 ? `▼${Math.abs(delta)}%` : '±0%'}
+                </span>
+                <span className="sr-only">
+                  {delta > 0
+                    ? t('burnDeltaAriaUp', { delta })
+                    : delta < 0
+                      ? t('burnDeltaAriaDown', { delta: Math.abs(delta) })
+                      : t('burnDeltaAriaFlat')}
+                </span>
+              </span>
+            )
+          })()}
+        </span>
       )}
       {/* 回数券 row — bits left, 未消化 right, ONE flex line: basis-full
        *  breaks it under 予約なし on mobile with a single gap-y (a separate

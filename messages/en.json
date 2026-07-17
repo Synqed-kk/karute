@@ -985,6 +985,11 @@
       "stats": {
         "noBooking": "No booking: {n}",
         "unconsumed": "Unconsumed ¥{amount}",
+        "burnLabel": "Used this month",
+        "burnAmount": "¥{amount}",
+        "burnDeltaAriaUp": "Up {delta}% vs same period last month",
+        "burnDeltaAriaDown": "Down {delta}% vs same period last month",
+        "burnDeltaAriaFlat": "Unchanged vs same period last month",
         "packRemainingLabel1": "1 left:",
         "packRemainingLabel2": "2 left:",
         "packRemainingLabel3": "3 left:",
