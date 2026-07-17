@@ -82,8 +82,8 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   })
 
   // Authority state — 'off' (create mode), 'loading', 'owner' (read-only),
-  // or 'ready' (editable role + toggles).
-  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready'>(
+  // 'ready' (editable role + toggles), or 'error' (load failed — shown, not hidden).
+  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready' | 'error'>(
     mode === 'edit' ? 'loading' : 'off',
   )
   const [role, setRole] = useState<PermissionRole>('practitioner')
@@ -107,7 +107,9 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
     getStaffPermissions(staffId).then((res) => {
       if (cancelled) return
       if ('error' in res) {
-        setPermsState('off')
+        // Surface the failure instead of silently hiding the authority section —
+        // the identity fields still save fine; only authority editing is down.
+        setPermsState('error')
         return
       }
       if (res.isOwner) {
@@ -292,6 +294,10 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 
               {permsState === 'loading' && (
                 <p className="text-xs text-muted-foreground">{tc('loading')}</p>
+              )}
+
+              {permsState === 'error' && (
+                <p className="text-xs text-red-600 dark:text-red-400">{tp('loadFailed')}</p>
               )}
 
               {permsState === 'owner' && (

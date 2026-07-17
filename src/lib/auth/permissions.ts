@@ -127,6 +127,14 @@ export function effectiveCapabilities(
   // override WRITE path (setStaffPermissions) pass through. Stripping at
   // resolve time self-heals stale rows with no data migration.
   if (role !== 'owner') caps.delete('recordings.viewAll')
+  // audit.view is likewise owner-only for now: overrides snapshotted from the
+  // OLD manager preset still carry it, and the deliberate per-staff grant flow
+  // doesn't exist yet (the capability has zero runtime checks today). When the
+  // 監査ログ viewer ships, this strip is REPLACED by the grant-honoring flow +
+  // a one-time normalization of stored overrides (AUDIT-FIX-PLAN.md P1-D) —
+  // until then, resolve-time stripping keeps stale snapshots from becoming
+  // silent grants the day the viewer turns on.
+  if (role !== 'owner') caps.delete('audit.view')
   return caps
 }
 

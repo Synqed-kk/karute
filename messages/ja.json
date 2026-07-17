@@ -2845,6 +2845,7 @@
   "permissions": {
     "roleLabel": "権限",
     "roleHint": "役職とは別に、このスタッフができる操作を設定します。",
+    "loadFailed": "権限情報を読み込めませんでした。保存しても権限は変更されません — 開き直してもう一度お試しください。",
     "ownerFullAccess": "アカウントオーナー — すべての権限があります。",
     "permissionsLabel": "個別の権限",
     "role_manager": "マネージャー",
