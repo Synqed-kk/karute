@@ -60,9 +60,15 @@ export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   // Runs the salon — everything EXCEPT money + existential + other people's
   // raw recordings (Liam ruling 7/16: transcripts are recorder-private; the
   // manager still sees every AI summary/entry). Manages staff (Liam's call).
-  // No billing, no delete-the-business.
+  // No billing, no delete-the-business. No 監査ログ by default (Liam ruling
+  // 7/17: owner-only; a specific manager gets it only as a deliberate per-staff
+  // toggle, never as a preset).
   manager: ALL.filter(
-    (c) => c !== 'billing.manage' && c !== 'business.manage' && c !== 'recordings.viewAll',
+    (c) =>
+      c !== 'billing.manage' &&
+      c !== 'business.manage' &&
+      c !== 'recordings.viewAll' &&
+      c !== 'audit.view',
   ),
   // Lead practitioner / SV (supervisor): does the work + sees whole-salon
   // analytics + exports + cross-store visibility; no settings/staff/billing.
