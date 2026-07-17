@@ -74,7 +74,7 @@ export function CustomerListStatsStrip({
         onClick={() => toggle('noBooking')}
         className={`inline-flex items-baseline gap-1 rounded-full px-2 py-0.5 transition-colors ${
           active === 'noBooking'
-            ? 'bg-amber-600 text-white dark:bg-amber-500'
+            ? 'bg-amber-700 text-white dark:bg-amber-500 dark:text-amber-950'
             : 'text-amber-700/90 hover:text-amber-700 dark:text-amber-400'
         }`}
       >
@@ -83,7 +83,7 @@ export function CustomerListStatsStrip({
         </span>
         <span
           className={
-            active === 'noBooking' ? 'text-white/75' : 'text-muted-foreground'
+            active === 'noBooking' ? 'text-white/80 dark:text-amber-950/70' : 'text-muted-foreground'
           }
         >
           ({pct}%)
@@ -122,13 +122,13 @@ export function CustomerListStatsStrip({
               aria-pressed={packFilter.has(n)}
               onClick={() => onPackToggle(n)}
               className={`inline-flex items-baseline gap-1 rounded-full px-2 py-0.5 transition-colors ${
-                packFilter.has(n) ? 'bg-amber-600 dark:bg-amber-500' : ''
+                packFilter.has(n) ? 'bg-amber-700 dark:bg-amber-500' : ''
               }`}
             >
               <span
                 className={`font-semibold ${
                   packFilter.has(n)
-                    ? 'text-white'
+                    ? 'text-white dark:text-amber-950'
                     : 'text-amber-600/90 dark:text-amber-400'
                 }`}
               >
@@ -136,7 +136,7 @@ export function CustomerListStatsStrip({
               </span>
               <span
                 className={`font-semibold tabular-nums ${
-                  packFilter.has(n) ? 'text-white' : 'text-foreground'
+                  packFilter.has(n) ? 'text-white dark:text-amber-950' : 'text-foreground'
                 }`}
               >
                 {t('packRemainingCount', { n: packCounts[n] ?? 0 })}
