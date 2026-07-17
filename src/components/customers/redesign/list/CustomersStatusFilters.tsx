@@ -41,7 +41,11 @@ export function applyPackRemainingFilter<
 interface CustomersStatusFiltersProps {
   active: CustomerListFilterKey
   onChange: (key: CustomerListFilterKey) => void
+  /** Contextual counts: staff ∧ 残数 applied (the faceted "tap = get N" numbers). */
   counts: CustomerListCounts
+  /** UNFILTERED existence counts — drive hide-when-zero so segments never
+   *  vanish (and the bar never reflows) just because the current slice hits 0. */
+  baselineCounts: { followup: number; dormant: number }
 }
 
 // 指名あり removed by design (Liam, proposal ②): mislabeled (it counted
@@ -67,14 +71,22 @@ export function CustomersStatusFilters({
   active,
   onChange,
   counts,
+  baselineCounts,
 }: CustomersStatusFiltersProps) {
   const t = useTranslations('customers.list')
   // 案A (Liam, 7/17): segmented bar via the shared SegmentedFilterBar. Label
   // qualifiers（30日以内／90日以上）dropped for width — the biggest single
-  // win; staff learn the definition once. Hide-when-zero still applies per
-  // segment (proposal ② unchanged).
+  // win; staff learn the definition once. Hide-when-zero (proposal ②) keys
+  // off the UNFILTERED baseline: a segment disappears only when its status
+  // doesn't exist in the data at all, never because the current 残数/staff
+  // slice hits 0 — the displayed count itself is contextual and may be 0.
   const segments = FILTER_KEYS.filter(
-    (key) => !(HIDE_WHEN_ZERO.has(key) && counts[key] === 0 && active !== key),
+    (key) =>
+      !(
+        HIDE_WHEN_ZERO.has(key) &&
+        baselineCounts[key as 'followup' | 'dormant'] === 0 &&
+        active !== key
+      ),
   ).map((key) => ({ key, label: t(`filters.${key}`), count: counts[key] }))
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
