@@ -988,7 +988,8 @@
         "packRemaining1": "1 left: {n}",
         "packRemaining2": "2 left: {n}",
         "packRemaining3": "3 left: {n}"
-      }
+      },
+      "filterNoMatch": "No customers match these filters"
     },
     "listFilter": {
       "all": "All",

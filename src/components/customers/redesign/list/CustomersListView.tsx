@@ -95,7 +95,7 @@ export function CustomersListView({
   const router = useRouter()
   const pathname = usePathname()
   const VALID_FILTERS: CustomerListFilterKey[] = [
-    'all', 'newRecent', 'followup', 'dormant', 'noBooking', 'packLow',
+    'all', 'newRecent', 'followup', 'dormant', 'noBooking',
   ]
   const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>(() => {
     const f = searchParams.get('f') as CustomerListFilterKey | null
@@ -106,6 +106,10 @@ export function CustomersListView({
   )
   // 残数 chips (?r=1,3) — multi-select union over exact remaining counts.
   const [packFilter, setPackFilter] = useState<ReadonlySet<number>>(() => {
+    // Legacy ?f=packLow (the pre-redesign 残り1回 stat wrote it) migrates to
+    // the 残１ bit — an old bookmark keeps filtering AND keeps a visible,
+    // tap-to-clear control instead of silently narrowing the list.
+    if (searchParams.get('f') === 'packLow') return new Set([1])
     const r = searchParams.get('r')
     if (!r) return new Set()
     const valid: readonly number[] = PACK_REMAINING_OPTIONS
@@ -265,11 +269,21 @@ export function CustomersListView({
 
       {filteredRows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
+          {/* Three empty states, not two: a filter that matches nobody must
+           *  NOT show the first-run onboarding copy (「最初の顧客を作成…」)
+           *  while 450 customers exist — it shows "no match, clear filters"
+           *  (reachable via a 0-count 残n bit or an empty staff filter). */}
           <p className="text-sm font-medium text-foreground">
-            {query ? t('noMatch', { query }) : tCustomers('empty.title')}
+            {query
+              ? t('noMatch', { query })
+              : rows.length > 0
+                ? t('filterNoMatch')
+                : tCustomers('empty.title')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {query ? t('noMatchHint') : tCustomers('empty.description')}
+            {query || rows.length > 0
+              ? t('noMatchHint')
+              : tCustomers('empty.description')}
           </p>
         </div>
       ) : (

@@ -14,9 +14,14 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
+// Overridable per test (legacy-URL restore cases); reset in afterEach.
+let mockSearch = ''
 jest.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mockSearch),
 }))
+afterEach(() => {
+  mockSearch = ''
+})
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/customers',
@@ -411,5 +416,58 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     fireEvent.click(screen.getByText('filters.all'))
     expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+  })
+})
+
+describe('UltraCode fix round (7/17)', () => {
+  const packRows = () => [
+    row({ id: 'r1', name: 'One', pack: { remaining: 1, size: 6, unconsumed: 9900 }, packAlert: 'low', nextBookingDate: null }),
+    row({ id: 'r2', name: 'Two', pack: { remaining: 2, size: 6, unconsumed: 19800 }, nextBookingDate: '6/20' }),
+    row({ id: 'r0', name: 'NoPack', nextBookingDate: null }),
+  ]
+
+  it('legacy ?f=packLow migrates to the 残１ bit (visible + clearable, list narrowed)', () => {
+    mockSearch = 'f=packLow'
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // Migrated: the 残１ bit is pressed and the list shows only remaining===1.
+    const bit1 = screen.getByText('packRemaining1:{"n":1}').closest('button')
+    expect(bit1).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
+    // No segment falsely active-less: すべて stays the pressed status segment.
+    expect(screen.getByText('filters.all').closest('button')).toHaveAttribute('aria-pressed', 'true')
+    // Tap-to-clear works — the invariant the legacy key violated.
+    fireEvent.click(bit1!)
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+  })
+
+  it('a 0-count 残n bit shows the filter-no-match state, never the onboarding empty state', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(screen.getByText('packRemaining3:{"n":0}'))
+    expect(screen.getByText('filterNoMatch')).toBeInTheDocument()
+    expect(screen.getByText('noMatchHint')).toBeInTheDocument()
+    expect(screen.queryByText('empty.title')).toBeNull()
+  })
+
+  it('the true first-run empty state (zero rows) is unchanged', () => {
+    render(
+      <CustomersListView rows={[]} totalRegistered={0} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getByText('empty.title')).toBeInTheDocument()
+    expect(screen.queryByText('filterNoMatch')).toBeNull()
+  })
+
+  it('予約なし stat announces aria-pressed like the bits beside it', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    const noBooking = screen.getByText('noBooking:{"n":2}').closest('button')
+    expect(noBooking).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(noBooking!)
+    expect(noBooking).toHaveAttribute('aria-pressed', 'true')
   })
 })

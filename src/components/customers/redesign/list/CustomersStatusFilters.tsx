@@ -11,10 +11,11 @@ export type CustomerListFilterKey =
   | 'newRecent'
   | 'followup'
   | 'dormant'
-  // Stat-strip filters (案D header): entered by tapping the Kitano stats, not
-  // pills — 予約なし (the sheet's #1 stat) and 残り1回 (the upsell queue).
+  // Stat-strip filter (案D header): entered by tapping the 予約なし stat.
+  // The old 'packLow' key is gone — the strip's 残１/残２/残３ bits (a separate
+  // packFilter dimension) replaced it; legacy ?f=packLow URLs migrate to the
+  // 残１ bit at parse time in CustomersListView.
   | 'noBooking'
-  | 'packLow'
 
 export interface CustomerListCounts {
   all: number
@@ -101,7 +102,6 @@ export function applyCustomerFilter(
     joinDateIso: string | null
     preferredStaffId: string | null
     nextBookingDate?: string | null
-    packAlert?: 'contact' | 'low' | null
   }>,
   filter: CustomerListFilterKey,
 ): Array<number> {
@@ -135,8 +135,6 @@ export function applyCustomerFilter(
         r.status !== 'lost'
       )
         out.push(i)
-    } else if (filter === 'packLow') {
-      if (r.packAlert === 'low') out.push(i)
     }
   })
   return out

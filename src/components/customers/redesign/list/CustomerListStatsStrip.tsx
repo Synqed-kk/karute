@@ -64,6 +64,7 @@ export function CustomerListStatsStrip({
       {showNoBooking && (
       <button
         type="button"
+        aria-pressed={active === 'noBooking'}
         onClick={() => toggle('noBooking')}
         className={`inline-flex items-baseline gap-1 rounded transition-colors ${
           active === 'noBooking'

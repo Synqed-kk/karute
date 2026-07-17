@@ -324,8 +324,10 @@ export function KaruteRecordListView({
       </div>
 
       {/* Filter bar — 案A (Liam, 7/17): same shared segmented control as the
-       *  顧客 list status filter (one design language across list screens). */}
-      <div className="pt-3">
+       *  顧客 list status filter (one design language across list screens).
+       *  flex wrapper so md:w-auto shrinks the bar to content on desktop —
+       *  in a plain block it would stretch the full ~1100px content width. */}
+      <div className="flex pt-3">
         <SegmentedFilterBar
           segments={FILTER_KEYS.map((key) => ({
             key,

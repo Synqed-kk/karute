@@ -988,7 +988,8 @@
         "packRemaining1": "残１ {n}人",
         "packRemaining2": "残２ {n}人",
         "packRemaining3": "残３ {n}人"
-      }
+      },
+      "filterNoMatch": "条件に一致するお客様はいません"
     },
     "listFilter": {
       "all": "すべて",
