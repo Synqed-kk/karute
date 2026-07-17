@@ -217,7 +217,7 @@ export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
  * `profiles.customer_id` column — the legacy schema still names
  * the business column `customer_id` until the legacy-strip lands.
  */
-async function resolveUserId(): Promise<string> {
+export async function resolveUserId(): Promise<string> {
   const supabase = await createClient()
   const jwtSecret = process.env.SUPABASE_JWT_SECRET
 

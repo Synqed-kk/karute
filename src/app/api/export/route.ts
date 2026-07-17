@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { can } from '@/lib/auth/require-permission'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { listCustomers } from '@/lib/customers/queries'
+import { auditWeb } from '@/lib/audit-web'
 import { SCOPES, isWired, type ScopeKey, type FormatKey } from '@/lib/export/scopes'
 
 const MAX_PAGE_SIZE = 500
@@ -74,7 +75,25 @@ export async function GET(request: Request) {
   }
 
   if (scope === 'customers') {
-    return exportCustomers({ columns, format, privacy, storeId })
+    const res = await exportCustomers({ columns, format, privacy, storeId })
+    // Bulk PII egress — logged with the QUERY SCOPE persisted (design §7): the
+    // per-customer subject-access answer re-derives export membership from it.
+    // Emitted only after the export body built successfully (errors above
+    // throw/return before this line — errors are not actions).
+    await auditWeb({
+      category: 'privacy',
+      action: 'privacy.customer_export',
+      actorId: user.id,
+      severity: 'notice',
+      detail: {
+        scope,
+        format,
+        privacy,
+        columns: columnsParam || null,
+        store_id: storeId ?? null,
+      },
+    })
+    return res
   }
 
   return NextResponse.json({ error: 'Unsupported scope' }, { status: 400 })

@@ -13,6 +13,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { audit } from '@/lib/audit'
 import { recordPinFailure, _resetPinThrottle } from '@/lib/auth/pin-throttle'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
+import { auditLines } from './helpers/audit-lines'
 
 jest.mock('@/lib/staff', () => ({ businessIdForUser: jest.fn(async () => 'business-1') }))
 jest.mock('@/lib/auth/require-permission', () => ({
@@ -34,28 +35,6 @@ const SECRET = 'test-jwt-secret-do-not-use-in-prod'
 const HS_CONFIG: VerifierConfig = { issuer: ISSUER, audience: 'authenticated', hs256Secret: SECRET, algorithms: ['HS256'] }
 const authedReq = () =>
   new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } })
-
-/** Parsed audit lines captured from the console sink during `run`.
- *  Spies BOTH levels: info/notice emit on console.log, warning on console.warn. */
-async function auditLines(run: () => Promise<unknown>) {
-  const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
-  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
-  try {
-    await run()
-    return [...logSpy.mock.calls, ...warnSpy.mock.calls]
-      .map((args) => {
-        try {
-          return JSON.parse(String(args[0]))
-        } catch {
-          return null
-        }
-      })
-      .filter((j): j is Record<string, unknown> => !!j && j.evt === 'audit')
-  } finally {
-    logSpy.mockRestore()
-    warnSpy.mockRestore()
-  }
-}
 
 describe('audit() emitter', () => {
   it('emits one label-free JSON line with defaults applied', async () => {
