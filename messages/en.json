@@ -985,9 +985,10 @@
       "stats": {
         "noBooking": "No booking: {n}",
         "unconsumed": "Unconsumed ¥{amount}",
-        "packRemaining1": "1 left: {n}",
-        "packRemaining2": "2 left: {n}",
-        "packRemaining3": "3 left: {n}"
+        "packRemainingLabel1": "1 left:",
+        "packRemainingLabel2": "2 left:",
+        "packRemainingLabel3": "3 left:",
+        "packRemainingCount": "{n}"
       },
       "filterNoMatch": "No customers match these filters"
     },

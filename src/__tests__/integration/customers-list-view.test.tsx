@@ -336,9 +336,9 @@ describe('案D stats strip', () => {
     render(
       <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
     )
-    expect(screen.getByText('packRemaining1:{"n":1}')).toBeInTheDocument()
-    expect(screen.getByText('packRemaining2:{"n":0}')).toBeInTheDocument()
-    expect(screen.getByText('packRemaining3:{"n":0}')).toBeInTheDocument()
+    expect(within(screen.getByText('packRemainingLabel1').closest('button')!).getByText('packRemainingCount:{"n":1}')).toBeInTheDocument()
+    expect(within(screen.getByText('packRemainingLabel2').closest('button')!).getByText('packRemainingCount:{"n":0}')).toBeInTheDocument()
+    expect(within(screen.getByText('packRemainingLabel3').closest('button')!).getByText('packRemainingCount:{"n":0}')).toBeInTheDocument()
     expect(screen.getByText('unconsumed:{"amount":"49,500"}')).toBeInTheDocument()
   })
 })
@@ -355,8 +355,8 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     row({ id: 'r4', name: 'Four', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: null }),
     row({ id: 'r0', name: 'NoPack', nextBookingDate: null }),
   ]
-  const bit = (z: number, count: number) =>
-    screen.getByText(`packRemaining${z}:{"n":${count}}`)
+  const bit = (z: number) =>
+    screen.getByText(`packRemainingLabel${z}`).closest('button') as HTMLElement
 
   it('hides the bits while no row has pack data', () => {
     render(
@@ -369,21 +369,21 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     render(
       <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
     )
-    expect(bit(1, 2)).toBeInTheDocument()
-    expect(bit(2, 1)).toBeInTheDocument()
-    expect(bit(3, 0)).toBeInTheDocument()
+    expect(within(bit(1)).getByText('packRemainingCount:{"n":2}')).toBeInTheDocument()
+    expect(within(bit(2)).getByText('packRemainingCount:{"n":1}')).toBeInTheDocument()
+    expect(within(bit(3)).getByText('packRemainingCount:{"n":0}')).toBeInTheDocument()
   })
 
   it('tapping 残１ narrows to remaining===1; tapping again clears', () => {
     render(
       <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
     )
-    fireEvent.click(bit(1, 2))
-    expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(bit(1))
+    expect(bit(1)).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked'])
-    fireEvent.click(bit(1, 2))
-    expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(bit(1))
+    expect(bit(1)).toHaveAttribute('aria-pressed', 'false')
     expect(screen.getByTestId('header')).toHaveTextContent('showing=5')
   })
 
@@ -391,8 +391,8 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     render(
       <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
     )
-    fireEvent.click(bit(1, 2))
-    fireEvent.click(bit(2, 1))
+    fireEvent.click(bit(1))
+    fireEvent.click(bit(2))
     expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked', 'Two'])
   })
@@ -401,7 +401,7 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
     render(
       <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
     )
-    fireEvent.click(bit(1, 2))
+    fireEvent.click(bit(1))
     fireEvent.click(screen.getByText('noBooking:{"n":4}'))
     expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
@@ -412,9 +412,9 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
       <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
     )
     // Activating a status segment must not clear the 残数 selection.
-    fireEvent.click(bit(1, 2))
+    fireEvent.click(bit(1))
     fireEvent.click(screen.getByText('filters.all'))
-    expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'true')
+    expect(bit(1)).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
   })
 })
@@ -432,7 +432,7 @@ describe('UltraCode fix round (7/17)', () => {
       <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
     )
     // Migrated: the 残１ bit is pressed and the list shows only remaining===1.
-    const bit1 = screen.getByText('packRemaining1:{"n":1}').closest('button')
+    const bit1 = screen.getByText('packRemainingLabel1').closest('button')
     expect(bit1).toHaveAttribute('aria-pressed', 'true')
     expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
@@ -447,7 +447,7 @@ describe('UltraCode fix round (7/17)', () => {
     render(
       <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
     )
-    fireEvent.click(screen.getByText('packRemaining3:{"n":0}'))
+    fireEvent.click(screen.getByText('packRemainingLabel3'))
     expect(screen.getByText('filterNoMatch')).toBeInTheDocument()
     expect(screen.getByText('noMatchHint')).toBeInTheDocument()
     expect(screen.queryByText('empty.title')).toBeNull()
