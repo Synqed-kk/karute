@@ -82,7 +82,14 @@ export function CustomerListStatsStrip({
        *  mobile the 残数 bits break to their own second line (order+basis),
        *  so no lone right-floated amount; ≥md everything fits one line. */}
       {showUnconsumed && (
-        <span className="order-2 ml-auto font-semibold text-foreground md:order-3">
+        // ml-auto only while 予約なし is there to balance it — if the booking
+        // stat hides (honesty gate), a right-floated lone amount would
+        // recreate the orphan this layout exists to avoid (Greptile P1).
+        <span
+          className={`order-2 font-semibold text-foreground md:order-3 md:ml-auto ${
+            showNoBooking ? 'ml-auto' : ''
+          }`}
+        >
           {t('unconsumed', {
             amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
           })}
