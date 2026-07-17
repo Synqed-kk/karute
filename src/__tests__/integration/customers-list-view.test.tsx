@@ -402,7 +402,9 @@ describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
       <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
     )
     fireEvent.click(bit(1))
-    fireEvent.click(screen.getByText('noBooking:{"n":4}'))
+    // Faceted: with 残１ on, 予約なし already recounts within 残１ (One only —
+    // OneBooked has a booking) and tapping it yields exactly that count.
+    fireEvent.click(screen.getByText('noBooking:{"n":1}'))
     expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
     expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
   })
@@ -469,5 +471,135 @@ describe('UltraCode fix round (7/17)', () => {
     expect(noBooking).toHaveAttribute('aria-pressed', 'false')
     fireEvent.click(noBooking!)
     expect(noBooking).toHaveAttribute('aria-pressed', 'true')
+  })
+})
+
+describe('faceted counts — every number = "tap it and you get exactly that" (Liam 7/17)', () => {
+  // Fixture engineered so every dimension slices differently:
+  // 8 rows. status × pack × booking spread:
+  //  A on-track   残1 booked      | B on-track   残1 no-booking
+  //  C dormant    残1 no-booking  | D dormant    残2 booked
+  //  E followup   残2 no-booking  | F on-track   残3 no-booking
+  //  G on-track   no-pack booked  | H dormant    no-pack no-booking
+  const facetRows = () => [
+    row({ id: 'A', name: 'A', pack: { remaining: 1, size: 6, unconsumed: 1000 }, nextBookingDate: '7/24' }),
+    row({ id: 'B', name: 'B', pack: { remaining: 1, size: 6, unconsumed: 2000 }, nextBookingDate: null }),
+    row({ id: 'C', name: 'C', status: 'dormant', pack: { remaining: 1, size: 6, unconsumed: 4000 }, nextBookingDate: null }),
+    row({ id: 'D', name: 'D', status: 'dormant', pack: { remaining: 2, size: 6, unconsumed: 8000 }, nextBookingDate: '7/25' }),
+    row({ id: 'E', name: 'E', status: 'needs-followup', pack: { remaining: 2, size: 6, unconsumed: 16000 }, nextBookingDate: null }),
+    row({ id: 'F', name: 'F', pack: { remaining: 3, size: 6, unconsumed: 32000 }, nextBookingDate: null }),
+    row({ id: 'G', name: 'G', nextBookingDate: '7/26' }),
+    row({ id: 'H', name: 'H', status: 'dormant', nextBookingDate: null }),
+  ]
+  const bit = (z: number) =>
+    screen.getByText(`packRemainingLabel${z}`).closest('button') as HTMLElement
+  const segCount = (key: string) =>
+    screen.getByText(`filters.${key}`).parentElement!.textContent!.replace(`filters.${key}`, '')
+
+  it('residual-bit selection recounts the whole status dimension (Liam\'s screenshot bug)', () => {
+    render(
+      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // Baseline: all frozen-free numbers agree with the full set.
+    expect(segCount('all')).toBe('8')
+    expect(segCount('dormant')).toBe('3')
+    fireEvent.click(bit(1)) // 残1 = A,B,C
+    // Status dimension recounts within 残1:
+    expect(segCount('all')).toBe('3')
+    expect(segCount('newRecent')).toBe('0')
+    expect(segCount('followup')).toBe('0') // visible (baseline 1 > 0), contextual 0
+    expect(segCount('dormant')).toBe('1')  // C
+    // 予約なし recounts too: B,C (A is booked) — and the % uses the scoped denominator.
+    expect(screen.getByText('noBooking:{"n":2}')).toBeInTheDocument()
+    expect(screen.getByText('(67%)')).toBeInTheDocument() // 2/3
+    // 未消化 follows the full view: A+B+C = 7,000
+    expect(screen.getByText('unconsumed:{"amount":"7,000"}')).toBeInTheDocument()
+  })
+
+  it('INVARIANT: every segment count equals the list you get by tapping it', () => {
+    render(
+      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(bit(1)) // fix the pack dimension: 残1 = A,B,C
+    for (const key of ['newRecent', 'followup', 'dormant', 'all']) {
+      const promised = parseInt(segCount(key), 10)
+      fireEvent.click(screen.getByText(`filters.${key}`))
+      expect(desktopRows()).toHaveLength(promised)
+    }
+  })
+
+  it('INVARIANT: status selection recounts the bits; multi-select list = sum of selected bit counts', () => {
+    render(
+      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(screen.getByText('filters.dormant')) // C(残1), D(残2), H(no pack)
+    const c1 = parseInt(within(bit(1)).getByText(/packRemainingCount/).textContent!.match(/\d+/)![0], 10)
+    const c2 = parseInt(within(bit(2)).getByText(/packRemainingCount/).textContent!.match(/\d+/)![0], 10)
+    const c3 = parseInt(within(bit(3)).getByText(/packRemainingCount/).textContent!.match(/\d+/)![0], 10)
+    expect([c1, c2, c3]).toEqual([1, 1, 0])
+    fireEvent.click(bit(1))
+    fireEvent.click(bit(2))
+    expect(desktopRows()).toHaveLength(c1 + c2) // disjoint buckets → additive
+    expect(desktopRows().map((r) => r.textContent).sort()).toEqual(['C', 'D'])
+  })
+
+  it('INVARIANT: 予約なし count = the rows tapping it shows, inside any pack slice', () => {
+    render(
+      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(bit(2)) // 残2 = D,E
+    const label = screen.getByText(/^noBooking:/)
+    const promised = parseInt(label.textContent!.match(/"n":(\d+)/)![1], 10)
+    expect(promised).toBe(1) // only E lacks a booking
+    fireEvent.click(label)
+    expect(desktopRows()).toHaveLength(promised)
+    expect(desktopRows()[0]).toHaveTextContent('E')
+  })
+
+  it('staff filter narrows every count in both other dimensions', () => {
+    const rows = facetRows()
+    rows[0].preferredStaffId = 's-1' // A
+    rows[1].preferredStaffId = 's-1' // B
+    rows[3].preferredStaffId = 's-1' // D
+    render(
+      <CustomersListView
+        rows={rows}
+        totalRegistered={8}
+        query=""
+        selfStaffId="s-1"
+        staffList={[{ id: 's-1', name: 'Me', initials: 'ME' }]}
+      />,
+    )
+    fireEvent.click(screen.getByText('self'))
+    expect(segCount('all')).toBe('3') // A,B,D
+    expect(segCount('dormant')).toBe('1') // D
+    const c1 = within(bit(1)).getByText(/packRemainingCount/).textContent!
+    expect(c1).toContain('2') // A,B
+    expect(screen.getByText('noBooking:{"n":1}')).toBeInTheDocument() // B
+  })
+
+  it('hide-when-zero keys off the baseline: segments survive a 0-count slice, hide only pre-import', () => {
+    render(
+      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(bit(3)) // 残3 = F (on-track only)
+    // followup/dormant exist in the data → stay visible showing contextual 0.
+    expect(segCount('followup')).toBe('0')
+    expect(segCount('dormant')).toBe('0')
+    // Pre-import (no followup/dormant rows at all) → hidden as before.
+    render(
+      <CustomersListView rows={[row({ id: 'x' })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getAllByText('filters.all').length).toBeGreaterThan(0)
+  })
+
+  it('未消化 is view-scoped and ¥0 renders as an honest answer (layout stays)', () => {
+    render(
+      <CustomersListView rows={facetRows()} totalRegistered={8} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // G,H have no pack → their slice's stranded money is 0. dormant∧残3 = empty view.
+    fireEvent.click(screen.getByText('filters.dormant'))
+    fireEvent.click(bit(3))
+    expect(screen.getByText('unconsumed:{"amount":"0"}')).toBeInTheDocument()
   })
 })

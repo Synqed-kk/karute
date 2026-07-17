@@ -20,10 +20,14 @@ import type { CustomerListFilterKey } from './CustomersStatusFilters'
 import { PACK_REMAINING_OPTIONS } from './CustomersStatusFilters'
 
 export interface ListStats {
-  total: number
+  /** UNFILTERED row count — render gate only; must not vanish mid-filter. */
+  globalTotal: number
+  /** Status-dimension scope (staff ∧ 残数 applied) — the 予約なし % denominator. */
+  scopedTotal: number
   noBooking: number
+  /** ¥ over the CURRENT view (all dimensions) — the slice's stranded money. */
   unconsumedTotal: number
-  /** Any pack data at all? false pre-import → pack stats hide. */
+  /** Any pack data at all? false pre-import → pack stats hide. UNFILTERED. */
   hasPackData: boolean
   /** Booking enrichment actually loaded? When the synqed-core env is missing,
    *  enrichment silently returns empty → every row reads 予約なし → the strip
@@ -48,15 +52,18 @@ export function CustomerListStatsStrip({
   onPackToggle: (n: number) => void
 }) {
   const t = useTranslations('customers.list.stats')
-  if (stats.total === 0) return null
+  if (stats.globalTotal === 0) return null
   const showNoBooking = stats.hasBookingData || active === 'noBooking'
   // Group stays visible while any 残n filter is active even if pack data
   // vanishes — otherwise the only tap-to-clear control disappears mid-use
   // (same guard the hide-when-zero pills use).
   const showPackRemaining = stats.hasPackData || packFilter.size > 0
-  const showUnconsumed = stats.hasPackData && stats.unconsumedTotal > 0
+  const showUnconsumed = stats.hasPackData
   if (!showNoBooking && !showPackRemaining && !showUnconsumed) return null
-  const pct = Math.round((stats.noBooking / stats.total) * 100)
+  const pct =
+    stats.scopedTotal > 0
+      ? Math.round((stats.noBooking / stats.scopedTotal) * 100)
+      : 0
   const toggle = (key: CustomerListFilterKey) =>
     onSelect(active === key ? 'all' : key)
   return (
@@ -67,6 +74,11 @@ export function CustomerListStatsStrip({
        *  One active language for the whole strip — 予約なし and the 残数 bits
        *  fill the same way. Red was considered and rejected: in Karute red
        *  means recording/warnings/無断, not "filter on". */}
+      {/* Layout (Liam 7/17 v3): mobile line 1 = 予約なし alone (the booking
+       *  stat), line 2 = the whole 回数券 story — 残数 bits left, 未消化 ¥
+       *  right. Both lines end-anchored, no floating amount. ≥md it all fits
+       *  one line: 予約なし · bits · 未消化 right. 未消化 is never alone on a
+       *  line: showUnconsumed ⇒ hasPackData ⇒ the bits row renders. */}
       {showNoBooking && (
       <button
         type="button"
@@ -92,22 +104,11 @@ export function CustomerListStatsStrip({
         </span>
       </button>
       )}
-      {/* 未消化 keeps its ORIGINAL spot — line 1 right (案① Liam 7/17): on
-       *  mobile the 残数 bits break to their own second line (order+basis),
-       *  so no lone right-floated amount; ≥md everything fits one line. */}
-      {showUnconsumed && (
-        // ml-auto only while 予約なし is there to balance it — if the booking
-        // stat hides (honesty gate), a right-floated lone amount would
-        // recreate the orphan this layout exists to avoid (Greptile P1).
-        <span
-          className={`order-2 font-semibold text-foreground md:order-3 md:ml-auto ${
-            showNoBooking ? 'ml-auto' : ''
-          }`}
-        >
-          {t('unconsumed', {
-            amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
-          })}
-        </span>
+      {/* Mobile line break after 予約なし (only while the 回数券 row exists) —
+       *  a breaker element, NOT basis-full on the button, so the selected
+       *  chip's fill hugs its text instead of painting the whole line. */}
+      {showNoBooking && showPackRemaining && (
+        <span aria-hidden className="basis-full md:hidden" />
       )}
       {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
        *  current one smaller too"); selected = the same solid amber chip as
@@ -116,7 +117,7 @@ export function CustomerListStatsStrip({
        *  both go white. Constant padding both states → no row shift on tap.
        *  Individual bits never hide at 0 so the row doesn't jump around. */}
       {showPackRemaining && (
-        <span className="order-3 inline-flex basis-full items-baseline gap-1.5 text-[10px] md:order-2 md:basis-auto">
+        <span className="inline-flex items-baseline gap-1.5 text-[10px]">
           {PACK_REMAINING_OPTIONS.map((n) => (
             <button
               key={n}
@@ -145,6 +146,17 @@ export function CustomerListStatsStrip({
               </span>
             </button>
           ))}
+        </span>
+      )}
+      {/* 未消化 ¥ — right end of the 回数券 row (v3). View-scoped: the yen
+       *  sum of the CURRENTLY filtered list, so 残１×予約なし reads as "the
+       *  call-list is worth this much". ¥0 renders (it's a real answer for a
+       *  slice), keeping the layout stable. */}
+      {showUnconsumed && (
+        <span className="ml-auto font-semibold text-foreground">
+          {t('unconsumed', {
+            amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
+          })}
         </span>
       )}
     </div>

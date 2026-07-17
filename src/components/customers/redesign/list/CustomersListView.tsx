@@ -159,64 +159,97 @@ export function CustomersListView({
   // — the pill number and the filtered list can never disagree. Previously the
   // predicates were hand-duplicated here and had already drifted (the 新規 pill
   // counted by join date alone → 192/192 after the bulk import).
+  // ── Faceted counts (Liam 7/17: every number = "what happens if I tap
+  // this?", nothing frozen at business-wide totals while filters are on).
+  // Convention: a control's count is computed with every OTHER dimension's
+  // active filter applied, but NOT its own dimension — so within a dimension
+  // you always see what switching would give you. The three dimensions are
+  // status (segments + 予約なし), 残数 (bits, multi-select) and staff; the
+  // search query is already applied server-side to `rows`, so every count
+  // inherits it. INVARIANT (pinned by tests): tapping a control with count N
+  // yields exactly N rows, given the other current selections.
+
+  // Match the DISPLAYED 担当: a customer's 指名 (preferredStaffId) if set,
+  // else the staff on their booking (bookingStaffId). Without the fallback
+  // the pills filtered on 指名 only — so QR-synced customers (no 指名, but a
+  // real booking staff) dropped out of every specific-staff filter even
+  // though their card shows that staff as 担当.
+  const staffRows = useMemo(() => {
+    if (staffFilter === 'all') return rows
+    const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
+    if (!targetId) return rows
+    return rows.filter(
+      (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
+    )
+  }, [rows, staffFilter, selfStaffId])
+
+  // Status-dimension counts (segments + 予約なし): staff ∧ 残数 applied.
+  const rowsForStatusCounts = useMemo(
+    () => applyPackRemainingFilter(staffRows, packFilter),
+    [staffRows, packFilter],
+  )
   const counts: CustomerListCounts = useMemo(
     () => ({
-      all: applyCustomerFilter(rows, 'all').length,
-      newRecent: applyCustomerFilter(rows, 'newRecent').length,
+      all: rowsForStatusCounts.length,
+      newRecent: applyCustomerFilter(rowsForStatusCounts, 'newRecent').length,
+      followup: applyCustomerFilter(rowsForStatusCounts, 'followup').length,
+      dormant: applyCustomerFilter(rowsForStatusCounts, 'dormant').length,
+      noBooking: applyCustomerFilter(rowsForStatusCounts, 'noBooking').length,
+    }),
+    [rowsForStatusCounts],
+  )
+  // Existence baseline from the UNFILTERED set: 要フォロー/休眠 segments hide
+  // only when the status doesn't exist at all (pre-import), never because the
+  // current slice happens to hit 0 — otherwise segments would vanish and the
+  // bar would reflow mid-filtering.
+  const baselineCounts = useMemo(
+    () => ({
       followup: applyCustomerFilter(rows, 'followup').length,
       dormant: applyCustomerFilter(rows, 'dormant').length,
-      noBooking: applyCustomerFilter(rows, 'noBooking').length,
     }),
     [rows],
   )
 
-  // Kitano's sheet-top stats, live from row memory (案D header). The counts
-  // reuse applyCustomerFilter so the strip number and the tapped list can
-  // never disagree; ¥ and hasPackData are simple folds.
+  // 残数-dimension counts (bits): staff ∧ status applied. Buckets are
+  // disjoint, so with multi-select the visible list is exactly the sum of
+  // the selected bits' counts.
+  const rowsForPackCounts = useMemo(
+    () =>
+      applyCustomerFilter(staffRows, statusFilter).map((i) => staffRows[i]),
+    [staffRows, statusFilter],
+  )
+  const packCounts = useMemo(() => {
+    const m: Record<number, number> = {}
+    for (const n of PACK_REMAINING_OPTIONS)
+      m[n] = rowsForPackCounts.filter((r) => r.pack?.remaining === n).length
+    return m
+  }, [rowsForPackCounts])
+
+  // Full view: all three dimensions.
+  const filteredRows = useMemo(
+    () => applyPackRemainingFilter(rowsForPackCounts, packFilter),
+    [rowsForPackCounts, packFilter],
+  )
+
+  // Kitano's sheet-top stats. 未消化 ¥ follows the CURRENT view (the stranded
+  // money in what you're looking at — 残１×予約なし shows the call-list's yen,
+  // not the shop total); the 予約なし % denominator is the status-dimension
+  // scope. globalTotal + the honesty gates stay UNFILTERED — they gate
+  // whether surfaces render at all and must not vanish mid-filter.
   const stats: ListStats = useMemo(
     () => ({
-      total: rows.length,
+      globalTotal: rows.length,
+      scopedTotal: rowsForStatusCounts.length,
       noBooking: counts.noBooking,
-      unconsumedTotal: rows.reduce(
+      unconsumedTotal: filteredRows.reduce(
         (sum, r) => sum + (r.pack?.unconsumed ?? 0),
         0,
       ),
       hasPackData: rows.some((r) => r.pack != null),
       hasBookingData: bookingDataAvailable,
     }),
-    [rows, counts.noBooking, bookingDataAvailable],
+    [rows, rowsForStatusCounts.length, counts.noBooking, filteredRows, bookingDataAvailable],
   )
-
-  // Per-chip counts share the row source with the filter predicate so the
-  // chip number and the tapped list can never disagree (same rule as `counts`).
-  const packCounts = useMemo(() => {
-    const m: Record<number, number> = {}
-    for (const n of PACK_REMAINING_OPTIONS)
-      m[n] = rows.filter((r) => r.pack?.remaining === n).length
-    return m
-  }, [rows])
-
-  // Filter composition: status filter AND 残数 chips AND staff filter.
-  // Order doesn't matter for correctness — all are simple predicates.
-  const filteredRows = useMemo(() => {
-    const indices = applyCustomerFilter(rows, statusFilter)
-    const afterStatus = applyPackRemainingFilter(
-      indices.map((i) => rows[i]),
-      packFilter,
-    )
-    if (staffFilter === 'all') return afterStatus
-    const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
-    if (!targetId) return afterStatus
-    // Match the DISPLAYED 担当: a customer's 指名 (preferredStaffId) if set,
-    // else the staff on their booking (bookingStaffId). Without the fallback
-    // the pills filtered on 指名 only — so QR-synced customers (no 指名, but a
-    // real booking staff) dropped out of every specific-staff filter even
-    // though their card shows that staff as 担当. The 指名あり *chip* still
-    // counts preferredStaffId only — booked ≠ nominated.
-    return afterStatus.filter(
-      (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
-    )
-  }, [rows, statusFilter, selfStaffId, staffFilter, packFilter])
 
   // Slice the filtered list into the current page's window. `page` is
   // clamped against the latest filtered length so a stale state can't
@@ -265,6 +298,7 @@ export function CustomersListView({
         active={statusFilter}
         onChange={setStatusFilter}
         counts={counts}
+        baselineCounts={baselineCounts}
       />
 
       {filteredRows.length === 0 ? (
