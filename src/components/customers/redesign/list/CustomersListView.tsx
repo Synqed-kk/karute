@@ -10,6 +10,8 @@ import { CustomerSearchInput } from './CustomerSearchInput'
 import {
   CustomersStatusFilters,
   applyCustomerFilter,
+  applyPackRemainingFilter,
+  PACK_REMAINING_OPTIONS,
   type CustomerListFilterKey,
   type CustomerListCounts,
 } from './CustomersStatusFilters'
@@ -102,6 +104,19 @@ export function CustomersListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
+  // 残数 chips (?r=1,3) — multi-select union over exact remaining counts.
+  const [packFilter, setPackFilter] = useState<ReadonlySet<number>>(() => {
+    const r = searchParams.get('r')
+    if (!r) return new Set()
+    const valid: readonly number[] = PACK_REMAINING_OPTIONS
+    return new Set(r.split(',').map(Number).filter((n) => valid.includes(n)))
+  })
+  const togglePackFilter = (n: number) =>
+    setPackFilter((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(n)) next.add(n)
+      return next
+    })
   const [page, setPage] = useState(() =>
     Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
   )
@@ -113,16 +128,18 @@ export function CustomersListView({
     else next.delete('f')
     if (staffFilter !== 'all') next.set('s', String(staffFilter))
     else next.delete('s')
+    if (packFilter.size > 0) next.set('r', [...packFilter].sort().join(','))
+    else next.delete('r')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [page, statusFilter, staffFilter, pathname, router])
+  }, [page, statusFilter, staffFilter, packFilter, pathname, router])
 
   // Reset to page 1 whenever the filter changes — otherwise switching
   // to a smaller result set could leave the viewer stranded on an
   // out-of-range page (or worse, an apparently empty list).
   useEffect(() => {
     setPage(0)
-  }, [statusFilter, staffFilter, query])
+  }, [statusFilter, staffFilter, packFilter, query])
 
   // DISTINCT staff-color map, derived from the FULL tenant roster (the same
   // `staffList` that feeds the staff-filter pills). Computing it once here —
@@ -168,11 +185,23 @@ export function CustomersListView({
     [rows, counts.noBooking, counts.packLow, bookingDataAvailable],
   )
 
-  // Filter composition: status filter (existing) AND staff filter (new).
-  // Order doesn't matter for correctness — both are simple predicates.
+  // Per-chip counts share the row source with the filter predicate so the
+  // chip number and the tapped list can never disagree (same rule as `counts`).
+  const packCounts = useMemo(() => {
+    const m: Record<number, number> = {}
+    for (const n of PACK_REMAINING_OPTIONS)
+      m[n] = rows.filter((r) => r.pack?.remaining === n).length
+    return m
+  }, [rows])
+
+  // Filter composition: status filter AND 残数 chips AND staff filter.
+  // Order doesn't matter for correctness — all are simple predicates.
   const filteredRows = useMemo(() => {
     const indices = applyCustomerFilter(rows, statusFilter)
-    const afterStatus = indices.map((i) => rows[i])
+    const afterStatus = applyPackRemainingFilter(
+      indices.map((i) => rows[i]),
+      packFilter,
+    )
     if (staffFilter === 'all') return afterStatus
     const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
     if (!targetId) return afterStatus
@@ -185,7 +214,7 @@ export function CustomersListView({
     return afterStatus.filter(
       (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
     )
-  }, [rows, statusFilter, selfStaffId, staffFilter])
+  }, [rows, statusFilter, selfStaffId, staffFilter, packFilter])
 
   // Slice the filtered list into the current page's window. `page` is
   // clamped against the latest filtered length so a stale state can't
@@ -231,6 +260,10 @@ export function CustomersListView({
         active={statusFilter}
         onChange={setStatusFilter}
         counts={counts}
+        packCounts={packCounts}
+        packFilter={packFilter}
+        onPackFilterChange={togglePackFilter}
+        showPackFilters={stats.hasPackData}
       />
 
       {filteredRows.length === 0 ? (

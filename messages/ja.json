@@ -954,7 +954,8 @@
         "preferredStaff": "指名あり",
         "newRecent": "新規（30日以内）",
         "followup": "要フォロー",
-        "dormant": "休眠（90日以上）"
+        "dormant": "休眠（90日以上）",
+        "packRemaining": "残{n}"
       },
       "staffFilter": {
         "self": "自分",

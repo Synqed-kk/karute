@@ -954,7 +954,8 @@
         "preferredStaff": "Preferred Staff",
         "newRecent": "New (last 30d)",
         "followup": "Needs follow-up",
-        "dormant": "Dormant (90d+)"
+        "dormant": "Dormant (90d+)",
+        "packRemaining": "{n} left"
       },
       "staffFilter": {
         "self": "Self",

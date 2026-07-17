@@ -24,10 +24,30 @@ export interface CustomerListCounts {
   packLow: number
 }
 
+// 残数 quick filters (6/30 Kitano meeting): exact remaining-ticket counts,
+// multi-select union — tapping 残1+残2+残3 together is his「3回未満」population.
+// A dimension SEPARATE from the status filter so 残1 × 予約なし composes (the
+// combo the sheet could never answer: "残1 で予約なしの人は誰？").
+export const PACK_REMAINING_OPTIONS = [1, 2, 3] as const
+
+export function applyPackRemainingFilter<
+  T extends { pack?: { remaining: number } | null },
+>(rows: T[], selected: ReadonlySet<number>): T[] {
+  if (selected.size === 0) return rows
+  return rows.filter((r) => r.pack != null && selected.has(r.pack.remaining))
+}
+
 interface CustomersStatusFiltersProps {
   active: CustomerListFilterKey
   onChange: (key: CustomerListFilterKey) => void
   counts: CustomerListCounts
+  /** Count of customers at exactly n remaining, keyed by PACK_REMAINING_OPTIONS. */
+  packCounts: Record<number, number>
+  packFilter: ReadonlySet<number>
+  /** Toggles one 残n chip on/off (multi-select). */
+  onPackFilterChange: (n: number) => void
+  /** No pack data on any row (or 回数券 org-toggled off) → chips hide. */
+  showPackFilters: boolean
 }
 
 // 指名あり removed by design (Liam, proposal ②): mislabeled (it counted
@@ -53,6 +73,10 @@ export function CustomersStatusFilters({
   active,
   onChange,
   counts,
+  packCounts,
+  packFilter,
+  onPackFilterChange,
+  showPackFilters,
 }: CustomersStatusFiltersProps) {
   const t = useTranslations('customers.list')
   return (
@@ -83,6 +107,34 @@ export function CustomersStatusFilters({
             </button>
           )
         })}
+        {showPackFilters && (
+          <>
+            <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
+            {PACK_REMAINING_OPTIONS.map((n) => {
+              const isActive = packFilter.has(n)
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => onPackFilterChange(n)}
+                  className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
+                    isActive
+                      ? 'border-foreground bg-foreground text-background'
+                      : 'border-border bg-card text-foreground hover:bg-muted'
+                  }`}
+                >
+                  <span>{t('filters.packRemaining', { n })}</span>
+                  <span
+                    className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
+                  >
+                    {packCounts[n] ?? 0}
+                  </span>
+                </button>
+              )
+            })}
+          </>
+        )}
       </div>
       <div className="hidden items-center gap-2 md:inline-flex">
         <button
