@@ -4,6 +4,7 @@ import { ChevronDown } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { CustomerStatusKey } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
+import { SegmentedFilterBar } from './SegmentedFilterBar'
 
 export type CustomerListFilterKey =
   | 'all'
@@ -21,7 +22,6 @@ export interface CustomerListCounts {
   followup: number
   dormant: number
   noBooking: number
-  packLow: number
 }
 
 // 残数 quick filters (6/30 Kitano meeting): exact remaining-ticket counts,
@@ -41,25 +41,18 @@ interface CustomersStatusFiltersProps {
   active: CustomerListFilterKey
   onChange: (key: CustomerListFilterKey) => void
   counts: CustomerListCounts
-  /** Count of customers at exactly n remaining, keyed by PACK_REMAINING_OPTIONS. */
-  packCounts: Record<number, number>
-  packFilter: ReadonlySet<number>
-  /** Toggles one 残n chip on/off (multi-select). */
-  onPackFilterChange: (n: number) => void
-  /** No pack data on any row (or 回数券 org-toggled off) → chips hide. */
-  showPackFilters: boolean
 }
 
 // 指名あり removed by design (Liam, proposal ②): mislabeled (it counted
 // "nominated ME", not "has a nomination") and structurally dead (QR sync never
 // writes assigned_staff_id) — the 自分 staff pill already covers "my customers".
 // The filter logic stays; only the pill is gone.
-const FILTER_KEYS: CustomerListFilterKey[] = [
+const FILTER_KEYS = [
   'all',
   'newRecent',
   'followup',
   'dormant',
-]
+] as const satisfies readonly CustomerListFilterKey[]
 
 // Pills that hide while their count is 0 (proposal ②): a confident「休眠 0」
 // reads as "no dormant customers", which is false while the data simply isn't
@@ -73,69 +66,18 @@ export function CustomersStatusFilters({
   active,
   onChange,
   counts,
-  packCounts,
-  packFilter,
-  onPackFilterChange,
-  showPackFilters,
 }: CustomersStatusFiltersProps) {
   const t = useTranslations('customers.list')
+  // 案A (Liam, 7/17): segmented bar via the shared SegmentedFilterBar. Label
+  // qualifiers（30日以内／90日以上）dropped for width — the biggest single
+  // win; staff learn the definition once. Hide-when-zero still applies per
+  // segment (proposal ② unchanged).
+  const segments = FILTER_KEYS.filter(
+    (key) => !(HIDE_WHEN_ZERO.has(key) && counts[key] === 0 && active !== key),
+  ).map((key) => ({ key, label: t(`filters.${key}`), count: counts[key] }))
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {FILTER_KEYS.map((key) => {
-          if (HIDE_WHEN_ZERO.has(key) && counts[key] === 0 && active !== key) {
-            return null
-          }
-          const isActive = key === active
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onChange(key)}
-              className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
-                isActive
-                  ? 'border-foreground bg-foreground text-background'
-                  : 'border-border bg-card text-foreground hover:bg-muted'
-              }`}
-            >
-              <span>{t(`filters.${key}`)}</span>
-              <span
-                className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
-              >
-                {counts[key]}
-              </span>
-            </button>
-          )
-        })}
-        {showPackFilters && (
-          <>
-            <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
-            {PACK_REMAINING_OPTIONS.map((n) => {
-              const isActive = packFilter.has(n)
-              return (
-                <button
-                  key={n}
-                  type="button"
-                  aria-pressed={isActive}
-                  onClick={() => onPackFilterChange(n)}
-                  className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
-                    isActive
-                      ? 'border-foreground bg-foreground text-background'
-                      : 'border-border bg-card text-foreground hover:bg-muted'
-                  }`}
-                >
-                  <span>{t('filters.packRemaining', { n })}</span>
-                  <span
-                    className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
-                  >
-                    {packCounts[n] ?? 0}
-                  </span>
-                </button>
-              )
-            })}
-          </>
-        )}
-      </div>
+      <SegmentedFilterBar segments={segments} active={active} onChange={onChange} />
       <div className="hidden items-center gap-2 md:inline-flex">
         <button
           type="button"

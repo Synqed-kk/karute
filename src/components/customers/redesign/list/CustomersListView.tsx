@@ -162,7 +162,6 @@ export function CustomersListView({
       followup: applyCustomerFilter(rows, 'followup').length,
       dormant: applyCustomerFilter(rows, 'dormant').length,
       noBooking: applyCustomerFilter(rows, 'noBooking').length,
-      packLow: applyCustomerFilter(rows, 'packLow').length,
     }),
     [rows],
   )
@@ -174,7 +173,6 @@ export function CustomersListView({
     () => ({
       total: rows.length,
       noBooking: counts.noBooking,
-      packLow: counts.packLow,
       unconsumedTotal: rows.reduce(
         (sum, r) => sum + (r.pack?.unconsumed ?? 0),
         0,
@@ -182,7 +180,7 @@ export function CustomersListView({
       hasPackData: rows.some((r) => r.pack != null),
       hasBookingData: bookingDataAvailable,
     }),
-    [rows, counts.noBooking, counts.packLow, bookingDataAvailable],
+    [rows, counts.noBooking, bookingDataAvailable],
   )
 
   // Per-chip counts share the row source with the filter predicate so the
@@ -254,16 +252,15 @@ export function CustomersListView({
         stats={stats}
         active={statusFilter}
         onSelect={setStatusFilter}
+        packCounts={packCounts}
+        packFilter={packFilter}
+        onPackToggle={togglePackFilter}
       />
 
       <CustomersStatusFilters
         active={statusFilter}
         onChange={setStatusFilter}
         counts={counts}
-        packCounts={packCounts}
-        packFilter={packFilter}
-        onPackFilterChange={togglePackFilter}
-        showPackFilters={stats.hasPackData}
       />
 
       {filteredRows.length === 0 ? (

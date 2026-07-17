@@ -952,10 +952,9 @@
       "filters": {
         "all": "すべて",
         "preferredStaff": "指名あり",
-        "newRecent": "新規（30日以内）",
+        "newRecent": "新規",
         "followup": "要フォロー",
-        "dormant": "休眠（90日以上）",
-        "packRemaining": "残{n}"
+        "dormant": "休眠"
       },
       "staffFilter": {
         "self": "自分",
@@ -985,8 +984,10 @@
       },
       "stats": {
         "noBooking": "予約なし {n}件",
-        "packLow": "残り1回 {n}人",
-        "unconsumed": "未消化 ¥{amount}"
+        "unconsumed": "未消化 ¥{amount}",
+        "packRemaining1": "残１ {n}人",
+        "packRemaining2": "残２ {n}人",
+        "packRemaining3": "残３ {n}人"
       }
     },
     "listFilter": {
