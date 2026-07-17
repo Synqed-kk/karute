@@ -35,12 +35,14 @@ const HS_CONFIG: VerifierConfig = { issuer: ISSUER, audience: 'authenticated', h
 const authedReq = () =>
   new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } })
 
-/** Parsed audit lines captured from the console sink during `run`. */
+/** Parsed audit lines captured from the console sink during `run`.
+ *  Spies BOTH levels: info/notice emit on console.log, warning on console.warn. */
 async function auditLines(run: () => Promise<unknown>) {
-  const spy = jest.spyOn(console, 'log').mockImplementation(() => {})
+  const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
   try {
     await run()
-    return spy.mock.calls
+    return [...logSpy.mock.calls, ...warnSpy.mock.calls]
       .map((args) => {
         try {
           return JSON.parse(String(args[0]))
@@ -50,7 +52,8 @@ async function auditLines(run: () => Promise<unknown>) {
       })
       .filter((j): j is Record<string, unknown> => !!j && j.evt === 'audit')
   } finally {
-    spy.mockRestore()
+    logSpy.mockRestore()
+    warnSpy.mockRestore()
   }
 }
 
@@ -126,6 +129,16 @@ describe('facadeHandler audit hook', () => {
   it('an unmapped endpoint emits nothing (deny-default)', async () => {
     const handler = facadeHandler('totally.unknown', async (ctx) => ok(ctx, { ok: 1 }), { config: HS_CONFIG })
     const lines = await auditLines(() => handler(authedReq(), route()))
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a redirect emits nothing — only 2xx reads as a completed action', async () => {
+    const handler = facadeHandler(
+      'customer.read',
+      async () => new Response(null, { status: 302, headers: { location: 'https://s/elsewhere' } }),
+      { config: HS_CONFIG },
+    )
+    const lines = await auditLines(() => handler(authedReq(), route({ id: 'c-9' })))
     expect(lines).toHaveLength(0)
   })
 

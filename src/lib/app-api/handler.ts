@@ -101,7 +101,9 @@ async function logFacadeAudit(
   meta: FacadeContext['meta'],
 ): Promise<void> {
   try {
-    if (res.status >= 400) return
+    // 2xx only — a redirect or other non-success must not read as a completed
+    // action (Greptile round: redirects counted as actions under `< 400`).
+    if (res.status < 200 || res.status >= 300) return
     const rule = FACADE_AUDIT_MAP[endpoint]
     if (!rule || rule.kind === 'skip') return
     const params = (await route.params) as Record<string, string> | undefined

@@ -57,7 +57,11 @@ export interface AuditEvent {
  *  (a lost view row must never block or slow care delivery — design §4), and
  *  mutation writers move into the mutation's own core-side transaction. */
 export function audit(e: AuditEvent): void {
-  console.log(
+  // Severity maps to console level so log drains keep their level semantics
+  // (a 'warning' event — lockouts, deletions-scheduled — lands on the warn
+  // channel exactly like the bespoke lines it replaces).
+  const emit = (e.severity ?? 'info') === 'warning' ? console.warn : console.log
+  emit(
     JSON.stringify({
       evt: 'audit',
       at: new Date().toISOString(),
