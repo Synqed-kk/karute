@@ -14,9 +14,14 @@
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import type { CustomerListRow, CustomerStatusKey } from '@/components/customers/redesign/types'
 
+// Overridable per test (legacy-URL restore cases); reset in afterEach.
+let mockSearch = ''
 jest.mock('next/navigation', () => ({
-  useSearchParams: () => new URLSearchParams(),
+  useSearchParams: () => new URLSearchParams(mockSearch),
 }))
+afterEach(() => {
+  mockSearch = ''
+})
 jest.mock('@/i18n/navigation', () => ({
   useRouter: () => ({ replace: jest.fn(), push: jest.fn(), back: jest.fn() }),
   usePathname: () => '/customers',
@@ -319,11 +324,11 @@ describe('案D stats strip', () => {
       <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
     )
     expect(screen.getByText('noBooking:{"n":1}')).toBeInTheDocument()
-    expect(screen.queryByText(/packLow:/)).toBeNull()
+    expect(screen.queryByText(/packRemaining/)).toBeNull()
     expect(screen.queryByText(/unconsumed:/)).toBeNull()
   })
 
-  it('with pack data: 残り1回 count + 未消化 total render', () => {
+  it('with pack data: 残１/残２/残３ bits + 未消化 total render', () => {
     const rows = [
       row({ id: 'a', pack: { remaining: 1, size: 6, unconsumed: 9900 }, packAlert: 'low', nextBookingDate: '6/15' }),
       row({ id: 'b', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: '6/16' }),
@@ -331,7 +336,138 @@ describe('案D stats strip', () => {
     render(
       <CustomersListView rows={rows} totalRegistered={2} query="" selfStaffId={null} staffList={[]} />,
     )
-    expect(screen.getByText('packLow:{"n":1}')).toBeInTheDocument()
+    expect(screen.getByText('packRemaining1:{"n":1}')).toBeInTheDocument()
+    expect(screen.getByText('packRemaining2:{"n":0}')).toBeInTheDocument()
+    expect(screen.getByText('packRemaining3:{"n":0}')).toBeInTheDocument()
     expect(screen.getByText('unconsumed:{"amount":"49,500"}')).toBeInTheDocument()
+  })
+})
+
+describe('残数 quick filters (strip bits 残１/残２/残３)', () => {
+  // 6/30 Kitano meeting → Liam-approved mock 7/17: the strip's old 残り1回
+  // stat is three smaller tappable bits, exact remaining-count filters,
+  // multi-select union, composable with 予約なし — the combo the sheet
+  // couldn't do. Labels carry their own count: packRemainingN:{"n":count}.
+  const packRows = () => [
+    row({ id: 'r1', name: 'One', pack: { remaining: 1, size: 6, unconsumed: 9900 }, nextBookingDate: null }),
+    row({ id: 'r1b', name: 'OneBooked', pack: { remaining: 1, size: 10, unconsumed: 9900 }, nextBookingDate: '6/20' }),
+    row({ id: 'r2', name: 'Two', pack: { remaining: 2, size: 6, unconsumed: 19800 }, nextBookingDate: null }),
+    row({ id: 'r4', name: 'Four', pack: { remaining: 4, size: 10, unconsumed: 39600 }, nextBookingDate: null }),
+    row({ id: 'r0', name: 'NoPack', nextBookingDate: null }),
+  ]
+  const bit = (z: number, count: number) =>
+    screen.getByText(`packRemaining${z}:{"n":${count}}`)
+
+  it('hides the bits while no row has pack data', () => {
+    render(
+      <CustomersListView rows={[row({ id: 'a' })]} totalRegistered={1} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.queryByText(/packRemaining/)).toBeNull()
+  })
+
+  it('renders 残１/残２/残３ with exact-count numbers (残３ stays visible at 0)', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(bit(1, 2)).toBeInTheDocument()
+    expect(bit(2, 1)).toBeInTheDocument()
+    expect(bit(3, 0)).toBeInTheDocument()
+  })
+
+  it('tapping 残１ narrows to remaining===1; tapping again clears', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(bit(1, 2))
+    expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked'])
+    fireEvent.click(bit(1, 2))
+    expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=5')
+  })
+
+  it('multi-select unions 残１+残２ (Kitano\'s「3回未満」population)', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(bit(1, 2))
+    fireEvent.click(bit(2, 1))
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['One', 'OneBooked', 'Two'])
+  })
+
+  it('composes with 予約なし — 残１ × no booking (the sheet-impossible combo)', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(bit(1, 2))
+    fireEvent.click(screen.getByText('noBooking:{"n":4}'))
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
+  })
+
+  it('the segmented status bar and the 残数 bits are independent controls', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={5} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // Activating a status segment must not clear the 残数 selection.
+    fireEvent.click(bit(1, 2))
+    fireEvent.click(screen.getByText('filters.all'))
+    expect(bit(1, 2).closest('button')).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=2')
+  })
+})
+
+describe('UltraCode fix round (7/17)', () => {
+  const packRows = () => [
+    row({ id: 'r1', name: 'One', pack: { remaining: 1, size: 6, unconsumed: 9900 }, packAlert: 'low', nextBookingDate: null }),
+    row({ id: 'r2', name: 'Two', pack: { remaining: 2, size: 6, unconsumed: 19800 }, nextBookingDate: '6/20' }),
+    row({ id: 'r0', name: 'NoPack', nextBookingDate: null }),
+  ]
+
+  it('legacy ?f=packLow migrates to the 残１ bit (visible + clearable, list narrowed)', () => {
+    mockSearch = 'f=packLow'
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    // Migrated: the 残１ bit is pressed and the list shows only remaining===1.
+    const bit1 = screen.getByText('packRemaining1:{"n":1}').closest('button')
+    expect(bit1).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=1')
+    expect(desktopRows().map((r) => r.textContent)).toEqual(['One'])
+    // No segment falsely active-less: すべて stays the pressed status segment.
+    expect(screen.getByText('filters.all').closest('button')).toHaveAttribute('aria-pressed', 'true')
+    // Tap-to-clear works — the invariant the legacy key violated.
+    fireEvent.click(bit1!)
+    expect(screen.getByTestId('header')).toHaveTextContent('showing=3')
+  })
+
+  it('a 0-count 残n bit shows the filter-no-match state, never the onboarding empty state', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    fireEvent.click(screen.getByText('packRemaining3:{"n":0}'))
+    expect(screen.getByText('filterNoMatch')).toBeInTheDocument()
+    expect(screen.getByText('noMatchHint')).toBeInTheDocument()
+    expect(screen.queryByText('empty.title')).toBeNull()
+  })
+
+  it('the true first-run empty state (zero rows) is unchanged', () => {
+    render(
+      <CustomersListView rows={[]} totalRegistered={0} query="" selfStaffId={null} staffList={[]} />,
+    )
+    expect(screen.getByText('empty.title')).toBeInTheDocument()
+    expect(screen.queryByText('filterNoMatch')).toBeNull()
+  })
+
+  it('予約なし stat announces aria-pressed like the bits beside it', () => {
+    render(
+      <CustomersListView rows={packRows()} totalRegistered={3} query="" selfStaffId={null} staffList={[]} />,
+    )
+    const noBooking = screen.getByText('noBooking:{"n":2}').closest('button')
+    expect(noBooking).toHaveAttribute('aria-pressed', 'false')
+    fireEvent.click(noBooking!)
+    expect(noBooking).toHaveAttribute('aria-pressed', 'true')
   })
 })

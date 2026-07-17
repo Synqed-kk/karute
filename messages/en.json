@@ -952,9 +952,9 @@
       "filters": {
         "all": "All",
         "preferredStaff": "Preferred Staff",
-        "newRecent": "New (last 30d)",
+        "newRecent": "New",
         "followup": "Needs follow-up",
-        "dormant": "Dormant (90d+)"
+        "dormant": "Dormant"
       },
       "staffFilter": {
         "self": "Self",
@@ -984,9 +984,12 @@
       },
       "stats": {
         "noBooking": "No booking: {n}",
-        "packLow": "1 left: {n}",
-        "unconsumed": "Unconsumed ¥{amount}"
-      }
+        "unconsumed": "Unconsumed ¥{amount}",
+        "packRemaining1": "1 left: {n}",
+        "packRemaining2": "2 left: {n}",
+        "packRemaining3": "3 left: {n}"
+      },
+      "filterNoMatch": "No customers match these filters"
     },
     "listFilter": {
       "all": "All",

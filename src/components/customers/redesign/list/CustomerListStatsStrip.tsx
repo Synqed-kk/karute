@@ -1,21 +1,27 @@
 'use client'
 
 // 案D's stat header (Liam-approved): the top block of Kitano's hand-maintained
-// 顧客管理 sheet — 予約なし N件(%) · 残り1回 N人 · 未消化 ¥ — transplanted above
+// 顧客管理 sheet — 予約なし N件(%) · 残数 · 未消化 ¥ — transplanted above
 // the list. He pinned these three numbers at the top of his sheet; here they
 // are computed live from the rows already in memory (zero extra queries) and
-// the first two TAP to filter the list to their members (tap again to clear).
+// the tappable ones TAP to filter the list to their members (tap again to clear).
 //
-// Honesty gates: the pack stats (残り1回, 未消化) hide until pack data exists
+// 残数 bits (Liam-approved mock, 7/17, from Kitano's 6/30 ask): the old single
+// 残り1回 stat is now three smaller tappable bits — 残１/残２/残３ N人 — each an
+// exact remaining-count filter. They are a SEPARATE dimension from the status
+// filter (multi-select union), so 残１ × 予約なし composes — the combo the
+// sheet could never answer.
+//
+// Honesty gates: the pack stats (残数, 未消化) hide until pack data exists
 // (pre-import they'd read a confident-but-false 0). 予約なし is real today.
 
 import { useTranslations } from 'next-intl'
 import type { CustomerListFilterKey } from './CustomersStatusFilters'
+import { PACK_REMAINING_OPTIONS } from './CustomersStatusFilters'
 
 export interface ListStats {
   total: number
   noBooking: number
-  packLow: number
   unconsumedTotal: number
   /** Any pack data at all? false pre-import → pack stats hide. */
   hasPackData: boolean
@@ -29,18 +35,27 @@ export function CustomerListStatsStrip({
   stats,
   active,
   onSelect,
+  packCounts,
+  packFilter,
+  onPackToggle,
 }: {
   stats: ListStats
   active: CustomerListFilterKey
   onSelect: (key: CustomerListFilterKey) => void
+  /** Count of customers at exactly n remaining, keyed by PACK_REMAINING_OPTIONS. */
+  packCounts: Record<number, number>
+  packFilter: ReadonlySet<number>
+  onPackToggle: (n: number) => void
 }) {
   const t = useTranslations('customers.list.stats')
   if (stats.total === 0) return null
   const showNoBooking = stats.hasBookingData || active === 'noBooking'
-  const showPackLow =
-    (stats.hasPackData && stats.packLow > 0) || active === 'packLow'
+  // Group stays visible while any 残n filter is active even if pack data
+  // vanishes — otherwise the only tap-to-clear control disappears mid-use
+  // (same guard the hide-when-zero pills use).
+  const showPackRemaining = stats.hasPackData || packFilter.size > 0
   const showUnconsumed = stats.hasPackData && stats.unconsumedTotal > 0
-  if (!showNoBooking && !showPackLow && !showUnconsumed) return null
+  if (!showNoBooking && !showPackRemaining && !showUnconsumed) return null
   const pct = Math.round((stats.noBooking / stats.total) * 100)
   const toggle = (key: CustomerListFilterKey) =>
     onSelect(active === key ? 'all' : key)
@@ -49,6 +64,7 @@ export function CustomerListStatsStrip({
       {showNoBooking && (
       <button
         type="button"
+        aria-pressed={active === 'noBooking'}
         onClick={() => toggle('noBooking')}
         className={`inline-flex items-baseline gap-1 rounded transition-colors ${
           active === 'noBooking'
@@ -62,21 +78,28 @@ export function CustomerListStatsStrip({
         <span className="text-muted-foreground">({pct}%)</span>
       </button>
       )}
-      {/* Stays visible while ITS filter is active even if the count hits 0 —
-       *  otherwise the only tap-to-clear control vanishes mid-use (same guard
-       *  the hide-when-zero pills use). */}
-      {showPackLow && (
-        <button
-          type="button"
-          onClick={() => toggle('packLow')}
-          className={`rounded font-semibold transition-colors ${
-            active === 'packLow'
-              ? 'text-amber-700 underline underline-offset-2 dark:text-amber-300'
-              : 'text-amber-600/90 hover:text-amber-700 dark:text-amber-400'
-          }`}
-        >
-          {t('packLow', { n: stats.packLow })}
-        </button>
+      {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
+       *  current one smaller too"); active = the strip's existing
+       *  underline treatment. Individual bits never hide at 0 so the row
+       *  doesn't jump around while filtering. */}
+      {showPackRemaining && (
+        <span className="inline-flex items-baseline gap-2.5 text-[10px]">
+          {PACK_REMAINING_OPTIONS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={packFilter.has(n)}
+              onClick={() => onPackToggle(n)}
+              className={`rounded font-semibold transition-colors ${
+                packFilter.has(n)
+                  ? 'text-amber-700 underline underline-offset-2 dark:text-amber-300'
+                  : 'text-amber-600/90 hover:text-amber-700 dark:text-amber-400'
+              }`}
+            >
+              {t(`packRemaining${n}`, { n: packCounts[n] ?? 0 })}
+            </button>
+          ))}
+        </span>
       )}
       {showUnconsumed && (
         <span className="ml-auto font-semibold text-foreground">

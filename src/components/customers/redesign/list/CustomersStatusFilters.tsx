@@ -4,16 +4,18 @@ import { ChevronDown } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import type { CustomerStatusKey } from '../types'
 import { ComingSoonChip } from '../ComingSoonChip'
+import { SegmentedFilterBar } from './SegmentedFilterBar'
 
 export type CustomerListFilterKey =
   | 'all'
   | 'newRecent'
   | 'followup'
   | 'dormant'
-  // Stat-strip filters (案D header): entered by tapping the Kitano stats, not
-  // pills — 予約なし (the sheet's #1 stat) and 残り1回 (the upsell queue).
+  // Stat-strip filter (案D header): entered by tapping the 予約なし stat.
+  // The old 'packLow' key is gone — the strip's 残１/残２/残３ bits (a separate
+  // packFilter dimension) replaced it; legacy ?f=packLow URLs migrate to the
+  // 残１ bit at parse time in CustomersListView.
   | 'noBooking'
-  | 'packLow'
 
 export interface CustomerListCounts {
   all: number
@@ -21,7 +23,19 @@ export interface CustomerListCounts {
   followup: number
   dormant: number
   noBooking: number
-  packLow: number
+}
+
+// 残数 quick filters (6/30 Kitano meeting): exact remaining-ticket counts,
+// multi-select union — tapping 残1+残2+残3 together is his「3回未満」population.
+// A dimension SEPARATE from the status filter so 残1 × 予約なし composes (the
+// combo the sheet could never answer: "残1 で予約なしの人は誰？").
+export const PACK_REMAINING_OPTIONS = [1, 2, 3] as const
+
+export function applyPackRemainingFilter<
+  T extends { pack?: { remaining: number } | null },
+>(rows: T[], selected: ReadonlySet<number>): T[] {
+  if (selected.size === 0) return rows
+  return rows.filter((r) => r.pack != null && selected.has(r.pack.remaining))
 }
 
 interface CustomersStatusFiltersProps {
@@ -34,12 +48,12 @@ interface CustomersStatusFiltersProps {
 // "nominated ME", not "has a nomination") and structurally dead (QR sync never
 // writes assigned_staff_id) — the 自分 staff pill already covers "my customers".
 // The filter logic stays; only the pill is gone.
-const FILTER_KEYS: CustomerListFilterKey[] = [
+const FILTER_KEYS = [
   'all',
   'newRecent',
   'followup',
   'dormant',
-]
+] as const satisfies readonly CustomerListFilterKey[]
 
 // Pills that hide while their count is 0 (proposal ②): a confident「休眠 0」
 // reads as "no dormant customers", which is false while the data simply isn't
@@ -55,35 +69,16 @@ export function CustomersStatusFilters({
   counts,
 }: CustomersStatusFiltersProps) {
   const t = useTranslations('customers.list')
+  // 案A (Liam, 7/17): segmented bar via the shared SegmentedFilterBar. Label
+  // qualifiers（30日以内／90日以上）dropped for width — the biggest single
+  // win; staff learn the definition once. Hide-when-zero still applies per
+  // segment (proposal ② unchanged).
+  const segments = FILTER_KEYS.filter(
+    (key) => !(HIDE_WHEN_ZERO.has(key) && counts[key] === 0 && active !== key),
+  ).map((key) => ({ key, label: t(`filters.${key}`), count: counts[key] }))
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex flex-wrap items-center gap-2">
-        {FILTER_KEYS.map((key) => {
-          if (HIDE_WHEN_ZERO.has(key) && counts[key] === 0 && active !== key) {
-            return null
-          }
-          const isActive = key === active
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => onChange(key)}
-              className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
-                isActive
-                  ? 'border-foreground bg-foreground text-background'
-                  : 'border-border bg-card text-foreground hover:bg-muted'
-              }`}
-            >
-              <span>{t(`filters.${key}`)}</span>
-              <span
-                className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
-              >
-                {counts[key]}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+      <SegmentedFilterBar segments={segments} active={active} onChange={onChange} />
       <div className="hidden items-center gap-2 md:inline-flex">
         <button
           type="button"
@@ -107,7 +102,6 @@ export function applyCustomerFilter(
     joinDateIso: string | null
     preferredStaffId: string | null
     nextBookingDate?: string | null
-    packAlert?: 'contact' | 'low' | null
   }>,
   filter: CustomerListFilterKey,
 ): Array<number> {
@@ -141,8 +135,6 @@ export function applyCustomerFilter(
         r.status !== 'lost'
       )
         out.push(i)
-    } else if (filter === 'packLow') {
-      if (r.packAlert === 'low') out.push(i)
     }
   })
   return out

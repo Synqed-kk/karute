@@ -10,6 +10,8 @@ import { CustomerSearchInput } from './CustomerSearchInput'
 import {
   CustomersStatusFilters,
   applyCustomerFilter,
+  applyPackRemainingFilter,
+  PACK_REMAINING_OPTIONS,
   type CustomerListFilterKey,
   type CustomerListCounts,
 } from './CustomersStatusFilters'
@@ -93,7 +95,7 @@ export function CustomersListView({
   const router = useRouter()
   const pathname = usePathname()
   const VALID_FILTERS: CustomerListFilterKey[] = [
-    'all', 'newRecent', 'followup', 'dormant', 'noBooking', 'packLow',
+    'all', 'newRecent', 'followup', 'dormant', 'noBooking',
   ]
   const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>(() => {
     const f = searchParams.get('f') as CustomerListFilterKey | null
@@ -102,6 +104,23 @@ export function CustomersListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
+  // 残数 chips (?r=1,3) — multi-select union over exact remaining counts.
+  const [packFilter, setPackFilter] = useState<ReadonlySet<number>>(() => {
+    // Legacy ?f=packLow (the pre-redesign 残り1回 stat wrote it) migrates to
+    // the 残１ bit — an old bookmark keeps filtering AND keeps a visible,
+    // tap-to-clear control instead of silently narrowing the list.
+    if (searchParams.get('f') === 'packLow') return new Set([1])
+    const r = searchParams.get('r')
+    if (!r) return new Set()
+    const valid: readonly number[] = PACK_REMAINING_OPTIONS
+    return new Set(r.split(',').map(Number).filter((n) => valid.includes(n)))
+  })
+  const togglePackFilter = (n: number) =>
+    setPackFilter((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(n)) next.add(n)
+      return next
+    })
   const [page, setPage] = useState(() =>
     Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
   )
@@ -113,16 +132,18 @@ export function CustomersListView({
     else next.delete('f')
     if (staffFilter !== 'all') next.set('s', String(staffFilter))
     else next.delete('s')
+    if (packFilter.size > 0) next.set('r', [...packFilter].sort().join(','))
+    else next.delete('r')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [page, statusFilter, staffFilter, pathname, router])
+  }, [page, statusFilter, staffFilter, packFilter, pathname, router])
 
   // Reset to page 1 whenever the filter changes — otherwise switching
   // to a smaller result set could leave the viewer stranded on an
   // out-of-range page (or worse, an apparently empty list).
   useEffect(() => {
     setPage(0)
-  }, [statusFilter, staffFilter, query])
+  }, [statusFilter, staffFilter, packFilter, query])
 
   // DISTINCT staff-color map, derived from the FULL tenant roster (the same
   // `staffList` that feeds the staff-filter pills). Computing it once here —
@@ -145,7 +166,6 @@ export function CustomersListView({
       followup: applyCustomerFilter(rows, 'followup').length,
       dormant: applyCustomerFilter(rows, 'dormant').length,
       noBooking: applyCustomerFilter(rows, 'noBooking').length,
-      packLow: applyCustomerFilter(rows, 'packLow').length,
     }),
     [rows],
   )
@@ -157,7 +177,6 @@ export function CustomersListView({
     () => ({
       total: rows.length,
       noBooking: counts.noBooking,
-      packLow: counts.packLow,
       unconsumedTotal: rows.reduce(
         (sum, r) => sum + (r.pack?.unconsumed ?? 0),
         0,
@@ -165,14 +184,26 @@ export function CustomersListView({
       hasPackData: rows.some((r) => r.pack != null),
       hasBookingData: bookingDataAvailable,
     }),
-    [rows, counts.noBooking, counts.packLow, bookingDataAvailable],
+    [rows, counts.noBooking, bookingDataAvailable],
   )
 
-  // Filter composition: status filter (existing) AND staff filter (new).
-  // Order doesn't matter for correctness — both are simple predicates.
+  // Per-chip counts share the row source with the filter predicate so the
+  // chip number and the tapped list can never disagree (same rule as `counts`).
+  const packCounts = useMemo(() => {
+    const m: Record<number, number> = {}
+    for (const n of PACK_REMAINING_OPTIONS)
+      m[n] = rows.filter((r) => r.pack?.remaining === n).length
+    return m
+  }, [rows])
+
+  // Filter composition: status filter AND 残数 chips AND staff filter.
+  // Order doesn't matter for correctness — all are simple predicates.
   const filteredRows = useMemo(() => {
     const indices = applyCustomerFilter(rows, statusFilter)
-    const afterStatus = indices.map((i) => rows[i])
+    const afterStatus = applyPackRemainingFilter(
+      indices.map((i) => rows[i]),
+      packFilter,
+    )
     if (staffFilter === 'all') return afterStatus
     const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
     if (!targetId) return afterStatus
@@ -185,7 +216,7 @@ export function CustomersListView({
     return afterStatus.filter(
       (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
     )
-  }, [rows, statusFilter, selfStaffId, staffFilter])
+  }, [rows, statusFilter, selfStaffId, staffFilter, packFilter])
 
   // Slice the filtered list into the current page's window. `page` is
   // clamped against the latest filtered length so a stale state can't
@@ -225,6 +256,9 @@ export function CustomersListView({
         stats={stats}
         active={statusFilter}
         onSelect={setStatusFilter}
+        packCounts={packCounts}
+        packFilter={packFilter}
+        onPackToggle={togglePackFilter}
       />
 
       <CustomersStatusFilters
@@ -235,11 +269,21 @@ export function CustomersListView({
 
       {filteredRows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
+          {/* Three empty states, not two: a filter that matches nobody must
+           *  NOT show the first-run onboarding copy (「最初の顧客を作成…」)
+           *  while 450 customers exist — it shows "no match, clear filters"
+           *  (reachable via a 0-count 残n bit or an empty staff filter). */}
           <p className="text-sm font-medium text-foreground">
-            {query ? t('noMatch', { query }) : tCustomers('empty.title')}
+            {query
+              ? t('noMatch', { query })
+              : rows.length > 0
+                ? t('filterNoMatch')
+                : tCustomers('empty.title')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {query ? t('noMatchHint') : tCustomers('empty.description')}
+            {query || rows.length > 0
+              ? t('noMatchHint')
+              : tCustomers('empty.description')}
           </p>
         </div>
       ) : (
