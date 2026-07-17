@@ -81,9 +81,11 @@ export function CustomerListStatsStrip({
         <span className="font-semibold">
           {t('noBooking', { n: stats.noBooking })}
         </span>
+        {/* Full opacity on the selected chip — /80·/70 alphas measured 3.8:1
+         *  (fail); hierarchy vs the label comes from weight, not opacity. */}
         <span
           className={
-            active === 'noBooking' ? 'text-white/80 dark:text-amber-950/70' : 'text-muted-foreground'
+            active === 'noBooking' ? 'text-white dark:text-amber-950' : 'text-muted-foreground'
           }
         >
           ({pct}%)
