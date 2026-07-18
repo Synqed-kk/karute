@@ -37,6 +37,17 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // on the local fast-path until token expiry. Cost = one getUser per edit
   // (writes are infrequent — acceptable for a fail-closed foundation).
   'customer.update',
+  // customer-profile mutations (packet 06 batch 3 — the highest customer-data
+  // class). EVERY write re-checks revocation; the follow-up-e exhaustive test
+  // (app-api-revocation-coverage.test.ts) fails if any facade write method ships
+  // a key that is not in this set.
+  'customer.consent.revoke',
+  'customer.photo.upload',
+  'customer.memory.add',
+  'customer.memory.update',
+  'customer.memory.delete',
+  'customer.memory.relearn',
+  'customer.passport.upsert',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

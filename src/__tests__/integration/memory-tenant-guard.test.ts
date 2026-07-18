@@ -22,9 +22,12 @@ jest.mock('@/lib/karute/customer-memory', () => ({
   upsertPassportField: jest.fn().mockResolvedValue({ ok: true }),
 }))
 
-// getCustomer is the ownership oracle — business-scoped, so it rejects a
-// cross-tenant id. The guard treats a throw or a null as "not ours".
-jest.mock('@/lib/customers/queries', () => ({ getCustomer: jest.fn() }))
+// getCustomerWithClient is the ownership oracle — business-scoped, so it rejects
+// a cross-tenant id. The guard treats a throw or a null as "not ours". (The
+// actions now thread an explicit client — the single-source WithClient cores —
+// so the cookie web wrapper constructs it via getSynqedClient.)
+jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: jest.fn() }))
+jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: async () => ({ customers: {} }) }))
 
 import {
   updateMemoryItemAction,
@@ -34,7 +37,9 @@ import {
 } from '@/actions/memory'
 
 const mem = jest.requireMock('@/lib/karute/customer-memory') as Record<string, jest.Mock>
-const { getCustomer } = jest.requireMock('@/lib/customers/queries') as { getCustomer: jest.Mock }
+const { getCustomerWithClient: getCustomer } = jest.requireMock('@/lib/customers/queries') as {
+  getCustomerWithClient: jest.Mock
+}
 
 beforeEach(() => jest.clearAllMocks())
 
