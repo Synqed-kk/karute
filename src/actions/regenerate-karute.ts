@@ -1,7 +1,6 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { getLocale } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { requireCapability, can } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
@@ -345,6 +344,10 @@ export async function regenerateKarute(karuteRecordId: string): Promise<Regenera
   try {
     await requireCapability('records.write')
     const synqed = await getSynqedClient()
+    // Dynamic next-intl import — repo convention (see actions/memory.ts): a
+    // top-level import drags next-intl ESM into every jest graph that touches
+    // this module (regen-list-owner-gate.test.ts broke on exactly that).
+    const { getLocale } = await import('next-intl/server')
     const [viewerStaffId, canViewAll, locale] = await Promise.all([
       getCurrentUserStaffId(),
       can('recordings.viewAll'),
