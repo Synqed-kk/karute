@@ -32,6 +32,13 @@ const PatchMemorySchema = z
   .refine((d) => d.label !== undefined || d.pinned !== undefined, {
     message: 'at least one of label|pinned is required',
   })
+  // Mixed pin+label would run two independent writes with no rollback — a
+  // failure between them returns an error for a HALF-committed patch (Greptile
+  // P1 on #488). One concern per request; the clients already send them
+  // separately (toggleMemoryPinAction vs updateMemoryItemAction).
+  .refine((d) => d.pinned === undefined || d.label === undefined, {
+    message: 'send pinned OR label/detail per request, not both',
+  })
   .refine((d) => d.detail === undefined || d.label !== undefined, {
     message: 'detail requires label',
   })

@@ -26,6 +26,25 @@ async function customerId(ctx: FacadeContext<Params>): Promise<string> {
   return id
 }
 
+/** Magic-byte sniff over the common photo containers the store devices
+ *  produce: JPEG, PNG, GIF, WebP, and the ISO-BMFF family (HEIC/HEIF/AVIF —
+ *  iPhone camera default). Trailing bytes are NOT validated — this is a
+ *  container check, not a decoder; core re-processes uploads server-side. */
+async function looksLikeImage(file: File): Promise<boolean> {
+  const head = new Uint8Array(await file.slice(0, 16).arrayBuffer())
+  if (head.length < 12) return false
+  const ascii = (from: number, to: number) => String.fromCharCode(...head.slice(from, to))
+  if (head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff) return true // JPEG
+  if (head[0] === 0x89 && ascii(1, 4) === 'PNG') return true // PNG
+  if (ascii(0, 4) === 'GIF8') return true // GIF
+  if (ascii(0, 4) === 'RIFF' && ascii(8, 12) === 'WEBP') return true // WebP
+  if (ascii(4, 8) === 'ftyp') {
+    const brand = ascii(8, 12)
+    return ['heic', 'heix', 'hevc', 'heim', 'heis', 'hevm', 'hevs', 'mif1', 'msf1', 'avif', 'avis'].includes(brand)
+  }
+  return false
+}
+
 export const POST = facadeHandler<Params>('customer.photo.upload', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')
   const id = await customerId(ctx)
@@ -47,6 +66,11 @@ export const POST = facadeHandler<Params>('customer.photo.upload', async (ctx) =
   }
   if (file.size > MAX_PHOTO_BYTES) {
     throw new AppApiError('validation', 'file exceeds the 50MB limit')
+  }
+  // The declared content-type is caller-controlled (Greptile P1, security):
+  // verify the BYTES are a real image container before anything is stored.
+  if (!(await looksLikeImage(file))) {
+    throw new AppApiError('validation', 'file content is not a recognized image format')
   }
 
   const category = form.get('category')

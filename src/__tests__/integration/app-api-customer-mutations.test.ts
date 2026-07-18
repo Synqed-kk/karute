@@ -153,9 +153,13 @@ function photoReq(file: File | null, headers = auth) {
   if (file) fd.append('file', file)
   return new Request('https://s/x', { method: 'POST', headers, body: fd })
 }
+// Real container bytes — the route now sniffs magic numbers (declared MIME is
+// caller-controlled). 16 bytes of PNG signature + IHDR intro is enough.
+const PNG_BYTES = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 73, 72, 68, 82])
+
 describe('POST photos', () => {
   it('happy path: uploads a valid image', async () => {
-    const res = await photoUpload(photoReq(new File(['x'], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
+    const res = await photoUpload(photoReq(new File([PNG_BYTES], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
     expect(res.status).toBe(201)
     expect(uploadPhoto).toHaveBeenCalled()
   })
@@ -165,7 +169,7 @@ describe('POST photos', () => {
     expect(uploadPhoto).not.toHaveBeenCalled()
   })
   it('oversize → 400, no upload', async () => {
-    const big = new File([new Uint8Array(51 * 1024 * 1024)], 'big.png', { type: 'image/png' })
+    const big = new File([(() => { const b = new Uint8Array(51 * 1024 * 1024); b.set(PNG_BYTES); return b })()], 'big.png', { type: 'image/png' })
     const res = await photoUpload(photoReq(big), route({ id: 'cust-1' }))
     expect(res.status).toBe(400)
     expect(uploadPhoto).not.toHaveBeenCalled()
@@ -176,8 +180,13 @@ describe('POST photos', () => {
     expect(uploadPhoto).not.toHaveBeenCalled()
   })
   it('cross-tenant customer id → 404, no upload', async () => {
-    const res = await photoUpload(photoReq(new File(['x'], 'a.png', { type: 'image/png' })), route({ id: 'cust-x' }))
+    const res = await photoUpload(photoReq(new File([PNG_BYTES], 'a.png', { type: 'image/png' })), route({ id: 'cust-x' }))
     expect(res.status).toBe(404)
+    expect(uploadPhoto).not.toHaveBeenCalled()
+  })
+  it('spoofed MIME (image/* declared, non-image bytes) → 400, no upload', async () => {
+    const res = await photoUpload(photoReq(new File(['%PDF-1.4 not an image'], 'a.png', { type: 'image/png' })), route({ id: 'cust-1' }))
+    expect(res.status).toBe(400)
     expect(uploadPhoto).not.toHaveBeenCalled()
   })
 })
