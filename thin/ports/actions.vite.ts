@@ -80,6 +80,14 @@ export const upsertPassportFieldAction = notWired('upsertPassportFieldAction')
 //    read-only batch)
 export const createManualKaruteRecord = notWired('createManualKaruteRecord')
 // -- regenerate-karute
+// Capability READ, not a mutation: false = the dev-regen button never renders
+// in thin (dev tools are owner web-only; mirrors the action's own fail-closed
+// catch). NOT notWired — a throw here would break profile/memory render paths
+// that probe the gate on mount.
+export const canUseDevRegen = async (): Promise<boolean> => false
+// Drift 7/16-18: deletion lane added these to the customer profile privacy tab.
+export const scheduleCustomerDeletion = notWired('scheduleCustomerDeletion')
+export const cancelCustomerDeletion = notWired('cancelCustomerDeletion')
 export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')
