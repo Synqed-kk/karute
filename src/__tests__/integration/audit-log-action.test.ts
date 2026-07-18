@@ -154,12 +154,12 @@ describe('listAuditLog — per-customer deep-link', () => {
 })
 
 describe('listAuditLog — person filter (§10 cause-based, raw events only)', () => {
-  it('passes actorId to core as actor_id on BOTH the feed and the strip query', async () => {
-    await listAuditLog({ actorId: 'staff-7' })
-    expect(list).toHaveBeenCalledTimes(2)
-    for (const call of list.mock.calls) {
-      expect(call[0]).toMatchObject({ actor_id: 'staff-7' })
-    }
+  it('passes actorId as actor_id on the feed and SKIPS the strip query (I7: no per-staff counts)', async () => {
+    const res = await listAuditLog({ actorId: 'staff-7' })
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ actor_id: 'staff-7' }))
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.breakGlassTotal).toBeNull()
   })
 })
 
@@ -189,6 +189,17 @@ describe('listAuditLog — summary strip count', () => {
     if (!res.ok) throw new Error('expected ok')
     expect(res.breakGlassTotal).toBe(5)
     expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed strip query degrades to null — the feed itself survives', async () => {
+    list.mockImplementation(async (opts: { break_glass?: boolean }) => {
+      if (opts.break_glass) throw new Error('rate limited')
+      return { events: [coreEvent()], total: 1, page: 1, page_size: 100 }
+    })
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events).toHaveLength(1)
+    expect(res.breakGlassTotal).toBeNull()
   })
 })
 

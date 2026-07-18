@@ -91,7 +91,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   const [warnOnly, setWarnOnly] = useState(false)
 
   const [events, setEvents] = useState<AuditLogEvent[]>([])
-  const [breakGlassTotal, setBreakGlassTotal] = useState(0)
+  const [breakGlassTotal, setBreakGlassTotal] = useState<number | null>(null)
   const [targetLabels, setTargetLabels] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
   const [hasMore, setHasMore] = useState(false)
@@ -287,7 +287,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         <ToolbarSelect
           label={t('staffLabel')}
           value={actorId ?? ''}
-          onChange={(v) => setActorId(v || null)}
+          onChange={(v) => {
+            setActorId(v || null)
+            setWarnOnly(false)
+          }}
           options={[
             { value: '', label: t('staffAll') },
             ...staffList.map((s) => ({ value: s.id, label: s.full_name ?? s.id })),
@@ -330,7 +333,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
 
       {/* Summary strip — 「何か問題は？」 answered before the rows. Amber and
        *  red are one-tap filters straight to those events. */}
-      {!error && (
+      {!error && !actorId && (
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-baseline gap-1.5 rounded-lg border border-border bg-background px-3.5 py-2">
             <span className="text-lg font-semibold leading-none tabular-nums">
@@ -354,11 +357,14 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           </button>
           <button
             type="button"
-            onClick={() => setBreakGlass(true)}
+            onClick={() => {
+              setWarnOnly(false)
+              setBreakGlass(true)
+            }}
             className="inline-flex items-baseline gap-1.5 rounded-lg bg-red-500/10 px-3.5 py-2 text-red-700 transition-colors hover:bg-red-500/20 dark:text-red-400"
           >
             <span className="text-lg font-semibold leading-none tabular-nums">
-              {breakGlassTotal}
+              {breakGlassTotal ?? '–'}
             </span>
             <span className="text-xs">{t('statsBreakGlass')}</span>
           </button>
@@ -428,7 +434,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                         // one-tap person filter. Raw events only — never stats.
                         <button
                           type="button"
-                          onClick={() => setActorId(e.actor_id)}
+                          onClick={() => {
+                            setActorId(e.actor_id)
+                            setWarnOnly(false)
+                          }}
                           className="border-b border-dotted border-muted-foreground/50 text-xs text-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
                         >
                           {actorName}

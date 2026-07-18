@@ -60,8 +60,11 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
       total: number
       page: number
       hasMore: boolean
-      /** Exact 緊急アクセス count for the summary strip (same filters, break_glass=true). */
-      breakGlassTotal: number
+      /** Exact 緊急アクセス count for the summary strip (same window,
+       *  break_glass=true). Null when unknown: the count query degraded, or
+       *  a person filter is active (I7 — the strip never renders per-staff
+       *  counts, so no aux query is spent). */
+      breakGlassTotal: number | null
       /** Display names for this page's customer/store targets — rows store ids
        *  only (PII rule), so names join at read time. Staff resolve client-side
        *  off the roster the section already holds. */
@@ -93,10 +96,14 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
         page_size: PAGE_SIZE,
       }),
       // Strip count — page_size 1, only the total matters. Skipped when the
-      // break-glass filter is already on (the main total IS the count).
-      filters.breakGlass
+      // break-glass filter is already on (the main total IS the count) and
+      // when a person filter is active (the strip hides — I7). Best-effort:
+      // a failed count must never take the feed down with it.
+      filters.breakGlass || filters.actorId
         ? null
-        : synqed.audit.list({ ...baseQuery, break_glass: true, page: 1, page_size: 1 }),
+        : synqed.audit
+            .list({ ...baseQuery, break_glass: true, page: 1, page_size: 1 })
+            .catch(() => null),
     ])
 
     // Opening the 監査ログ is itself a privileged read — one row per open
@@ -128,7 +135,11 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
       // hasMore follows the UNFILTERED count — the next page may still hold
       // non-view rows even when this one filtered to empty.
       hasMore: res.page * res.page_size < res.total,
-      breakGlassTotal: breakGlassRes ? breakGlassRes.total : res.total,
+      breakGlassTotal: breakGlassRes
+        ? breakGlassRes.total
+        : filters.breakGlass
+          ? res.total
+          : null,
       targetLabels: await resolveTargetLabels(synqed, events),
     }
   } catch {
