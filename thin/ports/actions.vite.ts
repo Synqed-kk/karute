@@ -76,9 +76,17 @@ export const toggleMemoryPinAction = notWired('toggleMemoryPinAction')
 export const deleteMemoryItemAction = notWired('deleteMemoryItemAction')
 export const relearnCustomerMemoryAction = notWired('relearnCustomerMemoryAction')
 export const upsertPassportFieldAction = notWired('upsertPassportFieldAction')
-// -- karute (sessions list — packet 05; New カルテ create stays notWired,
-//    read-only batch)
-export const createManualKaruteRecord = notWired('createManualKaruteRecord')
+// -- karute (sessions list — packet 05; New カルテ create is unwired in the
+//    read-only batch, but speaks the action's own { error } | void contract:
+//    NewKaruteDialog only renders RETURNED errors — a throw inside its
+//    transition bypasses the error UI and leaves the dialog hanging (Greptile
+//    P1 on #484). Honest failure through the dialog's own path, never a
+//    silent success.
+export const createManualKaruteRecord = async (): Promise<{ error: string }> => ({
+  error:
+    '[thin] createManualKaruteRecord is not wired to a facade endpoint yet ' +
+    '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
+})
 // -- regenerate-karute
 // Capability READ, not a mutation: false = the dev-regen button never renders
 // in thin (dev tools are owner web-only; mirrors the action's own fail-closed
