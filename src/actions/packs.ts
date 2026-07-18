@@ -150,7 +150,10 @@ export async function dismissVisitReconcileAction(input: {
 
 export async function undoRedemptionAction(redemptionId: string): Promise<{ ok: boolean }> {
   if (!redemptionId) return { ok: false }
-  const result = await removeRedemption(redemptionId)
+  // WHO undid the burn — recorded on the redemption row (removed_by) so the
+  // undo is auditable without a join.
+  const staffId = await getCurrentUserStaffId().catch(() => null)
+  const result = await removeRedemption(redemptionId, staffId)
   if (result.ok) revalidateProfile()
   return result
 }
