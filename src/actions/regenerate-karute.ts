@@ -255,9 +255,12 @@ export async function regenerateKaruteWithClient(
     viewerStaffId: string | null
     canViewAll: boolean
     locale: string
+    /** Facade Bearer path: the verified token's business id. Omitted on the
+     *  cookie web path (featureAllowed resolves it). */
+    businessId?: string
   },
 ): Promise<RegenerateResult> {
-  const { karuteRecordId, viewerStaffId, canViewAll, locale } = params
+  const { karuteRecordId, viewerStaffId, canViewAll, locale, businessId } = params
 
   // Authoritative read — cross-tenant/missing → not_found, genuine upstream → 502.
   const record = await readKaruteRaw(synqed, karuteRecordId)
@@ -271,6 +274,23 @@ export async function regenerateKaruteWithClient(
   const ownerStaffId = (record.staff_id as string | null) ?? null
   if (!canViewTranscript({ ownerStaffId, viewerStaffId, canViewAll })) {
     throw new AppApiError('forbidden', 'You cannot regenerate a recording you are not allowed to view.')
+  }
+
+  // Plan gate (P4) — the legacy /api/ai/* routes wall aiKaruteGeneration behind
+  // the paid plan; regenerate runs the same paid extraction, so it honors the
+  // same wall on BOTH worlds (Fable spot-audit find: the orchestration bypassed
+  // it — inert while billing is disarmed, a wall hole once armed). Dual-path
+  // like ai-outreach: explicit businessId (facade Bearer) or the cookie
+  // entitlement. Gated BEFORE the rate-limit consumes — a locked caller never
+  // burns quota (deliberate ordering improvement over the legacy route).
+  const { featureAllowed, featureAllowedForBusiness } = await import(
+    '@/lib/subscription/feature-gate'
+  )
+  const planAllowed = businessId
+    ? await featureAllowedForBusiness(businessId, 'aiKaruteGeneration')
+    : await featureAllowed('aiKaruteGeneration')
+  if (!planAllowed) {
+    throw new AppApiError('forbidden', 'PLAN_LOCKED: aiKaruteGeneration')
   }
 
   // Cost guard BEFORE the LLM calls — ONE shared accounting path (extract +
