@@ -1,17 +1,42 @@
 import { NextResponse } from 'next/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { AppApiError } from '@/lib/app-api/errors'
+
+type RateLimitClient = Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'aiRateLimit'>
+
+function limitMessage(reason: string, costCap: number): string {
+  return reason === 'daily_cost'
+    ? `Daily AI spend cap of ${(costCap / 100).toFixed(2)} USD reached`
+    : 'Hourly AI request cap reached'
+}
+
+/** Consume one AI request against the daily/hourly cap on an EXPLICIT
+ *  business-scoped client — the accounting seam shared by the cookie routes and
+ *  the facade Bearer path (packet 07 §Build 3). Throws a classified `rate_limited`
+ *  (→ 429) so the facade error mapper handles it; the legacy NextResponse variant
+ *  below wraps the SAME consume so extract/summarize never bill via two paths. */
+export async function enforceAiRateLimitWithClient(
+  synqed: RateLimitClient,
+  route: string,
+): Promise<void> {
+  const result = await synqed.aiRateLimit.consume(route)
+  if (result.allowed) return
+  throw new AppApiError('rate_limited', limitMessage(result.reason, result.costCap), {
+    reason: result.reason,
+    cap: result.cap,
+    cost_cap_cents: result.costCap,
+    cost_used_cents: result.costUsed,
+    retry_at: result.resetAt,
+  })
+}
 
 export async function enforceAiRateLimit(route: string): Promise<NextResponse | null> {
   const synqed = await getSynqedClient()
   const result = await synqed.aiRateLimit.consume(route)
   if (result.allowed) return null
-  const message =
-    result.reason === 'daily_cost'
-      ? `Daily AI spend cap of ${(result.costCap / 100).toFixed(2)} USD reached`
-      : 'Hourly AI request cap reached'
   return NextResponse.json(
     {
-      error: message,
+      error: limitMessage(result.reason, result.costCap),
       reason: result.reason,
       cap: result.cap,
       cost_cap_cents: result.costCap,
@@ -64,16 +89,24 @@ export function estimateCostCents(
  * (the dominant cost at 60–90 min sessions). Adding duration-based Deepgram
  * accounting is a synqed-core follow-up so the cap reflects true spend.
  */
-export async function reportAiUsage(
+export async function reportAiUsageWithClient(
+  synqed: RateLimitClient,
   route: string,
   tokensIn: number,
   tokensOut: number,
 ): Promise<void> {
   try {
-    const synqed = await getSynqedClient()
     const cost = estimateCostCents(tokensIn, tokensOut, modelForRoute(route))
     await synqed.aiRateLimit.recordUsage(route, tokensIn, tokensOut, cost)
   } catch (err) {
     console.warn('[ai-usage] failed to report usage:', err)
   }
+}
+
+export async function reportAiUsage(
+  route: string,
+  tokensIn: number,
+  tokensOut: number,
+): Promise<void> {
+  await reportAiUsageWithClient(await getSynqedClient(), route, tokensIn, tokensOut)
 }

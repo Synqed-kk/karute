@@ -8,7 +8,20 @@
  * read fires.
  */
 
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), unstable_cache: (fn: unknown) => fn }))
+// @synqed-kk/client ships ESM jest can't parse — standard stub (same pattern
+// as appointments-store-scope.test.ts); 04c's regenerate orchestration widened
+// this test's import graph to modules that import SynqedError at load.
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn(),
+  SynqedError: class SynqedError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  },
+}))
 jest.mock('@/lib/auth/require-permission', () => ({ requireCapability: jest.fn() }))
 jest.mock('@/actions/dev-tools', () => ({ canUseDevRegen: jest.fn().mockResolvedValue(false) }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))

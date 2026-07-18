@@ -19,7 +19,9 @@ export const runtime = 'nodejs'
 type Params = { id: string }
 
 const PassportSchema = z
-  .object({ fieldKey: z.string().min(1), value: z.string().min(1) })
+  // F8 hygiene (packet 07 §Build 3): caps consistent with PartialCustomerSchema
+  // (key-class → 100, free text → 4000). The key is separately allowlisted.
+  .object({ fieldKey: z.string().min(1).max(100), value: z.string().min(1).max(4000) })
   .strict()
 
 async function customerId(ctx: FacadeContext<Params>): Promise<string> {
