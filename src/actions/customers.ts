@@ -266,43 +266,102 @@ export async function updateCustomer(
 }
 
 // ---------------------------------------------------------------------------
-// deleteCustomer
+// 30-day customer deletion (schedule / cancel) — APPI erasure flow
 // ---------------------------------------------------------------------------
+// The old immediate deleteCustomer action is GONE (it was UI-unreachable, its
+// appointment pre-delete loop is obsolete since core owns the cascade, and as
+// an exported server action it was an unaudited instant-delete bypass of this
+// window). Hard deletion now happens ONLY in the nightly sweep
+// (/api/cleanup-deleted) at deleted_at + 30d.
 
-export async function deleteCustomer(id: string): Promise<ActionResult> {
+/** Read deleted_at off an SDK customer row. SDK-skew cast (same pattern as
+ *  first_visit_at in queries.ts): the field shipped in core/SDK 1.13. */
+function customerDeletedAt(c: object): string | null {
+  return (c as { deleted_at?: string | null }).deleted_at ?? null
+}
+
+async function emitDeletionAudit(
+  action: 'privacy.customer_delete_scheduled' | 'privacy.customer_delete_canceled',
+  customerId: string,
+): Promise<void> {
+  // Inline actor/business resolution — auditWeb() arrives with PR #539; this
+  // stays dependency-free of that parked branch.
+  const { audit } = await import('@/lib/audit')
+  const { getCurrentUserStaffId, getBusinessId } = await import('@/lib/staff')
+  audit({
+    category: 'privacy',
+    action,
+    actorId: await getCurrentUserStaffId().catch(() => null),
+    actorType: 'staff',
+    businessId: await getBusinessId().catch(() => null),
+    targetType: 'customer',
+    targetId: customerId,
+    severity: action === 'privacy.customer_delete_scheduled' ? 'warning' : 'notice',
+    source: 'web',
+  })
+}
+
+/** Schedule deletion: sets core deleted_at = now. The customer drops from
+ *  lists (core filters soft-deleted), the profile banner starts the 30-day
+ *  countdown, and the nightly sweep hard-deletes at day 30. Error strings are
+ *  codes the client maps to i18n. */
+export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
   try {
-    // Destructive: deleting a customer (+ cascading their appointments) is
-    // records.delete — owner / manager / senior only, never practitioner /
-    // frontdesk. Mirrors deleteKaruteRecord.
+    // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
     await requireCapability('records.delete')
-
     const synqed = await getSynqedClient()
 
-    // Block deletion if customer has linked karute records
-    const karuteList = await synqed.karuteRecords.list({ customer_id: id, page_size: 1 })
-    if (karuteList.total > 0) {
-      return {
-        success: false,
-        error: `Cannot delete: this customer has ${karuteList.total} karute record${karuteList.total === 1 ? '' : 's'}. Delete them first.`,
-      }
+    // Never restart a running clock: re-scheduling would push the deadline out.
+    const existing = await synqed.customers.get(id)
+    if (customerDeletedAt(existing)) {
+      return { success: false, error: 'already_scheduled' }
     }
 
-    // Delete all appointments for this customer (server lacks cascade).
-    // page_size is capped at 200 server-side; a single customer never has
-    // anywhere near that many appointments, so one page covers it.
-    const apptList = await synqed.appointments.list({ customer_id: id, page_size: 200 })
-    for (const appt of apptList.appointments) {
-      await synqed.appointments.delete(appt.id)
-    }
+    await synqed.customers.update(id, {
+      deleted_at: new Date().toISOString(),
+    } as Parameters<typeof synqed.customers.update>[1])
 
-    await synqed.customers.delete(id)
-
+    await emitDeletionAudit('privacy.customer_delete_scheduled', id)
     revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
     updateTag('customers')
     return { success: true, id }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    console.error('[scheduleCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
+  }
+}
+
+/** Undo within the window: nulls deleted_at. Rejects once the deadline has
+ *  passed — the sweep may already be destroying records, and a cancel that
+ *  "succeeds" seconds before hard delete would lie to the staff. */
+export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
+  try {
+    await requireCapability('records.delete')
+    const synqed = await getSynqedClient()
+
+    const existing = await synqed.customers.get(id)
+    const deletedAt = customerDeletedAt(existing)
+    if (!deletedAt) {
+      return { success: false, error: 'not_scheduled' }
+    }
+    const { hardDeleteDeadlineMs } = await import('@/lib/customers/deletion')
+    if (Date.now() > hardDeleteDeadlineMs(deletedAt)) {
+      return { success: false, error: 'window_expired' }
+    }
+
+    await synqed.customers.update(id, {
+      deleted_at: null,
+    } as Parameters<typeof synqed.customers.update>[1])
+
+    await emitDeletionAudit('privacy.customer_delete_canceled', id)
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    updateTag('customers')
+    return { success: true, id }
+  } catch (err) {
+    console.error('[cancelCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
   }
 }
 

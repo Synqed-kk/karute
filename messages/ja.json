@@ -661,10 +661,13 @@
     "unknownName": "不明",
     "deletionBanner": {
       "title": "{name}様は削除予定です — 残り{days}日",
-      "titleToday": "{name}様は本日削除されます",
-      "body": "{date} に完全削除されます。{window}日間の復旧期間中です。",
-      "blocked": "新規カルテ作成・録音・写真アップロードは一時停止中です。取り消しを実行すると通常操作に戻ります。",
-      "undoButton": "削除を取り消す"
+      "titleToday": "{name}様は本日以降に削除されます",
+      "body": "{date}以降に完全削除されます。{window}日間の復旧期間中です。",
+      "blocked": "削除日までデータは保持され、通常どおり閲覧・編集できます。取り消しはいつでも可能です。",
+      "undoButton": "削除を取り消す",
+      "undoSuccess": "{name}様の削除を取り消しました。",
+      "undoExpired": "復旧期間が終了したため取り消せません。削除処理が進行中です。",
+      "undoFailed": "削除の取り消しに失敗しました。もう一度お試しください。"
     },
     "visitHistoryChain": {
       "aria": "直近{window}回中{attended}回来店。通算{total}回。"
@@ -708,6 +711,10 @@
       "deleteTitle": "顧客データの削除",
       "deleteBody": "すべてのデータを論理削除し、30日後に完全削除します（APPIの合理的な期間）。カルテ・メモリー・写真・録音も連動して削除されます。30日以内なら取り消し可能です。",
       "deleteCta": "データを削除",
+      "deleteConfirm": "{name}様のデータを削除しますか？30日後に完全削除されます。30日以内であれば取り消し可能です。",
+      "deleteScheduled": "{name}様の削除を予約しました。30日以内であれば取り消せます。",
+      "deleteAlreadyScheduled": "この顧客はすでに削除予定です。",
+      "deleteFailed": "削除の予約に失敗しました。もう一度お試しください。",
       "footer": "これらの操作は監査証跡に記録されます。30日経過後の削除は取り消せません。実行前にオーナーの確認を推奨します。",
       "wiringPending": "対応準備中 — APPI対応のバックエンドを実装中です",
       "consentRevokeTitle": "録音同意",

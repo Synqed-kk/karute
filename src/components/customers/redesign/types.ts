@@ -65,6 +65,8 @@ export interface CustomerProfileData {
   name: string
   initials: string
   karuteNumber: string
+  /** Soft-delete clock — non-null renders the 30-day countdown banner. */
+  deletedAt: string | null
   age: number | null
   gender: string | null
   joinDate: string

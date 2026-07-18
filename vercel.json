@@ -4,6 +4,10 @@
     {
       "path": "/api/cleanup",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cleanup-deleted",
+      "schedule": "0 17 * * *"
     }
   ]
 }

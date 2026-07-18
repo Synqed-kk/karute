@@ -5,8 +5,7 @@ import { AlertCircle, Clock, Mic, Upload } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { useRouter } from '@/i18n/navigation'
-import { revokeCustomerConsent } from '@/actions/customers'
-import { ComingSoonChip } from '../ComingSoonChip'
+import { revokeCustomerConsent, scheduleCustomerDeletion } from '@/actions/customers'
 
 interface PrivacyTabContentProps {
   customerId: string
@@ -15,6 +14,9 @@ interface PrivacyTabContentProps {
    *  uses. Revoke row only renders when true. */
   consentGranted: boolean
   consentGrantedAtLabel: string | null
+  /** Already inside the 30-day window — the delete CTA disables (the banner
+   *  above owns the undo path). */
+  deletionScheduled: boolean
 }
 
 export function PrivacyTabContent({
@@ -22,11 +24,13 @@ export function PrivacyTabContent({
   customerName,
   consentGranted,
   consentGrantedAtLabel,
+  deletionScheduled,
 }: PrivacyTabContentProps) {
   const t = useTranslations('customers.privacy')
   const router = useRouter()
   const pendingTitle = t('wiringPending')
   const [revoking, setRevoking] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   async function handleRevoke() {
     if (!window.confirm(t('consentRevokeConfirm'))) return
@@ -44,6 +48,26 @@ export function PrivacyTabContent({
     }
   }
 
+  async function handleDelete() {
+    if (!window.confirm(t('deleteConfirm', { name: customerName }))) return
+    setDeleting(true)
+    try {
+      const res = await scheduleCustomerDeletion(customerId)
+      if (!res.success) {
+        toast.error(
+          res.error === 'already_scheduled' ? t('deleteAlreadyScheduled') : t('deleteFailed'),
+        )
+        return
+      }
+      toast.success(t('deleteScheduled', { name: customerName }))
+      router.refresh()
+    } catch {
+      toast.error(t('deleteFailed'))
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <section className="rounded-2xl border border-border bg-card p-5 shadow-sm md:p-6">
       <header className="mb-4 flex items-start gap-3">
@@ -55,7 +79,6 @@ export function PrivacyTabContent({
             <h3 className="text-sm font-semibold text-foreground">
               {t('title')}
             </h3>
-            <ComingSoonChip />
           </div>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {t('subtitle', { name: customerName })}
@@ -96,7 +119,10 @@ export function PrivacyTabContent({
           body={t('accessHistoryBody', { name: customerName })}
           cta={t('accessHistoryCta')}
           ctaTone="blue"
-          pendingTitle={pendingTitle}
+          // 監査ログ dispute view — the viewer inverts to all-events-including-
+          // views for this customer. Owner (or audit.view grant) only; others
+          // land on the settings home, which is benign.
+          onAction={() => router.push(`/settings?tab=audit&target=${customerId}`)}
         />
         <PrivacyAction
           tone="neutral"
@@ -114,7 +140,9 @@ export function PrivacyTabContent({
           body={t('deleteBody')}
           cta={t('deleteCta')}
           ctaTone="danger"
-          pendingTitle={pendingTitle}
+          onAction={handleDelete}
+          disabled={deleting || deletionScheduled}
+          disabledTitle={deletionScheduled ? t('deleteAlreadyScheduled') : undefined}
         />
       </ul>
 
@@ -134,6 +162,9 @@ function PrivacyAction({
   cta,
   ctaTone,
   pendingTitle,
+  onAction,
+  disabled,
+  disabledTitle,
 }: {
   tone: 'blue' | 'neutral' | 'danger'
   icon: React.ReactNode
@@ -141,8 +172,14 @@ function PrivacyAction({
   body: string
   cta: string
   ctaTone: 'blue' | 'ghost' | 'danger'
-  pendingTitle: string
+  /** No onAction = still-stubbed row: disabled with the wiring-pending title. */
+  pendingTitle?: string
+  onAction?: () => void
+  disabled?: boolean
+  disabledTitle?: string
 }) {
+  const wired = Boolean(onAction)
+  const isDisabled = !wired || Boolean(disabled)
   const toneClasses =
     tone === 'blue'
       ? 'border-sky-500/30 bg-sky-500/5'
@@ -174,9 +211,10 @@ function PrivacyAction({
       </div>
       <button
         type="button"
-        disabled
-        className={`inline-flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-semibold opacity-60 ${btnClasses}`}
-        title={pendingTitle}
+        onClick={onAction}
+        disabled={isDisabled}
+        className={`inline-flex h-8 shrink-0 items-center rounded-full px-3 text-xs font-semibold disabled:opacity-60 ${btnClasses}`}
+        title={!wired ? pendingTitle : disabledTitle}
       >
         {cta}
       </button>

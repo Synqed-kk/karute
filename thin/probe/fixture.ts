@@ -17,6 +17,7 @@ export const profile: CustomerProfileData = {
   name: '田中 花子',
   initials: '田',
   karuteNumber: '#00042',
+  deletedAt: null,
   age: 34,
   gender: '女性',
   joinDate: '2024年6月1日',
