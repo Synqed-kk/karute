@@ -170,6 +170,22 @@ describe('POST /karute/[id]/regenerate (Decision 2)', () => {
     expect(addEntry).not.toHaveBeenCalled()
   })
 
+  it('summarize cap hit AFTER extract consume → 200, extraction applied, summary skipped (no wasted slot)', async () => {
+    consume.mockImplementation(async (r: string) =>
+      r === 'summarize'
+        ? { allowed: false, reason: 'daily_cost', cap: 100, costCap: 500, costUsed: 500, resetAt: 't' }
+        : { allowed: true },
+    )
+    const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.added).toBe(1) // extraction ran and applied
+    expect(body.warning).toBeDefined() // summary downgraded, surfaced as warning
+    expect(runExtract).toHaveBeenCalled()
+    expect(runSummary).not.toHaveBeenCalled()
+    consume.mockResolvedValue({ allowed: true })
+  })
+
   it('cross-tenant / missing karute id → 404, no LLM/no write', async () => {
     const res = await regenerate(new Request('https://s/x', { method: 'POST', headers: idem }), routeFor('kar-OTHER'))
     expect(res.status).toBe(404)

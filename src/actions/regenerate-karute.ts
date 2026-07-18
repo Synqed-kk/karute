@@ -274,9 +274,22 @@ export async function regenerateKaruteWithClient(
   }
 
   // Cost guard BEFORE the LLM calls — ONE shared accounting path (extract +
-  // summarize both bill at gpt-4o). A cap hit throws rate_limited (→ 429).
+  // summarize both bill at gpt-4o). Extract is the hard gate (cap hit throws
+  // rate_limited → 429). Summarize's consume runs SECOND and a cap hit there
+  // downgrades to the existing best-effort-summary path instead of aborting —
+  // aborting would waste the extract slot already consumed (Greptile P2;
+  // consume() is check-and-take, there is no refund API).
   await enforceAiRateLimitWithClient(synqed, 'extract')
-  await enforceAiRateLimitWithClient(synqed, 'summarize')
+  let summarizeAllowed = true
+  try {
+    await enforceAiRateLimitWithClient(synqed, 'summarize')
+  } catch (err) {
+    if (err instanceof AppApiError && err.code === 'rate_limited') {
+      summarizeAllowed = false
+    } else {
+      throw err
+    }
+  }
 
   const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
   const businessType = orgSettings?.business_type
@@ -295,12 +308,14 @@ export async function regenerateKaruteWithClient(
   try {
     const [extract, summary] = await Promise.all([
       runKaruteExtraction({ transcript, locale, customerName, sessionDate, businessType }),
-      runKaruteSummary({ transcript, locale, customerName, sessionDate, businessType }).catch(
-        () => {
-          summaryFailed = true
-          return null
-        },
-      ),
+      summarizeAllowed
+        ? runKaruteSummary({ transcript, locale, customerName, sessionDate, businessType }).catch(
+            () => {
+              summaryFailed = true
+              return null
+            },
+          )
+        : ((summaryFailed = true), Promise.resolve(null)),
     ])
     if (extract.usage) {
       void reportAiUsageWithClient(synqed, 'extract', extract.usage.tokensIn, extract.usage.tokensOut)
