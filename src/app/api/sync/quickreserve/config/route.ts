@@ -24,8 +24,12 @@ export async function GET() {
     username: config.username ?? '',
     enabled: config.enabled,
     lastStatus: config.last_run_status
-      ? `${config.last_run_status}${config.last_run_error ? ': ' + config.last_run_error : ''} (${config.last_run_at ? new Date(config.last_run_at).toLocaleString() : 'never'})`
+      ? `${config.last_run_status}${config.last_run_error ? ': ' + config.last_run_error : ''}`
       : null,
+    // Raw ISO instant — the client formats it, so it renders in the DEVICE's
+    // timezone/locale. Formatting here ran in the lambda's zone: UTC-rendered
+    // en-US dates on JST phones.
+    lastRunAt: config.last_run_at ?? null,
   })
 }
 
