@@ -350,7 +350,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           </span>
           <button
             type="button"
-            onClick={() => setWarnOnly((v) => !v)}
+            onClick={() => {
+              // Mutual exclusion with break-glass (both directions, all
+              // paths): the 警告 lens over a break-glass feed would hide its
+              // info-severity rows under a nonzero count.
+              if (!warnOnly) setBreakGlass(false)
+              setWarnOnly(!warnOnly)
+            }}
             className={`inline-flex items-baseline gap-1.5 rounded-lg px-3.5 py-2 text-amber-700 transition-colors dark:text-amber-400 ${
               warnOnly ? 'bg-amber-500/25 ring-1 ring-amber-500/40' : 'bg-amber-500/10 hover:bg-amber-500/20'
             }`}
