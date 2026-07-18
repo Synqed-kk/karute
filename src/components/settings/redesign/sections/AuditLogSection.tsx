@@ -67,13 +67,18 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // append onto a different filter's page-1.
   const generation = useRef(0)
   // One privacy.audit_log_view row per section open — not per filter click.
+  // Two refs close both race directions: logged-after-success means a failed
+  // first fetch retries the row; pending-while-in-flight means an overlapping
+  // filter click can't send a duplicate.
   const openLogged = useRef(false)
+  const openLogPending = useRef(false)
 
   const load = useCallback(
     async (nextPage: number, append: boolean) => {
       const myGeneration = ++generation.current
       setLoading(true)
-      const logOpen = !openLogged.current
+      const logOpen = !openLogged.current && !openLogPending.current
+      if (logOpen) openLogPending.current = true
       const res = await listAuditLog({
         category: category ?? undefined,
         from: presetFrom(range),
@@ -83,15 +88,18 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         page: nextPage,
         logOpen,
       })
+      // Settle the open-log state BEFORE the stale-response return: even a
+      // superseded request wrote the row server-side iff it succeeded.
+      if (logOpen) {
+        openLogPending.current = false
+        if (res.ok) openLogged.current = true
+      }
       if (myGeneration !== generation.current) return
       if (!res.ok) {
         setError(res.error)
         setLoading(false)
         return
       }
-      // Marked only AFTER success: a transiently failed first fetch never
-      // wrote the open row server-side, so the retry must re-send logOpen.
-      if (logOpen) openLogged.current = true
       setError(null)
       setEvents((prev) => (append ? [...prev, ...res.events] : res.events))
       setPage(res.page)
