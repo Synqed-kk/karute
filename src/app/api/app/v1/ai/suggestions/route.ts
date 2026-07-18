@@ -43,14 +43,25 @@ export const POST = facadeHandler('ai.suggestions', async (ctx) => {
     return ok(ctx, { suggestions: [] })
   }
 
-  const cacheInput = { transcript: transcript?.slice(0, 500), summary, entries, locale }
+  const synqed = newSynqedClient(ctx.identity.businessId)
+
+  // Key carries the FULL transcript (getCachedAI sha256-hashes the input, so
+  // truncation only created prefix collisions) + the tenant's businessType —
+  // the prompt is persona-specific, so a persona must never serve another's
+  // cached result. Cache check stays BEFORE the rate limit (F-A1: a hit never
+  // consumes); only the org-settings read moves up to build the key.
+  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+  const cacheInput = {
+    transcript,
+    summary,
+    entries,
+    locale,
+    businessType: orgSettings?.business_type ?? null,
+  }
   const cached = await getCachedAI('suggestions', cacheInput)
   if (cached) return ok(ctx, cached)
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
   await enforceAiRateLimitWithClient(synqed, 'suggestions')
-
-  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
   const { result, usage } = await runKaruteSuggestions({
     transcript: transcript ?? undefined,
     summary: summary ?? undefined,

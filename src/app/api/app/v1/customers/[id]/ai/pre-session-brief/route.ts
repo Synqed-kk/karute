@@ -54,10 +54,12 @@ export const GET = facadeHandler<Params>('customer.ai.preSessionBrief', async (c
 
   // Re-derive the prompt inputs server-side (the client sent only ids).
   const records = await getCustomerKaruteRecordsWithClient(synqed, id, 10)
+  // Customer-bound: an appointment belonging to another customer must not leak
+  // its memo into this customer's brief (the id pair comes from the client).
   const apptNotes = appointmentId
     ? await synqed.appointments
         .get(appointmentId)
-        .then((a) => (a?.notes ?? null) as string | null)
+        .then((a) => (a?.customer_id === id ? ((a?.notes ?? null) as string | null) : null))
         .catch(() => null)
     : null
   const reservationMemo = memoContent(apptNotes) ?? memoContent(customer.notes ?? null)

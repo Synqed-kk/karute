@@ -171,6 +171,17 @@ describe('extract/summarize happy + validation', () => {
   })
 })
 
+describe('suggestions — tenant-aware cache key', () => {
+  it('key carries the FULL transcript + businessType (no 500-char prefix collisions)', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache') as { getCachedAI: jest.Mock }
+    const long = 'あ'.repeat(600)
+    const res = await suggestPOST(post(auth, { transcript: long, locale: 'ja' }), noRoute)
+    expect(res.status).toBe(200)
+    expect(getCachedAI).toHaveBeenCalledWith('suggestions',
+      expect.objectContaining({ transcript: long, businessType: null }))
+  })
+})
+
 describe('brief GET — tenancy', () => {
   it('happy → 200 { brief }', async () => {
     const res = await briefGET(get('/?locale=ja'), custRoute('cust-1'))
@@ -181,6 +192,20 @@ describe('brief GET — tenancy', () => {
     const res = await briefGET(get('/'), custRoute('cust-x'))
     expect(res.status).toBe(404)
     expect(getBrief).not.toHaveBeenCalled()
+  })
+  it('appointment of ANOTHER customer → its memo never reaches the brief', async () => {
+    ;(fakeClient.appointments.get as jest.Mock).mockResolvedValueOnce({ customer_id: 'cust-OTHER', notes: '他客のメモ' })
+    const res = await briefGET(get('/?appointmentId=appt-9'), custRoute('cust-1'))
+    expect(res.status).toBe(200)
+    expect(getBrief).toHaveBeenCalledWith(expect.anything(), expect.anything(),
+      expect.objectContaining({ reservationMemo: null }))
+  })
+  it('appointment of THIS customer → its memo flows into the brief', async () => {
+    ;(fakeClient.appointments.get as jest.Mock).mockResolvedValueOnce({ customer_id: 'cust-1', notes: '本人のメモ' })
+    const res = await briefGET(get('/?appointmentId=appt-1'), custRoute('cust-1'))
+    expect(res.status).toBe(200)
+    expect(getBrief).toHaveBeenCalledWith(expect.anything(), expect.anything(),
+      expect.objectContaining({ reservationMemo: '本人のメモ' }))
   })
   it('genuine upstream tenancy read → 502', async () => {
     const res = await briefGET(get('/'), custRoute('cust-boom'))
