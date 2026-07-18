@@ -5,15 +5,17 @@ import { listStores, getActiveStoreId } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import type { Capability } from '@/lib/auth/permissions'
-import { SettingsShell } from '@/components/settings/redesign/SettingsShell'
+import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import { SettingsPageChrome } from '@/components/settings/SettingsPageChrome'
 
 export default async function SettingsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ locale: string }>
+  searchParams: Promise<{ tab?: string; target?: string }>
 }) {
-  const { locale } = await params
+  const [{ locale }, sp] = await Promise.all([params, searchParams])
 
   const [
     staffList,
@@ -53,6 +55,15 @@ export default async function SettingsPage({
   const canViewAllStores = caps.has('stores.viewAll')
   const canManageStaff = caps.has('staff.manage')
   const canInviteStaff = caps.has('staff.invite')
+  // 監査ログ: owner always; a manager only via the explicit audit.view grant.
+  const canViewAudit = isOwner || caps.has('audit.view')
+
+  // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
+  // アクセス履歴 row). Unknown tab values — and audit links followed by staff
+  // without the grant — fall through to the default view, never a blank pane.
+  const initialTab: SettingsTabId | null =
+    sp.tab === 'audit' && canViewAudit ? 'audit' : null
+  const auditTargetId = initialTab === 'audit' && sp.target ? sp.target : null
 
   return (
     <SettingsPageChrome title={t('title')}>
@@ -65,6 +76,9 @@ export default async function SettingsPage({
         canViewAllStores={canViewAllStores}
         canManageStaff={canManageStaff}
         canInviteStaff={canInviteStaff}
+        canViewAudit={canViewAudit}
+        initialTab={initialTab}
+        auditTargetId={auditTargetId}
         initialStores={canViewAllStores ? stores : []}
         initialActiveStoreId={initialActiveStoreId}
         initialEntitlement={entitlement}

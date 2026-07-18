@@ -136,11 +136,12 @@ const TABS: TabDef[] = [
   // retired here. Payment method / invoices land in 店舗 too once Stripe
   // (task #14) is wired — SubscriptionSection stays on disk as scaffold.
   {
+    // Not ownerOnly: gated on canViewAudit (owner OR explicit audit.view
+    // grant) in settings-visibility, per the 7/17 per-manager-toggle ruling.
     id: 'audit',
     labelKey: 'auditLog.label',
     descriptionKey: 'auditLogDescription',
     icon: ShieldCheck,
-    ownerOnly: true,
   },
 ]
 
@@ -156,6 +157,12 @@ interface SettingsShellProps {
   canViewAllStores: boolean
   canManageStaff: boolean
   canInviteStaff: boolean
+  /** owner OR explicit audit.view grant — gates the 監査ログ tab. */
+  canViewAudit: boolean
+  /** Deep-link tab (?tab=…): opens drilled-in on mobile, selected on desktop. */
+  initialTab?: SettingsTabId | null
+  /** Customer id for the 監査ログ dispute view (?tab=audit&target=…). */
+  auditTargetId?: string | null
   /** Stores fetched on the server, passed straight to StoresSection so its
    *  list renders complete on first paint instead of fetching on mount. */
   initialStores: StoreRow[]
@@ -175,6 +182,9 @@ export function SettingsShell({
   canViewAllStores,
   canManageStaff,
   canInviteStaff,
+  canViewAudit,
+  initialTab,
+  auditTargetId,
   initialStores,
   initialActiveStoreId,
   initialEntitlement,
@@ -183,12 +193,12 @@ export function SettingsShell({
   // null = mobile list view (no section drilled into).
   // On desktop, `null` resolves to the first visible tab so the tab
   // strip always has something selected.
-  const [activeTab, setActiveTab] = useState<SettingsTabId | null>(null)
+  const [activeTab, setActiveTab] = useState<SettingsTabId | null>(initialTab ?? null)
 
   // 店舗 hidden from branch-restricted staff; staff roster clamped to self for
   // non-managers. Pure, unit-tested rules (see lib/auth/settings-visibility) —
   // this is UI exposure reduction; server actions enforce the real boundary.
-  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores })
+  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit })
   const visibleStaff = visibleStaffRoster(staffList, activeStaffId, canManageStaff)
 
   const desktopActiveTab = activeTab ?? visibleTabs[0]?.id ?? null
@@ -240,7 +250,11 @@ export function SettingsShell({
       case 'packs':
         return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
       case 'audit':
-        return isOwner ? <AuditLogSection /> : null
+        // Defense in depth alongside the tab filter (server action enforces
+        // audit.view regardless — this only stops a stray render).
+        return canViewAudit ? (
+          <AuditLogSection staffList={staffList} initialTargetId={auditTargetId} />
+        ) : null
       default:
         return null
     }

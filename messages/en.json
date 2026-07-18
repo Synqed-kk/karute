@@ -2050,8 +2050,61 @@
       "hiddenLabel": "Hidden"
     },
     "auditLog": {
-      "searchPlaceholder": "Search events…",
-      "label": "Audit log"
+      "label": "Audit log",
+      "description": "Who accessed or changed which record, and when.",
+      "allCategories": "All",
+      "categories": {
+        "auth": "Auth",
+        "customer": "Customer",
+        "karute": "Karute",
+        "recording": "Recording",
+        "ai": "AI",
+        "privacy": "Privacy",
+        "settings": "Settings",
+        "staff": "Staff",
+        "billing": "Billing"
+      },
+      "range": {
+        "7d": "7 days",
+        "30d": "30 days",
+        "90d": "90 days",
+        "all": "All time"
+      },
+      "includeViews": "Include views",
+      "breakGlass": "Privileged access",
+      "breakGlassChip": "Privileged",
+      "targetFilter": "Showing this customer's records only (views included)",
+      "clearTarget": "Clear",
+      "empty": "No events match these filters.",
+      "errorLoad": "Couldn't load the audit log.",
+      "errorForbidden": "You don't have access to the audit log.",
+      "loadMore": "Load more",
+      "systemActor": "System",
+      "unknownActor": "Unknown",
+      "actions": {
+        "customer": {
+          "view": "Viewed customer record",
+          "edit": "Edited customer info"
+        },
+        "staff": {
+          "add": "Added staff",
+          "update": "Updated staff",
+          "remove": "Removed staff",
+          "invite_create": "Created invite",
+          "invite_revoke": "Revoked invite"
+        },
+        "settings": {
+          "permissions_change": "Changed permissions",
+          "staff_stores_change": "Changed store assignment"
+        },
+        "privacy": {
+          "customer_export": "Exported customer data",
+          "audit_log_view": "Viewed audit log",
+          "customer_delete_scheduled": "Scheduled customer deletion",
+          "customer_delete_canceled": "Canceled customer deletion",
+          "customer_delete_executed": "Permanently deleted customer data"
+        }
+      }
     },
     "comingSoon": "Coming soon",
     "loginId": "Login ID",
@@ -2135,7 +2188,6 @@
     "consentRequiredDescription": "Only meaningful in Mode C.",
     "consentTemplate": "Consent template text",
     "consentTemplatePlaceholder": "We record this consultation to improve your care…",
-    "contactSales": "Contact sales",
     "subscriptionDescription": "Plan, billing, payment method",
     "auditLogDescription": "Access history — APPI compliance + governance",
     "storesTab": "Stores",
@@ -2251,7 +2303,6 @@
     "activeStore": "Active",
     "stores1": "1 store",
     "singleStoreNote": "Multi-store is coming soon. You're on a single-store plan today.",
-    "auditLogEmpty": "Audit logging starts when you upgrade to Professional. Talk to sales.",
     "displayLanguage": "Display language",
     "displayLanguageDescription": "Switches the entire UI.",
     "displayMode": "Display mode",

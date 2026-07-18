@@ -2050,8 +2050,61 @@
       "hiddenLabel": "非表示"
     },
     "auditLog": {
-      "searchPlaceholder": "イベントを検索…",
-      "label": "監査ログ"
+      "label": "監査ログ",
+      "description": "誰が・いつ・どの記録にアクセス/変更したかの記録です。",
+      "allCategories": "すべて",
+      "categories": {
+        "auth": "認証",
+        "customer": "顧客",
+        "karute": "カルテ",
+        "recording": "録音",
+        "ai": "AI",
+        "privacy": "プライバシー",
+        "settings": "設定",
+        "staff": "スタッフ",
+        "billing": "請求"
+      },
+      "range": {
+        "7d": "7日間",
+        "30d": "30日間",
+        "90d": "90日間",
+        "all": "全期間"
+      },
+      "includeViews": "閲覧を含む",
+      "breakGlass": "特権アクセス",
+      "breakGlassChip": "特権",
+      "targetFilter": "この顧客に関する記録のみ表示中（閲覧を含む）",
+      "clearTarget": "解除",
+      "empty": "この条件に一致する記録はありません。",
+      "errorLoad": "監査ログを読み込めませんでした。",
+      "errorForbidden": "監査ログへのアクセス権がありません。",
+      "loadMore": "さらに読み込む",
+      "systemActor": "システム",
+      "unknownActor": "不明",
+      "actions": {
+        "customer": {
+          "view": "顧客記録を閲覧",
+          "edit": "顧客情報を編集"
+        },
+        "staff": {
+          "add": "スタッフを追加",
+          "update": "スタッフ情報を更新",
+          "remove": "スタッフを削除",
+          "invite_create": "招待を作成",
+          "invite_revoke": "招待を取り消し"
+        },
+        "settings": {
+          "permissions_change": "権限を変更",
+          "staff_stores_change": "所属店舗を変更"
+        },
+        "privacy": {
+          "customer_export": "顧客データをエクスポート",
+          "audit_log_view": "監査ログを閲覧",
+          "customer_delete_scheduled": "顧客削除を予約",
+          "customer_delete_canceled": "顧客削除を取り消し",
+          "customer_delete_executed": "顧客データを完全削除"
+        }
+      }
     },
     "comingSoon": "近日公開",
     "loginId": "ログインID",
@@ -2135,7 +2188,6 @@
     "consentRequiredDescription": "モードCのみ有効です。",
     "consentTemplate": "同意テンプレート文",
     "consentTemplatePlaceholder": "本日のご相談内容を、よりよいケアのために録音いたします…",
-    "contactSales": "営業に相談",
     "subscriptionDescription": "プラン・請求・支払い方法の管理",
     "auditLogDescription": "アクセス履歴 — APPI準拠と社内ガバナンス",
     "storesTab": "店舗",
@@ -2250,7 +2302,6 @@
     "mainStore": "メイン",
     "activeStore": "有効",
     "stores1": "1店舗",
-    "auditLogEmpty": "監査ログはプロフェッショナル契約から利用できます。営業までご相談ください。",
     "displayLanguage": "表示言語",
     "displayLanguageDescription": "UI全体を切り替えます。",
     "displayMode": "表示モード",
