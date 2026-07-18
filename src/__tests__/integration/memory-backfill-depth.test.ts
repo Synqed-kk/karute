@@ -141,7 +141,9 @@ describe('backfillMemoryFromTranscripts — depth + dedupe seeding', () => {
 // sites are module-private render paths.
 describe('backfill render-path callers (source contract)', () => {
   const { readFileSync } = jest.requireActual('fs') as typeof import('fs')
-  const page = readFileSync('src/app/[locale]/(app)/customers/[id]/page.tsx', 'utf8')
+  // packet-06: the page's post-wave assembly (backfill included) moved into
+  // buildCustomerProfileScreen — the source contract follows the code.
+  const page = readFileSync('src/lib/customers/profile-screen.ts', 'utf8')
   const brief = readFileSync('src/lib/karute/ai-brief.ts', 'utf8')
 
   it('customer page: sorts newest-first, real-category trigger, maxChunks 2', () => {
