@@ -107,40 +107,43 @@ interface PreSessionBriefCardProps {
   customerName?: string | null
 }
 
-// Scaffolding shell used when no booking is selected (or no brief
-// data exists for the current booking). Renders the RETURNING-VISIT
-// branch with every section empty so the AI-capability hints surface
-// across the whole card — staff + Anthony see what each section WILL
-// contain once the pre_session_briefs table is populated.
-const EMPTY_BRIEF_SCAFFOLD: PreSessionBrief = {
-  isFirstTimeVisit: false,
-  lastVisitDate: '',
-  lastVisitAgo: '',
-  hooks: [],
-  concerns: [],
-  lastProduct: null,
-  recommendedFocus: null,
-  reservationMemo: null,
-}
-
 export function PreSessionBriefCard({
   brief,
   customerName,
 }: PreSessionBriefCardProps) {
   const t = useTranslations('recording.brief')
   const [detailOpen, setDetailOpen] = useState(false)
-  // Always render — when `brief` is null we fall back to the
-  // scaffolding shell above so staff sees every AI-capability hint.
-  const isScaffoldOnly = !brief
-  const effectiveBrief = brief ?? EMPTY_BRIEF_SCAFFOLD
-  const hasMemoAnalysis = (effectiveBrief.memoAnalysis?.length ?? 0) > 0
+
+  // No recording target (no booking selected — e.g. a day with zero
+  // bookings). One quiet explainer line. The earlier empty-state
+  // scaffold rendered every section as a 対応予定 placeholder, which
+  // read as a broken page on closed days.
+  if (!brief) {
+    return (
+      <section className="rounded-2xl bg-gradient-to-br from-blue-50/60 via-card to-card p-4 ring-1 ring-blue-100 dark:from-blue-500/10 dark:via-card dark:to-card dark:ring-blue-500/20 md:p-5">
+        <header className="mb-2 flex items-center gap-2">
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-blue-600 text-white">
+            <Sparkles className="size-3.5" aria-hidden />
+          </div>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
+            {t('title')}
+          </span>
+        </header>
+        <p className="text-[13px] leading-relaxed text-muted-foreground">
+          {t('noTarget')}
+        </p>
+      </section>
+    )
+  }
+
+  const hasMemoAnalysis = (brief.memoAnalysis?.length ?? 0) > 0
   // 30-second layer (v7 AI briefs). When ANY of it exists the card leads with
   // opener → cautions → today's actions and folds the classic recap sections
   // into a 詳しい経過 toggle. Pre-v7 caches / the mechanical fallback have none
   // of these fields → classic layout renders exactly as before.
-  const hasOpener = !!(effectiveBrief.opener || effectiveBrief.lastWords)
-  const cautions = effectiveBrief.cautions ?? []
-  const todayActions = effectiveBrief.todayActions ?? []
+  const hasOpener = !!(brief.opener || brief.lastWords)
+  const cautions = brief.cautions ?? []
+  const todayActions = brief.todayActions ?? []
   const hasThirtySecondLayer = hasOpener || cautions.length > 0 || todayActions.length > 0
   // Layer-contract seat belt: the prompt forbids a hook from repeating the
   // opener's topic, but a slipped generation (or a stale cache) must still
@@ -154,7 +157,7 @@ export function PreSessionBriefCard({
   // pairs score high (同棲中の彼氏/彼氏と同棲中 ≈ 0.71), while a real memory
   // detail dilutes far below the line — those bodies always survive. When it
   // trips we keep the hook and drop only the echo body.
-  const dedupedHooks = effectiveBrief.hooks.map((h) => {
+  const dedupedHooks = brief.hooks.map((h) => {
     const title = normalizeForDedup(h.title)
     const body = normalizeForDedup(h.body ?? '')
     if (title.length >= 4 && body.length >= 4 && charOverlap(title, body) >= 0.6) {
@@ -162,7 +165,7 @@ export function PreSessionBriefCard({
     }
     return h
   })
-  const openerNorm = normalizeForDedup(effectiveBrief.opener ?? '')
+  const openerNorm = normalizeForDedup(brief.opener ?? '')
   const visibleHooks = openerNorm
     ? dedupedHooks.filter((h) => {
         const title = normalizeForDedup(h.title)
@@ -177,7 +180,7 @@ export function PreSessionBriefCard({
         return true
       })
     : dedupedHooks
-  const rhythm = effectiveBrief.rhythm ?? null
+  const rhythm = brief.rhythm ?? null
   const rhythmLabel = rhythm
     ? rhythm.usualGapDays && rhythm.usualGapDays > 0
       ? rhythm.daysSince <= rhythm.usualGapDays * 0.6
@@ -192,7 +195,7 @@ export function PreSessionBriefCard({
   // Matches the spike's first-visit branch (no recap sections; just
   // an explainer + optional reservation memo). Only enters this
   // branch when we have a real brief flagged as first-time visit.
-  if (effectiveBrief.isFirstTimeVisit && !isScaffoldOnly) {
+  if (brief.isFirstTimeVisit) {
     return (
       <section className="rounded-2xl bg-gradient-to-br from-blue-50/60 via-card to-card p-4 ring-1 ring-blue-100 dark:from-blue-500/10 dark:via-card dark:to-card dark:ring-blue-500/20 md:p-5">
         <div className="mb-2 flex items-center gap-2">
@@ -209,16 +212,16 @@ export function PreSessionBriefCard({
         {/* Booking note verbatim when present. No memo → render nothing —
          *  the first-visit framing copy already carries the card, and an
          *  empty "AI will analyze the memo" hint read as broken/dead. */}
-        {effectiveBrief.reservationMemo && (
+        {brief.reservationMemo && (
           <MemoBlock
-            memo={effectiveBrief.reservationMemo}
+            memo={brief.reservationMemo}
             label={t('reservationMemo')}
             className="mt-4"
           />
         )}
         {hasMemoAnalysis && (
           <MemoAnalysisBlock
-            points={effectiveBrief.memoAnalysis!}
+            points={brief.memoAnalysis!}
             label={t('memoAnalysisLabel')}
             className="mt-2"
           />
@@ -239,20 +242,12 @@ export function PreSessionBriefCard({
           <div className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 dark:text-blue-300">
             {t('title')}
           </div>
-          {effectiveBrief.lastVisitDate && (
+          {brief.lastVisitDate && (
             <div className="mt-0.5 text-[11px] tabular-nums text-muted-foreground">
               {t('lastVisitInline', {
-                date: effectiveBrief.lastVisitDate,
-                ago: effectiveBrief.lastVisitAgo,
+                date: brief.lastVisitDate,
+                ago: brief.lastVisitAgo,
               })}
-            </div>
-          )}
-          {/* Scaffold-only subtitle — surfaces when no booking is
-           *  selected so staff knows the card below is a preview
-           *  of what'll render once they pick a booking. */}
-          {isScaffoldOnly && (
-            <div className="mt-0.5 text-[11px] italic text-muted-foreground">
-              {t('subtitleScaffold')}
             </div>
           )}
         </div>
@@ -269,27 +264,21 @@ export function PreSessionBriefCard({
       {/* Reservation memo — surface FIRST when present (it's literal
        *  customer text for THIS visit, not AI-synthesized history).
        *  Most relevant hook staff should open with. */}
-      {effectiveBrief.reservationMemo ? (
+      {brief.reservationMemo ? (
         <>
           <MemoBlock
-            memo={effectiveBrief.reservationMemo}
+            memo={brief.reservationMemo}
             label={t('reservationMemo')}
             className={hasMemoAnalysis ? 'mb-2' : 'mb-4'}
           />
           {hasMemoAnalysis && (
             <MemoAnalysisBlock
-              points={effectiveBrief.memoAnalysis!}
+              points={brief.memoAnalysis!}
               label={t('memoAnalysisLabel')}
               className="mb-4"
             />
           )}
         </>
-      ) : isScaffoldOnly ? (
-        <AiCapabilityHint
-          label={t('aiHintLabel')}
-          body={t('aiHintNoMemo')}
-          className="mb-4"
-        />
       ) : null}
 
       {/* ① 会話の第一声 — the opener + the customer's own words from last
@@ -300,14 +289,14 @@ export function PreSessionBriefCard({
             <MessageCircle className="size-3" aria-hidden />
             {t('opener')}
           </div>
-          {effectiveBrief.opener && (
+          {brief.opener && (
             <p className="text-[14px] font-medium leading-relaxed text-foreground/95">
-              {effectiveBrief.opener}
+              {brief.opener}
             </p>
           )}
-          {effectiveBrief.lastWords && (
+          {brief.lastWords && (
             <p className="mt-1 text-[12.5px] leading-relaxed text-muted-foreground">
-              {t('lastWords')}：{effectiveBrief.lastWords}
+              {t('lastWords')}：{brief.lastWords}
             </p>
           )}
         </div>
@@ -404,23 +393,16 @@ export function PreSessionBriefCard({
                 ))}
               </ul>
             </BriefSection>
-          ) : isScaffoldOnly ? (
-            <BriefSection
-              icon={<PawPrint className="size-3" />}
-              title={t('hooks')}
-            >
-              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintHooks')} />
-            </BriefSection>
           ) : null
 
         const concernsSection =
-          effectiveBrief.concerns.length > 0 ? (
+          brief.concerns.length > 0 ? (
             <BriefSection
               icon={<Clock className="size-3" />}
               title={t('concerns')}
             >
               <ul className="space-y-1">
-                {effectiveBrief.concerns.map((c, i) => (
+                {brief.concerns.map((c, i) => (
                   <li
                     key={i}
                     className="flex gap-2 text-[13px] leading-relaxed text-foreground/85"
@@ -431,53 +413,32 @@ export function PreSessionBriefCard({
                 ))}
               </ul>
             </BriefSection>
-          ) : isScaffoldOnly ? (
-            <BriefSection
-              icon={<Clock className="size-3" />}
-              title={t('concerns')}
-            >
-              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintConcerns')} />
-            </BriefSection>
           ) : null
 
         const productSection =
-          effectiveBrief.lastProduct ? (
+          brief.lastProduct ? (
             <BriefSection
               icon={<Gift className="size-3" />}
               title={t('lastProduct')}
             >
               <div className="text-[13px] leading-relaxed text-foreground/90">
-                <span className="font-medium">{effectiveBrief.lastProduct.name}</span>
-                {effectiveBrief.lastProduct.reaction && (
-                  <span className="text-muted-foreground"> — {effectiveBrief.lastProduct.reaction}</span>
+                <span className="font-medium">{brief.lastProduct.name}</span>
+                {brief.lastProduct.reaction && (
+                  <span className="text-muted-foreground"> — {brief.lastProduct.reaction}</span>
                 )}
               </div>
-            </BriefSection>
-          ) : isScaffoldOnly ? (
-            <BriefSection
-              icon={<Gift className="size-3" />}
-              title={t('lastProduct')}
-            >
-              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintLastProduct')} />
             </BriefSection>
           ) : null
 
         const focusSection =
-          effectiveBrief.recommendedFocus ? (
+          brief.recommendedFocus ? (
             <BriefSection
               icon={<Target className="size-3" />}
               title={t('recommendedFocus')}
             >
               <p className="text-[13px] leading-relaxed text-foreground/85">
-                {effectiveBrief.recommendedFocus}
+                {brief.recommendedFocus}
               </p>
-            </BriefSection>
-          ) : isScaffoldOnly ? (
-            <BriefSection
-              icon={<Target className="size-3" />}
-              title={t('recommendedFocus')}
-            >
-              <AiCapabilityHint label={t('aiHintLabel')} body={t('aiHintRecommendedFocus')} />
             </BriefSection>
           ) : null
 
@@ -670,40 +631,3 @@ function MemoAnalysisBlock({
   )
 }
 
-// AI-capability scaffolding hint — surfaces what the (not-yet-wired) AI
-// function will produce for a given section. Lets staff + Anthony see
-// the contract before the nightly batch job exists. Visual language
-// matches the karute project's existing "対応予定" pill convention
-// (CustomerMemoryCard).
-//
-// ANTHONY: remove this component (and its callers) once the
-// pre_session_briefs table is populated by the AI batch job — at that
-// point real content fills the sections and the scaffolding hint is
-// no longer informative.
-function AiCapabilityHint({
-  label,
-  body,
-  className,
-}: {
-  label: string
-  body: string
-  className?: string
-}) {
-  return (
-    <div
-      className={`flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-2.5 dark:border-blue-500/30 dark:bg-blue-500/[0.06] ${className ?? ''}`}
-    >
-      <Wand2 className="mt-0.5 size-3 shrink-0 text-blue-500/80 dark:text-blue-300/80" aria-hidden />
-      <div className="min-w-0 flex-1">
-        <div className="mb-0.5 flex items-center gap-1.5">
-          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-            {label}
-          </span>
-        </div>
-        <p className="text-[11px] italic leading-relaxed text-muted-foreground">
-          {body}
-        </p>
-      </div>
-    </div>
-  )
-}

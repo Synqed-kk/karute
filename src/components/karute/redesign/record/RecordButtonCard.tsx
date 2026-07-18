@@ -79,7 +79,9 @@ export function RecordButtonCard({
       </button>
       <div className="text-base font-semibold text-foreground">{t('startTitle')}</div>
       <div className="text-[13px] text-muted-foreground">
-        {t('startSub', { name: customerName ?? '—' })}
+        {/* No target → neutral copy. The '—' fallback rendered 「—様の
+         *  セッションを録音します」, which read as a broken name. */}
+        {customerName ? t('startSub', { name: customerName }) : t('startSubNoTarget')}
       </div>
     </section>
   )
