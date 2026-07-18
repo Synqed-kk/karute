@@ -24,6 +24,15 @@ export const MAX_TRANSCRIPT_CHARS = 60_000
  *  visits) — bigger than a field, smaller than a raw transcript. */
 export const MAX_HISTORY_CHARS = 30_000
 
+/** STORAGE-layer ceiling for a stored/round-tripped transcript at the facade
+ *  boundary (packet 08 §Build 3 F8 cap) — distinct from MAX_TRANSCRIPT_CHARS
+ *  above, which CLAMPS the LLM input (a stored take must never be silently
+ *  truncated). A realistic 2 h diarized JA take with speaker labels lands
+ *  ~40–60k chars; 500k is ~10× that headroom, so a legitimate long session is
+ *  never rejected while a garbage/oversized payload is. Single source for every
+ *  new facade schema's transcript field. */
+export const MAX_STORED_TRANSCRIPT_CHARS = 500_000
+
 /** Wrap untrusted content so the LLM can structurally distinguish it from instructions. */
 export function wrapUntrustedContent(label: string, value: string, max?: number): string {
   const clipped = clipForSafety(value, max)
