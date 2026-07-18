@@ -79,15 +79,28 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       setLoading(true)
       const logOpen = !openLogged.current && !openLogPending.current
       if (logOpen) openLogPending.current = true
-      const res = await listAuditLog({
-        category: category ?? undefined,
-        from: presetFrom(range),
-        targetId: targetId ?? undefined,
-        includeViews,
-        breakGlass: breakGlass || undefined,
-        page: nextPage,
-        logOpen,
-      })
+      let res: Awaited<ReturnType<typeof listAuditLog>>
+      try {
+        res = await listAuditLog({
+          category: category ?? undefined,
+          from: presetFrom(range),
+          targetId: targetId ?? undefined,
+          includeViews,
+          breakGlass: breakGlass || undefined,
+          page: nextPage,
+          logOpen,
+        })
+      } catch {
+        // Network-level rejection (offline, mid-deploy): release the pending
+        // flag so the retry re-sends logOpen, and surface the error state
+        // instead of an unhandled rejection.
+        if (logOpen) openLogPending.current = false
+        if (myGeneration === generation.current) {
+          setError('failed')
+          setLoading(false)
+        }
+        return
+      }
       // Settle the open-log state BEFORE the stale-response return: even a
       // superseded request wrote the row server-side iff it succeeded.
       if (logOpen) {
