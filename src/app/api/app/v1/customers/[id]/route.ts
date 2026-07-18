@@ -11,6 +11,18 @@ import { toCustomerProfileDTO } from '@/lib/app-api/customer-dto'
 import { toCustomerProfileScreenDTO } from '@/lib/app-api/customer-profile-screen-dto'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { SynqedError } from '@synqed-kk/client'
+
+/** Only core's REAL not-found (business-scoped 404 — covers cross-tenant ids)
+ *  maps to 404; a timeout / network failure / core 5xx surfaces as
+ *  upstream_unavailable, never impersonating a missing customer (Greptile P1s
+ *  on #486 — GET, PATCH If-Match pre-read, and PATCH post-write read alike). */
+function classifyCustomerLookupError(err: unknown): AppApiError {
+  if (err instanceof AppApiError) return err
+  if (err instanceof SynqedError && err.status === 404) {
+    return new AppApiError('not_found', 'customer not found in this business')
+  }
+  return new AppApiError('upstream_unavailable', 'customer lookup unavailable')
+}
 import { updateCustomerWithClient } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
 import { getCustomerWithClient } from '@/lib/customers/queries'
@@ -54,9 +66,9 @@ async function readCustomer(businessId: string, id: string) {
   let customer: Awaited<ReturnType<typeof synqed.customers.get>>
   try {
     customer = await synqed.customers.get(id)
-  } catch {
+  } catch (err) {
     // Business-scoped client → a customer in ANOTHER tenant reads as not-found.
-    throw new AppApiError('not_found', 'customer not found in this business')
+    throw classifyCustomerLookupError(err)
   }
   const consentResult = await synqed.customers.getConsent(id).catch(() => null)
   const consentGranted = isConsentCurrent(consentResult?.consent as { policy_version?: string | null } | null)
@@ -78,14 +90,7 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
   try {
     customer = await getCustomerWithClient(synqed, id)
   } catch (err) {
-    // Only core's REAL not-found (business-scoped 404 — covers cross-tenant
-    // ids) maps to 404; a timeout / network failure / core 5xx must surface
-    // as upstream_unavailable, never impersonate a missing customer
-    // (Greptile P1 on #486).
-    if (err instanceof SynqedError && err.status === 404) {
-      throw new AppApiError('not_found', 'customer not found in this business')
-    }
-    throw new AppApiError('upstream_unavailable', 'customer lookup unavailable')
+    throw classifyCustomerLookupError(err)
   }
 
   try {
@@ -187,8 +192,8 @@ export const PATCH = facadeHandler<Params>('customer.update', async (ctx) => {
     let current: Awaited<ReturnType<typeof synqed.customers.get>>
     try {
       current = await synqed.customers.get(id)
-    } catch {
-      throw new AppApiError('not_found', 'customer not found in this business')
+    } catch (err) {
+      throw classifyCustomerLookupError(err)
     }
     if (current.updated_at !== ifMatch) {
       throw new AppApiError('conflict', 'customer was modified; refetch and retry', {

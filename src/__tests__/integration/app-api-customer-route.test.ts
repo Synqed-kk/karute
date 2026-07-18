@@ -47,7 +47,12 @@ const update = jest.fn(async () => ({}))
 const fakeClient = {
   customers: {
     get: jest.fn(async (id: string) => {
-      if (id !== 'cust-1') throw new Error('404 not this tenant')
+      if (id !== 'cust-1') {
+        // The SDK's real 404 shape — a plain Error now classifies as a 502
+        // outage, never a phantom not_found.
+        const { SynqedError } = jest.requireMock('@synqed-kk/client')
+        throw new SynqedError(404, 'not this tenant')
+      }
       return CUSTOMER_ROW
     }),
     getConsent: jest.fn(async () => ({ consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION } })),
@@ -60,7 +65,16 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 // queries.ts (getCustomerWithClient, now imported by the route) pulls the
 // untransformed-ESM SynqedClient at module scope — stub it.
-jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn(),
+  SynqedError: class SynqedError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  },
+}))
 
 import { PATCH, OPTIONS } from '@/app/api/app/v1/customers/[id]/route'
 
