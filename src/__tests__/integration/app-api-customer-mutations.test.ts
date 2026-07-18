@@ -41,6 +41,12 @@ jest.mock('@/lib/auth/require-permission', () => ({
 const revokeConsent = jest.fn(async () => undefined)
 const uploadPhoto = jest.fn(async () => ({ id: 'photo-1' }))
 const fakeClient = { customers: { revokeConsent, uploadPhoto } }
+// Relearn transcript read — spied so the owner-gate tests can distinguish
+// "gate refused before any read" from "read ran, nothing to relearn".
+jest.mock('@/lib/karute/synqed-records', () => ({
+  ...jest.requireActual('@/lib/karute/synqed-records'),
+  listSynqedKaruteRows: jest.fn(async () => []),
+}))
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => fakeClient, getSynqedClient: async () => fakeClient }))
 
 // Tenancy oracle: cust-1 belongs to this business; anything else 404s.
@@ -262,6 +268,32 @@ describe('POST memory/relearn', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.ok).toBe(false) // listSynqedKaruteRows mocked empty → nothing to relearn
+  })
+  it('owner-gate (7/16 ruling): customers.view alone → refused BEFORE any transcript read', async () => {
+    const { listSynqedKaruteRows } = jest.requireMock('@/lib/karute/synqed-records') as {
+      listSynqedKaruteRows: jest.Mock
+    }
+    // default capabilities = {customers.view} only
+    const res = await memoryRelearn(
+      new Request('https://s/x', { method: 'POST', headers: { ...auth, 'Idempotency-Key': 'k-gate' } }),
+      route({ id: 'cust-1' }),
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(false)
+    expect(listSynqedKaruteRows).not.toHaveBeenCalled()
+  })
+  it('owner-gate: business.manage + recordings.viewAll passes the gate (read runs)', async () => {
+    const { listSynqedKaruteRows } = jest.requireMock('@/lib/karute/synqed-records') as {
+      listSynqedKaruteRows: jest.Mock
+    }
+    capabilities.current = new Set(['customers.view', 'business.manage', 'recordings.viewAll'])
+    const res = await memoryRelearn(
+      new Request('https://s/x', { method: 'POST', headers: { ...auth, 'Idempotency-Key': 'k-owner' } }),
+      route({ id: 'cust-1' }),
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).ok).toBe(false) // empty rows — but the read RAN
+    expect(listSynqedKaruteRows).toHaveBeenCalled()
   })
 })
 
