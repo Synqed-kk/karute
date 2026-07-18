@@ -23,6 +23,13 @@ for (const envVar of REQUIRED_ENV_VARS) {
   }
 }
 
+// CI has no OpenAI secret, and src/lib/openai.ts constructs its client at
+// module load — importing it without a key throws (broke main CI at #486
+// once the phase-2 AI-core extractions pulled it into unmocked suites).
+// Calls are mocked/caught in tests; the dummy only satisfies the
+// constructor. `??=` keeps a real local key when one is set.
+process.env.OPENAI_API_KEY ??= 'dummy-not-a-key'
+
 // Guard against accidentally pointing at production
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 if (
