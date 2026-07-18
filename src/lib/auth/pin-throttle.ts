@@ -9,6 +9,8 @@
 // core-side attempt counter (Anthony brief). Upgrade path when throughput needs
 // it: back this with the same store core uses, same interface.
 
+import { audit } from '@/lib/audit'
+
 interface AttemptState {
   fails: number
   windowStart: number
@@ -30,10 +32,21 @@ export function _resetPinThrottle(): void {
   attempts.clear()
 }
 
-/** Audit hook. Kept as a structured log line (no PIN, no secrets) — the seam a
- *  durable audit sink attaches to. */
+/** Audit hook — now routed through the shared audit emitter (no PIN, no
+ *  secrets; ids + lock level only). Design: AUDIT-LOG-DESIGN.md §3 auth. */
 function auditLockout(actor: string, target: string, lockLevel: number): void {
-  console.warn(JSON.stringify({ evt: 'pin_lockout', actor, target, lockLevel }))
+  audit({
+    category: 'auth',
+    action: 'auth.pin_lockout',
+    actorId: actor,
+    actorType: 'staff',
+    businessId: null,
+    targetType: 'staff',
+    targetId: target,
+    severity: 'warning',
+    detail: { lockLevel },
+    source: 'web',
+  })
 }
 
 export interface ThrottleDecision {

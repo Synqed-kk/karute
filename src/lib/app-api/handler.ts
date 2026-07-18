@@ -13,6 +13,7 @@
 import { corsHeaders, preflightResponse } from './cors'
 import { AppApiError, toAppApiError, errorBody } from './errors'
 import { resolveBearerIdentity, type RequestIdentity } from './identity'
+import { audit, FACADE_AUDIT_MAP } from '@/lib/audit'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import type { GetUserFn } from '@/lib/auth/revocation'
 
@@ -75,12 +76,50 @@ export function facadeHandler<P = Record<string, string>>(
 
     try {
       const identity = await resolveBearerIdentity(req, endpoint, deps)
-      return await fn({ req, identity, origin, route, meta })
+      const res = await fn({ req, identity, origin, route, meta })
+      await logFacadeAudit(endpoint, res, identity, route, meta)
+      return res
     } catch (err) {
       const apiErr = toAppApiError(err)
       logFacadeError(endpoint, apiErr, meta)
       return jsonResponse(errorBody(apiErr), apiErr.status, origin, requestId)
     }
+  }
+}
+
+/** Audit hook — every facade success flows through here (AUDIT-LOG-DESIGN.md).
+ *  Classification is table-driven (FACADE_AUDIT_MAP, deny-default): mutations +
+ *  single-record opens emit one event; list endpoints are deliberately exempt.
+ *  Best-effort by design: an audit emit failure must never break the response
+ *  (the interim sink is a console line; the evidentiary rule is "the log proves
+ *  presence, never absence"). */
+async function logFacadeAudit(
+  endpoint: string,
+  res: Response,
+  identity: RequestIdentity,
+  route: { params: Promise<unknown> },
+  meta: FacadeContext['meta'],
+): Promise<void> {
+  try {
+    // 2xx only — a redirect or other non-success must not read as a completed
+    // action (Greptile round: redirects counted as actions under `< 400`).
+    if (res.status < 200 || res.status >= 300) return
+    const rule = FACADE_AUDIT_MAP[endpoint]
+    if (!rule || rule.kind === 'skip') return
+    const params = (await route.params) as Record<string, string> | undefined
+    audit({
+      category: rule.category,
+      action: rule.action,
+      actorId: identity.authUserId,
+      actorType: 'staff',
+      businessId: identity.businessId,
+      targetType: rule.targetType,
+      targetId: rule.targetType && params?.id ? params.id : undefined,
+      requestId: meta.requestId,
+      source: 'facade',
+    })
+  } catch {
+    // Never let auditing break the request path.
   }
 }
 
