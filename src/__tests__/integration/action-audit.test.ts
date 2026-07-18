@@ -51,14 +51,27 @@ jest.mock('@/lib/auth/require-permission', () => ({
 const staffCreate = jest.fn(async () => ({ id: 'staff-new' }))
 const staffUpdate = jest.fn(async () => ({}))
 const staffDelete = jest.fn(async () => {})
+const staffSetPin = jest.fn(async () => ({}))
+const staffRemovePin = jest.fn(async () => ({}))
+const staffUploadAvatar = jest.fn(async () => ({ avatar_url: 'https://cdn.test/a.png' }))
 const invitesCreate = jest.fn(async () => ({ id: 'inv-1' }))
 const invitesUpdateStatus = jest.fn(async () => ({}))
 const staffStoresSet = jest.fn(async () => ({}))
+const storesCreate = jest.fn(async () => ({ id: 'store-new' }))
+const storesUpdate = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
-    staff: { create: staffCreate, update: staffUpdate, delete: staffDelete },
+    staff: {
+      create: staffCreate,
+      update: staffUpdate,
+      delete: staffDelete,
+      setPin: staffSetPin,
+      removePin: staffRemovePin,
+      uploadAvatar: staffUploadAvatar,
+    },
     invites: { create: invitesCreate, updateStatus: invitesUpdateStatus },
     staffStores: { set: staffStoresSet },
+    stores: { create: storesCreate, update: storesUpdate },
   })),
 }))
 
@@ -126,10 +139,11 @@ jest.mock('@/lib/supabase/server', () => ({
   })),
 }))
 
-import { createStaff, updateStaff, deleteStaff } from '@/actions/staff'
+import { createStaff, updateStaff, deleteStaff, uploadStaffAvatar } from '@/actions/staff'
 import { createInvite, revokeInvite, acceptInvite } from '@/actions/invites'
 import { setStaffPermissions } from '@/actions/permissions'
-import { setStaffStores } from '@/actions/stores'
+import { setStaffPin, removeStaffPin } from '@/actions/staff-pin'
+import { setStaffStores, createStore, updateStore } from '@/actions/stores'
 import { presetCapabilities } from '@/lib/auth/permissions'
 import { auditLines } from './helpers/audit-lines'
 
@@ -277,6 +291,81 @@ describe('authority writers', () => {
       target_id: 'staff-9',
       detail: { store_ids: 'store-a,store-b', count: 2 },
     })
+  })
+})
+
+describe('credential + store + profile writers (wave A part 3)', () => {
+  it('setStaffPin emits staff.pin_set at notice — never the PIN value', async () => {
+    const lines = await auditLines(async () => {
+      await expect(setStaffPin('staff-9', '1234')).resolves.toEqual({})
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'staff',
+      action: 'staff.pin_set',
+      severity: 'notice',
+      target_type: 'staff',
+      target_id: 'staff-9',
+    })
+    expect(JSON.stringify(lines[0])).not.toContain('1234')
+  })
+
+  it('removeStaffPin emits staff.pin_removed at notice', async () => {
+    const lines = await auditLines(async () => {
+      await expect(removeStaffPin('staff-9')).resolves.toEqual({})
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'staff.pin_removed', severity: 'notice' })
+  })
+
+  it('uploadStaffAvatar emits staff.avatar_update at info', async () => {
+    const fd = new FormData()
+    fd.set('file', new File(['x'], 'a.png', { type: 'image/png' }))
+    const lines = await auditLines(async () => {
+      await expect(uploadStaffAvatar('staff-9', fd)).resolves.toEqual({
+        url: 'https://cdn.test/a.png',
+      })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'staff.avatar_update',
+      severity: 'info',
+      target_id: 'staff-9',
+    })
+  })
+
+  it('createStore emits settings.store_create targeting the new store id', async () => {
+    const lines = await auditLines(async () => {
+      await expect(
+        createStore({ name: '渋谷店', address: '', phone: '', business_type: 'esthetic_salon' }),
+      ).resolves.toEqual({ id: 'store-new' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'settings',
+      action: 'settings.store_create',
+      target_type: 'store',
+      target_id: 'store-new',
+    })
+  })
+
+  it('updateStore emits settings.store_update targeting the edited store', async () => {
+    const lines = await auditLines(async () => {
+      await expect(
+        updateStore('store-7', { name: '渋谷店', address: '', phone: '', business_type: 'esthetic_salon' }),
+      ).resolves.toEqual({ ok: true })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'settings.store_update', target_id: 'store-7' })
+  })
+
+  it('a failed PIN write emits nothing (silence contract)', async () => {
+    staffSetPin.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const res = await setStaffPin('staff-9', '1234')
+      expect(res.error).toBeTruthy()
+    })
+    expect(lines).toHaveLength(0)
   })
 })
 

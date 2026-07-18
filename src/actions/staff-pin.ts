@@ -2,6 +2,7 @@
 
 import { updateTag } from 'next/cache'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import {
   checkPinThrottle,
@@ -27,6 +28,14 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
   try {
     const synqed = await getSynqedClient()
     await synqed.staff.setPin(staffId, pin, actingStaffId)
+    // Credential change (never the PIN itself — ids only).
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.pin_set',
+      severity: 'notice',
+      targetType: 'staff',
+      targetId: staffId,
+    })
     updateTag('staff-list')
     return {}
   } catch (err) {
@@ -46,6 +55,13 @@ export async function removeStaffPin(staffId: string): Promise<{ error?: string 
   try {
     const synqed = await getSynqedClient()
     await synqed.staff.removePin(staffId, actingStaffId)
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.pin_removed',
+      severity: 'notice',
+      targetType: 'staff',
+      targetId: staffId,
+    })
     updateTag('staff-list')
     return {}
   } catch (err) {

@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { auditWeb } from '@/lib/audit-web'
 import { getBusinessId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 
@@ -63,6 +64,15 @@ export async function POST(request: Request) {
       { status: 502 },
     )
   }
+
+  // Credential-bearing config write; flags only, never the values.
+  await auditWeb({
+    category: 'settings',
+    action: 'settings.sync_config_update',
+    severity: 'notice',
+    targetType: 'business',
+    detail: { enabled: Boolean(enabled), password_changed: Boolean(password) },
+  })
 
   return NextResponse.json({ success: true })
 }

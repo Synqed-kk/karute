@@ -250,6 +250,12 @@ export async function uploadStaffAvatar(
   try {
     const synqed = await getSynqedClient()
     const { avatar_url } = await synqed.staff.uploadAvatar(staffId, file)
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.avatar_update',
+      targetType: 'staff',
+      targetId: staffId,
+    })
     revalidatePath('/settings')
     revalidatePath('/', 'layout')
     updateTag('staff-list')

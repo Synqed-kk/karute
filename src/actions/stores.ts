@@ -271,6 +271,12 @@ export async function createStore(
       business_type: parsed.data.business_type,
     }
     const store = await synqed.stores.create(payload)
+    await auditWeb({
+      category: 'settings',
+      action: 'settings.store_create',
+      targetType: 'store',
+      targetId: store.id,
+    })
     revalidatePath('/settings')
     return { id: store.id }
   } catch (e) {
@@ -304,6 +310,12 @@ export async function updateStore(
       business_type: parsed.data.business_type,
     }
     await synqed.stores.update(id, payload)
+    await auditWeb({
+      category: 'settings',
+      action: 'settings.store_update',
+      targetType: 'store',
+      targetId: id,
+    })
     revalidatePath('/settings')
     return { ok: true }
   } catch (e) {

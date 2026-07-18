@@ -2098,18 +2098,26 @@
           "update": "スタッフ情報を更新",
           "remove": "スタッフを削除",
           "invite_create": "招待を作成",
-          "invite_revoke": "招待を取り消し"
+          "invite_revoke": "招待を取り消し",
+          "pin_set": "PINを設定",
+          "pin_removed": "PINを削除",
+          "avatar_update": "プロフィール画像を更新"
         },
         "settings": {
           "permissions_change": "権限を変更",
-          "staff_stores_change": "所属店舗を変更"
+          "staff_stores_change": "所属店舗を変更",
+          "store_create": "店舗を追加",
+          "store_update": "店舗情報を更新",
+          "sync_config_update": "予約連携設定を変更"
         },
         "privacy": {
           "customer_export": "顧客データをエクスポート",
           "audit_log_view": "監査ログを閲覧",
           "customer_delete_scheduled": "顧客削除を予約",
           "customer_delete_canceled": "顧客削除を取り消し",
-          "customer_delete_executed": "顧客データを完全削除"
+          "customer_delete_executed": "顧客データを完全削除",
+          "voice_enroll": "音声を登録",
+          "voice_revoke": "音声を削除"
         }
       }
     },
