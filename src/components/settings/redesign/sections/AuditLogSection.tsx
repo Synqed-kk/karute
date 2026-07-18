@@ -324,7 +324,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         </FilterChip>
         <FilterChip
           active={breakGlass}
-          onClick={() => setBreakGlass((v) => !v)}
+          onClick={() => {
+            // Entering break-glass view clears the 警告 display lens by every
+            // path (tile AND chip): info-severity break-glass rows would be
+            // lens-filtered into a count-above-empty-feed contradiction.
+            if (!breakGlass) setWarnOnly(false)
+            setBreakGlass(!breakGlass)
+          }}
           icon={<ShieldAlert className="size-3.5" />}
         >
           {t('breakGlass')}
