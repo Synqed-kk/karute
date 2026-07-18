@@ -28,8 +28,15 @@ jest.mock('@/lib/auth/store-scope', () => ({
     allowedStoreIds: null,
   })),
 }))
+// Identity seam for the audit writer (actor comes from the route's own auth;
+// business resolves through here).
+jest.mock('@/lib/staff', () => ({
+  getBusinessId: jest.fn(async () => 'biz-1'),
+  resolveUserId: jest.fn(async () => 'user-1'),
+}))
 
 import { GET } from '@/app/api/export/route'
+import { auditLines } from './helpers/audit-lines'
 import { can as canImport } from '@/lib/auth/require-permission'
 import { listCustomers as listCustomersImport } from '@/lib/customers/queries'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
@@ -137,5 +144,56 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     const res = await GET(req())
     expect(res.status).toBe(403)
     expect(listCustomers).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /api/export — audit trail (AUDIT-LOG-DESIGN §7)', () => {
+  it('a completed export emits privacy.customer_export with the query scope persisted', async () => {
+    const lines = await auditLines(async () => {
+      const res = await GET(req())
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'privacy',
+      action: 'privacy.customer_export',
+      actor_id: 'user-1',
+      business_id: 'biz-1',
+      severity: 'notice',
+      source: 'web',
+      // store_id null = business-wide (viewAll) — the scope §7's subject-access
+      // answer re-derives export membership from.
+      detail: {
+        scope: 'customers',
+        format: 'json',
+        privacy: false,
+        columns: 'customer_id,name',
+        store_id: null,
+      },
+    })
+  })
+
+  it('a clamped export persists the clamped store lens in the event', async () => {
+    resolveStoreScope.mockImplementation(async () => ({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    }))
+    const lines = await auditLines(async () => {
+      await GET(req())
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      detail: expect.objectContaining({ store_id: 'store-ginza' }),
+    })
+  })
+
+  it('a DENIED export emits nothing — errors are not actions', async () => {
+    can.mockImplementation(async () => false)
+    const lines = await auditLines(async () => {
+      const res = await GET(req())
+      expect(res.status).toBe(403)
+    })
+    expect(lines).toHaveLength(0)
   })
 })

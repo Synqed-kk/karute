@@ -8,6 +8,7 @@ import { getTranslations } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
 import { can, requireCapability } from '@/lib/auth/require-permission'
+import { auditWeb } from '@/lib/audit-web'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 
 /** House result shape for the staff mutations: undefined = success, else a
@@ -55,10 +56,17 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
     const userId = email ? await findProfileIdByEmail(email) : null
 
     const synqed = await getSynqedClient()
-    await synqed.staff.create({
+    const created = await synqed.staff.create({
       name: parsed.data.name,
       email,
       user_id: userId,
+    })
+
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.add',
+      targetType: 'staff',
+      targetId: created.id,
     })
 
     revalidatePath('/settings')
@@ -127,6 +135,13 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
         email: parsed.data.email || null,
       })
     }
+
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.update',
+      targetType: 'staff',
+      targetId: id,
+    })
 
     revalidatePath('/settings')
     updateTag('staff-list')
@@ -198,6 +213,18 @@ export async function deleteStaff(id: string): Promise<StaffActionResult> {
         }
       }
     }
+
+    // Emitted on the success exit (including the already-gone-in-core path —
+    // the roster removal the operator asked for still completed); the guard
+    // returns above, so a refused delete never logs.
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.remove',
+      severity: 'notice',
+      targetType: 'staff',
+      targetId: id,
+      detail: { synqed_staff_id: synqedStaffId ?? null },
+    })
 
     revalidatePath('/settings')
     revalidatePath('/', 'layout')

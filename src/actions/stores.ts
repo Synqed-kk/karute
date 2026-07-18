@@ -10,6 +10,7 @@ import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
 import { loadEntitlement } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { auditWeb } from '@/lib/audit-web'
 
 // Active-store view filter — which location the viewer is looking at. A cookie,
 // not a security boundary (RLS/business scope is the boundary); the owner switch
@@ -330,8 +331,9 @@ export async function setStaffStores(
   storeIds: string[],
 ): Promise<{ ok: true } | { error: string }> {
   // Owner-only gate.
+  let businessId: string
   try {
-    await requireOwnerBusiness()
+    businessId = await requireOwnerBusiness()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
@@ -340,6 +342,17 @@ export async function setStaffStores(
   const synqed = await getSynqedClient()
   try {
     await synqed.staffStores.set(staffId, storeIds)
+    // Store assignment changes what data a staff member can reach — notice,
+    // like permissions_change. count 0 = the "works in every store" state.
+    await auditWeb({
+      category: 'settings',
+      action: 'settings.staff_stores_change',
+      severity: 'notice',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      detail: { store_ids: storeIds.join(','), count: storeIds.length },
+    })
     updateTag('staff-list')
     revalidatePath('/settings')
     return { ok: true }
