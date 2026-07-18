@@ -10,6 +10,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { toCustomerProfileDTO } from '@/lib/app-api/customer-dto'
 import { toCustomerProfileScreenDTO } from '@/lib/app-api/customer-profile-screen-dto'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { SynqedError } from '@synqed-kk/client'
 import { updateCustomerWithClient } from '@/actions/customers'
 import { isConsentCurrent } from '@/lib/consent'
 import { getCustomerWithClient } from '@/lib/customers/queries'
@@ -76,8 +77,15 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
   let customer: Awaited<ReturnType<typeof getCustomerWithClient>>
   try {
     customer = await getCustomerWithClient(synqed, id)
-  } catch {
-    throw new AppApiError('not_found', 'customer not found in this business')
+  } catch (err) {
+    // Only core's REAL not-found (business-scoped 404 — covers cross-tenant
+    // ids) maps to 404; a timeout / network failure / core 5xx must surface
+    // as upstream_unavailable, never impersonate a missing customer
+    // (Greptile P1 on #486).
+    if (err instanceof SynqedError && err.status === 404) {
+      throw new AppApiError('not_found', 'customer not found in this business')
+    }
+    throw new AppApiError('upstream_unavailable', 'customer lookup unavailable')
   }
 
   try {

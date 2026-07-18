@@ -55,12 +55,18 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 // Tenancy proof — a cross-tenant id reads as not-found (business-scoped client).
-jest.mock('@/lib/customers/queries', () => ({
-  getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => {
-    if (id !== 'cust-1') throw new Error('404 not this tenant')
-    return CUSTOMER_ROW
-  }),
-}))
+// Throws the SDK's REAL 404 shape: only SynqedError(404) may map to not_found;
+// any other lookup failure is an outage (502), never a phantom 404.
+jest.mock('@/lib/customers/queries', () => {
+  const { SynqedError } = jest.requireActual('@synqed-kk/client')
+  return {
+    getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => {
+      if (id === 'cust-DOWN') throw new Error('ECONNRESET upstream')
+      if (id !== 'cust-1') throw new SynqedError(404, 'not this tenant')
+      return CUSTOMER_ROW
+    }),
+  }
+})
 
 // Wave helpers — resolve deterministically; individual tests override to throw.
 jest.mock('@/lib/customers/customer-detail-cached', () => ({
@@ -164,6 +170,12 @@ describe('GET /api/app/v1/customers/[id] — full profile screen (packet 06 §Bu
     expect((await res.json()).error.code).toBe('not_found')
     expect(listPhotos).not.toHaveBeenCalled()
     expect(orgSettingsWithClient).not.toHaveBeenCalled()
+  })
+
+  it('lookup outage (non-404 failure) → 502 upstream_unavailable, never a phantom 404', async () => {
+    const res = await GET(req({ headers: auth }), routeFor('cust-DOWN'))
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
   })
 
   it('missing Bearer (cookie present) → 401, no downstream call', async () => {
