@@ -118,7 +118,7 @@ jest.mock('@/lib/packs/store', () => ({
 // The verbatim derivation is exercised elsewhere; mock it to a fixed screen.
 const FIXED_SCREEN = {
   customer: {
-    id: 'cust-1', name: '山田 花子', initials: '山', karuteNumber: '#00001', age: 36, gender: '女性',
+    id: 'cust-1', name: '山田 花子', initials: '山', karuteNumber: '#00001', deletedAt: null, age: 36, gender: '女性',
     joinDate: '2026年1月1日', totalKarute: 1, visitCount: 3, phone: '090', email: 'h@example.com',
     preferredStaffId: 'profile-9', preferredStaffName: null, bookingStaffName: null, status: 'on-track',
     memoryCount: 0, sessionCount: 1, photoCount: 0, lastVisitDate: '2026年6月1日', occupation: null,
