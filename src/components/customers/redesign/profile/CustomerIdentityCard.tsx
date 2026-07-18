@@ -29,9 +29,12 @@ import { SegmentChip } from '@/components/visits/SegmentChip'
 
 interface CustomerIdentityCardProps {
   c: CustomerProfileData
+  /** Passed through to the edit dialog's staff picker (thin app threads the
+   *  roster from the screen DTO; web leaves it undefined → self-fetch). */
+  assignableStaff?: { id: string; name: string }[]
 }
 
-export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
+export function CustomerIdentityCard({ c, assignableStaff }: CustomerIdentityCardProps) {
   const t = useTranslations('customers.list')
   const tProfile = useTranslations('customers.profile')
   const tPace = useTranslations('visits.pace')
@@ -182,7 +185,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
         </div>
 
         {/* Top-right action: the edit pencil. */}
-        <CustomerEditDialog customer={c} />
+        <CustomerEditDialog customer={c} assignableStaff={assignableStaff} />
       </div>
 
       {/* 録音 — round red mic button anchored to the card's BOTTOM-RIGHT. Jumps to

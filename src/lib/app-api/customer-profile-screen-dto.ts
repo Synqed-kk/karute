@@ -33,6 +33,9 @@ const CustomerProfileDataSchema = z.object({
   name: z.string(),
   initials: z.string(),
   karuteNumber: z.string(),
+  // Deletion lane (da71dd36): CustomerProfileData requires it; the builder
+  // threads customer.deleted_at through.
+  deletedAt: z.string().nullable(),
   age: z.number().nullable(),
   gender: z.string().nullable(),
   joinDate: z.string(),
@@ -162,6 +165,7 @@ export const CustomerProfileScreenDTO = CustomerProfileDTO.extend({
   hasNextBooking: z.boolean(),
   ticketsEnabled: z.boolean(),
   consentGrantedAtLabel: z.string().nullable(),
+  assignableStaff: z.array(z.object({ id: z.string(), name: z.string() })),
 })
 
 export type CustomerProfileScreenDTOType = z.infer<typeof CustomerProfileScreenDTO>
@@ -205,5 +209,6 @@ export function toCustomerProfileScreenDTO(
     ticketsEnabled: screen.ticketsEnabled,
     consentGranted: screen.consentGranted,
     consentGrantedAtLabel: screen.consentGrantedAtLabel,
+    assignableStaff: screen.assignableStaff,
   })
 }

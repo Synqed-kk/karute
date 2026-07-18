@@ -83,6 +83,11 @@ interface CustomerProfileViewProps {
    *  uses. Drives the Privacy tab's revoke row (shown only when granted). */
   consentGranted?: boolean
   consentGrantedAtLabel?: string | null
+  /** Tenant staff roster for the edit dialog's 指名スタッフ picker. The thin
+   *  app threads it from the profile-screen DTO (its facade has no
+   *  listAssignableStaff read); web leaves it undefined → CustomerForm
+   *  self-fetches, unchanged. */
+  assignableStaff?: { id: string; name: string }[]
 }
 
 export function CustomerProfileView({
@@ -96,6 +101,7 @@ export function CustomerProfileView({
   ticketsEnabled = true,
   consentGranted = false,
   consentGrantedAtLabel = null,
+  assignableStaff,
 }: CustomerProfileViewProps) {
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
@@ -126,7 +132,7 @@ export function CustomerProfileView({
       />
 
       {/* 3. Identity */}
-      <CustomerIdentityCard c={customer} />
+      <CustomerIdentityCard c={customer} assignableStaff={assignableStaff} />
 
       {/* 3a. 来店ペース — how often / when / on-or-off rhythm, the facts the
        *     staff close on. Shown only when there's a signal (real cadence, or a

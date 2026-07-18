@@ -44,7 +44,7 @@ const CUSTOMER_ROW = {
   notes: null, assigned_staff_id: 'profile-9', is_existing_customer: true, date_of_birth: '1990-01-01',
   gender: 'female', occupation: null, member_number: null, visit_count: 3, has_ticket_pack: false,
   last_visit_at: '2026-06-01T00:00:00Z', first_visit_at: null,
-  created_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-01T12:00:00Z',
+  created_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-01T12:00:00Z', deleted_at: null,
 }
 const listPhotos = jest.fn(async () => ({ photos: [] }))
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0', granted_at: '2026-06-01' } }))
@@ -118,7 +118,7 @@ jest.mock('@/lib/packs/store', () => ({
 // The verbatim derivation is exercised elsewhere; mock it to a fixed screen.
 const FIXED_SCREEN = {
   customer: {
-    id: 'cust-1', name: '山田 花子', initials: '山', karuteNumber: '#00001', age: 36, gender: '女性',
+    id: 'cust-1', name: '山田 花子', initials: '山', karuteNumber: '#00001', deletedAt: null, age: 36, gender: '女性',
     joinDate: '2026年1月1日', totalKarute: 1, visitCount: 3, phone: '090', email: 'h@example.com',
     preferredStaffId: 'profile-9', preferredStaffName: null, bookingStaffName: null, status: 'on-track',
     memoryCount: 0, sessionCount: 1, photoCount: 0, lastVisitDate: '2026年6月1日', occupation: null,
@@ -130,6 +130,7 @@ const FIXED_SCREEN = {
   customerMemory: { customerId: 'cust-1', items: [], intake: null, lastUpdatedAt: '2026-06-01', updatedThisVisit: 0 },
   packs: [], lifecycle: null, hasNextBooking: false, ticketsEnabled: true,
   consentGranted: true, consentGrantedAtLabel: '2026年6月1日',
+  assignableStaff: [{ id: 'profile-9', name: '田中' }],
 }
 jest.mock('@/lib/customers/profile-screen', () => ({
   buildCustomerProfileScreen: jest.fn(async () => FIXED_SCREEN),
@@ -177,6 +178,9 @@ describe('GET /api/app/v1/customers/[id] — full profile screen (packet 06 §Bu
     expect(dto.ticketsEnabled).toBe(true)
     expect(dto.consentGranted).toBe(true)
     expect(dto.consentGrantedAtLabel).toBe('2026年6月1日')
+    // Staff roster folded into the DTO (§Build 3 client-read trace): the thin
+    // edit dialog seeds its 指名スタッフ picker from here, not a facade read.
+    expect(dto.assignableStaff).toEqual([{ id: 'profile-9', name: '田中' }])
   })
 
   it('cross-tenant customer id → 404 not_found, BEFORE any wave read', async () => {

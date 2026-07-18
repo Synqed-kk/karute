@@ -74,6 +74,11 @@ export interface CustomerProfileScreen {
   ticketsEnabled: boolean
   consentGranted: boolean
   consentGrantedAtLabel: string | null
+  /** Tenant staff roster for the 指名スタッフ picker (CustomerEditDialog →
+   *  CustomerForm). Same {id,name} shape the web listAssignableStaff action
+   *  returns, so the thin edit dialog can seed the picker from the screen DTO
+   *  instead of a client-side server-action read the facade doesn't expose. */
+  assignableStaff: { id: string; name: string }[]
 }
 
 export interface BuildCustomerProfileScreenArgs {
@@ -382,5 +387,6 @@ export async function buildCustomerProfileScreen(
     ticketsEnabled,
     consentGranted,
     consentGrantedAtLabel,
+    assignableStaff: staffList.map((s) => ({ id: s.id, name: s.full_name ?? 'Unknown' })),
   }
 }
