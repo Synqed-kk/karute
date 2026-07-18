@@ -4,7 +4,8 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { openai } from '@/lib/openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { getOrgSettings } from '@/actions/org-settings'
+import { getOrgSettings, orgSettingsWithClient, type OrgSettings } from '@/actions/org-settings'
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   getBusinessAiPersona,
   resolvePersonaTokens,
@@ -55,18 +56,39 @@ const PredictionSchema = z.object({
  * is no trajectory to read and the card keeps its 対応予定 preview. Cached 1 day
  * per (customer, latest record). Best-effort: null on any failure.
  */
-export async function getBodyPrediction(params: {
+interface BodyPredictionParams {
   customerId: string
   records: KaruteRecord[]
   locale: string
-}): Promise<BodyPrediction | null> {
+}
+
+/** Web (cookie) entry — resolves org-settings via the cookie path. */
+export async function getBodyPrediction(
+  params: BodyPredictionParams,
+): Promise<BodyPrediction | null> {
+  return computeBodyPrediction(params, () => getOrgSettings().catch(() => null))
+}
+
+/** Facade (Bearer) entry — identity-threaded org-settings on the business-scoped
+ *  client (packet 07 Decision 1). Same generator core, no cookie consulted. */
+export async function getBodyPredictionWithClient(
+  synqed: Pick<SynqedClient, 'orgSettings'>,
+  params: BodyPredictionParams,
+): Promise<BodyPrediction | null> {
+  return computeBodyPrediction(params, () => orgSettingsWithClient(synqed).catch(() => null))
+}
+
+async function computeBodyPrediction(
+  params: BodyPredictionParams,
+  resolveOrgSettings: () => Promise<OrgSettings | null>,
+): Promise<BodyPrediction | null> {
   const { customerId, records, locale } = params
   const dated = records.filter((r) => r.created_at)
   if (dated.length < 2) return null
 
   try {
     if (!process.env.OPENAI_API_KEY) return null
-    const orgSettings = await getOrgSettings().catch(() => null)
+    const orgSettings = await resolveOrgSettings()
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const tok = resolvePersonaTokens(persona, locale)
 

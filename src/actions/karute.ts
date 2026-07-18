@@ -130,8 +130,18 @@ export async function getCustomerKaruteRecords(
   customerId: string,
   limit = 5,
 ): Promise<KaruteRecord[]> {
+  return getCustomerKaruteRecordsWithClient(await getSynqedClient(), customerId, limit)
+}
+
+/** Client-threaded getCustomerKaruteRecords — the facade Bearer path (packet 07
+ *  Decision 1: the AI body-prediction read fetches the customer's 8 recent records
+ *  on the business-scoped client). Same best-effort []-on-failure contract. */
+export async function getCustomerKaruteRecordsWithClient(
+  synqed: Pick<SynqedClient, 'karuteRecords'>,
+  customerId: string,
+  limit = 5,
+): Promise<KaruteRecord[]> {
   try {
-    const synqed = await getSynqedClient()
     const res = await synqed.karuteRecords.list({
       customer_id: customerId,
       page_size: limit,
