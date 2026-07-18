@@ -45,7 +45,13 @@ export const POST = facadeHandler<Params>('customer.passport.upsert', async (ctx
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
   }
 
-  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+  // Classified throw (review F3): an org-settings OUTAGE is a 502 per the
+  // failure contract — the swallowed variant degraded businessType to the
+  // default field set, turning legitimate type-specific keys into false 400s.
+  // A missing settings row (unconfigured salon) still reads as null, not a throw.
+  const orgSettings = await orgSettingsWithClient(synqed).catch(() => {
+    throw new AppApiError('upstream_unavailable', 'org settings read failed')
+  })
   const businessType = orgSettings?.business_type ?? null
   // Route-level allowlist check → a bad key is 400 (not a 502 masking a write
   // failure). The core re-checks the same set as its single-source safety net.

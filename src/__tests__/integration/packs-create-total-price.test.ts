@@ -10,23 +10,34 @@
  * jest.mock factory may reference them (babel-plugin-jest-hoist rule).
  */
 
+// The action now delegates to the single-source WithClient store cores (a
+// business-scoped client is threaded as the first arg); the money defaulting is
+// what we assert on the forwarded input.
 const mockCreatePack = jest.fn(
-  async (_input: { totalPrice?: number | null }): Promise<{ ok: boolean; id?: string; error?: string }> => ({
-    ok: true,
-    id: 'pack-1',
-  }),
+  async (_synqed: unknown, _input: { totalPrice?: number | null }): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    void _synqed
+    return { ok: true, id: 'pack-1' }
+  },
 )
-const mockListCustomerPacks = jest.fn(async (_customerId: string): Promise<unknown[]> => [])
+const mockListCustomerPacks = jest.fn(async (_synqed: unknown, _customerId: string): Promise<unknown[]> => {
+  void _synqed
+  return []
+})
 
 jest.mock('@/lib/packs/store', () => ({
-  createPack: (input: unknown) => mockCreatePack(input as { totalPrice?: number | null }),
-  listCustomerPacks: (id: string) => mockListCustomerPacks(id),
-  addRedemption: jest.fn(),
+  createPackWithClient: (synqed: unknown, input: unknown) => mockCreatePack(synqed, input as { totalPrice?: number | null }),
+  listCustomerPacksWithClient: (synqed: unknown, id: string) => mockListCustomerPacks(synqed, id),
+  addRedemptionWithClient: jest.fn(),
   removeRedemption: jest.fn(),
   updatePackStatus: jest.fn(),
-  setLifecycle: jest.fn(),
-  findCustomerAppointmentForDate: jest.fn(),
+  setCustomerLifecycleWithClient: jest.fn(),
+  findCustomerAppointmentForDateWithClient: jest.fn(),
+  addVisitReconcileDismissal: jest.fn(),
+  addCustomerContact: jest.fn(),
+  addPackAlertDismissal: jest.fn(),
 }))
+
+jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: async () => ({}) }))
 
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
@@ -56,6 +67,7 @@ describe('createPackAction — total_price defaulting', () => {
     })
     expect(res.ok).toBe(true)
     expect(mockCreatePack).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ totalPrice: 99000 }),
     )
   })
@@ -69,6 +81,7 @@ describe('createPackAction — total_price defaulting', () => {
       totalPrice: 88000,
     })
     expect(mockCreatePack).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ totalPrice: 88000 }),
     )
   })
@@ -81,6 +94,7 @@ describe('createPackAction — total_price defaulting', () => {
       unitPrice: 8800,
     })
     expect(mockCreatePack).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({ totalPrice: 8800 }),
     )
   })

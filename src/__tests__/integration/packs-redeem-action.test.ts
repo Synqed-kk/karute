@@ -12,33 +12,38 @@
  * jest.mock factory may reference them (babel-plugin-jest-hoist rule).
  */
 
+// The action now delegates to the single-source WithClient store cores (a
+// business-scoped client is threaded as the first arg). These tests assert what
+// the action forwards to addRedemptionWithClient; the client arg is opaque here.
 const mockAddRedemption = jest.fn(
-  async (_input: { appointmentId?: string | null }): Promise<{ ok: boolean; id?: string; error?: string }> => ({
-    ok: true,
-    id: 'red-1',
-  }),
+  async (_synqed: unknown, _input: { appointmentId?: string | null }): Promise<{ ok: boolean; id?: string; error?: string }> => {
+    void _synqed
+    return { ok: true, id: 'red-1' }
+  },
 )
 const mockFindCustomerAppointmentForDate = jest.fn(
-  async (_customerId: string, _dateYmd: string): Promise<string | null> => 'a-resolved',
+  async (_synqed: unknown, _customerId: string, _dateYmd: string): Promise<string | null> => {
+    void _synqed
+    return 'a-resolved'
+  },
 )
 
-// Reference the spies through wrapper fns (evaluated at CALL time, not when the
-// hoisted factory returns) so the module-scope consts are already initialised —
-// next/jest's SWC hoist puts jest.mock above these const declarations.
 jest.mock('@/lib/packs/store', () => ({
-  addRedemption: (input: { appointmentId?: string | null }) => mockAddRedemption(input),
-  findCustomerAppointmentForDate: (customerId: string, dateYmd: string) =>
-    mockFindCustomerAppointmentForDate(customerId, dateYmd),
+  addRedemptionWithClient: (synqed: unknown, input: { appointmentId?: string | null }) => mockAddRedemption(synqed, input),
+  findCustomerAppointmentForDateWithClient: (synqed: unknown, customerId: string, dateYmd: string) =>
+    mockFindCustomerAppointmentForDate(synqed, customerId, dateYmd),
   // untouched by these cases, but the action module imports them at load time
-  listCustomerPacks: jest.fn(async () => []),
+  listCustomerPacksWithClient: jest.fn(async () => []),
   addVisitReconcileDismissal: jest.fn(),
   addCustomerContact: jest.fn(),
   addPackAlertDismissal: jest.fn(),
-  createPack: jest.fn(),
+  createPackWithClient: jest.fn(),
   removeRedemption: jest.fn(),
-  setCustomerLifecycle: jest.fn(),
+  setCustomerLifecycleWithClient: jest.fn(),
   updatePackStatus: jest.fn(),
 }))
+
+jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: async () => ({}) }))
 
 jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
@@ -51,7 +56,7 @@ jest.mock('next/cache', () => ({
 
 import { redeemSessionAction } from '@/actions/packs'
 
-const lastForwardedAppointmentId = () => mockAddRedemption.mock.calls[0][0].appointmentId
+const lastForwardedAppointmentId = () => mockAddRedemption.mock.calls[0][1].appointmentId
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -63,7 +68,7 @@ describe('redeemSessionAction appointment precedence', () => {
   it('resolves & links the same-day booking when the caller sends no appointmentId', async () => {
     await redeemSessionAction({ packId: 'p1', customerId: 'cust-1', redeemedOn: '2026-07-05' })
 
-    expect(mockFindCustomerAppointmentForDate).toHaveBeenCalledWith('cust-1', '2026-07-05')
+    expect(mockFindCustomerAppointmentForDate).toHaveBeenCalledWith(expect.anything(), 'cust-1', '2026-07-05')
     expect(lastForwardedAppointmentId()).toBe('a-resolved')
   })
 

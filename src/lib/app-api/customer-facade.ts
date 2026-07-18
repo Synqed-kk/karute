@@ -25,10 +25,33 @@ export async function proveCustomerInBusiness(synqed: ScopedClient, id: string):
 /** Resolve the memory item's customer and prove tenancy → 404 on a missing or
  *  cross-tenant item id, before any write. Returns the owning customerId. */
 export async function proveMemoryItemInBusiness(synqed: ScopedClient, itemId: string): Promise<string> {
+  // ONE message for both misses (missing item / cross-tenant item) — distinct
+  // messages let a caller confirm a foreign item id exists (existence oracle,
+  // Fable spot-audit finding; same class the AI相談 review killed).
   const customerId = await getMemoryItemCustomerId(itemId)
-  if (!customerId) throw new AppApiError('not_found', 'memory item not found')
-  await proveCustomerInBusiness(synqed, customerId)
+  if (!customerId) throw new AppApiError('not_found', 'memory item not found in this business')
+  try {
+    await proveCustomerInBusiness(synqed, customerId)
+  } catch {
+    throw new AppApiError('not_found', 'memory item not found in this business')
+  }
   return customerId
+}
+
+/** Prove a pack belongs to this customer (whose tenancy is proven separately) →
+ *  a clean 404 on a cross-tenant or wrong-customer packId BEFORE any redemption.
+ *  The business-scoped client only lists THIS business's packs for the customer,
+ *  so a packId absent from that list is not reachable here. */
+export async function provePackForCustomer(
+  synqed: Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'packs'>,
+  customerId: string,
+  packId: string,
+): Promise<void> {
+  const { listCustomerPacksWithClient } = await import('@/lib/packs/store')
+  const packs = await listCustomerPacksWithClient(synqed, customerId)
+  if (!packs.some((p) => p.id === packId)) {
+    throw new AppApiError('not_found', 'pack not found for this customer')
+  }
 }
 
 /** Require an Idempotency-Key on an effectful POST (contract §8). Presence is

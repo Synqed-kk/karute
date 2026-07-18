@@ -27,7 +27,6 @@ import {
   setLifecycleAction,
 } from '@/actions/packs'
 import {
-  nextPurchaseRound,
   type CustomerLifecycle,
   type LifecycleStatus,
   type PackKind,
@@ -67,9 +66,6 @@ export function TicketPackCard({
   const t = useTranslations('customers.profile.packs')
   const active = packs.filter((p) => p.status === 'active')
   const inactive = packs.filter((p) => p.status !== 'active')
-  // 追加数: highest stored round + 1 (imports collapsed history to one row,
-  // so counting rows relabels a round-4 regular as 初回).
-  const nextRound = nextPurchaseRound(packs)
 
   if (!ticketsEnabled) {
     return (
@@ -91,7 +87,7 @@ export function TicketPackCard({
             </span>
           )}
         </div>
-        <AddPackDialog customerId={customerId} nextRound={nextRound} />
+        <AddPackDialog customerId={customerId} />
       </header>
 
       {active.length === 0 ? (
@@ -415,13 +411,7 @@ function LifecycleRow({
   )
 }
 
-function AddPackDialog({
-  customerId,
-  nextRound,
-}: {
-  customerId: string
-  nextRound: number
-}) {
+function AddPackDialog({ customerId }: { customerId: string }) {
   const t = useTranslations('customers.profile.packs')
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -441,7 +431,7 @@ function AddPackDialog({
       kind,
       packSize: kind === 'single' ? 1 : size,
       unitPrice: price,
-      purchaseRound: kind === 'pack' ? nextRound : 0,
+      // 購入回数 is server-derived in createPackActionWithClient — never sent.
       purchasedAt: date || null,
       notes: notes.trim() || null,
     })
