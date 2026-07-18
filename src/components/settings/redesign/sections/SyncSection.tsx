@@ -53,7 +53,12 @@ export function SyncSection() {
       .then((data) => {
         if (data.username) setUsername(data.username)
         if (data.enabled !== undefined) setEnabled(data.enabled)
-        if (data.lastStatus) setLastResult(data.lastStatus)
+        if (data.lastStatus)
+          setLastResult(
+            data.lastRunAt
+              ? `${data.lastStatus} (${new Date(data.lastRunAt).toLocaleString()})`
+              : data.lastStatus,
+          )
       })
       .catch(() => {})
   }, [])
