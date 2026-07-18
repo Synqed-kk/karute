@@ -164,7 +164,17 @@ export interface CustomerWithStaff extends Customer {
 }
 
 export async function getCustomer(id: string): Promise<CustomerWithStaff> {
-  const synqed = await getSynqedClient()
+  return getCustomerWithClient(await getSynqedClient(), id)
+}
+
+/** Client-threaded getCustomer — takes an EXPLICIT business-scoped client so the
+ *  facade Bearer path (packet 06) resolves the SAME CustomerWithStaff shape as
+ *  the cookie web path. Tenancy is proven by the business-scoped client: a
+ *  customer in another tenant reads as not-found (the caller maps the throw). */
+export async function getCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+): Promise<CustomerWithStaff> {
   const c = await synqed.customers.get(id)
 
   return {

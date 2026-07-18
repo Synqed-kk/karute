@@ -17,7 +17,7 @@ import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { staffListByBusiness } from '@/lib/staff'
+import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { enrichCustomers, type LastVisitStrings } from '@/lib/customers/list-enrich'
 import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
@@ -81,7 +81,12 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
         sort_by: 'updated_at',
         sort_order: 'desc',
       }),
-      staffListByBusiness(ctx.identity.businessId),
+      // Carry-forward from batch 2 (reviewer F-BATCH1): the graceful
+      // staffListByBusiness resolves [] on an internal failure, which would ship
+      // a schema-legal 200 with an empty roster / 'Unknown' names — a silently
+      // degraded screen. Switched to the throwing variant so a staff read
+      // failure lands in the 502 catch below, same contract as the sessions route.
+      staffListByBusinessOrThrow(ctx.identity.businessId),
     ])
     // Page parity (getCurrentUserStaffId): the caller's own staff identity is
     // their roster row keyed by the CONFIRMED auth user id — never client input.

@@ -6,7 +6,7 @@
 import { createHmac } from 'node:crypto'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
 
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn(), unstable_cache: (fn: unknown) => fn }))
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k }))
 
 // customer.update is revocation-sensitive (ROUTE 3), so the PATCH path round-trips
@@ -30,6 +30,7 @@ jest.mock('@/lib/staff', () => ({
 }))
 jest.mock('@/lib/auth/require-permission', () => ({
   capabilitiesForUser: jest.fn(async () => new Set(['customers.view'])),
+  ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
 // Fake business-scoped synqed client — newSynqedClient/getSynqedClient both
@@ -46,7 +47,12 @@ const update = jest.fn(async () => ({}))
 const fakeClient = {
   customers: {
     get: jest.fn(async (id: string) => {
-      if (id !== 'cust-1') throw new Error('404 not this tenant')
+      if (id !== 'cust-1') {
+        // The SDK's real 404 shape — a plain Error now classifies as a 502
+        // outage, never a phantom not_found.
+        const { SynqedError } = jest.requireMock('@synqed-kk/client')
+        throw new SynqedError(404, 'not this tenant')
+      }
       return CUSTOMER_ROW
     }),
     getConsent: jest.fn(async () => ({ consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION } })),
@@ -57,8 +63,20 @@ jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
   getSynqedClient: async () => fakeClient,
 }))
+// queries.ts (getCustomerWithClient, now imported by the route) pulls the
+// untransformed-ESM SynqedClient at module scope — stub it.
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn(),
+  SynqedError: class SynqedError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.status = status
+    }
+  },
+}))
 
-import { GET, PATCH, OPTIONS } from '@/app/api/app/v1/customers/[id]/route'
+import { PATCH, OPTIONS } from '@/app/api/app/v1/customers/[id]/route'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -79,28 +97,10 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'auth-user-1' } }, error: null })
 })
 
-describe('GET /api/app/v1/customers/[id]', () => {
-  it('returns the validated profile DTO for a customer in the caller tenant', async () => {
-    const res = await GET(req({ headers: auth }), routeFor('cust-1'))
-    expect(res.status).toBe(200)
-    const dto = await res.json()
-    expect(dto.id).toBe('cust-1')
-    expect(dto.assignedStaffId).toBe('profile-9') // distinct id namespace, named
-    expect(dto.consentGranted).toBe(true)
-    expect(dto.version).toBe(CUSTOMER_ROW.updated_at)
-  })
-
-  it('rejects a customer from ANOTHER tenant → 404 (wrong-tenant)', async () => {
-    const res = await GET(req({ headers: auth }), routeFor('cust-OTHER'))
-    expect(res.status).toBe(404)
-    expect((await res.json()).error.code).toBe('not_found')
-  })
-
-  it('rejects a missing Bearer token → 401', async () => {
-    const res = await GET(req({ headers: {} }), routeFor('cust-1'))
-    expect(res.status).toBe(401)
-  })
-})
+// GET is now the FULL profile-screen read (packet 06 §Build 2) — its contract
+// (additive DTO, tenancy-before-wave, the failure contract, capability gate) is
+// covered end-to-end in app-api-customer-profile-screen.test.ts. This file keeps
+// the PATCH mutation + OPTIONS coverage (PATCH still returns the coarse DTO).
 
 describe('PATCH /api/app/v1/customers/[id]', () => {
   it('applies a whitelisted partial update and returns the fresh DTO', async () => {
