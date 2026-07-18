@@ -18,6 +18,17 @@ import { SessionsScreen } from './screens/SessionsScreen'
 import { CustomerProfileScreen } from './screens/CustomerProfileScreen'
 import { KaruteDetailScreen } from './screens/KaruteDetailScreen'
 
+// A malformed escape in a deep link (/karute/%FF) must not URIError the whole
+// router into its error path (Greptile P2 on #494) — fall back to the raw
+// segment; a junk id then 404s downstream honestly.
+function safeDecode(segment: string): string {
+  try {
+    return decodeURIComponent(segment)
+  } catch {
+    return segment
+  }
+}
+
 // Parameterized routes (single-segment, no nesting). Exact paths are matched
 // FIRST so /customers + /karute (the lists) never fall into these. The web's dead
 // /karute/customer/[customerId] redirect shim is NOT ported — a two-segment suffix
@@ -31,9 +42,9 @@ export function ThinRouter() {
   if (pathname === '/customers') return <CustomersScreen />
   if (pathname === '/karute') return <SessionsScreen />
   const profile = PROFILE_PATH.exec(pathname)
-  if (profile) return <CustomerProfileScreen id={decodeURIComponent(profile[1])} />
+  if (profile) return <CustomerProfileScreen id={safeDecode(profile[1])} />
   const karute = KARUTE_DETAIL_PATH.exec(pathname)
-  if (karute) return <KaruteDetailScreen id={decodeURIComponent(karute[1])} />
+  if (karute) return <KaruteDetailScreen id={safeDecode(karute[1])} />
   // Fallthrough (incl. the shell's /index.html entry): the customer list.
   return <CustomersScreen />
 }

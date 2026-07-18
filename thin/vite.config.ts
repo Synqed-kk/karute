@@ -80,6 +80,12 @@ function boundaryPlugin(): Plugin {
 
 export default defineConfig({
   root: __dirname,
+  // Web-app modules read process.env.NEXT_PUBLIC_* FLAGS at module scope
+  // (DetailBreadcrumb, PhotoRecordsCard); the browser has no `process` and the
+  // import crashes the whole screen (Greptile P1 on #494). Substitute an empty
+  // env: every NEXT_PUBLIC_FEATURE_* flag reads undefined → features default
+  // OFF in thin, which is the wanted posture.
+  define: { 'process.env': '{}' },
   plugins: [boundaryPlugin(), react()],
   resolve: {
     alias: [
