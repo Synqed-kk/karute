@@ -16,17 +16,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ suggestions: [] })
     }
 
-    const cacheInput = { transcript: transcript?.slice(0, 500), summary, entries, locale }
+    // Business type from synqed-core (was reading a non-existent Supabase table).
+    // The LLM call itself lives in the shared core (packet 08 §Build 1(iii)).
+    const orgSettings = await getOrgSettings().catch(() => null)
+
+    // Key carries the FULL transcript (getCachedAI hashes the input — the old
+    // 500-char slice only created prefix collisions) + businessType: the prompt
+    // is persona-specific, so one persona must never serve another's cache.
+    // Mirrors the facade twin's key exactly.
+    const cacheInput = {
+      transcript,
+      summary,
+      entries,
+      locale,
+      businessType: orgSettings?.business_type ?? null,
+    }
 
     // Check cache
     const cached = await getCachedAI('suggestions', cacheInput)
     if (cached) {
       return NextResponse.json(cached)
     }
-
-    // Business type from synqed-core (was reading a non-existent Supabase table).
-    // The LLM call itself lives in the shared core (packet 08 §Build 1(iii)).
-    const orgSettings = await getOrgSettings().catch(() => null)
     const { result, usage } = await runKaruteSuggestions({
       transcript,
       summary,
