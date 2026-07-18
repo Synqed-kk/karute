@@ -239,16 +239,29 @@ export async function removeRedemption(
 ): Promise<{ ok: boolean }> {
   try {
     const synqed = await getSynqedClient()
-    // removed_by records WHO undid the burn (core soft-deletes the row and
-    // keeps removed_at/removed_by queryable).
-    return await synqed.packs.removeRedemption(
-      redemptionId,
-      removedBy ? { removed_by: removedBy } : undefined,
-    )
+    return await removeRedemptionWithClient(synqed, redemptionId, removedBy)
   } catch (err) {
     warn('removeRedemption', err)
     return { ok: false }
   }
+}
+
+/** Client-threaded core of removeRedemption (packet 08 §Smaller pre-rulings). The
+ *  business-scoped client IS the tenancy proof — a cross-tenant/missing
+ *  redemptionId is not this business's row, so removeRedemption rejects it. THROWS
+ *  on failure so the facade route classifies (404 vs 502); the web action keeps
+ *  its graceful { ok:false } wrapper. */
+export async function removeRedemptionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  redemptionId: string,
+  removedBy?: string | null,
+): Promise<{ ok: boolean }> {
+  // removed_by records WHO undid the burn (core soft-deletes the row and
+  // keeps removed_at/removed_by queryable).
+  return synqed.packs.removeRedemption(
+    redemptionId,
+    removedBy ? { removed_by: removedBy } : undefined,
+  )
 }
 
 export interface CustomerPackUsage {

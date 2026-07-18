@@ -10,6 +10,7 @@
 // action to its facade endpoint as the BFF lands.
 
 import { getDataPort } from '@/lib/ports/data-port'
+import { redirect as thinRedirect } from './nav.vite'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -270,6 +271,88 @@ async function facadeRegenerateKarute(
   }
 }
 
+// -- recording flow: save + mint + consent + undo (packet 08 batch 5) ---------
+// The karute SAVE serves BOTH web flavors through ONE facade route. The consent
+// gate round-trips CONSENT_REQUIRED_ERROR as the error message so ReviewScreen's
+// existing `result.error === CONSENT_REQUIRED_ERROR` re-prompt path matches.
+import type { SaveKaruteInput } from '@/types/karute'
+
+async function facadeSaveKarute(input: SaveKaruteInput): Promise<{ error: string } | void> {
+  const res = await getDataPort().apiFetch('/api/app/v1/karute', idemPost(input))
+  const body = (await res.json().catch(() => null)) as
+    | { id?: string; error?: { message?: string } }
+    | null
+  if (!res.ok || !body?.id) {
+    return { error: body?.error?.message ?? `Save failed (${res.status})` }
+  }
+  // web redirects by throwing NEXT_REDIRECT; thin navigates then throws the same
+  // marker so ReviewScreen's catch runs clearDraft()/onSaved() identically (the
+  // re-thrown marker is harmless post-navigation — TRACE DUTY §Build 3/6).
+  thinRedirect(`/karute/${body.id}`)
+  throw new Error('NEXT_REDIRECT')
+}
+
+async function facadeSaveKaruteInline(
+  input: SaveKaruteInput,
+): Promise<{ id: string } | { error: string }> {
+  const res = await getDataPort().apiFetch('/api/app/v1/karute', idemPost(input))
+  const body = (await res.json().catch(() => null)) as
+    | { id?: string; error?: { message?: string } }
+    | null
+  if (res.ok && body?.id) return { id: body.id }
+  return { error: body?.error?.message ?? `Save failed (${res.status})` }
+}
+
+async function facadeStartRecordingSession(input: {
+  customerId?: string | null
+  appointmentId?: string | null
+}): Promise<{ id: string } | null> {
+  // Fail-OPEN: capture must NEVER block on the mint (web action contract).
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/recordings/session', idemPost(input))
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => null)) as { id?: string | null } | null
+    return body?.id ? { id: body.id } : null
+  } catch {
+    return null
+  }
+}
+
+async function facadeGetCustomerConsent(
+  customerId: string,
+): Promise<{ consent: unknown }> {
+  const res = await getDataPort().apiFetch(`/api/app/v1/customers/${enc(customerId)}/consent`)
+  // Fail closed: any failure → consent not on file (the record button stays blocked).
+  if (!res.ok) return { consent: null }
+  const body = (await res.json().catch(() => null)) as { consent?: unknown } | null
+  return { consent: body?.consent ?? null }
+}
+
+async function facadeGrantCustomerConsent(
+  customerId: string,
+  input: { method?: 'VERBAL' | 'WRITTEN' } = {},
+): Promise<{ ok: true; consent?: unknown } | { ok: false; error: string }> {
+  const res = await getDataPort().apiFetch(
+    `/api/app/v1/customers/${enc(customerId)}/consent/grant`,
+    idemPost({ method: input.method ?? 'VERBAL' }),
+  )
+  const body = (await res.json().catch(() => null)) as
+    | { consent?: unknown; error?: { message?: string } }
+    | null
+  if (res.ok) return { ok: true, consent: body?.consent }
+  return { ok: false, error: body?.error?.message ?? `Grant failed (${res.status})` }
+}
+
+async function facadeUndoRedemption(redemptionId: string): Promise<{ ok: boolean }> {
+  const res = await getDataPort().apiFetch(
+    `/api/app/v1/packs/redemptions/${enc(redemptionId)}/undo`,
+    idemPost(),
+  )
+  if (!res.ok) return { ok: false }
+  const body = (await res.json().catch(() => null)) as { ok?: boolean } | null
+  return { ok: !!body?.ok }
+}
+
 // Any name resolves to a loud-throwing async fn (covers dynamic access).
 const proxy = new Proxy(
   {},
@@ -289,15 +372,15 @@ export const deleteCustomer = notWired('deleteCustomer')
 export const listCustomerPhotos = notWired('listCustomerPhotos')
 export const uploadCustomerPhoto = facadeUploadCustomerPhoto
 export const deleteCustomerPhoto = notWired('deleteCustomerPhoto')
-export const getCustomerConsent = notWired('getCustomerConsent')
-export const grantCustomerConsent = notWired('grantCustomerConsent') // grant = batch 5
+export const getCustomerConsent = facadeGetCustomerConsent
+export const grantCustomerConsent = facadeGrantCustomerConsent
 export const revokeCustomerConsent = facadeRevokeCustomerConsent
 // -- packs
 export const createPackAction = facadeCreatePack
 export const setPackStatusAction = notWired('setPackStatusAction') // status flip = later batch
 export const redeemSessionAction = facadeRedeemSession
 export const dismissVisitReconcileAction = notWired('dismissVisitReconcileAction')
-export const undoRedemptionAction = notWired('undoRedemptionAction') // undo = later batch
+export const undoRedemptionAction = facadeUndoRedemption
 export const logCustomerContactAction = notWired('logCustomerContactAction')
 export const dismissPackAlertAction = notWired('dismissPackAlertAction')
 export const setLifecycleAction = facadeSetLifecycle
@@ -308,6 +391,13 @@ export const toggleMemoryPinAction = facadeToggleMemoryPin
 export const deleteMemoryItemAction = facadeDeleteMemoryItem
 export const relearnCustomerMemoryAction = facadeRelearnCustomerMemory
 export const upsertPassportFieldAction = facadeUpsertPassportField
+// -- recording flow (packet 08 batch 5). saveKaruteRecord/Inline +
+//    startRecordingSession were Proxy-only; they MUST be named exports now that
+//    thin imports @/actions/karute + @/actions/recordings (Rollup resolves named
+//    imports at build time).
+export const saveKaruteRecord = facadeSaveKarute
+export const saveKaruteRecordInline = facadeSaveKaruteInline
+export const startRecordingSession = facadeStartRecordingSession
 // -- karute (sessions list — packet 05; New カルテ create is unwired in the
 //    read-only batch, but speaks the action's own { error } | void contract:
 //    NewKaruteDialog only renders RETURNED errors — a throw inside its

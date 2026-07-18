@@ -74,6 +74,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'ai.extract',
   'ai.summarize',
   'ai.suggestions',
+  // the karute SAVE (customer voice → durable record; consent-gated) and the
+  // pack-redemption UNDO — both effectful writes → server round-trip.
+  'karute.save',
+  'customer.pack.undoRedemption',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

@@ -25,8 +25,13 @@ export async function ingestSessionMemory(params: {
     // record save it rides on must never fail on a plan check). Manual staff
     // memory edits live in actions/memory.ts → customer-memory.ts and are
     // deliberately NOT gated. Dynamic import per this file's header rule.
-    const { featureAllowed } = await import('@/lib/subscription/feature-gate')
-    if (!(await featureAllowed('customerMemoryAutoExtract'))) return
+    // Identity-threaded when a businessId is present (packet 08 Decision 3 — the
+    // facade save has no cookie); the cookie path is unchanged for web callers.
+    const { featureAllowed, featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
+    const gateOk = businessId
+      ? await featureAllowedForBusiness(businessId, 'customerMemoryAutoExtract')
+      : await featureAllowed('customerMemoryAutoExtract')
+    if (!gateOk) return
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
       await Promise.all([
         import('@/actions/org-settings'),
