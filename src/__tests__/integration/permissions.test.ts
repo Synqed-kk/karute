@@ -23,6 +23,22 @@ describe('RBAC permission model', () => {
     expect(m.has('records.delete')).toBe(true)
   })
 
+  it('監査ログ is owner-only by preset: audit.view ships in no role, only as a deliberate per-staff toggle (Liam 7/17)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('audit.view')).toBe(true)
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('audit.view')).toBe(false)
+    }
+  })
+
+  it('stale overrides cannot smuggle audit.view: stripped at resolve until the viewer grant flow ships', () => {
+    // An override snapshotted from the OLD manager preset still carries audit.view —
+    // same failure mode the recorder-private strip closed for recordings.viewAll.
+    const stale = [...presetCapabilities('manager'), 'audit.view']
+    const caps = effectiveCapabilities('manager', stale)
+    expect(caps.has('audit.view')).toBe(false)
+    expect(effectiveCapabilities('owner', null).has('audit.view')).toBe(true)
+  })
+
   it('raw recordings are recorder-private: only the owner keeps recordings.viewAll (Liam 7/16)', () => {
     expect(new Set(ROLE_PRESETS.owner).has('recordings.viewAll')).toBe(true)
     for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {

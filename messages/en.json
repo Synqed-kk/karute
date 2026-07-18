@@ -2854,6 +2854,7 @@
   "permissions": {
     "roleLabel": "Role & permissions",
     "roleHint": "Separate from job title — this sets what this person can do.",
+    "loadFailed": "Couldn't load permissions. Saving won't change authority — reopen and try again.",
     "ownerFullAccess": "Account owner — full access to everything.",
     "permissionsLabel": "Individual permissions",
     "role_manager": "Manager",

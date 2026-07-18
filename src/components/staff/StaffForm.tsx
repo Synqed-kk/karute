@@ -5,9 +5,11 @@
 // label (what they're called); the Role + toggles are what they can DO. Both
 // save with the single 保存 button.
 //
-// The role section only renders in EDIT mode, behind NEXT_PUBLIC_FEATURE_STAFF_INVITES
-// (the staff-management-v2 flag), and only for non-owner rows — the account owner
-// shows a read-only "full access". Server actions enforce the real gates
+// The role section renders in EDIT mode for non-owner rows — the account owner
+// shows a read-only "full access". It was previously bundled behind
+// NEXT_PUBLIC_FEATURE_STAFF_INVITES, which left the built authority switchboard
+// invisible in production settings (Liam ruling 2026-07-17: expose it; only the
+// invite dialog stays behind that flag). Server actions enforce the real gates
 // (staff.manage, no-owner-edit, no privilege escalation); this UI is convenience.
 
 import { useEffect, useState } from 'react'
@@ -45,7 +47,6 @@ const STORES_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
 // Roles assignable here — never 'owner' (that's the account owner / ownership transfer).
 const ASSIGNABLE_ROLES = PERMISSION_ROLES.filter((r) => r !== 'owner')
 
-const RBAC_ENABLED = process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true'
 
 interface StaffFormProps {
   mode: 'create' | 'edit'
@@ -80,10 +81,10 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
     },
   })
 
-  // Authority state — 'off' (flag off / create), 'loading', 'owner' (read-only),
-  // or 'ready' (editable role + toggles).
-  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready'>(
-    RBAC_ENABLED && mode === 'edit' ? 'loading' : 'off',
+  // Authority state — 'off' (create mode), 'loading', 'owner' (read-only),
+  // 'ready' (editable role + toggles), or 'error' (load failed — shown, not hidden).
+  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready' | 'error'>(
+    mode === 'edit' ? 'loading' : 'off',
   )
   const [role, setRole] = useState<PermissionRole>('practitioner')
   const [caps, setCaps] = useState<Set<Capability>>(new Set())
@@ -101,12 +102,14 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   const staffId = staff?.id
 
   useEffect(() => {
-    if (!(RBAC_ENABLED && mode === 'edit' && staffId)) return
+    if (!(mode === 'edit' && staffId)) return
     let cancelled = false
     getStaffPermissions(staffId).then((res) => {
       if (cancelled) return
       if ('error' in res) {
-        setPermsState('off')
+        // Surface the failure instead of silently hiding the authority section —
+        // the identity fields still save fine; only authority editing is down.
+        setPermsState('error')
         return
       }
       if (res.isOwner) {
@@ -291,6 +294,10 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 
               {permsState === 'loading' && (
                 <p className="text-xs text-muted-foreground">{tc('loading')}</p>
+              )}
+
+              {permsState === 'error' && (
+                <p className="text-xs text-red-600 dark:text-red-400">{tp('loadFailed')}</p>
               )}
 
               {permsState === 'owner' && (
