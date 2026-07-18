@@ -152,3 +152,81 @@ describe('listAuditLog — per-customer deep-link', () => {
     )
   })
 })
+
+describe('listAuditLog — person filter (§10 cause-based, raw events only)', () => {
+  it('passes actorId as actor_id on the feed and SKIPS the strip query (I7: no per-staff counts)', async () => {
+    const res = await listAuditLog({ actorId: 'staff-7' })
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(list).toHaveBeenCalledWith(expect.objectContaining({ actor_id: 'staff-7' }))
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.breakGlassTotal).toBeNull()
+  })
+})
+
+describe('listAuditLog — summary strip count', () => {
+  it('breakGlassTotal comes from a dedicated break_glass=true page_size=1 query', async () => {
+    list.mockImplementation(async (opts: { break_glass?: boolean }) =>
+      opts.break_glass
+        ? { events: [], total: 3, page: 1, page_size: 1 }
+        : { events: [coreEvent()], total: 40, page: 1, page_size: 100 },
+    )
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.breakGlassTotal).toBe(3)
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ break_glass: true, page_size: 1 }),
+    )
+  })
+
+  it('with the break-glass filter ON, the main total IS the count — one query only', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ break_glass: true })],
+      total: 5,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({ breakGlass: true })
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.breakGlassTotal).toBe(5)
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failed strip query degrades to null — the feed itself survives', async () => {
+    list.mockImplementation(async (opts: { break_glass?: boolean }) => {
+      if (opts.break_glass) throw new Error('rate limited')
+      return { events: [coreEvent()], total: 1, page: 1, page_size: 100 }
+    })
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events).toHaveLength(1)
+    expect(res.breakGlassTotal).toBeNull()
+  })
+})
+
+describe('listAuditLog — target name resolution (read-time join, PII stays out of rows)', () => {
+  it('resolves customer targets in ONE batch call including soft-deleted', async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
+    }))
+    getSynqedClient.mockImplementation(async () => ({
+      audit: { list },
+      customers: { list: customersList },
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({ 'cus-1': '鈴木 一郎' })
+    expect(customersList).toHaveBeenCalledTimes(1)
+    expect(customersList).toHaveBeenCalledWith({ ids: ['cus-1'], include_deleted: true })
+  })
+
+  it('a failed lookup degrades to empty labels — the feed never fails', async () => {
+    getSynqedClient.mockImplementation(async () => ({
+      audit: { list },
+      customers: { list: jest.fn(async () => { throw new Error('core down') }) },
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({})
+    expect(res.events).toHaveLength(1)
+  })
+})
