@@ -198,10 +198,18 @@ function isBelowZeroGuardError(err: unknown): boolean {
   )
 }
 
-export async function removeRedemption(redemptionId: string): Promise<{ ok: boolean }> {
+export async function removeRedemption(
+  redemptionId: string,
+  removedBy?: string | null,
+): Promise<{ ok: boolean }> {
   try {
     const synqed = await getSynqedClient()
-    return await synqed.packs.removeRedemption(redemptionId)
+    // removed_by records WHO undid the burn (core soft-deletes the row and
+    // keeps removed_at/removed_by queryable).
+    return await synqed.packs.removeRedemption(
+      redemptionId,
+      removedBy ? { removed_by: removedBy } : undefined,
+    )
   } catch (err) {
     warn('removeRedemption', err)
     return { ok: false }

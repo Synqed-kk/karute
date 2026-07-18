@@ -51,11 +51,15 @@ export interface AuditEvent {
   source: 'facade' | 'web' | 'system'
 }
 
-/** Emit one audit event. Interim sink = one JSON console line (sync + cheap,
- *  so safe inline even on read paths). When this becomes a network call to the
- *  core audit endpoint: view-path callers move behind next/server's after()
- *  (a lost view row must never block or slow care delivery — design §4), and
- *  mutation writers move into the mutation's own core-side transaction. */
+/** Emit one audit event. Two sinks, by design (§4):
+ *   1. ONE structured console line — sync + cheap, survives in Vercel log
+ *      drains, keeps its level semantics. Stays even now that the durable
+ *      sink exists (belt + braces; drains are the outage-time record).
+ *   2. The DURABLE row — core's append-only audit_log via synqed.audit.log,
+ *      fire-and-forget so a lost row can never block or slow care delivery
+ *      ("the log proves presence, never absence"). Skipped when the event
+ *      has no businessId (core writes are tenant-scoped; the console line
+ *      still records it — e.g. pre-auth PIN lockouts). */
 export function audit(e: AuditEvent): void {
   // Severity maps to console level so log drains keep their level semantics
   // (a 'warning' event — lockouts, deletions-scheduled — lands on the warn
@@ -79,6 +83,45 @@ export function audit(e: AuditEvent): void {
       source: e.source,
     }),
   )
+
+  if (e.businessId) void forwardToCore(e, e.businessId)
+}
+
+// App severities are richer than core's column enum — map, don't drop:
+// info stays info; notice (privileged/consequential) → warn; warning
+// (security: lockouts, deletions) → critical.
+const CORE_SEVERITY: Record<AuditSeverity, 'info' | 'warn' | 'critical'> = {
+  info: 'info',
+  notice: 'warn',
+  warning: 'critical',
+}
+
+/** The durable sink. Builds a business-scoped core client directly (the audit
+ *  emitter can run outside a request's auth scope — cron, throttle callbacks —
+ *  so it must not depend on getSynqedClient's session lookup). Never throws. */
+async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
+  try {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return
+    const { SynqedClient } = await import('@synqed-kk/client')
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
+    await synqed.audit.log({
+      actor_id: e.actorId,
+      actor_type: e.actorType,
+      category: e.category,
+      action: e.action,
+      target_type: e.targetType ?? null,
+      target_id: e.targetId ?? null,
+      detail: e.detail ?? undefined,
+      break_glass: e.breakGlass ?? false,
+      severity: CORE_SEVERITY[e.severity ?? 'info'],
+    })
+  } catch (err) {
+    // Never let auditing break (or slow) the calling path — the console line
+    // above already recorded the event for the drain.
+    console.warn(JSON.stringify({ evt: 'audit_sink_error', action: e.action, err: String(err) }))
+  }
 }
 
 // ── Facade endpoint → audit classification ──────────────────────────────
