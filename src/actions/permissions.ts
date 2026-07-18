@@ -3,7 +3,7 @@
 import { updateTag } from 'next/cache'
 
 import { createServiceClient } from '@/lib/supabase/service'
-import { getBusinessId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
 import { auditWeb } from '@/lib/audit-web'
 import {
@@ -24,9 +24,14 @@ import {
 //   - The account OWNER's permissions can't be changed here.
 //   - You can never assign the 'owner' role via this surface (ownership transfer
 //     is a separate concern).
-//   - No privilege escalation: a caller can only grant capabilities they hold
-//     themselves — so a manager (no billing) can't toggle billing onto anyone,
-//     including themselves.
+//   - No privilege escalation, judged on the DELTA: a caller can only ADD
+//     capabilities they hold themselves — so a manager (no billing) can't
+//     toggle billing onto anyone. Capabilities the target already holds pass
+//     through untouched (keeping an existing grant is not a grant — otherwise
+//     one owner-granted capability would lock every other manager out of
+//     editing that staff member).
+//   - audit.view is owner-granted ONLY (Liam ruling 7/17): holding it never
+//     confers the right to spread it.
 // ───────────────────────────────────────────────────────────────────────────
 
 export interface StaffPermissions {
@@ -114,7 +119,7 @@ export async function setStaffPermissions(
   // Target must be in this business and must not be the account owner.
   const { data: target } = await service
     .from('profiles')
-    .select('id, display_role, permission_role')
+    .select('id, display_role, permission_role, permissions')
     .eq('id', staffId)
     .eq('customer_id', businessId)
     .maybeSingle()
@@ -128,12 +133,35 @@ export async function setStaffPermissions(
     (target.permission_role as PermissionRole | null) ??
     synqedRoleToPreset(target.display_role ?? null)
 
-  // Validate + filter the requested capabilities, then enforce no-escalation:
-  // every granted capability must be one the caller holds themselves.
+  // Validate + filter the requested capabilities, then enforce no-escalation
+  // on the DELTA: the caller must hold every capability being ADDED relative
+  // to the target's current effective set (see the SECURITY block above).
+  const targetCurrent = effectiveCapabilities(
+    beforeRole,
+    (target.permissions as string[] | null) ?? null,
+  )
   const requested = effectiveCapabilities(permissionRole, capabilities)
   const myCaps = await getMyCapabilities()
-  for (const c of requested) {
+  const added = [...requested].filter((c) => !targetCurrent.has(c))
+  for (const c of added) {
     if (!myCaps.has(c)) return { error: 'You can only grant permissions you have yourself.' }
+  }
+  // 監査ログ spreads only from the owner's hand: a granted manager passes the
+  // hold-what-you-grant check above, so gate the ADD on ownership explicitly.
+  if (added.includes('audit.view')) {
+    const me = await getCurrentUserStaffId()
+    const { data: caller } = me
+      ? await service
+          .from('profiles')
+          .select('display_role, permission_role')
+          .eq('id', me)
+          .eq('customer_id', businessId)
+          .maybeSingle()
+      : { data: null }
+    const callerIsOwner =
+      (caller?.display_role ?? '').toLowerCase() === 'owner' ||
+      caller?.permission_role === 'owner'
+    if (!callerIsOwner) return { error: 'Only the owner can grant audit-log access.' }
   }
 
   // Store null when the set matches the role preset (so the staff "follows" the

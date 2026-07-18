@@ -13,11 +13,15 @@
 export interface SettingsCaps {
   isOwner: boolean
   canViewAllStores: boolean
+  /** owner OR an explicit per-staff audit.view grant (Liam ruling 7/17). */
+  canViewAudit: boolean
 }
 
 /**
  * Filter the settings tab list for the viewer.
- *   - `ownerOnly` tabs (packs / subscription / audit) stay owner-only.
+ *   - `ownerOnly` tabs (packs / subscription) stay owner-only.
+ *   - The 監査ログ (audit) tab follows the grant: owner always, a manager only
+ *     when the owner ticked audit.view onto them in StaffForm.
  *   - The 店舗 (stores) tab requires stores.viewAll: a branch-restricted staff
  *     can't switch stores (the switch is server-clamped) and the section
  *     otherwise leaks the other branch + its customer counts.
@@ -28,6 +32,7 @@ export function visibleSettingsTabs<T extends { id: string; ownerOnly?: boolean 
 ): T[] {
   return tabs.filter((tab) => {
     if (tab.id === 'stores' && !caps.canViewAllStores) return false
+    if (tab.id === 'audit' && !caps.canViewAudit) return false
     return !tab.ownerOnly || caps.isOwner
   })
 }

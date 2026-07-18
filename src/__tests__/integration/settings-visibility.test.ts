@@ -10,24 +10,30 @@ const TABS = [
   { id: 'theme' },
   { id: 'staff' },
   { id: 'packs', ownerOnly: true },
-  { id: 'audit', ownerOnly: true },
+  { id: 'audit' },
 ] as const
 
 describe('visibleSettingsTabs', () => {
   it('owner sees everything (incl. stores + ownerOnly tabs)', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true }).map((t) => t.id)
     expect(ids).toEqual(['organization', 'stores', 'theme', 'staff', 'packs', 'audit'])
   })
 
-  it('cross-store manager (viewAll, not owner) sees stores but not owner-only tabs', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true }).map((t) => t.id)
+  it('cross-store manager (viewAll, not owner, no grant) sees stores but not packs/audit', () => {
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false }).map((t) => t.id)
     expect(ids).toContain('stores')
     expect(ids).not.toContain('packs')
     expect(ids).not.toContain('audit')
   })
 
+  it('audit.view-granted manager sees 監査ログ but still not owner-only tabs', () => {
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: true }).map((t) => t.id)
+    expect(ids).toContain('audit')
+    expect(ids).not.toContain('packs')
+  })
+
   it('branch-restricted staff (no viewAll): the 店舗 tab is hidden entirely', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false }).map((t) => t.id)
     expect(ids).not.toContain('stores')
     // ...but still sees the ordinary tabs.
     expect(ids).toEqual(['organization', 'theme', 'staff'])

@@ -30,12 +30,14 @@ describe('RBAC permission model', () => {
     }
   })
 
-  it('stale overrides cannot smuggle audit.view: stripped at resolve until the viewer grant flow ships', () => {
-    // An override snapshotted from the OLD manager preset still carries audit.view —
-    // same failure mode the recorder-private strip closed for recordings.viewAll.
-    const stale = [...presetCapabilities('manager'), 'audit.view']
-    const caps = effectiveCapabilities('manager', stale)
-    expect(caps.has('audit.view')).toBe(false)
+  it('audit.view grant flow: an explicit override grants it, the preset alone never does', () => {
+    // The owner ticking 監査ログ in StaffForm stores an override carrying
+    // audit.view — that deliberate grant resolves as-is (viewer grant flow,
+    // replaced the interim resolve-time strip when the viewer shipped).
+    const granted = effectiveCapabilities('manager', [...presetCapabilities('manager'), 'audit.view'])
+    expect(granted.has('audit.view')).toBe(true)
+    // No override → preset only → no audit.view for any non-owner role.
+    expect(effectiveCapabilities('manager', null).has('audit.view')).toBe(false)
     expect(effectiveCapabilities('owner', null).has('audit.view')).toBe(true)
   })
 
