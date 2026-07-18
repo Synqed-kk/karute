@@ -48,34 +48,38 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
     throw new AppApiError('not_found', 'recording not found in this business')
   }
 
-  const synqed = newSynqedClient(ctx.identity.businessId)
-  // Plan gate BEFORE the rate-limit consume (F-A1 ordering).
-  if (!(await featureAllowedForBusiness(ctx.identity.businessId, 'aiKaruteGeneration'))) {
-    throw new AppApiError('forbidden', 'aiKaruteGeneration plan required')
-  }
-  await enforceAiRateLimitWithClient(synqed, 'transcribe')
-
-  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
-  const diarize = orgSettings?.speaker_diarization !== false
-  const mode = speakerIdMode()
-  // Voice-isolation: the FACADE CALLER's OWN enrollment clip (selfStaffId), never
-  // another staffer's, never the roster.
-  const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
-  const reference =
-    mode === 'off' ? null : await loadStaffReferenceForStaff(orgSettings, selfStaffId)
-
-  // Mint our OWN signed READ url from the tenant-proven path.
+  // From here the object is tenant-proven and the client has ALREADY uploaded
+  // it — every exit (plan gate, rate limit, signed-URL failure, transcription
+  // failure, success) must delete it. The thin client has no storage access by
+  // design, so an early throw must not orphan the raw audio — customer-
+  // conversation content — in the bucket.
   const supabase = createServiceClient()
-  const { data: signed, error: signErr } = await supabase.storage
-    .from('recordings')
-    .createSignedUrl(path, 3600)
-  if (signErr || !signed?.signedUrl) {
-    throw new AppApiError('upstream_unavailable', 'could not read the recording')
-  }
-
-  let result: Record<string, unknown>
   try {
-    result = await runTranscription({
+    const synqed = newSynqedClient(ctx.identity.businessId)
+    // Plan gate BEFORE the rate-limit consume (F-A1 ordering).
+    if (!(await featureAllowedForBusiness(ctx.identity.businessId, 'aiKaruteGeneration'))) {
+      throw new AppApiError('forbidden', 'aiKaruteGeneration plan required')
+    }
+    await enforceAiRateLimitWithClient(synqed, 'transcribe')
+
+    const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+    const diarize = orgSettings?.speaker_diarization !== false
+    const mode = speakerIdMode()
+    // Voice-isolation: the FACADE CALLER's OWN enrollment clip (selfStaffId), never
+    // another staffer's, never the roster.
+    const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
+    const reference =
+      mode === 'off' ? null : await loadStaffReferenceForStaff(orgSettings, selfStaffId)
+
+    // Mint our OWN signed READ url from the tenant-proven path.
+    const { data: signed, error: signErr } = await supabase.storage
+      .from('recordings')
+      .createSignedUrl(path, 3600)
+    if (signErr || !signed?.signedUrl) {
+      throw new AppApiError('upstream_unavailable', 'could not read the recording')
+    }
+
+    const result = await runTranscription({
       audio: { url: signed.signedUrl },
       locale: parsed.data.locale === 'en' ? 'en' : 'ja',
       diarize,
@@ -85,17 +89,13 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
       // route, from the identity-threaded org settings.
       businessType: orgSettings?.business_type ?? null,
     })
+    return ok(ctx, result)
   } finally {
-    // Server-side delete WHETHER OR NOT transcription succeeded (the thin
-    // client has no storage access by design, so a failed transcribe must not
-    // orphan the raw audio — customer-conversation content — in the bucket).
     await supabase.storage
       .from('recordings')
       .remove([path])
       .catch(() => {})
   }
-
-  return ok(ctx, result)
 })
 
 export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.

@@ -73,6 +73,7 @@ import { POST as extractPOST } from '@/app/api/app/v1/ai/extract/route'
 import { POST as summarizePOST } from '@/app/api/app/v1/ai/summarize/route'
 import { POST as suggestPOST } from '@/app/api/app/v1/ai/suggestions/route'
 import { GET as briefGET } from '@/app/api/app/v1/customers/[id]/ai/pre-session-brief/route'
+import { AppApiError } from '@/lib/app-api/errors'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -146,6 +147,13 @@ describe('transcribe — storage-path tenancy + voice isolation', () => {
     // Voice-isolation: loadStaffReferenceForStaff called with THIS caller's staff id.
     expect(loadRef).toHaveBeenCalledWith(expect.anything(), 'auth-user-1')
     expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
+  })
+  it('early gate failure (rate limit) AFTER upload → object still deleted', async () => {
+    enforceRate.mockRejectedValueOnce(new AppApiError('rate_limited', 'slow down'))
+    const res = await transcribePOST(post(auth, { path: 'app_business-1_take.webm', locale: 'ja' }), noRoute)
+    expect(res.status).toBe(429)
+    expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
+    expect(runTranscription).not.toHaveBeenCalled()
   })
   it('transcription failure → object still deleted (no orphaned audio)', async () => {
     runTranscription.mockRejectedValueOnce(new Error('deepgram down'))
