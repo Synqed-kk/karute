@@ -54,11 +54,26 @@ jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: async () => fakeClient,
 }))
 
+// @synqed-kk/client ships ESM jest can't parse; the route imports SynqedError
+// from it. Stub it (same pattern as appointments-store-scope.test.ts) — the
+// route's instanceof checks against this same module-registry class.
+jest.mock('@synqed-kk/client', () => {
+  class SynqedError extends Error {
+    status: number
+    constructor(status: number, message: string) {
+      super(message)
+      this.name = 'SynqedError'
+      this.status = status
+    }
+  }
+  return { SynqedError }
+})
+
 // Tenancy proof — a cross-tenant id reads as not-found (business-scoped client).
-// Throws the SDK's REAL 404 shape: only SynqedError(404) may map to not_found;
+// Throws the SDK's 404 shape: only SynqedError(404) may map to not_found;
 // any other lookup failure is an outage (502), never a phantom 404.
 jest.mock('@/lib/customers/queries', () => {
-  const { SynqedError } = jest.requireActual('@synqed-kk/client')
+  const { SynqedError } = jest.requireMock('@synqed-kk/client')
   return {
     getCustomerWithClient: jest.fn(async (_c: unknown, id: string) => {
       if (id === 'cust-DOWN') throw new Error('ECONNRESET upstream')
