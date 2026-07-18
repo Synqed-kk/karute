@@ -21,12 +21,18 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'records.write')
   requireIdempotencyKey(ctx.req)
 
+  // An empty/absent body is valid (walk-in with no ids yet) — but a non-empty
+  // body that fails to parse is a client error, NOT a walk-in: silently minting
+  // an unassociated session would drop the customer/appointment link the
+  // caller tried to send.
   let body: unknown = {}
-  try {
-    body = await ctx.req.json()
-  } catch {
-    // An empty/absent body is valid (walk-in with no ids yet).
-    body = {}
+  const raw = await ctx.req.text()
+  if (raw.trim() !== '') {
+    try {
+      body = JSON.parse(raw)
+    } catch {
+      throw new AppApiError('validation', 'malformed JSON body')
+    }
   }
   const parsed = SessionMintSchema.safeParse(body)
   if (!parsed.success) {

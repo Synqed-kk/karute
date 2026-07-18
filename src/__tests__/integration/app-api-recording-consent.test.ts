@@ -153,6 +153,19 @@ describe('POST recordings/session mint', () => {
     const res = await mintPOST(jreq(auth, { customerId: 'cust-1' }), noRoute)
     expect(res.status).toBe(400)
   })
+  it('empty body → 200 walk-in mint (absent body stays valid)', async () => {
+    const res = await mintPOST(jreq({ ...auth, ...idem }), noRoute)
+    expect(res.status).toBe(200)
+    expect((await res.json()).id).toBe('rec-1')
+  })
+  it('malformed non-empty body → 400, no mint (not a silent walk-in)', async () => {
+    const res = await mintPOST(
+      new Request('https://s/x', { method: 'POST', headers: { ...auth, ...idem }, body: '{"customerId": "cust-1"' }),
+      noRoute
+    )
+    expect(res.status).toBe(400)
+    expect(recordingsCreate).not.toHaveBeenCalled()
+  })
   it('unresolvable staff + no appointment → fail-OPEN {id:null} (never blocks capture)', async () => {
     roster.current = []
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
