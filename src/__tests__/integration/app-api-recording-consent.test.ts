@@ -166,6 +166,12 @@ describe('POST recordings/session mint', () => {
     expect(res.status).toBe(400)
     expect(recordingsCreate).not.toHaveBeenCalled()
   })
+  it('SDK create failure → fail-OPEN 200 {id:null}, mirrors the web action', async () => {
+    recordingsCreate.mockRejectedValueOnce(new Error('transient synqed outage'))
+    const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)
+    expect(res.status).toBe(200)
+    expect((await res.json()).id).toBeNull()
+  })
   it('unresolvable staff + no appointment → fail-OPEN {id:null} (never blocks capture)', async () => {
     roster.current = []
     const res = await mintPOST(jreq({ ...auth, ...idem }, { customerId: 'cust-1' }), noRoute)

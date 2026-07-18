@@ -3,8 +3,9 @@
 // (selfStaffId) with the appointment-staff fallback, on the business-scoped
 // client. Effectful row mint → Idempotency-Key REQUIRED (orphan rows stay the
 // accepted degradation, packet-10 fact 3); records.write; revocation-sensitive
-// (recordings.session.mint). The thin port `.catch(() => null)` preserves the web
-// action's fail-OPEN contract — capture must NEVER block on the mint.
+// (recordings.session.mint). Fail-OPEN contract (capture must NEVER block on
+// the mint): like the web action, a genuine SDK failure is swallowed to
+// { id: null } after logging — the mint core documents that callers swallow.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -42,14 +43,19 @@ export const POST = facadeHandler('recordings.session.mint', async (ctx) => {
   const synqed = newSynqedClient(ctx.identity.businessId)
   const selfStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
 
-  // Fail-OPEN parity: a null mint (unresolvable staff) is NOT an error — the
-  // client proceeds without dedupe. A genuine SDK throw surfaces as a 5xx the
-  // thin port swallows to null.
-  const result = await startRecordingSessionWithClient(synqed, {
-    customerId: parsed.data.customerId ?? null,
-    appointmentId: parsed.data.appointmentId ?? null,
-    selfStaffId,
-  })
+  // Fail-OPEN parity with the web action: a null mint (unresolvable staff) is
+  // NOT an error, and a genuine SDK throw is swallowed to { id: null } too —
+  // the client proceeds without dedupe, capture never blocks on the mint.
+  let result: { id: string } | null = null
+  try {
+    result = await startRecordingSessionWithClient(synqed, {
+      customerId: parsed.data.customerId ?? null,
+      appointmentId: parsed.data.appointmentId ?? null,
+      selfStaffId,
+    })
+  } catch (err) {
+    console.error('[recordings.session.mint] failed:', err)
+  }
   return ok(ctx, { id: result?.id ?? null })
 })
 
