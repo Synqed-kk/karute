@@ -15,6 +15,7 @@ import { usePathname } from './ports/nav.vite'
 import { AskAiScreen } from './screens/AskAiScreen'
 import { CustomersScreen } from './screens/CustomersScreen'
 import { SessionsScreen } from './screens/SessionsScreen'
+import { RecordScreen } from './screens/RecordScreen'
 import { CustomerProfileScreen } from './screens/CustomerProfileScreen'
 import { KaruteDetailScreen } from './screens/KaruteDetailScreen'
 
@@ -41,6 +42,10 @@ export function ThinRouter() {
   if (pathname === '/ask-ai') return <AskAiScreen />
   if (pathname === '/customers') return <CustomersScreen />
   if (pathname === '/karute') return <SessionsScreen />
+  // Exact /sessions (record home) BEFORE the /karute/[id] param regex — no
+  // shadowing either way (/sessions can't match /karute/(...), and /karute is an
+  // exact match above).
+  if (pathname === '/sessions') return <RecordScreen />
   const profile = PROFILE_PATH.exec(pathname)
   if (profile) return <CustomerProfileScreen id={safeDecode(profile[1])} />
   const karute = KARUTE_DETAIL_PATH.exec(pathname)

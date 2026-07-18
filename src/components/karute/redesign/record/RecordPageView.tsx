@@ -223,12 +223,10 @@ export function RecordPageView({
       // Switching the target mid-recording would desync the bound customer from
       // the booking shown — a no-op while live keeps the audio's binding intact.
       if (live) return
-      router.replace(
-        {
-          pathname: '/sessions',
-          query: { appointmentId: booking.id },
-        } as Parameters<typeof router.replace>[0],
-      )
+      // String href, not the {pathname, query} object: next-intl's router takes
+      // both, but the thin nav shim (nav.vite) is History-API string-only — the
+      // object form serialized to "[object Object]" in the thin app.
+      router.replace(`/sessions?appointmentId=${encodeURIComponent(booking.id)}`)
     },
     [router, live],
   )

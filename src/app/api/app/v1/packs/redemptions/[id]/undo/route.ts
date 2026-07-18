@@ -2,10 +2,12 @@
 // has ONLY the redemptionId (RecordPageView), so tenancy is proven from the
 // redemption row → pack → business by the business-scoped client itself: a
 // cross-tenant/missing redemptionId is not this business's row (→ not_found).
-// Capability + semantics mirror the batch-3 redeem route (records.write);
-// Idempotency-Key required (effectful reversal); revocation-sensitive
-// (customer.pack.undoRedemption). Already-undone → the web action's tolerant
-// { ok:false } semantics.
+// Capability + semantics mirror the batch-3 redeem route (customers.view — the
+// pack-mutation class; redeem and its undo must stay symmetric, and the
+// dashboard reconcile surfaces that also call undoRedemptionAction are not
+// records.write territory); Idempotency-Key required (effectful reversal);
+// revocation-sensitive (customer.pack.undoRedemption). Already-undone → the web
+// action's tolerant { ok:false } semantics.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -19,7 +21,7 @@ export const runtime = 'nodejs'
 type Params = { id: string }
 
 export const POST = facadeHandler<Params>('customer.pack.undoRedemption', async (ctx) => {
-  ensureCapability(ctx.identity.capabilities, 'records.write')
+  ensureCapability(ctx.identity.capabilities, 'customers.view')
   requireIdempotencyKey(ctx.req)
 
   const { id } = await ctx.route.params
