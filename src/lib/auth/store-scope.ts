@@ -170,8 +170,22 @@ export async function storeStaffIdSet(
   storeId: string | null,
 ): Promise<Set<string> | null> {
   if (!storeId) return null
+  return storeStaffIdSetForBusiness(staff, storeId, await getBusinessId())
+}
+
+/**
+ * Bearer-safe twin of storeStaffIdSet for facade routes: the caller supplies
+ * businessId from its verified token identity — this path must never touch the
+ * cookie session (getBusinessId). Same fail-open posture as the cookie helper.
+ */
+export async function storeStaffIdSetForBusiness(
+  staff: ReadonlyArray<{ id: string; email?: string | null }>,
+  storeId: string | null,
+  businessId: string,
+): Promise<Set<string> | null> {
+  if (!storeId) return null
   try {
-    const assignments = await staffStoreAssignmentsByBusiness(await getBusinessId())
+    const assignments = await staffStoreAssignmentsByBusiness(businessId)
     return filterStaffIdsToStore(staff, assignments, storeId)
   } catch {
     return null
