@@ -117,11 +117,12 @@ export function CustomerProfileView({
       </div>
 
       {/* 2. Pending-deletion banner — only renders if this customer
-       *     is inside the 30-day soft-delete window. Banner returns
-       *     null when status.isScheduled is false. */}
+       *     is inside the 30-day soft-delete window (deletedAt set on
+       *     the core row). Banner returns null otherwise. */}
       <CustomerDeletionBanner
         customerId={customer.id}
         customerName={customer.name}
+        deletedAt={customer.deletedAt}
       />
 
       {/* 3. Identity */}
@@ -204,6 +205,7 @@ export function CustomerProfileView({
             customerName={customer.name}
             consentGranted={consentGranted}
             consentGrantedAtLabel={consentGrantedAtLabel}
+            deletionScheduled={Boolean(customer.deletedAt)}
           />
         )}
       </div>

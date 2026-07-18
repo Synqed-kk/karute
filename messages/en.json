@@ -660,11 +660,14 @@
     "newCustomer": "+ New Customer",
     "unknownName": "Unknown",
     "deletionBanner": {
-      "title": "{name} is scheduled for deletion — {days} days remaining",
-      "titleToday": "{name} will be deleted today",
-      "body": "Permanent deletion on {date}. Inside the {window}-day recovery window.",
-      "blocked": "New karute, recording, and photo uploads are paused for this customer. Undo to resume normal operation.",
-      "undoButton": "Undo deletion"
+      "title": "{name} is scheduled for deletion — {days, plural, one {# day} other {# days}} remaining",
+      "titleToday": "{name} will be deleted today or soon after",
+      "body": "Permanent deletion on or after {date}. Inside the {window}-day recovery window.",
+      "blocked": "Data stays intact and fully usable until the deletion date. You can undo at any time.",
+      "undoButton": "Undo deletion",
+      "undoSuccess": "Deletion of {name} has been canceled.",
+      "undoExpired": "The recovery window has ended — deletion is in progress and can no longer be undone.",
+      "undoFailed": "Couldn't undo the deletion. Please try again."
     },
     "visitHistoryChain": {
       "aria": "Attended {attended} of last {window} visits. {total} total."
@@ -708,6 +711,10 @@
       "deleteTitle": "Delete customer data",
       "deleteBody": "Soft-deletes all data and schedules permanent deletion in 30 days (APPI's reasonable window). Cascade: karute, memory, photos, recordings. Undoable within 30 days.",
       "deleteCta": "Delete data",
+      "deleteConfirm": "Delete {name}'s data? Permanent deletion happens in 30 days. You can undo within that window.",
+      "deleteScheduled": "Deletion scheduled for {name}. You can undo within 30 days.",
+      "deleteAlreadyScheduled": "This customer is already scheduled for deletion.",
+      "deleteFailed": "Couldn't schedule the deletion. Please try again.",
       "footer": "These actions are logged to the audit trail. Deletion is irreversible after 30 days. Owner confirmation recommended before execution.",
       "wiringPending": "Wiring pending — APPI compliance backend in flight",
       "consentRevokeTitle": "Recording consent",

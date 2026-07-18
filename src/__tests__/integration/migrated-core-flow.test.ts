@@ -4,7 +4,8 @@
  * synqed-core; contract testing lives in synqed-core/tests/*.
  *
  * Covers: createCustomer, saveKaruteRecord (atomic create + entries),
- * deleteKaruteRecord, deleteCustomer.
+ * deleteKaruteRecord. (Customer deletion moved to the 30-day schedule/cancel
+ * flow — see customer-deletion-actions.test.ts.)
  */
 
 import { TEST_STAFF_PROFILE_ID } from './helpers/server-action-mocks'
@@ -82,7 +83,7 @@ jest.mock('@/lib/synqed/client', () => ({
   })),
 }))
 
-import { createCustomer, deleteCustomer } from '@/actions/customers'
+import { createCustomer } from '@/actions/customers'
 import { saveKaruteRecord, deleteKaruteRecord } from '@/actions/karute'
 import { redirect } from 'next/navigation'
 
@@ -161,34 +162,6 @@ describe('Migrated core flow — customers + karute + entries', () => {
 
     expect(result).toEqual({ success: true })
     expect(karuteRecords.delete).toHaveBeenCalledWith('karute-1')
-  })
-
-  it('deleteCustomer blocks when karute records exist', async () => {
-    karuteRecords.list.mockResolvedValue({ total: 2, karute_records: [] })
-
-    const result = await deleteCustomer('cust-1')
-
-    expect(result.success).toBe(false)
-    if (result.success) return
-    expect(result.error).toMatch(/2 karute records/)
-    expect(customers.delete).not.toHaveBeenCalled()
-  })
-
-  it('deleteCustomer iterates appointments then deletes the customer', async () => {
-    karuteRecords.list.mockResolvedValue({ total: 0, karute_records: [] })
-    appointments.list.mockResolvedValue({
-      appointments: [{ id: 'appt-1' }, { id: 'appt-2' }],
-    })
-    appointments.delete.mockResolvedValue(undefined)
-    customers.delete.mockResolvedValue(undefined)
-
-    const result = await deleteCustomer('cust-1')
-
-    expect(result).toEqual({ success: true, id: 'cust-1' })
-    expect(appointments.delete).toHaveBeenCalledTimes(2)
-    expect(appointments.delete).toHaveBeenCalledWith('appt-1')
-    expect(appointments.delete).toHaveBeenCalledWith('appt-2')
-    expect(customers.delete).toHaveBeenCalledWith('cust-1')
   })
 
   it('saveKaruteRecord attributes to the signed-in RECORDER, not the booking staff', async () => {

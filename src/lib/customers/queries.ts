@@ -154,6 +154,13 @@ export interface CustomerWithStaff extends Customer {
    *  date exists. Usually NULL (QR sync never persists it); the reconciled
    *  effectiveFirstVisitIso is the primary source. */
   first_visit_at: string | null
+  /** Soft-delete clock (core #51): timestamp = inside the 30-day deletion
+   *  window, null = active. Lists hide scheduled customers; get() does not,
+   *  so the profile page can render the countdown banner. */
+  deleted_at: string | null
+  /** Real per-business chart number (カルテNo) — the numbering fallback when
+   *  the customer is absent from the sequential-number list (soft-deleted). */
+  karute_number: number | null
 }
 
 export async function getCustomer(id: string): Promise<CustomerWithStaff> {
@@ -183,6 +190,9 @@ export async function getCustomer(id: string): Promise<CustomerWithStaff> {
     // Cast to read it (same pattern as the QR fields above).
     first_visit_at:
       (c as typeof c & { first_visit_at?: string | null }).first_visit_at ?? null,
+    deleted_at: (c as typeof c & { deleted_at?: string | null }).deleted_at ?? null,
+    karute_number:
+      (c as typeof c & { karute_number?: number | null }).karute_number ?? null,
   }
 }
 

@@ -335,7 +335,13 @@ export default async function CustomerProfilePage({
     karuteNumber:
       assignSequentialKaruteNumbers(allCustomersList.customers).get(
         customer.id,
-      ) ?? '#00000',
+      ) ??
+      // Soft-deleted customers drop out of the list the sequential map is
+      // built from — fall back to their real chart number, not '#00000'.
+      (customer.karute_number
+        ? `#${String(customer.karute_number).padStart(5, '0')}`
+        : '#00000'),
+    deletedAt: customer.deleted_at,
     age: computeAge(customer.date_of_birth),
     gender: jpGender(customer.gender),
     dateOfBirth: customer.date_of_birth,
