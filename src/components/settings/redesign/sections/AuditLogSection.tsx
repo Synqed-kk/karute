@@ -74,7 +74,6 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const myGeneration = ++generation.current
       setLoading(true)
       const logOpen = !openLogged.current
-      openLogged.current = true
       const res = await listAuditLog({
         category: category ?? undefined,
         from: presetFrom(range),
@@ -90,6 +89,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
         setLoading(false)
         return
       }
+      // Marked only AFTER success: a transiently failed first fetch never
+      // wrote the open row server-side, so the retry must re-send logOpen.
+      if (logOpen) openLogged.current = true
       setError(null)
       setEvents((prev) => (append ? [...prev, ...res.events] : res.events))
       setPage(res.page)
