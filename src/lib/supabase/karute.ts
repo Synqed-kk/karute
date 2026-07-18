@@ -44,6 +44,63 @@ export interface KaruteWithRelations {
  * Lazy imports keep this module's graph free of the synqed-core ESM client for
  * callers/tests that never resolve a record.
  */
+/**
+ * Adapt a raw synqed-core karute record into the KaruteWithRelations shape the
+ * detail page + adapters consume. Pure mapping (no fetch) so the cookie web read
+ * (getKaruteRecord) and the facade Bearer read (packet 07 screen GET) map records
+ * identically — customerName is resolved by the caller from whichever customer
+ * list it has in hand.
+ */
+export function mapSynqedKaruteRecord(
+  rec: {
+    id: string
+    created_at: string
+    ai_summary?: string | null
+    transcript?: string | null
+    business_id?: string | null
+    customer_id?: string | null
+    staff_id?: string | null
+    entries?: Array<{
+      id: string
+      category: string
+      content: string
+      original_quote?: string | null
+      confidence?: number | null
+      is_manual?: boolean | null
+      created_at: string
+    }> | null
+  },
+  customerName: string | null,
+): KaruteWithRelations {
+  return {
+    id: rec.id,
+    created_at: rec.created_at,
+    // synqed-core has no session_date; the header falls back to created_at.
+    session_date: null,
+    summary: rec.ai_summary ?? null,
+    transcript: rec.transcript ?? null,
+    // Supabase column semantics: customer_id = tenant, client_id = the client.
+    customer_id: rec.business_id ?? null,
+    client_id: rec.customer_id ?? null,
+    staff_profile_id: rec.staff_id ?? null,
+    // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
+    profiles: null,
+    customers: rec.customer_id
+      ? { id: rec.customer_id, name: customerName ?? '—' }
+      : null,
+    entries: (rec.entries ?? []).map((e) => ({
+      id: e.id,
+      // synqed entry categories are UPPERCASE; the UI adapters key on lowercase.
+      category: e.category.toLowerCase(),
+      content: e.content,
+      source_quote: e.original_quote ?? null,
+      confidence_score: e.confidence ?? null,
+      is_manual: e.is_manual ?? false,
+      created_at: e.created_at,
+    })),
+  }
+}
+
 export async function getKaruteRecord(
   id: string,
 ): Promise<KaruteWithRelations | null> {
@@ -59,33 +116,7 @@ export async function getKaruteRecord(
       ? customers.find((c) => c.id === rec.customer_id)?.name ?? null
       : null
 
-    return {
-      id: rec.id,
-      created_at: rec.created_at,
-      // synqed-core has no session_date; the header falls back to created_at.
-      session_date: null,
-      summary: rec.ai_summary ?? null,
-      transcript: rec.transcript ?? null,
-      // Supabase column semantics: customer_id = tenant, client_id = the client.
-      customer_id: rec.business_id ?? null,
-      client_id: rec.customer_id ?? null,
-      staff_profile_id: rec.staff_id ?? null,
-      // staff name unresolved here (synqed staff_id ≠ profile id); header renders '—'.
-      profiles: null,
-      customers: rec.customer_id
-        ? { id: rec.customer_id, name: customerName ?? '—' }
-        : null,
-      entries: (rec.entries ?? []).map((e) => ({
-        id: e.id,
-        // synqed entry categories are UPPERCASE; the UI adapters key on lowercase.
-        category: e.category.toLowerCase(),
-        content: e.content,
-        source_quote: e.original_quote ?? null,
-        confidence_score: e.confidence ?? null,
-        is_manual: e.is_manual ?? false,
-        created_at: e.created_at,
-      })),
-    }
+    return mapSynqedKaruteRecord(rec, customerName)
   } catch (err) {
     console.error('[getKaruteRecord] synqed-core fetch failed:', err)
     return null
