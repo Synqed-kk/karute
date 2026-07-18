@@ -2098,18 +2098,26 @@
           "update": "Updated staff",
           "remove": "Removed staff",
           "invite_create": "Created invite",
-          "invite_revoke": "Revoked invite"
+          "invite_revoke": "Revoked invite",
+          "pin_set": "PIN set",
+          "pin_removed": "PIN removed",
+          "avatar_update": "Profile photo updated"
         },
         "settings": {
           "permissions_change": "Changed permissions",
-          "staff_stores_change": "Changed store assignment"
+          "staff_stores_change": "Changed store assignment",
+          "store_create": "Store added",
+          "store_update": "Store updated",
+          "sync_config_update": "Booking sync settings changed"
         },
         "privacy": {
           "customer_export": "Exported customer data",
           "audit_log_view": "Viewed audit log",
           "customer_delete_scheduled": "Scheduled customer deletion",
           "customer_delete_canceled": "Canceled customer deletion",
-          "customer_delete_executed": "Permanently deleted customer data"
+          "customer_delete_executed": "Permanently deleted customer data",
+          "voice_enroll": "Voice enrolled",
+          "voice_revoke": "Voice removed"
         }
       }
     },

@@ -11,6 +11,7 @@
 
 import { revalidatePath } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/service'
+import { auditWeb } from '@/lib/audit-web'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getOrgSettings, writeOrgSettingsBlob } from './org-settings'
@@ -78,6 +79,13 @@ export async function enrollVoiceAction(
     }
     const saved = await writeOrgSettingsBlob({ voice_enrollments: next })
     if (!saved) return { ok: false }
+    await auditWeb({
+      category: 'privacy',
+      action: 'privacy.voice_enroll',
+      severity: 'notice',
+      targetType: 'staff',
+      targetId: staffId,
+    })
     revalidatePath('/[locale]/(app)/settings', 'page')
     return { ok: true, enrolledAt }
   } catch {
@@ -114,6 +122,13 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
     }
     const saved = await writeOrgSettingsBlob({ voice_enrollments: next })
     if (!saved) return { ok: false }
+    await auditWeb({
+      category: 'privacy',
+      action: 'privacy.voice_revoke',
+      severity: 'notice',
+      targetType: 'staff',
+      targetId: staffId,
+    })
     revalidatePath('/[locale]/(app)/settings', 'page')
     return { ok: true }
   } catch {

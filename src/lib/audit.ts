@@ -39,7 +39,7 @@ export interface AuditEvent {
   actorId: string | null
   actorType: 'staff' | 'system'
   businessId: string | null
-  targetType?: 'customer' | 'karute' | 'staff' | 'recording' | 'business'
+  targetType?: 'customer' | 'karute' | 'staff' | 'recording' | 'business' | 'store'
   targetId?: string
   /** Default 'info'. 'notice' = privileged/consequential, 'warning' = security. */
   severity?: AuditSeverity
