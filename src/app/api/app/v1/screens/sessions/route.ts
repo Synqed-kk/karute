@@ -20,6 +20,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { SessionsScreenDTO } from '@/lib/app-api/sessions-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { storeStaffIdSetForBusiness } from '@/lib/auth/store-scope'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
@@ -97,8 +98,19 @@ export const GET = facadeHandler('sessions.list', async (ctx) => {
       ? ctx.identity.authUserId
       : null
 
+    // #496 store clamp, facade twin: 担当 pickers offer only the active store's
+    // staff. Business id comes from the verified token — never the cookie
+    // session (storeStaffIdSet's world). Fail-open to full roster mirrors the
+    // web page's posture.
+    const storeStaffIds = await storeStaffIdSetForBusiness(
+      staffList,
+      activeStore,
+      ctx.identity.businessId,
+    )
+
     screen = buildSessionsListScreen({
       staffList,
+      storeStaffIds,
       allCustomersList,
       storeCustomerList,
       currentStaffId,
