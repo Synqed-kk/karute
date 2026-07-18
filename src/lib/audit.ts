@@ -1,6 +1,7 @@
 // Audit event emitter — the app side of the 監査ログ spine (design canon:
 // ~/Documents/Claude/karute-ai-quality/AUDIT-LOG-DESIGN.md, mirrored in the
 // Anthony ask's Addendum 2).
+import { after } from 'next/server'
 //
 // The durable audit_log table lives in synqed-core (Anthony item). Until that
 // endpoint exists, every event emits as ONE structured console line — the same
@@ -55,9 +56,13 @@ export interface AuditEvent {
  *   1. ONE structured console line — sync + cheap, survives in Vercel log
  *      drains, keeps its level semantics. Stays even now that the durable
  *      sink exists (belt + braces; drains are the outage-time record).
- *   2. The DURABLE row — core's append-only audit_log via synqed.audit.log,
- *      fire-and-forget so a lost row can never block or slow care delivery
- *      ("the log proves presence, never absence"). Skipped when the event
+ *   2. The DURABLE row — core's append-only audit_log via synqed.audit.log.
+ *      Starts immediately and never blocks or slows the caller ("the log
+ *      proves presence, never absence"), but inside a request scope the
+ *      write is handed to Next's after() so the serverless runtime stays
+ *      alive until the row lands — a response finishing first can no longer
+ *      freeze the write mid-flight. Outside a request scope (jest, module
+ *      init) it degrades to plain fire-and-forget. Skipped when the event
  *      has no businessId (core writes are tenant-scoped; the console line
  *      still records it — e.g. pre-auth PIN lockouts). */
 export function audit(e: AuditEvent): void {
@@ -84,7 +89,18 @@ export function audit(e: AuditEvent): void {
     }),
   )
 
-  if (e.businessId) void forwardToCore(e, e.businessId)
+  if (e.businessId) {
+    // Start NOW (zero added latency), then extend the function's lifetime
+    // until the write settles. forwardToCore never rejects, so the fallback
+    // void can't become an unhandled rejection.
+    const durable = forwardToCore(e, e.businessId)
+    try {
+      after(durable)
+    } catch {
+      // No request scope to attach to — best-effort, as before.
+      void durable
+    }
+  }
 }
 
 // App severities are richer than core's column enum — map, don't drop:
