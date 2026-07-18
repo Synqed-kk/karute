@@ -28,7 +28,8 @@ const CreatePackSchema = z
     packSize: z.number().int().positive(),
     unitPrice: z.number().nonnegative(),
     totalPrice: z.number().nullable().optional(),
-    purchaseRound: z.number().int().optional(),
+    // purchaseRound deliberately absent: server-derived, .strict() rejects it
+    // (Greptile P1 — a caller forcing round 1 would re-trigger 初回 pricing).
     purchasedAt: z.string().nullable().optional(),
     notes: z.string().nullable().optional(),
   })

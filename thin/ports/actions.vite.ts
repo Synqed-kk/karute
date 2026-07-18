@@ -180,7 +180,6 @@ async function facadeCreatePack(input: {
   packSize: number
   unitPrice: number
   totalPrice?: number | null
-  purchaseRound?: number
   purchasedAt?: string | null
   notes?: string | null
 }): Promise<{ ok: boolean; error?: string }> {

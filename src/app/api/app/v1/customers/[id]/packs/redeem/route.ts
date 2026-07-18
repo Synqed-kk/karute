@@ -26,7 +26,15 @@ type Params = { id: string }
 const RedeemSchema = z
   .object({
     packId: z.string().min(1),
-    redeemedOn: z.string().optional(),
+    // Store contract is a real yyyy-mm-dd (Greptile P2: "tomorrow" reached the
+    // store and silently broke burn↔appointment pairing).
+    redeemedOn: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'redeemedOn must be yyyy-mm-dd')
+      .refine((s) => !Number.isNaN(new Date(`${s}T00:00:00+09:00`).getTime()), {
+        message: 'redeemedOn must be a real calendar date',
+      })
+      .optional(),
     // Present (incl. null) → accepted as-is; ABSENT → the server derives it.
     appointmentId: z.string().nullable().optional(),
     karuteRecordId: z.string().nullable().optional(),

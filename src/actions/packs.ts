@@ -38,7 +38,6 @@ interface CreatePackActionInput {
   packSize: number
   unitPrice: number
   totalPrice?: number | null
-  purchaseRound?: number
   purchasedAt?: string | null
   notes?: string | null
 }
@@ -61,10 +60,15 @@ export async function createPackActionWithClient(
   // send kind:'single' with packSize 10 and inflate the derived total_price.
   if (input.kind === 'single' && input.packSize !== 1)
     return { ok: false, error: 'single kind must have packSize 1' }
-  // SERVER-derived 購入回数: highest STORED round + 1, never a row count (the
-  // imports collapsed history to one row per customer). Business-wide, store-blind.
+  // SERVER-derived 購入回数, no caller override (Greptile P1 on #489: a facade
+  // caller could force round 1 and re-trigger 初回 pricing): pack → highest
+  // STORED round + 1, never a row count (imports collapsed history to one row
+  // per customer; business-wide, store-blind); single/subscription → 0
+  // (unnumbered), matching the store convention.
   const purchaseRound =
-    input.purchaseRound ?? nextPurchaseRound(await listCustomerPacksWithClient(synqed, input.customerId))
+    input.kind === 'pack'
+      ? nextPurchaseRound(await listCustomerPacksWithClient(synqed, input.customerId))
+      : 0
   // SERVER-derived 合計金額: unit × size (the app prices per-session), so pack
   // revenue is never zeroed. One rule covers every present + future caller.
   const totalPrice = input.totalPrice ?? input.unitPrice * input.packSize

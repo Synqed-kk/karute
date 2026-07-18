@@ -88,6 +88,14 @@ describe('POST packs (create)', () => {
     expect(res.status).toBe(201)
     expect(createPackWithClient).toHaveBeenCalled()
   })
+  it('client-sent purchaseRound → 400 (server-derived, strict schema)', async () => {
+    const res = await packCreate(
+      post(IDEM, { kind: 'pack', packSize: 10, unitPrice: 5000, purchaseRound: 1 }),
+      route('cust-1'),
+    )
+    expect(res.status).toBe(400)
+    expect(createPackWithClient).not.toHaveBeenCalled()
+  })
   it('single + packSize>1 → 400 validation, no write', async () => {
     const res = await packCreate(post(IDEM, { kind: 'single', packSize: 2, unitPrice: 5000 }), route('cust-1'))
     expect(res.status).toBe(400)
@@ -123,6 +131,14 @@ describe('POST packs/redeem', () => {
     expect(res.status).toBe(201)
     expect(findCustomerAppointmentForDateWithClient).not.toHaveBeenCalled()
     expect((addRedemptionWithClient.mock.calls[0] as unknown[])[1]).toMatchObject({ appointmentId: 'appt-explicit' })
+  })
+  it('malformed redeemedOn ("tomorrow") → 400, no write', async () => {
+    const res = await packRedeem(
+      post(IDEM, { packId: 'pack-1', redeemedOn: 'tomorrow' }),
+      route('cust-1'),
+    )
+    expect(res.status).toBe(400)
+    expect(addRedemptionWithClient).not.toHaveBeenCalled()
   })
   it('cross-tenant / wrong-customer packId → 404, no write', async () => {
     listCustomerPacksWithClient.mockResolvedValue([{ id: 'pack-1' }]) // pack-evil not present
