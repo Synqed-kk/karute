@@ -44,7 +44,7 @@ const CUSTOMER_ROW = {
   notes: null, assigned_staff_id: 'profile-9', is_existing_customer: true, date_of_birth: '1990-01-01',
   gender: 'female', occupation: null, member_number: null, visit_count: 3, has_ticket_pack: false,
   last_visit_at: '2026-06-01T00:00:00Z', first_visit_at: null,
-  created_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-01T12:00:00Z',
+  created_at: '2026-01-01T00:00:00Z', updated_at: '2026-06-01T12:00:00Z', deleted_at: null,
 }
 const listPhotos = jest.fn(async () => ({ photos: [] }))
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0', granted_at: '2026-06-01' } }))

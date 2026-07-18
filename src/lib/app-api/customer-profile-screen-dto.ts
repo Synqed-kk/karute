@@ -33,6 +33,9 @@ const CustomerProfileDataSchema = z.object({
   name: z.string(),
   initials: z.string(),
   karuteNumber: z.string(),
+  // Deletion lane (da71dd36): CustomerProfileData requires it; the builder
+  // threads customer.deleted_at through.
+  deletedAt: z.string().nullable(),
   age: z.number().nullable(),
   gender: z.string().nullable(),
   joinDate: z.string(),
