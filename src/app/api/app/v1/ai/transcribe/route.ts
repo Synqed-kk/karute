@@ -73,23 +73,27 @@ export const POST = facadeHandler('ai.transcribe', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'could not read the recording')
   }
 
-  const result = await runTranscription({
-    audio: { url: signed.signedUrl },
-    locale: parsed.data.locale === 'en' ? 'en' : 'ja',
-    diarize,
-    reference,
-    mode,
-    // Deepgram keyterm prompting (a85b6bf6 fold) — same derivation as the web
-    // route, from the identity-threaded org settings.
-    businessType: orgSettings?.business_type ?? null,
-  })
-
-  // Server-side delete after transcription (parity with the web flow, which
-  // removes the object once Deepgram has read it).
-  await supabase.storage
-    .from('recordings')
-    .remove([path])
-    .catch(() => {})
+  let result: Record<string, unknown>
+  try {
+    result = await runTranscription({
+      audio: { url: signed.signedUrl },
+      locale: parsed.data.locale === 'en' ? 'en' : 'ja',
+      diarize,
+      reference,
+      mode,
+      // Deepgram keyterm prompting (a85b6bf6 fold) — same derivation as the web
+      // route, from the identity-threaded org settings.
+      businessType: orgSettings?.business_type ?? null,
+    })
+  } finally {
+    // Server-side delete WHETHER OR NOT transcription succeeded (the thin
+    // client has no storage access by design, so a failed transcribe must not
+    // orphan the raw audio — customer-conversation content — in the bucket).
+    await supabase.storage
+      .from('recordings')
+      .remove([path])
+      .catch(() => {})
+  }
 
   return ok(ctx, result)
 })

@@ -147,6 +147,12 @@ describe('transcribe — storage-path tenancy + voice isolation', () => {
     expect(loadRef).toHaveBeenCalledWith(expect.anything(), 'auth-user-1')
     expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
   })
+  it('transcription failure → object still deleted (no orphaned audio)', async () => {
+    runTranscription.mockRejectedValueOnce(new Error('deepgram down'))
+    const res = await transcribePOST(post(auth, { path: 'app_business-1_take.webm', locale: 'ja' }), noRoute)
+    expect(res.status).toBeGreaterThanOrEqual(500)
+    expect(removeObj).toHaveBeenCalledWith(['app_business-1_take.webm'])
+  })
   it('missing capability → 403', async () => {
     capabilities.current = new Set(['customers.view'])
     const res = await transcribePOST(post(auth, { path: 'app_business-1_x.webm' }), noRoute)
