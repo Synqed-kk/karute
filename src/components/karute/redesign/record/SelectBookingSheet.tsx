@@ -15,18 +15,10 @@
 // past the cap and the late bookings spill off-screen, unreachable
 // (that was the reported bug: 20:00 rows couldn't be reached).
 //
-// EMPTY STATE — when nearbyBookings is empty, surface the same
-// 対応予定 scaffolding copy the popover used (matches the karute
-// project's existing pattern from PickerScaffold). Auto-degrades
-// to the real list the moment the booking-list query returns
-// rows.
-//
-// ANTHONY: when you wire the today's-bookings query end-to-end
-// (see MERGE_NOTES_FOR_ANTHONY.md's schema-drift section + the
-// nextAppointment query in sessions/page.tsx), this component
-// needs zero changes — RecordingTargetCard already passes the
-// fetched rows through via `nearbyBookings`. The empty-state
-// branch simply stops rendering once that prop has entries.
+// EMPTY STATE — when nearbyBookings is empty the salon genuinely has
+// no bookings today (the list is fed by sessions/page.tsx's real
+// getAppointmentsByDate query), so say exactly that. Recording still
+// works without a booking (walk-in flow).
 // ============================================================
 
 import { useTranslations } from 'next-intl'
@@ -91,21 +83,10 @@ export function SelectBookingSheet({
         </SheetHeader>
 
         {bookings.length === 0 ? (
-          // Empty state — 対応予定 scaffolding so staff + Anthony
-          // see the contract for the populated path above.
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-6">
-            <div className="flex gap-2 rounded-lg border border-dashed border-blue-300/60 bg-blue-50/40 p-4 dark:border-blue-500/30 dark:bg-blue-500/[0.06]">
-              <div className="min-w-0 flex-1">
-                <div className="mb-1.5 flex items-center gap-1.5">
-                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-px text-[9px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-300">
-                    {t('pickerScaffoldLabel')}
-                  </span>
-                </div>
-                <p className="text-[13px] italic leading-relaxed text-muted-foreground">
-                  {t('pickerScaffoldBody')}
-                </p>
-              </div>
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-8">
+            <p className="text-center text-[13px] leading-relaxed text-muted-foreground">
+              {t('pickerEmpty')}
+            </p>
           </div>
         ) : (
           <ul
