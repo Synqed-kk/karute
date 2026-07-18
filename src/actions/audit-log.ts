@@ -28,6 +28,8 @@ export interface AuditLogEvent {
 
 export interface AuditLogFilters {
   category?: string
+  /** Cause-based person filter (design §10 — raw events only, never stats). */
+  actorId?: string
   /** ISO datetimes (core validates z.string().datetime()). */
   from?: string
   to?: string
@@ -58,6 +60,12 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
       total: number
       page: number
       hasMore: boolean
+      /** Exact 緊急アクセス count for the summary strip (same filters, break_glass=true). */
+      breakGlassTotal: number
+      /** Display names for this page's customer/store targets — rows store ids
+       *  only (PII rule), so names join at read time. Staff resolve client-side
+       *  off the roster the section already holds. */
+      targetLabels: Record<string, string>
     }
   | { ok: false; error: 'forbidden' | 'failed' }
 > {
@@ -69,16 +77,27 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
   try {
     const synqed = await getSynqedClient()
     const page = Math.max(1, Math.trunc(filters.page ?? 1))
-    const res = await synqed.audit.list({
+    const baseQuery = {
       category: filters.category || undefined,
-      target_type: filters.targetId ? 'customer' : undefined,
+      actor_id: filters.actorId || undefined,
+      target_type: filters.targetId ? ('customer' as const) : undefined,
       target_id: filters.targetId || undefined,
-      break_glass: filters.breakGlass ? true : undefined,
       from: filters.from || undefined,
       to: filters.to || undefined,
-      page,
-      page_size: PAGE_SIZE,
-    })
+    }
+    const [res, breakGlassRes] = await Promise.all([
+      synqed.audit.list({
+        ...baseQuery,
+        break_glass: filters.breakGlass ? true : undefined,
+        page,
+        page_size: PAGE_SIZE,
+      }),
+      // Strip count — page_size 1, only the total matters. Skipped when the
+      // break-glass filter is already on (the main total IS the count).
+      filters.breakGlass
+        ? null
+        : synqed.audit.list({ ...baseQuery, break_glass: true, page: 1, page_size: 1 }),
+    ])
 
     // Opening the 監査ログ is itself a privileged read — one row per open
     // (the section sends logOpen on its first fetch only; filter clicks and
@@ -109,8 +128,44 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
       // hasMore follows the UNFILTERED count — the next page may still hold
       // non-view rows even when this one filtered to empty.
       hasMore: res.page * res.page_size < res.total,
+      breakGlassTotal: breakGlassRes ? breakGlassRes.total : res.total,
+      targetLabels: await resolveTargetLabels(synqed, events),
     }
   } catch {
     return { ok: false, error: 'failed' }
   }
+}
+
+/** Batch name lookup for this page's customer + store targets. Best-effort:
+ *  a failed lookup degrades to ids in the UI, never fails the feed. Deleted
+ *  customers resolve while soft-deleted (include_deleted); hard-purged rows
+ *  simply don't — the row's id stands, which is the honest state. */
+async function resolveTargetLabels(
+  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
+  events: AuditLogEvent[],
+): Promise<Record<string, string>> {
+  const idsOf = (type: string) =>
+    [...new Set(events.filter((e) => e.target_type === type && e.target_id).map((e) => e.target_id!))]
+  const labels: Record<string, string> = {}
+  const customerIds = idsOf('customer')
+  if (customerIds.length > 0) {
+    try {
+      const { customers } = await synqed.customers.list({
+        ids: customerIds,
+        include_deleted: true,
+      })
+      for (const c of customers) labels[c.id] = c.name
+    } catch {
+      /* ids remain */
+    }
+  }
+  if (idsOf('store').length > 0) {
+    try {
+      const { stores } = await synqed.stores.list()
+      for (const s of stores) labels[s.id] = s.name
+    } catch {
+      /* ids remain */
+    }
+  }
+  return labels
 }

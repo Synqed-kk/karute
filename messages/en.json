@@ -2111,7 +2111,15 @@
           "customer_delete_canceled": "Canceled customer deletion",
           "customer_delete_executed": "Permanently deleted customer data"
         }
-      }
+      },
+      "categoryLabel": "Category",
+      "staffLabel": "Staff",
+      "staffAll": "Everyone",
+      "statsChanges": "changes",
+      "statsWarnings": "warnings",
+      "statsBreakGlass": "break-glass",
+      "eventsCount": "{count, plural, one {# event} other {# events}}",
+      "storesCount": "{count, plural, one {# store} other {# stores}}"
     },
     "comingSoon": "Coming soon",
     "loginId": "Login ID",

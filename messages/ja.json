@@ -2111,7 +2111,15 @@
           "customer_delete_canceled": "顧客削除を取り消し",
           "customer_delete_executed": "顧客データを完全削除"
         }
-      }
+      },
+      "categoryLabel": "カテゴリ",
+      "staffLabel": "スタッフ",
+      "staffAll": "全員",
+      "statsChanges": "変更",
+      "statsWarnings": "警告",
+      "statsBreakGlass": "緊急アクセス",
+      "eventsCount": "{count}件",
+      "storesCount": "{count}店舗"
     },
     "comingSoon": "近日公開",
     "loginId": "ログインID",
