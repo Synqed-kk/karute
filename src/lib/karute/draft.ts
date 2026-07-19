@@ -48,6 +48,11 @@ export type KaruteDraft = {
    *  is that RETRIED/RECOVERED saves dedupe too. Absent when the mint failed or
    *  hadn't resolved before the take reached review. */
   recordingSessionId?: string
+  /** The persisted take (lib/karute/take-store) this draft came from, so the
+   *  audio is deleted when the draft's save/discard settles the session —
+   *  otherwise the take would be re-offered for an already-finished session
+   *  until its TTL. Absent for pre-take drafts and when persistence failed. */
+  takeId?: string
   /** Auth user id (Supabase auth.uid) of the staff member who saved this draft.
    *  Recovery is gated on it: only the same signed-in user is ever offered the
    *  draft, so a shared device can't surface staff A's customer transcript to
@@ -64,8 +69,9 @@ export type KaruteDraft = {
 
 /** The signed-in auth user id (== profiles.id), read locally from the session
  *  (no network). null when signed out or unavailable — a null-owner draft is
- *  never restorable, which fails closed for privacy. */
-async function currentUserId(): Promise<string | null> {
+ *  never restorable, which fails closed for privacy. Exported for
+ *  take-store.ts so both owner gates stamp the exact same identity. */
+export async function currentUserId(): Promise<string | null> {
   try {
     const supabase = createClient()
     const { data } = await supabase.auth.getSession()

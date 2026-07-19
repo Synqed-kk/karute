@@ -3,6 +3,12 @@
 import { recordingAudioConstraints } from '@/lib/recording-constraints'
 import type { RecordingResult } from '@/hooks/use-media-recorder'
 import { startRecordingSession } from '@/actions/recordings'
+import {
+  appendTakeSegment,
+  createTake,
+  deleteTake,
+  stampTakeSession,
+} from '@/lib/karute/take-store'
 
 /**
  * Global MediaRecorder singleton.
@@ -29,11 +35,19 @@ export interface RecordingTarget {
 // otherwise be both too big to save AND a total loss of the session.
 //
 // NOTE: this only covers a recording the OS keeps alive (e.g. phone on the
-// counter, screen on). A pocketed/locked phone is a separate problem — iOS
-// suspends the tab — which only segmented + locally-persisted capture solves.
+// counter, screen on). A pocketed/locked phone still SUSPENDS capture (a
+// native background-audio concern); what take-store persistence guarantees is
+// that whatever WAS captured before the suspension/kill is recoverable.
 const OVERRUN_WARN_MS = 100 * 60_000 // 1h40 — soft "still recording?" nudge (past any booked session)
 const AUTO_STOP_MS = 120 * 60_000 // 2h — hard stop-and-save (~43 MB, keeps blob < 50 MB cap)
 const RUNAWAY_TICK_MS = 15_000 // how often we re-check the elapsed recording time
+
+// Take durability: flush accumulated chunks to IndexedDB (take-store) every
+// ~5 s — NOT per 100 ms chunk, so the disk isn't ground — plus on pause/stop/
+// visibilitychange-hidden. Persistence is best-effort and must NEVER block
+// capture: any failure disables the layer for this take and recording
+// continues memory-only exactly as before.
+const TAKE_FLUSH_MS = 5_000
 
 function getSupportedMimeType(): string {
   if (typeof MediaRecorder === 'undefined') return ''
@@ -66,9 +80,22 @@ class GlobalRecorder {
    *  resolves, and null forever if the mint failed — the save then proceeds
    *  without it exactly as before this existed (no dedupe for that save). */
   recordingSessionId: string | null = null
+  /** Id of the take being persisted to take-store. Set at start(); survives
+   *  stop → handoff (the persisted audio outlives the recorder — deleted only
+   *  on save/discard/logout/TTL); cleared on discard(). null while idle or
+   *  when persistence is disabled for this take. */
+  takeId: string | null = null
 
   private recorder: MediaRecorder | null = null
   private chunks: Blob[] = []
+  /** Take-durability flush state. `persistedChunkCount` indexes into `chunks`
+   *  (how many are already on disk); the queue serializes flushes so timer /
+   *  pause / visibility triggers never interleave. */
+  private persistDisabled = false
+  private persistSeq = 0
+  private persistedChunkCount = 0
+  private persistTimer: ReturnType<typeof setInterval> | null = null
+  private persistQueue: Promise<void> = Promise.resolve()
   private startTime = 0
   private pausedDuration = 0
   private pauseStart = 0
@@ -127,6 +154,57 @@ class GlobalRecorder {
     }
   }
 
+  // ── Take durability (see lib/karute/take-store.ts) ─────────────────────────
+
+  private handleVisibilityHidden = () => {
+    // The last flush before a WKWebView suspension/kill — the whole point.
+    if (document.visibilityState === 'hidden') this.flushTake()
+  }
+
+  private armTakePersistence() {
+    this.clearTakePersistence()
+    this.persistTimer = setInterval(() => this.flushTake(), TAKE_FLUSH_MS)
+    document.addEventListener('visibilitychange', this.handleVisibilityHidden)
+  }
+
+  private clearTakePersistence() {
+    if (this.persistTimer) {
+      clearInterval(this.persistTimer)
+      this.persistTimer = null
+    }
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', this.handleVisibilityHidden)
+    }
+  }
+
+  /** Flush chunks not yet on disk as one segment. Serialized via the queue;
+   *  fire-and-forget — MUST never block or throw into the capture path. */
+  private flushTake() {
+    if (this.persistDisabled || !this.takeId) return
+    const takeId = this.takeId
+    this.persistQueue = this.persistQueue
+      .then(async () => {
+        // Re-check inside the queued task: a discard may have run meanwhile.
+        if (this.persistDisabled || this.takeId !== takeId) return
+        const pending = this.chunks.slice(this.persistedChunkCount)
+        if (pending.length === 0) return
+        const seq = this.persistSeq
+        const count = this.persistedChunkCount + pending.length
+        const ok = await appendTakeSegment(takeId, seq, new Blob(pending))
+        if (this.takeId !== takeId) return
+        if (!ok) {
+          // ponytail: fail-open to memory-only — capture continues as today.
+          this.persistDisabled = true
+          return
+        }
+        this.persistSeq = seq + 1
+        this.persistedChunkCount = count
+      })
+      .catch(() => {
+        this.persistDisabled = true
+      })
+  }
+
   async start(opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) {
     this.error = null
     this.result = null
@@ -150,6 +228,11 @@ class GlobalRecorder {
       // in flight): drop it — its row belongs to a different take/customer.
       if (gen !== this.recordingSessionGen) return null
       this.recordingSessionId = res?.id ?? null
+      // Stamp the persisted take so a crash-recovered save still dedupes.
+      // (If the meta row isn't written yet, createTake's callback re-stamps.)
+      if (this.takeId && this.recordingSessionId) {
+        void stampTakeSession(this.takeId, this.recordingSessionId)
+      }
       this.notify()
       return this.recordingSessionId
     })
@@ -195,6 +278,11 @@ class GlobalRecorder {
       this.startedAt = null
       micStream.getTracks().forEach(t => t.stop())
       this.stream = null
+      // Final tail flush (onstop fires after the last ondataavailable). The
+      // timer stops but the persisted take is KEPT — it outlives the recorder
+      // until the karute record is saved / discarded / TTL / logout.
+      this.clearTakePersistence()
+      this.flushTake()
       this.notify()
     }
 
@@ -204,6 +292,37 @@ class GlobalRecorder {
     recorder.start(100)
     this.state = 'recording'
     this.armRunawayGuard()
+
+    // Take durability: persist this take's meta row, then flush segments on
+    // the timer. All fire-and-forget AFTER the mic is live — persistence can
+    // never delay or break capture. createTake resolves the owner at the
+    // store layer; no signed-in user / any failure → memory-only, as today.
+    const takeId =
+      typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    this.takeId = takeId
+    this.persistDisabled = false
+    this.persistSeq = 0
+    this.persistedChunkCount = 0
+    void createTake({
+      takeId,
+      target: this.target,
+      recordingSessionId: this.recordingSessionId,
+      mimeType: mimeType || recorder.mimeType,
+      startedAt: this.startTime,
+    }).then((ok) => {
+      if (this.takeId !== takeId) return
+      if (!ok) {
+        this.persistDisabled = true
+        return
+      }
+      // Mint may have resolved while the meta row was being written — the
+      // mint's own stamp would have hit a missing row, so re-stamp here.
+      if (this.recordingSessionId) void stampTakeSession(takeId, this.recordingSessionId)
+    })
+    this.armTakePersistence()
+
     this.notify()
   }
 
@@ -233,6 +352,7 @@ class GlobalRecorder {
       this.recorder.pause()
       this.pauseStart = Date.now()
       this.state = 'paused'
+      this.flushTake()
       this.notify()
     }
   }
@@ -246,8 +366,18 @@ class GlobalRecorder {
     }
   }
 
-  discard() {
+  /**
+   * `keepTake` is for the pipeline handoff ONLY (handleUseRecording): the
+   * recorder is cleared but the persisted audio stays in take-store until the
+   * karute record actually SAVES — a reload during transcription can then
+   * re-offer the audio. A plain discard() deletes the persisted take too.
+   */
+  discard(opts?: { keepTake?: boolean }) {
     this.clearRunawayGuard()
+    this.clearTakePersistence()
+    if (this.takeId && !opts?.keepTake) void deleteTake(this.takeId)
+    this.takeId = null
+    this.persistDisabled = false
     if (this.recorder && this.recorder.state !== 'inactive') {
       // Stop without triggering onstop result
       this.recorder.ondataavailable = null
