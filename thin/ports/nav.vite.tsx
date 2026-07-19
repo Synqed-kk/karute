@@ -14,16 +14,39 @@ import type { NavPort } from '@/lib/ports/types'
 
 const listeners = new Set<() => void>()
 
-function navigate(href: string, replace = false): void {
-  if (replace) history.replaceState({}, '', href)
-  else history.pushState({}, '', href)
+// Next's Link/router accept `{pathname, query}` objects as well as strings
+// (CustomerIdentityCard's mic button passes one). Without this normalizer the
+// History API stringifies the object to "[object Object]", the profile route
+// regex eats it as a customer id, and the screen dead-ends on a lookup error
+// with no way back (packet-09 F-7 cause 2). Normalize at the port root so
+// every caller — Link, push, replace, redirect — is covered.
+export type UrlObject = {
+  pathname: string
+  query?: Record<string, string | number | boolean | null | undefined>
+}
+export type Href = string | UrlObject
+
+export function toHref(href: Href): string {
+  if (typeof href === 'string') return href
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(href.query ?? {})) {
+    if (v != null) params.set(k, String(v))
+  }
+  const qs = params.toString()
+  return qs ? `${href.pathname}?${qs}` : href.pathname
+}
+
+function navigate(href: Href, replace = false): void {
+  const url = toHref(href)
+  if (replace) history.replaceState({}, '', url)
+  else history.pushState({}, '', url)
   listeners.forEach((l) => l())
 }
 
 export function useRouter() {
   return {
-    push: (href: string) => navigate(href),
-    replace: (href: string) => navigate(href, true),
+    push: (href: Href) => navigate(href),
+    replace: (href: Href) => navigate(href, true),
     back: () => history.back(),
     refresh: () => listeners.forEach((l) => l()),
     prefetch: () => {},
@@ -65,7 +88,7 @@ export function useSearchParams(): URLSearchParams {
   return new URLSearchParams(search)
 }
 
-export function redirect(href: string): void {
+export function redirect(href: Href): void {
   navigate(href, true)
 }
 
@@ -80,10 +103,10 @@ export function Link({
   children,
   onClick,
   ...rest
-}: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) {
+}: Omit<AnchorHTMLAttributes<HTMLAnchorElement>, 'href'> & { href: Href }) {
   return (
     <a
-      href={href}
+      href={toHref(href)}
       onClick={(e: MouseEvent<HTMLAnchorElement>) => {
         onClick?.(e)
         if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey) return
