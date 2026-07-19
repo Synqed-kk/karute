@@ -63,6 +63,15 @@ function main(): void {
   // the boot gate settles (≤4s; instant for a locally persisted session).
   bootMobileAuth()
 
+  // The shell's HOME is the customer list. Normalize the WebView entry URL
+  // ('/', or the literal '/index.html' capacitor serves) BEFORE first render:
+  // the router already fell through to CustomersScreen here, but the chrome
+  // reads the pathname — at '/' the header titled the screen ダッシュボード
+  // and no bottom tab showed active (found on the sim, parity P-A).
+  if (location.pathname === '/' || location.pathname === '/index.html') {
+    history.replaceState({}, '', '/customers')
+  }
+
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppRoot dataPort={viteDataPort} locale="ja" messages={messages}>
