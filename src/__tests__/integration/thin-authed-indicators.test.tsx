@@ -135,13 +135,35 @@ describe('AuthGate mounts the recording/processing chrome (F-8)', () => {
     ).toMatchObject({ customerId: 'cust-1', summary: 'S' })
   })
 
-  it('mounts nothing extra while signed out (login screen stays chrome-free)', () => {
-    setSessionState({ status: 'signed-out' })
+  it('keeps the chrome mounted through an offline-resume spell (recovering w/ known session)', () => {
+    act(() => {
+      globalPipeline.start(new Blob(['a']), { locale: 'ja', customers: [] })
+    })
     render(
       <AuthGate>
         <div data-testid="app" />
       </AuthGate>,
     )
+    // beforeEach signed in → lastSession is known; a resume spell must keep
+    // the app AND its chrome (a 60-min take keeps transcribing offline).
+    act(() => setSessionState({ status: 'recovering' }))
+    expect(screen.getByTestId('app')).toBeTruthy()
+    expect(screen.getByText('文字起こし中')).toBeTruthy()
+  })
+
+  it('unmounts the chrome on sign-out (login screen stays chrome-free)', () => {
+    act(() => {
+      globalPipeline.start(new Blob(['a']), { locale: 'ja', customers: [] })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    // Chip provably UP first — so its absence after sign-out pins the
+    // unmount, not an idle pipeline rendering null anyway.
+    expect(screen.getByText('文字起こし中')).toBeTruthy()
+    act(() => setSessionState({ status: 'signed-out' }))
     expect(screen.getByTestId('login-screen')).toBeTruthy()
     expect(screen.queryByText('文字起こし中')).toBeNull()
   })
