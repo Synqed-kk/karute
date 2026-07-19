@@ -29,15 +29,21 @@ const sh = (cmd) => execSync(cmd, { stdio: 'inherit' })
 const cap = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim()
 
 // Deterministic sha256 over the built bundle (sorted paths) — proves the binary
-// carries exactly this web output. build-manifest.json is skipped on BOTH sides
-// of the pre/post-sync comparison (it embeds this very hash — circular).
+// carries exactly this web output. Skipped on BOTH sides of the pre/post-sync
+// comparison: build-manifest.json embeds this very hash (circular), and the
+// cordova shims are injected by `cap sync` into the synced copy only — their
+// emptiness is asserted separately at verify time, never silently ignored.
+const HASH_SKIP = new Set(['build-manifest.json', 'cordova.js', 'cordova_plugins.js'])
 function assetHash(dir) {
   const h = createHash('sha256')
   const walk = (d) =>
     readdirSync(d)
       .sort()
       .forEach((n) => {
-        if (n === 'build-manifest.json') return
+        // Root level only: cap sync injects the shims (and the manifest is
+        // written) at the TOP of the web dir — a same-named file deeper in the
+        // tree is real content and must stay under the hash (Greptile P2).
+        if (d === dir && HASH_SKIP.has(n)) return
         const p = join(d, n)
         if (statSync(p).isDirectory()) walk(p)
         else {
@@ -116,6 +122,18 @@ function main() {
   if (RUN) {
     sh(`KARUTE_SHELL_MODE=${mode} npx cap sync ios`)
     if (mode === 'local') {
+      // The shims are excluded from the hash, so pin them to the known empty
+      // stubs (this project has zero cordova plugins) — a shim with content
+      // would ship unverified code into the WebView.
+      for (const shim of ['cordova.js', 'cordova_plugins.js']) {
+        const p = join('ios/App/App/public', shim)
+        if (existsSync(p) && statSync(p).size > 0) {
+          throw new Error(
+            `✗ verify failed: ${p} is non-empty — expected Capacitor's empty stub ` +
+              '(no cordova plugins in this project); a non-empty shim is unverified code.',
+          )
+        }
+      }
       const synced = assetHash('ios/App/App/public')
       if (synced !== hash) {
         throw new Error(
