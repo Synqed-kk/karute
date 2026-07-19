@@ -34,6 +34,16 @@ jest.mock('../../../thin/screens/LoginScreen', () => ({
   LoginScreen: () => <div data-testid="login-screen" />,
 }))
 
+// The authed chrome (F-8 mounting) drags in web-module externals (nav,
+// sonner, server actions) that this suite doesn't exercise — stub the
+// components; thin-authed-indicators.test.tsx pins them for real.
+jest.mock('@/components/recording/ProcessingIndicator', () => ({
+  ProcessingIndicator: () => null,
+}))
+jest.mock('@/components/recording/DiscreetRecordingIndicator', () => ({
+  DiscreetRecordingIndicator: () => null,
+}))
+
 // jsdom 20 has no user-timing API — spy on the marks module instead, which is
 // also the sharper pin: the gate MARKS the reveal, whatever performance does.
 jest.mock('../../../thin/probe/marks', () => ({
