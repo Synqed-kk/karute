@@ -106,9 +106,10 @@ export default defineConfig({
       { find: '@/i18n/navigation', replacement: port('nav.vite.tsx') },
       { find: 'next/navigation', replacement: port('nav.vite.tsx') },
       { find: 'next/link', replacement: port('nav.vite.tsx') },
-      // Browser supabase-js has no thin equivalent (packet 08 Decision 2): keep
-      // supabase-js OUT of the bundle. draft.ts resolves a null session (no draft
-      // recovery in thin — fail-closed); the recording port owns audio upload.
+      // Since the packet-01 auth wiring, supabase-js IS in the bundle (auth
+      // only): the drop-in delegates auth to the mobile client so draft/take
+      // owner gates see the real session, while storage.* still throws — the
+      // recording port owns audio upload.
       { find: '@/lib/supabase/client', replacement: port('supabase-client.stub.ts') },
       // Catch-all: everything else resolves against the app's own modules.
       { find: /^@\/(.*)/, replacement: path.resolve(root, 'src') + '/$1' },

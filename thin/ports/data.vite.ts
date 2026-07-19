@@ -5,6 +5,7 @@
 
 import type { DataPort } from '@/lib/ports/types'
 import { facadeApiUrl } from '@/lib/ports/rewrite'
+import { getAccessToken } from '@/lib/auth/mobile/session-store'
 import { getThinEnv } from '../env'
 
 export const viteDataPort: DataPort = {
@@ -16,6 +17,15 @@ export const viteDataPort: DataPort = {
   // Access-Control-Allow-Credentials, which it does not; WebKit then blocks the
   // whole response (packet-09 F-5 cause 3). Plain CORS mode reads fine against
   // the reflected capacitor://localhost allow-origin.
-  apiFetch: (path, init) =>
-    fetch(facadeApiUrl(getThinEnv().facadeUrl, path), init),
+  // Bearer from the session-store: SYNC read (never await getSession on the
+  // hot path — boot-gate rationale), kept fresh by onAuthStateChange. No token
+  // → no header → the facade 401s honestly and the screen shows its message.
+  apiFetch: (path, init) => {
+    const token = getAccessToken()
+    const headers = new Headers(init?.headers)
+    if (token && !headers.has('Authorization')) {
+      headers.set('Authorization', `Bearer ${token}`)
+    }
+    return fetch(facadeApiUrl(getThinEnv().facadeUrl, path), { ...init, headers })
+  },
 }

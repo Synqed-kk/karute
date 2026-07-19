@@ -1,24 +1,22 @@
-// `@/lib/supabase/client` drop-in for the thin bundle (packet 08 Decision 2). The
-// browser supabase-js session has NO thin equivalent (Bearer auth owns identity;
-// no NEXT_PUBLIC_* define mapping), and keeping supabase-js OUT of the Vite bundle
-// is exactly what the recording pipeline port kills. The vite config aliases
-// `@/lib/supabase/client` here so every thin importer resolves to this stub.
+// `@/lib/supabase/client` drop-in for the thin bundle. Since the packet-01
+// auth wiring (thin/auth/session.ts), AUTH IS REAL here: the alias delegates
+// to the mobile auth client, so draft.ts's and take-store.ts's owner gates
+// read the true signed-in session and the packet-10 durability layer lights
+// up in the local-mode shell — exactly what this file's comment promised.
+// The vite config aliases `@/lib/supabase/client` here so every thin importer
+// resolves to this module.
 //
-// - auth.getSession() → a NULL session: draft.ts's AND take-store.ts's owner
-//   gates read it (one identity seam), so in the LOCAL-mode thin bundle both
-//   draft recovery and take persistence fail closed — nothing stored, nothing
-//   offered (packet-10 landed the durability layer on this seam; it lights up
-//   here the moment packet-01's real auth client replaces this stub). The
-//   shipped shell default is REMOTE mode (live site, real session), where the
-//   full durability + recovery flow is active today.
-// - storage.* → throws if ever reached: the recording port replaces the web
-//   upload leg, so the thin pipeline never touches supabase storage.
+// - auth → the packet-01 client's auth surface (auth-js, localStorage-
+//   persisted session; one identity seam shared with the DataPort's Bearer).
+// - storage.* → STILL throws if ever reached: the recording port owns the
+//   upload leg (facade-minted signed URLs, tenant-prefixed paths); web
+//   supabase storage must never be reachable from the bundle.
+
+import { getMobileAuth } from '../auth/session'
 
 export function createClient() {
   return {
-    auth: {
-      getSession: async () => ({ data: { session: null }, error: null }),
-    },
+    auth: getMobileAuth().auth,
     storage: {
       from: () => ({
         upload: async () => {

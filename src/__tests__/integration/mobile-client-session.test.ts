@@ -1,6 +1,6 @@
 /**
  * createMobileAuth composition checks (packet-01 point 1 — the GLUE between
- * supabase-js and the gate/lifecycle modules). supabase-js reports most
+ * auth-js and the gate/lifecycle modules). auth-js reports most
  * failures IN-BAND ({ data, error }), so these tests pin the adapter rules:
  *   - a failed session READ surfaces as transient (recovering), never signed-out
  *   - an explicit null session (no error) is the ONLY signed-out
@@ -11,12 +11,10 @@ import { createMobileAuth } from '@/lib/auth/mobile/client-session'
 const mockGetSession = jest.fn()
 const mockSignOut = jest.fn()
 
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({
-    auth: {
-      getSession: (...a: unknown[]) => mockGetSession(...a),
-      signOut: (...a: unknown[]) => mockSignOut(...a),
-    },
+jest.mock('@supabase/auth-js', () => ({
+  GoTrueClient: jest.fn(() => ({
+    getSession: (...a: unknown[]) => mockGetSession(...a),
+    signOut: (...a: unknown[]) => mockSignOut(...a),
   })),
 }))
 
