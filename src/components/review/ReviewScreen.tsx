@@ -76,7 +76,7 @@ export function ReviewScreen({
   // Persist a recovery draft the moment the AI result is on screen. The audio is
   // already deleted by now, so this transcript is the ONLY copy — if the WebView
   // backgrounds and is killed, or the tab reloads, the in-memory pipeline is gone
-  // and this sessionStorage draft is what RecordPageView restores from. Cleared on
+  // and this stored draft is what RecordPageView restores from. Cleared on
   // successful save. Keyed on transcript so it re-saves if the take changes.
   useEffect(() => {
     if (!transcript) return

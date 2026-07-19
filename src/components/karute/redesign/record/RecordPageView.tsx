@@ -611,7 +611,7 @@ export function RecordPageView({
   }
 
   // Crash recovery: the staffer chose to reopen an unsaved draft (offered by the
-  // banner below). Re-mount ReviewScreen seeded from sessionStorage. Entry shape
+  // banner below). Re-mount ReviewScreen seeded from the stored draft. Entry shape
   // is mapped back from the draft's storage shape. No outcome is carried (it's
   // not persisted) — the karute saves; any pack side-effect is handled manually.
   if (restoring && recoveredDraft) {
