@@ -160,6 +160,26 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
     }
   })
 
+  it("a chrome fetch resolving AFTER sign-out never writes the previous user's data", async () => {
+    let resolveFetch: (v: unknown) => void = () => {}
+    apiFetch.mockImplementationOnce(
+      () =>
+        new Promise((r) => {
+          resolveFetch = r
+        }),
+    )
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />) // kicks the fetch → loading
+    act(() => setSessionState({ status: 'signed-out' })) // epoch bump + reset
+    await act(async () => {
+      resolveFetch({ ok: true, json: async () => ({ data: CHROME_DTO }) })
+    })
+    // The stale resolve was dropped: a fresh sign-in must not see the dead
+    // session's chrome (shared-device hygiene, packet-10 class).
+    act(() => setSessionState({ status: 'signed-in', session: session('tok2') }))
+    expect(screen.queryByText('田中様')).toBeNull()
+  })
+
   it('stays mounted through an offline-resume spell (recovering w/ known session)', () => {
     setSessionState({ status: 'signed-in', session: session('tok') })
     setSessionState({ status: 'recovering' })

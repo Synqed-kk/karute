@@ -22,6 +22,11 @@ type ChromeState =
   | { status: 'error'; dto: null }
 
 let current: ChromeState = { status: 'idle', dto: null }
+// Bumped on every sign-out reset: a fetch that was in flight when the user
+// signed out must NOT write the PREVIOUS user's chrome (customer names, feed)
+// into the store after the reset — the packet-10 shared-device leak class.
+// Same discipline as globalPipeline.runId.
+let epoch = 0
 const listeners = new Set<() => void>()
 
 function set(state: ChromeState): void {
@@ -45,6 +50,7 @@ export function subscribeChrome(listener: () => void): () => void {
 export function ensureChromeLoaded(): void {
   if (current.status === 'loading' || current.status === 'ready') return
   if (getSessionState().status !== 'signed-in') return
+  const myEpoch = epoch
   set({ status: 'loading', dto: null })
   void getDataPort()
     .apiFetch('/api/app/v1/screens/chrome')
@@ -52,10 +58,13 @@ export function ensureChromeLoaded(): void {
       if (!res.ok) throw new Error(`chrome ${res.status}`)
       const body: unknown = await res.json()
       const data = (body as { data?: unknown }).data ?? body
-      set({ status: 'ready', dto: ChromeScreenDTO.parse(data) })
+      const dto = ChromeScreenDTO.parse(data)
+      if (epoch !== myEpoch) return // superseded by a sign-out reset
+      set({ status: 'ready', dto })
     })
     .catch(() => {
-      if (current.status === 'loading') set({ status: 'error', dto: null })
+      if (epoch === myEpoch && current.status === 'loading')
+        set({ status: 'error', dto: null })
     })
 }
 
@@ -64,6 +73,7 @@ export function ensureChromeLoaded(): void {
 // bundle lifetime, mirroring thin/auth/session.ts.
 subscribeSessionState(() => {
   if (getSessionState().status === 'signed-out' && current.status !== 'idle') {
+    epoch++ // invalidate any in-flight fetch (see the epoch note above)
     set({ status: 'idle', dto: null })
   }
 })
