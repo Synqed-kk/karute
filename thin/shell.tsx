@@ -20,20 +20,16 @@ import type { ReactNode } from 'react'
 // and WKWebView never rescales. The salon chrome (header / sidebar / bottom nav)
 // is deliberately NOT reproduced here — it is not part of the clamp and is out of
 // this batch's scope.
-// Safe-area / Dynamic-Island (packet 06 §Build 3, carry-forward #3): the thin
-// shell deliberately omits the salon chrome (header/bottom-nav) that, on the
-// web, pushes content clear of the notch. In a bare WKWebView with
-// viewport-fit=cover, a full-screen profile would therefore start UNDER the
-// Dynamic Island (top) and the home indicator (bottom). Pad the viewport box by
-// the vertical safe-area insets so every screen's content clears them. Applied
-// with box-sizing:border-box (Tailwind default) so it stays inside h-dvh.
-// Horizontal insets are intentionally NOT applied — they are 0 in portrait (the
-// app's orientation) and padding them would inset CustomerTabBar's deliberate
-// full-bleed `-mx-4`, which the outer overflow-hidden clamp is here to contain.
-const safeAreaInsets = {
-  paddingTop: 'env(safe-area-inset-top)',
-  paddingBottom: 'env(safe-area-inset-bottom)',
-} as const
+// Safe-area / Dynamic-Island: the shell used to pad the viewport box by the
+// vertical insets because it had NO chrome to do it (packet 06 §Build 3).
+// With the REAL web chrome mounted (parity P-A), the chrome owns the insets
+// exactly like the web layout: MobileHeader pads pt-[env(safe-area-inset-top)]
+// and BottomNav pads pb-[env(safe-area-inset-bottom)]. Keeping the shell
+// padding too DOUBLED both edges (a dead strip above the header and below the
+// nav on notched phones). The chrome-free branches (login, boot loading) are
+// center-aligned full-screen content, clear of both edges by construction.
+// Horizontal insets stay unapplied — 0 in portrait (the app's orientation),
+// and padding them would inset CustomerTabBar's deliberate full-bleed `-mx-4`.
 
 export function ThinShell({
   children,
@@ -43,14 +39,10 @@ export function ThinShell({
   nav?: ReactNode
 }) {
   return (
-    <div
-      className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]"
-      style={safeAreaInsets}
-    >
+    <div className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]">
       <main className="relative flex-1 overflow-y-auto">{children}</main>
-      {/* Bottom nav as a flex sibling BELOW the scroll region — inside the
-       *  safe-area-padded box, so the bar itself clears the home indicator
-       *  without its own inset (packet-09 F-7 cause 3). */}
+      {/* Bottom nav as a flex sibling BELOW the scroll region (packet-09 F-7
+       *  cause 3) — it carries its own safe-area inset, like the web. */}
       {nav}
     </div>
   )

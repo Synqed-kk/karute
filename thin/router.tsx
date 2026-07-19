@@ -37,6 +37,35 @@ function safeDecode(segment: string): string {
 const PROFILE_PATH = /^\/customers\/([^/]+)$/
 const KARUTE_DETAIL_PATH = /^\/karute\/([^/]+)$/
 
+// Web routes the real chrome (BottomNav menu sheet, notification deep links)
+// can reach that have NO thin screen YET — each lands on an explicit 準備中
+// placeholder instead of silently falling through to the customer list (the
+// F-7 wrong-screen class). This list SHRINKS to zero as the design-parity
+// packets port each page; a route leaves it the moment its screen exists.
+const PENDING_WEB_ROUTES = [
+  '/appointments',
+  '/dashboard',
+  '/coaching',
+  '/profile',
+  '/settings',
+  '/data-export',
+  '/data-import',
+  '/welcome',
+]
+
+// ponytail: hardcoded ja — the shell is single-locale and this screen dies as
+// the parity packets land the real pages.
+function PendingScreen() {
+  return (
+    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-sm font-medium text-foreground">この画面は準備中です</p>
+      <p className="text-xs text-muted-foreground">
+        次のアップデートでご利用いただけます
+      </p>
+    </div>
+  )
+}
+
 export function ThinRouter() {
   const pathname = usePathname()
   if (pathname === '/ask-ai') return <AskAiScreen />
@@ -50,6 +79,8 @@ export function ThinRouter() {
   if (profile) return <CustomerProfileScreen id={safeDecode(profile[1])} />
   const karute = KARUTE_DETAIL_PATH.exec(pathname)
   if (karute) return <KaruteDetailScreen id={safeDecode(karute[1])} />
+  if (PENDING_WEB_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`)))
+    return <PendingScreen />
   // Fallthrough (incl. the shell's /index.html entry): the customer list.
   return <CustomersScreen />
 }

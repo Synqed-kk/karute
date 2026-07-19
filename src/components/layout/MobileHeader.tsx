@@ -108,17 +108,24 @@ export function MobileHeader({
  *  welcome) get a back arrow so staff can undo a nav. */
 function isSubRoute(pathname: string | null): boolean {
   if (!pathname) return false
-  // Match the bottom-nav primary destinations. Same set rendered
-  // by src/components/layout/bottom-nav.tsx.
+  // Match the bottom-nav primary destinations. Same set rendered by
+  // src/components/layout/bottom-nav.tsx. Unprefixed entries cover the thin
+  // shell's single-locale router (its paths have no /ja|/en prefix); on the
+  // web every pathname is locale-prefixed, so they can never match there.
   const bottomTabPrimary = [
+    '/',
     '/ja',
     '/en',
+    '/dashboard',
     '/ja/dashboard',
     '/en/dashboard',
+    '/appointments',
     '/ja/appointments',
     '/en/appointments',
+    '/karute',
     '/ja/karute',
     '/en/karute',
+    '/customers',
     '/ja/customers',
     '/en/customers',
   ]

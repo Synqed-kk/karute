@@ -397,6 +397,21 @@ export const upsertPassportFieldAction = facadeUpsertPassportField
 //    imports at build time).
 export const saveKaruteRecord = facadeSaveKarute
 export const saveKaruteRecordInline = facadeSaveKaruteInline
+
+// -- stores (chrome packet — the StoreSwitcher's one mutation). The web
+// version writes the karute_active_store cookie; the shell persists the
+// store-id header source instead and reloads so every screen re-fetches
+// through the new lens. Validity is the SERVER's call: the facade clamp
+// fails closed on a store outside the caller's scope, so no pre-validation
+// here. Reload is safe from the switcher — it is hidden while recording.
+export const setActiveStore = async (
+  storeId: string,
+): Promise<{ ok: true } | { error: string }> => {
+  const { setThinActiveStore } = await import('../chrome/store-pref')
+  setThinActiveStore(storeId)
+  window.location.reload()
+  return { ok: true }
+}
 export const startRecordingSession = facadeStartRecordingSession
 // -- karute (sessions list — packet 05; New カルテ create is unwired in the
 //    read-only batch, but speaks the action's own { error } | void contract:
