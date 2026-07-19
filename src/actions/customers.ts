@@ -271,8 +271,9 @@ export async function updateCustomer(
 // The old immediate deleteCustomer action is GONE (it was UI-unreachable, its
 // appointment pre-delete loop is obsolete since core owns the cascade, and as
 // an exported server action it was an unaudited instant-delete bypass of this
-// window). Hard deletion now happens ONLY in the nightly sweep
-// (/api/cleanup-deleted) at deleted_at + 30d.
+// window). NO hard delete exists anywhere (Liam ruling 2026-07-19: core
+// retains all customer data permanently) — deleted_at only hides the customer
+// from the app; the 30-day window bounds the in-app undo, nothing more.
 
 /** Read deleted_at off an SDK customer row. SDK-skew cast (same pattern as
  *  first_visit_at in queries.ts): the field shipped in core/SDK 1.13. */
@@ -302,9 +303,9 @@ async function emitDeletionAudit(
 }
 
 /** Schedule deletion: sets core deleted_at = now. The customer drops from
- *  lists (core filters soft-deleted), the profile banner starts the 30-day
- *  countdown, and the nightly sweep hard-deletes at day 30. Error strings are
- *  codes the client maps to i18n. */
+ *  lists (core filters soft-deleted) and the profile banner starts the 30-day
+ *  undo countdown. Data is retained in core forever; day 30 only closes the
+ *  in-app undo. Error strings are codes the client maps to i18n. */
 export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
   try {
     // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
@@ -345,8 +346,8 @@ export async function cancelCustomerDeletion(id: string): Promise<ActionResult> 
     if (!deletedAt) {
       return { success: false, error: 'not_scheduled' }
     }
-    const { hardDeleteDeadlineMs } = await import('@/lib/customers/deletion')
-    if (Date.now() > hardDeleteDeadlineMs(deletedAt)) {
+    const { undoDeadlineMs } = await import('@/lib/customers/deletion')
+    if (Date.now() > undoDeadlineMs(deletedAt)) {
       return { success: false, error: 'window_expired' }
     }
 
