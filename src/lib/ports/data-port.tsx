@@ -8,7 +8,8 @@
 //   - getDataPort()  for non-component libs (e.g. ai-pipeline.ts) that cannot
 //     call hooks. Module singleton, same default.
 //
-// The thin shell's AppRoot calls setDataPort(vitePort) AND wraps the tree in
+// The thin ENTRY (thin/main.tsx) calls setDataPort(vitePort) before render —
+// same pattern as the recording port — and AppRoot wraps the tree in
 // <DataPortProvider value={vitePort}> so both accessors resolve to the facade
 // impl inside the bundle. Nothing else sets it — single source of truth.
 
