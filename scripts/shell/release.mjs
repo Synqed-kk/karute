@@ -40,7 +40,10 @@ function assetHash(dir) {
     readdirSync(d)
       .sort()
       .forEach((n) => {
-        if (HASH_SKIP.has(n)) return
+        // Root level only: cap sync injects the shims (and the manifest is
+        // written) at the TOP of the web dir — a same-named file deeper in the
+        // tree is real content and must stay under the hash (Greptile P2).
+        if (d === dir && HASH_SKIP.has(n)) return
         const p = join(d, n)
         if (statSync(p).isDirectory()) walk(p)
         else {
