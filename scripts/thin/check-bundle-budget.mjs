@@ -68,9 +68,10 @@ const FORBIDDEN = [
   'settings.stores.addStoreSubscription', // AddStoreSubscriptionDialog namespace
   'max-h-[85vh] overflow-y-auto sm:max-w-5xl', // PlanComparisonDialog className
   // @synqed-kk/ui vendor copies (identifier = displayName literal, survives
-  // minification; plus one copy literal in case a package build drops it)
+  // minification; plus one copy literal each in case a package build drops it)
   'SubscriptionSummaryCard',
   "Your last charge failed", // subscription-summary-card DEFAULT_COPY
+  'Downgrade to Free', // plan-comparison-grid DEFAULT_COPY (Greptile 4/5 backstop)
 ]
 const textFiles = dir.filter((f) => f.endsWith('.js') || f.endsWith('.css'))
 const hits = []
