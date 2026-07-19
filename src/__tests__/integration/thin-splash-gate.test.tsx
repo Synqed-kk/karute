@@ -9,6 +9,7 @@
  * app, or an offline resume with a known session — the AuthGate's mounted
  * case, which must keep releasing).
  */
+import { StrictMode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { act, render, screen } from '@testing-library/react'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
@@ -108,6 +109,22 @@ describe('AuthGate splash handshake (launch-flash fix)', () => {
     act(() => setSessionState({ status: 'signed-in', session: session('tok') }))
     expect(screen.getByTestId('app')).toBeTruthy()
     expect(hide).toHaveBeenCalledTimes(1)
+  })
+
+  it('fires exactly once under StrictMode double-invoked effects (dev-only path)', () => {
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(
+      <StrictMode>
+        <AuthGate>
+          <div data-testid="app" />
+        </AuthGate>
+      </StrictMode>,
+    )
+    // jest runs development React, so StrictMode double-invokes the effect —
+    // the ref guard keeps the release and the reveal mark single.
+    expect(screen.getByTestId('app')).toBeTruthy()
+    expect(hide).toHaveBeenCalledTimes(1)
+    expect(mark).toHaveBeenCalledTimes(1)
   })
 
   it('offline resume (recovering WITH a known session): app mounted, splash still releases', () => {

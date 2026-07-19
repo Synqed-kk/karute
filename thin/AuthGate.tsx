@@ -12,7 +12,7 @@
 // shows the full-screen loading state.
 
 import type { ReactNode } from 'react'
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import {
   getSessionState,
   hasKnownSession,
@@ -38,8 +38,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
   // failsafe still backstops a boot that never settles, and the entry's
   // firstPixel mark keeps measuring the real first paint (under the splash) —
   // splashReleased marks the user-visible reveal.
+  // Single-fire guard: a splash exists once per launch, so the release (and
+  // its reveal mark) must fire exactly once — including under StrictMode's
+  // dev-only double effect invocation (the ref survives the simulated
+  // remount) and any later booting flips.
+  const released = useRef(false)
   useEffect(() => {
-    if (booting) return
+    if (booting || released.current) return
+    released.current = true
     mark(MARKS.splashReleased)
     releaseSplashOnFirstPaint()
   }, [booting])
