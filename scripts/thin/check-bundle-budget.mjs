@@ -21,7 +21,12 @@ import { gzipSync } from 'node:zlib'
 import { join } from 'node:path'
 
 const DIST = 'thin/dist/assets'
-const BUDGET_BYTES = 1_300_000
+// 1.5 MB set-and-forget (Liam 7/19, after the auth integration landed at
+// 1269.0 vs the 1_300_000 ceiling — 0.5 KB margin). Deliberately roomy: this
+// number is only a bloat tripwire; the §1.5 purchase-marker scan below and the
+// on-device first-paint stop-rule (packet-09) are the gates that matter and
+// neither depends on it.
+const BUDGET_BYTES = 1_500_000
 
 let dir
 try {
