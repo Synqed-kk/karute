@@ -142,6 +142,9 @@ function SessionRow({ s }: { s: CustomerSessionEntry }) {
           )}
           {s.karuteId ? (
             <Link
+              // next-intl typed routes: a template literal can't match any
+              // static Pathname, so the cast is required (same pattern as
+              // RecentRecordingsCard / DetailBreadcrumb).
               href={`/karute/${s.karuteId}` as Parameters<typeof Link>[0]['href']}
               className="font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400 dark:hover:text-sky-300"
             >

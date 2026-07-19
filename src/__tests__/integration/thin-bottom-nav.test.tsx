@@ -7,25 +7,36 @@
  * four routes the thin router serves, only while the app is mounted
  * (signed-in, or recovering with a known session — AuthGate's condition).
  */
-import { NextIntlClientProvider } from 'next-intl'
 import type { Session } from '@supabase/supabase-js'
 import { render, screen } from '@testing-library/react'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
-import messages from '../../../messages/ja.json'
 import { ThinBottomNav } from '../../../thin/ThinBottomNav'
+
+// next-intl's react-client entry ships production ESM that CI's node 20 jest
+// can't parse untransformed (local node 24 masks it via require(esm)). The
+// component only needs useTranslations('sidebar'), so mock the hook and feed
+// it the REAL ja.json values — the label assertions below stay honest.
+jest.mock('next-intl', () => ({
+  useTranslations: (ns: string) => (key: string) => {
+    const messages = jest.requireActual<Record<string, Record<string, string>>>(
+      '../../../messages/ja.json',
+    )
+    return messages[ns]?.[key] ?? key
+  },
+}))
 
 const session = (token: string) => ({ access_token: token }) as Session
 
 function renderNav() {
-  return render(
-    <NextIntlClientProvider locale="ja" messages={messages}>
-      <ThinBottomNav />
-    </NextIntlClientProvider>,
-  )
+  return render(<ThinBottomNav />)
 }
 
 describe('ThinBottomNav (F-7 cause 3)', () => {
   afterEach(() => {
+    // Two-step on purpose: only an explicit signed-out clears the store's
+    // lastSession (recovering alone keeps it, by design — offline resume).
+    // Dropping the first step would leak hasKnownSession()=true into the
+    // next test and flip the "renders nothing" assertion.
     setSessionState({ status: 'signed-out' })
     setSessionState({ status: 'recovering' })
     history.replaceState({}, '', '/')
