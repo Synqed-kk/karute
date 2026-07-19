@@ -114,10 +114,12 @@ const CHROME_DTO: ChromeScreenDTOType = {
   activeStoreId: null,
 }
 
-const apiFetch = jest.fn(async () => ({
-  ok: true,
-  json: async () => ({ data: CHROME_DTO }),
-}))
+const apiFetch = jest.fn(
+  async (): Promise<{ ok: boolean; json: () => Promise<unknown> }> => ({
+    ok: true,
+    json: async () => ({ data: CHROME_DTO }),
+  }),
+)
 
 import { ThinChromeContent, ThinChromeNav } from '../../../thin/chrome/Chrome'
 import { ThinRouter } from '../../../thin/router'
@@ -161,10 +163,11 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
   })
 
   it("a chrome fetch resolving AFTER sign-out never writes the previous user's data", async () => {
-    let resolveFetch: (v: unknown) => void = () => {}
+    type FetchShape = { ok: boolean; json: () => Promise<unknown> }
+    let resolveFetch: (v: FetchShape) => void = () => {}
     apiFetch.mockImplementationOnce(
       () =>
-        new Promise((r) => {
+        new Promise<FetchShape>((r) => {
           resolveFetch = r
         }),
     )
