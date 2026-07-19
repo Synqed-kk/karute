@@ -144,10 +144,12 @@ function main() {
   }
 
   // 6. Archive — needs Xcode + signing; Liam/CI runs this on a Mac with the
-  //    project resolved (`pod`/SPM). Documented, gated behind --archive.
+  //    project resolved (SPM). Documented, gated behind --archive.
   if (RUN && ARCHIVE) {
+    // SPM layout: there is no .xcworkspace (packet-04 §Builder environment) —
+    // the -workspace invocation this replaces had never actually run.
     sh(
-      'xcodebuild -workspace ios/App/App.xcworkspace -scheme App ' +
+      'xcodebuild -project ios/App/App.xcodeproj -scheme App ' +
         '-configuration Release -archivePath build/Karute.xcarchive archive',
     )
   } else {
