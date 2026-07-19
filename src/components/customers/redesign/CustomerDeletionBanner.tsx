@@ -19,7 +19,7 @@ import { cancelCustomerDeletion } from '@/actions/customers'
 import {
   SCHEDULED_DELETION_WINDOW_DAYS,
   daysRemaining,
-  hardDeleteDeadlineMs,
+  undoDeadlineMs,
 } from '@/lib/customers/deletion'
 
 interface CustomerDeletionBannerProps {
@@ -42,7 +42,7 @@ export function CustomerDeletionBanner({
   if (!deletedAt) return null
 
   const days = daysRemaining(deletedAt)
-  const hardDeleteDate = new Date(hardDeleteDeadlineMs(deletedAt)).toLocaleDateString(
+  const undoDeadlineDate = new Date(undoDeadlineMs(deletedAt)).toLocaleDateString(
     locale === 'en' ? 'en-US' : 'ja-JP',
     { year: 'numeric', month: 'short', day: 'numeric' },
   )
@@ -106,7 +106,7 @@ export function CustomerDeletionBanner({
             : t('titleToday', { name: customerName })}
         </div>
         <div className="mt-0.5 text-[11px] leading-relaxed text-foreground/75">
-          {t('body', { date: hardDeleteDate, window: SCHEDULED_DELETION_WINDOW_DAYS })}
+          {t('body', { date: undoDeadlineDate, window: SCHEDULED_DELETION_WINDOW_DAYS })}
         </div>
         <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
           {t('blocked')}

@@ -346,8 +346,8 @@ export async function cancelCustomerDeletion(id: string): Promise<ActionResult> 
     if (!deletedAt) {
       return { success: false, error: 'not_scheduled' }
     }
-    const { hardDeleteDeadlineMs } = await import('@/lib/customers/deletion')
-    if (Date.now() > hardDeleteDeadlineMs(deletedAt)) {
+    const { undoDeadlineMs } = await import('@/lib/customers/deletion')
+    if (Date.now() > undoDeadlineMs(deletedAt)) {
       return { success: false, error: 'window_expired' }
     }
 
