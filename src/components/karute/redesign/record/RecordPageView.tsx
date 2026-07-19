@@ -456,9 +456,23 @@ export function RecordPageView({
   // dedupe still holds on the recovered save). No outcome is carried, so the
   // pipeline always lands in review — an interrupted take is processed and
   // saved manually, never auto-resumed or auto-saved.
+  //
+  // Re-entry guard (same class as usingRecording): loadTakeBlob opens a real
+  // async window — a double-tap must not start the pipeline twice, and the
+  // 破棄 button respects the ref so a Process→Discard race can't delete the
+  // take out from under an accept that already committed to processing it.
+  const recoveringTake = useRef(false)
   async function handleRecoverTake() {
-    if (!recoveredTake) return
-    const blob = await loadTakeBlob(recoveredTake.takeId)
+    if (!recoveredTake || recoveringTake.current) return
+    recoveringTake.current = true
+    try {
+      await doRecoverTake(recoveredTake)
+    } finally {
+      recoveringTake.current = false
+    }
+  }
+  async function doRecoverTake(take: RecoverableTake) {
+    const blob = await loadTakeBlob(take.takeId)
     if (!blob || blob.size === 0) {
       // Unreadable — corrupted, or the owner gate refused (uid changed since
       // the banner loaded, e.g. logout/login under a stale page). Do NOT
@@ -473,15 +487,12 @@ export function RecordPageView({
       customers,
       // Rough length from the flush timestamps (pauses included) — display +
       // save metadata only, nothing downstream branches on it.
-      duration: Math.max(
-        1,
-        Math.round((recoveredTake.updatedAt - recoveredTake.startedAt) / 1000),
-      ),
+      duration: Math.max(1, Math.round((take.updatedAt - take.startedAt) / 1000)),
       // '' (walk-in target) → undefined, same coercion as handleUseRecording.
-      appointmentId: recoveredTake.target?.appointmentId || undefined,
-      appointmentCustomerId: recoveredTake.target?.customerId || undefined,
-      recordingSessionId: recoveredTake.recordingSessionId,
-      takeId: recoveredTake.takeId,
+      appointmentId: take.target?.appointmentId || undefined,
+      appointmentCustomerId: take.target?.customerId || undefined,
+      recordingSessionId: take.recordingSessionId,
+      takeId: take.takeId,
     })
     setRecoveredTake(null)
   }
@@ -816,6 +827,10 @@ export function RecordPageView({
             type="button"
             onClick={() => {
               clearDraft()
+              // Discarding the draft settles its whole session — the linked
+              // persisted audio goes too, or the take banner would re-offer
+              // the session the user just threw away.
+              if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
               setRecoveredDraft(null)
             }}
             className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
@@ -844,6 +859,9 @@ export function RecordPageView({
           <button
             type="button"
             onClick={() => {
+              // Inert while an accept is in flight — a Process→Discard race
+              // must not delete the take mid-processing (see recoveringTake).
+              if (recoveringTake.current) return
               void deleteTake(takeOffer.takeId)
               setRecoveredTake(null)
             }}

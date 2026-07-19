@@ -16,7 +16,7 @@
  * paid only when a logout actually happens.
  */
 export async function wipeSessionVault(): Promise<void> {
-  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearAllTakes }] =
+  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }] =
     await Promise.all([
       import('@/lib/global-recorder'),
       import('@/lib/global-pipeline'),
@@ -26,5 +26,8 @@ export async function wipeSessionVault(): Promise<void> {
   globalRecorder.discard() // stops the mic if live; deletes the live take
   globalPipeline.reset()
   clearDraft()
-  await clearAllTakes()
+  // Owner-scoped on purpose: only the signing-out user's takes die here —
+  // another staff member's crash-recovery audio must survive their logout
+  // (it is already invisible to everyone else via the store's owner gate).
+  await clearOwnTakes()
 }

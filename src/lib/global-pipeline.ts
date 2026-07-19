@@ -102,7 +102,15 @@ class GlobalPipeline {
     this.listeners.forEach((fn) => fn())
   }
 
-  /** Kick off processing in the background. Returns immediately. */
+  /** Kick off processing in the background. Returns immediately.
+   *
+   *  ⚠ Single-slot by design (pre-existing): a start() while a previous run
+   *  is still processing SUPERSEDES it — the old run's result is dropped
+   *  un-settled (no review, no autosave, no error) and nothing deletes its
+   *  persisted take. That take is exactly what the recovery banner re-offers
+   *  on the next record-page mount, so since take-store the cost of the
+   *  clobber is the old run's transcription fee, not the session. True
+   *  concurrent takes need the server-side durable pipeline (v2, Anthony). */
   start(blob: Blob, context: PipelineContext) {
     this.blob = blob
     this.context = context
