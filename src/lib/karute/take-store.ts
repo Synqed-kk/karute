@@ -15,7 +15,8 @@
  * point — not in components. A take is stamped with the auth user who recorded
  * it and only ever returned to that same signed-in user; no user resolvable
  * (thin bundle's null-session stub, signed out) → nothing is persisted or
- * returned (fail-closed). clearAllTakes() on logout wipes the vault.
+ * returned (fail-closed). clearOwnTakes() on logout deletes the leaving
+ * user's takes (other owners' survive — see its doc).
  *
  * DURABILITY INVARIANT: this layer is best-effort and must NEVER block or
  * break capture. Every function swallows its errors — a failure just means
@@ -194,6 +195,9 @@ export async function deleteTake(takeId: string): Promise<void> {
     if (!db) return
     const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
     await req(tx.objectStore(TAKES).delete(takeId))
+    // ponytail: full getAll + filter — rows are few and blobs are lazy
+    // handles; switch to IDBKeyRange.bound([takeId], [takeId, []]) on the
+    // compound key if profiling ever cares.
     const segments = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
     for (const s of segments) {
       if (s.takeId === takeId) await req(tx.objectStore(SEGMENTS).delete([s.takeId, s.seq]))
@@ -203,16 +207,31 @@ export async function deleteTake(takeId: string): Promise<void> {
   }
 }
 
-/** Wipe the vault — logout call sites, alongside clearDraft(). */
-export async function clearAllTakes(): Promise<void> {
+/** Logout wipe — deletes the SIGNING-OUT user's takes only (call before
+ *  supabase signOut, while their uid still resolves). Other staff members'
+ *  takes are preserved: they are already invisible to everyone else (owner
+ *  gate on every read path), and destroying them here would let staff B's
+ *  logout erase staff A's crash-recovery audio — the exact loss this store
+ *  exists to prevent. Their cleanup is the 24 h TTL. Unlike the draft
+ *  (one shared key, wipe-all is the only option), takes carry ownerUid. */
+export async function clearOwnTakes(): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
-    const tx = db.transaction([TAKES, SEGMENTS], 'readwrite')
-    await req(tx.objectStore(TAKES).clear())
-    await req(tx.objectStore(SEGMENTS).clear())
+    const uid = await currentUserId()
+    // uid unresolvable (session already expired at logout): nothing is
+    // deleted — with no identity there is no way to target the leaving
+    // user's rows without destroying other staff members' takes. The rows
+    // stay unreadable to every other uid and expire via the TTL.
+    if (!uid) return
+    const metas = (await req(
+      db.transaction(TAKES).objectStore(TAKES).getAll(),
+    )) as TakeMeta[]
+    for (const m of metas) {
+      if (m.ownerUid === uid) await deleteTake(m.takeId)
+    }
   } catch (err) {
-    console.error('[take-store] clearAllTakes failed:', err)
+    console.error('[take-store] clearOwnTakes failed:', err)
   }
 }
 
@@ -281,6 +300,7 @@ export async function loadTakeBlob(takeId: string): Promise<Blob | null> {
     const tx = db.transaction([TAKES, SEGMENTS])
     const meta = (await req(tx.objectStore(TAKES).get(takeId))) as TakeMeta | undefined
     if (!meta || meta.ownerUid !== uid) return null
+    // ponytail: getAll + filter, same trade-off as deleteTake above.
     const segments = (await req(tx.objectStore(SEGMENTS).getAll())) as SegmentRow[]
     const parts = segments
       .filter((s) => s.takeId === takeId)

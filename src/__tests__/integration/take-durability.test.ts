@@ -163,7 +163,7 @@ Object.defineProperty(navigator, 'mediaDevices', {
 
 import { globalRecorder } from '@/lib/global-recorder'
 import {
-  clearAllTakes,
+  clearOwnTakes,
   getRecoverableTake,
   loadTakeBlob,
 } from '@/lib/karute/take-store'
@@ -341,13 +341,31 @@ describe('take durability — deletion lifecycle', () => {
     expect((await getRecoverableTake([]))?.takeId).toBe(takeId2)
   })
 
-  it('logout wipe (clearAllTakes) empties the vault', async () => {
+  it('logout wipe (clearOwnTakes) deletes ONLY the signing-out user\'s takes — another staff member\'s crash-recovery audio survives', async () => {
+    // Staff B has an orphaned crash take on the shared device.
+    const takeIdB = await startAndSettle()
+    pushChunk('bbb')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    const keyB = JSON.stringify(takeIdB)
+    takes().set(keyB, { ...takes().get(keyB)!, ownerUid: 'staff-B' })
+
+    // Staff A records, then logs out.
     await startAndSettle()
     pushChunk('aaa')
     await jest.advanceTimersByTimeAsync(5_000)
-    await clearAllTakes()
-    expect(takes().size).toBe(0)
-    expect(segments().size).toBe(0)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    await clearOwnTakes()
+    await drain()
+
+    // A's takes gone; B's take (and its audio) untouched.
+    expect(takes().size).toBe(1)
+    expect((takes().get(keyB) as { ownerUid: string }).ownerUid).toBe('staff-B')
+    mockUid = 'staff-B'
+    await passGrace()
+    expect((await getRecoverableTake([]))?.takeId).toBe(takeIdB)
   })
 
   it('expired takes (24 h TTL) are dropped and deleted in passing', async () => {
