@@ -35,13 +35,23 @@ const safeAreaInsets = {
   paddingBottom: 'env(safe-area-inset-bottom)',
 } as const
 
-export function ThinShell({ children }: { children: ReactNode }) {
+export function ThinShell({
+  children,
+  nav,
+}: {
+  children: ReactNode
+  nav?: ReactNode
+}) {
   return (
     <div
       className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]"
       style={safeAreaInsets}
     >
       <main className="relative flex-1 overflow-y-auto">{children}</main>
+      {/* Bottom nav as a flex sibling BELOW the scroll region — inside the
+       *  safe-area-padded box, so the bar itself clears the home indicator
+       *  without its own inset (packet-09 F-7 cause 3). */}
+      {nav}
     </div>
   )
 }
