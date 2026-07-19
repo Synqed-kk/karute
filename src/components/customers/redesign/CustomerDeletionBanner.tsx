@@ -7,8 +7,8 @@
 // inside the 30-day soft-delete window (core deleted_at set — server-prop
 // driven; the old localStorage stub is gone). Amber by default; flips red in
 // the last 7 days. Undo calls cancelCustomerDeletion, which nulls deleted_at
-// and writes the privacy.customer_delete_canceled audit row; the nightly
-// sweep (/api/cleanup-deleted) hard-deletes at deleted_at + 30d.
+// and writes the privacy.customer_delete_canceled audit row. Day 30 only
+// closes the in-app undo — data is retained in core forever (7/19 ruling).
 
 import { useState } from 'react'
 import { AlertTriangle, Undo2 } from 'lucide-react'
