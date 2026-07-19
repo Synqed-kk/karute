@@ -11,6 +11,13 @@ import { useWaveformBars } from '@/hooks/use-waveform-bars'
 import { ReviewScreen } from '@/components/review/ReviewScreen'
 import type { Entry } from '@/types/ai'
 import { loadDraft, clearDraft, type KaruteDraft } from '@/lib/karute/draft'
+import {
+  deleteTake,
+  getRecoverableTake,
+  loadTakeBlob,
+  type RecoverableTake,
+} from '@/lib/karute/take-store'
+import { globalRecorder } from '@/lib/global-recorder'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { useTimetableStore } from '@/stores/timetable-store'
@@ -180,6 +187,7 @@ export function RecordPageView({
     overrun,
     autoStopped,
     target,
+    takeId: activeTakeId,
     startRecording,
     stopRecording,
     discardRecording,
@@ -255,13 +263,25 @@ export function RecordPageView({
   // so no SSR hydration mismatch). `restoring` = the staffer chose to reopen it.
   const [recoveredDraft, setRecoveredDraft] = useState<KaruteDraft | null>(null)
   const [restoring, setRestoring] = useState(false)
+  // Take recovery: persisted AUDIO from a session that never reached a saved
+  // karute record (killed mid-recording, or reloaded mid-transcription before
+  // any draft existed). A surviving draft is PREFERRED — its transcription is
+  // already paid for — so the audio is offered only when no draft loads.
+  const [recoveredTake, setRecoveredTake] = useState<RecoverableTake | null>(null)
   useEffect(() => {
-    // loadDraft is async now — it returns the draft ONLY to the staff member who
-    // saved it (privacy on a shared device). Guard against a late resolve after
-    // unmount.
+    // Both loads are async and owner-gated at their store layer — only the
+    // staff member who recorded/saved is ever offered anything (privacy on a
+    // shared device). Guard against a late resolve after unmount. The live
+    // recorder/pipeline take is excluded so an in-progress session is never
+    // offered as its own recovery.
     let cancelled = false
-    void loadDraft().then((d) => {
-      if (!cancelled) setRecoveredDraft(d)
+    void Promise.all([
+      loadDraft(),
+      getRecoverableTake([globalRecorder.takeId, globalPipeline.context?.takeId]),
+    ]).then(([d, tk]) => {
+      if (cancelled) return
+      setRecoveredDraft(d)
+      setRecoveredTake(d ? null : tk)
     })
     return () => {
       cancelled = true
@@ -409,19 +429,87 @@ export function RecordPageView({
         outcome,
         outcomeSkipped,
         recordingSessionId,
+        takeId: globalRecorder.takeId,
       })
       // The pipeline now owns the audio; clear the recorder + return to idle so
-      // the page isn't stuck on the "review your take" screen.
-      discardRecording()
+      // the page isn't stuck on the "review your take" screen. keepTake: the
+      // PERSISTED audio must outlive this handoff — it's deleted only when the
+      // karute record saves (or is explicitly discarded), so a reload during
+      // transcription can re-offer it.
+      discardRecording({ keepTake: true })
       setPhase('idle')
     } finally {
       usingRecording.current = false
     }
   }
-  function handleNewSession() {
-    discardRecording()
-    setPhase('idle')
+  // NOTE deliberately no handleNewSession here (3-lens fleet, packet-10): the
+  // settle callbacks below used to call discardRecording() — redundant in the
+  // normal case (the recorder was already cleared at pipeline hand-off) and
+  // DESTRUCTIVE in record-while-processing: with a newer recording live on the
+  // singleton, settling an older review killed that live capture and (post
+  // take-store) deleted its persisted audio. Settling a review must never
+  // touch the recorder; the phase-sync effect above owns the UI state.
+
+  // Take recovery accept: rebuild the audio from its persisted segments and
+  // hand it to the SAME background pipeline a live stop uses, with the
+  // persisted context (target, recordingSessionId — so core's idempotent-save
+  // dedupe still holds on the recovered save). No outcome is carried, so the
+  // pipeline always lands in review — an interrupted take is processed and
+  // saved manually, never auto-resumed or auto-saved.
+  //
+  // Re-entry guard (same class as usingRecording): loadTakeBlob opens a real
+  // async window — a double-tap must not start the pipeline twice, and the
+  // 破棄 button respects the ref so a Process→Discard race can't delete the
+  // take out from under an accept that already committed to processing it.
+  const recoveringTake = useRef(false)
+  async function handleRecoverTake() {
+    if (!recoveredTake || recoveringTake.current) return
+    recoveringTake.current = true
+    try {
+      await doRecoverTake(recoveredTake)
+    } finally {
+      recoveringTake.current = false
+    }
   }
+  async function doRecoverTake(take: RecoverableTake) {
+    const blob = await loadTakeBlob(take.takeId)
+    if (!blob || blob.size === 0) {
+      // Unreadable — corrupted, or the owner gate refused (uid changed since
+      // the banner loaded, e.g. logout/login under a stale page). Do NOT
+      // delete here: a delete on this path would let the wrong user destroy
+      // the owner's audio. Clear the offer; the TTL owns cleanup.
+      toast.error(tc('somethingWentWrong'))
+      setRecoveredTake(null)
+      return
+    }
+    globalPipeline.start(blob, {
+      locale,
+      customers,
+      // Rough length from the flush timestamps (pauses included) — display +
+      // save metadata only, nothing downstream branches on it.
+      duration: Math.max(1, Math.round((take.updatedAt - take.startedAt) / 1000)),
+      // '' (walk-in target) → undefined, same coercion as handleUseRecording.
+      appointmentId: take.target?.appointmentId || undefined,
+      appointmentCustomerId: take.target?.customerId || undefined,
+      recordingSessionId: take.recordingSessionId,
+      takeId: take.takeId,
+    })
+    setRecoveredTake(null)
+  }
+
+  // Offer the audio only while fully idle, never for the take the recorder or
+  // pipeline is CURRENTLY working on (mount raced a live session), and only
+  // when no review draft survived (the draft's transcription is already paid
+  // for — the draft banner wins).
+  const takeOffer =
+    recoveredTake &&
+    !recoveredDraft &&
+    !restoring &&
+    !live &&
+    recoveredTake.takeId !== activeTakeId &&
+    recoveredTake.takeId !== pipeline.context?.takeId
+      ? recoveredTake
+      : null
 
   // What the stop flow shows, decided by the pack state (single source —
   // resolveOutcomeMode): conversion dialog / repurchase dialog / nothing at all.
@@ -498,21 +586,25 @@ export function RecordPageView({
         appointmentCustomerId={pipeline.context.appointmentCustomerId}
         outcome={pipeline.context.outcome}
         recordingSessionId={pipeline.context.recordingSessionId}
+        takeId={pipeline.context.takeId}
         onSaved={() => {
           // Save persisted the record → drop the recovery draft (storage +
-          // in-memory), so no stale banner reoffers a finished session.
+          // in-memory) AND the persisted take, so no stale banner reoffers a
+          // finished session.
           clearDraft()
+          if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
           setRecoveredDraft(null)
+          setRecoveredTake(null)
           globalPipeline.reset()
-          handleNewSession()
         }}
         onDiscard={() => {
-          // Deliberate discard → drop the draft too, or it reappears as a
-          // recovery offer for a session the user intentionally threw away.
+          // Deliberate discard → drop the draft + take too, or they reappear
+          // as recovery offers for a session the user intentionally threw away.
           clearDraft()
+          if (pipeline.context?.takeId) void deleteTake(pipeline.context.takeId)
           setRecoveredDraft(null)
+          setRecoveredTake(null)
           globalPipeline.reset()
-          handleNewSession()
         }}
       />
     )
@@ -540,14 +632,17 @@ export function RecordPageView({
         appointmentId={recoveredDraft.appointmentId}
         appointmentCustomerId={recoveredDraft.appointmentCustomerId}
         recordingSessionId={recoveredDraft.recordingSessionId}
+        takeId={recoveredDraft.takeId}
         onSaved={() => {
           clearDraft()
+          // The draft's session is settled — its persisted audio goes too.
+          if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
           setRecoveredDraft(null)
           setRestoring(false)
-          handleNewSession()
         }}
         onDiscard={() => {
           clearDraft()
+          if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
           setRecoveredDraft(null)
           setRestoring(false)
         }}
@@ -732,7 +827,43 @@ export function RecordPageView({
             type="button"
             onClick={() => {
               clearDraft()
+              // Discarding the draft settles its whole session — the linked
+              // persisted audio goes too, or the take banner would re-offer
+              // the session the user just threw away.
+              if (recoveredDraft.takeId) void deleteTake(recoveredDraft.takeId)
               setRecoveredDraft(null)
+            }}
+            className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
+          >
+            {t('recoverDiscard')}
+          </button>
+        </div>
+      )}
+
+      {/* Interrupted-take offer — persisted AUDIO that never reached a saved
+       *  record (killed mid-recording / reloaded mid-transcription). Shown only
+       *  when no draft survived; processing it re-runs transcription. Same
+       *  non-hijacking amber pattern as the draft banner above. */}
+      {takeOffer && (
+        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm dark:border-amber-500/30 dark:bg-amber-500/10">
+          <span className="flex-1 text-amber-900 dark:text-amber-200">
+            {t('recoverTakeTitle')}
+          </span>
+          <button
+            type="button"
+            onClick={() => void handleRecoverTake()}
+            className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-amber-700"
+          >
+            {t('recoverTakeAction')}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              // Inert while an accept is in flight — a Process→Discard race
+              // must not delete the take mid-processing (see recoveringTake).
+              if (recoveringTake.current) return
+              void deleteTake(takeOffer.takeId)
+              setRecoveredTake(null)
             }}
             className="rounded-lg px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 dark:text-amber-300 dark:hover:bg-amber-500/10"
           >

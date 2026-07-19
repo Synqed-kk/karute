@@ -23,7 +23,10 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
  *                                       ↘ error → (retry) processing
  *
  * NOTE: like globalRecorder, this is in-memory — it survives in-app navigation
- * but NOT a full page reload/close. Persisting across reload would mean a
+ * but NOT a full page reload/close. The AUDIO does survive: the persisted take
+ * (lib/karute/take-store, context.takeId) is kept until the save lands, and
+ * RecordPageView re-offers it after a reload — costing a re-transcription, not
+ * the session. A mid-processing state that survives reload would mean a
  * server-side job (upload + poll); that's the durable v2 (flagged for Anthony).
  */
 
@@ -49,6 +52,11 @@ export interface PipelineContext {
    *  the mint failed or hadn't resolved by save time (graceful degradation:
    *  save proceeds, just without dedupe for that save). */
   recordingSessionId?: string | null
+  /** Persisted-take id (lib/karute/take-store) for this audio. The take is
+   *  KEPT until the karute record actually saves — the save/discard paths
+   *  (ReviewScreen callbacks, ProcessingIndicator autosave) delete it via this
+   *  id. null/absent when persistence was disabled for the take. */
+  takeId?: string | null
 }
 
 export type PipelineState =
@@ -94,7 +102,15 @@ class GlobalPipeline {
     this.listeners.forEach((fn) => fn())
   }
 
-  /** Kick off processing in the background. Returns immediately. */
+  /** Kick off processing in the background. Returns immediately.
+   *
+   *  ⚠ Single-slot by design (pre-existing): a start() while a previous run
+   *  is still processing SUPERSEDES it — the old run's result is dropped
+   *  un-settled (no review, no autosave, no error) and nothing deletes its
+   *  persisted take. That take is exactly what the recovery banner re-offers
+   *  on the next record-page mount, so since take-store the cost of the
+   *  clobber is the old run's transcription fee, not the session. True
+   *  concurrent takes need the server-side durable pipeline (v2, Anthony). */
   start(blob: Blob, context: PipelineContext) {
     this.blob = blob
     this.context = context

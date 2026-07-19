@@ -646,7 +646,9 @@
     "otherStaffBooking": "Booked under {staff} · this record saves under {you}",
     "recoverTitle": "You have an unsaved recording.",
     "recoverAction": "Restore",
-    "recoverDiscard": "Discard"
+    "recoverDiscard": "Discard",
+    "recoverTakeTitle": "Recording was interrupted. Process what was captured?",
+    "recoverTakeAction": "Process"
   },
   "customers": {
     "title": "Customers",
