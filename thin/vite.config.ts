@@ -35,6 +35,17 @@ const PURCHASE_FILES = new Set(
   ].map((p) => path.resolve(root, p)),
 )
 
+// Vendor-side §1.5 hole: @synqed-kk/ui ships its own purchase components and has
+// no `sideEffects` field, so its index re-exports (top-level displayName
+// assignments) survive tree-shaking even though nothing imports them. Matched by
+// path SUFFIX — rollup resolves through symlinked/hoisted node_modules layouts,
+// so absolute paths can't be trusted here. check-bundle-budget.mjs greps the
+// built output as the backstop if the package layout moves.
+const PURCHASE_VENDOR_SUFFIXES = [
+  '/@synqed-kk/ui/dist/components/plan-comparison-grid.js',
+  '/@synqed-kk/ui/dist/components/subscription-summary-card.js',
+]
+
 // next/navigation + next/link are handled by alias BEFORE this plugin runs
 // (Vite applies resolve.alias first), so any `next/*` specifier that reaches
 // the plugin from OUR code is unported.
@@ -72,6 +83,7 @@ function boundaryPlugin(): Plugin {
 
       // (b) Purchase surfaces → null renders, whatever the import shape.
       if (PURCHASE_FILES.has(resolved.id)) return PURCHASE_PORT
+      if (PURCHASE_VENDOR_SUFFIXES.some((s) => resolved.id.endsWith(s))) return PURCHASE_PORT
 
       return null
     },

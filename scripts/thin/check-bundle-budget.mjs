@@ -37,11 +37,14 @@ for (const f of jsFiles) {
 
 const kb = (n) => `${(n / 1024).toFixed(1)} KB`
 console.log(`thin JS: ${kb(raw)} raw / ${kb(gz)} gzip across ${jsFiles.length} chunk(s)`)
-if (raw > BUDGET_BYTES) {
+// Budget verdict is deferred to the end: exiting here used to skip the
+// purchase-exclusion check entirely, so a budget breach masked a §1.5 leak.
+const overBudget = raw > BUDGET_BYTES
+if (overBudget) {
   console.error(`✗ over budget: ${kb(raw)} > ${kb(BUDGET_BYTES)} — code-split or trim before merge`)
-  process.exit(1)
+} else {
+  console.log(`✓ within budget (${kb(BUDGET_BYTES)})`)
 }
-console.log(`✓ within budget (${kb(BUDGET_BYTES)})`)
 
 // ── Purchase-exclusion proof (payments canon §1.5) ──
 // Identifiers (pre-minification insurance) + one surviving string literal per
@@ -64,6 +67,11 @@ const FORBIDDEN = [
   'settings.subscription.paymentUpdate', // PaymentUpdateDialog namespace
   'settings.stores.addStoreSubscription', // AddStoreSubscriptionDialog namespace
   'max-h-[85vh] overflow-y-auto sm:max-w-5xl', // PlanComparisonDialog className
+  // @synqed-kk/ui vendor copies (identifier = displayName literal, survives
+  // minification; plus one copy literal each in case a package build drops it)
+  'SubscriptionSummaryCard',
+  "Your last charge failed", // subscription-summary-card DEFAULT_COPY
+  'Downgrade to Free', // plan-comparison-grid DEFAULT_COPY (Greptile 4/5 backstop)
 ]
 const textFiles = dir.filter((f) => f.endsWith('.js') || f.endsWith('.css'))
 const hits = []
@@ -79,3 +87,4 @@ if (hits.length > 0) {
   process.exit(1)
 }
 console.log(`✓ purchase exclusion: 0/${FORBIDDEN.length} forbidden markers across ${textFiles.length} asset(s)`)
+if (overBudget) process.exit(1)
