@@ -24,7 +24,11 @@ import { GoTrueClient, type Session } from '@supabase/auth-js'
 import type { AuthClientConfig } from './config'
 import type { SupportsStorage } from './secure-storage'
 import { bootSessionGate, type BootState } from './boot-gate'
-import { createResumeCoordinator, type ResumeCoordinator } from './background-resume'
+import {
+  createResumeCoordinator,
+  createSingleFlight,
+  type ResumeCoordinator,
+} from './background-resume'
 import { signOutAndPurge, type SignOutResult } from './session-lifecycle'
 
 /** Foreground-event port. Scaffold binds it to
@@ -86,20 +90,25 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
     if (error && !data.session) throw error
     return data.session
   }
+  // ONE in-flight recovery across boot AND resume: a visibilitychange during
+  // the boot window (the iOS mic-permission prompt foregrounds the app) must
+  // JOIN boot's getSession, not race a second one into GoTrueClient's
+  // per-instance lock queue (correctness lens F-2).
+  const recoverOnce = createSingleFlight(recover)
 
   return {
     auth,
     boot() {
       // Never `await getSession()` unbounded — the spike proved it hangs offline.
       return bootSessionGate<Session>(
-        recover,
+        recoverOnce,
         opts.bootTimeoutMs ?? 4000,
         opts.onSessionState,
       )
     },
     bindLifecycle() {
       const coordinator = createResumeCoordinator<Session>({
-        recover,
+        recover: recoverOnce,
         onQuiesce: opts.onQuiesce,
         onResumed: opts.onSessionState,
         // Same bound as boot — a hung resume falls through to `recovering`,

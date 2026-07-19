@@ -79,6 +79,26 @@ describe('createMobileAuth — session read adapter', () => {
   })
 })
 
+describe('createMobileAuth — boot/resume share ONE in-flight recovery', () => {
+  it('a resume firing during the boot window joins boot\'s getSession, never a second call', async () => {
+    let release!: (v: { data: { session: unknown }; error: null }) => void
+    mockGetSession.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    const { auth } = makeAuth()
+    const coordinator = auth.bindLifecycle()
+
+    const bootP = auth.boot()
+    const resumeP = coordinator.onAppActive() // mic-permission prompt scenario
+
+    release({ data: { session: { access_token: 't' } }, error: null })
+    await Promise.all([bootP, resumeP])
+    expect(mockGetSession).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('createMobileAuth — sign-out adapter', () => {
   it('in-band signOut error → remoteOk false, local purge STILL runs', async () => {
     mockSignOut.mockResolvedValue({ error: { message: 'revocation failed' } })

@@ -20,11 +20,16 @@ export const viteDataPort: DataPort = {
   // Bearer from the session-store: SYNC read (never await getSession on the
   // hot path — boot-gate rationale), kept fresh by onAuthStateChange. No token
   // → no header → the facade 401s honestly and the screen shows its message.
+  // App-RELATIVE paths only: facadeApiUrl passes absolute URLs through
+  // untouched, and the session token must never ride to a foreign origin
+  // (latent exfiltration footgun — security lens F-4).
   apiFetch: (path, init) => {
-    const token = getAccessToken()
     const headers = new Headers(init?.headers)
-    if (token && !headers.has('Authorization')) {
-      headers.set('Authorization', `Bearer ${token}`)
+    if (!/^https?:\/\//i.test(path)) {
+      const token = getAccessToken()
+      if (token && !headers.has('Authorization')) {
+        headers.set('Authorization', `Bearer ${token}`)
+      }
     }
     return fetch(facadeApiUrl(getThinEnv().facadeUrl, path), { ...init, headers })
   },

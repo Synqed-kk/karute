@@ -31,10 +31,10 @@ export function LoginScreen() {
       setLoading(false)
       return
     }
-    // Success: flip the store from the RESOLVED session — deterministic, no
-    // dependency on the SIGNED_IN event arriving (Greptile: a dropped event
-    // left the button disabled forever). The AuthGate then swaps this screen
-    // for the router; onAuthStateChange stays the rotation/refresh truth.
+    // Success: flip the store from the RESOLVED session. auth-js notifies
+    // SIGNED_IN inline before returning, so this is normally a same-value
+    // no-op — kept as belt-and-braces so the gate swap never depends on
+    // event-subscriber internals holding across auth-js versions.
     if (data.session) {
       setSessionState({ status: 'signed-in', session: data.session })
     } else {

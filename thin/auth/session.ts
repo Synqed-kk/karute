@@ -52,6 +52,9 @@ export function getMobileAuth(): MobileAuth {
       },
     },
     onSessionState: setSessionState,
+    // onQuiesce deliberately unwired: the thin bundle has no global query
+    // cache to pause, and in-flight ScreenBoundary fetches self-resolve via
+    // their `alive` flag — there is nothing to quiesce yet.
     // The one logout wipe (packet-10): recorder/pipeline singletons + takes +
     // draft — routed here exactly as REV-48 planned for the packet-01 wiring.
     purgeLocalCaches: wipeSessionVault,
@@ -64,8 +67,19 @@ export function getMobileAuth(): MobileAuth {
   // subscription handle is deliberately dropped: exactly one subscription per
   // app lifetime (this module is a cached singleton), never torn down.
   auth.auth.onAuthStateChange((event, session) => {
-    if (session) setSessionState({ status: 'signed-in', session })
-    else if (event === 'SIGNED_OUT') setSessionState({ status: 'signed-out' })
+    if (session) {
+      setSessionState({ status: 'signed-in', session })
+    } else if (event === 'SIGNED_OUT') {
+      setSessionState({ status: 'signed-out' })
+      // SIGNED_OUT is also how a SERVER-driven session death arrives (failed
+      // refresh, password reset, admin revoke) — and MobileAuth.signOut() has
+      // no UI caller in v1, so this is the ONLY place the vault purge can
+      // fire. Without it the previous staff's live recorder/pipeline
+      // singletons (audio, transcript) stay armed for the next sign-in on a
+      // shared device (packet-10 leak class). Best-effort by design: the UI
+      // demotes first, the wipe follows.
+      void wipeSessionVault().catch(() => {})
+    }
   })
   return auth
 }

@@ -10,6 +10,7 @@ import type { Session } from '@supabase/supabase-js'
 import {
   getAccessToken,
   getSessionState,
+  hasKnownSession,
   setSessionState,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
@@ -18,12 +19,29 @@ const session = (token: string) => ({ access_token: token }) as Session
 
 describe('session-store', () => {
   afterEach(() => {
-    // module singleton: leave the pre-boot default behind for other tests
+    // module singleton: explicit sign-out clears lastSession, then restore the
+    // pre-boot default for other tests
+    setSessionState({ status: 'signed-out' })
     setSessionState({ status: 'recovering' })
   })
 
-  it('defaults to recovering with no token', () => {
+  it('defaults to recovering with no token and no known session', () => {
     expect(getSessionState()).toEqual({ status: 'recovering' })
+    expect(getAccessToken()).toBeNull()
+    expect(hasKnownSession()).toBe(false)
+  })
+
+  it('recovering AFTER signed-in keeps the last-known bearer (offline resume)', () => {
+    setSessionState({ status: 'signed-in', session: session('tok-live') })
+    setSessionState({ status: 'recovering' })
+    expect(getAccessToken()).toBe('tok-live')
+    expect(hasKnownSession()).toBe(true)
+
+    // only an explicit sign-out drops it — the boot-gate invariant
+    setSessionState({ status: 'signed-out' })
+    expect(getAccessToken()).toBeNull()
+    expect(hasKnownSession()).toBe(false)
+    setSessionState({ status: 'recovering' })
     expect(getAccessToken()).toBeNull()
   })
 
