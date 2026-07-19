@@ -60,21 +60,16 @@ function jstTodayString(): string {
   }).format(new Date())
 }
 
-/** Returns the next-customer info for the signed-in staff, or
- *  null if there's nothing to record or no staff identity. */
-export async function getNextCustomer(): Promise<NextCustomerInfo | null> {
-  const staffId = await getCurrentUserStaffId().catch(() => null)
-  if (!staffId) return null
-
-  // Lazy import keeps the synqed-core ESM client out of any caller/test
-  // that never reaches this path.
-  const { getAppointmentsByDate } = await import('@/actions/appointments')
-  const appts = await getAppointmentsByDate(jstTodayString()).catch(
-    () => [] as AppointmentRow[],
-  )
-
+/** The pure pick — in-session first, else nearest upcoming, else null.
+ *  Extracted so the Bearer-path chrome facade route (which fetches today's
+ *  appointments with its own token-scoped client) shares the exact selection
+ *  logic with the cookie-path getNextCustomer() below. */
+export function pickNextCustomer(
+  appts: AppointmentRow[],
+  staffId: string,
+  nowMs: number,
+): NextCustomerInfo | null {
   const mine = appts.filter((a) => a.staff_profile_id === staffId)
-  const nowMs = Date.now()
 
   const toInfo = (
     a: AppointmentRow,
@@ -112,4 +107,20 @@ export async function getNextCustomer(): Promise<NextCustomerInfo | null> {
   if (upcoming) return toInfo(upcoming, 'upcoming')
 
   return null
+}
+
+/** Returns the next-customer info for the signed-in staff, or
+ *  null if there's nothing to record or no staff identity. */
+export async function getNextCustomer(): Promise<NextCustomerInfo | null> {
+  const staffId = await getCurrentUserStaffId().catch(() => null)
+  if (!staffId) return null
+
+  // Lazy import keeps the synqed-core ESM client out of any caller/test
+  // that never reaches this path.
+  const { getAppointmentsByDate } = await import('@/actions/appointments')
+  const appts = await getAppointmentsByDate(jstTodayString()).catch(
+    () => [] as AppointmentRow[],
+  )
+
+  return pickNextCustomer(appts, staffId, Date.now())
 }

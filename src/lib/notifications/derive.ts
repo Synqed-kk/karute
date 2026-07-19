@@ -11,10 +11,7 @@
 // item — the panel shows its affirming "all caught up" state.
 
 import { unstable_cache } from 'next/cache'
-import {
-  getCachedCustomerList,
-  getCachedCustomerListFor,
-} from '@/lib/customers/cached'
+import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import {
   effectiveLastVisitIso,
   enrichCustomers,
@@ -23,7 +20,7 @@ import { resolveCustomerStatus } from '@/lib/customers/status-signals'
 import { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
-import { getAppointmentsByDate } from '@/actions/appointments'
+import { getAppointmentsByDateWithClient } from '@/lib/appointments/by-date'
 import {
   assembleNotificationFeed,
   NEW_BOOKING_LOOKBACK_MS,
@@ -75,7 +72,7 @@ export async function buildNotificationFeed(
   // so seeding the feed on every (app) page doesn't re-fetch per navigation.
   const [todayAppointments, recentBookings, drafts, chaseAndSync] =
     await Promise.all([
-      loadTodayAppointments(),
+      loadTodayAppointments(businessId),
       loadRecentBookings(businessId, storeId),
       loadDraftKarute(businessId, storeId),
       loadChaseAndSync(businessId, storeId),
@@ -99,16 +96,25 @@ export async function buildNotificationFeed(
 
 /** 本日のご予約 digest — reuses the agenda loader (already JST-day-scoped,
  *  cancellation-filtered, customer-name-resolved). We only need the
- *  first-timer split, which rides on the QR `is_existing_customer` flag. */
-async function loadTodayAppointments(): Promise<FeedTodayAppointment[]> {
+ *  first-timer split, which rides on the QR `is_existing_customer` flag.
+ *  businessId-explicit like its sibling loaders — this was the ONE
+ *  cookie-bound source, which made the whole feed unusable on the Bearer
+ *  (facade) path; now web and the chrome facade route share it. */
+async function loadTodayAppointments(
+  businessId: string,
+): Promise<FeedTodayAppointment[]> {
   try {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return []
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
     // is_existing_customer is a Customer field, NOT on the agenda row. Join the
     // row's client_id to the cached customer list (already loaded for the feed)
     // so the 新規/既存 split reflects real data instead of always "0 new".
-    const [rows, customers] = await Promise.all([
-      getAppointmentsByDate(ymdInJst(now())),
-      getCachedCustomerList(),
-    ])
+    const customers = await getCachedCustomerListFor(businessId)
+    const rows = await getAppointmentsByDateWithClient(synqed, ymdInJst(now()), {
+      nameById: new Map(customers.map((c) => [c.id, c.name])),
+    })
     const existingById = new Map(
       customers.map((c) => [c.id, c.isExistingCustomer]),
     )
