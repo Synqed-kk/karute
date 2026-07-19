@@ -1,6 +1,7 @@
 'use client'
 
 import { getDataPort } from '@/lib/ports/data-port'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 
 // ⚠️ TEMPORARY BUILD TOOL — remove once historical karute are backfilled with the
 // latest prompts. Re-runs extraction + summary across ALL of a customer's karute
@@ -57,13 +58,14 @@ export function RegenerateAllForCustomerButton({
     let failed = 0
     for (const k of list) {
       try {
+        // aiBase seam (F-9d): the facade twins exist — route through them in the shell.
         const [ex, su] = await Promise.all([
-          getDataPort().apiFetch('/api/ai/extract', {
+          getDataPort().apiFetch(`${getRecordingPipelinePort().aiBase}/extract`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transcript: k.transcript, locale }),
           }),
-          getDataPort().apiFetch('/api/ai/summarize', {
+          getDataPort().apiFetch(`${getRecordingPipelinePort().aiBase}/summarize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transcript: k.transcript, locale }),

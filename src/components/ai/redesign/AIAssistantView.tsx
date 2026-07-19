@@ -1,6 +1,7 @@
 'use client'
 
 import { getDataPort } from '@/lib/ports/data-port'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 
 import { useEffect, useRef, useState } from 'react'
 import { Clock, Settings } from 'lucide-react'
@@ -62,7 +63,9 @@ export function AIAssistantView({
     setLoading(true)
 
     try {
-      const res = await getDataPort().apiFetch('/api/ai/chat', {
+      // aiBase seam (F-9b): '/api/ai' on web, '/api/app/v1/ai' in the shell —
+      // the cookie-only web route 401s on the Bearer path.
+      const res = await getDataPort().apiFetch(`${getRecordingPipelinePort().aiBase}/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

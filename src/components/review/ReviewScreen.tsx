@@ -1,6 +1,7 @@
 'use client'
 
 import { getDataPort } from '@/lib/ports/data-port'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 
 import { useState, useEffect } from 'react'
 import { useTranslations } from 'next-intl'
@@ -103,7 +104,8 @@ export function ReviewScreen({
   useEffect(() => {
     async function fetchSuggestions() {
       try {
-        const res = await getDataPort().apiFetch('/api/ai/suggestions', {
+        // aiBase seam (F-9c): the facade twin exists — route through it in the shell.
+        const res = await getDataPort().apiFetch(`${getRecordingPipelinePort().aiBase}/suggestions`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

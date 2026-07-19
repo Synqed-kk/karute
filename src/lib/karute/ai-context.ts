@@ -1,9 +1,17 @@
 import 'server-only'
-import type { Appointment, KaruteRecord } from '@synqed-kk/client'
+import type { Appointment, KaruteRecord, SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { getCachedCustomerList } from '@/lib/customers/cached'
+import { getCachedCustomerList, type CachedCustomerOption } from '@/lib/customers/cached'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { JST_OFFSET, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
+
+/** Explicit-client deps for the Bearer/facade path (design-parity F-9b): a
+ *  business-scoped client + a businessId-explicit customer-list getter, so no
+ *  cookie is consulted. Absent → the cookie path, byte-identical to before. */
+export interface AiContextDeps {
+  synqed: Pick<SynqedClient, 'karuteRecords' | 'appointments'>
+  customers: () => Promise<CachedCustomerOption[]>
+}
 
 export interface AiKaruteContextRow {
   id: string
@@ -61,14 +69,15 @@ export function formatKaruteContext(rows: AiKaruteContextRow[]): string {
 export async function getRecentKaruteForAI(
   limit: number,
   storeId?: string,
+  deps?: AiContextDeps,
 ): Promise<AiKaruteContextRow[]> {
   try {
-    const synqed = await getSynqedClient()
+    const synqed = deps?.synqed ?? (await getSynqedClient())
     const [res, customers] = await Promise.all([
       // storeId absent (default) = today's behavior (no store filter). Callers
       // that resolve a restricted staff's store scope pass it to clamp reads.
       synqed.karuteRecords.list({ page_size: limit, store_id: storeId }),
-      getCachedCustomerList(),
+      deps ? deps.customers() : getCachedCustomerList(),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
     // synqed-core already orders createdAt desc (karute.service.ts); mapKaruteRows
@@ -94,16 +103,17 @@ export async function getCustomerKaruteForAI(
   customerId: string,
   limit: number,
   storeId?: string,
+  deps?: AiContextDeps,
 ): Promise<{ customerName: string | null; rows: AiKaruteContextRow[] }> {
   try {
-    const synqed = await getSynqedClient()
+    const synqed = deps?.synqed ?? (await getSynqedClient())
     const [res, customers] = await Promise.all([
       synqed.karuteRecords.list({
         customer_id: customerId,
         page_size: limit,
         store_id: storeId,
       }),
-      getCachedCustomerList(),
+      deps ? deps.customers() : getCachedCustomerList(),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
     const rows = mapKaruteRows(res.karute_records ?? [], nameById)
@@ -129,9 +139,10 @@ export async function getCustomerKaruteForAI(
  *  ticket-low count, the 「N名」 chip, or the today slice. [] on failure. */
 export async function getTodaysAppointments(
   storeId?: string,
+  deps?: AiContextDeps,
 ): Promise<Appointment[]> {
   try {
-    const synqed = await getSynqedClient()
+    const synqed = deps?.synqed ?? (await getSynqedClient())
     const day = ymdInJst()
     // Day window matches the house convention in src/actions/appointments.ts
     // (getAppointmentsByDate): JST 00:00:00 → 23:59:59.999 so the last-minute
@@ -159,14 +170,15 @@ export async function getTodaysAppointments(
  *  roster or failure → `{ rosterSize: 0, rows: [] }`. */
 export async function getTodayRosterKaruteForAI(
   storeId?: string,
+  deps?: AiContextDeps,
 ): Promise<{ rosterSize: number; rows: AiKaruteContextRow[] }> {
   try {
-    const appts = await getTodaysAppointments(storeId)
+    const appts = await getTodaysAppointments(storeId, deps)
     const customerIds = [
       ...new Set(appts.map((a) => a.customer_id).filter(Boolean)),
     ]
     if (customerIds.length === 0) return { rosterSize: 0, rows: [] }
-    const synqed = await getSynqedClient()
+    const synqed = deps?.synqed ?? (await getSynqedClient())
     const [perCustomer, customers] = await Promise.all([
       Promise.all(
         customerIds.map((id) =>
@@ -177,7 +189,7 @@ export async function getTodayRosterKaruteForAI(
           }),
         ),
       ),
-      getCachedCustomerList(),
+      deps ? deps.customers() : getCachedCustomerList(),
     ])
     const nameById = new Map(customers.map((c) => [c.id, c.name]))
     const rows = perCustomer.flatMap((res) => res.karute_records ?? [])
