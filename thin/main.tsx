@@ -4,7 +4,7 @@ import messages from '../messages/ja.json'
 import '../src/app/globals.css'
 import './fonts.css'
 import { AppRoot } from '@/lib/app-root/AppRoot'
-import { hideNativeSplash, releaseSplashOnFirstPaint } from '@/lib/app-root/splash'
+import { hideNativeSplash } from '@/lib/app-root/splash'
 import { ThinShell } from './shell'
 import { ThinRouter } from './router'
 import { ThinBottomNav } from './ThinBottomNav'
@@ -75,11 +75,13 @@ function main(): void {
     </StrictMode>,
   )
 
-  // First painted frame: mark + release the native splash on the same frame the
-  // pixels land (the #444 handshake, ported as new code here).
+  // First painted frame: mark it (wall-clock real, usually still UNDER the
+  // native splash). The splash release moved into the AuthGate — releasing
+  // here, on the unconditional first paint, flashed the boot gate's
+  // 読み込み中 frame between splash and content on every cold start. The
+  // renderFatal path above and the ErrorBoundary keep their own releases.
   requestAnimationFrame(() => {
     mark(MARKS.firstPixel)
-    releaseSplashOnFirstPaint()
     // Interactive lands after mount effects flush — one task later.
     setTimeout(() => {
       mark(MARKS.interactive)

@@ -29,6 +29,7 @@ import {
 import { isConsentCurrent } from '@/lib/consent'
 
 import { RecordPageHeader } from './RecordPageHeader'
+import { PipelineErrorCard } from './PipelineErrorCard'
 import {
   RecordingTargetCard,
   type RecordTargetAppointment,
@@ -650,35 +651,6 @@ export function RecordPageView({
     )
   }
 
-  // Background pipeline errored → non-blocking inline card (retry/discard).
-  if (pipeline.state === 'error') {
-    return (
-      <div className="mx-auto w-full max-w-md px-4 py-10">
-        <div className="rounded-2xl border border-red-500/30 bg-card p-6 text-center shadow-sm">
-          <p className="text-sm font-medium text-foreground">
-            {pipeline.error ?? ''}
-          </p>
-          <div className="mt-5 flex justify-center gap-3">
-            <button
-              type="button"
-              onClick={() => globalPipeline.reset()}
-              className="rounded-lg border border-border px-5 py-2 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
-            >
-              {tc('cancel')}
-            </button>
-            <button
-              type="button"
-              onClick={() => globalPipeline.retry()}
-              className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
-            >
-              {tc('retry')}
-            </button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
   // Map nextAppointment to the target card shape. Status key comes
   // from the server (sessions/page.tsx derives it from now vs the
   // appointment window — keeps this client component pure for
@@ -807,6 +779,18 @@ export function RecordPageView({
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <RecordPageHeader />
+
+      {/* Background pipeline errored → localized card INSIDE the normal page
+       *  frame (it used to early-return a bare card on a blank screen). The
+       *  page stays usable: a new recording legitimately supersedes the
+       *  errored run (single-slot pipeline; the take is preserved). */}
+      {pipeline.state === 'error' && (
+        <PipelineErrorCard
+          code={pipeline.error}
+          onCancel={() => globalPipeline.reset()}
+          onRetry={() => globalPipeline.retry()}
+        />
+      )}
 
       {/* Crash-recovery offer — a session that reached the AI review but was
        *  never saved. Shown only when fully idle so it never competes with a

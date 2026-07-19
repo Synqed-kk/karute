@@ -19,6 +19,9 @@ type Deferred = {
 const mockDeferreds: Deferred[] = []
 
 jest.mock('@/lib/ai-pipeline', () => ({
+  // Real module spread so EmptyTranscriptError stays the REAL class — the
+  // error-code mapping below is an instanceof check against it.
+  ...jest.requireActual('@/lib/ai-pipeline'),
   runAIPipeline: jest.fn(
     (_blob: Blob, _locale: string, onProgress: (s: string) => void) =>
       new Promise<PipelineResult>((resolve, reject) => {
@@ -27,6 +30,7 @@ jest.mock('@/lib/ai-pipeline', () => ({
   ),
 }))
 
+import { EmptyTranscriptError } from '@/lib/ai-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 
 const makeResult = (summary: string): PipelineResult => ({
@@ -101,13 +105,28 @@ describe('globalPipeline run supersession', () => {
     expect(globalPipeline.step).toBe('summarizing')
   })
 
-  it('surfaces an error from the live run', async () => {
+  it('surfaces an error from the live run as the generic code (never raw text)', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), ctx)
     mockDeferreds[0].reject(new Error('boom'))
     await flush()
 
     expect(globalPipeline.state).toBe('error')
-    expect(globalPipeline.error).toBe('boom')
+    expect(globalPipeline.error).toBe('unknown')
+    // The raw text still reaches the console for field debugging.
+    expect(consoleError).toHaveBeenCalled()
+    consoleError.mockRestore()
+  })
+
+  it('maps an empty transcript to its dedicated error code', async () => {
+    const consoleError = jest.spyOn(console, 'error').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), ctx)
+    mockDeferreds[0].reject(new EmptyTranscriptError())
+    await flush()
+
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.error).toBe('empty-transcript')
+    consoleError.mockRestore()
   })
 })
 
