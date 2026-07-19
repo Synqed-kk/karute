@@ -11,10 +11,7 @@
 // item — the panel shows its affirming "all caught up" state.
 
 import { unstable_cache } from 'next/cache'
-import {
-  getCachedCustomerList,
-  getCachedCustomerListFor,
-} from '@/lib/customers/cached'
+import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import {
   effectiveLastVisitIso,
   enrichCustomers,
@@ -23,7 +20,6 @@ import { resolveCustomerStatus } from '@/lib/customers/status-signals'
 import { SynqedClient } from '@synqed-kk/client'
 import { ymdInJst } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
-import { getAppointmentsByDate } from '@/actions/appointments'
 import {
   assembleNotificationFeed,
   NEW_BOOKING_LOOKBACK_MS,
@@ -55,6 +51,10 @@ export async function buildNotificationFeed(
   businessId: string,
   locale = 'ja',
   storeId: string | null = null,
+  // Callers that already hold today's appointment rows (the chrome facade
+  // route fetches them for the next-customer pick) inject the mapped digest
+  // input so the feed doesn't re-read the same day from core (Greptile #562).
+  deps: { todayAppointments?: FeedTodayAppointment[] } = {},
 ): Promise<NotificationItem[]> {
   const now = new Date()
   const lp = locale === 'en' ? '/en' : '/ja'
@@ -75,7 +75,7 @@ export async function buildNotificationFeed(
   // so seeding the feed on every (app) page doesn't re-fetch per navigation.
   const [todayAppointments, recentBookings, drafts, chaseAndSync] =
     await Promise.all([
-      loadTodayAppointments(),
+      deps.todayAppointments ?? loadTodayAppointments(businessId),
       loadRecentBookings(businessId, storeId),
       loadDraftKarute(businessId, storeId),
       loadChaseAndSync(businessId, storeId),
@@ -97,22 +97,37 @@ export async function buildNotificationFeed(
 // shapes. All swallow errors to [] / zeros (the feed is best-effort).
 // ─────────────────────────────────────────────────────────────
 
-/** 本日のご予約 digest — reuses the agenda loader (already JST-day-scoped,
- *  cancellation-filtered, customer-name-resolved). We only need the
- *  first-timer split, which rides on the QR `is_existing_customer` flag. */
-async function loadTodayAppointments(): Promise<FeedTodayAppointment[]> {
+/** 本日のご予約 digest — JST-day appointment rows, terminal statuses dropped,
+ *  joined to the cached customer list for the 新規/既存 split (the QR
+ *  `is_existing_customer` flag). businessId-explicit like its sibling
+ *  loaders — this was the ONE cookie-bound source, which made the whole feed
+ *  unusable on the Bearer (facade) path. Reads appointments DIRECTLY (one
+ *  list call): the digest needs only counts + the first-timer flag, so the
+ *  full agenda assembly (karute links, staff mapping) would be pure
+ *  over-fetch here (Greptile #562). */
+async function loadTodayAppointments(
+  businessId: string,
+): Promise<FeedTodayAppointment[]> {
   try {
-    // is_existing_customer is a Customer field, NOT on the agenda row. Join the
-    // row's client_id to the cached customer list (already loaded for the feed)
-    // so the 新規/既存 split reflects real data instead of always "0 new".
-    const [rows, customers] = await Promise.all([
-      getAppointmentsByDate(ymdInJst(now())),
-      getCachedCustomerList(),
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) return []
+    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
+    const dateStr = ymdInJst(now())
+    const [list, customers] = await Promise.all([
+      synqed.appointments.list({
+        from: new Date(`${dateStr}T00:00:00+09:00`).toISOString(),
+        to: new Date(`${dateStr}T23:59:59.999+09:00`).toISOString(),
+        page_size: PAGE_SIZE,
+      }),
+      getCachedCustomerListFor(businessId),
     ])
     const existingById = new Map(
       customers.map((c) => [c.id, c.isExistingCustomer]),
     )
-    return rows.map((r) => ({ isExistingCustomer: existingById.get(r.client_id) }))
+    return list.appointments
+      .filter((a) => !isTerminalStatus(a.status))
+      .map((a) => ({ isExistingCustomer: existingById.get(a.customer_id) }))
   } catch {
     return []
   }
