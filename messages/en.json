@@ -532,6 +532,8 @@
     "newSession": "New session",
     "recordDescription": "Record a session to generate a karute automatically",
     "micError": "Microphone access denied. Please allow microphone access and try again.",
+    "pipelineErrorEmptyTranscript": "No speech could be recognized. Please check that the recording contains audio and try again.",
+    "pipelineErrorGeneric": "Something went wrong while processing. Please try again.",
     "recordingFor": "Recording for",
     "noUpcomingAppointment": "No upcoming appointment",
     "noBookingTitle": "No booking found",

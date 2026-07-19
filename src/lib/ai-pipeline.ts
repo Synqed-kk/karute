@@ -17,6 +17,17 @@ export type PipelineResult = {
   summary: string
 }
 
+/** Transcription succeeded but recognized no speech (silence / too quiet) —
+ *  the one failure anyone can hit on purpose by recording silence. Typed so
+ *  the UI can show the specific 音声が認識できませんでした message instead of
+ *  raw exception text (which must never reach the screen). */
+export class EmptyTranscriptError extends Error {
+  constructor() {
+    super('Transcription returned an empty transcript.')
+    this.name = 'EmptyTranscriptError'
+  }
+}
+
 /**
  * Retries a fetch call once on failure.
  * - First failure: waits 1.5 seconds, then retries.
@@ -107,7 +118,7 @@ export async function runAIPipeline(
   const transcript: string = transcribeData.transcript
 
   if (!transcript) {
-    throw new Error('Transcription returned an empty transcript.')
+    throw new EmptyTranscriptError()
   }
 
   // Stage 0 (docs/diarization-stack.md): use the speaker labels we already

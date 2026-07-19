@@ -2,6 +2,7 @@
 
 import {
   runAIPipeline,
+  EmptyTranscriptError,
   type PipelineStep,
   type PipelineResult,
 } from '@/lib/ai-pipeline'
@@ -66,13 +67,18 @@ export type PipelineState =
   | 'review'
   | 'error'
 
+/** Stable UI-facing failure codes. The error card renders a localized message
+ *  from THIS — raw exception text must never reach the screen (it surfaced
+ *  English mid-app; the raw error goes to the console for field debugging). */
+export type PipelineErrorCode = 'empty-transcript' | 'unknown'
+
 type Listener = () => void
 
 class GlobalPipeline {
   state: PipelineState = 'idle'
   step: PipelineStep = 'transcribing'
   result: PipelineResult | null = null
-  error: string | null = null
+  error: PipelineErrorCode | null = null
   context: PipelineContext | null = null
   /** Bumped on every change so useSyncExternalStore re-renders subscribers. */
   version = 0
@@ -163,10 +169,9 @@ class GlobalPipeline {
       this.notify()
     } catch (err) {
       if (runId !== this.runId) return
-      this.error =
-        err instanceof Error
-          ? err.message
-          : 'An unexpected error occurred. Please try again.'
+      // Raw text is for the console only — the UI localizes from the code.
+      console.error('[global-pipeline] run failed:', err)
+      this.error = err instanceof EmptyTranscriptError ? 'empty-transcript' : 'unknown'
       this.state = 'error'
       this.notify()
     }

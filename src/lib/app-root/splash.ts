@@ -20,9 +20,11 @@ export function hideNativeSplash(): void {
 }
 
 /**
- * Release the splash on the first painted frame: two rAFs after this runs, which
- * lands right after the browser commits the first paint. Call once from the entry
- * AFTER the synchronous mount. CookieVC's +8s failsafe covers a missed call.
+ * Release the splash on the next painted frame: two rAFs after this runs, which
+ * lands right after the browser commits the current render. Called from the
+ * AuthGate on the first commit of a RESOLVED boot state (not from the entry —
+ * the unconditional first paint is the boot gate's loading frame on cold boots,
+ * and releasing there flashed it). CookieVC's +8s failsafe covers a missed call.
  */
 export function releaseSplashOnFirstPaint(): void {
   if (typeof window === 'undefined') return

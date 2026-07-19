@@ -12,18 +12,45 @@
 // shows the full-screen loading state.
 
 import type { ReactNode } from 'react'
-import { useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import {
   getSessionState,
   hasKnownSession,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
+import { releaseSplashOnFirstPaint } from '@/lib/app-root/splash'
 import { LoginScreen } from './screens/LoginScreen'
 import { ScreenLoading } from './screens/ScreenBoundary'
+import { mark, MARKS } from './probe/marks'
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const state = useSyncExternalStore(subscribeSessionState, getSessionState)
+  // Cold boot only: 'recovering' before ANY session has been seen this
+  // page-load. An offline resume (recovering WITH a known session) is not
+  // booting — the app stays mounted, per the header contract.
+  const booting = state.status === 'recovering' && !hasKnownSession()
+
+  // Native-splash release lives HERE, not in the entry: the entry released on
+  // the very first painted frame, which on every cold boot is this gate's
+  // full-screen loading state — a visible 読み込み中 flash between splash and
+  // content. Hold the splash until the first COMMIT of a resolved state
+  // (login, the app, or an offline resume) instead. CookieVC's native +8s
+  // failsafe still backstops a boot that never settles, and the entry's
+  // firstPixel mark keeps measuring the real first paint (under the splash) —
+  // splashReleased marks the user-visible reveal.
+  // Single-fire guard: a splash exists once per launch, so the release (and
+  // its reveal mark) must fire exactly once — including under StrictMode's
+  // dev-only double effect invocation (the ref survives the simulated
+  // remount) and any later booting flips.
+  const released = useRef(false)
+  useEffect(() => {
+    if (booting || released.current) return
+    released.current = true
+    mark(MARKS.splashReleased)
+    releaseSplashOnFirstPaint()
+  }, [booting])
+
   if (state.status === 'signed-out') return <LoginScreen />
-  if (state.status === 'recovering' && !hasKnownSession()) return <ScreenLoading />
+  if (booting) return <ScreenLoading />
   return <>{children}</>
 }

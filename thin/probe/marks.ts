@@ -8,10 +8,18 @@ export const MARKS = {
   firstPixel: 'thin:first-pixel',
   interactive: 'thin:interactive',
   dataReady: 'thin:data-ready',
+  // When the AuthGate actually dropped the native splash (boot gate resolved).
+  // firstPixel stays the raw first paint, which lands under the splash — this
+  // is the user-visible reveal. Set after reportMarks() on cold boots; read it
+  // off performance.getEntriesByName on device runs.
+  splashReleased: 'thin:splash-released',
 } as const
 
 export function mark(name: string): void {
-  if (typeof performance !== 'undefined') performance.mark(name)
+  // Guard the API, not just the object: jsdom (jest) ships a Performance
+  // without user timing.
+  if (typeof performance !== 'undefined' && typeof performance.mark === 'function')
+    performance.mark(name)
 }
 
 /** Log ms-since-navigationStart for every mark set so far. A device run reads
