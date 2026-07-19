@@ -18,7 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
-import { clearDraft } from '@/lib/karute/draft'
+import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { useSession } from '@/providers/session-provider'
 import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
 
@@ -199,10 +199,10 @@ function SidebarProfileChip() {
   const { activeStaff, orgName } = session
 
   async function handleLogout() {
-    // Wipe the recovery vault before leaving — it holds a customer transcript +
-    // AI summary, and this is a shared salon device (privacy: no next staff
-    // member inherits the previous one's unsaved session).
-    clearDraft()
+    // Shared salon device: kill the in-memory recorder/pipeline AND the
+    // stored draft + takes before leaving, or the next staff member inherits
+    // this one's unsaved customer session (see lib/karute/logout-wipe).
+    await wipeSessionVault()
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login' as Parameters<typeof router.push>[0])

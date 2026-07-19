@@ -9,6 +9,7 @@ import { Link, useRouter } from '@/i18n/navigation'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { saveKaruteRecordInline } from '@/actions/karute'
+import { deleteTake } from '@/lib/karute/take-store'
 import type { EntryCategory } from '@/lib/karute/categories'
 
 /**
@@ -90,6 +91,8 @@ export function ProcessingIndicator() {
         toast.error(t('autosaveFailed'))
         globalPipeline.failAutosaveToReview(runId)
       } else {
+        // The record is saved — the persisted audio has served its purpose.
+        if (ctx.takeId) void deleteTake(ctx.takeId)
         const id = res.id
         toast.success(t('autoSaved'), {
           action: {

@@ -4,9 +4,13 @@
 // is exactly what the recording pipeline port kills. The vite config aliases
 // `@/lib/supabase/client` here so every thin importer resolves to this stub.
 //
-// - auth.getSession() → a NULL session: draft.ts's owner check reads it, so a
-//   recovered draft is never restored in thin (fail-closed for a shared device;
-//   take durability + real thin session recovery is packet-10, not this batch).
+// - auth.getSession() → a NULL session: draft.ts's AND take-store.ts's owner
+//   gates read it (one identity seam), so in the LOCAL-mode thin bundle both
+//   draft recovery and take persistence fail closed — nothing stored, nothing
+//   offered (packet-10 landed the durability layer on this seam; it lights up
+//   here the moment packet-01's real auth client replaces this stub). The
+//   shipped shell default is REMOTE mode (live site, real session), where the
+//   full durability + recovery flow is active today.
 // - storage.* → throws if ever reached: the recording port replaces the web
 //   upload leg, so the thin pipeline never touches supabase storage.
 

@@ -41,7 +41,7 @@ import {
 } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
-import { clearDraft } from '@/lib/karute/draft'
+import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 
 export interface ProfilePageProfile {
   name: string
@@ -84,8 +84,9 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
   async function handleSignOut() {
     setSigningOut(true)
     try {
-      // Wipe the recovery vault first — shared-device privacy (see sidebar).
-      clearDraft()
+      // Shared-device privacy: one wipe for singletons + draft + takes
+      // (see lib/karute/logout-wipe for why the in-memory half matters).
+      await wipeSessionVault()
       const supabase = createClient()
       await supabase.auth.signOut()
       // Locale-prefixed: this page uses next/navigation's router (the language

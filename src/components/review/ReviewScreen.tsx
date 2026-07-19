@@ -41,6 +41,10 @@ interface ReviewScreenProps {
    *  core's idempotent-save dedupe has something to key on. null/undefined =
    *  today's behavior (no dedupe for that save). */
   recordingSessionId?: string | null
+  /** Persisted-take id (lib/karute/take-store) this review came from — stamped
+   *  into the recovery draft so save/discard also settles the persisted audio.
+   *  Absent when persistence was disabled for the take. */
+  takeId?: string | null
   onSaved: () => void
   /** Bail out without saving — clears the background pipeline + take. */
   onDiscard?: () => void
@@ -56,6 +60,7 @@ export function ReviewScreen({
   appointmentCustomerId,
   outcome,
   recordingSessionId,
+  takeId,
   onSaved,
   onDiscard,
 }: ReviewScreenProps) {
@@ -90,8 +95,9 @@ export function ReviewScreen({
       appointmentId,
       appointmentCustomerId,
       recordingSessionId: recordingSessionId ?? undefined,
+      takeId: takeId ?? undefined,
     })
-  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId])
+  }, [transcript, summary, entries, duration, appointmentId, appointmentCustomerId, recordingSessionId, takeId])
 
   // Fetch AI suggestions based on transcript
   useEffect(() => {
