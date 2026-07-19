@@ -76,6 +76,9 @@ export const SuggestionsSchema = z
 // applied AFTER parse via capHistory. context_hint stays unknown — the shared
 // parseContextHint is the validator (invalid shapes degrade to null, never 400).
 const MAX_CHAT_MESSAGE_CHARS = 4000
+// Per-turn ceiling only guards against a pathological single turn; the real
+// bound is capHistory's MAX_HISTORY_CHARS total budget applied after parse.
+const MAX_CHAT_TURN_CHARS = 20_000
 export const ChatSchema = z
   .object({
     message: z
@@ -87,7 +90,7 @@ export const ChatSchema = z
       .array(
         z.object({
           role: z.enum(['user', 'assistant']),
-          content: z.string().max(MAX_SUMMARY_CHARS),
+          content: z.string().max(MAX_CHAT_TURN_CHARS),
         }),
       )
       .max(200)
