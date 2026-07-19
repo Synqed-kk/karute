@@ -40,6 +40,9 @@ export function getMobileAuth(): MobileAuth {
     storage: localStorageSessionStore,
     // No @capacitor/app in the binary (npm token dead): visibilitychange fires
     // on every WKWebView foreground — the same signal, no plugin needed.
+    // Listener is deliberately never removed: this singleton lives for the
+    // whole page lifetime (bindLifecycle runs once from the entry), and the
+    // coordinator single-flights, so even a duplicate bind coalesces.
     // ponytail: swap to App.appStateChange when the plugin can be installed.
     appState: {
       onActive: (cb) => {
@@ -57,7 +60,9 @@ export function getMobileAuth(): MobileAuth {
   // fresh session — mirror into the store so the DataPort's Bearer never goes
   // stale. A null session flips the store ONLY on an explicit SIGNED_OUT;
   // anything else (INITIAL_SESSION pre-boot, transient nulls) is the boot
-  // gate's call — a network hiccup must never look like a logout.
+  // gate's call — a network hiccup must never look like a logout. The
+  // subscription handle is deliberately dropped: exactly one subscription per
+  // app lifetime (this module is a cached singleton), never torn down.
   auth.auth.onAuthStateChange((event, session) => {
     if (session) setSessionState({ status: 'signed-in', session })
     else if (event === 'SIGNED_OUT') setSessionState({ status: 'signed-out' })
