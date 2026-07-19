@@ -19,6 +19,8 @@ import {
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { releaseSplashOnFirstPaint } from '@/lib/app-root/splash'
+import { DiscreetRecordingIndicator } from '@/components/recording/DiscreetRecordingIndicator'
+import { ProcessingIndicator } from '@/components/recording/ProcessingIndicator'
 import { LoginScreen } from './screens/LoginScreen'
 import { ScreenLoading } from './screens/ScreenBoundary'
 import { mark, MARKS } from './probe/marks'
@@ -52,5 +54,17 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
   if (state.status === 'signed-out') return <LoginScreen />
   if (booting) return <ScreenLoading />
-  return <>{children}</>
+  // The web mounts these at the authed (app) layout root; this gate is the
+  // thin tree's equivalent (packet-09 F-8). ProcessingIndicator is not just
+  // the progress chip — its effect EXECUTES the background auto-save, so
+  // without this mount a booked-customer take with an outcome hangs in
+  // 'autosaving' forever. Both float (position:fixed) over every route and
+  // stay mounted through an offline-resume spell, exactly like the web.
+  return (
+    <>
+      {children}
+      <DiscreetRecordingIndicator />
+      <ProcessingIndicator />
+    </>
+  )
 }
