@@ -17,3 +17,5 @@ export const CancelConfirmDialog = Excluded
 export const PaymentUpdateDialog = Excluded
 export const AddStoreSubscriptionDialog = Excluded
 export const PlanComparisonDialog = Excluded
+// @synqed-kk/ui's vendor copy (excluded by resolved path like the src files).
+export const SubscriptionSummaryCard = Excluded
