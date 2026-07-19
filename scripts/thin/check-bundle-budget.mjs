@@ -2,9 +2,14 @@
 // Bundle budget gate (packet-02, first-paint proof) + purchase-exclusion proof.
 // Run AFTER `vite build`: node scripts/thin/check-bundle-budget.mjs
 //
-// 1. Budget on RAW JS bytes (parse cost tracks uncompressed size). Current build
-//    ≈ 901 KB (vendor 688 + app 213); ceiling leaves ~20% headroom. Tighten as
-//    per-route lazy chunks land during screen conversion.
+// 1. Budget on RAW JS bytes (parse cost tracks uncompressed size). Re-based
+//    2026-07-19 (Liam's call, packet-09): the scaffold-era ceiling (1.1 MB, set
+//    at ~901 KB) predated the 6 converted screens; the full app builds at
+//    ~1174 KB (gzip ~332 KB) — legitimate volume, not bloat. New ceiling =
+//    current +~10% headroom; the tripwire is for accidental bloat (a stray
+//    dependency), the real first-paint proof is the on-device p50 ≤ 300 ms
+//    stop-rule. Code-splitting stays a post-ship option if device numbers
+//    degrade.
 // 2. Forbidden-content grep (Fable review round 1, codifying the manual A/B
 //    proof): purchase-surface code must NEVER enter the bundle (§1.5). Component
 //    identifiers minify away in prod, so each excluded file is ALSO tracked by a
@@ -16,7 +21,7 @@ import { gzipSync } from 'node:zlib'
 import { join } from 'node:path'
 
 const DIST = 'thin/dist/assets'
-const BUDGET_BYTES = 1_100_000
+const BUDGET_BYTES = 1_300_000
 
 let dir
 try {
