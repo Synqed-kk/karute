@@ -55,3 +55,17 @@ jobs:
           # values would point CI at a live project — never do that.
           NEXT_PUBLIC_SUPABASE_URL: https://test-dummy.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
+
+      - name: Thin bundle gate (size budget + purchase exclusion)
+        # The gate breached silently for weeks because it only ran by hand
+        # (packet-09 F-1: the breach masked a §1.5 purchase-code leak). Dummy
+        # env: the gate measures bytes and greps forbidden markers — the baked
+        # values don't affect either, and real values in CI are forbidden.
+        run: |
+          npx vite build --config thin/vite.config.ts
+          node scripts/thin/check-bundle-budget.mjs
+        env:
+          VITE_SHELL_MODE: local
+          VITE_FACADE_URL: https://ci-dummy.invalid
+          VITE_SUPABASE_URL: https://test-dummy.supabase.co
+          VITE_SUPABASE_ANON_KEY: dummy-not-a-key
