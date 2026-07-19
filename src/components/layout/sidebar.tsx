@@ -202,7 +202,11 @@ function SidebarProfileChip() {
     // Shared salon device: kill the in-memory recorder/pipeline AND the
     // stored draft + takes before leaving, or the next staff member inherits
     // this one's unsaved customer session (see lib/karute/logout-wipe).
-    await wipeSessionVault()
+    // Best-effort: a wipe failure (e.g. its dynamic chunk 404s after a
+    // deploy) must NEVER block signOut — an active session left behind is
+    // the worse privacy outcome, and post-signOut the stored vault is
+    // unreadable anyway (owner gates fail closed without a session).
+    await wipeSessionVault().catch(() => {})
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login' as Parameters<typeof router.push>[0])

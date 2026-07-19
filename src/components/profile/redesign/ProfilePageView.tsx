@@ -86,7 +86,8 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
     try {
       // Shared-device privacy: one wipe for singletons + draft + takes
       // (see lib/karute/logout-wipe for why the in-memory half matters).
-      await wipeSessionVault()
+      // Best-effort — a wipe failure must never block signOut (see sidebar).
+      await wipeSessionVault().catch(() => {})
       const supabase = createClient()
       await supabase.auth.signOut()
       // Locale-prefixed: this page uses next/navigation's router (the language
