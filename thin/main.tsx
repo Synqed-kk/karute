@@ -7,6 +7,8 @@ import { AppRoot } from '@/lib/app-root/AppRoot'
 import { hideNativeSplash, releaseSplashOnFirstPaint } from '@/lib/app-root/splash'
 import { ThinShell } from './shell'
 import { ThinRouter } from './router'
+import { AuthGate } from './AuthGate'
+import { bootMobileAuth } from './auth/session'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
 import { viteRecordingPort } from './ports/recording.vite'
@@ -55,11 +57,18 @@ function main(): void {
     return
   }
 
+  // After the env gate (auth config comes from the same validated env), before
+  // render: never blocks first paint — the AuthGate renders 'recovering' until
+  // the boot gate settles (≤4s; instant for a locally persisted session).
+  bootMobileAuth()
+
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppRoot dataPort={viteDataPort} locale="ja" messages={messages}>
         <ThinShell>
-          <ThinRouter />
+          <AuthGate>
+            <ThinRouter />
+          </AuthGate>
         </ThinShell>
       </AppRoot>
     </StrictMode>,

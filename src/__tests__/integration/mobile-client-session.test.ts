@@ -1,6 +1,6 @@
 /**
  * createMobileAuth composition checks (packet-01 point 1 — the GLUE between
- * supabase-js and the gate/lifecycle modules). supabase-js reports most
+ * auth-js and the gate/lifecycle modules). auth-js reports most
  * failures IN-BAND ({ data, error }), so these tests pin the adapter rules:
  *   - a failed session READ surfaces as transient (recovering), never signed-out
  *   - an explicit null session (no error) is the ONLY signed-out
@@ -11,12 +11,10 @@ import { createMobileAuth } from '@/lib/auth/mobile/client-session'
 const mockGetSession = jest.fn()
 const mockSignOut = jest.fn()
 
-jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({
-    auth: {
-      getSession: (...a: unknown[]) => mockGetSession(...a),
-      signOut: (...a: unknown[]) => mockSignOut(...a),
-    },
+jest.mock('@supabase/auth-js', () => ({
+  GoTrueClient: jest.fn(() => ({
+    getSession: (...a: unknown[]) => mockGetSession(...a),
+    signOut: (...a: unknown[]) => mockSignOut(...a),
   })),
 }))
 
@@ -78,6 +76,26 @@ describe('createMobileAuth — session read adapter', () => {
     const { auth } = makeAuth()
     const state = await auth.boot()
     expect(state).toEqual({ status: 'signed-in', session })
+  })
+})
+
+describe('createMobileAuth — boot/resume share ONE in-flight recovery', () => {
+  it('a resume firing during the boot window joins boot\'s getSession, never a second call', async () => {
+    let release!: (v: { data: { session: unknown }; error: null }) => void
+    mockGetSession.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    const { auth } = makeAuth()
+    const coordinator = auth.bindLifecycle()
+
+    const bootP = auth.boot()
+    const resumeP = coordinator.onAppActive() // mic-permission prompt scenario
+
+    release({ data: { session: { access_token: 't' } }, error: null })
+    await Promise.all([bootP, resumeP])
+    expect(mockGetSession).toHaveBeenCalledTimes(1)
   })
 })
 
