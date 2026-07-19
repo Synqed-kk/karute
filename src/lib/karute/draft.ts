@@ -1,8 +1,17 @@
 /**
- * sessionStorage helpers for the Phase 2 → Phase 4 karute save flow.
+ * localStorage helpers for the Phase 2 → Phase 4 karute save flow.
  *
  * The AI review screen (Phase 2) writes the draft; the save flow (Phase 4)
  * reads it, persists the record, then clears the draft.
+ *
+ * WHY localStorage (packet-10 W3, verified on the iOS shell 2026-07-19): the
+ * draft used to live in sessionStorage, which does NOT survive a WKWebView
+ * process kill — the exact crash this recovery exists for. Probe evidence
+ * (karute-phase2/reports/evidence/): after simctl terminate + relaunch,
+ * sessionStorage came back EMPTY while localStorage survived. The payload is
+ * string-sized (transcript + summary + entries), so localStorage is the right
+ * store; the owner gate + 24 h TTL + logout wipe below carry the privacy
+ * semantics that sessionStorage's auto-scoping used to approximate.
  *
  * PRIVACY (shared salon device): the draft holds a customer's transcript + AI
  * summary. A salon iPad is one long-lived WKWebView session shared by every
@@ -86,7 +95,7 @@ export async function currentUserId(): Promise<string | null> {
 // ---------------------------------------------------------------------------
 
 /**
- * Write draft data to sessionStorage. Stamps savedAt + the saving user's id.
+ * Write draft data to localStorage. Stamps savedAt + the saving user's id.
  */
 export async function saveDraft(
   draft: Omit<KaruteDraft, 'savedAt' | 'savedByStaffId'>,
@@ -100,16 +109,16 @@ export async function saveDraft(
   }
 
   try {
-    sessionStorage.setItem(DRAFT_KEY, JSON.stringify(payload))
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(payload))
   } catch {
-    // sessionStorage may be unavailable (private browsing quota, etc.)
+    // localStorage may be unavailable (private browsing quota, etc.)
     // Fail silently — the caller will see null on loadDraft
   }
 }
 
 /**
- * Read draft data from sessionStorage. Returns null if:
- *   - sessionStorage is unavailable (SSR or disabled)
+ * Read draft data from localStorage. Returns null if:
+ *   - localStorage is unavailable (SSR or disabled)
  *   - No draft exists
  *   - Draft is older than 24 hours (stale) — also cleared
  *   - JSON parse fails (corrupt data)
@@ -121,7 +130,7 @@ export async function loadDraft(): Promise<KaruteDraft | null> {
   if (typeof window === 'undefined') return null
 
   try {
-    const raw = sessionStorage.getItem(DRAFT_KEY)
+    const raw = localStorage.getItem(DRAFT_KEY)
     if (!raw) return null
 
     const draft = JSON.parse(raw) as KaruteDraft
@@ -147,14 +156,14 @@ export async function loadDraft(): Promise<KaruteDraft | null> {
 }
 
 /**
- * Remove draft from sessionStorage. Call after a successful save, on explicit
+ * Remove draft from localStorage. Call after a successful save, on explicit
  * discard, and on logout (wipe the vault when a staff member leaves the device).
  */
 export function clearDraft(): void {
   if (typeof window === 'undefined') return
 
   try {
-    sessionStorage.removeItem(DRAFT_KEY)
+    localStorage.removeItem(DRAFT_KEY)
   } catch {
     // Fail silently
   }

@@ -38,7 +38,7 @@ const baseDraft: Omit<KaruteDraft, 'savedAt' | 'savedByStaffId'> = {
 }
 
 beforeEach(() => {
-  sessionStorage.clear()
+  localStorage.clear()
   mockUserId = 'staff-A'
 })
 
@@ -65,9 +65,9 @@ describe('karute draft lifecycle', () => {
 
   it('discards a draft older than the 24h TTL', async () => {
     await saveDraft(baseDraft)
-    const raw = JSON.parse(sessionStorage.getItem('karute_draft')!) as KaruteDraft
+    const raw = JSON.parse(localStorage.getItem('karute_draft')!) as KaruteDraft
     raw.savedAt = Date.now() - 25 * 60 * 60 * 1000
-    sessionStorage.setItem('karute_draft', JSON.stringify(raw))
+    localStorage.setItem('karute_draft', JSON.stringify(raw))
     expect(await loadDraft()).toBeNull()
   })
 
@@ -135,7 +135,7 @@ describe('shared-device privacy gate', () => {
   it('an un-owned legacy draft (no savedByStaffId) is never restored', async () => {
     // Simulate a pre-binding draft written by an older build.
     const legacy = { ...baseDraft, savedAt: Date.now() }
-    sessionStorage.setItem('karute_draft', JSON.stringify(legacy))
+    localStorage.setItem('karute_draft', JSON.stringify(legacy))
     expect(await loadDraft()).toBeNull()
   })
 
