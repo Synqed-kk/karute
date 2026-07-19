@@ -7,7 +7,7 @@ import { AppRoot } from '@/lib/app-root/AppRoot'
 import { hideNativeSplash } from '@/lib/app-root/splash'
 import { ThinShell } from './shell'
 import { ThinRouter } from './router'
-import { ThinBottomNav } from './ThinBottomNav'
+import { ThinChromeContent, ThinChromeNav } from './chrome/Chrome'
 import { AuthGate } from './AuthGate'
 import { bootMobileAuth } from './auth/session'
 import { getThinEnv } from './env'
@@ -66,9 +66,11 @@ function main(): void {
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
       <AppRoot dataPort={viteDataPort} locale="ja" messages={messages}>
-        <ThinShell nav={<ThinBottomNav />}>
+        <ThinShell nav={<ThinChromeNav />}>
           <AuthGate>
-            <ThinRouter />
+            <ThinChromeContent>
+              <ThinRouter />
+            </ThinChromeContent>
           </AuthGate>
         </ThinShell>
       </AppRoot>

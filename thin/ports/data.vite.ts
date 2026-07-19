@@ -6,6 +6,7 @@
 import type { DataPort } from '@/lib/ports/types'
 import { facadeApiUrl } from '@/lib/ports/rewrite'
 import { getAccessToken } from '@/lib/auth/mobile/session-store'
+import { getThinActiveStore } from '../chrome/store-pref'
 import { getThinEnv } from '../env'
 
 export const viteDataPort: DataPort = {
@@ -29,6 +30,13 @@ export const viteDataPort: DataPort = {
       const token = getAccessToken()
       if (token && !headers.has('Authorization')) {
         headers.set('Authorization', `Bearer ${token}`)
+      }
+      // The store lens — the web's active-store cookie, as the explicit
+      // header the facade clamp expects. Server-side resolveStoreForRequest
+      // remains the authority (fails closed on out-of-scope stores).
+      const store = getThinActiveStore()
+      if (store && !headers.has('store-id')) {
+        headers.set('store-id', store)
       }
     }
     return fetch(facadeApiUrl(getThinEnv().facadeUrl, path), { ...init, headers })
