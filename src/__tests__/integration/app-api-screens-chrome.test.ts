@@ -198,9 +198,17 @@ describe('GET /api/app/v1/screens/chrome', () => {
     expect(res.status).toBe(403)
   })
 
-  it('locale=en flows to the feed builder', async () => {
+  it('locale=en flows to the feed builder, with the day digest INJECTED (single day-read per request)', async () => {
     await GET(req({}, 'https://s/api/app/v1/screens/chrome?locale=en'), route)
-    expect(buildNotificationFeed).toHaveBeenCalledWith('business-1', 'en', null)
+    expect(buildNotificationFeed).toHaveBeenCalledWith(
+      'business-1',
+      'en',
+      null,
+      // The injected digest — mapped from the route's own appointments fetch,
+      // so the feed builder never re-reads the same day (Greptile #562).
+      { todayAppointments: [{ isExistingCustomer: true }, { isExistingCustomer: true }] },
+    )
+    expect(listAppointments).toHaveBeenCalledTimes(1)
   })
 
   it('a failed appointments read degrades to nextCustomer:null, not a 502', async () => {

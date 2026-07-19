@@ -48,23 +48,38 @@ export const GET = facadeHandler('screens.chrome', async (ctx) => {
   try {
     // Every source is individually best-effort — chrome must render even if
     // one read degrades (empty feed / no label / hidden switcher), matching
-    // the web layout's catch-to-empty seeding.
+    // the web layout's catch-to-empty seeding. Today's appointments are
+    // fetched ONCE and feed BOTH the next-customer pick and the feed's
+    // 本日のご予約 digest (Greptile #562: no double day-read per request).
     const customersPromise = getCachedCustomerListFor(businessId).catch(
       () => [],
     )
-    const [storeRows, notifications, customers] = await Promise.all([
+    const apptsPromise = customersPromise
+      .then((customers) =>
+        getAppointmentsByDateWithClient(synqed, ymdInJst(new Date()), {
+          nameById: new Map(customers.map((c) => [c.id, c.name])),
+        }),
+      )
+      .catch(() => [])
+    const [storeRows, notifications, todayAppts] = await Promise.all([
       synqed.stores
         .list()
         .then((r) => r.stores)
         .catch(() => []),
-      buildNotificationFeed(businessId, locale, clamp.storeId).catch(() => []),
-      customersPromise,
+      Promise.all([customersPromise, apptsPromise])
+        .then(([customers, appts]) => {
+          const existingById = new Map(
+            customers.map((c) => [c.id, c.isExistingCustomer]),
+          )
+          return buildNotificationFeed(businessId, locale, clamp.storeId, {
+            todayAppointments: appts.map((a) => ({
+              isExistingCustomer: existingById.get(a.client_id),
+            })),
+          })
+        })
+        .catch(() => []),
+      apptsPromise,
     ])
-    const todayAppts = await getAppointmentsByDateWithClient(
-      synqed,
-      ymdInJst(new Date()),
-      { nameById: new Map(customers.map((c) => [c.id, c.name])) },
-    ).catch(() => [])
 
     // Same visibility rule as the web layout: a branch-restricted staff only
     // sees their own store(s) in the switcher.
