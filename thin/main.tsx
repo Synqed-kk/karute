@@ -11,12 +11,20 @@ import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
 import { viteRecordingPort } from './ports/recording.vite'
 import { setRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { setDataPort } from '@/lib/ports/data-port'
 import { mark, reportMarks, MARKS } from './probe/marks'
 
 // Recording pipeline runs the facade upload + /api/app/v1/ai legs in the shell
 // (packet 08 Decision 2). Set before render so any capture started on first
 // paint uses the thin upload path, never the web supabase-js flow.
 setRecordingPipelinePort(viteRecordingPort)
+
+// Same seam, data plane: getDataPort() is a module singleton — the React
+// provider below does NOT reach non-hook callers (ScreenBoundary, ai-pipeline).
+// Without this line every screen DTO fetch resolves same-origin against the
+// bundle itself: capacitor://localhost serves index.html, res.json() → null,
+// and the screen dead-ends on a zod root error (packet-09 F-5 cause 2).
+setDataPort(viteDataPort)
 
 // Thin shell entry. Mounts the router SYNCHRONOUSLY inside the platform-
 // neutral AppRoot (theme/toaster/locale/data/error/safe-area) — first paint is

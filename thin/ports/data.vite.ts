@@ -10,12 +10,12 @@ import { getThinEnv } from '../env'
 export const viteDataPort: DataPort = {
   // getThinEnv() resolves lazily at call time — main.tsx has already validated
   // (and rendered a visible error screen on failure) before any fetch can run.
+  //
+  // NO credentials:'include': the shell is Bearer-only (packet 01) and needs no
+  // cookies — and a credentialed cross-origin fetch requires the facade to send
+  // Access-Control-Allow-Credentials, which it does not; WebKit then blocks the
+  // whole response (packet-09 F-5 cause 3). Plain CORS mode reads fine against
+  // the reflected capacitor://localhost allow-origin.
   apiFetch: (path, init) =>
-    fetch(facadeApiUrl(getThinEnv().facadeUrl, path), {
-      // The shell carries the bearer session (packet 01); credentials:'include'
-      // is a no-op for the token flow but harmless and correct for any cookie
-      // the facade sets. Callers can still override via init.
-      credentials: 'include',
-      ...init,
-    }),
+    fetch(facadeApiUrl(getThinEnv().facadeUrl, path), init),
 }
