@@ -132,7 +132,9 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
         {/* Language switcher — hidden in the thin shell (WebOnly, the same
          *  gate the profile page's language toggle uses, design-parity
          *  packet 12 §S1 pre-ruling): the shell is a single-locale bundle
-         *  with no path segment to swap into. Web behavior is unchanged. */}
+         *  with no path segment to swap into. On web the switcher now mounts
+         *  post-hydration (WebOnly's brief first-paint absence — the same
+         *  accepted tradeoff as the profile toggle). */}
         <WebOnly>
           <div>
             <label className="text-sm font-medium mb-1.5 block">

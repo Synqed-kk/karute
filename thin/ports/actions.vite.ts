@@ -373,8 +373,15 @@ async function facadeUpsertOrgSettings(
       | { error?: { message?: string } }
       | null
     if (res.ok && parsed) return parsed as UpsertOrgSettingsResult
-    const message = (parsed as { error?: { message?: string } } | null)?.error?.message
-    return { error: message ?? `Request failed (${res.status})` }
+    const envelope = parsed as { error?: { code?: string; message?: string } } | null
+    // Web-parity for the one denial the sections actually surface: web's
+    // upsertOrgSettings soft-returns this exact string on a failed
+    // settings.manage gate, and 4 of 5 sections toast result.error VERBATIM
+    // — the facade's raw capability-key message must never reach the UI.
+    if (envelope?.error?.code === 'forbidden') {
+      return { error: 'You do not have permission to change settings.' }
+    }
+    return { error: envelope?.error?.message ?? `Request failed (${res.status})` }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Network error' }
   }

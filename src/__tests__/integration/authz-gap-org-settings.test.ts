@@ -40,4 +40,15 @@ describe('upsertOrgSettings capability gate', () => {
     expect(res).toEqual({ success: true })
     expect(orgUpsert).toHaveBeenCalled()
   })
+
+  it('a failing getSynqedClient resolves to { error } — never a server-action rejection (S1 WithClient-extraction pin)', async () => {
+    // Sections await upsertOrgSettings with no try/catch of their own; a
+    // session blip / DB hiccup during client init must keep the { error }
+    // contract main always had (fails on the unguarded `await getSynqedClient()` shape).
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set(['settings.manage']))
+    ;(getSynqedClient as jest.Mock).mockRejectedValueOnce(new Error('upstream unavailable'))
+    const res = await upsertOrgSettings({ salon_name: 'New Name' })
+    expect(res).toEqual({ error: 'upstream unavailable' })
+    expect(orgUpsert).not.toHaveBeenCalled()
+  })
 })

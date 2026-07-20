@@ -285,7 +285,17 @@ export async function writeOrgSettingsBlobWithClient(
  * carry a different authz rule than the rest without a settings.manage back door.
  */
 export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
-  return writeOrgSettingsBlobWithClient(await getSynqedClient(), settings)
+  // Client init stays INSIDE the { error } contract, exactly as before the
+  // WithClient extraction: a session blip / DB hiccup in getSynqedClient()
+  // must resolve to { error }, never reject the server action — the settings
+  // sections await upsertOrgSettings with no try/catch of their own.
+  let synqed: Pick<SynqedClient, 'orgSettings'>
+  try {
+    synqed = await getSynqedClient()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+  return writeOrgSettingsBlobWithClient(synqed, settings)
 }
 
 /**

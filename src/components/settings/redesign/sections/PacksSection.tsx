@@ -84,7 +84,7 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
       // Off → write ONLY the switch. The preset/staff fields are hidden then,
       // and sending this browser's in-memory copies would silently overwrite a
       // concurrent admin's edits (Greptile, #383).
-      await upsertOrgSettings(
+      const result = await upsertOrgSettings(
         enabled
           ? {
               pack_presets: clean,
@@ -93,6 +93,14 @@ export function PacksSection({ orgSettings }: PacksSectionProps) {
             }
           : { ticket_packs_enabled: false },
       )
+      // Soft { error } results (permission denial on web; EVERY failure in
+      // the thin shell, whose port maps rejects to { error }) previously fell
+      // through to the success toast — a false 保存しました on a pricing
+      // surface (design-parity packet 12 §S1 fleet finding).
+      if ('error' in result) {
+        toast.error(t('saveFailed'))
+        return
+      }
       if (enabled) setPresets(clean)
       toast.success(t('saved'))
     } catch {

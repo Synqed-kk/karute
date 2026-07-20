@@ -44,7 +44,11 @@ describe('thin actions port — org-settings transport contract', () => {
     })
   })
 
-  it('a non-2xx transport/auth failure maps to the facade error envelope message', async () => {
+  it("a 403 forbidden maps to web's own permission-denial string — the raw capability key never reaches the UI", async () => {
+    // 4 of 5 sections toast result.error VERBATIM; web's gate soft-returns
+    // this exact string for the same condition (upsertOrgSettings), so the
+    // thin user must read the identical sentence, not the facade's internal
+    // 'Missing capability: …' message.
     const apiFetch = jest.fn(
       async () =>
         new Response(JSON.stringify({ error: { code: 'forbidden', message: 'Missing capability: settings.manage' } }), {
@@ -54,7 +58,21 @@ describe('thin actions port — org-settings transport contract', () => {
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(upsertOrgSettings({ salon_name: 'x' })).resolves.toEqual({
-      error: 'Missing capability: settings.manage',
+      error: 'You do not have permission to change settings.',
+    })
+  })
+
+  it('other non-2xx failures still map to the facade error envelope message', async () => {
+    const apiFetch = jest.fn(
+      async () =>
+        new Response(JSON.stringify({ error: { code: 'upstream_unavailable', message: 'settings write unavailable' } }), {
+          status: 502,
+        }),
+    )
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(upsertOrgSettings({ salon_name: 'x' })).resolves.toEqual({
+      error: 'settings write unavailable',
     })
   })
 })
