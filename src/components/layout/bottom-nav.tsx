@@ -183,8 +183,15 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
       {/* Bottom tab bar — sits in the layout flex column so iOS Safari /
           in-app browser chrome can't occlude it. Parent layout uses h-dvh
           so the column fits the visible viewport. */}
+      {/* z-40, deliberately UNDER the z-50 sheet/dialog overlays: a full-screen
+       *  scrim must grey the tab bar too (inline overlays like
+       *  CancelBookingSheet render earlier in the DOM, so an equal z-50 here
+       *  would win the tie and paint the bar OVER the open sheet — in the
+       *  thin shell that buried the sheet's bottom actions behind the bar).
+       *  The メニュー scrim/panel above are z-40 EARLIER siblings, so the bar
+       *  still paints over that scrim and the F-9 sheet geometry is unchanged. */}
       <nav
-        className="z-50 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+        className="z-40 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
         <div className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2">
