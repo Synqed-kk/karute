@@ -14,6 +14,8 @@ import {
   getSessionState,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
+import { emitRefresh } from '../ports/nav.vite'
+import { getThinActiveStore, setThinActiveStore } from './store-pref'
 
 type ChromeState =
   | { status: 'idle'; dto: null }
@@ -60,12 +62,31 @@ export function ensureChromeLoaded(): void {
       const data = (body as { data?: unknown }).data ?? body
       const dto = ChromeScreenDTO.parse(data)
       if (epoch !== myEpoch) return // superseded by a sign-out reset
+      seedStoreLens(dto)
       set({ status: 'ready', dto })
     })
     .catch(() => {
       if (epoch === myEpoch && current.status === 'loading')
         set({ status: 'error', dto: null })
     })
+}
+
+// Fresh-install store lens (design-parity Gap B½): the web defaults an unset
+// active-store cookie to the PRIMARY store (resolveStoreScope), but the facade
+// clamp reads a missing store-id header as unrestricted-in-tenant — so a
+// multi-store owner's first boot mixed every branch on every screen while the
+// switcher DISPLAYED the primary as active. Seed the pref to match. Gates:
+// pref unset (never override a pinned lens) AND activeStoreId null (a clamped
+// staff's server default is their OWN store — seeding the tenant primary
+// would fail their clamp closed on every request).
+function seedStoreLens(dto: ChromeScreenDTOType): void {
+  if (getThinActiveStore() !== null || dto.activeStoreId !== null) return
+  const primary = dto.stores.find((s) => s.isPrimary)
+  if (!primary) return
+  setThinActiveStore(primary.id)
+  // Screens that fetched before the seed rendered unlensed — re-fetch them
+  // through the new lens, stale-while-revalidate (the router.refresh path).
+  emitRefresh()
 }
 
 // Sign-out wipes the chrome (customer names, feed) — same shared-device
