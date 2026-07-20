@@ -240,7 +240,7 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     unsub()
   })
 
-  it('never overrides a pinned lens', async () => {
+  it('never overrides a pinned lens — and without a seed, chrome fetches exactly once', async () => {
     const refreshed = jest.fn()
     const unsub = subscribeRefresh(refreshed)
     pin('s-branch', 'auth-user-1')
@@ -250,7 +250,46 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     await chromeReady()
     expect(getThinActiveStore()).toBe('s-branch')
     expect(refreshed).not.toHaveBeenCalled()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
     unsub()
+  })
+
+  it('after seeding, chrome re-fetches ONCE through the new lens and stops', async () => {
+    lensDto(LENS_DTO) // first response: unlensed → triggers the seed
+    lensDto({
+      ...LENS_DTO,
+      activeStoreId: 's-primary',
+      nextCustomer: {
+        customerId: 'cust-2',
+        customerName: '佐藤',
+        startTime: new Date(Date.now() + 30 * 60_000).toISOString(),
+        endTime: new Date(Date.now() + 90 * 60_000).toISOString(),
+        reason: 'upcoming',
+        minutesFromNow: 30,
+      },
+    }) // second response: lensed — store-scoped feed/next-customer
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    // The lensed dto replaces the unlensed one (bell/mic no longer
+    // business-wide for the rest of the session).
+    await waitFor(() => expect(screen.getByText('佐藤様')).toBeTruthy())
+    expect(getThinActiveStore()).toBe('s-primary')
+    // Loop-safe: the lensed response cannot seed again (pref set → gate 1).
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failed lensed re-fetch keeps the rendered chrome — best-effort, no error frame', async () => {
+    lensDto(LENS_DTO)
+    apiFetch.mockImplementationOnce(async () => ({
+      ok: false,
+      json: async () => ({}),
+    }))
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    await chromeReady() // 田中様 from the unlensed dto
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('田中様')).toBeTruthy()
+    expect(getThinActiveStore()).toBe('s-primary')
   })
 
   it('never seeds a clamped staff (non-null activeStoreId) — the tenant primary could be outside their assignment', async () => {

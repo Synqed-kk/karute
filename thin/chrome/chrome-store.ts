@@ -47,6 +47,14 @@ export function subscribeChrome(listener: () => void): () => void {
   }
 }
 
+async function fetchChromeDto(): Promise<ChromeScreenDTOType> {
+  const res = await getDataPort().apiFetch('/api/app/v1/screens/chrome')
+  if (!res.ok) throw new Error(`chrome ${res.status}`)
+  const body: unknown = await res.json()
+  const data = (body as { data?: unknown }).data ?? body
+  return ChromeScreenDTO.parse(data)
+}
+
 /** Fetch once per signed-in session (single-flight; an 'error' state may be
  *  retried by a later call — e.g. the next mount/navigation). */
 export function ensureChromeLoaded(): void {
@@ -54,21 +62,33 @@ export function ensureChromeLoaded(): void {
   if (getSessionState().status !== 'signed-in') return
   const myEpoch = epoch
   set({ status: 'loading', dto: null })
-  void getDataPort()
-    .apiFetch('/api/app/v1/screens/chrome')
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`chrome ${res.status}`)
-      const body: unknown = await res.json()
-      const data = (body as { data?: unknown }).data ?? body
-      const dto = ChromeScreenDTO.parse(data)
+  void fetchChromeDto()
+    .then((dto) => {
       if (epoch !== myEpoch) return // superseded by a sign-out reset
-      seedStoreLens(dto)
+      const seeded = seedStoreLens(dto)
       set({ status: 'ready', dto })
+      // The dto that TRIGGERED the seed was fetched unlensed — its feed is
+      // business-wide, and with no re-fetch until sign-out/relaunch the bell
+      // would stay that way for the WHOLE first session. One lensed re-fetch;
+      // loop-safe by construction: the next response cannot seed again (the
+      // pref is now set → seed gate 1 blocks).
+      if (seeded) refetchLensedChrome(myEpoch)
     })
     .catch(() => {
       if (epoch === myEpoch && current.status === 'loading')
         set({ status: 'error', dto: null })
     })
+}
+
+// Silent revalidate: keeps the rendered (unlensed) chrome on failure — same
+// best-effort posture as the chrome fetch itself.
+function refetchLensedChrome(myEpoch: number): void {
+  void fetchChromeDto()
+    .then((dto) => {
+      if (epoch !== myEpoch) return
+      set({ status: 'ready', dto })
+    })
+    .catch(() => {})
 }
 
 // Fresh-install store lens (design-parity Gap B½): the web defaults an unset
@@ -79,14 +99,15 @@ export function ensureChromeLoaded(): void {
 // pref unset (never override a pinned lens) AND activeStoreId null (a clamped
 // staff's server default is their OWN store — seeding the tenant primary
 // would fail their clamp closed on every request).
-function seedStoreLens(dto: ChromeScreenDTOType): void {
-  if (getThinActiveStore() !== null || dto.activeStoreId !== null) return
+function seedStoreLens(dto: ChromeScreenDTOType): boolean {
+  if (getThinActiveStore() !== null || dto.activeStoreId !== null) return false
   const primary = dto.stores.find((s) => s.isPrimary)
-  if (!primary) return
+  if (!primary) return false
   setThinActiveStore(primary.id)
   // Screens that fetched before the seed rendered unlensed — re-fetch them
   // through the new lens, stale-while-revalidate (the router.refresh path).
   emitRefresh()
+  return true
 }
 
 // Sign-out wipes the chrome (customer names, feed) — same shared-device

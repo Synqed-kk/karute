@@ -57,3 +57,20 @@ export function setThinActiveStore(id: string): void {
     /* storage unavailable — the server default (assignment/primary) applies */
   }
 }
+
+/** Compare-and-clear: drop the current user's pin only while it still equals
+ *  the value that failed. A slow store_forbidden response landing after a
+ *  legitimate re-pin (switcher tap, chrome re-seed) must not evict the fresh
+ *  lens — without the equality guard the self-heal could strand a good pin. */
+export function clearThinActiveStore(id: string): void {
+  const userId = currentUserId()
+  if (!userId) return
+  const map = readMap()
+  if (map[userId] !== id) return
+  delete map[userId]
+  try {
+    window.localStorage.setItem(KEY, JSON.stringify(map))
+  } catch {
+    /* storage unavailable — nothing was persisted to clear */
+  }
+}
