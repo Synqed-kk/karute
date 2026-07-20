@@ -47,6 +47,14 @@ export function subscribeChrome(listener: () => void): () => void {
   }
 }
 
+async function fetchChromeDto(): Promise<ChromeScreenDTOType> {
+  const res = await getDataPort().apiFetch('/api/app/v1/screens/chrome')
+  if (!res.ok) throw new Error(`chrome ${res.status}`)
+  const body: unknown = await res.json()
+  const data = (body as { data?: unknown }).data ?? body
+  return ChromeScreenDTO.parse(data)
+}
+
 /** Fetch once per signed-in session (single-flight; an 'error' state may be
  *  retried by a later call — e.g. the next mount/navigation). */
 export function ensureChromeLoaded(): void {
@@ -54,20 +62,60 @@ export function ensureChromeLoaded(): void {
   if (getSessionState().status !== 'signed-in') return
   const myEpoch = epoch
   set({ status: 'loading', dto: null })
-  void getDataPort()
-    .apiFetch('/api/app/v1/screens/chrome')
-    .then(async (res) => {
-      if (!res.ok) throw new Error(`chrome ${res.status}`)
-      const body: unknown = await res.json()
-      const data = (body as { data?: unknown }).data ?? body
-      const dto = ChromeScreenDTO.parse(data)
+  void fetchChromeDto()
+    .then((dto) => {
       if (epoch !== myEpoch) return // superseded by a sign-out reset
-      seedStoreLens(dto)
+      const seeded = seedStoreLens(dto)
       set({ status: 'ready', dto })
+      // The dto that TRIGGERED the seed was fetched unlensed — its feed is
+      // business-wide, and with no re-fetch until sign-out/relaunch the bell
+      // would stay that way for the WHOLE first session. One lensed re-fetch;
+      // loop-safe by construction: the next response cannot seed again (the
+      // pref is now set → seed gate 1 blocks).
+      if (seeded) refetchLensedChrome(myEpoch)
     })
     .catch(() => {
       if (epoch === myEpoch && current.status === 'loading')
         set({ status: 'error', dto: null })
+    })
+}
+
+// Silent revalidate: keeps the rendered (unlensed) chrome on failure — same
+// best-effort posture as the chrome fetch itself.
+function refetchLensedChrome(myEpoch: number): void {
+  void fetchChromeDto()
+    .then((dto) => {
+      if (epoch !== myEpoch) return
+      set({ status: 'ready', dto })
+    })
+    .catch(() => {})
+}
+
+// Mid-session heal convergence (fleet round 2, P1): when the stranded-pin
+// self-heal clears the pref while chrome is already 'ready', nothing above
+// re-runs — the switcher keeps displaying the dead store until relaunch while
+// every read runs unlensed (owners: all branches mixed; walk-in karute saves
+// could write store_id null). Re-run the fetch+seed pipeline: the fresh dto
+// snaps the switcher to the server's truth, and for viewAll callers the seed
+// re-pins the primary + emitRefresh re-scopes every screen. Boot-time heals
+// converge through the in-flight chrome fetch — skip unless 'ready'.
+// Single-flight: N concurrent heals nudge once. Failure keeps the rendered
+// chrome (best-effort posture above); a later heal may nudge again.
+let resyncing = false
+export function resyncChromeAfterHeal(): void {
+  if (current.status !== 'ready' || resyncing) return
+  const myEpoch = epoch
+  resyncing = true
+  void fetchChromeDto()
+    .then((dto) => {
+      if (epoch !== myEpoch) return
+      const seeded = seedStoreLens(dto)
+      set({ status: 'ready', dto })
+      if (seeded) refetchLensedChrome(myEpoch)
+    })
+    .catch(() => {})
+    .finally(() => {
+      resyncing = false
     })
 }
 
@@ -79,14 +127,20 @@ export function ensureChromeLoaded(): void {
 // pref unset (never override a pinned lens) AND activeStoreId null (a clamped
 // staff's server default is their OWN store — seeding the tenant primary
 // would fail their clamp closed on every request).
-function seedStoreLens(dto: ChromeScreenDTOType): void {
-  if (getThinActiveStore() !== null || dto.activeStoreId !== null) return
+function seedStoreLens(dto: ChromeScreenDTOType): boolean {
+  if (getThinActiveStore() !== null || dto.activeStoreId !== null) return false
   const primary = dto.stores.find((s) => s.isPrimary)
-  if (!primary) return
+  if (!primary) return false
   setThinActiveStore(primary.id)
+  // localStorage can silently refuse the persist (private mode / quota — the
+  // setter swallows it by design). Only report seeded when the pin actually
+  // stuck: a false `true` fires the lensed re-fetch + every screen's refresh
+  // for a lens that does not exist (fleet round 2, P3).
+  if (getThinActiveStore() !== primary.id) return false
   // Screens that fetched before the seed rendered unlensed — re-fetch them
   // through the new lens, stale-while-revalidate (the router.refresh path).
   emitRefresh()
+  return true
 }
 
 // Sign-out wipes the chrome (customer names, feed) — same shared-device

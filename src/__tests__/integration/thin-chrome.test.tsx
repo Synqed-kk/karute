@@ -128,7 +128,9 @@ const apiFetch = jest.fn(
 import { ThinChromeContent, ThinChromeNav } from '../../../thin/chrome/Chrome'
 import { ThinRouter } from '../../../thin/router'
 import { subscribeRefresh } from '../../../thin/ports/nav.vite'
+import { resyncChromeAfterHeal } from '../../../thin/chrome/chrome-store'
 import {
+  clearThinActiveStore,
   getThinActiveStore,
   setThinActiveStore,
 } from '../../../thin/chrome/store-pref'
@@ -240,7 +242,7 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     unsub()
   })
 
-  it('never overrides a pinned lens', async () => {
+  it('never overrides a pinned lens — and without a seed, chrome fetches exactly once', async () => {
     const refreshed = jest.fn()
     const unsub = subscribeRefresh(refreshed)
     pin('s-branch', 'auth-user-1')
@@ -250,7 +252,46 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     await chromeReady()
     expect(getThinActiveStore()).toBe('s-branch')
     expect(refreshed).not.toHaveBeenCalled()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
     unsub()
+  })
+
+  it('after seeding, chrome re-fetches ONCE through the new lens and stops', async () => {
+    lensDto(LENS_DTO) // first response: unlensed → triggers the seed
+    lensDto({
+      ...LENS_DTO,
+      activeStoreId: 's-primary',
+      nextCustomer: {
+        customerId: 'cust-2',
+        customerName: '佐藤',
+        startTime: new Date(Date.now() + 30 * 60_000).toISOString(),
+        endTime: new Date(Date.now() + 90 * 60_000).toISOString(),
+        reason: 'upcoming',
+        minutesFromNow: 30,
+      },
+    }) // second response: lensed — store-scoped feed/next-customer
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    // The lensed dto replaces the unlensed one (bell/mic no longer
+    // business-wide for the rest of the session).
+    await waitFor(() => expect(screen.getByText('佐藤様')).toBeTruthy())
+    expect(getThinActiveStore()).toBe('s-primary')
+    // Loop-safe: the lensed response cannot seed again (pref set → gate 1).
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('a failed lensed re-fetch keeps the rendered chrome — best-effort, no error frame', async () => {
+    lensDto(LENS_DTO)
+    apiFetch.mockImplementationOnce(async () => ({
+      ok: false,
+      json: async () => ({}),
+    }))
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    await chromeReady() // 田中様 from the unlensed dto
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('田中様')).toBeTruthy()
+    expect(getThinActiveStore()).toBe('s-primary')
   })
 
   it('never seeds a clamped staff (non-null activeStoreId) — the tenant primary could be outside their assignment', async () => {
@@ -300,6 +341,101 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     setThinActiveStore('s-branch')
     expect(window.localStorage.getItem('karute-active-store')).toBeNull()
     expect(getThinActiveStore()).toBeNull()
+  })
+})
+
+describe('mid-session heal resync (fleet round 2)', () => {
+  const LENS_DTO: ChromeScreenDTOType = {
+    ...CHROME_DTO,
+    stores: [
+      { id: 's-branch', name: 'La Estro 渋谷', isPrimary: false, active: true },
+      { id: 's-primary', name: 'La Estro 代官山', isPrimary: true, active: true },
+    ],
+  }
+  const lensDto = (dto: ChromeScreenDTOType) =>
+    apiFetch.mockImplementationOnce(async () => ({
+      ok: true,
+      json: async () => ({ data: dto }),
+    }))
+  const chromeReady = () =>
+    waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
+
+  it('re-fetches a ready chrome and re-seeds after a heal cleared the pin — switcher truth + screens re-scope', async () => {
+    const refreshed = jest.fn()
+    const unsub = subscribeRefresh(refreshed)
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    setThinActiveStore('s-dead') // deliberate pin → boot fetch is lensed, no seed
+    lensDto(LENS_DTO)
+    render(<ThinChromeNav />)
+    await chromeReady()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    // The stranded-pin heal fires mid-session: pin cleared, then the nudge.
+    clearThinActiveStore('s-dead')
+    lensDto(LENS_DTO) // resync fetch — unlensed (activeStoreId null) → seeds
+    lensDto({ ...LENS_DTO, activeStoreId: 's-primary' }) // seed's lensed re-fetch
+    await act(async () => {
+      resyncChromeAfterHeal()
+    })
+    await waitFor(() => expect(getThinActiveStore()).toBe('s-primary'))
+    expect(refreshed).toHaveBeenCalled() // screens re-scope through the new lens
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3))
+    unsub()
+  })
+
+  it('is a no-op while chrome is still loading — boot heals converge through the in-flight fetch', () => {
+    apiFetch.mockImplementationOnce(
+      () => new Promise(() => {}), // boot fetch never resolves in this test
+    )
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    resyncChromeAfterHeal()
+    expect(apiFetch).toHaveBeenCalledTimes(1) // no second fetch while loading
+  })
+
+  it('is single-flight — N concurrent heals nudge once', async () => {
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    setThinActiveStore('s-dead')
+    lensDto(LENS_DTO)
+    render(<ThinChromeNav />)
+    await chromeReady()
+    let resolveResync: (v: { ok: boolean; json: () => Promise<unknown> }) => void = () => {}
+    apiFetch.mockImplementationOnce(
+      () =>
+        new Promise<{ ok: boolean; json: () => Promise<unknown> }>((r) => {
+          resolveResync = r
+        }),
+    )
+    clearThinActiveStore('s-dead')
+    resyncChromeAfterHeal()
+    resyncChromeAfterHeal() // concurrent second heal
+    expect(apiFetch).toHaveBeenCalledTimes(2) // boot + ONE resync, not two
+    await act(async () => {
+      resolveResync({ ok: true, json: async () => ({ data: CHROME_DTO }) })
+    })
+  })
+
+  it('seed reports false when localStorage refuses the persist — no phantom refresh cascade', async () => {
+    const refreshed = jest.fn()
+    const unsub = subscribeRefresh(refreshed)
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    lensDto(LENS_DTO) // fresh install: no pin → seed path
+    const setItem = jest
+      .spyOn(Storage.prototype, 'setItem')
+      .mockImplementation(() => {
+        throw new Error('quota')
+      })
+    try {
+      render(<ThinChromeNav />)
+      await chromeReady()
+      // Persist silently failed → NOT seeded: no refresh storm, no lensed
+      // re-fetch for a lens that does not exist.
+      expect(getThinActiveStore()).toBeNull()
+      expect(refreshed).not.toHaveBeenCalled()
+      expect(apiFetch).toHaveBeenCalledTimes(1)
+    } finally {
+      setItem.mockRestore()
+      unsub()
+    }
   })
 })
 

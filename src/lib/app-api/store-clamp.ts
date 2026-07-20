@@ -9,6 +9,16 @@ import type { SynqedClient } from '@synqed-kk/client'
 import type { Capability } from '@/lib/auth/permissions'
 import { AppApiError } from './errors'
 
+/** SynqedError's HTTP status, duck-typed: a VALUE import of the SDK class
+ *  would make jest load the ESM-only package (type-only imports erase), and
+ *  instanceof is fragile across module instances anyway. In the clamp's try
+ *  the only thrower is synqed.stores.get, so a numeric .status IS the SDK's
+ *  upstream answer; a network TypeError has none. */
+function upstreamStatus(err: unknown): number | null {
+  const status = (err as { status?: unknown } | null)?.status
+  return typeof status === 'number' ? status : null
+}
+
 export interface ClampedStore {
   /** The store to scope this request to. null = unrestricted WITHIN the verified
    *  tenant (cross-store viewer, or floating staff). Never null-means-all-tenants. */
@@ -26,6 +36,17 @@ export interface ClampedStore {
  * @param authUserId  the confirmed profile/staff id (the store-assignment key).
  * @param capabilities  the caller's RBAC set (`stores.viewAll` = cross-store).
  * @param requestedStoreId  the explicit `store-id` request header, or null.
+ *
+ * The two VERDICT throws here (wrong-tenant, outside-assignment) carry
+ * `reason: 'store_header'` — the client contract that "the store-id you sent
+ * is un-servable for YOU", the only 403 the thin shell's stranded-pin
+ * self-heal may act on. Three store_forbidden classes must NOT carry it:
+ * resource ownership (karute route's "this booking belongs to a store you
+ * are not assigned to" — the pin is fine, the resource isn't), the
+ * fail-CLOSED assignment lookup below, and the fail-CLOSED store-verify
+ * transient path in step 1 (both: verdict UNKNOWN — a transient blip must
+ * not wipe a good pin, and an unlensed retry re-hits the same lookup anyway,
+ * so healing there could never help).
  */
 export async function resolveStoreForRequest(args: {
   synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
@@ -36,13 +57,21 @@ export async function resolveStoreForRequest(args: {
   const { synqed, authUserId, capabilities, requestedStoreId } = args
 
   // 1. TENANCY FIRST: a supplied store-id must belong to THIS business. The
-  //    client is business-scoped, so stores.get throwing = it's not this tenant's
-  //    store (or does not exist) → reject before any assignment logic.
+  //    client is business-scoped, so a DEFINITIVE rejection from stores.get
+  //    (404/403 — core is api-key + business-id scoped; these judge the id,
+  //    not the caller) = not this tenant's store → verdict, marked. Anything
+  //    else (5xx / 429 / network) is UNKNOWN — fail closed WITHOUT the
+  //    marker, same rule as the assignment lookup below: a transient blip
+  //    must never clear a good pin (fleet round 2, P1).
   if (requestedStoreId) {
     try {
       await synqed.stores.get(requestedStoreId)
-    } catch {
-      throw new AppApiError('store_forbidden', 'store-id does not belong to this business')
+    } catch (err) {
+      const status = upstreamStatus(err)
+      if (status === 404 || status === 403) {
+        throw new AppApiError('store_forbidden', 'store-id does not belong to this business', { reason: 'store_header' })
+      }
+      throw new AppApiError('store_forbidden', 'could not verify store (fail-closed)')
     }
   }
 
@@ -70,7 +99,7 @@ export async function resolveStoreForRequest(args: {
 
   // 5. Clamped staff: a supplied store must be one they're assigned to.
   if (requestedStoreId && !assigned.includes(requestedStoreId)) {
-    throw new AppApiError('store_forbidden', 'store-id outside your assignment')
+    throw new AppApiError('store_forbidden', 'store-id outside your assignment', { reason: 'store_header' })
   }
   return { storeId: requestedStoreId ?? assigned[0], allowedStoreIds: assigned }
 }
