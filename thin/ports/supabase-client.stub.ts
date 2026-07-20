@@ -19,12 +19,16 @@
 //   the binary's FIRST in-app sign-out): that adapter is
 //   signOutAndPurge(remote GoTrueClient.signOut + purgeLocalCaches) —
 //   ALWAYS purges locally regardless of remote outcome (session-lifecycle.ts,
-//   covered by mobile-client-session.test.ts's sign-out-adapter suite). The
-//   remote revoke firing SIGNED_OUT is what flips the AuthGate to LoginScreen
-//   via the onAuthStateChange listener already wired in thin/auth/session.ts
-//   — nothing extra to do here. ProfilePageView's handleSignOut awaits the
-//   call and never inspects the return value, so the supabase-shaped
-//   `{ error }` result only needs to resolve, never throw.
+//   covered by mobile-client-session.test.ts's sign-out-adapter suite). A
+//   clean remote revoke fires SIGNED_OUT itself (the onAuthStateChange
+//   listener in thin/auth/session.ts flips the AuthGate). When the remote
+//   revoke FAILS (offline/5xx), no SIGNED_OUT event would otherwise arrive —
+//   the adapter itself now guarantees the local sign-out in that case
+//   (storage-key removal + a forced onSessionState('signed-out'), F1, packet
+//   12 fix batch), so this stub still has nothing extra to do either way.
+//   ProfilePageView's handleSignOut awaits the call and never inspects the
+//   return value, so the supabase-shaped `{ error }` result only needs to
+//   resolve, never throw.
 
 import { getCurrentSession } from '@/lib/auth/mobile/session-store'
 import { getMobileAuth } from '../auth/session'

@@ -21,19 +21,20 @@ jest.mock('@supabase/auth-js', () => ({
 function makeAuth(overrides: { purge?: jest.Mock } = {}) {
   const onSessionState = jest.fn()
   const purge = overrides.purge ?? jest.fn(async () => {})
+  const removeItem = jest.fn(async () => {})
   const auth = createMobileAuth({
     config: { url: 'https://test.supabase.co', anonKey: 'anon' },
     storage: {
       getItem: async () => null,
       setItem: async () => {},
-      removeItem: async () => {},
+      removeItem,
     },
     appState: { onActive: () => {} },
     onSessionState,
     purgeLocalCaches: purge,
     bootTimeoutMs: 50,
   })
-  return { auth, onSessionState, purge }
+  return { auth, onSessionState, purge, removeItem }
 }
 
 beforeEach(() => {
@@ -116,5 +117,30 @@ describe('createMobileAuth — sign-out adapter', () => {
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(true)
     expect(purge).toHaveBeenCalledTimes(1)
+  })
+
+  // F1 (packet 12 fix batch): a remote revoke that REJECTS (offline/5xx, not
+  // just an in-band {error}) used to leave the session store untouched —
+  // GoTrueClient's own signOut early-returns without removing storage or
+  // emitting SIGNED_OUT on a non-401/403/404 error, so nothing else would
+  // flip the store. The adapter now forces a local sign-out in that case.
+  it('remote revoke REJECTS (network/5xx) → fail-closed: both GoTrue storage keys removed + onSessionState forced signed-out, remoteOk still false', async () => {
+    mockSignOut.mockRejectedValue(new Error('network error'))
+    const { auth, onSessionState, purge, removeItem } = makeAuth()
+    const r = await auth.signOut()
+    expect(r.remoteOk).toBe(false)
+    expect(purge).toHaveBeenCalledTimes(1)
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session')
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-code-verifier')
+    expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
+  })
+
+  it('clean signOut → GoTrue owns storage removal + SIGNED_OUT itself: no manual removeItem, no forced onSessionState', async () => {
+    mockSignOut.mockResolvedValue({ error: null })
+    const { auth, onSessionState, removeItem } = makeAuth()
+    const r = await auth.signOut()
+    expect(r.remoteOk).toBe(true)
+    expect(removeItem).not.toHaveBeenCalled()
+    expect(onSessionState).not.toHaveBeenCalled()
   })
 })
