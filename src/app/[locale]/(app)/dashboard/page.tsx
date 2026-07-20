@@ -68,7 +68,10 @@ export default async function DashboardPage() {
     getBusinessId().catch(() => null),
     // Resolved ONCE here (cookie-scoped) and threaded into the screen builder
     // as an explicit dep — the moved Stage-2 body no longer reads cookies.
-    getSynqedClient().catch(() => null),
+    getSynqedClient().catch((err) => {
+      console.warn('[dashboard] synqed client init failed:', err)
+      return null
+    }),
   ])
 
   const scope = await storeScopePromise
