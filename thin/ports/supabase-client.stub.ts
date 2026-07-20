@@ -15,13 +15,28 @@
 // - storage.* → STILL throws if ever reached: the recording port owns the
 //   upload leg (facade-minted signed URLs, tenant-prefixed paths); web
 //   supabase storage must never be reachable from the bundle.
+// - auth.signOut() → delegates to getMobileAuth().signOut() (packet 12 §B-2,
+//   the binary's FIRST in-app sign-out): that adapter is
+//   signOutAndPurge(remote GoTrueClient.signOut + purgeLocalCaches) —
+//   ALWAYS purges locally regardless of remote outcome (session-lifecycle.ts,
+//   covered by mobile-client-session.test.ts's sign-out-adapter suite). The
+//   remote revoke firing SIGNED_OUT is what flips the AuthGate to LoginScreen
+//   via the onAuthStateChange listener already wired in thin/auth/session.ts
+//   — nothing extra to do here. ProfilePageView's handleSignOut awaits the
+//   call and never inspects the return value, so the supabase-shaped
+//   `{ error }` result only needs to resolve, never throw.
 
 import { getCurrentSession } from '@/lib/auth/mobile/session-store'
+import { getMobileAuth } from '../auth/session'
 
 export function createClient() {
   return {
     auth: {
       getSession: async () => ({ data: { session: getCurrentSession() }, error: null }),
+      signOut: async () => {
+        await getMobileAuth().signOut()
+        return { error: null }
+      },
     },
     storage: {
       from: () => ({
