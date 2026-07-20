@@ -196,4 +196,26 @@ describe('SessionGatedToaster (F2, packet 12 fix batch — no toast may render o
     ).toBeTruthy()
     dismissSpy.mockRestore()
   })
+
+  it('a toast fired while the toaster is unmounted never renders after a later mount (sonner no-replay tripwire)', async () => {
+    // The gate's dismiss-on-exit-only design RESTS on installed sonner's
+    // no-replay semantics: Toaster seeds useState([]) and only receives
+    // toasts published while subscribed. This is a version-bump tripwire —
+    // if a future sonner starts replaying queued toasts to a fresh mount,
+    // this fails and the gate needs a dismiss-on-entry again.
+    renderRoot(<div />)
+    toast.success('signed-out leftover')
+    act(() => {
+      setSessionState({
+        status: 'signed-in',
+        session: { access_token: 't' } as Session,
+      })
+    })
+    await waitFor(() =>
+      expect(
+        document.querySelector('section[aria-label*="Notifications"]'),
+      ).toBeTruthy(),
+    )
+    expect(screen.queryByText('signed-out leftover')).toBeNull()
+  })
 })

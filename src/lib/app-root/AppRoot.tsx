@@ -18,7 +18,7 @@
 // Mounts a useful shell SYNCHRONOUSLY. First paint is NOT gated on auth (packet
 // 01's boot gate owns that) — children render immediately; data arrives after.
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { NextIntlClientProvider } from 'next-intl'
 import { Toaster, toast } from 'sonner'
 import { ThemeProvider } from '@/components/providers/theme-provider'
@@ -39,7 +39,15 @@ import { applyDocumentSetup } from './document-setup'
  *  app-wide during exactly that blip, including the autosave-failed toast
  *  whose whole point is "never silently lose a take", and a save is most
  *  likely to fail during the blip that causes 'recovering' in the first
- *  place (B1, packet 12 fix batch round 3). */
+ *  place (B1, packet 12 fix batch round 3).
+ *
+ *  Known constraint (verify round, dispositioned): a DIRECT live→live user
+ *  swap (signed-in as A → signed-in as B with no signed-out between) would
+ *  keep the mounted Toaster — and A's visible toasts — across the swap.
+ *  Unreachable today: LoginScreen is the only sign-in surface and renders
+ *  only under AuthGate's signed-out branch, and the store's signed-out step
+ *  is what clears lastSession. If an account-switch flow ever lands, this
+ *  gate must key on the user id, not just liveness. */
 function isLiveSession(): boolean {
   const state = getSessionState()
   return state.status === 'signed-in' || (state.status === 'recovering' && hasKnownSession())
@@ -70,17 +78,18 @@ function isLiveSession(): boolean {
  * blip, wiping a still-signed-in user's own in-flight toasts.
  */
 function SessionGatedToaster() {
-  const [signedIn, setSignedIn] = useState(isLiveSession)
+  // Same store-read idiom as AuthGate: useSyncExternalStore re-checks the
+  // snapshot right after subscribing, so a transition landing between first
+  // render and subscription can't be missed (the hand-rolled useState+
+  // subscribe version had that window, and its updater-side dismiss was an
+  // impure setState callback — StrictMode double-fired it).
+  const live = useSyncExternalStore(subscribeSessionState, isLiveSession)
+  const wasLive = useRef(live)
   useEffect(() => {
-    return subscribeSessionState(() => {
-      const next = isLiveSession()
-      setSignedIn((was) => {
-        if (was && !next) toast.dismiss()
-        return next
-      })
-    })
-  }, [])
-  return signedIn ? <Toaster /> : null
+    if (wasLive.current && !live) toast.dismiss()
+    wasLive.current = live
+  }, [live])
+  return live ? <Toaster /> : null
 }
 
 export type AppRootProps = {
