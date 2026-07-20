@@ -2,9 +2,9 @@
  * @jest-environment jsdom
  *
  * Render coverage for the design-parity P-B-1 'use client' flip
- * (AttentionCards / ActionCards / TomorrowStrip — leaf presentational
- * components moved off next-intl/server's getTranslations onto
- * next-intl's useTranslations). Real ja.json strings, same mock pattern
+ * (DashboardPageView / AttentionCards / ActionCards / TomorrowStrip — leaf
+ * presentational components moved off next-intl/server's getTranslations
+ * onto next-intl's useTranslations). Real ja.json strings, same mock pattern
  * as reconcile-strip.test.tsx / PR #558's bottom-nav.test.tsx (CI's node 20
  * jest can't parse next-intl's production ESM react-client entry
  * untransformed).
@@ -27,10 +27,65 @@ jest.mock('@/i18n/navigation', () => ({
     <a href={typeof href === 'string' ? href : '#'}>{children}</a>
   ),
 }))
+// DashboardPageView's other children are heavier (hooks, actions, their own
+// data shapes) and unrelated to the flip being pinned here — stub them out
+// so this stays a smoke test of DashboardPageView's own composition/chip
+// logic, not a full page test.
+jest.mock('@/components/dashboard/redesign/OnboardingBanner', () => ({
+  OnboardingBanner: () => null,
+}))
+jest.mock('@/components/dashboard/redesign/NextCustomerHero', () => ({
+  NextCustomerHero: () => null,
+}))
+jest.mock('@/components/dashboard/redesign/TodoCard', () => ({
+  TodoCard: () => null,
+}))
+jest.mock('@/components/dashboard/redesign/OwnerBand', () => ({
+  OwnerBand: () => null,
+}))
 
+import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { AttentionCards, type AttentionCardView } from '@/components/dashboard/redesign/AttentionCards'
 import { ActionCards } from '@/components/dashboard/redesign/ActionCards'
 import { TomorrowStrip } from '@/components/dashboard/redesign/TomorrowStrip'
+
+describe('DashboardPageView (client flip)', () => {
+  const baseProps = {
+    dateLabel: '7/3(金)',
+    onboardingComplete: true,
+    heroSlides: [],
+    heroTomorrow: null,
+    doneCount: 0,
+    karuteTodos: [],
+    redeemTodos: [],
+    attentionItems: [],
+    totalToday: 0,
+    renewals: [],
+    rebooks: [],
+    winbacks: [],
+    tomorrow: null,
+    packAlerts: {
+      contact: [],
+      low: [],
+      inProgress: [],
+      totals: { atRiskValue: 0, unconsumedTotal: 0, holderCount: 0 },
+      monthly: { contacted: 0, rebooked: 0 },
+    },
+    reconcile: { entries: [], truncated: 0 },
+    canDismissAlerts: false,
+    pulse: { redemptions: 0, karute: 0 },
+  }
+
+  it('shows the owner chip when isOwner is true', () => {
+    render(<DashboardPageView {...baseProps} isOwner />)
+    expect(screen.getByText('オーナー')).toBeInTheDocument()
+  })
+
+  it('hides the owner chip when isOwner is false', () => {
+    render(<DashboardPageView {...baseProps} isOwner={false} />)
+    expect(screen.queryByText('オーナー')).not.toBeInTheDocument()
+  })
+})
 
 describe('AttentionCards (client flip)', () => {
   const item = (over: Partial<AttentionCardView> = {}): AttentionCardView => ({

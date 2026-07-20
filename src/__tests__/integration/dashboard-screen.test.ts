@@ -23,6 +23,7 @@ jest.mock('@/lib/dashboard/daily-attention-ai', () => ({
 
 import { buildDashboardScreen, type DashboardScreenDeps } from '@/lib/dashboard/screen'
 import { listRecentRedemptionsWithClient } from '@/lib/packs/store'
+import { getCachedCustomerListFor } from '@/lib/customers/cached'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StaffMember } from '@/lib/staff'
 import type { DashboardTodayAppointment } from '@/lib/dashboard/cached'
@@ -157,7 +158,7 @@ describe('buildDashboardScreen', () => {
   })
 
   it('owner + real synqed: calls listRecentRedemptionsWithClient(synqed, 7) for the 7-day pulse', async () => {
-    ;(listRecentRedemptionsWithClient as jest.Mock).mockResolvedValue([
+    ;(listRecentRedemptionsWithClient as jest.Mock).mockResolvedValueOnce([
       { customer_id: 'c1' },
       { customer_id: 'c2' },
     ])
@@ -215,5 +216,69 @@ describe('buildDashboardScreen', () => {
     expect(screen.ticketsEnabled).toBe(false)
     expect(screen.packAlerts.totals.holderCount).toBe(0)
     expect(screen.winbacks).toEqual([])
+  })
+
+  describe('store lens on packUsage (screen.ts packUsageLensed block)', () => {
+    function twoHolderDeps(over: Partial<DashboardScreenDeps> = {}): DashboardScreenDeps {
+      return baseDeps({
+        businessId: 'biz-1',
+        packUsage: new Map([
+          ['c-in', { remaining: 3, size: 10, unconsumed: 3000, hasActivePack: true }],
+          ['c-out', { remaining: 5, size: 10, unconsumed: 5000, hasActivePack: true }],
+        ]),
+        dashboard: {
+          weeklyKaruteCount: 0,
+          monthlyKaruteCount: 0,
+          weekKaruteCount: 0,
+          todayAppointments: [
+            todayAppt({
+              id: 'a-in',
+              client_id: 'c-in',
+              start_time: '2026-06-10T05:00:00Z',
+              customers: { name: 'In Store' },
+            }),
+            todayAppt({
+              id: 'a-out',
+              client_id: 'c-out',
+              start_time: '2026-06-10T06:00:00Z',
+              customers: { name: 'Out Store' },
+            }),
+          ],
+          tomorrowAppointments: [],
+          recentKarute: [],
+        },
+        ...over,
+      })
+    }
+
+    it('scope.storeId + businessId + non-empty packUsage: only the in-store holder\'s ticket chip survives', async () => {
+      ;(getCachedCustomerListFor as jest.Mock).mockResolvedValueOnce([
+        { id: 'c-in', name: 'In Store' },
+      ])
+      const screen = await buildDashboardScreen(
+        twoHolderDeps({ scope: { storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'] } }),
+      )
+      expect(getCachedCustomerListFor).toHaveBeenCalledWith('biz-1', 'store-1')
+      const inSlide = screen.heroSlides.find((s) => s.clientId === 'c-in')
+      const outSlide = screen.heroSlides.find((s) => s.clientId === 'c-out')
+      expect(inSlide?.ticket).toEqual({ remaining: 3, size: 10 })
+      expect(outSlide?.ticket).toBeNull()
+    })
+
+    it('fails CLOSED when the lens fetch rejects — NO pack rows at all, never the unfiltered map', async () => {
+      ;(getCachedCustomerListFor as jest.Mock).mockRejectedValueOnce(new Error('core down'))
+      const screen = await buildDashboardScreen(
+        twoHolderDeps({ scope: { storeId: 'store-1', viewAll: false, allowedStoreIds: ['store-1'] } }),
+      )
+      expect(screen.heroSlides.find((s) => s.clientId === 'c-in')?.ticket).toBeNull()
+      expect(screen.heroSlides.find((s) => s.clientId === 'c-out')?.ticket).toBeNull()
+    })
+
+    it('scope === null fails CLOSED regardless of packUsage (never calls the lens fetch)', async () => {
+      const screen = await buildDashboardScreen(twoHolderDeps({ scope: null }))
+      expect(getCachedCustomerListFor).not.toHaveBeenCalled()
+      expect(screen.heroSlides.find((s) => s.clientId === 'c-in')?.ticket).toBeNull()
+      expect(screen.heroSlides.find((s) => s.clientId === 'c-out')?.ticket).toBeNull()
+    })
   })
 })
