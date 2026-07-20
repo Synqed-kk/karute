@@ -118,6 +118,15 @@ jest.mock('@/lib/packs/store', () => ({
   listAllPackUsageWithClient: (...a: unknown[]) => listAllPackUsageWithClient(...a),
 }))
 
+// Store staff lens — real fail-open default (null = no filtering); the lens
+// test overrides it per-store.
+const storeStaffIdSetForBusiness = jest.fn(
+  async (..._a: unknown[]): Promise<Set<string> | null> => null,
+)
+jest.mock('@/lib/auth/store-scope', () => ({
+  storeStaffIdSetForBusiness: (...a: unknown[]) => storeStaffIdSetForBusiness(...a),
+}))
+
 // Business-scoped synqed client — day + range appointment reads, the store
 // clamp's assignment lookup, and the by-date helper's karute/staff joins.
 const inMs = (min: number) => new Date(Date.now() + min * 60_000).toISOString()
@@ -216,6 +225,7 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   listAppointments.mockResolvedValue({ appointments: dayRows })
+  storeStaffIdSetForBusiness.mockResolvedValue(null)
 })
 
 describe('GET /api/app/v1/screens/appointments', () => {
@@ -295,6 +305,26 @@ describe('GET /api/app/v1/screens/appointments', () => {
     expect(listAppointments).toHaveBeenCalledTimes(2)
     const totalRangeBookings = dto.weekData!.reduce((n, d) => n + d.count, 0)
     expect(totalRangeBookings).toBe(1)
+  })
+
+  it('store staff lens: pickers clamp to the store, row names keep the full roster, cross-store viewer default clears', async () => {
+    // Viewer is clamped to store-A; the lens says only Yuko works there.
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    storeStaffIdSetForBusiness.mockResolvedValue(new Set(['profile-2']))
+    const res = await GET(req({ 'store-id': 'store-A' }), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    // Picker lists filter to the store's staff…
+    expect(dto.staff.map((s) => s.id)).toEqual(['profile-2'])
+    expect(dto.reservationStaff.map((s) => s.id)).toEqual(['profile-2'])
+    // …the viewer isn't in the lens → their default clears to first visible
+    // (the Greptile-#496 clamp: never silently file bookings under a hidden id)…
+    expect(dto.activeStaffId).toBe('profile-2')
+    // …but row-name resolution keeps the FULL roster (a booking recorded by
+    // another branch's staff still renders their name).
+    expect(
+      dto.reservationViews.find((r) => r.id === 'appt-1')!.staffName,
+    ).toBe('Mika Tanaka')
   })
 
   it('a failed pack-usage read degrades to pill-less rows, not an error', async () => {

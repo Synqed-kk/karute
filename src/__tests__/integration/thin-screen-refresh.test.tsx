@@ -7,7 +7,10 @@
  * now re-fetches every mounted screen DTO. Pins: refresh triggers a re-fetch ·
  * the current content STAYS on screen while the fresh DTO loads (no loading
  * flash — Next keeps stale content visible too) · the swap lands when the
- * fetch resolves · retry() after an error still shows the loading frame.
+ * fetch resolves · a FAILED same-path re-fetch keeps the rendered content
+ * (web parity: a failed router.refresh() leaves the page intact — a success
+ * toast must never be followed by an error frame) · retry() after an error
+ * still shows the loading frame.
  */
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
@@ -60,5 +63,41 @@ describe('useScreenDto refresh (stale-while-revalidate)', () => {
 
     act(() => resolveSecond(jsonResponse({ label: 'v2' })))
     await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('v2'))
+  })
+
+  it('a FAILED same-path re-fetch keeps the rendered content, not an error frame', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ label: 'v1' }))
+      .mockRejectedValueOnce(new Error('offline blip'))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe />)
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('v1'))
+
+    await act(async () => {
+      screen.getByText('do-refresh').click()
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    // The mutation landed server-side; the agenda must not flip to an error
+    // frame because the background refresh hit a blip.
+    expect(screen.getByTestId('content').textContent).toBe('v1')
+    expect(screen.queryByText('somethingWentWrong')).toBeNull()
+  })
+
+  it('retry() after a first-fetch error shows the loading frame, then recovers', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockRejectedValueOnce(new Error('boot fail'))
+      .mockResolvedValueOnce(jsonResponse({ label: 'v1' }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe />)
+    await waitFor(() => expect(screen.getByText('somethingWentWrong')).toBeTruthy())
+
+    await act(async () => {
+      screen.getByText('retry').click()
+    })
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('v1'))
   })
 })

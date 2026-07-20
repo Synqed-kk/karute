@@ -69,6 +69,10 @@ function PendingScreen() {
 export function ThinRouter() {
   const pathname = usePathname()
   if (pathname === '/appointments') return <AppointmentsScreen />
+  // Web has no /appointments/* subroutes today — but an unknown one must land
+  // on 準備中, never silently on the customer list (the F-7 wrong-screen
+  // class the PENDING list exists to prevent; this route just left it).
+  if (pathname.startsWith('/appointments/')) return <PendingScreen />
   if (pathname === '/ask-ai') return <AskAiScreen />
   if (pathname === '/customers') return <CustomersScreen />
   if (pathname === '/karute') return <SessionsScreen />

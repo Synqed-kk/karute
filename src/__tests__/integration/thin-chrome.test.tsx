@@ -224,7 +224,7 @@ describe('ThinChromeContent (MobileHeader + web content frame)', () => {
 })
 
 describe('ThinRouter pending routes (no silent wrong screen)', () => {
-  it.each(['/profile', '/dashboard', '/settings', '/coaching/data'])(
+  it.each(['/profile', '/dashboard', '/settings', '/coaching/data', '/appointments/deep'])(
     '%s lands on the 準備中 placeholder',
     (path) => {
       history.replaceState({}, '', path)

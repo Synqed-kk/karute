@@ -71,13 +71,28 @@ export function AppointmentsScreen() {
     if (v) qs.set(key, v)
   }
   qs.set('locale', 'ja')
-  const { state, retry } = useScreenDto(
+  const { state, retry, fetching } = useScreenDto(
     `/api/app/v1/screens/appointments?${qs.toString()}`,
     parse,
   )
   return (
     <ScreenStates state={state} retry={retry}>
-      {(dto) => <AppointmentsScreenInner dto={dto} />}
+      {(dto) => (
+        // Web-parity pending treatment for in-place date/view/filter nav: the
+        // page dims + blocks input during its server roundtrip (isPending);
+        // in the shell pushState commits synchronously so that transition
+        // never shows — this dim covers the DTO refetch instead, and the
+        // pointer-events block stops a second 翌日 tap from re-pushing the
+        // same stale-derived date mid-fetch.
+        <div
+          className={`transition-opacity duration-150 ${
+            fetching ? 'pointer-events-none opacity-50' : ''
+          }`}
+          aria-busy={fetching}
+        >
+          <AppointmentsScreenInner dto={dto} />
+        </div>
+      )}
     </ScreenStates>
   )
 }
