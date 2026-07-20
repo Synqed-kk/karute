@@ -38,10 +38,15 @@ const parse = openai.chat.completions.parse as jest.Mock
 // before asserting. The setTimeout(0) leg is load-bearing: timers are FIFO,
 // so it fires strictly after any attacker setTimeout(0) queued earlier
 // (setImmediate alone can lose that race and let the stray call leak into
-// the NEXT test instead of failing this one).
+// the NEXT test instead of failing this one). Drained in ROUNDS (Greptile
+// #574): a nested chain — a timer that schedules the real call in a second
+// timer — queues the inner hop behind a single flush pass; 5 rounds covers
+// any accidental chain depth without resorting to fake timers.
 const flushDeferred = async () => {
-  await new Promise((resolve) => setTimeout(resolve, 0))
-  await new Promise((resolve) => setImmediate(resolve))
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setImmediate(resolve))
+  }
 }
 
 const item: AttentionInputItem = {
