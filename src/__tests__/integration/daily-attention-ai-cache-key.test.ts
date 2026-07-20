@@ -82,8 +82,8 @@ describe('getDailyAttentionLines cache-key tenancy', () => {
     expect(JSON.stringify(inputA)).not.toEqual(JSON.stringify(inputB))
   })
 
-  it('a missing businessId (null) still keys distinctly from a real one', async () => {
-    await getDailyAttentionLines({
+  it('a missing businessId (null) NEVER touches the global cache — fallback lines instead (Greptile #571 P1)', async () => {
+    const lines = await getDailyAttentionLines({
       items: [item],
       businessType: null,
       businessId: null,
@@ -91,9 +91,11 @@ describe('getDailyAttentionLines cache-key tenancy', () => {
       dateYmd: '2026-07-20',
       locale: 'ja',
     })
-    expect(getCachedAI).toHaveBeenCalledWith(
-      'daily_attention',
-      expect.objectContaining({ businessId: 'unknown' }),
-    )
+    expect(getCachedAI).not.toHaveBeenCalled()
+    expect(setCachedAI).not.toHaveBeenCalled()
+    // Deterministic fallback line, one per item — the degraded-auth path
+    // serves template copy, never a shared-bucket cached AI line.
+    expect(lines.size).toBe(1)
+    expect(lines.get('c1')).toBeTruthy()
   })
 })
