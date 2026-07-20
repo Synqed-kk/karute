@@ -78,6 +78,9 @@ jest.mock('../../../thin/screens/RecordScreen', () => ({
 jest.mock('../../../thin/screens/AskAiScreen', () => ({
   AskAiScreen: () => <div data-testid="ask-ai-screen" />,
 }))
+jest.mock('../../../thin/screens/AppointmentsScreen', () => ({
+  AppointmentsScreen: () => <div data-testid="appointments-screen" />,
+}))
 jest.mock('../../../thin/screens/CustomerProfileScreen', () => ({
   CustomerProfileScreen: () => <div data-testid="profile-screen" />,
 }))
@@ -221,7 +224,7 @@ describe('ThinChromeContent (MobileHeader + web content frame)', () => {
 })
 
 describe('ThinRouter pending routes (no silent wrong screen)', () => {
-  it.each(['/appointments', '/dashboard', '/settings', '/coaching/data'])(
+  it.each(['/profile', '/dashboard', '/settings', '/coaching/data', '/appointments/deep'])(
     '%s lands on the 準備中 placeholder',
     (path) => {
       history.replaceState({}, '', path)
@@ -232,4 +235,14 @@ describe('ThinRouter pending routes (no silent wrong screen)', () => {
       expect(screen.getByText('この画面は準備中です')).toBeTruthy()
     },
   )
+
+  it('/appointments renders the real screen, not the placeholder (P-B)', () => {
+    history.replaceState({}, '', '/appointments')
+    act(() => {
+      setSessionState({ status: 'signed-in', session: session('tok') })
+    })
+    render(<ThinRouter />)
+    expect(screen.getByTestId('appointments-screen')).toBeTruthy()
+    expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
 })

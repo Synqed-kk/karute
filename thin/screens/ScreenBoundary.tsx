@@ -6,24 +6,38 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { getDataPort } from '@/lib/ports/data-port'
+import { subscribeRefresh } from '../ports/nav.vite'
 
 type State<T> =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; dto: T }
+  // `path` = the URL this dto belongs to, so a failed SAME-path re-fetch can
+  // keep it while a failed fetch for a NEW path still errors honestly.
+  | { status: 'ready'; dto: T; path: string }
 
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
- *  client too (same schema module the server validates with). */
+ *  client too (same schema module the server validates with). `fetching` is
+ *  true while any (re-)fetch is in flight — screens with in-place URL nav
+ *  (予約 date-nav) use it for the web-parity pending dim. */
 export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
   const [state, setState] = useState<State<T>>({ status: 'loading' })
   const [attempt, setAttempt] = useState(0)
+  const [fetching, setFetching] = useState(true)
   const retry = useCallback(() => {
     setState({ status: 'loading' })
     setAttempt((n) => n + 1)
   }, [])
 
+  // router.refresh() (post-mutation, e.g. a new booking) → re-fetch WITHOUT
+  // dropping to the loading frame: the current dto stays on screen and swaps
+  // when the fresh one lands — the shell's analogue of Next's refresh keeping
+  // stale content visible during the server re-render. An in-flight previous
+  // fetch can't clobber: each effect run's `alive` flag dies on re-run.
+  useEffect(() => subscribeRefresh(() => setAttempt((n) => n + 1)), [])
+
   useEffect(() => {
     let alive = true
+    setFetching(true)
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -36,14 +50,26 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
-        if (alive) setState({ status: 'ready', dto })
+        if (alive) setState({ status: 'ready', dto, path })
       })
       .catch((err: unknown) => {
-        if (alive)
-          setState({
-            status: 'error',
-            message: err instanceof Error ? err.message : String(err),
-          })
+        if (!alive) return
+        // A failed re-fetch of the SAME path keeps the rendered dto — web
+        // parity: a failed router.refresh() leaves the page intact (the
+        // mutation's success toast must not be followed by an error frame).
+        // A failed fetch for a NEW path errors honestly: keeping the old
+        // path's content would silently show the wrong day/record.
+        setState((prev) =>
+          prev.status === 'ready' && prev.path === path
+            ? prev
+            : {
+                status: 'error',
+                message: err instanceof Error ? err.message : String(err),
+              },
+        )
+      })
+      .finally(() => {
+        if (alive) setFetching(false)
       })
     return () => {
       alive = false
@@ -51,7 +77,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- parse is a module-level schema fn; attempt drives retries
   }, [path, attempt])
 
-  return { state, retry }
+  return { state, retry, fetching }
 }
 
 export function ScreenLoading() {

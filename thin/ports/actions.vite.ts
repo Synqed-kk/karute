@@ -424,6 +424,18 @@ export const createManualKaruteRecord = async (): Promise<{ error: string }> => 
     '[thin] createManualKaruteRecord is not wired to a facade endpoint yet ' +
     '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
 })
+// -- appointments (design-parity P-B: the screen ships in the read PR; the
+//    mutation facade twins land in the follow-up P-B mutations PR — until
+//    then these fail LOUDLY, never silently succeed).
+export const createAppointment = notWired('createAppointment')
+export const cancelAppointment = notWired('cancelAppointment')
+export const markNoShowAppointment = notWired('markNoShowAppointment')
+export const restoreAppointment = notWired('restoreAppointment')
+// Capability-style READ, not a mutation: null = "no burnable pack" — the
+// cancel sheet just hides its burn toggle (the web action's own catch→null
+// contract). NOT notWired — the sheet lazy-fetches this on open, and a throw
+// there would break the sheet's render path before the P-B mutations PR.
+export const getBurnablePackSummary = async (): Promise<null> => null
 // -- karute-outcome (packet 07 §Build 3)
 export const updateKaruteOutcome = facadeUpdateKaruteOutcome
 // -- regenerate-karute (packet 07 Decision 2). regenerateKarute is the new
