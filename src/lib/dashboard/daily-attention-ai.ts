@@ -46,17 +46,29 @@ const BADGE_LABEL: Record<AttentionItem['badge'], string> = {
 export async function getDailyAttentionLines(params: {
   items: AttentionInputItem[]
   businessType: string | null | undefined
+  businessId: string | null
   storeId: string | null
   dateYmd: string
   locale: string
 }): Promise<Map<string, string>> {
-  const { items, businessType, storeId, dateYmd, locale } = params
+  const { items, businessType, businessId, storeId, dateYmd, locale } = params
   const fallback = () => new Map(items.map((i) => [i.clientId, fallbackLine(i)]))
   if (items.length === 0) return new Map()
   if (!process.env.OPENAI_API_KEY) return fallback()
+  // Unknown tenant (web's getBusinessId() failed — the facade always has a
+  // real id) → NEVER touch the GLOBAL ai_cache: a shared 'unknown' bucket
+  // could mix attention text across businesses on colliding inputs (Greptile
+  // #571 P1). Fail closed to the deterministic fallback lines — also keeps
+  // customer data away from the AI call in a degraded-auth state.
+  if (!businessId) return fallback()
 
-  // Cache per store+day+the exact card set (badge/memo changes regenerate).
+  // Cache per business+store+day+the exact card set (badge/memo changes
+  // regenerate). businessId is load-bearing, not just a finer key: the
+  // ai_cache table is GLOBAL (cacheClient() builds a businessId:'' client),
+  // so without it tenancy rests on implicit cross-business UUID uniqueness
+  // of storeId+customer ids — defense-in-depth, fleet P3.
   const cacheInput = {
+    businessId,
     storeId: storeId ?? 'all',
     dateYmd,
     items: items.map((i) => [i.clientId, i.badge, i.memo, i.lastSummary]),

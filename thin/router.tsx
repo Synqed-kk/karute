@@ -19,6 +19,7 @@ import { SessionsScreen } from './screens/SessionsScreen'
 import { RecordScreen } from './screens/RecordScreen'
 import { CustomerProfileScreen } from './screens/CustomerProfileScreen'
 import { KaruteDetailScreen } from './screens/KaruteDetailScreen'
+import { DashboardScreen } from './screens/DashboardScreen'
 
 // A malformed escape in a deep link (/karute/%FF) must not URIError the whole
 // router into its error path (Greptile P2 on #494) — fall back to the raw
@@ -44,7 +45,6 @@ const KARUTE_DETAIL_PATH = /^\/karute\/([^/]+)$/
 // F-7 wrong-screen class). This list SHRINKS to zero as the design-parity
 // packets port each page; a route leaves it the moment its screen exists.
 const PENDING_WEB_ROUTES = [
-  '/dashboard',
   '/coaching',
   '/profile',
   '/settings',
@@ -68,6 +68,7 @@ function PendingScreen() {
 
 export function ThinRouter() {
   const pathname = usePathname()
+  if (pathname === '/dashboard') return <DashboardScreen />
   if (pathname === '/appointments') return <AppointmentsScreen />
   // Web has no /appointments/* subroutes today — but an unknown one must land
   // on 準備中, never silently on the customer list (the F-7 wrong-screen

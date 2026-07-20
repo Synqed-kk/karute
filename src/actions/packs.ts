@@ -5,9 +5,9 @@ import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import {
   listCustomerPacksWithClient,
-  addVisitReconcileDismissal,
-  addCustomerContact,
-  addPackAlertDismissal,
+  addVisitReconcileDismissalWithClient,
+  addCustomerContactWithClient,
+  addPackAlertDismissalWithClient,
   addRedemptionWithClient,
   createPackWithClient,
   findCustomerAppointmentForDateWithClient,
@@ -156,6 +156,26 @@ export async function redeemSessionAction(
   return result
 }
 
+/** 来店なし core (SINGLE SOURCE) — ANY staff (unlike alert dismissal):
+ *  correcting a record is not the manager-gated "give up". dismissedBy falls
+ *  back to 'unknown' — same tolerant contract the cookie action always had
+ *  (never blocks on staffId resolution). Web wraps with the cookie client +
+ *  getCurrentUserStaffId; facade wraps with newSynqedClient +
+ *  resolveSelfStaffId. */
+export async function dismissVisitReconcileActionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  staffId: string | null,
+  input: { customerId: string; appointmentId?: string | null; visitDay: string },
+): Promise<{ ok: boolean }> {
+  if (!input.customerId || !input.visitDay) return { ok: false }
+  return addVisitReconcileDismissalWithClient(synqed, {
+    customerId: input.customerId,
+    appointmentId: input.appointmentId ?? null,
+    visitDay: input.visitDay,
+    dismissedBy: staffId ?? 'unknown',
+  })
+}
+
 /** 来店なし — the visit didn't actually happen; the reconcile row never
  *  re-surfaces. ANY staff (unlike alert dismissal): correcting a record is
  *  not the manager-gated "give up". Audit-trailed via dismissed_by. */
@@ -164,14 +184,21 @@ export async function dismissVisitReconcileAction(input: {
   appointmentId?: string | null
   visitDay: string
 }): Promise<{ ok: boolean }> {
-  if (!input.customerId || !input.visitDay) return { ok: false }
-  const staffId = await getCurrentUserStaffId().catch(() => null)
-  const result = await addVisitReconcileDismissal({
-    customerId: input.customerId,
-    appointmentId: input.appointmentId ?? null,
-    visitDay: input.visitDay,
-    dismissedBy: staffId ?? 'unknown',
-  })
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — ReconcileStrip awaits with no try/catch
+  // (stranded spinner, no toast). Catch to null and degrade to the SAME
+  // { ok: false } origin/main produced when the old cookie fn's internal
+  // try/catch swallowed this exact failure.
+  const [synqed, staffId] = await Promise.all([
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
+    getCurrentUserStaffId().catch(() => null),
+  ])
+  if (!synqed) return { ok: false }
+  const result = await dismissVisitReconcileActionWithClient(synqed, staffId, input)
   if (result.ok) revalidatePath('/dashboard')
   return result
 }
@@ -186,6 +213,31 @@ export async function undoRedemptionAction(redemptionId: string): Promise<{ ok: 
   return result
 }
 
+const CONTACT_CHANNELS: ContactChannel[] = ['phone', 'sms', 'email', 'line', 'in_person']
+
+/** Log-contact core (SINGLE SOURCE) — ANY staff, no capability gate. The
+ *  capability check itself is the CALLER's job (this core only needs a
+ *  resolved staffId to stamp contacted_by, same split as dismissPackAlert
+ *  below). Web wraps with the cookie client + getCurrentUserStaffId; facade
+ *  wraps with newSynqedClient + resolveSelfStaffId. */
+export async function logCustomerContactActionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  staffId: string | null,
+  input: { customerId: string; channel: ContactChannel; note?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!input.customerId) return { ok: false, error: 'customerId required' }
+  if (!CONTACT_CHANNELS.includes(input.channel)) return { ok: false, error: 'bad channel' }
+  if (!staffId) return { ok: false, error: 'no staff identity' }
+  const result = await addCustomerContactWithClient(synqed, {
+    customerId: input.customerId,
+    channel: input.channel,
+    alertKind: 'pack_contact',
+    note: input.note?.trim() || null,
+    contactedBy: staffId,
+  })
+  return result.ok ? { ok: true } : { ok: false, error: 'write failed' }
+}
+
 /** Log a 連絡済み (win-back contact attempt) — ANY staff, no capability gate.
  *  Snoozes the alert into 対応中 for 7 days; auto-resolves when the customer
  *  books/visits. Also the labeled outcome stream coaching trains on. */
@@ -194,21 +246,46 @@ export async function logCustomerContactAction(input: {
   channel: ContactChannel
   note?: string
 }): Promise<{ ok: boolean; error?: string }> {
-  if (!input.customerId) return { ok: false, error: 'customerId required' }
-  const CHANNELS: ContactChannel[] = ['phone', 'sms', 'email', 'line', 'in_person']
-  if (!CHANNELS.includes(input.channel)) return { ok: false, error: 'bad channel' }
-  const staffId = await getCurrentUserStaffId().catch(() => null)
-  if (!staffId) return { ok: false, error: 'no staff identity' }
-  const result = await addCustomerContact({
-    customerId: input.customerId,
-    channel: input.channel,
-    alertKind: 'pack_contact',
-    note: input.note?.trim() || null,
-    contactedBy: staffId,
-  })
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — PackAlertsCard awaits with no try/catch
+  // (stranded spinner, no toast). Catch to null and degrade to the SAME
+  // { ok:false, error:'write failed' } origin/main produced when the old
+  // cookie fn's internal try/catch swallowed this exact failure.
+  const [synqed, staffId] = await Promise.all([
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
+    getCurrentUserStaffId().catch(() => null),
+  ])
+  if (!synqed) return { ok: false, error: 'write failed' }
+  const result = await logCustomerContactActionWithClient(synqed, staffId, input)
   if (result.ok) {
     revalidatePath('/[locale]/(app)/dashboard', 'page')
   }
+  return result
+}
+
+/** Dismiss-alert core (SINGLE SOURCE) — MANAGER+ ONLY (Kitano's rule: staff
+ *  show the manager they contacted the customer; the manager silences the
+ *  alert). The capability check is the CALLER's job (web's cookie-side
+ *  requireCapability try/catch below; the facade route's ensureCapability,
+ *  which fails the whole request with a real 403 rather than a tolerant
+ *  2xx body — see the route's own comment). This core only needs a resolved
+ *  staffId to stamp dismissed_by. */
+export async function dismissPackAlertActionWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  staffId: string | null,
+  input: { customerId: string; reason?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  if (!input.customerId) return { ok: false, error: 'customerId required' }
+  if (!staffId) return { ok: false, error: 'no staff identity' }
+  const result = await addPackAlertDismissalWithClient(synqed, {
+    customerId: input.customerId,
+    dismissedBy: staffId,
+    reason: input.reason?.trim() || null,
+  })
   return result.ok ? { ok: true } : { ok: false, error: 'write failed' }
 }
 
@@ -226,18 +303,26 @@ export async function dismissPackAlertAction(input: {
   } catch {
     return { ok: false, error: 'forbidden' }
   }
-  const staffId = await getCurrentUserStaffId().catch(() => null)
-  if (!staffId) return { ok: false, error: 'no staff identity' }
-  const result = await addPackAlertDismissal({
-    customerId: input.customerId,
-    dismissedBy: staffId,
-    reason: input.reason?.trim() || null,
-  })
+  const { getSynqedClient } = await import('@/lib/synqed/client')
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — PackAlertsCard awaits with no try/catch
+  // (stranded spinner, no toast). Catch to null and degrade to the SAME
+  // { ok:false, error:'write failed' } origin/main produced when the old
+  // cookie fn's internal try/catch swallowed this exact failure.
+  const [synqed, staffId] = await Promise.all([
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
+    getCurrentUserStaffId().catch(() => null),
+  ])
+  if (!synqed) return { ok: false, error: 'write failed' }
+  const result = await dismissPackAlertActionWithClient(synqed, staffId, input)
   if (result.ok) {
     revalidatePath('/[locale]/(app)/dashboard', 'page')
     revalidatePath('/[locale]/(app)/customers', 'page')
   }
-  return result.ok ? { ok: true } : { ok: false, error: 'write failed' }
+  return result
 }
 
 interface SetLifecycleActionInput {

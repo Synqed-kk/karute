@@ -32,9 +32,9 @@ jest.mock('@/lib/packs/store', () => ({
   updatePackStatus: jest.fn(),
   setCustomerLifecycleWithClient: jest.fn(),
   findCustomerAppointmentForDateWithClient: jest.fn(),
-  addVisitReconcileDismissal: jest.fn(),
-  addCustomerContact: jest.fn(),
-  addPackAlertDismissal: jest.fn(),
+  addVisitReconcileDismissalWithClient: jest.fn(),
+  addCustomerContactWithClient: jest.fn(),
+  addPackAlertDismissalWithClient: jest.fn(),
 }))
 
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: async () => ({}) }))

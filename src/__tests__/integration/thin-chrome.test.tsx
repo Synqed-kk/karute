@@ -66,6 +66,9 @@ jest.mock('@/lib/karute/take-store', () => ({
 
 // Router isolation: the pending-route pin is about ROUTING, not the screens —
 // each real screen pulls its whole data stack.
+jest.mock('../../../thin/screens/DashboardScreen', () => ({
+  DashboardScreen: () => <div data-testid="dashboard-screen" />,
+}))
 jest.mock('../../../thin/screens/CustomersScreen', () => ({
   CustomersScreen: () => <div data-testid="customers-screen" />,
 }))
@@ -469,7 +472,7 @@ describe('ThinChromeContent (MobileHeader + web content frame)', () => {
 })
 
 describe('ThinRouter pending routes (no silent wrong screen)', () => {
-  it.each(['/profile', '/dashboard', '/settings', '/coaching/data', '/appointments/deep'])(
+  it.each(['/profile', '/settings', '/coaching/data', '/appointments/deep'])(
     '%s lands on the 準備中 placeholder',
     (path) => {
       history.replaceState({}, '', path)
@@ -488,6 +491,16 @@ describe('ThinRouter pending routes (no silent wrong screen)', () => {
     })
     render(<ThinRouter />)
     expect(screen.getByTestId('appointments-screen')).toBeTruthy()
+    expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
+
+  it('/dashboard renders the real screen, not the placeholder (Gap B-1 PR 2)', () => {
+    history.replaceState({}, '', '/dashboard')
+    act(() => {
+      setSessionState({ status: 'signed-in', session: session('tok') })
+    })
+    render(<ThinRouter />)
+    expect(screen.getByTestId('dashboard-screen')).toBeTruthy()
     expect(screen.queryByText('この画面は準備中です')).toBeNull()
   })
 })

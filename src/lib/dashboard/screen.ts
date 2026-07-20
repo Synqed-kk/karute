@@ -378,6 +378,7 @@ export async function buildDashboardScreen(
     getDailyAttentionLines({
       items: attentionInputs,
       businessType: orgSettings?.business_type,
+      businessId,
       storeId: activeStoreId,
       dateYmd: todayYmd,
       locale,

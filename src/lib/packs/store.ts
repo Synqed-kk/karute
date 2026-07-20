@@ -369,14 +369,22 @@ export async function listActiveDismissals(): Promise<Set<string>> {
   }
 }
 
-export async function addPackAlertDismissal(input: {
-  customerId: string
-  dismissedBy: string
-  reason?: string | null
-  expiresAt?: string | null
-}): Promise<{ ok: boolean }> {
+/** Business-scoped twin of addPackAlertDismissal (design-parity Gap B-1 PR
+ *  2) — the facade dismiss-alert route. GRACEFUL like addRedemptionWithClient
+ *  (catches internally, returns { ok: false }), NOT the THROWS convention —
+ *  the facade route is a pure RPC passthrough (return ok(ctx, result)), so
+ *  the web action's own always-graceful { ok:false } contract must survive
+ *  the move unchanged, incl. genuine infra failures. */
+export async function addPackAlertDismissalWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  input: {
+    customerId: string
+    dismissedBy: string
+    reason?: string | null
+    expiresAt?: string | null
+  },
+): Promise<{ ok: boolean }> {
   try {
-    const synqed = await getSynqedClient()
     return await synqed.packs.addAlertDismissal({
       customer_id: input.customerId,
       dismissed_by: input.dismissedBy,
@@ -384,24 +392,29 @@ export async function addPackAlertDismissal(input: {
       expires_at: input.expiresAt ?? null,
     })
   } catch (err) {
-    warn('addPackAlertDismissal', err)
+    warn('addPackAlertDismissalWithClient', err)
     return { ok: false }
   }
 }
 
 export type ContactChannel = 'phone' | 'sms' | 'email' | 'line' | 'in_person'
 
-/** Log a win-back contact attempt (the 連絡済み workflow). ANY staff — the
- *  outcome stream coaching trains on + the owner's effectiveness metric. */
-export async function addCustomerContact(input: {
-  customerId: string
-  channel: ContactChannel
-  alertKind?: string | null
-  note?: string | null
-  contactedBy: string
-}): Promise<{ ok: boolean }> {
+/** Business-scoped twin of addCustomerContact (design-parity Gap B-1 PR 2) —
+ *  the facade log-contact route. GRACEFUL like addRedemptionWithClient
+ *  (catches internally, returns { ok: false }), NOT the THROWS convention —
+ *  the facade route is a pure RPC passthrough, so the web action's own
+ *  always-graceful { ok:false } contract must survive the move unchanged. */
+export async function addCustomerContactWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  input: {
+    customerId: string
+    channel: ContactChannel
+    alertKind?: string | null
+    note?: string | null
+    contactedBy: string
+  },
+): Promise<{ ok: boolean }> {
   try {
-    const synqed = await getSynqedClient()
     return await synqed.packs.addContact({
       customer_id: input.customerId,
       channel: input.channel,
@@ -410,11 +423,13 @@ export async function addCustomerContact(input: {
       contacted_by: input.contactedBy,
     })
   } catch (err) {
-    warn('addCustomerContact', err)
+    warn('addCustomerContactWithClient', err)
     return { ok: false }
   }
 }
 
+/** Log a win-back contact attempt (the 連絡済み workflow). ANY staff — the
+ *  outcome stream coaching trains on + the owner's effectiveness metric. */
 /** Recent contact attempts (newest first) — feeds the 対応中 snooze on the
  *  alert card + the monthly 対応→再来店 metric. Business-scoped twin
  *  (design-parity P-B-1) — THROWS on failure. */
@@ -487,17 +502,23 @@ export async function listBurnRedemptions(): Promise<BurnRedemption[] | null> {
   }
 }
 
-/** 来店なし answer for a flagged 未処理来店 — stops the reconcile row from
- *  re-surfacing. Any staff; audit-trailed. */
-export async function addVisitReconcileDismissal(input: {
-  customerId: string
-  appointmentId?: string | null
-  visitDay: string // yyyy-mm-dd
-  dismissedBy: string
-  reason?: string | null
-}): Promise<{ ok: boolean }> {
+/** Business-scoped twin of addVisitReconcileDismissal (design-parity Gap B-1
+ *  PR 2) — the facade dismiss-reconcile route. GRACEFUL like
+ *  addRedemptionWithClient (catches internally, returns { ok: false }), NOT
+ *  the THROWS convention — the facade route is a pure RPC passthrough, so
+ *  the web action's own always-graceful { ok:false } contract must survive
+ *  the move unchanged. */
+export async function addVisitReconcileDismissalWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  input: {
+    customerId: string
+    appointmentId?: string | null
+    visitDay: string // yyyy-mm-dd
+    dismissedBy: string
+    reason?: string | null
+  },
+): Promise<{ ok: boolean }> {
   try {
-    const synqed = await getSynqedClient()
     return await synqed.packs.addVisitDismissal({
       customer_id: input.customerId,
       appointment_id: input.appointmentId ?? null,
@@ -506,11 +527,13 @@ export async function addVisitReconcileDismissal(input: {
       reason: input.reason ?? null,
     })
   } catch (err) {
-    warn('addVisitReconcileDismissal', err)
+    warn('addVisitReconcileDismissalWithClient', err)
     return { ok: false }
   }
 }
 
+/** 来店なし answer for a flagged 未処理来店 — stops the reconcile row from
+ *  re-surfacing. Any staff; audit-trailed. */
 /** Recent 来店なし dismissals — the reconcile detector excludes these visits.
  *  Business-scoped twin (design-parity P-B-1) — THROWS on failure. */
 export async function listVisitReconcileDismissalsWithClient(
