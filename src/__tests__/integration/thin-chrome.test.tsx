@@ -217,11 +217,13 @@ describe('fresh-install store lens seed (Gap B½)', () => {
       json: async () => ({ data: dto }),
     }))
 
-  const pin = (storeId: string, userId: string) =>
+  const pin = (storeId: string, userId: string) => {
+    const raw = window.localStorage.getItem('karute-active-store')
     window.localStorage.setItem(
       'karute-active-store',
-      JSON.stringify({ u: userId, s: storeId }),
+      JSON.stringify({ ...(raw ? JSON.parse(raw) : {}), [userId]: storeId }),
     )
+  }
 
   it('seeds the pref from the primary store and re-fetches mounted screens', async () => {
     const refreshed = jest.fn()
@@ -275,6 +277,16 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     setSessionState({ status: 'signed-out' })
     setSessionState({ status: 'signed-in', session: session('tok2', 'auth-user-2') })
     expect(getThinActiveStore()).toBeNull()
+  })
+
+  it("a second user pinning does not evict the first — both return to their own lens", () => {
+    pin('s-branch', 'auth-user-1')
+    setSessionState({ status: 'signed-in', session: session('tok2', 'auth-user-2') })
+    setThinActiveStore('s-primary')
+    expect(getThinActiveStore()).toBe('s-primary')
+    setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'signed-in', session: session('tok3', 'auth-user-1') })
+    expect(getThinActiveStore()).toBe('s-branch')
   })
 
   it('a legacy unkeyed value is treated as absent — no owner proof to trust', () => {
