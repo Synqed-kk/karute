@@ -22,8 +22,6 @@ import {
   createAppointmentCore,
   markNoShowAppointmentCore,
   restoreAppointmentCore,
-  type MarkNoShowError,
-  type MarkNoShowResult,
 } from '@/lib/appointments/mutations'
 
 export { validateAppointmentTime, type AppointmentInput }
@@ -409,7 +407,12 @@ export async function restoreAppointment(
   }
 }
 
-export type { MarkNoShowError, MarkNoShowResult }
+// Type ALIASES, not `export type { … }` re-exports: Next's 'use server'
+// transform registers every export NAME as a server reference at runtime, and
+// a re-exported type name has no runtime binding → ReferenceError at build
+// ("MarkNoShowError is not defined"). Alias declarations erase cleanly.
+export type MarkNoShowError = import('@/lib/appointments/mutations').MarkNoShowError
+export type MarkNoShowResult = import('@/lib/appointments/mutations').MarkNoShowResult
 
 /**
  * Marks a booking NO_SHOW (synqed-core #39), optionally burning one session
