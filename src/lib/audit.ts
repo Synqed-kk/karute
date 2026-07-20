@@ -163,4 +163,14 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'askAi.read': { kind: 'skip', category: 'ai', action: '' },
   // Same ruling for the chat send itself — per-message turns don't re-log.
   'ai.chat': { kind: 'skip', category: 'ai', action: '' },
+  // Booking status writes (P-B 2/2): the audit trail lives in CORE — every
+  // mutation stamps acting_staff_id / status_set_by / status_set_at on the
+  // appointment row itself, and the web actions emit no app-side audit either.
+  // A facade row here would double-log the binary relative to web. (Category
+  // is decorative on 'skip' rows — nothing emits; there is no booking
+  // category and skip rows are no reason to grow the core-coupled enum.)
+  'appointment.create': { kind: 'skip', category: 'customer', action: '' },
+  'appointment.cancel': { kind: 'skip', category: 'customer', action: '' },
+  'appointment.noShow': { kind: 'skip', category: 'customer', action: '' },
+  'appointment.restore': { kind: 'skip', category: 'customer', action: '' },
 }

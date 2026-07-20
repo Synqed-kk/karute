@@ -55,7 +55,16 @@ const synqedStaffListByBusiness = unstable_cache(
 export async function lookupSynqedStaffId(
   staffProfileId: string,
 ): Promise<string | null> {
-  const businessId = await getBusinessId()
+  return lookupSynqedStaffIdForBusiness(staffProfileId, await getBusinessId())
+}
+
+/** Bearer-safe twin: the caller supplies businessId from its verified token
+ *  identity — this path must never touch the cookie session (getBusinessId).
+ *  Same lookup + self-heal behavior as the cookie helper above. */
+export async function lookupSynqedStaffIdForBusiness(
+  staffProfileId: string,
+  businessId: string,
+): Promise<string | null> {
   const staff = await synqedStaffListByBusiness(businessId)
 
   // Primary: synqed staff.user_id directly set to this profile id.
@@ -108,7 +117,16 @@ export async function lookupSynqedStaffId(
  * lookupSynqedStaffId above instead.
  */
 export async function resolveSynqedStaffId(staffProfileId: string): Promise<string> {
-  const found = await lookupSynqedStaffId(staffProfileId)
+  return resolveSynqedStaffIdForBusiness(staffProfileId, await getBusinessId())
+}
+
+/** Bearer-safe twin of resolveSynqedStaffId — businessId from the verified
+ *  token, never the cookie session. Same create-on-miss contract. */
+export async function resolveSynqedStaffIdForBusiness(
+  staffProfileId: string,
+  businessId: string,
+): Promise<string> {
+  const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId)
   if (found) return found
 
   // No synqed staff record yet. Staff seeded directly into Supabase profiles
@@ -133,7 +151,6 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
         `staff record: no such profile.`,
     )
   }
-  const businessId = await getBusinessId()
   const baseUrl = process.env.SYNQED_CORE_URL
   const apiKey = process.env.SYNQED_CORE_API_KEY
   if (!baseUrl || !apiKey) {
