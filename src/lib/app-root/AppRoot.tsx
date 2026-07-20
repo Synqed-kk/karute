@@ -51,7 +51,12 @@ function SessionGatedToaster() {
     return subscribeSessionState(() => {
       const next = getSessionState().status === 'signed-in'
       setSignedIn((was) => {
-        if (was && !next) toast.dismiss()
+        // BOTH directions (F2 round 2): sonner's store is module-level and
+        // REPLAYS buffered toasts to a newly mounted Toaster — a toast fired
+        // while signed out (no Toaster mounted, so no expiry timer ran)
+        // would otherwise surface in the NEXT user's session at sign-in.
+        // dismiss() is idempotent; a StrictMode double-invoke is harmless.
+        if (was !== next) toast.dismiss()
         return next
       })
     })

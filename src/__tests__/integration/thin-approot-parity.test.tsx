@@ -150,4 +150,27 @@ describe('SessionGatedToaster (F2, packet 12 fix batch — no toast may render o
     ).toBeNull()
     dismissSpy.mockRestore()
   })
+
+  it('dismisses on the way INTO signed-in too — a toast buffered while signed out must not replay into the next session (F2 round 2)', async () => {
+    renderRoot(<div />)
+    // sonner's store is module-level: a toast fired with no Toaster mounted
+    // sits buffered (no expiry timer runs unmounted) and replays to the next
+    // mounted Toaster — i.e. into the NEXT user's session.
+    toast.success('staff-A leftover')
+    const dismissSpy = jest.spyOn(toast, 'dismiss')
+    act(() => {
+      setSessionState({
+        status: 'signed-in',
+        session: { access_token: 't' } as Session,
+      })
+    })
+    expect(dismissSpy).toHaveBeenCalledTimes(1)
+    await waitFor(() =>
+      expect(
+        document.querySelector('section[aria-label*="Notifications"]'),
+      ).toBeTruthy(),
+    )
+    expect(screen.queryByText('staff-A leftover')).toBeNull()
+    dismissSpy.mockRestore()
+  })
 })
