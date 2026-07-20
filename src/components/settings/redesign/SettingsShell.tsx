@@ -171,6 +171,14 @@ interface SettingsShellProps {
    *  the page. Null on fetch failure → StoresSection falls back to its client
    *  fetch. */
   initialEntitlement: Entitlement | null
+  /** Tab ids that render an in-shell 準備中 (pending) panel instead of their
+   *  real section — the thin bundle's per-tab rollout lever (design-parity
+   *  packet 12 §S1). OPTIONAL; default/omitted = every tab renders its real
+   *  section, i.e. WEB IS UNTOUCHED (only the thin caller ever passes this).
+   *  The tab itself stays fully visible/selectable, subject to the SAME
+   *  visibleSettingsTabs capability gates as any other tab — only its
+   *  CONTENT is replaced. Shrinks to empty as later parity slices land. */
+  pendingTabIds?: readonly SettingsTabId[]
 }
 
 export function SettingsShell({
@@ -188,6 +196,7 @@ export function SettingsShell({
   initialStores,
   initialActiveStoreId,
   initialEntitlement,
+  pendingTabIds,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
   // null = mobile list view (no section drilled into).
@@ -207,6 +216,10 @@ export function SettingsShell({
     : null
 
   function renderSection(id: SettingsTabId | null): ReactNode {
+    // Pending-tab intercept (design-parity packet 12 §S1) — BEFORE the real
+    // switch, so a pending tab never reaches (and never needs) its section's
+    // own defense-in-depth capability check below.
+    if (id && pendingTabIds?.includes(id)) return <PendingTabPanel />
     switch (id) {
       case 'organization':
         return <OrganizationSection orgSettings={orgSettings} locale={locale} />
@@ -457,6 +470,25 @@ function SectionPanel({ children }: { children: ReactNode }) {
   return (
     <div className="rounded-xl border border-border/30 bg-card/50 p-6">
       {children}
+    </div>
+  )
+}
+
+// 準備中 (pending) panel — the thin bundle's per-tab rollout lever
+// (design-parity packet 12 §S1). Rendered ONLY when the caller opts a tab
+// into pendingTabIds; web's default omits the prop, so this branch never
+// executes there. Same copy as the router's top-level PendingScreen
+// (thin/router.tsx) for a consistent "not built yet" message across the app.
+// ponytail: hardcoded ja, matching the router placeholder's own reasoning —
+// pendingTabIds is thin-only in practice, and this panel retires tab-by-tab
+// as later parity slices land the real section.
+function PendingTabPanel() {
+  return (
+    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-sm font-medium text-foreground">この画面は準備中です</p>
+      <p className="text-xs text-muted-foreground">
+        次のアップデートでご利用いただけます
+      </p>
     </div>
   )
 }

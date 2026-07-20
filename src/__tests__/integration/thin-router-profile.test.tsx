@@ -9,6 +9,13 @@
 jest.mock('../../../thin/screens/ProfileScreen', () => ({
   ProfileScreen: () => <div data-testid="profile-screen">PROFILE_SCREEN</div>,
 }))
+// SettingsScreen pulls the REAL SettingsShell (packet 12 §S1), which imports
+// next-intl directly — this suite doesn't mock next-intl, so an unstubbed
+// import here would break the router's whole module graph for every test in
+// this file (same reason ProfileScreen itself gets a testid stub above).
+jest.mock('../../../thin/screens/SettingsScreen', () => ({
+  SettingsScreen: () => <div>SETTINGS</div>,
+}))
 jest.mock('../../../thin/screens/DashboardScreen', () => ({
   DashboardScreen: () => <div>DASHBOARD</div>,
 }))
@@ -55,8 +62,8 @@ describe('ThinRouter — /profile (design-parity packet 12 §B-2)', () => {
     expect(match![1]).not.toContain("'/profile'")
   })
 
-  it('a still-pending route (e.g. /settings) keeps rendering PendingScreen', () => {
-    renderAt('/settings')
+  it('a still-pending route (e.g. /coaching) keeps rendering PendingScreen', () => {
+    renderAt('/coaching')
     expect(screen.getByText('この画面は準備中です')).toBeTruthy()
   })
 })

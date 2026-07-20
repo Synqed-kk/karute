@@ -96,6 +96,9 @@ jest.mock('../../../thin/screens/KaruteDetailScreen', () => ({
 jest.mock('../../../thin/screens/ProfileScreen', () => ({
   ProfileScreen: () => <div data-testid="my-profile-screen" />,
 }))
+jest.mock('../../../thin/screens/SettingsScreen', () => ({
+  SettingsScreen: () => <div data-testid="settings-screen" />,
+}))
 
 const session = (token: string, userId = 'auth-user-1') =>
   ({ access_token: token, user: { id: userId } }) as Session
@@ -478,7 +481,7 @@ describe('ThinChromeContent (MobileHeader + web content frame)', () => {
 })
 
 describe('ThinRouter pending routes (no silent wrong screen)', () => {
-  it.each(['/settings', '/coaching/data', '/appointments/deep'])(
+  it.each(['/data-export', '/coaching/data', '/appointments/deep'])(
     '%s lands on the 準備中 placeholder',
     (path) => {
       history.replaceState({}, '', path)
@@ -517,6 +520,16 @@ describe('ThinRouter pending routes (no silent wrong screen)', () => {
     })
     render(<ThinRouter />)
     expect(screen.getByTestId('my-profile-screen')).toBeTruthy()
+    expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
+
+  it('/settings renders the real screen, not the placeholder (packet 12 §S1)', () => {
+    history.replaceState({}, '', '/settings')
+    act(() => {
+      setSessionState({ status: 'signed-in', session: session('tok') })
+    })
+    render(<ThinRouter />)
+    expect(screen.getByTestId('settings-screen')).toBeTruthy()
     expect(screen.queryByText('この画面は準備中です')).toBeNull()
   })
 })
