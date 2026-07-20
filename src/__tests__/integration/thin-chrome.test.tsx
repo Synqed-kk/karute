@@ -88,7 +88,8 @@ jest.mock('../../../thin/screens/KaruteDetailScreen', () => ({
   KaruteDetailScreen: () => <div data-testid="karute-detail-screen" />,
 }))
 
-const session = (token: string) => ({ access_token: token }) as Session
+const session = (token: string, userId = 'auth-user-1') =>
+  ({ access_token: token, user: { id: userId } }) as Session
 
 const CHROME_DTO: ChromeScreenDTOType = {
   staffId: 'auth-user-1',
@@ -127,6 +128,10 @@ const apiFetch = jest.fn(
 import { ThinChromeContent, ThinChromeNav } from '../../../thin/chrome/Chrome'
 import { ThinRouter } from '../../../thin/router'
 import { subscribeRefresh } from '../../../thin/ports/nav.vite'
+import {
+  getThinActiveStore,
+  setThinActiveStore,
+} from '../../../thin/chrome/store-pref'
 
 beforeEach(() => {
   apiFetch.mockClear()
@@ -212,6 +217,12 @@ describe('fresh-install store lens seed (Gap B½)', () => {
       json: async () => ({ data: dto }),
     }))
 
+  const pin = (storeId: string, userId: string) =>
+    window.localStorage.setItem(
+      'karute-active-store',
+      JSON.stringify({ u: userId, s: storeId }),
+    )
+
   it('seeds the pref from the primary store and re-fetches mounted screens', async () => {
     const refreshed = jest.fn()
     const unsub = subscribeRefresh(refreshed)
@@ -219,7 +230,7 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     setSessionState({ status: 'signed-in', session: session('tok') })
     render(<ThinChromeNav />)
     await waitFor(() =>
-      expect(window.localStorage.getItem('karute-active-store')).toBe('s-primary'),
+      expect(getThinActiveStore()).toBe('s-primary'), // isPrimary, not array order
     )
     // Screens fetched before the seed rendered unlensed — the refresh bus
     // must fire so they re-fetch through the new lens.
@@ -230,12 +241,12 @@ describe('fresh-install store lens seed (Gap B½)', () => {
   it('never overrides a pinned lens', async () => {
     const refreshed = jest.fn()
     const unsub = subscribeRefresh(refreshed)
-    window.localStorage.setItem('karute-active-store', 's-branch')
+    pin('s-branch', 'auth-user-1')
     lensDto(LENS_DTO)
     setSessionState({ status: 'signed-in', session: session('tok') })
     render(<ThinChromeNav />)
     await chromeReady()
-    expect(window.localStorage.getItem('karute-active-store')).toBe('s-branch')
+    expect(getThinActiveStore()).toBe('s-branch')
     expect(refreshed).not.toHaveBeenCalled()
     unsub()
   })
@@ -247,15 +258,36 @@ describe('fresh-install store lens seed (Gap B½)', () => {
     setSessionState({ status: 'signed-in', session: session('tok') })
     render(<ThinChromeNav />)
     await chromeReady()
-    expect(window.localStorage.getItem('karute-active-store')).toBeNull()
+    expect(getThinActiveStore()).toBeNull()
     expect(refreshed).not.toHaveBeenCalled()
     unsub()
   })
 
-  it("sign-out clears the lens — the next sign-in must not ride the previous user's store-id", () => {
-    window.localStorage.setItem('karute-active-store', 's-branch')
+  it("a pinned lens survives its OWN user's sign-out — the next session is lensed from its first request", () => {
+    pin('s-branch', 'auth-user-1')
     setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'signed-in', session: session('tok2', 'auth-user-1') })
+    expect(getThinActiveStore()).toBe('s-branch')
+  })
+
+  it("another user on the same device never inherits the lens (their clamp would fail closed)", () => {
+    pin('s-branch', 'auth-user-1')
+    setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'signed-in', session: session('tok2', 'auth-user-2') })
+    expect(getThinActiveStore()).toBeNull()
+  })
+
+  it('a legacy unkeyed value is treated as absent — no owner proof to trust', () => {
+    window.localStorage.setItem('karute-active-store', 's-branch')
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    expect(getThinActiveStore()).toBeNull()
+  })
+
+  it('signed-out reads nothing and writes nothing — no lens without an owner', () => {
+    setSessionState({ status: 'signed-out' })
+    setThinActiveStore('s-branch')
     expect(window.localStorage.getItem('karute-active-store')).toBeNull()
+    expect(getThinActiveStore()).toBeNull()
   })
 })
 

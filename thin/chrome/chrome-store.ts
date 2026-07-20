@@ -15,11 +15,7 @@ import {
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { emitRefresh } from '../ports/nav.vite'
-import {
-  clearThinActiveStore,
-  getThinActiveStore,
-  setThinActiveStore,
-} from './store-pref'
+import { getThinActiveStore, setThinActiveStore } from './store-pref'
 
 type ChromeState =
   | { status: 'idle'; dto: null }
@@ -97,13 +93,7 @@ function seedStoreLens(dto: ChromeScreenDTOType): void {
 // hygiene as the packet-10 session vault. Module-level subscription, one per
 // bundle lifetime, mirroring thin/auth/session.ts.
 subscribeSessionState(() => {
-  if (getSessionState().status !== 'signed-out') return
-  // The lens must die with the session: a seeded/pinned store-id from user A
-  // rides every request, and for a next sign-in from another business the
-  // clamp fails closed (store_forbidden) on EVERY screen. Cleared outside the
-  // idle guard — the pref can outlive the chrome state (persisted storage).
-  clearThinActiveStore()
-  if (current.status !== 'idle') {
+  if (getSessionState().status === 'signed-out' && current.status !== 'idle') {
     epoch++ // invalidate any in-flight fetch (see the epoch note above)
     set({ status: 'idle', dto: null })
   }
