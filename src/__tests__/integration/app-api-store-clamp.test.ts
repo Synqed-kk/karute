@@ -4,16 +4,30 @@
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import type { Capability } from '@/lib/auth/permissions'
 
+// The SDK's error shape, duck-built: @synqed-kk/client is ESM-only, so a
+// value import here would fail jest's CJS parse — same reason the clamp
+// itself duck-types the status instead of using instanceof.
+const synqedError = (status: number, message: string) =>
+  Object.assign(new Error(message), { name: 'SynqedError', status })
+
 type Stores = { get: (id: string) => Promise<unknown> }
 type StaffStores = { get: (id: string) => Promise<{ store_ids: string[] }> }
 
 function synqedWith(opts: {
   ownStores?: string[] // stores that belong to this tenant (stores.get resolves)
   assignment?: string[] | Error // staffStores.get result, or an error to throw
+  storeLookupError?: Error // stores.get failure override (transient classes)
 }) {
   const own = new Set(opts.ownStores ?? [])
   const stores: Stores = {
-    get: (id) => (own.has(id) ? Promise.resolve({ id }) : Promise.reject(new Error('404'))),
+    get: (id) =>
+      opts.storeLookupError
+        ? Promise.reject(opts.storeLookupError)
+        : own.has(id)
+          ? Promise.resolve({ id })
+          // Core's definitive answer for a store outside this business —
+          // the SDK's typed error, not a bare Error (the clamp classifies).
+          : Promise.reject(synqedError(404, 'not found')),
   }
   const staffStores: StaffStores = {
     get: () =>
@@ -56,6 +70,41 @@ describe('store clamp', () => {
     await expect(
       resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: null }),
     ).rejects.toMatchObject({ code: 'store_forbidden', detail: undefined })
+  })
+
+  it('FAILS CLOSED when the store lookup is TRANSIENT (5xx) — WITHOUT the marker (fleet round 2, P1)', async () => {
+    // A network blip on stores.get must not read as "your pin is dead" — the
+    // marked verdict would make the thin self-heal clear a perfectly good pin.
+    const synqed = synqedWith({
+      ownStores: ['store-A'],
+      assignment: ['store-A'],
+      storeLookupError: synqedError(503, 'upstream unavailable'),
+    })
+    await expect(
+      resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: 'store-A' }),
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: undefined })
+  })
+
+  it('FAILS CLOSED on a NETWORK error during the store lookup — WITHOUT the marker', async () => {
+    const synqed = synqedWith({
+      ownStores: ['store-A'],
+      assignment: ['store-A'],
+      storeLookupError: new TypeError('fetch failed'),
+    })
+    await expect(
+      resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: 'store-A' }),
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: undefined })
+  })
+
+  it("core's 403 is as definitive as its 404 — marked (judges the id, not the caller)", async () => {
+    const synqed = synqedWith({
+      ownStores: ['store-A'],
+      assignment: ['store-A'],
+      storeLookupError: synqedError(403, 'forbidden'),
+    })
+    await expect(
+      resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: 'store-A' }),
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: { reason: 'store_header' } })
   })
 
   it('DELIBERATE empty assignment = floating staff, unrestricted within tenant', async () => {

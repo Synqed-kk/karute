@@ -20,6 +20,17 @@ import {
   getThinActiveStore,
   setThinActiveStore,
 } from '../../../thin/chrome/store-pref'
+// The heal's fire-and-forget chrome nudge (fleet round 2, P1) — mocked at the
+// module seam so these tests assert the CALL, not the chrome pipeline (that
+// pipeline is pinned in thin-chrome.test.tsx).
+import { resyncChromeAfterHeal } from '../../../thin/chrome/chrome-store'
+
+jest.mock('../../../thin/chrome/chrome-store', () => ({
+  resyncChromeAfterHeal: jest.fn(),
+}))
+
+/** The nudge rides a dynamic import — flush a macrotask before asserting. */
+const flushDynamicImport = () => new Promise((r) => setTimeout(r, 0))
 
 const toUrl = (p: string) => `https://facade.test${p}`
 
@@ -39,6 +50,7 @@ const headersOf = (call: unknown[]) =>
 
 beforeEach(() => {
   window.localStorage.clear()
+  jest.mocked(resyncChromeAfterHeal).mockClear()
   setSessionState({
     status: 'signed-in',
     session: { access_token: 'tok', user: { id: 'u1' } } as Session,
@@ -268,5 +280,55 @@ describe('facadeApiFetch stranded-pin self-heal', () => {
     resolveFirst(forbidden('store_forbidden', 'store_header'))
     await inflight
     expect(getThinActiveStore()).toBe('s-new')
+  })
+
+  it('the retry RIDES a fresh pin established while the 403 was in flight — never strips it (fleet round 2)', async () => {
+    setThinActiveStore('s-old')
+    let resolveFirst: (r: Response) => void = () => {}
+    const fetchSpy = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((r) => {
+            resolveFirst = r
+          }),
+      )
+      .mockResolvedValue(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    const inflight = facadeApiFetch(toUrl, '/api/app/v1/screens/customers')
+    // A concurrent heal's re-seed (or a switcher tap) lands a fresh valid
+    // pin while this response is still in flight.
+    setThinActiveStore('s-new')
+    resolveFirst(forbidden('store_forbidden', 'store_header'))
+    await inflight
+    expect(fetchSpy).toHaveBeenCalledTimes(2)
+    // The retried response must be scoped to the CURRENT lens, not unlensed —
+    // the compare-and-clear protects storage; this protects the response.
+    expect(headersOf(fetchSpy.mock.calls[1]).get('store-id')).toBe('s-new')
+    expect(getThinActiveStore()).toBe('s-new')
+  })
+
+  it('a successful heal nudges the chrome resync exactly once', async () => {
+    setThinActiveStore('s-dead')
+    const fetchSpy = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(forbidden('store_forbidden', 'store_header'))
+      .mockResolvedValueOnce(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    await facadeApiFetch(toUrl, '/api/app/v1/screens/customers')
+    await flushDynamicImport()
+    expect(resyncChromeAfterHeal).toHaveBeenCalledTimes(1)
+  })
+
+  it('a refused heal never nudges the chrome resync', async () => {
+    setThinActiveStore('s-mine')
+    const fetchSpy = jest
+      .fn<Promise<Response>, unknown[]>()
+      // Unmarked store_forbidden — the never-heal class.
+      .mockResolvedValue(forbidden('store_forbidden'))
+    global.fetch = fetchSpy as unknown as typeof fetch
+    await facadeApiFetch(toUrl, '/api/app/v1/karute', { method: 'POST' })
+    await flushDynamicImport()
+    expect(resyncChromeAfterHeal).not.toHaveBeenCalled()
   })
 })

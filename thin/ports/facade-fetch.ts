@@ -80,9 +80,27 @@ export async function facadeApiFetch(
   // return the 403 untouched; it lands in a tree that no longer renders.
   if (getCurrentSession()?.user?.id !== lensOwner) return res
   clearThinActiveStore(lensedStore)
+  // Mid-session convergence (fleet round 2, P1): the heal fixes THIS request,
+  // but a 'ready' chrome keeps displaying the dead store until relaunch while
+  // every read runs unlensed — and a walk-in save could write store_id null.
+  // Boot-time heals converge through the chrome fetch itself; mid-session
+  // heals need this nudge (re-fetch → seed re-pins → screens re-scope).
+  // Dynamic import: keeps this module's static graph jest-lean and cycle-proof.
+  // Fire-and-forget — recovery must never delay the retry.
+  void import('../chrome/chrome-store')
+    .then((m) => m.resyncChromeAfterHeal())
+    .catch(() => {})
   // Fresh Headers for the retry — the first instance already rode fetch #1.
   const retryHeaders = new Headers(headers)
-  retryHeaders.delete('store-id')
+  // Ride the CURRENT lens state, not "always unlensed" (fleet round 2 — two
+  // lenses independently): a concurrent heal's re-seed or a mid-flight
+  // switcher tap can have established a fresh valid pin while this response
+  // was in flight; stripping it would render this one response mis-scoped.
+  // Post-clear the pin can only be absent or a DIFFERENT value than the one
+  // that failed (compare-and-clear), so re-403 loops stay impossible.
+  const pinNow = getThinActiveStore()
+  if (pinNow) retryHeaders.set('store-id', pinNow)
+  else retryHeaders.delete('store-id')
   // Re-read the Bearer we attached (never a caller-set one): a TOKEN_REFRESHED
   // landing while fetch #1 was in flight rotated the session token, and the
   // recovery retry should ride the CURRENT credential, not the captured one.

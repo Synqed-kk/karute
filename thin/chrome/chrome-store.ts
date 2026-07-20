@@ -91,6 +91,34 @@ function refetchLensedChrome(myEpoch: number): void {
     .catch(() => {})
 }
 
+// Mid-session heal convergence (fleet round 2, P1): when the stranded-pin
+// self-heal clears the pref while chrome is already 'ready', nothing above
+// re-runs — the switcher keeps displaying the dead store until relaunch while
+// every read runs unlensed (owners: all branches mixed; walk-in karute saves
+// could write store_id null). Re-run the fetch+seed pipeline: the fresh dto
+// snaps the switcher to the server's truth, and for viewAll callers the seed
+// re-pins the primary + emitRefresh re-scopes every screen. Boot-time heals
+// converge through the in-flight chrome fetch — skip unless 'ready'.
+// Single-flight: N concurrent heals nudge once. Failure keeps the rendered
+// chrome (best-effort posture above); a later heal may nudge again.
+let resyncing = false
+export function resyncChromeAfterHeal(): void {
+  if (current.status !== 'ready' || resyncing) return
+  const myEpoch = epoch
+  resyncing = true
+  void fetchChromeDto()
+    .then((dto) => {
+      if (epoch !== myEpoch) return
+      const seeded = seedStoreLens(dto)
+      set({ status: 'ready', dto })
+      if (seeded) refetchLensedChrome(myEpoch)
+    })
+    .catch(() => {})
+    .finally(() => {
+      resyncing = false
+    })
+}
+
 // Fresh-install store lens (design-parity Gap B½): the web defaults an unset
 // active-store cookie to the PRIMARY store (resolveStoreScope), but the facade
 // clamp reads a missing store-id header as unrestricted-in-tenant — so a
@@ -104,6 +132,11 @@ function seedStoreLens(dto: ChromeScreenDTOType): boolean {
   const primary = dto.stores.find((s) => s.isPrimary)
   if (!primary) return false
   setThinActiveStore(primary.id)
+  // localStorage can silently refuse the persist (private mode / quota — the
+  // setter swallows it by design). Only report seeded when the pin actually
+  // stuck: a false `true` fires the lensed re-fetch + every screen's refresh
+  // for a lens that does not exist (fleet round 2, P3).
+  if (getThinActiveStore() !== primary.id) return false
   // Screens that fetched before the seed rendered unlensed — re-fetch them
   // through the new lens, stale-while-revalidate (the router.refresh path).
   emitRefresh()
