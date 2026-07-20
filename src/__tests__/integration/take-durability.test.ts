@@ -368,6 +368,24 @@ describe('take durability — deletion lifecycle', () => {
     expect((await getRecoverableTake([]))?.takeId).toBe(takeIdB)
   })
 
+  it('clearOwnTakes(explicitUid) deletes that uid\'s takes even when the session-derived uid would resolve null (F3: server-driven sign-out ordering)', async () => {
+    await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    expect(takes().size).toBe(1)
+
+    // Simulates thin/auth/session.ts's SIGNED_OUT listener: by the time the
+    // wipe runs, the session store (and therefore currentUserId()) already
+    // resolves null — the explicit uid, captured BEFORE the store nulled,
+    // is the only thing that still targets the right rows.
+    mockUid = null
+    await clearOwnTakes('staff-A')
+    await drain()
+    expect(takes().size).toBe(0)
+  })
+
   it('expired takes (24 h TTL) are dropped and deleted in passing', async () => {
     const takeId = await startAndSettle()
     pushChunk('aaa')

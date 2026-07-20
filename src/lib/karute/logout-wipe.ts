@@ -14,8 +14,18 @@
  * actions (next/cache), which must not load just because a component that
  * CAN sign out rendered (plain jsdom tests render the sidebar). The cost is
  * paid only when a logout actually happens.
+ *
+ * `uid` (F3, packet 12 fix batch): optional EXPLICIT override for
+ * clearOwnTakes' owner lookup. Every existing caller stays no-arg and
+ * behaves identically (clearOwnTakes falls back to its own currentUserId()
+ * read). It exists for thin/auth/session.ts's SIGNED_OUT listener, which
+ * calls this AFTER the session store has already been nulled — on the thin
+ * path, currentUserId() reads FROM that store, so a SERVER-driven sign-out
+ * (failed refresh, revoke, password reset) would otherwise resolve null and
+ * clearOwnTakes would silently no-op, leaving the leaving staff member's
+ * takes on the shared device.
  */
-export async function wipeSessionVault(): Promise<void> {
+export async function wipeSessionVault(opts: { uid?: string } = {}): Promise<void> {
   const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }] =
     await Promise.all([
       import('@/lib/global-recorder'),
@@ -29,5 +39,5 @@ export async function wipeSessionVault(): Promise<void> {
   // Owner-scoped on purpose: only the signing-out user's takes die here —
   // another staff member's crash-recovery audio must survive their logout
   // (it is already invisible to everyone else via the store's owner gate).
-  await clearOwnTakes()
+  await clearOwnTakes(opts.uid)
 }
