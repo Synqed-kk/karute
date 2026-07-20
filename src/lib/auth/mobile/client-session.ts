@@ -143,17 +143,23 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         // (offline, 5xx) WITHOUT removing its storage key and WITHOUT
         // emitting SIGNED_OUT — so without this, nothing would flip the
         // session store and the token would sit in storage. Remove the SAME
-        // keys GoTrue's _removeSession does (the storage key + its PKCE
-        // code-verifier sibling) via the injected storage adapter — auth-js
-        // reads the session FROM storage on every call, so a missing key
-        // makes getSession()/autorefresh/resume all resolve null, no
-        // private API needed. Then flip the store ourselves, since no
-        // SIGNED_OUT event will arrive to do it. Best-effort on the storage
-        // removal itself (a broken adapter must not block the fail-closed
-        // sign-out this exists for) but onSessionState ALWAYS fires.
+        // THREE keys GoTrue's _removeSession does (installed @supabase/
+        // auth-js, GoTrueClient.js ~2249-2258): the storage key itself, its
+        // PKCE code-verifier sibling, and its `-user` sibling (only
+        // populated when a separate userStorage is configured — not wired
+        // today, but mirrored now so the Keychain-storage migration, a
+        // named future item, doesn't have to rediscover this list) — via
+        // the injected storage adapter. auth-js reads the session FROM
+        // storage on every call, so a missing key makes getSession()/
+        // autorefresh/resume all resolve null, no private API needed. Then
+        // flip the store ourselves, since no SIGNED_OUT event will arrive
+        // to do it. Best-effort on the storage removal itself (a broken
+        // adapter must not block the fail-closed sign-out this exists for)
+        // but onSessionState ALWAYS fires.
         try {
           await opts.storage.removeItem(SESSION_STORAGE_KEY)
           await opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`)
+          await opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`)
         } catch {
           // best-effort — see comment above.
         }
