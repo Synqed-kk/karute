@@ -54,8 +54,12 @@ export type Href = string | UrlObject
 // param route) with no active tab. Mirrors the facade chrome route's own
 // stripLocalePrefix (src/app/api/app/v1/screens/chrome/route.ts) — same
 // regex, same '' → '/' fallback. Anchored to a full path segment: '/jazz'
-// or '/english-menu' must NOT be stripped.
-function stripLocalePrefix(path: string): string {
+// or '/english-menu' must NOT be stripped. Exported (B3, packet 12 fix
+// batch round 3) so the boot/deep-link entry (thin/main.tsx) can normalize
+// the READ side too — a locale-prefixed cold-boot pathname reaches
+// ThinRouter via usePathname()/location.pathname directly, bypassing every
+// push/Link write-side caller this function already covers.
+export function stripLocalePrefix(path: string): string {
   return path.replace(/^\/(ja|en)(?=\/|$)/, '') || '/'
 }
 
