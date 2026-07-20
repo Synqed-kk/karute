@@ -32,14 +32,14 @@ describe('store clamp', () => {
     const synqed = synqedWith({ ownStores: ['store-A'], assignment: ['store-A'] })
     await expect(
       resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: 'store-OTHER' }),
-    ).rejects.toMatchObject({ code: 'store_forbidden' })
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: { reason: 'store_header' } })
   })
 
   it('rejects an in-tenant store the clamped staff is NOT assigned to (wrong-store)', async () => {
     const synqed = synqedWith({ ownStores: ['store-A', 'store-B'], assignment: ['store-A'] })
     await expect(
       resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: 'store-B' }),
-    ).rejects.toMatchObject({ code: 'store_forbidden' })
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: { reason: 'store_header' } })
   })
 
   it('clamps an assigned staffer to their own store', async () => {
@@ -48,11 +48,14 @@ describe('store clamp', () => {
     expect(r).toEqual({ storeId: 'store-A', allowedStoreIds: ['store-A'] })
   })
 
-  it('FAILS CLOSED when the assignment lookup errors (not floating)', async () => {
+  it('FAILS CLOSED when the assignment lookup errors (not floating) — WITHOUT the store_header marker', async () => {
     const synqed = synqedWith({ ownStores: ['store-A'], assignment: new Error('core down') })
+    // Verdict UNKNOWN, not a pin verdict: the thin self-heal keys on
+    // reason:'store_header', and a transient lookup blip must never clear a
+    // good pin (the unlensed retry would re-hit the same lookup anyway).
     await expect(
       resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps(), requestedStoreId: null }),
-    ).rejects.toMatchObject({ code: 'store_forbidden' })
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: undefined })
   })
 
   it('DELIBERATE empty assignment = floating staff, unrestricted within tenant', async () => {
@@ -67,6 +70,6 @@ describe('store clamp', () => {
     expect(r).toEqual({ storeId: 'store-A', allowedStoreIds: null })
     await expect(
       resolveStoreForRequest({ synqed, authUserId: AUTH, capabilities: caps('stores.viewAll'), requestedStoreId: 'store-OTHER' }),
-    ).rejects.toMatchObject({ code: 'store_forbidden' })
+    ).rejects.toMatchObject({ code: 'store_forbidden', detail: { reason: 'store_header' } })
   })
 })

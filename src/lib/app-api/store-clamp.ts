@@ -26,6 +26,16 @@ export interface ClampedStore {
  * @param authUserId  the confirmed profile/staff id (the store-assignment key).
  * @param capabilities  the caller's RBAC set (`stores.viewAll` = cross-store).
  * @param requestedStoreId  the explicit `store-id` request header, or null.
+ *
+ * The two VERDICT throws here (wrong-tenant, outside-assignment) carry
+ * `reason: 'store_header'` — the client contract that "the store-id you sent
+ * is un-servable for YOU", the only 403 the thin shell's stranded-pin
+ * self-heal may act on. Two store_forbidden classes must NOT carry it:
+ * resource ownership (karute route's "this booking belongs to a store you
+ * are not assigned to" — the pin is fine, the resource isn't) and the
+ * fail-CLOSED lookup error below (verdict UNKNOWN — a transient blip must
+ * not wipe a good pin, and an unlensed retry re-hits the same lookup anyway,
+ * so healing there could never help).
  */
 export async function resolveStoreForRequest(args: {
   synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
@@ -42,7 +52,7 @@ export async function resolveStoreForRequest(args: {
     try {
       await synqed.stores.get(requestedStoreId)
     } catch {
-      throw new AppApiError('store_forbidden', 'store-id does not belong to this business')
+      throw new AppApiError('store_forbidden', 'store-id does not belong to this business', { reason: 'store_header' })
     }
   }
 
@@ -70,7 +80,7 @@ export async function resolveStoreForRequest(args: {
 
   // 5. Clamped staff: a supplied store must be one they're assigned to.
   if (requestedStoreId && !assigned.includes(requestedStoreId)) {
-    throw new AppApiError('store_forbidden', 'store-id outside your assignment')
+    throw new AppApiError('store_forbidden', 'store-id outside your assignment', { reason: 'store_header' })
   }
   return { storeId: requestedStoreId ?? assigned[0], allowedStoreIds: assigned }
 }

@@ -19,6 +19,7 @@ export async function facadeApiFetch(
   // footgun — security lens F-4).
   let lensedStore: string | null = null
   let lensOwner: string | null = null
+  let authAttached = false
   if (!/^https?:\/\//i.test(path)) {
     // Bearer from the session-store: SYNC read (never await getSession on the
     // hot path — boot-gate rationale), kept fresh by onAuthStateChange. No
@@ -27,6 +28,7 @@ export async function facadeApiFetch(
     const token = getAccessToken()
     if (token && !headers.has('Authorization')) {
       headers.set('Authorization', `Bearer ${token}`)
+      authAttached = true
     }
     // The store lens — the web's active-store cookie, as the explicit
     // header the facade clamp expects. Server-side resolveStoreForRequest
@@ -53,21 +55,39 @@ export async function facadeApiFetch(
   // Safe for writes too: the clamp rejects BEFORE any read/write, so nothing
   // happened server-side on the 403.
   if (!lensedStore || res.status !== 403) return res
-  // Ownership gate: a response can outlive its user on a shared device (sign
-  // out mid-flight, another staff signs in). Healing then would delete the
-  // CURRENT user's matching pin and re-send the DEAD session's Bearer — so
-  // unless the session that attached the lens is still the one signed in
-  // (getCurrentSession: live-or-last-known, null once signed out), return the
-  // 403 untouched; it lands in a tree that no longer renders.
-  if (getCurrentSession()?.user?.id !== lensOwner) return res
   const body = (await res
     .clone()
     .json()
-    .catch(() => null)) as { error?: { code?: string } } | null
+    .catch(() => null)) as { error?: { code?: string; reason?: string } } | null
+  // Heal ONLY on the clamp's own VERDICT (reason: 'store_header' = "the
+  // store-id you sent is un-servable for you"). store_forbidden is also
+  // thrown WITHOUT the marker for two classes that must never heal: resource
+  // ownership (karute save: "this booking belongs to a store you are not
+  // assigned to" — healing would wipe a multi-store staff's deliberate pin
+  // over one bad record reference and silently re-lens them onto assigned[0],
+  // the wrong branch) and the clamp's fail-CLOSED lookup error (transient
+  // blip — the pin may be fine, and an unlensed retry re-hits the same
+  // lookup, so healing could never help).
   if (body?.error?.code !== 'store_forbidden') return res
+  if (body?.error?.reason !== 'store_header') return res
+  // Ownership gate — checked AFTER the last await so it holds at decision
+  // time (a gate before the json() await leaves a suspension window a session
+  // switch can slip through). A response can outlive its user on a shared
+  // device (sign out mid-flight, another staff signs in); healing then would
+  // delete the CURRENT user's matching pin and re-send the DEAD session's
+  // Bearer — so unless the session that attached the lens is still the one
+  // signed in (getCurrentSession: live-or-last-known, null once signed out),
+  // return the 403 untouched; it lands in a tree that no longer renders.
+  if (getCurrentSession()?.user?.id !== lensOwner) return res
   clearThinActiveStore(lensedStore)
   // Fresh Headers for the retry — the first instance already rode fetch #1.
   const retryHeaders = new Headers(headers)
   retryHeaders.delete('store-id')
+  // Re-read the Bearer we attached (never a caller-set one): a TOKEN_REFRESHED
+  // landing while fetch #1 was in flight rotated the session token, and the
+  // recovery retry should ride the CURRENT credential, not the captured one.
+  // The ownership gate above proves it is still the same user's session.
+  const freshToken = authAttached ? getAccessToken() : null
+  if (freshToken) retryHeaders.set('Authorization', `Bearer ${freshToken}`)
   return fetch(toUrl(path), { ...init, headers: retryHeaders })
 }
