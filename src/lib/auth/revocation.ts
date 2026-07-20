@@ -82,6 +82,14 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // pack-redemption UNDO — both effectful writes → server round-trip.
   'karute.save',
   'customer.pack.undoRedemption',
+  // booking mutations (design-parity P-B 2/2): status writes + the guarded
+  // ticket burn (cancel/no-show can consume a 回数券 session — money). A
+  // just-terminated staffer must not create bookings or burn tickets on the
+  // local fast-path.
+  'appointment.create',
+  'appointment.cancel',
+  'appointment.noShow',
+  'appointment.restore',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

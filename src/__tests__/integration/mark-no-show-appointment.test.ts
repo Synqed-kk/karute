@@ -67,6 +67,10 @@ const addRedemption = jest.fn(
 jest.mock('@/lib/packs/store', () => ({
   listCustomerPacks: (id: string) => listCustomerPacks(id),
   addRedemption: (input: unknown) => addRedemption(input),
+  // The P-B 2/2 cores read packs through the WithClient twins — same spies,
+  // client arg dropped, so every assertion below pins the identical flow.
+  listCustomerPacksWithClient: (_synqed: unknown, id: string) => listCustomerPacks(id),
+  addRedemptionWithClient: (_synqed: unknown, input: unknown) => addRedemption(input),
 }))
 
 import { markNoShowAppointment, getBurnablePackSummary } from '@/actions/appointments'

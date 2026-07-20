@@ -424,18 +424,84 @@ export const createManualKaruteRecord = async (): Promise<{ error: string }> => 
     '[thin] createManualKaruteRecord is not wired to a facade endpoint yet ' +
     '(BFF is a backend dependency — see thin/ports/actions.vite.ts).',
 })
-// -- appointments (design-parity P-B: the screen ships in the read PR; the
-//    mutation facade twins land in the follow-up P-B mutations PR — until
-//    then these fail LOUDLY, never silently succeed).
-export const createAppointment = notWired('createAppointment')
-export const cancelAppointment = notWired('cancelAppointment')
-export const markNoShowAppointment = notWired('markNoShowAppointment')
-export const restoreAppointment = notWired('restoreAppointment')
-// Capability-style READ, not a mutation: null = "no burnable pack" — the
-// cancel sheet just hides its burn toggle (the web action's own catch→null
-// contract). NOT notWired — the sheet lazy-fetches this on open, and a throw
-// there would break the sheet's render path before the P-B mutations PR.
-export const getBurnablePackSummary = async (): Promise<null> => null
+// -- appointments (design-parity P-B 2/2). The mutation routes are RPC-style:
+//    the web action's result shape rides the 2xx body VERBATIM, so these
+//    ports pass it through — CancelBookingSheet branches on `code`/`burnError`
+//    and must see the same discriminators on both paths. Non-2xx (auth /
+//    validation / transport) maps to the actions' own { error } contract.
+type MarkNoShowResult =
+  | { success: true; burnError?: 'below_zero' | 'burn_failed' | 'already_burned' }
+  | { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
+
+async function statusCall(path: string, body?: unknown): Promise<MarkNoShowResult> {
+  const res = await getDataPort().apiFetch(path, idemPost(body))
+  const parsed = (await res.json().catch(() => null)) as
+    | (MarkNoShowResult & { error?: unknown })
+    | { error?: { message?: string } }
+    | null
+  if (res.ok && parsed) return parsed as MarkNoShowResult
+  const message = (parsed as { error?: { message?: string } } | null)?.error?.message
+  return { error: message ?? `Request failed (${res.status})` }
+}
+
+export const createAppointment = async (input: {
+  staffProfileId: string
+  clientId: string
+  startTime: string
+  durationMinutes: number
+  tzOffsetMinutes?: number
+  title?: string
+  notes?: string
+}): Promise<{ id: string } | { error: string }> => {
+  const res = await getDataPort().apiFetch('/api/app/v1/appointments', idemPost(input))
+  const body = (await res.json().catch(() => null)) as
+    | { id?: string; error?: string | { message?: string } }
+    | null
+  if (res.ok && body?.id) return { id: body.id }
+  // Business failure rides a 2xx { error: string }; transport/auth failures
+  // carry the facade's { error: { message } } envelope.
+  const message =
+    typeof body?.error === 'string' ? body.error : body?.error?.message
+  return { error: message ?? `Create failed (${res.status})` }
+}
+
+export const cancelAppointment = (
+  appointmentId: string,
+  input?: { reason?: string; burnPack?: boolean },
+): Promise<MarkNoShowResult> =>
+  statusCall(`/api/app/v1/appointments/${enc(appointmentId)}/cancel`, input ?? {})
+
+export const markNoShowAppointment = (
+  appointmentId: string,
+  input: { burnPack: boolean },
+): Promise<MarkNoShowResult> =>
+  statusCall(`/api/app/v1/appointments/${enc(appointmentId)}/no-show`, input)
+
+export const restoreAppointment = (
+  appointmentId: string,
+): Promise<{ success: true } | { error: string }> =>
+  statusCall(`/api/app/v1/appointments/${enc(appointmentId)}/restore`) as Promise<
+    { success: true } | { error: string }
+  >
+
+// READ: null = "no burnable pack" — the cancel sheet just hides its burn
+// toggle (the web action's own catch→null contract; never a throw).
+export const getBurnablePackSummary = async (
+  customerId: string,
+): Promise<{ packId: string; remaining: number } | null> => {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/customers/${enc(customerId)}/packs/burnable`,
+    )
+    if (!res.ok) return null
+    const body = (await res.json().catch(() => null)) as
+      | { summary?: { packId: string; remaining: number } | null }
+      | null
+    return body?.summary ?? null
+  } catch {
+    return null
+  }
+}
 // -- karute-outcome (packet 07 §Build 3)
 export const updateKaruteOutcome = facadeUpdateKaruteOutcome
 // -- regenerate-karute (packet 07 Decision 2). regenerateKarute is the new

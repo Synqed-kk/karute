@@ -1,11 +1,7 @@
 'use server'
 
 import { revalidatePath, updateTag } from 'next/cache'
-import {
-  SynqedError,
-  type Appointment,
-  type AppointmentSource,
-} from '@synqed-kk/client'
+import type { Appointment, AppointmentSource } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getActiveStoreId } from '@/actions/stores'
@@ -14,20 +10,21 @@ import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
-import {
-  CANCEL_REASON_SAME_DAY_CONTACT,
-  CANCEL_REASONS,
-  isTerminalStatus,
-  NO_SHOW_REASON_NO_CONTACT,
-  type AppStatus,
-} from '@/lib/appointments/status'
-import { listCustomerPacks, addRedemption } from '@/lib/packs/store'
+import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
+import { listCustomerPacks } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
-import { ymdInJst } from '@/lib/date/jst'
 import {
   validateAppointmentTime,
   type AppointmentInput,
 } from '@/lib/appointments'
+import {
+  cancelAppointmentCore,
+  createAppointmentCore,
+  markNoShowAppointmentCore,
+  restoreAppointmentCore,
+  type MarkNoShowError,
+  type MarkNoShowResult,
+} from '@/lib/appointments/mutations'
 
 export { validateAppointmentTime, type AppointmentInput }
 
@@ -66,28 +63,6 @@ export interface AppointmentRow {
   status_set_at: string | null
 }
 
-/** Store for a booking made from the all-stores view: the booked staff member's
- *  own store when they belong to exactly one, else the business's primary store
- *  (every business has one — listStores lazily creates it). Both lookups degrade
- *  to undefined so a store hiccup can never block taking a booking. */
-async function defaultBookingStore(
-  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
-  synqedStaffId: string,
-): Promise<string | undefined> {
-  try {
-    const assigned = (await synqed.staffStores.get(synqedStaffId)).store_ids
-    if (assigned.length === 1) return assigned[0]
-  } catch {
-    /* fall through to primary store */
-  }
-  try {
-    const { stores } = await synqed.stores.list()
-    return stores.find((s) => s.is_primary)?.id ?? stores[0]?.id
-  } catch {
-    return undefined
-  }
-}
-
 export async function createAppointment(input: AppointmentInput) {
   // Server-side gate: booking = bookings.manage (every staff preset holds it;
   // only a custom role with nothing toggled lacks it). Checked with can() — not
@@ -98,17 +73,17 @@ export async function createAppointment(input: AppointmentInput) {
     return { error: 'You do not have permission to manage bookings.' }
   }
 
+  // Validate BEFORE any resolution: resolveSynqedStaffId can CREATE a staff
+  // record on miss — invalid input must not leave that side effect behind.
+  // (The core re-validates for the facade path; the check is pure.)
   const orgSettings = await getOrgSettings()
   const hoursError = await validateAppointmentTime(input, orgSettings?.operating_hours)
   if (hoursError) return { error: hoursError }
 
-  const startTime = new Date(input.startTime)
-  const endTime = new Date(startTime.getTime() + input.durationMinutes * 60000)
-
   try {
     // All three are independent → resolve in parallel (resolveSynqedStaffId may
     // hit the DB; getActiveStoreId is a cookie read). The active-store cookie is
-    // now an ISOLATION input, not just a view label: it is clamped below against
+    // an ISOLATION input, not just a view label: it is clamped below against
     // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
     // booking into another branch. Business scope (x-business-id) is still applied
     // by core regardless; this clamp is additive.
@@ -117,16 +92,14 @@ export async function createAppointment(input: AppointmentInput) {
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
     ])
-    // Clamp the cookie, then land the booking at a real store. Honor the cookie
-    // ONLY when the viewer may act in that store (viewAll → allowedStoreIds null,
-    // or it's one of their assigned stores — the same clamp getAppointmentById
-    // applies to reads); a branch-restricted staff's stale / out-of-scope cookie
-    // is treated as unset. The unset path falls through to defaultBookingStore —
-    // NOT resolveStoreScope().storeId, which would regress a viewAll staff's
+    // Clamp the cookie. Honor it ONLY when the viewer may act in that store
+    // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
+    // the same clamp getAppointmentById applies to reads); a branch-restricted
+    // staff's stale / out-of-scope cookie is treated as unset. The unset path
+    // falls through to the core's defaultBookingStore — NOT
+    // resolveStoreScope().storeId, which would regress a viewAll staff's
     // unset-cookie booking from "the booked staff's store" to "primary store".
-    // That default still resolves a real store (never NULL — the June import hole
-    // where 28 QR rows landed storeless and dropped out of every per-store
-    // calendar). The scope lookup only runs when a cookie is actually set.
+    // The scope lookup only runs when a cookie is actually set.
     let cookieStore: string | null = null
     if (activeStore) {
       const scope = await resolveStoreScope()
@@ -135,24 +108,17 @@ export async function createAppointment(input: AppointmentInput) {
           ? activeStore
           : null
     }
-    const storeId = cookieStore ?? (await defaultBookingStore(synqed, synqedStaffId))
-    const appt = await synqed.appointments.create({
-      customer_id: input.clientId,
-      staff_id: synqedStaffId,
-      starts_at: startTime.toISOString(),
-      ends_at: endTime.toISOString(),
-      duration_minutes: input.durationMinutes,
-      title: input.title ?? null,
-      notes: input.notes ?? null,
-      store_id: storeId ?? undefined,
+    const result = await createAppointmentCore(synqed, input, {
+      synqedStaffId,
+      preferredStoreId: cookieStore,
+      operatingHours: orgSettings?.operating_hours,
     })
-    revalidatePath('/dashboard')
-    updateTag('dashboard')
-    return { id: appt.id }
-  } catch (err) {
-    if (err instanceof SynqedError && err.status === 409) {
-      return { error: 'This time slot overlaps with an existing booking.' }
+    if ('id' in result) {
+      revalidatePath('/dashboard')
+      updateTag('dashboard')
     }
+    return result
+  } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
@@ -393,68 +359,17 @@ export async function cancelAppointment(
     // Cancelling a booking = bookings.manage. can()-style contract: callers
     // await without a try/catch and toast the { error } shape.
     await requireCapability('bookings.manage')
-    // Optional reason chip (taxonomy fix 2026-07-10): a cancel implies the
-    // customer/salon COMMUNICATED — the chips record how (advance contact /
-    // same-day contact / salon-initiated). Fixed vocabulary only; the audit
-    // trail is not a free-text field (same rule the no-show path has).
-    if (input?.reason && !(CANCEL_REASONS as readonly string[]).includes(input.reason)) {
-      return { error: 'Invalid cancel reason.' }
-    }
-    // Burn-on-cancel (Liam 2026-07-10: "give the staff a choice"): ONLY a
-    // same-day-contact cancel may consume a ticket — the server enforces the
-    // pairing so the audit trail can never show a burned 事前連絡 cancel.
-    const burnPack = !!input?.burnPack
-    if (burnPack && input?.reason !== CANCEL_REASON_SAME_DAY_CONTACT) {
-      return { error: 'A ticket can only be consumed on a same-day-contact cancel.' }
-    }
     const synqed = await getSynqedClient()
-
-    // The burn path needs the appointment row + the money guards the no-show
-    // burn has always had. The PLAIN path stays get-free and idempotent
-    // (re-cancelling a cancelled row is harmless; a second burn is not).
-    let burnAppt: { customer_id: string; starts_at: string } | null = null
-    let burnTarget: { id: string } | null = null
-    if (burnPack) {
-      const appt = await synqed.appointments.get(appointmentId)
-      if (!appt) return { error: 'Booking not found.' }
-      if (isTerminalStatus(appt.status)) {
-        return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
-      }
-      const target = pickRedemptionTarget(await listCustomerPacks(appt.customer_id))
-      if (!target) {
-        return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
-      }
-      burnAppt = appt
-      burnTarget = target
-    }
-
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
     const actingStaffId = await resolveActingStaffId()
-    const patch: { status: 'CANCELLED'; status_reason?: string; acting_staff_id?: string } = {
-      status: 'CANCELLED',
-      ...(input?.reason ? { status_reason: input.reason } : {}),
-      ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
+    const result = await cancelAppointmentCore(synqed, appointmentId, input, actingStaffId)
+    if ('success' in result) {
+      revalidatePath('/appointments')
+      revalidatePath('/dashboard')
+      updateTag('dashboard')
     }
-    // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
-    // acting_staff_id yet (synqed-core #39) — the client JSON-stringifies the
-    // input verbatim, so the field flows through at runtime.
-    await synqed.appointments.update(
-      appointmentId,
-      patch as unknown as Parameters<typeof synqed.appointments.update>[1],
-    )
-    revalidatePath('/appointments')
-    revalidatePath('/dashboard')
-    updateTag('dashboard')
-
-    if (burnPack && burnAppt && burnTarget) {
-      // Same ordering contract as the no-show burn: status FIRST, burn LAST —
-      // a failed burn can never strand a spent ticket, and the partial
-      // outcome (cancel recorded, ticket not consumed) reaches the staff.
-      const burnError = await executeGuardedBurn(synqed, burnAppt, appointmentId, burnTarget)
-      if (burnError) return { success: true, burnError }
-    }
-    return { success: true }
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
@@ -479,99 +394,29 @@ export async function restoreAppointment(
   try {
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
-
-    // Precondition: only a terminal booking can be restored. Without this, a
-    // stale tombstone sheet on a second device could clobber a booking another
-    // staff already restored and started (SCHEDULED → IN_PROGRESS) back to
-    // SCHEDULED with no error. Mirrors markNoShowAppointment's read-check.
-    const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
-    if (!isTerminalStatus(appt.status)) {
-      return { error: 'This booking is already active.' }
-    }
-
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
     const actingStaffId = await resolveActingStaffId()
-    const patch: { status: 'SCHEDULED'; acting_staff_id?: string } = {
-      status: 'SCHEDULED',
-      ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
+    const result = await restoreAppointmentCore(synqed, appointmentId, actingStaffId)
+    if ('success' in result) {
+      revalidatePath('/appointments')
+      revalidatePath('/dashboard')
+      updateTag('dashboard')
     }
-    // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
-    // acting_staff_id yet (synqed-core #39) — the client JSON-stringifies the
-    // input verbatim, so the field flows through at runtime.
-    await synqed.appointments.update(
-      appointmentId,
-      patch as unknown as Parameters<typeof synqed.appointments.update>[1],
-    )
-    revalidatePath('/appointments')
-    revalidatePath('/dashboard')
-    updateTag('dashboard')
-    return { success: true }
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
 
-export type MarkNoShowError = { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
-export type MarkNoShowResult =
-  | { success: true; burnError?: 'below_zero' | 'burn_failed' | 'already_burned' }
-  | MarkNoShowError
-
-/**
- * The ONE guarded ticket burn — shared by the no-show and the
- * same-day-cancel paths so the money rules can never diverge:
- *   • one appointment burns ONE ticket EVER (the terminal → restore →
- *     re-terminal cycle must not double-burn; the burn-history read is
- *     tri-state and an ERRORED read fails CLOSED — skip + tell staff,
- *     never risk a second charge because the check couldn't run);
- *   • counts_as_visit: false — the customer did not visit;
- *   • always called AFTER the status update (a failed burn can never
- *     strand a spent ticket on a still-active booking).
- * Returns null on success, else the burnError code for the partial-outcome
- * toast (the terminal status IS recorded either way).
- */
-async function executeGuardedBurn(
-  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
-  appt: { customer_id: string; starts_at: string },
-  appointmentId: string,
-  target: { id: string },
-): Promise<'below_zero' | 'burn_failed' | 'already_burned' | null> {
-  // The window starts a day before the booking so an earlier burn (stamped
-  // with the booking's JST date) is always inside it.
-  const since = ymdInJst(new Date(new Date(appt.starts_at).getTime() - 86_400_000))
-  const alreadyBurned: boolean | 'unknown' = await synqed.packs
-    .listRecentRedemptions(since)
-    .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
-    .catch(() => 'unknown' as const)
-  if (alreadyBurned === 'unknown') return 'burn_failed'
-  if (alreadyBurned) return 'already_burned'
-  const burn = await addRedemption({
-    packId: target.id,
-    customerId: appt.customer_id,
-    redeemedOn: ymdInJst(new Date(appt.starts_at)),
-    appointmentId,
-    source: 'manual',
-    countsAsVisit: false,
-  })
-  if (!burn.ok) return burn.error === 'below_zero' ? 'below_zero' : 'burn_failed'
-  return null
-}
+export type { MarkNoShowError, MarkNoShowResult }
 
 /**
  * Marks a booking NO_SHOW (synqed-core #39), optionally burning one session
- * off the customer's oldest active pack (ticket-neutral is the CANCELLED
- * path's contract, not this one — a no-show is the explicit staff choice to
- * charge a session). `counts_as_visit: false` is sent on the burn so
- * visit-count-driven surfaces (lifecycle, dormancy) don't treat the no-show
- * as a completed visit.
- *
- * Ordering is load-bearing: every precondition is checked FIRST (nothing
- * happened yet if one fails), then the status is marked, then the ticket is
- * burned. The burn goes LAST so its failure can never strand a spent ticket
- * on a still-active booking (and a staff retry can never double-burn) — the
- * partial outcome is `success + burnError`: the no-show IS recorded, the
- * ticket was NOT consumed, and the UI must say both.
+ * off the customer's oldest active pack. Preconditions, the fixed 無断
+ * reason, and the status-first/burn-last ordering all live in the shared
+ * core (src/lib/appointments/mutations.ts) — one implementation with the
+ * facade twin.
  */
 export async function markNoShowAppointment(
   appointmentId: string,
@@ -580,53 +425,17 @@ export async function markNoShowAppointment(
   try {
     await requireCapability('bookings.manage')
     const synqed = await getSynqedClient()
-
-    const appt = await synqed.appointments.get(appointmentId)
-    if (!appt) return { error: 'Booking not found.' }
-    // Already CANCELLED/NO_SHOW (double-open race, stale agenda): refuse
-    // rather than re-mark — re-marking is harmless but a second burn is not.
-    if (isTerminalStatus(appt.status)) {
-      return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
-    }
-
-    const target = input.burnPack
-      ? pickRedemptionTarget(await listCustomerPacks(appt.customer_id))
-      : null
-    if (input.burnPack && !target) {
-      return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
-    }
-
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId — fixes the profile-id-space stamp this action
     // originally shipped with). Omitted when unresolvable, never blocking.
     const actingStaffId = await resolveActingStaffId()
-    // 無断 = no contact + no arrival, by definition — so the reason is the ONE
-    // fixed code, never a staff choice (taxonomy fix 2026-07-10; the old
-    // same-day-contacted / first-time chips are legacy-display-only now:
-    // contacted cancels belong to cancelAppointment, first-time is DERIVED
-    // from no_show_count).
-    const patch: { status: 'NO_SHOW'; status_reason: string; acting_staff_id?: string } = {
-      status: 'NO_SHOW',
-      status_reason: NO_SHOW_REASON_NO_CONTACT,
-      ...(actingStaffId ? { acting_staff_id: actingStaffId } : {}),
+    const result = await markNoShowAppointmentCore(synqed, appointmentId, input, actingStaffId)
+    if ('success' in result) {
+      revalidatePath('/appointments')
+      revalidatePath('/dashboard')
+      updateTag('dashboard')
     }
-    // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
-    // NO_SHOW / status_reason / acting_staff_id yet (synqed-core #39) — the
-    // client JSON-stringifies the input verbatim, so the fields flow through
-    // at runtime.
-    await synqed.appointments.update(
-      appointmentId,
-      patch as unknown as Parameters<typeof synqed.appointments.update>[1],
-    )
-    revalidatePath('/appointments')
-    revalidatePath('/dashboard')
-    updateTag('dashboard')
-
-    if (target) {
-      const burnError = await executeGuardedBurn(synqed, appt, appointmentId, target)
-      if (burnError) return { success: true, burnError }
-    }
-    return { success: true }
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
