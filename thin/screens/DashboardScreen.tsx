@@ -20,7 +20,10 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): DashboardScreenDTOType => DashboardScreenDTO.parse(raw)
 
-function DashboardScreenInner({ dto }: { dto: DashboardScreenDTOType }) {
+// Exported for the real-render prop-mapping smoke test (fleet P3 finding —
+// this passthrough has zero real-render coverage, so a swapped/typo'd prop
+// slot would only surface as a silent wrong-value bug in production).
+export function DashboardScreenInner({ dto }: { dto: DashboardScreenDTOType }) {
   return (
     <DashboardPageView
       dateLabel={dto.dateLabel}
@@ -47,7 +50,7 @@ function DashboardScreenInner({ dto }: { dto: DashboardScreenDTOType }) {
 }
 
 export function DashboardScreen() {
-  const { state, retry } = useScreenDto('/api/app/v1/screens/dashboard?locale=ja', parse)
+  const { state, retry } = useScreenDto('/api/app/v1/screens/dashboard', parse)
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => <DashboardScreenInner dto={dto} />}

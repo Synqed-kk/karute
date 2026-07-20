@@ -367,10 +367,15 @@ async function rpcPost<T extends { ok: boolean }>(path: string, body: unknown): 
     const res = await getDataPort().apiFetch(path, jsonInit('POST', body))
     const parsed = (await res.json().catch(() => null)) as
       | (T & { error?: unknown })
-      | { error?: { message?: string } }
+      | { error?: { code?: string; message?: string } }
       | null
     if (res.ok && parsed) return parsed as T
-    const message = (parsed as { error?: { message?: string } } | null)?.error?.message
+    const envelope = (parsed as { error?: { code?: string; message?: string } } | null)?.error
+    // A missing-capability 403 (e.g. a role downgraded after the screen
+    // loaded) maps to the literal 'forbidden' string — PackAlertsCard
+    // branches on res.error === 'forbidden' for its specific toast, matching
+    // the web action's own tolerant { ok:false, error:'forbidden' } contract.
+    const message = envelope?.code === 'forbidden' ? 'forbidden' : envelope?.message
     return { ok: false, error: message ?? `Request failed (${res.status})` } as unknown as T
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : 'Network error' } as unknown as T

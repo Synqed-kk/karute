@@ -173,4 +173,11 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'appointment.cancel': { kind: 'skip', category: 'customer', action: '' },
   'appointment.noShow': { kind: 'skip', category: 'customer', action: '' },
   'appointment.restore': { kind: 'skip', category: 'customer', action: '' },
+  // dashboard pack mutations (design-parity Gap B-1 PR 2): the trail lives
+  // in the rows themselves (dismissed_by / contacted_by stamps on the
+  // packs tables), and the web actions emit no app-side audit for these
+  // either (verified against src/actions/packs.ts — no audit() calls).
+  'customer.pack.reconcile.dismiss': { kind: 'skip', category: 'customer', action: '' },
+  'customer.pack.alert.dismiss': { kind: 'skip', category: 'customer', action: '' },
+  'customer.pack.contact.log': { kind: 'skip', category: 'customer', action: '' },
 }

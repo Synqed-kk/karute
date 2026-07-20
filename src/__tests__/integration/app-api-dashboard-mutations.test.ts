@@ -180,6 +180,15 @@ describe('POST /api/app/v1/customers/[id]/packs/alerts/dismiss', () => {
     const res = await alertDismissPOST(post(URL_, { bogus: true }), params('cust-1'))
     expect(res.status).toBe(400)
   })
+
+  it('a body-supplied customerId is IGNORED — .strict() rejects the unknown field', async () => {
+    const res = await alertDismissPOST(
+      post(URL_, { customerId: 'someone-else' }),
+      params('cust-1'),
+    )
+    expect(res.status).toBe(400)
+    expect(addAlertDismissal).not.toHaveBeenCalled()
+  })
 })
 
 describe('POST /api/app/v1/customers/[id]/packs/contact', () => {
@@ -219,5 +228,25 @@ describe('POST /api/app/v1/customers/[id]/packs/contact', () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view']))
     const res = await contactPOST(post(URL_, { channel: 'sms' }), params('cust-1'))
     expect(res.status).toBe(200)
+  })
+
+  it('unlinked staff identity → 200 { ok: false, error: "no staff identity" } (RPC passthrough)', async () => {
+    const { staffListByBusinessOrThrow } = jest.requireMock('@/lib/staff') as {
+      staffListByBusinessOrThrow: jest.Mock
+    }
+    staffListByBusinessOrThrow.mockResolvedValueOnce([]) // viewer has no roster row
+    const res = await contactPOST(post(URL_, { channel: 'phone' }), params('cust-1'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: false, error: 'no staff identity' })
+    expect(addContact).not.toHaveBeenCalled()
+  })
+
+  it('a body-supplied customerId is IGNORED — .strict() rejects the unknown field', async () => {
+    const res = await contactPOST(
+      post(URL_, { channel: 'phone', customerId: 'someone-else' }),
+      params('cust-1'),
+    )
+    expect(res.status).toBe(400)
+    expect(addContact).not.toHaveBeenCalled()
   })
 })

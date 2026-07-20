@@ -72,10 +72,18 @@ describe('thin actions port — dashboard pack mutations', () => {
     expect(res).toEqual({ ok: false, error: 'no staff identity' })
   })
 
-  it('dismissPackAlertAction: 403 (missing capability) normalizes to { ok:false, error }', async () => {
+  it('dismissPackAlertAction: 403 forbidden → { ok:false, error:"forbidden" } (web-contract mapping)', async () => {
     mockFetch(async () => jsonRes({ error: { code: 'forbidden', message: 'missing capability' } }, 403))
     const res = await dismissPackAlertAction({ customerId: 'c1' })
-    expect(res).toEqual({ ok: false, error: 'missing capability' })
+    // PackAlertsCard branches on the LITERAL string 'forbidden', matching the
+    // web action's own tolerant contract — not the raw envelope message.
+    expect(res).toEqual({ ok: false, error: 'forbidden' })
+  })
+
+  it('dismissPackAlertAction: a non-forbidden failure keeps its own message', async () => {
+    mockFetch(async () => jsonRes({ error: { code: 'upstream_unavailable', message: 'core down' } }, 502))
+    const res = await dismissPackAlertAction({ customerId: 'c1' })
+    expect(res).toEqual({ ok: false, error: 'core down' })
   })
 
   it('logCustomerContactAction: happy path forwards channel/note, encodes the path id', async () => {

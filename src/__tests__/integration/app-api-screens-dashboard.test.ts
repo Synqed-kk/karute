@@ -21,11 +21,12 @@ jest.mock('@supabase/supabase-js', () => ({
     },
   }),
 }))
+const staffListByBusinessOrThrow = jest.fn(async (..._a: unknown[]) => [
+  { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'STYLIST' },
+])
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
-  staffListByBusinessOrThrow: jest.fn(async () => [
-    { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'STYLIST' },
-  ]),
+  staffListByBusinessOrThrow: (...a: unknown[]) => staffListByBusinessOrThrow(...a),
 }))
 const mockCapabilities = jest.fn(async () => new Set(['customers.view']))
 jest.mock('@/lib/auth/require-permission', () => {
@@ -33,8 +34,9 @@ jest.mock('@/lib/auth/require-permission', () => {
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
 })
 
+const getCachedCustomerListFor = jest.fn(async (..._a: unknown[]) => [] as unknown[])
 jest.mock('@/lib/customers/cached', () => ({
-  getCachedCustomerListFor: jest.fn(async () => []),
+  getCachedCustomerListFor: (...a: unknown[]) => getCachedCustomerListFor(...a),
 }))
 // @synqed-kk/client is ESM-only — list-enrich.ts VALUE-imports SynqedClient
 // (for typing an internal cache key), which jest's CJS transform can't parse.
@@ -142,6 +144,10 @@ async function dtoOf(res: Response) {
 beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+  staffListByBusinessOrThrow.mockResolvedValue([
+    { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'STYLIST' },
+  ])
+  getCachedCustomerListFor.mockResolvedValue([])
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   storesGet.mockResolvedValue({})
   getDashboardDataFor.mockResolvedValue({
@@ -220,6 +226,11 @@ describe('GET /api/app/v1/screens/dashboard', () => {
         null,
       )
       expect(loadUnprocessedVisitsWithClient).toHaveBeenCalledWith(fakeClient, 'business-1', null)
+      // The staff roster + customer list reads are arg-blind mocks elsewhere
+      // in this suite — pin their businessId too, so swapping the source
+      // (e.g. a stray cookie-based getBusinessId()) would fail the suite.
+      expect(staffListByBusinessOrThrow).toHaveBeenCalledWith('business-1')
+      expect(getCachedCustomerListFor).toHaveBeenCalledWith('business-1')
     })
 
     it('the SAME clamped storeId (never a second store source) reaches every pack twin', async () => {
@@ -281,9 +292,6 @@ describe('GET /api/app/v1/screens/dashboard', () => {
   })
 
   it('a failed load-bearing read (staff roster) → 502', async () => {
-    const { staffListByBusinessOrThrow } = jest.requireMock('@/lib/staff') as {
-      staffListByBusinessOrThrow: jest.Mock
-    }
     staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(req(), route)
     expect(res.status).toBe(502)
