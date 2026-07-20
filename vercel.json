@@ -1,9 +1,15 @@
 {
-  "regions": ["hnd1"],
+  "regions": [
+    "hnd1"
+  ],
   "crons": [
     {
       "path": "/api/cleanup",
       "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/jobs/process",
+      "schedule": "* * * * *"
     }
   ]
 }
