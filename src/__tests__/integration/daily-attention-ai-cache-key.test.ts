@@ -7,12 +7,19 @@
  * card set would collide on one cached line. Pins businessId landing in the
  * getCachedAI/setCachedAI input directly (mutation-proven gap: reverting the
  * businessId thread previously passed this file's older 23/23 baseline).
+ *
+ * Also pins (PR #571 post-merge ledger fast-follow): the degraded-auth
+ * guard's "no AI call" half — a regression re-introducing the OpenAI call
+ * for unknown tenants must fail here, not just "no cache write" — and the
+ * real generate + cache-hit path (previously uncovered by any test).
  */
 process.env.OPENAI_API_KEY = 'test-key'
 
-jest.mock('@/lib/openai', () => ({ openai: {} }))
+jest.mock('@/lib/openai', () => ({
+  openai: { chat: { completions: { parse: jest.fn() } } },
+}))
 
-const getCachedAI = jest.fn(async (_prefix: string, _input: unknown) => null)
+const getCachedAI = jest.fn(async (_prefix: string, _input: unknown): Promise<unknown> => null)
 const setCachedAI = jest.fn(async (_prefix: string, _input: unknown, _result: unknown, _ttl?: number) => {})
 jest.mock('@/lib/ai-cache', () => ({
   getCachedAI: (prefix: string, input: unknown) => getCachedAI(prefix, input),
@@ -21,6 +28,9 @@ jest.mock('@/lib/ai-cache', () => ({
 }))
 
 import { getDailyAttentionLines, type AttentionInputItem } from '@/lib/dashboard/daily-attention-ai'
+import { openai } from '@/lib/openai'
+
+const parse = openai.chat.completions.parse as jest.Mock
 
 const item: AttentionInputItem = {
   appointmentId: 'appt-1',
@@ -93,9 +103,69 @@ describe('getDailyAttentionLines cache-key tenancy', () => {
     })
     expect(getCachedAI).not.toHaveBeenCalled()
     expect(setCachedAI).not.toHaveBeenCalled()
+    // The AI entrypoint itself must never fire for an unknown tenant — a
+    // regression that re-introduces the OpenAI call here (independent of
+    // whether it also happens to skip the cache) must fail this test.
+    expect(parse).not.toHaveBeenCalled()
     // Deterministic fallback line, one per item — the degraded-auth path
     // serves template copy, never a shared-bucket cached AI line.
     expect(lines.size).toBe(1)
     expect(lines.get('c1')).toBeTruthy()
+  })
+})
+
+describe('getDailyAttentionLines generate + cache-hit path', () => {
+  it('cache miss: generates via OpenAI and writes the result to the cache under the businessId-keyed input', async () => {
+    parse.mockResolvedValueOnce({
+      choices: [{ message: { parsed: { lines: [{ customerId: 'c1', line: 'AI line' }] } } }],
+    })
+
+    const lines = await getDailyAttentionLines({
+      items: [item],
+      businessType: null,
+      businessId: 'biz-A',
+      storeId: 'store-1',
+      dateYmd: '2026-07-20',
+      locale: 'ja',
+    })
+
+    expect(parse).toHaveBeenCalledTimes(1)
+    expect(lines.get('c1')).toBe('AI line')
+    expect(setCachedAI).toHaveBeenCalledWith(
+      'daily_attention',
+      expect.objectContaining({ businessId: 'biz-A' }),
+      { lines: [{ customerId: 'c1', line: 'AI line' }] },
+      1,
+    )
+  })
+
+  it('cache hit: returns the cached lines with NO second AI call', async () => {
+    parse.mockResolvedValueOnce({
+      choices: [{ message: { parsed: { lines: [{ customerId: 'c1', line: 'AI line' }] } } }],
+    })
+    const first = await getDailyAttentionLines({
+      items: [item],
+      businessType: null,
+      businessId: 'biz-A',
+      storeId: 'store-1',
+      dateYmd: '2026-07-20',
+      locale: 'ja',
+    })
+    expect(first.get('c1')).toBe('AI line')
+    expect(parse).toHaveBeenCalledTimes(1)
+
+    getCachedAI.mockResolvedValueOnce({ lines: [{ customerId: 'c1', line: 'Cached line' }] })
+    const second = await getDailyAttentionLines({
+      items: [item],
+      businessType: null,
+      businessId: 'biz-A',
+      storeId: 'store-1',
+      dateYmd: '2026-07-20',
+      locale: 'ja',
+    })
+
+    expect(second.get('c1')).toBe('Cached line')
+    // Still just the one call from the first (cache-miss) request above.
+    expect(parse).toHaveBeenCalledTimes(1)
   })
 })
