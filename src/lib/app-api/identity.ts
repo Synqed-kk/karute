@@ -33,6 +33,11 @@ export interface RequestIdentity {
   capabilities: Set<Capability>
   /** How identity was established. */
   via: 'bearer' | 'cookie'
+  /** The Bearer token's own `email` claim (BearerClaims.email), or null when
+   *  absent — the facade's parity source for the web page's
+   *  supabase.auth.getUser().email (no cookie session to read a user object
+   *  from on this path). ADDITIVE: every other field/behavior unchanged. */
+  email: string | null
 }
 
 /** Extract the raw Bearer token, or throw `unauthenticated`. A cookie on this
@@ -97,5 +102,11 @@ export async function resolveBearerIdentity(
   }
 
   const capabilities = await capabilitiesForUser(authUserId)
-  return { authUserId, businessId, capabilities, via: 'bearer' }
+  return {
+    authUserId,
+    businessId,
+    capabilities,
+    via: 'bearer',
+    email: resolved.claims.email ?? null,
+  }
 }

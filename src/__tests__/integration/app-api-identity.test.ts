@@ -56,8 +56,18 @@ describe('resolveBearerIdentity', () => {
       businessId: 'business-1',
       capabilities: new Set(['customers.view']),
       via: 'bearer',
+      email: null, // no email claim on this token (additive field, packet 12 §B-2)
     })
     expect(getUser).not.toHaveBeenCalled() // customer.read is not revocation-sensitive
+  })
+
+  it('captures the Bearer token email claim in identity.email when present (additive, packet 12 §B-2)', async () => {
+    const withEmail = token('auth-user-1', { email: 'mika@example.com' })
+    const id = await resolveBearerIdentity(req({ authorization: `Bearer ${withEmail}` }), 'customer.read', {
+      config: CONFIG,
+      getUser: okUser,
+    })
+    expect(id.email).toBe('mika@example.com')
   })
 
   it('re-verifies revocation on a sensitive endpoint → revoked when getUser is null', async () => {
