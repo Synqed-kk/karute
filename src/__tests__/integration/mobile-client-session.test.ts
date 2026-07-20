@@ -157,6 +157,10 @@ describe('createMobileAuth — sign-out adapter', () => {
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(false)
     expect(purge).toHaveBeenCalledTimes(1)
+    // All THREE removals attempted despite the rejections (allSettled,
+    // Greptile #572) — the old sequential try bailed after the first, which
+    // could retain the sibling credential keys on a per-key adapter failure.
+    expect(removeItem).toHaveBeenCalledTimes(3)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 })

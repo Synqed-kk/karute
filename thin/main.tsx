@@ -71,7 +71,8 @@ function main(): void {
   // fell through to the customer list with no way back.
   const strippedPathname = stripLocalePrefix(location.pathname)
   if (strippedPathname !== location.pathname) {
-    history.replaceState({}, '', strippedPathname + location.search)
+    // hash preserved (Greptile #572): anchor deep links must survive the strip.
+    history.replaceState({}, '', strippedPathname + location.search + location.hash)
   }
 
   // The shell's HOME is the customer list. Normalize the WebView entry URL

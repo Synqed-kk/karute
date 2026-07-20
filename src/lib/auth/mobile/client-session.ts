@@ -153,16 +153,16 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         // storage on every call, so a missing key makes getSession()/
         // autorefresh/resume all resolve null, no private API needed. Then
         // flip the store ourselves, since no SIGNED_OUT event will arrive
-        // to do it. Best-effort on the storage removal itself (a broken
-        // adapter must not block the fail-closed sign-out this exists for)
-        // but onSessionState ALWAYS fires.
-        try {
-          await opts.storage.removeItem(SESSION_STORAGE_KEY)
-          await opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`)
-          await opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`)
-        } catch {
-          // best-effort — see comment above.
-        }
+        // to do it. Each removal is attempted INDEPENDENTLY (allSettled,
+        // Greptile #572): one failed delete must not retain the sibling
+        // credentials — and the whole step stays best-effort (a broken
+        // adapter must not block the fail-closed sign-out this exists for);
+        // onSessionState ALWAYS fires.
+        await Promise.allSettled([
+          opts.storage.removeItem(SESSION_STORAGE_KEY),
+          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`),
+          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`),
+        ])
         opts.onSessionState({ status: 'signed-out' })
       }
       return result
