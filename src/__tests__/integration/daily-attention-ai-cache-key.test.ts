@@ -32,6 +32,23 @@ import { openai } from '@/lib/openai'
 
 const parse = openai.chat.completions.parse as jest.Mock
 
+// Deferred-call guard (fresh-round finding): a regression that schedules the
+// AI call on a macrotask (setTimeout / after()-style fire-and-forget) would
+// evade a same-tick not-called/count assertion — drain both macrotask phases
+// before asserting. The setTimeout(0) leg is load-bearing: timers are FIFO,
+// so it fires strictly after any attacker setTimeout(0) queued earlier
+// (setImmediate alone can lose that race and let the stray call leak into
+// the NEXT test instead of failing this one). Drained in ROUNDS (Greptile
+// #574): a nested chain — a timer that schedules the real call in a second
+// timer — queues the inner hop behind a single flush pass; 5 rounds covers
+// any accidental chain depth without resorting to fake timers.
+const flushDeferred = async () => {
+  for (let i = 0; i < 5; i++) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    await new Promise((resolve) => setImmediate(resolve))
+  }
+}
+
 const item: AttentionInputItem = {
   appointmentId: 'appt-1',
   clientId: 'c1',
@@ -47,6 +64,9 @@ const item: AttentionInputItem = {
   lastSummary: null,
 }
 
+// NOTE: clearAllMocks() resets call history but NOT queued mockResolvedValueOnce
+// values — each test must consume exactly the once-values it queues, or the
+// leftover leaks into the next test.
 beforeEach(() => {
   jest.clearAllMocks()
   getCachedAI.mockResolvedValue(null)
@@ -101,6 +121,9 @@ describe('getDailyAttentionLines cache-key tenancy', () => {
       dateYmd: '2026-07-20',
       locale: 'ja',
     })
+    // Catches deferred (setTimeout/fire-and-forget) calls too, not just
+    // same-tick ones.
+    await flushDeferred()
     expect(getCachedAI).not.toHaveBeenCalled()
     expect(setCachedAI).not.toHaveBeenCalled()
     // The AI entrypoint itself must never fire for an unknown tenant — a
@@ -129,11 +152,20 @@ describe('getDailyAttentionLines generate + cache-hit path', () => {
       locale: 'ja',
     })
 
+    await flushDeferred()
     expect(parse).toHaveBeenCalledTimes(1)
     expect(lines.get('c1')).toBe('AI line')
+    // EXACT cache-input shape, not objectContaining: dropping items/storeId
+    // from the key (stale text served across different card sets) must fail
+    // here, not just a missing businessId.
     expect(setCachedAI).toHaveBeenCalledWith(
       'daily_attention',
-      expect.objectContaining({ businessId: 'biz-A' }),
+      {
+        businessId: 'biz-A',
+        storeId: 'store-1',
+        dateYmd: '2026-07-20',
+        items: [['c1', 'memo', null, null]],
+      },
       { lines: [{ customerId: 'c1', line: 'AI line' }] },
       1,
     )
@@ -165,7 +197,13 @@ describe('getDailyAttentionLines generate + cache-hit path', () => {
     })
 
     expect(second.get('c1')).toBe('Cached line')
+    // Drain deferred work: a background "cache refresh" scheduled on a
+    // macrotask would evade a same-tick count assertion.
+    await flushDeferred()
     // Still just the one call from the first (cache-miss) request above.
     expect(parse).toHaveBeenCalledTimes(1)
+    // A hit must not WRITE the cache either (TTL-touch/refresh regressions);
+    // the single recorded write is the first (miss) request's.
+    expect(setCachedAI).toHaveBeenCalledTimes(1)
   })
 })
