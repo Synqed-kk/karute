@@ -122,4 +122,17 @@ describe('PATCH /api/app/v1/org-settings', () => {
     await PATCH(patchReq({ salon_name: 'New name', not_a_real_field: 'x' }), route)
     expect(writeOrgSettingsBlobWithClient).toHaveBeenCalledWith(fakeClient, { salon_name: 'New name' })
   })
+
+  it('voice_enrollments never reaches the writer — staff-owned data does not ride the settings.manage gate (auditor pin)', async () => {
+    await PATCH(
+      patchReq({
+        salon_name: 'New name',
+        voice_enrollments: {
+          'staff-2': { consent_at: '2026-01-01', sample_path: 'p', status: 'revoked', revoked_at: null },
+        },
+      }),
+      route,
+    )
+    expect(writeOrgSettingsBlobWithClient).toHaveBeenCalledWith(fakeClient, { salon_name: 'New name' })
+  })
 })

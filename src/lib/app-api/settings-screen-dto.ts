@@ -96,8 +96,20 @@ export const OrgSettingsSchema = z.object({
  *  web action never lets the client set it). Network-boundary validation the
  *  web action itself doesn't have (writeOrgSettingsBlob merges an unvalidated
  *  Partial<OrgSettings> from trusted in-process callers) — deliberate
- *  hardening for this NEW facade endpoint; web's own looseness is untouched. */
-export const OrgSettingsPatchDTO = OrgSettingsSchema.omit({ id: true }).partial()
+ *  hardening for this NEW facade endpoint; web's own looseness is untouched.
+ *
+ *  `voice_enrollments` is dropped too (auditor finding): it is STAFF-OWNED
+ *  data with its own ownership gate — writeOrgSettingsBlob's doc comment says
+ *  the write/gate split exists precisely so voice fields do NOT ride the
+ *  settings.manage gate. No S1 section ever sends it (voice enrollment lives
+ *  in the staff tab's voice service, S4); accepting it here would hand every
+ *  settings.manage holder a write path over other staff's enrollment records
+ *  through this NEW endpoint. zod strips it silently (same as any unknown
+ *  key), pinned by the route test. */
+export const OrgSettingsPatchDTO = OrgSettingsSchema.omit({
+  id: true,
+  voice_enrollments: true,
+}).partial()
 
 const StaffMemberSchema = z.object({
   id: z.string(),
