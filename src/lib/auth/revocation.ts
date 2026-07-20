@@ -90,6 +90,12 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'appointment.cancel',
   'appointment.noShow',
   'appointment.restore',
+  // dashboard pack mutations (design-parity Gap B-1 PR 2): dismissing a
+  // 未処理来店/要連絡 alert or logging a win-back contact all write to the
+  // packs tables. Same "every facade mutation re-checks revocation" rule.
+  'customer.pack.reconcile.dismiss',
+  'customer.pack.alert.dismiss',
+  'customer.pack.contact.log',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */
