@@ -21,3 +21,11 @@ export function setThinActiveStore(id: string): void {
     /* storage unavailable — the server default (assignment/primary) applies */
   }
 }
+
+export function clearThinActiveStore(): void {
+  try {
+    window.localStorage.removeItem(KEY)
+  } catch {
+    /* storage unavailable — nothing persisted to clear */
+  }
+}

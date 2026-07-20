@@ -28,6 +28,12 @@ export function subscribeRefresh(listener: () => void): () => void {
   }
 }
 
+/** Module-level refresh trigger — for non-component callers (the chrome
+ *  store's lens seed); useRouter().refresh delegates here. */
+export function emitRefresh(): void {
+  refreshListeners.forEach((l) => l())
+}
+
 // Next's Link/router accept `{pathname, query}` objects as well as strings
 // (CustomerIdentityCard's mic button passes one). Without this normalizer the
 // History API stringifies the object to "[object Object]", the profile route
@@ -62,7 +68,7 @@ export function useRouter() {
     push: (href: Href) => navigate(href),
     replace: (href: Href) => navigate(href, true),
     back: () => history.back(),
-    refresh: () => refreshListeners.forEach((l) => l()),
+    refresh: emitRefresh,
     prefetch: () => {},
   }
 }

@@ -126,6 +126,7 @@ const apiFetch = jest.fn(
 
 import { ThinChromeContent, ThinChromeNav } from '../../../thin/chrome/Chrome'
 import { ThinRouter } from '../../../thin/router'
+import { subscribeRefresh } from '../../../thin/ports/nav.vite'
 
 beforeEach(() => {
   apiFetch.mockClear()
@@ -191,6 +192,70 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
     setSessionState({ status: 'recovering' })
     render(<ThinChromeNav />)
     expect(screen.getAllByText('顧客').length).toBeGreaterThan(0)
+  })
+})
+
+describe('fresh-install store lens seed (Gap B½)', () => {
+  // Two stores so the seed has a real pick; primary listed SECOND to prove
+  // it's the isPrimary flag, not array order, that wins.
+  const LENS_DTO: ChromeScreenDTOType = {
+    ...CHROME_DTO,
+    stores: [
+      { id: 's-branch', name: 'La Estro 渋谷', isPrimary: false, active: true },
+      { id: 's-primary', name: 'La Estro 代官山', isPrimary: true, active: true },
+    ],
+  }
+  const chromeReady = () => waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
+  const lensDto = (dto: ChromeScreenDTOType) =>
+    apiFetch.mockImplementationOnce(async () => ({
+      ok: true,
+      json: async () => ({ data: dto }),
+    }))
+
+  it('seeds the pref from the primary store and re-fetches mounted screens', async () => {
+    const refreshed = jest.fn()
+    const unsub = subscribeRefresh(refreshed)
+    lensDto(LENS_DTO)
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    await waitFor(() =>
+      expect(window.localStorage.getItem('karute-active-store')).toBe('s-primary'),
+    )
+    // Screens fetched before the seed rendered unlensed — the refresh bus
+    // must fire so they re-fetch through the new lens.
+    expect(refreshed).toHaveBeenCalled()
+    unsub()
+  })
+
+  it('never overrides a pinned lens', async () => {
+    const refreshed = jest.fn()
+    const unsub = subscribeRefresh(refreshed)
+    window.localStorage.setItem('karute-active-store', 's-branch')
+    lensDto(LENS_DTO)
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    await chromeReady()
+    expect(window.localStorage.getItem('karute-active-store')).toBe('s-branch')
+    expect(refreshed).not.toHaveBeenCalled()
+    unsub()
+  })
+
+  it('never seeds a clamped staff (non-null activeStoreId) — the tenant primary could be outside their assignment', async () => {
+    const refreshed = jest.fn()
+    const unsub = subscribeRefresh(refreshed)
+    lensDto({ ...LENS_DTO, activeStoreId: 's-branch' })
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    render(<ThinChromeNav />)
+    await chromeReady()
+    expect(window.localStorage.getItem('karute-active-store')).toBeNull()
+    expect(refreshed).not.toHaveBeenCalled()
+    unsub()
+  })
+
+  it("sign-out clears the lens — the next sign-in must not ride the previous user's store-id", () => {
+    window.localStorage.setItem('karute-active-store', 's-branch')
+    setSessionState({ status: 'signed-out' })
+    expect(window.localStorage.getItem('karute-active-store')).toBeNull()
   })
 })
 
