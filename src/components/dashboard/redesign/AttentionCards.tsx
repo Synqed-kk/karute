@@ -1,9 +1,14 @@
+'use client'
+
 // 本日の要注目 (Liam-approved 3+2 design) — ONLY the customers on today's
 // book with something worth knowing, each with a one-line AI prep note
 // (deterministic fallback when the AI is unavailable). The full schedule
 // lives in the 予約 tab; this section must add insight, never duplicate it.
+//
+// Design-parity P-B-1: flipped from an async server component to a client
+// leaf (useTranslations) — see DashboardPageView.
 
-import { getTranslations } from 'next-intl/server'
+import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import type { AttentionBadge } from '@/lib/dashboard/attention'
 
@@ -25,14 +30,14 @@ const BADGE_STYLE: Record<AttentionBadge, string> = {
   memo: 'bg-muted text-muted-foreground',
 }
 
-export async function AttentionCards({
+export function AttentionCards({
   items,
   totalToday,
 }: {
   items: AttentionCardView[]
   totalToday: number
 }) {
-  const t = await getTranslations('dashboard.flow')
+  const t = useTranslations('dashboard.flow')
   if (items.length === 0) return null
   const badgeLabel = (i: AttentionCardView): string => {
     switch (i.badge) {

@@ -1,10 +1,15 @@
+'use client'
+
 // 推奨アクション (from Liam's Reserve design spike) — the AI/data layer
 // proposes MOVES, not summaries: today's renewal moment, rebook suggestions
 // computed from each customer's real visit rhythm, and win-back candidates.
 // Every card hides when it has nothing; the whole section renders null when
 // all three are empty. Staff-safe: names and counts only, never yen.
+//
+// Design-parity P-B-1: flipped from an async server component to a client
+// leaf (useTranslations) — see DashboardPageView.
 
-import { getTranslations } from 'next-intl/server'
+import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 
 export interface RenewalView {
@@ -28,7 +33,7 @@ export interface WinbackView {
   days: number
 }
 
-export async function ActionCards({
+export function ActionCards({
   renewals,
   rebooks,
   winbacks,
@@ -37,7 +42,7 @@ export async function ActionCards({
   rebooks: RebookView[]
   winbacks: WinbackView[]
 }) {
-  const t = await getTranslations('dashboard.flow')
+  const t = useTranslations('dashboard.flow')
   if (renewals.length === 0 && rebooks.length === 0 && winbacks.length === 0) return null
   return (
     <section className="flex flex-col gap-2.5">

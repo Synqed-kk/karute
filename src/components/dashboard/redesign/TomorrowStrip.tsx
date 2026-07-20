@@ -1,8 +1,13 @@
+'use client'
+
 // 明日 strip — the last thing staff check before going home: how many
 // customers, any first-timers, who opens the day. Dumb display; renders
 // nothing when tomorrow is empty.
+//
+// Design-parity P-B-1: flipped from an async server component to a client
+// leaf (useTranslations) — see DashboardPageView.
 
-import { getTranslations } from 'next-intl/server'
+import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 
 export interface TomorrowStripData {
@@ -14,8 +19,8 @@ export interface TomorrowStripData {
   firstName: string
 }
 
-export async function TomorrowStrip({ data }: { data: TomorrowStripData | null }) {
-  const t = await getTranslations('dashboard.flow')
+export function TomorrowStrip({ data }: { data: TomorrowStripData | null }) {
+  const t = useTranslations('dashboard.flow')
   if (!data || data.count === 0) return null
   return (
     <Link

@@ -207,6 +207,24 @@ const dashboardByDay = unstable_cache(
 
 export async function getDashboardData(): Promise<DashboardData> {
   const businessId = await getBusinessId()
+  // resolveStoreScope: viewAll/floating viewers get the unset-cookie PRIMARY
+  // store default (what the switcher displays), but a branch-restricted staff is
+  // CLAMPED to their assigned store — so an unset/out-of-scope cookie can't leak
+  // another branch's dashboard (the Ginza Apple-review leak). getDefaultStoreId
+  // never applied that clamp here.
+  const activeStore = (await resolveStoreScope()).storeId
+  return getDashboardDataFor(businessId, activeStore)
+}
+
+/** businessId/storeId-EXPLICIT variant (design-parity P-B-1) — does NOT read
+ *  cookies, so it's safe to call from the facade (Bearer) path or from the
+ *  dashboard screen builder once both have their own explicit scope. Same
+ *  cache-key/date-math as getDashboardData, just with the scope supplied
+ *  instead of resolved from the request. */
+export async function getDashboardDataFor(
+  businessId: string,
+  storeId: string | null,
+): Promise<DashboardData> {
   const now = new Date()
   const startOfWeek = new Date(now)
   startOfWeek.setUTCDate(startOfWeek.getUTCDate() - startOfWeek.getUTCDay())
@@ -221,17 +239,11 @@ export async function getDashboardData(): Promise<DashboardData> {
   // Active store threads in as an extra positional arg so it becomes part of the
   // cache key — a store-scoped dashboard is never served from another store's
   // cache entry. Read in request scope (unstable_cache runs outside it).
-  // resolveStoreScope: viewAll/floating viewers get the unset-cookie PRIMARY
-  // store default (what the switcher displays), but a branch-restricted staff is
-  // CLAMPED to their assigned store — so an unset/out-of-scope cookie can't leak
-  // another branch's dashboard (the Ginza Apple-review leak). getDefaultStoreId
-  // never applied that clamp here.
-  const activeStore = (await resolveStoreScope()).storeId
   return dashboardByDay(
     businessId,
     todayDay,
     startOfWeek.toISOString(),
     startOfMonth.toISOString(),
-    activeStore,
+    storeId,
   )
 }
