@@ -46,14 +46,28 @@ export type UrlObject = {
 }
 export type Href = string | UrlObject
 
+// F4 (packet 12 fix batch): shared components push LOCALE-PREFIXED paths
+// (e.g. ProfilePageView's handleSignOut does `/${locale}/login`) — web
+// parity, since web routes live under /[locale]/... The shell is
+// single-locale and ThinRouter has no /ja/* or /en/* entries, so an
+// unstripped prefix fell through to the customer list (or worse, 404'd a
+// param route) with no active tab. Mirrors the facade chrome route's own
+// stripLocalePrefix (src/app/api/app/v1/screens/chrome/route.ts) — same
+// regex, same '' → '/' fallback. Anchored to a full path segment: '/jazz'
+// or '/english-menu' must NOT be stripped.
+function stripLocalePrefix(path: string): string {
+  return path.replace(/^\/(ja|en)(?=\/|$)/, '') || '/'
+}
+
 export function toHref(href: Href): string {
-  if (typeof href === 'string') return href
+  if (typeof href === 'string') return stripLocalePrefix(href)
   const params = new URLSearchParams()
   for (const [k, v] of Object.entries(href.query ?? {})) {
     if (v != null) params.set(k, String(v))
   }
   const qs = params.toString()
-  return qs ? `${href.pathname}?${qs}` : href.pathname
+  const path = stripLocalePrefix(href.pathname)
+  return qs ? `${path}?${qs}` : path
 }
 
 function navigate(href: Href, replace = false): void {
