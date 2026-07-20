@@ -22,6 +22,7 @@ import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
+import { validateAppointmentTime } from '@/lib/appointments'
 import { createAppointmentCore } from '@/lib/appointments/mutations'
 
 export const runtime = 'nodejs'
@@ -77,6 +78,16 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     )
   }
 
+  // Validate hours BEFORE the resolver — the web action's own invariant:
+  // resolveSynqedStaffId can CREATE a staff record on miss, and invalid input
+  // must not leave that side effect behind. (The core re-validates; pure.)
+  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
+  const hoursError = await validateAppointmentTime(
+    parsed.data,
+    orgSettings?.operating_hours,
+  )
+  if (hoursError) return ok(ctx, { error: hoursError })
+
   // Profile → core staff id (create-on-miss, appointments FK to staff.id).
   // An unresolvable id returns the web action's own { error } string — the
   // dialog toasts it identically on both paths.
@@ -90,7 +101,6 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     return ok(ctx, { error: err instanceof Error ? err.message : 'Unknown error' })
   }
 
-  const orgSettings = await orgSettingsWithClient(synqed).catch(() => null)
   const result = await createAppointmentCore(synqed, parsed.data, {
     synqedStaffId,
     preferredStoreId: clamp.storeId,

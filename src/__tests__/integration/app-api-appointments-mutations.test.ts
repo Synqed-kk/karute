@@ -218,6 +218,19 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(apptCreate).not.toHaveBeenCalled()
   })
 
+  it('out-of-hours booking → { error } BEFORE the resolver runs (no staff-mint side effect)', async () => {
+    const { resolveSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+    // 03:00 JST — outside the default operating hours.
+    const res = await createPOST(
+      post(CREATE_URL, { ...CREATE_BODY, startTime: '2026-07-20T18:00:00.000Z' }),
+      noParams,
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).error).toMatch(/operating hours/)
+    expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
   it('a business failure rides the body: invalid duration → 200 { error }', async () => {
     const res = await createPOST(
       post(CREATE_URL, { ...CREATE_BODY, durationMinutes: 0 }),

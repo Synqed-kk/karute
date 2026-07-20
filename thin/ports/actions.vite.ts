@@ -434,14 +434,21 @@ type MarkNoShowResult =
   | { error: string; code?: 'no_burnable_pack' | 'already_terminal' }
 
 async function statusCall(path: string, body?: unknown): Promise<MarkNoShowResult> {
-  const res = await getDataPort().apiFetch(path, idemPost(body))
-  const parsed = (await res.json().catch(() => null)) as
-    | (MarkNoShowResult & { error?: unknown })
-    | { error?: { message?: string } }
-    | null
-  if (res.ok && parsed) return parsed as MarkNoShowResult
-  const message = (parsed as { error?: { message?: string } } | null)?.error?.message
-  return { error: message ?? `Request failed (${res.status})` }
+  // try/catch delivers the comment's transport promise: an offline/DNS reject
+  // must land as { error } — the sheet awaits WITHOUT a catch, and a rejection
+  // there leaves the hold-pill burst with no toast and the sheet frozen.
+  try {
+    const res = await getDataPort().apiFetch(path, idemPost(body))
+    const parsed = (await res.json().catch(() => null)) as
+      | (MarkNoShowResult & { error?: unknown })
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && parsed) return parsed as MarkNoShowResult
+    const message = (parsed as { error?: { message?: string } } | null)?.error?.message
+    return { error: message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
 }
 
 export const createAppointment = async (input: {
@@ -453,16 +460,23 @@ export const createAppointment = async (input: {
   title?: string
   notes?: string
 }): Promise<{ id: string } | { error: string }> => {
-  const res = await getDataPort().apiFetch('/api/app/v1/appointments', idemPost(input))
-  const body = (await res.json().catch(() => null)) as
-    | { id?: string; error?: string | { message?: string } }
-    | null
-  if (res.ok && body?.id) return { id: body.id }
-  // Business failure rides a 2xx { error: string }; transport/auth failures
-  // carry the facade's { error: { message } } envelope.
-  const message =
-    typeof body?.error === 'string' ? body.error : body?.error?.message
-  return { error: message ?? `Create failed (${res.status})` }
+  // try/catch: the dialog's handleSave awaits without one — a transport
+  // reject would strand `saving` true and dead the save button (see
+  // statusCall's identical rationale).
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/appointments', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.id) return { id: body.id }
+    // Business failure rides a 2xx { error: string }; transport/auth failures
+    // carry the facade's { error: { message } } envelope.
+    const message =
+      typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Create failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
 }
 
 export const cancelAppointment = (
