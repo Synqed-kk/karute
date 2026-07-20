@@ -182,6 +182,68 @@ describe('AuthGate mounts the recording/processing chrome (F-8)', () => {
     expect(toast.error).not.toHaveBeenCalled()
   })
 
+  // T2 (packet 12 fix batch round 3, test-attack lens): the error branch's
+  // toast guard had zero coverage — only the success branch was pinned above.
+  it('a save resolving with {error} on the CURRENT run toasts an error (T2)', async () => {
+    ;(saveKaruteRecordInline as jest.Mock).mockResolvedValueOnce({
+      error: 'save failed',
+    })
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('a save resolving with {error} AFTER a newer run superseded it does NOT toast (T2, error branch)', async () => {
+    let resolveSave!: (v: { error: string }) => void
+    ;(saveKaruteRecordInline as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    // Supersede BEFORE the stale save resolves — same runId-bump pattern as
+    // the success-branch test above.
+    act(() => {
+      globalPipeline.start(new Blob(['b']), { locale: 'ja', customers: [] })
+    })
+    await act(async () => {
+      resolveSave({ error: 'save failed' })
+    })
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
   it('keeps the chrome mounted through an offline-resume spell (recovering w/ known session)', () => {
     act(() => {
       globalPipeline.start(new Blob(['a']), { locale: 'ja', customers: [] })
