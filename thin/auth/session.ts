@@ -81,15 +81,16 @@ export function getMobileAuth(): MobileAuth {
       const outgoingUid = getCurrentSession()?.user?.id
       setSessionState({ status: 'signed-out' })
       // SIGNED_OUT is also how that server-driven session death arrives, so
-      // this is the catch-all vault purge — MobileAuth.signOut() (the
-      // in-app button, via the thin supabase-client stub) ALSO purges via
-      // its own composed purgeLocalCaches, so a button-driven sign-out wipes
-      // twice; both are idempotent/best-effort by design. Without this
-      // listener firing too, a server-driven death would never purge at
-      // all: the previous staff's live recorder/pipeline singletons (audio,
-      // transcript) would stay armed for the next sign-in on a shared
-      // device (packet-10 leak class). Best-effort by design: the UI
-      // demotes first, the wipe follows.
+      // this is the catch-all vault purge — a button-driven sign-out wipes
+      // THREE times: ProfilePageView's own pre-wipe (before calling
+      // signOut), signOutAndPurge's composed purgeLocalCaches (client-
+      // session.ts), and this listener firing on the SIGNED_OUT it
+      // produces; all three are idempotent/best-effort by design. Without
+      // this listener firing too, a server-driven death (no button ever
+      // pressed) would never purge at all: the previous staff's live
+      // recorder/pipeline singletons (audio, transcript) would stay armed
+      // for the next sign-in on a shared device (packet-10 leak class).
+      // Best-effort by design: the UI demotes first, the wipe follows.
       void wipeSessionVault({ uid: outgoingUid }).catch(() => {})
     }
   })
