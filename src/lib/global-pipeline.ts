@@ -96,6 +96,14 @@ class GlobalPipeline {
    */
   runId = 0
 
+  /** True when `runId` is still the live run — the same check
+   *  failAutosaveToReview/reset guard with internally, exposed for callers
+   *  (ProcessingIndicator's post-await toast tail, F2 packet 12 fix batch)
+   *  that need to bail on a stale run WITHOUT mutating pipeline state. */
+  isCurrentRun(runId: number): boolean {
+    return runId === this.runId
+  }
+
   subscribe(fn: Listener) {
     this.listeners.add(fn)
     return () => {

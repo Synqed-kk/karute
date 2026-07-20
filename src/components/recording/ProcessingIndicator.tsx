@@ -88,19 +88,31 @@ export function ProcessingIndicator() {
       if ('error' in res) {
         // Never silently lose a take — tell the staff, and drop THIS run to
         // review (no-op if a newer recording already superseded it).
-        toast.error(t('autosaveFailed'))
+        // The toast itself is runId-guarded (F2, packet 12 fix batch): an
+        // unguarded toast.error() here would fire even for a run the staff
+        // has already moved past — including AFTER sign-out, where the
+        // sonner Toaster still lived as an AppRoot sibling and rendered over
+        // LoginScreen. failAutosaveToReview is already self-guarded below.
+        if (globalPipeline.isCurrentRun(runId)) toast.error(t('autosaveFailed'))
         globalPipeline.failAutosaveToReview(runId)
       } else {
         // The record is saved — the persisted audio has served its purpose.
+        // Unconditional (not runId-guarded): the take must be deleted
+        // regardless of which run is now live, same as before this fix.
         if (ctx.takeId) void deleteTake(ctx.takeId)
         const id = res.id
-        toast.success(t('autoSaved'), {
-          action: {
-            label: t('viewSaved'),
-            onClick: () =>
-              router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
-          },
-        })
+        // Same runId guard as the error branch above — a late success must
+        // not toast (or offer a `/karute/${id}` action that pushState's the
+        // path) once this run is no longer current.
+        if (globalPipeline.isCurrentRun(runId)) {
+          toast.success(t('autoSaved'), {
+            action: {
+              label: t('viewSaved'),
+              onClick: () =>
+                router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
+            },
+          })
+        }
         // Hold the 保存済み state ~2s → 200ms fade → THEN reset. reset(runId)
         // stays guarded, so a newer take is never wiped.
         setDone({ runId, leaving: false })

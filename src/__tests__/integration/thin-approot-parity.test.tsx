@@ -7,9 +7,12 @@
 
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { render, screen } from '@testing-library/react'
+import type { Session } from '@supabase/supabase-js'
+import { act, render, screen, waitFor } from '@testing-library/react'
+import { toast } from 'sonner'
 import { sameOriginDataPort } from '@/lib/ports/data-port'
 import { LANG, DATA_THEME } from '@/lib/app-root/document-setup'
+import { setSessionState } from '@/lib/auth/mobile/session-store'
 
 // next-intl ships ESM that this repo's jest transform doesn't unwrap; mock it to
 // test AppRoot's OWN provider contract in isolation while still capturing the
@@ -50,6 +53,13 @@ function renderRoot(children: React.ReactNode) {
   )
 }
 
+afterEach(() => {
+  // Two-step, same as thin-splash-gate.test.tsx: only an explicit signed-out
+  // clears the store's lastSession.
+  setSessionState({ status: 'signed-out' })
+  setSessionState({ status: 'recovering' })
+})
+
 describe('AppRoot provider contract', () => {
   it('mounts children synchronously (first paint not gated on data)', () => {
     renderRoot(<div data-testid="screen">screen</div>)
@@ -64,7 +74,13 @@ describe('AppRoot provider contract', () => {
     expect(viewport?.getAttribute('content')).toContain('viewport-fit=cover')
   })
 
-  it('mounts the theme provider (next-themes class) and toaster (notifications)', () => {
+  it('mounts the theme provider (next-themes class) and toaster (notifications) while signed in', () => {
+    // The toaster is session-gated (F2, packet 12 fix batch) — see the
+    // SessionGatedToaster describe block below for the gate itself.
+    setSessionState({
+      status: 'signed-in',
+      session: { access_token: 't' } as Session,
+    })
     renderRoot(<div />)
     // next-themes (attribute="class", defaultTheme="light") stamps the class.
     expect(document.documentElement.classList.contains('light')).toBe(true)
@@ -95,5 +111,43 @@ describe('AppRoot provider contract', () => {
     )
     expect(layout).toContain(`lang="${LANG}"`)
     expect(layout).toContain(`data-theme="${DATA_THEME}"`)
+  })
+})
+
+describe('SessionGatedToaster (F2, packet 12 fix batch — no toast may render over LoginScreen)', () => {
+  it('does not render the toaster before/without a signed-in session', () => {
+    renderRoot(<div />)
+    expect(
+      document.querySelector('section[aria-label*="Notifications"]'),
+    ).toBeNull()
+  })
+
+  it('renders the toaster once signed in, and dismisses + unmounts it on sign-out', async () => {
+    renderRoot(<div />)
+    expect(
+      document.querySelector('section[aria-label*="Notifications"]'),
+    ).toBeNull()
+
+    act(() => {
+      setSessionState({
+        status: 'signed-in',
+        session: { access_token: 't' } as Session,
+      })
+    })
+    await waitFor(() =>
+      expect(
+        document.querySelector('section[aria-label*="Notifications"]'),
+      ).toBeTruthy(),
+    )
+
+    const dismissSpy = jest.spyOn(toast, 'dismiss')
+    act(() => {
+      setSessionState({ status: 'signed-out' })
+    })
+    expect(dismissSpy).toHaveBeenCalledTimes(1)
+    expect(
+      document.querySelector('section[aria-label*="Notifications"]'),
+    ).toBeNull()
+    dismissSpy.mockRestore()
   })
 })
