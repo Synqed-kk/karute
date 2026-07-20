@@ -1,9 +1,11 @@
 // Profile screen facade GET (design-parity packet 12 §B-2). The Bearer-path
 // twin of the web page's server-side assembly (src/app/[locale]/(app)/profile/
 // page.tsx): the SELF staff row (keyed by the CONFIRMED auth-user id, never
-// the first roster row) + org settings + the Bearer token's own email claim —
-// the facade's parity source for the cookie path's supabase.auth.getUser()
-// .email (no cookie session to read a user object from on this path).
+// the first roster row) + org settings + the Bearer token's own email claim.
+// NOT a live read: the claim is whatever was true when the token was minted
+// (a same-session email change wouldn't show here until the next token
+// refresh) — display-only, same as every other field on this DTO; no
+// getUser() round-trip is spent on it.
 //
 // Standing recipe (#565/#566/#570/#571, mirrored from the dashboard/
 // appointments routes): facadeHandler + ensureCapability + the store clamp
@@ -12,8 +14,14 @@
 // still runs so a bogus store-id header is rejected 403 like every other
 // screens route, not silently ignored.
 //
-// FAILURE CONTRACT: staff roster / org settings are load-bearing (page parity:
-// a failed read crashes the whole web page too) → throw → classified 502.
+// FAILURE CONTRACT: staff roster / org settings read failures → 502. NOT
+// page parity — the web page's getStaffList() catches its own read error and
+// degrades to [] (a facade read failing here does NOT mean the web page
+// would have crashed too). This is the deliberate facade-family rule
+// instead, same as every other screens/* route (dashboard/appointments/
+// record/etc.): a load-bearing screen read that silently degraded to an
+// empty/wrong roster would be a worse failure for a Bearer client with no
+// user watching a partial page render — throw → classified 502.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
