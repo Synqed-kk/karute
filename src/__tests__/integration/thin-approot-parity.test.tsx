@@ -151,26 +151,49 @@ describe('SessionGatedToaster (F2, packet 12 fix batch — no toast may render o
     dismissSpy.mockRestore()
   })
 
-  it('dismisses on the way INTO signed-in too — a toast buffered while signed out must not replay into the next session (F2 round 2)', async () => {
+  it('a live resume blip (recovering WITH a known session) keeps the toaster mounted, no dismiss (B1, packet 12 fix batch round 3)', async () => {
+    // Round-2's "dismiss both directions" fix is GONE (its premise was
+    // false against the installed sonner — see the AppRoot.tsx doc comment)
+    // — this pins the real invariant instead: the toaster gate mirrors
+    // AuthGate's live-app contract, so a signed-in↔recovering blip (offline
+    // resume) is not a gate transition at all.
     renderRoot(<div />)
-    // sonner's store is module-level: a toast fired with no Toaster mounted
-    // sits buffered (no expiry timer runs unmounted) and replays to the next
-    // mounted Toaster — i.e. into the NEXT user's session.
-    toast.success('staff-A leftover')
-    const dismissSpy = jest.spyOn(toast, 'dismiss')
     act(() => {
       setSessionState({
         status: 'signed-in',
         session: { access_token: 't' } as Session,
       })
     })
-    expect(dismissSpy).toHaveBeenCalledTimes(1)
     await waitFor(() =>
       expect(
         document.querySelector('section[aria-label*="Notifications"]'),
       ).toBeTruthy(),
     )
-    expect(screen.queryByText('staff-A leftover')).toBeNull()
+
+    const dismissSpy = jest.spyOn(toast, 'dismiss')
+    // Two-step, same pattern the suite already uses elsewhere (e.g.
+    // thin-splash-gate.test.tsx): 'recovering' alone doesn't clear
+    // lastSession — only an explicit signed-out does — so this reproduces
+    // an offline resume with a KNOWN session, not a fresh boot.
+    act(() => {
+      setSessionState({ status: 'recovering' })
+    })
+    expect(dismissSpy).not.toHaveBeenCalled()
+    expect(
+      document.querySelector('section[aria-label*="Notifications"]'),
+    ).toBeTruthy()
+
+    // Back to signed-in: still mounted, still no dismiss.
+    act(() => {
+      setSessionState({
+        status: 'signed-in',
+        session: { access_token: 't' } as Session,
+      })
+    })
+    expect(dismissSpy).not.toHaveBeenCalled()
+    expect(
+      document.querySelector('section[aria-label*="Notifications"]'),
+    ).toBeTruthy()
     dismissSpy.mockRestore()
   })
 })

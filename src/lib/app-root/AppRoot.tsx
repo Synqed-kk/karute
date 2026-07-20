@@ -24,12 +24,29 @@ import { Toaster, toast } from 'sonner'
 import { ThemeProvider } from '@/components/providers/theme-provider'
 import type { DataPort } from '@/lib/ports/types'
 import { DataPortProvider } from '@/lib/ports/data-port'
-import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
+import {
+  getSessionState,
+  hasKnownSession,
+  subscribeSessionState,
+} from '@/lib/auth/mobile/session-store'
 import { ErrorBoundary } from './ErrorBoundary'
 import { applyDocumentSetup } from './document-setup'
 
+/** Mirrors AuthGate's (thin/AuthGate.tsx) live-app contract EXACTLY:
+ *  signed-in, or 'recovering' WITH a known session (an offline resume).
+ *  AuthGate never locks a mid-shift user out for a resume blip — a
+ *  stricter (signed-in-only) toaster gate would black out every toast
+ *  app-wide during exactly that blip, including the autosave-failed toast
+ *  whose whole point is "never silently lose a take", and a save is most
+ *  likely to fail during the blip that causes 'recovering' in the first
+ *  place (B1, packet 12 fix batch round 3). */
+function isLiveSession(): boolean {
+  const state = getSessionState()
+  return state.status === 'signed-in' || (state.status === 'recovering' && hasKnownSession())
+}
+
 /**
- * Toaster, gated to the signed-in session (F2, packet 12 fix batch).
+ * Toaster, gated to the live-app session state (F2, packet 12 fix batch).
  *
  * sonner's Toaster used to mount as a bare SIBLING of {children} — it
  * outlives the AuthGate's demote to LoginScreen, so any late toast (a
@@ -38,25 +55,27 @@ import { applyDocumentSetup } from './document-setup'
  * action could push a stale route the next signed-in user would land on.
  * AppRoot is thin-only (no web usage) so this session-store import is safe.
  *
- * Renders <Toaster/> only while signed-in; on any transition AWAY from
- * signed-in, dismiss whatever sonner is holding — same shared-device
- * privacy class as the logout wipe: nothing buffered may replay into the
- * next user's session.
+ * Renders <Toaster/> only while isLiveSession(); on a transition AWAY from
+ * live, dismiss whatever sonner is holding — same shared-device privacy
+ * class as the logout wipe: nothing buffered may replay into the next
+ * user's session. Dismiss fires ONLY entering the gated-off state (was
+ * live, now isn't) — NOT on the way back in. A prior round (F2 round 2)
+ * dismissed both directions on the theory that sonner "replays" a toast
+ * buffered while unmounted to the next mounted Toaster; that premise is
+ * false against the installed sonner: Observer.subscribe only registers
+ * the new SUBSCRIBER, it never replays already-queued toasts, and
+ * Toaster's own list starts from useState([]) at mount — a toast fired
+ * with no Toaster mounted simply never renders. Dismissing on entry
+ * protected nothing, while it also fired on every live signed-in↔recovering
+ * blip, wiping a still-signed-in user's own in-flight toasts.
  */
 function SessionGatedToaster() {
-  const [signedIn, setSignedIn] = useState(
-    () => getSessionState().status === 'signed-in',
-  )
+  const [signedIn, setSignedIn] = useState(isLiveSession)
   useEffect(() => {
     return subscribeSessionState(() => {
-      const next = getSessionState().status === 'signed-in'
+      const next = isLiveSession()
       setSignedIn((was) => {
-        // BOTH directions (F2 round 2): sonner's store is module-level and
-        // REPLAYS buffered toasts to a newly mounted Toaster — a toast fired
-        // while signed out (no Toaster mounted, so no expiry timer ran)
-        // would otherwise surface in the NEXT user's session at sign-in.
-        // dismiss() is idempotent; a StrictMode double-invoke is harmless.
-        if (was !== next) toast.dismiss()
+        if (was && !next) toast.dismiss()
         return next
       })
     })
