@@ -287,22 +287,18 @@ export async function getAppointmentsInRange(
   try {
     // Same store scoping as the day agenda (see getAppointmentsByDate): the
     // RBAC-resolved store, not the raw cookie, so week/month overview counts
-    // can never include another branch for a store-restricted staff.
+    // can never include another branch for a store-restricted staff. The
+    // fetch + terminal filter live in the shared WithClient helper so the
+    // facade appointments-screen GET reads the identical window.
     const [synqed, scope] = await Promise.all([
       getSynqedClient(),
       resolveStoreScope(),
     ])
-    const list = await synqed.appointments.list({
-      from: fromIso,
-      to: toIso,
-      page_size: 500,
-      store_id: scope.storeId ?? undefined,
+    const { getAppointmentsInRangeWithClient } = await import('@/lib/appointments/by-date')
+    // `return await` so a rejection lands in this catch → the []-contract holds.
+    return await getAppointmentsInRangeWithClient(synqed, fromIso, toIso, {
+      storeId: scope.storeId ?? undefined,
     })
-    // Terminal (CANCELLED/NO_SHOW) bookings must not inflate the week/month
-    // overview counts, utilization, or density — same invariant the day view
-    // enforces ("a no-show is not a visit", AppointmentsView). The week/month
-    // card shapes carry no terminal flag, so filtering here is the only gate.
-    return list.appointments.filter((a) => !isTerminalStatus(a.status))
   } catch {
     return []
   }

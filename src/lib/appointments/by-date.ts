@@ -6,7 +6,7 @@
 // store-scope + cached-name resolution and passes them in.
 
 import { isTerminalStatus } from '@/lib/appointments/status'
-import type { SynqedClient } from '@synqed-kk/client'
+import type { Appointment, SynqedClient } from '@synqed-kk/client'
 import type { AppointmentRow } from '@/actions/appointments'
 
 type ByDateClient = Pick<SynqedClient, 'appointments' | 'karuteRecords' | 'staff'>
@@ -85,4 +85,27 @@ export async function getAppointmentsByDateWithClient(
           (a as typeof a & { status_set_at?: string | null }).status_set_at ?? null,
       }
     })
+}
+
+/**
+ * Range fetch on the given client — the week/month overview's read, factored
+ * out of the web `getAppointmentsInRange` action (design-parity P-B) so the
+ * facade appointments-screen GET reproduces the same window without the
+ * cookie helpers. Terminal (CANCELLED/NO_SHOW) bookings are dropped here —
+ * the week/month card shapes carry no terminal flag, so this filter is the
+ * only gate keeping tombstones out of counts/utilization/density.
+ */
+export async function getAppointmentsInRangeWithClient(
+  synqed: Pick<SynqedClient, 'appointments'>,
+  fromIso: string,
+  toIso: string,
+  opts: { storeId?: string } = {},
+): Promise<Appointment[]> {
+  const list = await synqed.appointments.list({
+    from: fromIso,
+    to: toIso,
+    page_size: 500,
+    store_id: opts.storeId ?? undefined,
+  })
+  return list.appointments.filter((a) => !isTerminalStatus(a.status))
 }

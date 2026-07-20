@@ -14,6 +14,20 @@ import type { NavPort } from '@/lib/ports/types'
 
 const listeners = new Set<() => void>()
 
+// router.refresh() subscribers. On web, refresh re-runs the server render so
+// mutations (new booking, cancel) appear without navigation; the shell has no
+// server render, so screens subscribe here and re-fetch their DTO instead.
+// Separate from the nav listeners: a refresh must never look like a path
+// change (pathname/search state would bail on the same value anyway).
+const refreshListeners = new Set<() => void>()
+
+export function subscribeRefresh(listener: () => void): () => void {
+  refreshListeners.add(listener)
+  return () => {
+    refreshListeners.delete(listener)
+  }
+}
+
 // Next's Link/router accept `{pathname, query}` objects as well as strings
 // (CustomerIdentityCard's mic button passes one). Without this normalizer the
 // History API stringifies the object to "[object Object]", the profile route
@@ -48,7 +62,7 @@ export function useRouter() {
     push: (href: Href) => navigate(href),
     replace: (href: Href) => navigate(href, true),
     back: () => history.back(),
-    refresh: () => listeners.forEach((l) => l()),
+    refresh: () => refreshListeners.forEach((l) => l()),
     prefetch: () => {},
   }
 }

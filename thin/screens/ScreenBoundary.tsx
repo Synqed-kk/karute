@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { getDataPort } from '@/lib/ports/data-port'
+import { subscribeRefresh } from '../ports/nav.vite'
 
 type State<T> =
   | { status: 'loading' }
@@ -21,6 +22,13 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     setState({ status: 'loading' })
     setAttempt((n) => n + 1)
   }, [])
+
+  // router.refresh() (post-mutation, e.g. a new booking) → re-fetch WITHOUT
+  // dropping to the loading frame: the current dto stays on screen and swaps
+  // when the fresh one lands — the shell's analogue of Next's refresh keeping
+  // stale content visible during the server re-render. An in-flight previous
+  // fetch can't clobber: each effect run's `alive` flag dies on re-run.
+  useEffect(() => subscribeRefresh(() => setAttempt((n) => n + 1)), [])
 
   useEffect(() => {
     let alive = true
