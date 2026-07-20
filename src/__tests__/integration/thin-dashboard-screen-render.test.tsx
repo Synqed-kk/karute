@@ -9,8 +9,18 @@
  * navigation real; OwnerBand/TodoCard stubbed — both drag in '@/actions/packs',
  * a 'use server' file that pulls next/cache internals TextEncoder-crashes in
  * this jest config, same reason PR 1's own client-flip suite stubs them).
- * NextCustomerHero + AttentionCards render for REAL, so a hero-slide name and
- * an attention-count both prove their own DTO slot landed correctly.
+ * NextCustomerHero + AttentionCards + ActionCards + TomorrowStrip all render
+ * for REAL: a hero-slide name, the attentionItems/totalToday pair, and one
+ * DISTINCT customer per renewals/rebooks/winbacks (each formats through its
+ * own i18n key, so any pairwise swap among the three fails) all prove their
+ * own DTO slot landed correctly.
+ *
+ * heroTomorrow vs tomorrow: NOT made distinguishable — NextCustomerHero only
+ * renders its tomorrow-first branch when heroSlides is EMPTY, mutually
+ * exclusive with this file's hero-slide-name check. A raw swap between the
+ * two is also TS-caught anyway (TomorrowFirstView and TomorrowStripData are
+ * structurally different shapes), so the risk this file exists to catch
+ * (a same-shaped pair silently swapped) doesn't apply to that pair.
  */
 import { render, screen } from '@testing-library/react'
 
@@ -68,10 +78,17 @@ const dto = DashboardScreenDTO.parse({
     { clientId: 'c1', timeHm: '11:00', name: 'ホシノ サキ', badge: 'first', line: '初回のご案内を' },
   ],
   totalToday: 4,
-  renewals: [],
-  rebooks: [],
-  winbacks: [],
-  tomorrow: null,
+  renewals: [{ clientId: 'r1', name: 'レナ', timeHm: '09:00', cycle: 21 }],
+  rebooks: [{ clientId: 'r2', name: 'リブ', remaining: 5, dueLabel: '8/1' }],
+  winbacks: [{ clientId: 'r3', name: 'ウィン', remaining: 1, days: 60 }],
+  tomorrow: {
+    dateLabel: '7/21(火)',
+    ymd: '2026-07-21',
+    count: 3,
+    firstTimers: 1,
+    firstTimeHm: '10:00',
+    firstName: 'アシタ',
+  },
   packAlerts: {
     contact: [],
     low: [],
@@ -102,5 +119,22 @@ describe('DashboardScreenInner (real-render prop-mapping smoke)', () => {
     // 1名 (attentionItems.length) / 4件 (totalToday) — a swap of the two
     // props would flip this string.
     expect(screen.getByText('1名 / 4件')).toBeInTheDocument()
+  })
+
+  it('threads renewals/rebooks/winbacks through to ActionCards without cross-swapping', () => {
+    render(<DashboardScreenInner dto={dto} />)
+    // Each list formats through its OWN i18n key with its OWN distinct
+    // customer — a renewals↔rebooks↔winbacks swap (any pairing) fails one
+    // of these three, since a swapped list would render the wrong name in
+    // the wrong format string.
+    expect(screen.getByText('レナ様 — 残り1回')).toBeInTheDocument()
+    expect(screen.getByText(/リブ様\(残5\) → 8\/1頃/)).toBeInTheDocument()
+    expect(screen.getByText(/ウィン様\(残1・60日\)/)).toBeInTheDocument()
+  })
+
+  it('threads tomorrow through to TomorrowStrip', () => {
+    render(<DashboardScreenInner dto={dto} />)
+    expect(screen.getByText('明日 7/21(火)')).toBeInTheDocument()
+    expect(screen.getByText('3名 · 初回1名 · 最初は 10:00 アシタ様')).toBeInTheDocument()
   })
 })

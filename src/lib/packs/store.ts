@@ -397,21 +397,6 @@ export async function addPackAlertDismissalWithClient(
   }
 }
 
-export async function addPackAlertDismissal(input: {
-  customerId: string
-  dismissedBy: string
-  reason?: string | null
-  expiresAt?: string | null
-}): Promise<{ ok: boolean }> {
-  try {
-    const synqed = await getSynqedClient()
-    return await addPackAlertDismissalWithClient(synqed, input)
-  } catch (err) {
-    warn('addPackAlertDismissal', err)
-    return { ok: false }
-  }
-}
-
 export type ContactChannel = 'phone' | 'sms' | 'email' | 'line' | 'in_person'
 
 /** Business-scoped twin of addCustomerContact (design-parity Gap B-1 PR 2) —
@@ -445,22 +430,6 @@ export async function addCustomerContactWithClient(
 
 /** Log a win-back contact attempt (the 連絡済み workflow). ANY staff — the
  *  outcome stream coaching trains on + the owner's effectiveness metric. */
-export async function addCustomerContact(input: {
-  customerId: string
-  channel: ContactChannel
-  alertKind?: string | null
-  note?: string | null
-  contactedBy: string
-}): Promise<{ ok: boolean }> {
-  try {
-    const synqed = await getSynqedClient()
-    return await addCustomerContactWithClient(synqed, input)
-  } catch (err) {
-    warn('addCustomerContact', err)
-    return { ok: false }
-  }
-}
-
 /** Recent contact attempts (newest first) — feeds the 対応中 snooze on the
  *  alert card + the monthly 対応→再来店 metric. Business-scoped twin
  *  (design-parity P-B-1) — THROWS on failure. */
@@ -565,22 +534,6 @@ export async function addVisitReconcileDismissalWithClient(
 
 /** 来店なし answer for a flagged 未処理来店 — stops the reconcile row from
  *  re-surfacing. Any staff; audit-trailed. */
-export async function addVisitReconcileDismissal(input: {
-  customerId: string
-  appointmentId?: string | null
-  visitDay: string // yyyy-mm-dd
-  dismissedBy: string
-  reason?: string | null
-}): Promise<{ ok: boolean }> {
-  try {
-    const synqed = await getSynqedClient()
-    return await addVisitReconcileDismissalWithClient(synqed, input)
-  } catch (err) {
-    warn('addVisitReconcileDismissal', err)
-    return { ok: false }
-  }
-}
-
 /** Recent 来店なし dismissals — the reconcile detector excludes these visits.
  *  Business-scoped twin (design-parity P-B-1) — THROWS on failure. */
 export async function listVisitReconcileDismissalsWithClient(

@@ -185,10 +185,16 @@ export async function dismissVisitReconcileAction(input: {
   visitDay: string
 }): Promise<{ ok: boolean }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — ReconcileStrip awaits with no try/catch
+  // (stranded spinner, no toast). Catch to null and degrade to the SAME
+  // { ok: false } origin/main produced when the old cookie fn's internal
+  // try/catch swallowed this exact failure.
   const [synqed, staffId] = await Promise.all([
-    getSynqedClient(),
+    getSynqedClient().catch(() => null),
     getCurrentUserStaffId().catch(() => null),
   ])
+  if (!synqed) return { ok: false }
   const result = await dismissVisitReconcileActionWithClient(synqed, staffId, input)
   if (result.ok) revalidatePath('/dashboard')
   return result
@@ -238,10 +244,16 @@ export async function logCustomerContactAction(input: {
   note?: string
 }): Promise<{ ok: boolean; error?: string }> {
   const { getSynqedClient } = await import('@/lib/synqed/client')
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — PackAlertsCard awaits with no try/catch
+  // (stranded spinner, no toast). Catch to null and degrade to the SAME
+  // { ok:false, error:'write failed' } origin/main produced when the old
+  // cookie fn's internal try/catch swallowed this exact failure.
   const [synqed, staffId] = await Promise.all([
-    getSynqedClient(),
+    getSynqedClient().catch(() => null),
     getCurrentUserStaffId().catch(() => null),
   ])
+  if (!synqed) return { ok: false, error: 'write failed' }
   const result = await logCustomerContactActionWithClient(synqed, staffId, input)
   if (result.ok) {
     revalidatePath('/[locale]/(app)/dashboard', 'page')
@@ -286,10 +298,16 @@ export async function dismissPackAlertAction(input: {
     return { ok: false, error: 'forbidden' }
   }
   const { getSynqedClient } = await import('@/lib/synqed/client')
+  // getSynqedClient() unguarded here would THROW the whole server action on a
+  // transient session/DB failure — PackAlertsCard awaits with no try/catch
+  // (stranded spinner, no toast). Catch to null and degrade to the SAME
+  // { ok:false, error:'write failed' } origin/main produced when the old
+  // cookie fn's internal try/catch swallowed this exact failure.
   const [synqed, staffId] = await Promise.all([
-    getSynqedClient(),
+    getSynqedClient().catch(() => null),
     getCurrentUserStaffId().catch(() => null),
   ])
+  if (!synqed) return { ok: false, error: 'write failed' }
   const result = await dismissPackAlertActionWithClient(synqed, staffId, input)
   if (result.ok) {
     revalidatePath('/[locale]/(app)/dashboard', 'page')

@@ -39,7 +39,7 @@ import { startTiming } from '@/lib/perf/timing'
 
 export const runtime = 'nodejs'
 
-function readLocale(ctx: FacadeContext): string {
+function readLocale(ctx: FacadeContext): 'ja' | 'en' {
   const raw = new URL(ctx.req.url).searchParams.get('locale')
   return raw === 'en' ? 'en' : 'ja'
 }

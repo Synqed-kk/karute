@@ -20,6 +20,56 @@ import {
   addCustomerContactWithClient,
 } from '@/lib/packs/store'
 
+// -- server-action wrapper coverage: getSynqedClient() failure (fleet P2) --
+// dismissVisitReconcileAction / logCustomerContactAction / dismissPackAlert-
+// Action construct the client in the SAME Promise.all as staffId resolution
+// (design-parity Gap B-1 PR 2's ActionWithClient split). Unguarded, a
+// getSynqedClient() rejection would THROW the whole server action —
+// ReconcileStrip/PackAlertsCard await these with no try/catch (stranded
+// spinner, no toast). Pins the fix: .catch(() => null) + the SAME graceful
+// shape origin/main's cookie-fn-internal try/catch produced for this exact
+// failure (verified against git show origin/main:src/actions/packs.ts).
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn(async () => 's1') }))
+jest.mock('@/lib/auth/require-permission', () => ({
+  requireCapability: jest.fn(async () => {}),
+}))
+const getSynqedClient = jest.fn(async () => ({}) as never)
+jest.mock('@/lib/synqed/client', () => ({
+  getSynqedClient: () => getSynqedClient(),
+}))
+
+import {
+  dismissVisitReconcileAction,
+  logCustomerContactAction,
+  dismissPackAlertAction,
+} from '@/actions/packs'
+
+describe('server-action wrappers: getSynqedClient() rejection degrades gracefully, never throws', () => {
+  beforeEach(() => {
+    getSynqedClient.mockRejectedValue(new Error('session lookup failed'))
+  })
+
+  it('dismissVisitReconcileAction → { ok: false }', async () => {
+    await expect(
+      dismissVisitReconcileAction({ customerId: 'c1', visitDay: '2026-07-20' }),
+    ).resolves.toEqual({ ok: false })
+  })
+
+  it('logCustomerContactAction → { ok: false, error: "write failed" }', async () => {
+    await expect(
+      logCustomerContactAction({ customerId: 'c1', channel: 'phone' }),
+    ).resolves.toEqual({ ok: false, error: 'write failed' })
+  })
+
+  it('dismissPackAlertAction → { ok: false, error: "write failed" }', async () => {
+    await expect(dismissPackAlertAction({ customerId: 'c1' })).resolves.toEqual({
+      ok: false,
+      error: 'write failed',
+    })
+  })
+})
+
 describe('addVisitReconcileDismissalWithClient', () => {
   it('delegates straight through with the mapped field names', async () => {
     const addVisitDismissal = jest.fn(async () => ({ ok: true }))

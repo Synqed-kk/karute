@@ -34,9 +34,9 @@ jest.mock('@/lib/packs/store', () => ({
     mockFindCustomerAppointmentForDate(synqed, customerId, dateYmd),
   // untouched by these cases, but the action module imports them at load time
   listCustomerPacksWithClient: jest.fn(async () => []),
-  addVisitReconcileDismissal: jest.fn(),
-  addCustomerContact: jest.fn(),
-  addPackAlertDismissal: jest.fn(),
+  addVisitReconcileDismissalWithClient: jest.fn(),
+  addCustomerContactWithClient: jest.fn(),
+  addPackAlertDismissalWithClient: jest.fn(),
   createPackWithClient: jest.fn(),
   removeRedemption: jest.fn(),
   setCustomerLifecycleWithClient: jest.fn(),
