@@ -142,7 +142,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         />
       )}
       <div
-        className={`fixed inset-x-0 bottom-[80px] z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-2 shadow-2xl transition-all duration-200 ${
+        className={`fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-2 shadow-2xl transition-all duration-200 ${
           menuOpen ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'
         }`}
       >

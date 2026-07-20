@@ -111,12 +111,14 @@ describe('chat route — auth guard', () => {
 })
 
 describe('chat route — store scope', () => {
+  // Third arg = the runKaruteChat core's contextDeps pass-through (F-9b) —
+  // undefined on the web/cookie route.
   it('clamped staff: both list reads carry their store_id', async () => {
     signedIn()
     clampedToGinza()
     const res = await POST(req())
     expect(res.status).toBe(200)
-    expect(karuteForAiMock).toHaveBeenCalledWith(5, GINZA)
+    expect(karuteForAiMock).toHaveBeenCalledWith(5, GINZA, undefined)
     const { list } = await customersMock()
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: GINZA }))
   })
@@ -125,7 +127,7 @@ describe('chat route — store scope', () => {
     signedIn()
     viewAll(null)
     await POST(req())
-    expect(karuteForAiMock).toHaveBeenCalledWith(5, undefined)
+    expect(karuteForAiMock).toHaveBeenCalledWith(5, undefined, undefined)
     const { list } = await customersMock()
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
   })
@@ -134,6 +136,6 @@ describe('chat route — store scope', () => {
     signedIn()
     viewAll(GINZA) // owner's active-store cookie must NOT clamp their AI context
     await POST(req())
-    expect(karuteForAiMock).toHaveBeenCalledWith(5, undefined)
+    expect(karuteForAiMock).toHaveBeenCalledWith(5, undefined, undefined)
   })
 })

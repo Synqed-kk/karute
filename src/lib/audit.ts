@@ -161,4 +161,6 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'customers.list': { kind: 'skip', category: 'customer', action: '' },
   // AI相談 logs once per SESSION (wired at the session mint, not this screen GET).
   'askAi.read': { kind: 'skip', category: 'ai', action: '' },
+  // Same ruling for the chat send itself — per-message turns don't re-log.
+  'ai.chat': { kind: 'skip', category: 'ai', action: '' },
 }

@@ -74,6 +74,10 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'ai.extract',
   'ai.summarize',
   'ai.suggestions',
+  // AI相談 chat (design-parity F-9b): the LLM answers from karute context +
+  // customer names — a just-terminated staffer must not keep querying customer
+  // data through the model. Same compute-POST class as the four above.
+  'ai.chat',
   // the karute SAVE (customer voice → durable record; consent-gated) and the
   // pack-redemption UNDO — both effectful writes → server round-trip.
   'karute.save',
