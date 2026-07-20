@@ -229,16 +229,19 @@ export async function completeOnboarding(input: {
 }
 
 /**
- * INTERNAL org-settings writer — the merge-and-upsert core write with NO
- * capability gate. Callers MUST enforce their own authorization first:
- *   - upsertOrgSettings gates on `settings.manage` (owner/manager settings mgmt).
- *   - the voice service gates on voice OWNERSHIP (a staffer enrolls only their
- *     own voice; owner/manager may act on others) — voice_enrollments is
- *     staff-owned data, so it must NOT require settings.manage.
- * Splitting the write from the gate is what lets one blob field (voice_enrollments)
- * carry a different authz rule than the rest without a settings.manage back door.
+ * Client-threaded core of writeOrgSettingsBlob (facade Bearer path, design-
+ * parity packet 12 §S1 — same WithClient split as orgSettingsWithClient /
+ * updateCustomerWithClient). Identical body to writeOrgSettingsBlob, just
+ * parameterized on an explicit client instead of resolving one from the
+ * cookie session — so the facade's PATCH /api/app/v1/org-settings route can
+ * call it with a business-scoped Bearer client. Still NO capability gate
+ * (see writeOrgSettingsBlob's doc comment); the facade route enforces
+ * settings.manage itself, mirroring upsertOrgSettings's gate.
  */
-export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
+export async function writeOrgSettingsBlobWithClient(
+  synqed: Pick<SynqedClient, 'orgSettings'>,
+  settings: Partial<OrgSettings>,
+) {
   const nextSettings: Partial<OrgSettings> = { ...settings }
 
   if (settings.operating_hours) {
@@ -250,8 +253,6 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   }
 
   try {
-    const synqed = await getSynqedClient()
-
     // Merge with existing settings so partial updates don't wipe other fields
     const existing = await synqed.orgSettings.get()
     const existingSettings = (existing?.settings ?? {}) as Record<string, unknown>
@@ -271,6 +272,20 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
+}
+
+/**
+ * INTERNAL org-settings writer — the merge-and-upsert core write with NO
+ * capability gate. Callers MUST enforce their own authorization first:
+ *   - upsertOrgSettings gates on `settings.manage` (owner/manager settings mgmt).
+ *   - the voice service gates on voice OWNERSHIP (a staffer enrolls only their
+ *     own voice; owner/manager may act on others) — voice_enrollments is
+ *     staff-owned data, so it must NOT require settings.manage.
+ * Splitting the write from the gate is what lets one blob field (voice_enrollments)
+ * carry a different authz rule than the rest without a settings.manage back door.
+ */
+export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
+  return writeOrgSettingsBlobWithClient(await getSynqedClient(), settings)
 }
 
 /**

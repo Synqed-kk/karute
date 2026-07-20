@@ -180,4 +180,10 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'customer.pack.reconcile.dismiss': { kind: 'skip', category: 'customer', action: '' },
   'customer.pack.alert.dismiss': { kind: 'skip', category: 'customer', action: '' },
   'customer.pack.contact.log': { kind: 'skip', category: 'customer', action: '' },
+  // org-settings write (design-parity packet 12 §S1): writeOrgSettingsBlob has
+  // no auditWeb() call on the web side (verified at source — no audit-log
+  // import in src/actions/org-settings.ts) — a facade row here would log
+  // something web itself never logs. Same parity rule as the appointment.*
+  // rows above.
+  'orgSettings.update': { kind: 'skip', category: 'settings', action: '' },
 }
