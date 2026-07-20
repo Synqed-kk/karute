@@ -20,6 +20,7 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { resolveSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
+import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import { createAppointmentCore } from '@/lib/appointments/mutations'
 
@@ -63,6 +64,18 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
+
+  // The dialog can only submit ROSTER staff; the facade enforces the same set
+  // fail-closed (Greptile P1 on #566) — without this, the create-on-miss
+  // resolver below would mint a synqed staff record for ANY profile id
+  // (customer ids included) sent with bookings.manage.
+  const roster = await staffListByBusinessOrThrow(businessId)
+  if (!roster.some((s) => s.id === parsed.data.staffProfileId)) {
+    throw new AppApiError(
+      'validation',
+      'staffProfileId is not a staff member of this business',
+    )
+  }
 
   // Profile → core staff id (create-on-miss, appointments FK to staff.id).
   // An unresolvable id returns the web action's own { error } string — the

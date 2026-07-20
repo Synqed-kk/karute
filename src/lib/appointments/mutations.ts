@@ -187,8 +187,14 @@ export async function cancelAppointmentCore(
       if (isTerminalStatus(appt.status)) {
         return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
       }
+      // catch→[] mirrors the web listCustomerPacks wrapper (Greptile P1 on
+      // #566): a failed pack read reads as "no burnable pack" — the sheet
+      // gets its documented `code` discriminator, the cancel is blocked, and
+      // the staff can retry; a throw here would strip the code.
       const target = pickRedemptionTarget(
-        await listCustomerPacksWithClient(synqed, appt.customer_id),
+        await listCustomerPacksWithClient(synqed, appt.customer_id).catch(
+          () => [],
+        ),
       )
       if (!target) {
         return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
@@ -289,8 +295,11 @@ export async function markNoShowAppointmentCore(
       return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
     }
 
+    // catch→[] — same web-parity contract as the cancel path above.
     const target = input.burnPack
-      ? pickRedemptionTarget(await listCustomerPacksWithClient(synqed, appt.customer_id))
+      ? pickRedemptionTarget(
+          await listCustomerPacksWithClient(synqed, appt.customer_id).catch(() => []),
+        )
       : null
     if (input.burnPack && !target) {
       return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }

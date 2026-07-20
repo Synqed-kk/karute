@@ -30,6 +30,11 @@ jest.mock('@/lib/customers/queries', () => ({
 }))
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
+  // The create route's roster clamp: only these profile ids are bookable.
+  staffListByBusinessOrThrow: jest.fn(async () => [
+    { id: 'profile-1', full_name: 'Mika' },
+    { id: 'auth-user-1', full_name: 'Viewer' },
+  ]),
 }))
 const mockCapabilities = jest.fn(async () => new Set(['bookings.manage']))
 jest.mock('@/lib/auth/require-permission', () => {
@@ -202,6 +207,17 @@ describe('POST /api/app/v1/appointments (create)', () => {
     expect(apptCreate).not.toHaveBeenCalled()
   })
 
+  it('non-roster staffProfileId → 400, never reaches the create-on-miss resolver', async () => {
+    const { resolveSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+    const res = await createPOST(
+      post(CREATE_URL, { ...CREATE_BODY, staffProfileId: 'cust-1' }),
+      noParams,
+    )
+    expect(res.status).toBe(400)
+    expect(resolveSynqedStaffIdForBusiness).not.toHaveBeenCalled()
+    expect(apptCreate).not.toHaveBeenCalled()
+  })
+
   it('a business failure rides the body: invalid duration → 200 { error }', async () => {
     const res = await createPOST(
       post(CREATE_URL, { ...CREATE_BODY, durationMinutes: 0 }),
@@ -252,6 +268,18 @@ describe('POST /api/app/v1/appointments/[id]/cancel', () => {
     expect(res.status).toBe(200)
     expect((await res.json()).code).toBe('no_burnable_pack')
     expect(apptUpdate).not.toHaveBeenCalled()
+  })
+
+  it('a FAILED pack read keeps the web contract: no_burnable_pack code, no write, no burn', async () => {
+    listPacks.mockRejectedValueOnce(new Error('core down'))
+    const res = await cancelPOST(
+      post(URL_, { reason: 'cancel-same-day-contact', burnPack: true }),
+      params('appt-1'),
+    )
+    expect(res.status).toBe(200)
+    expect((await res.json()).code).toBe('no_burnable_pack')
+    expect(apptUpdate).not.toHaveBeenCalled()
+    expect(addRedemption).not.toHaveBeenCalled()
   })
 
   it('same-day burn happy path → status first, ONE burn', async () => {
