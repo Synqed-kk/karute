@@ -60,7 +60,12 @@ export interface MobileAuth {
   boot(): Promise<BootState<Session>>
   /** Wire background-resume to the app-state source. Call once after boot. */
   bindLifecycle(): ResumeCoordinator
-  /** Sign out: remote revoke (best-effort) + unconditional local purge. */
+  /** Sign out: remote revoke (best-effort) + unconditional local purge. When
+   *  the remote revoke fails, ALSO forces a local sign-out (storage-key
+   *  removal + onSessionState('signed-out')) — GoTrueClient's own signOut
+   *  early-returns without removing its storage or emitting SIGNED_OUT on a
+   *  non-401/403/404 remote error (offline/5xx), so nothing else would flip
+   *  the session store (F1, packet 12 fix batch). */
   signOut(): Promise<SignOutResult>
 }
 
@@ -121,8 +126,8 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
       })
       return coordinator
     },
-    signOut() {
-      return signOutAndPurge({
+    async signOut() {
+      const result = await signOutAndPurge({
         signOutRemote: async () => {
           // auth-js reports remote revocation failures IN-BAND — rethrow so
           // signOutAndPurge records remoteOk: false truthfully (purge still runs).
@@ -131,6 +136,36 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         },
         purgeLocal: opts.purgeLocalCaches,
       })
+      if (!result.remoteOk) {
+        // FAIL-CLOSED LOCAL SIGN-OUT (F1, packet 12 fix batch — verified
+        // against the installed @supabase/auth-js): GoTrueClient's own
+        // signOut() early-returns on any non-401/403/404 remote error
+        // (offline, 5xx) WITHOUT removing its storage key and WITHOUT
+        // emitting SIGNED_OUT — so without this, nothing would flip the
+        // session store and the token would sit in storage. Remove the SAME
+        // THREE keys GoTrue's _removeSession does (installed @supabase/
+        // auth-js, GoTrueClient.js ~2249-2258): the storage key itself, its
+        // PKCE code-verifier sibling, and its `-user` sibling (only
+        // populated when a separate userStorage is configured — not wired
+        // today, but mirrored now so the Keychain-storage migration, a
+        // named future item, doesn't have to rediscover this list) — via
+        // the injected storage adapter. auth-js reads the session FROM
+        // storage on every call, so a missing key makes getSession()/
+        // autorefresh/resume all resolve null, no private API needed. Then
+        // flip the store ourselves, since no SIGNED_OUT event will arrive
+        // to do it. Each removal is attempted INDEPENDENTLY (allSettled,
+        // Greptile #572): one failed delete must not retain the sibling
+        // credentials — and the whole step stays best-effort (a broken
+        // adapter must not block the fail-closed sign-out this exists for);
+        // onSessionState ALWAYS fires.
+        await Promise.allSettled([
+          opts.storage.removeItem(SESSION_STORAGE_KEY),
+          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`),
+          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`),
+        ])
+        opts.onSessionState({ status: 'signed-out' })
+      }
+      return result
     },
   }
 }

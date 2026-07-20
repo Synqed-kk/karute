@@ -213,12 +213,17 @@ export async function deleteTake(takeId: string): Promise<void> {
  *  gate on every read path), and destroying them here would let staff B's
  *  logout erase staff A's crash-recovery audio — the exact loss this store
  *  exists to prevent. Their cleanup is the 24 h TTL. Unlike the draft
- *  (one shared key, wipe-all is the only option), takes carry ownerUid. */
-export async function clearOwnTakes(): Promise<void> {
+ *  (one shared key, wipe-all is the only option), takes carry ownerUid.
+ *
+ *  `explicitUid` (F3, packet 12 fix batch) overrides the currentUserId()
+ *  read — for callers (thin/auth/session.ts's SIGNED_OUT listener) invoked
+ *  AFTER the session that currentUserId() would read from has already been
+ *  nulled. Omitted, this is identical to the original no-arg behavior. */
+export async function clearOwnTakes(explicitUid?: string): Promise<void> {
   try {
     const db = await openDb()
     if (!db) return
-    const uid = await currentUserId()
+    const uid = explicitUid ?? (await currentUserId())
     // uid unresolvable (session already expired at logout): nothing is
     // deleted — with no identity there is no way to target the leaving
     // user's rows without destroying other staff members' takes. The rows

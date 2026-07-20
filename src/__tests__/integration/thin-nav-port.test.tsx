@@ -9,7 +9,7 @@
  * Pins: toHref normalization, Link's rendered href, and the pushed URL.
  */
 import { fireEvent, render, screen } from '@testing-library/react'
-import { Link, toHref } from '../../../thin/ports/nav.vite'
+import { Link, toHref, useRouter } from '../../../thin/ports/nav.vite'
 
 describe('thin nav port — object hrefs (F-7 cause 2)', () => {
   afterEach(() => {
@@ -42,5 +42,38 @@ describe('thin nav port — object hrefs (F-7 cause 2)', () => {
     expect(location.search).toBe('?customerId=c-1')
     // the F-7 failure mode, pinned dead
     expect(location.pathname).not.toContain('object')
+  })
+})
+
+describe('thin nav port — locale-prefix strip (F4, single-locale shell)', () => {
+  afterEach(() => {
+    history.replaceState({}, '', '/')
+  })
+
+  it('toHref strips a leading /ja or /en segment', () => {
+    expect(toHref('/ja/login')).toBe('/login')
+    expect(toHref('/en/karute/abc')).toBe('/karute/abc')
+    expect(toHref('/ja')).toBe('/') // bare locale root → home, not ''
+  })
+
+  it('unprefixed paths pass through untouched', () => {
+    expect(toHref('/karute/abc')).toBe('/karute/abc')
+    expect(toHref('/')).toBe('/')
+  })
+
+  it('does NOT strip a path that merely starts with "ja"/"en" (segment boundary)', () => {
+    expect(toHref('/jazz')).toBe('/jazz')
+    expect(toHref('/english-menu')).toBe('/english-menu')
+  })
+
+  it('strips the prefix on {pathname, query} object hrefs too', () => {
+    expect(toHref({ pathname: '/ja/karute/abc', query: { x: '1' } })).toBe(
+      '/karute/abc?x=1',
+    )
+  })
+
+  it('push("/ja/login") lands on the unprefixed pathname (dead-route regression)', () => {
+    useRouter().push('/ja/login')
+    expect(location.pathname).toBe('/login')
   })
 })

@@ -8,7 +8,7 @@
 import { createMobileAuth, type MobileAuth } from '@/lib/auth/mobile/client-session'
 import { loadAuthClientConfig } from '@/lib/auth/mobile/config'
 import type { SupportsStorage } from '@/lib/auth/mobile/secure-storage'
-import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { getCurrentSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { getThinEnv } from '../env'
 
@@ -70,15 +70,28 @@ export function getMobileAuth(): MobileAuth {
     if (session) {
       setSessionState({ status: 'signed-in', session })
     } else if (event === 'SIGNED_OUT') {
+      // Capture the OUTGOING uid SYNCHRONOUSLY, before nulling the store
+      // below (F3, packet 12 fix batch): clearOwnTakes' currentUserId()
+      // reads FROM this store on the thin path, so it would otherwise
+      // resolve null for every SERVER-driven sign-out (failed refresh,
+      // password reset, admin revoke) — silently no-op'ing and leaving the
+      // leaving staff member's takes on the shared device. The in-app
+      // sign-out button is unaffected: ProfilePageView wipes BEFORE calling
+      // signOut, while the uid is still alive either way.
+      const outgoingUid = getCurrentSession()?.user?.id
       setSessionState({ status: 'signed-out' })
-      // SIGNED_OUT is also how a SERVER-driven session death arrives (failed
-      // refresh, password reset, admin revoke) — and MobileAuth.signOut() has
-      // no UI caller in v1, so this is the ONLY place the vault purge can
-      // fire. Without it the previous staff's live recorder/pipeline
-      // singletons (audio, transcript) stay armed for the next sign-in on a
-      // shared device (packet-10 leak class). Best-effort by design: the UI
-      // demotes first, the wipe follows.
-      void wipeSessionVault().catch(() => {})
+      // SIGNED_OUT is also how that server-driven session death arrives, so
+      // this is the catch-all vault purge — a button-driven sign-out wipes
+      // THREE times: ProfilePageView's own pre-wipe (before calling
+      // signOut), signOutAndPurge's composed purgeLocalCaches (client-
+      // session.ts), and this listener firing on the SIGNED_OUT it
+      // produces; all three are idempotent/best-effort by design. Without
+      // this listener firing too, a server-driven death (no button ever
+      // pressed) would never purge at all: the previous staff's live
+      // recorder/pipeline singletons (audio, transcript) would stay armed
+      // for the next sign-in on a shared device (packet-10 leak class).
+      // Best-effort by design: the UI demotes first, the wipe follows.
+      void wipeSessionVault({ uid: outgoingUid }).catch(() => {})
     }
   })
   return auth

@@ -13,6 +13,7 @@ import { bootMobileAuth } from './auth/session'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
 import { viteRecordingPort } from './ports/recording.vite'
+import { stripLocalePrefix } from './ports/nav.vite'
 import { setRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { setDataPort } from '@/lib/ports/data-port'
 import { mark, reportMarks, MARKS } from './probe/marks'
@@ -62,6 +63,17 @@ function main(): void {
   // render: never blocks first paint — the AuthGate renders 'recovering' until
   // the boot gate settles (≤4s; instant for a locally persisted session).
   bootMobileAuth()
+
+  // Locale-prefixed boot pathname / deep link (B3, packet 12 fix batch round
+  // 3): toHref's write-side strip (nav.vite.tsx) covers every push/Link, but
+  // a cold boot or external deep link lands on location.pathname directly —
+  // ThinRouter has no /ja/* or /en/* entries, so an unstripped prefix here
+  // fell through to the customer list with no way back.
+  const strippedPathname = stripLocalePrefix(location.pathname)
+  if (strippedPathname !== location.pathname) {
+    // hash preserved (Greptile #572): anchor deep links must survive the strip.
+    history.replaceState({}, '', strippedPathname + location.search + location.hash)
+  }
 
   // The shell's HOME is the customer list. Normalize the WebView entry URL
   // ('/', or the literal '/index.html' capacitor serves) BEFORE first render:

@@ -18,22 +18,23 @@ jest.mock('@supabase/auth-js', () => ({
   })),
 }))
 
-function makeAuth(overrides: { purge?: jest.Mock } = {}) {
+function makeAuth(overrides: { purge?: jest.Mock; removeItem?: jest.Mock } = {}) {
   const onSessionState = jest.fn()
   const purge = overrides.purge ?? jest.fn(async () => {})
+  const removeItem = overrides.removeItem ?? jest.fn(async () => {})
   const auth = createMobileAuth({
     config: { url: 'https://test.supabase.co', anonKey: 'anon' },
     storage: {
       getItem: async () => null,
       setItem: async () => {},
-      removeItem: async () => {},
+      removeItem,
     },
     appState: { onActive: () => {} },
     onSessionState,
     purgeLocalCaches: purge,
     bootTimeoutMs: 50,
   })
-  return { auth, onSessionState, purge }
+  return { auth, onSessionState, purge, removeItem }
 }
 
 beforeEach(() => {
@@ -116,5 +117,50 @@ describe('createMobileAuth — sign-out adapter', () => {
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(true)
     expect(purge).toHaveBeenCalledTimes(1)
+  })
+
+  // F1 (packet 12 fix batch): a remote revoke that REJECTS (offline/5xx, not
+  // just an in-band {error}) used to leave the session store untouched —
+  // GoTrueClient's own signOut early-returns without removing storage or
+  // emitting SIGNED_OUT on a non-401/403/404 error, so nothing else would
+  // flip the store. The adapter now forces a local sign-out in that case.
+  it('remote revoke REJECTS (network/5xx) → fail-closed: ALL THREE GoTrue storage keys removed + onSessionState forced signed-out, remoteOk still false', async () => {
+    mockSignOut.mockRejectedValue(new Error('network error'))
+    const { auth, onSessionState, purge, removeItem } = makeAuth()
+    const r = await auth.signOut()
+    expect(r.remoteOk).toBe(false)
+    expect(purge).toHaveBeenCalledTimes(1)
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session')
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-code-verifier')
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-user')
+    expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
+  })
+
+  it('clean signOut → GoTrue owns storage removal + SIGNED_OUT itself: no manual removeItem, no forced onSessionState', async () => {
+    mockSignOut.mockResolvedValue({ error: null })
+    const { auth, onSessionState, removeItem } = makeAuth()
+    const r = await auth.signOut()
+    expect(r.remoteOk).toBe(true)
+    expect(removeItem).not.toHaveBeenCalled()
+    expect(onSessionState).not.toHaveBeenCalled()
+  })
+
+  // T3 (packet 12 fix batch round 3): the "onSessionState ALWAYS fires"
+  // guarantee was untested — a broken storage adapter must not swallow the
+  // fail-closed sign-out this branch exists for.
+  it('storage.removeItem REJECTS too → onSessionState STILL forced signed-out, signOut still resolves with remoteOk:false', async () => {
+    mockSignOut.mockRejectedValue(new Error('network error'))
+    const removeItem = jest.fn(async () => {
+      throw new Error('storage adapter unavailable')
+    })
+    const { auth, onSessionState, purge } = makeAuth({ removeItem })
+    const r = await auth.signOut()
+    expect(r.remoteOk).toBe(false)
+    expect(purge).toHaveBeenCalledTimes(1)
+    // All THREE removals attempted despite the rejections (allSettled,
+    // Greptile #572) — the old sequential try bailed after the first, which
+    // could retain the sibling credential keys on a per-key adapter failure.
+    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 })

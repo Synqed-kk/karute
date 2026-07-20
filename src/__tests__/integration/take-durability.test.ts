@@ -167,6 +167,7 @@ import {
   getRecoverableTake,
   loadTakeBlob,
 } from '@/lib/karute/take-store'
+import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 
 const TARGET = {
   customerId: 'cust-1',
@@ -366,6 +367,45 @@ describe('take durability — deletion lifecycle', () => {
     mockUid = 'staff-B'
     await passGrace()
     expect((await getRecoverableTake([]))?.takeId).toBe(takeIdB)
+  })
+
+  it('wipeSessionVault({uid}) deletes that uid\'s takes end-to-end through the REAL chain, with the session store already nulled (T4, F3 real chain)', async () => {
+    await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    expect(takes().size).toBe(1)
+
+    // Simulates thin/auth/session.ts's SIGNED_OUT listener AFTER
+    // setSessionState has already nulled the session — currentUserId()
+    // (draft.ts, mocked above via mockUid) would resolve null from here on;
+    // only the explicit uid, captured before the null, can still target the
+    // right rows. wipeSessionVault itself is UNMOCKED — this exercises its
+    // real dynamic-import composition (global-recorder + global-pipeline +
+    // draft + take-store), not a fake of the uid-threading seam.
+    mockUid = null
+    await wipeSessionVault({ uid: 'staff-A' })
+    await drain()
+    expect(takes().size).toBe(0)
+  })
+
+  it('clearOwnTakes(explicitUid) deletes that uid\'s takes even when the session-derived uid would resolve null (F3: server-driven sign-out ordering)', async () => {
+    await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    expect(takes().size).toBe(1)
+
+    // Simulates thin/auth/session.ts's SIGNED_OUT listener: by the time the
+    // wipe runs, the session store (and therefore currentUserId()) already
+    // resolves null — the explicit uid, captured BEFORE the store nulled,
+    // is the only thing that still targets the right rows.
+    mockUid = null
+    await clearOwnTakes('staff-A')
+    await drain()
+    expect(takes().size).toBe(0)
   })
 
   it('expired takes (24 h TTL) are dropped and deleted in passing', async () => {

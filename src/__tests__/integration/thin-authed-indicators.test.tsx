@@ -74,6 +74,7 @@ jest.mock('@/lib/ai-pipeline', () => ({
   ),
 }))
 
+import { toast } from 'sonner'
 import { saveKaruteRecordInline } from '@/actions/karute'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { AuthGate } from '../../../thin/AuthGate'
@@ -84,6 +85,11 @@ beforeEach(() => {
   globalPipeline.reset()
   mockDeferreds.length = 0
   ;(saveKaruteRecordInline as jest.Mock).mockClear()
+  // toast is a module-level mock (jest.mock('sonner', ...) factory runs once)
+  // — clear it too, or an earlier test's legitimate toast call leaks into a
+  // later test's "did NOT toast" assertion (F2 runId-guard tests below).
+  ;(toast.success as jest.Mock).mockClear()
+  ;(toast.error as jest.Mock).mockClear()
   setSessionState({ status: 'signed-in', session: session('tok') })
 })
 
@@ -133,6 +139,109 @@ describe('AuthGate mounts the recording/processing chrome (F-8)', () => {
     expect(
       (saveKaruteRecordInline as jest.Mock).mock.calls[0][0],
     ).toMatchObject({ customerId: 'cust-1', summary: 'S' })
+    // F2 (packet 12 fix batch): the CURRENT run still toasts — the runId
+    // guard added below must not suppress the normal case.
+    expect(toast.success).toHaveBeenCalledTimes(1)
+  })
+
+  it('a save resolving AFTER a newer run superseded it does NOT toast (F2 runId guard)', async () => {
+    let resolveSave!: (v: { id: string }) => void
+    ;(saveKaruteRecordInline as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    // Now 'autosaving' with saveKaruteRecordInline in-flight (not yet
+    // resolved). A NEW recording starts, superseding this run — bumps
+    // globalPipeline.runId synchronously.
+    act(() => {
+      globalPipeline.start(new Blob(['b']), { locale: 'ja', customers: [] })
+    })
+    // The STALE save resolves only now, after the supersession.
+    await act(async () => {
+      resolveSave({ id: 'saved-1' })
+    })
+    expect(toast.success).not.toHaveBeenCalled()
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  // T2 (packet 12 fix batch round 3, test-attack lens): the error branch's
+  // toast guard had zero coverage — only the success branch was pinned above.
+  it('a save resolving with {error} on the CURRENT run toasts an error (T2)', async () => {
+    ;(saveKaruteRecordInline as jest.Mock).mockResolvedValueOnce({
+      error: 'save failed',
+    })
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1))
+    expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  it('a save resolving with {error} AFTER a newer run superseded it does NOT toast (T2, error branch)', async () => {
+    let resolveSave!: (v: { error: string }) => void
+    ;(saveKaruteRecordInline as jest.Mock).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSave = resolve
+        }),
+    )
+    act(() => {
+      globalPipeline.start(new Blob(['a']), {
+        locale: 'ja',
+        customers: [],
+        appointmentCustomerId: 'cust-1',
+        outcome: { status: 'success' } as never,
+      })
+    })
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    await act(async () => {
+      mockDeferreds[0].resolve({ transcript: 't', entries: [], summary: 'S' })
+    })
+    // Supersede BEFORE the stale save resolves — same runId-bump pattern as
+    // the success-branch test above.
+    act(() => {
+      globalPipeline.start(new Blob(['b']), { locale: 'ja', customers: [] })
+    })
+    await act(async () => {
+      resolveSave({ error: 'save failed' })
+    })
+    expect(toast.error).not.toHaveBeenCalled()
+    expect(toast.success).not.toHaveBeenCalled()
   })
 
   it('keeps the chrome mounted through an offline-resume spell (recovering w/ known session)', () => {
