@@ -353,6 +353,56 @@ async function facadeUndoRedemption(redemptionId: string): Promise<{ ok: boolean
   return { ok: !!body?.ok }
 }
 
+// -- dashboard pack mutations (design-parity Gap B-1 PR 2). RPC-style: the
+// facade's 2xx body rides through VERBATIM — dismissVisitReconcileAction /
+// dismissPackAlertAction / logCustomerContactAction return { ok, error? } and
+// ReconcileStrip/PackAlertsCard branch on it directly, same class as
+// statusCall's appointments discriminators below. Only a non-2xx transport/
+// auth/validation failure gets normalized to { ok: false, error }. No
+// Idempotency-Key: none of these three are redeem-class (see the routes'
+// own comments) — a retried dismiss/log is harmless, matching web parity
+// (the web actions send none either).
+async function rpcPost<T extends { ok: boolean }>(path: string, body: unknown): Promise<T> {
+  try {
+    const res = await getDataPort().apiFetch(path, jsonInit('POST', body))
+    const parsed = (await res.json().catch(() => null)) as
+      | (T & { error?: unknown })
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && parsed) return parsed as T
+    const message = (parsed as { error?: { message?: string } } | null)?.error?.message
+    return { ok: false, error: message ?? `Request failed (${res.status})` } as unknown as T
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : 'Network error' } as unknown as T
+  }
+}
+
+function facadeDismissVisitReconcile(input: {
+  customerId: string
+  appointmentId?: string | null
+  visitDay: string
+}): Promise<{ ok: boolean }> {
+  const { customerId, ...rest } = input
+  return rpcPost(`/api/app/v1/customers/${enc(customerId)}/packs/reconcile/dismiss`, rest)
+}
+
+function facadeDismissPackAlert(input: {
+  customerId: string
+  reason?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const { customerId, ...rest } = input
+  return rpcPost(`/api/app/v1/customers/${enc(customerId)}/packs/alerts/dismiss`, rest)
+}
+
+function facadeLogCustomerContact(input: {
+  customerId: string
+  channel: 'phone' | 'sms' | 'email' | 'line' | 'in_person'
+  note?: string
+}): Promise<{ ok: boolean; error?: string }> {
+  const { customerId, ...rest } = input
+  return rpcPost(`/api/app/v1/customers/${enc(customerId)}/packs/contact`, rest)
+}
+
 // Any name resolves to a loud-throwing async fn (covers dynamic access).
 const proxy = new Proxy(
   {},
@@ -379,10 +429,10 @@ export const revokeCustomerConsent = facadeRevokeCustomerConsent
 export const createPackAction = facadeCreatePack
 export const setPackStatusAction = notWired('setPackStatusAction') // status flip = later batch
 export const redeemSessionAction = facadeRedeemSession
-export const dismissVisitReconcileAction = notWired('dismissVisitReconcileAction')
+export const dismissVisitReconcileAction = facadeDismissVisitReconcile
 export const undoRedemptionAction = facadeUndoRedemption
-export const logCustomerContactAction = notWired('logCustomerContactAction')
-export const dismissPackAlertAction = notWired('dismissPackAlertAction')
+export const logCustomerContactAction = facadeLogCustomerContact
+export const dismissPackAlertAction = facadeDismissPackAlert
 export const setLifecycleAction = facadeSetLifecycle
 // -- memory
 export const addMemoryItemAction = facadeAddMemoryItem
