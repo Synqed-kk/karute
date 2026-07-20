@@ -2,6 +2,7 @@
 // ./alerts-core (kept separate so the rules are Jest-testable without the
 // next/cache + service-client import chain).
 
+import type { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId } from '@/lib/staff'
 import {
   getCachedCustomerList,
@@ -14,9 +15,13 @@ import {
 import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
 import {
   listActiveDismissals,
+  listActiveDismissalsWithClient,
   listAllLifecycles,
+  listAllLifecyclesWithClient,
   listAllPackUsage,
+  listAllPackUsageWithClient,
   listRecentContacts,
+  listRecentContactsWithClient,
 } from './store'
 import { computePackAlerts, type PackAlerts } from './alerts-core'
 
@@ -118,6 +123,94 @@ export async function getPackAlerts(
           e.lastVisitIso,
           lastVisitAtById.get(id),
         ),
+        nextAppointmentIso: e.nextAppointmentIso,
+      },
+    ]),
+  )
+  return computePackAlerts({
+    usage,
+    lifecycles,
+    dismissed,
+    nameById: new Map(customers.map((c) => [c.id, c.name])),
+    visitById,
+    karuteNumberById: assignSequentialKaruteNumbers(customers),
+    recentContactAt,
+    monthlyContactIds,
+    thresholdDays,
+  })
+}
+
+/** Business-scoped twin of getPackAlerts (design-parity P-B-1 prep for the
+ *  facade screen GET — not yet wired to any route). businessId is an
+ *  EXPLICIT required dep here (the caller always has one from its verified
+ *  identity), so the cookie version's `storeId && !businessId` fail-closed
+ *  branch has no equivalent — there is no failure mode to guard. The
+ *  store-lens fetch keeps the SAME fail-closed contract: an errored lens
+ *  read returns the empty shape rather than another store's holders. */
+export async function getPackAlertsWithClient(
+  synqed: SynqedClient,
+  businessId: string,
+  thresholdDays?: number,
+  storeId?: string | null,
+): Promise<PackAlerts> {
+  const empty = emptyPackAlerts()
+  const [usageAll, lifecyclesAll, dismissed, customers, recentContacts] =
+    await Promise.all([
+      listAllPackUsageWithClient(synqed),
+      listAllLifecyclesWithClient(synqed),
+      listActiveDismissalsWithClient(synqed),
+      getCachedCustomerListFor(businessId),
+      // 31 days covers both consumers: the 7-day 対応中 snooze AND the
+      // current-calendar-month 対応→再来店 metric.
+      listRecentContactsWithClient(synqed, 31),
+    ])
+  if (usageAll.size === 0) return empty
+
+  let usage = usageAll
+  let lifecycles = lifecyclesAll
+  let inStore: Set<string> | null = null
+  if (storeId) {
+    try {
+      const storeCustomers = await getCachedCustomerListFor(businessId, storeId)
+      inStore = new Set(storeCustomers.map((c) => c.id))
+      usage = new Map([...usageAll].filter(([id]) => inStore!.has(id)))
+      lifecycles = new Map([...lifecyclesAll].filter(([id]) => inStore!.has(id)))
+    } catch {
+      return empty
+    }
+  }
+  if (usage.size === 0) return empty
+
+  const recentContactAt = new Map<string, string>()
+  const monthlyContactIds = new Set<string>()
+  const monthStart = new Date()
+  monthStart.setUTCDate(1)
+  monthStart.setUTCHours(0, 0, 0, 0)
+  for (const row of recentContacts) {
+    if (inStore && !inStore.has(row.customer_id)) continue
+    if (!recentContactAt.has(row.customer_id)) {
+      recentContactAt.set(row.customer_id, row.contacted_at)
+    }
+    if (new Date(row.contacted_at) >= monthStart) {
+      monthlyContactIds.add(row.customer_id)
+    }
+  }
+
+  const holderIds = Array.from(usage.keys())
+  const enrichment = holderIds.length
+    ? await enrichCustomers(businessId, holderIds)
+    : new Map()
+  const lastVisitAtById = new Map(
+    customers.map((c) => [
+      c.id,
+      (c as { last_visit_at?: string | null }).last_visit_at ?? null,
+    ]),
+  )
+  const visitById = new Map(
+    Array.from(enrichment.entries()).map(([id, e]) => [
+      id,
+      {
+        lastVisitIso: effectiveLastVisitIso(e.lastVisitIso, lastVisitAtById.get(id)),
         nextAppointmentIso: e.nextAppointmentIso,
       },
     ]),

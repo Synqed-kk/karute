@@ -1,3 +1,5 @@
+'use client'
+
 // Dashboard composition (Liam-approved redesign, 2026-07-02/03). Reading
 // order = a practitioner's phone moments: who's next (hero) → what did I
 // forget (todos) → who matters today + suggested moves (AI sections) →
@@ -5,8 +7,13 @@
 // the 予約 tab — the dashboard must add insight, never duplicate it (Liam).
 // Laws: every number is real data; empty sections render nothing; no stat
 // tiles, no feeds, no placeholder boxes.
+//
+// Design-parity P-B-1: flipped from an async server component to a client
+// leaf (useTranslations) — unrenderable-as-server-component in the thin
+// (Vite) shell. AppRoot already provides the intl client provider; web
+// behavior is unchanged.
 
-import { getTranslations } from 'next-intl/server'
+import { useTranslations } from 'next-intl'
 import type { PackAlerts } from '@/lib/packs/alerts'
 import type { ReconcileData } from '@/lib/packs/reconcile'
 import { OnboardingBanner } from './OnboardingBanner'
@@ -50,7 +57,7 @@ interface DashboardPageViewProps {
   ticketsEnabled?: boolean
 }
 
-export async function DashboardPageView({
+export function DashboardPageView({
   dateLabel,
   isOwner,
   onboardingComplete,
@@ -71,7 +78,7 @@ export async function DashboardPageView({
   pulse,
   ticketsEnabled = true,
 }: DashboardPageViewProps) {
-  const t = await getTranslations('dashboard.flow')
+  const t = useTranslations('dashboard.flow')
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 p-4 md:p-6">
       {/* Chrome, not content: one slim row. The store pill lives in the app

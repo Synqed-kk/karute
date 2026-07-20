@@ -344,22 +344,28 @@ export async function listAllLifecycles(): Promise<Map<string, CustomerLifecycle
 
 /** Customers with an ACTIVE alert dismissal (no expiry, or expiry in the
  *  future). The 要連絡 alert list excludes them — Kitano's rule: only a manager
- *  dismisses, with an audit trail. */
-export async function listActiveDismissals(): Promise<Set<string>> {
+ *  dismisses, with an audit trail. Business-scoped twin (design-parity
+ *  P-B-1) — THROWS on failure, same split as listAllPackUsageWithClient. */
+export async function listActiveDismissalsWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+): Promise<Set<string>> {
   const set = new Set<string>()
-  try {
-    const synqed = await getSynqedClient()
-    const rows = await synqed.packs.listAlertDismissals()
-    const now = Date.now()
-    for (const row of rows) {
-      if (row.expires_at === null || new Date(row.expires_at).getTime() > now) {
-        set.add(row.customer_id)
-      }
+  const rows = await synqed.packs.listAlertDismissals()
+  const now = Date.now()
+  for (const row of rows) {
+    if (row.expires_at === null || new Date(row.expires_at).getTime() > now) {
+      set.add(row.customer_id)
     }
-    return set
+  }
+  return set
+}
+
+export async function listActiveDismissals(): Promise<Set<string>> {
+  try {
+    return await listActiveDismissalsWithClient(await getSynqedClient())
   } catch (err) {
     warn('listActiveDismissals', err)
-    return set
+    return new Set()
   }
 }
 
@@ -410,14 +416,21 @@ export async function addCustomerContact(input: {
 }
 
 /** Recent contact attempts (newest first) — feeds the 対応中 snooze on the
- *  alert card + the monthly 対応→再来店 metric. */
+ *  alert card + the monthly 対応→再来店 metric. Business-scoped twin
+ *  (design-parity P-B-1) — THROWS on failure. */
+export async function listRecentContactsWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  sinceDays: number,
+): Promise<Array<{ customer_id: string; contacted_at: string }>> {
+  const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString()
+  return synqed.packs.listRecentContacts(since)
+}
+
 export async function listRecentContacts(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; contacted_at: string }>> {
   try {
-    const synqed = await getSynqedClient()
-    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString()
-    return await synqed.packs.listRecentContacts(since)
+    return await listRecentContactsWithClient(await getSynqedClient(), sinceDays)
   } catch (err) {
     warn('listRecentContacts', err)
     return []
@@ -428,14 +441,22 @@ export async function listRecentContacts(
  *  未処理来店 reconciler's "was this visit ticked off?" check and the owner
  *  pulse. redeemed_on is a JST business date, so the cutoff must be JST too —
  *  the previous UTC cutoff made "7 days" span 8-9 JST days depending on the
- *  time of day. */
+ *  time of day. Business-scoped twin (design-parity P-B-1, ALSO the dashboard
+ *  screen's owner-pulse read once the extraction takes an explicit synqed
+ *  client) — THROWS on failure. */
+export async function listRecentRedemptionsWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  sinceDays: number,
+): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> {
+  const since = ymdInJst(new Date(Date.now() - (sinceDays - 1) * 86_400_000))
+  return synqed.packs.listRecentRedemptions(since)
+}
+
 export async function listRecentRedemptions(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> {
   try {
-    const synqed = await getSynqedClient()
-    const since = ymdInJst(new Date(Date.now() - (sinceDays - 1) * 86_400_000))
-    return await synqed.packs.listRecentRedemptions(since)
+    return await listRecentRedemptionsWithClient(await getSynqedClient(), sinceDays)
   } catch (err) {
     warn('listRecentRedemptions', err)
     return []
@@ -490,14 +511,21 @@ export async function addVisitReconcileDismissal(input: {
   }
 }
 
-/** Recent 来店なし dismissals — the reconcile detector excludes these visits. */
+/** Recent 来店なし dismissals — the reconcile detector excludes these visits.
+ *  Business-scoped twin (design-parity P-B-1) — THROWS on failure. */
+export async function listVisitReconcileDismissalsWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+  sinceDays: number,
+): Promise<Array<{ customer_id: string; appointment_id: string | null; visit_day: string }>> {
+  const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString().slice(0, 10)
+  return synqed.packs.listVisitDismissals(since)
+}
+
 export async function listVisitReconcileDismissals(
   sinceDays: number,
 ): Promise<Array<{ customer_id: string; appointment_id: string | null; visit_day: string }>> {
   try {
-    const synqed = await getSynqedClient()
-    const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString().slice(0, 10)
-    return await synqed.packs.listVisitDismissals(since)
+    return await listVisitReconcileDismissalsWithClient(await getSynqedClient(), sinceDays)
   } catch (err) {
     warn('listVisitReconcileDismissals', err)
     return []
