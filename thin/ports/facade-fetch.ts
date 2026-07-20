@@ -2,7 +2,10 @@
 // from data.vite.ts so jest can pin it (thin/env.ts is the only import.meta
 // reader; this module must stay free of it).
 
-import { getAccessToken } from '@/lib/auth/mobile/session-store'
+import {
+  getAccessToken,
+  getCurrentSession,
+} from '@/lib/auth/mobile/session-store'
 import { clearThinActiveStore, getThinActiveStore } from '../chrome/store-pref'
 
 export async function facadeApiFetch(
@@ -15,6 +18,7 @@ export async function facadeApiFetch(
   // the session token must never ride to a foreign origin (latent exfiltration
   // footgun — security lens F-4).
   let lensedStore: string | null = null
+  let lensOwner: string | null = null
   if (!/^https?:\/\//i.test(path)) {
     // Bearer from the session-store: SYNC read (never await getSession on the
     // hot path — boot-gate rationale), kept fresh by onAuthStateChange. No
@@ -31,6 +35,10 @@ export async function facadeApiFetch(
     if (store && !headers.has('store-id')) {
       headers.set('store-id', store)
       lensedStore = store
+      // Non-null whenever the pref read succeeded (the pref is keyed by it) —
+      // captured so the heal below can prove the response still belongs to
+      // the session that attached the lens.
+      lensOwner = getCurrentSession()?.user?.id ?? null
     }
   }
   const res = await fetch(toUrl(path), { ...init, headers })
@@ -45,6 +53,13 @@ export async function facadeApiFetch(
   // Safe for writes too: the clamp rejects BEFORE any read/write, so nothing
   // happened server-side on the 403.
   if (!lensedStore || res.status !== 403) return res
+  // Ownership gate: a response can outlive its user on a shared device (sign
+  // out mid-flight, another staff signs in). Healing then would delete the
+  // CURRENT user's matching pin and re-send the DEAD session's Bearer — so
+  // unless the session that attached the lens is still the one signed in
+  // (getCurrentSession: live-or-last-known, null once signed out), return the
+  // 403 untouched; it lands in a tree that no longer renders.
+  if (getCurrentSession()?.user?.id !== lensOwner) return res
   const body = (await res
     .clone()
     .json()

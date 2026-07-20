@@ -102,6 +102,54 @@ describe('facadeApiFetch stranded-pin self-heal', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(1)
   })
 
+  it("a 403 landing after ITS user signed out is never healed — no retry with a dead session's Bearer", async () => {
+    setThinActiveStore('s-store')
+    let resolveFirst: (r: Response) => void = () => {}
+    const fetchSpy = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((r) => {
+            resolveFirst = r
+          }),
+      )
+      .mockResolvedValue(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    const inflight = facadeApiFetch(toUrl, '/api/app/v1/screens/customers')
+    setSessionState({ status: 'signed-out' })
+    resolveFirst(forbidden('store_forbidden'))
+    const res = await inflight
+    expect(res.status).toBe(403)
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it("a 403 landing after ANOTHER user signed in never clears that user's matching pin", async () => {
+    setThinActiveStore('s-store') // u1's pin
+    let resolveFirst: (r: Response) => void = () => {}
+    const fetchSpy = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((r) => {
+            resolveFirst = r
+          }),
+      )
+      .mockResolvedValue(ok)
+    global.fetch = fetchSpy as unknown as typeof fetch
+    const inflight = facadeApiFetch(toUrl, '/api/app/v1/screens/customers')
+    // Shared device: u1 signs out, u2 signs in and pins the SAME store id.
+    setSessionState({ status: 'signed-out' })
+    setSessionState({
+      status: 'signed-in',
+      session: { access_token: 'tok2', user: { id: 'u2' } } as Session,
+    })
+    setThinActiveStore('s-store')
+    resolveFirst(forbidden('store_forbidden'))
+    await inflight
+    expect(getThinActiveStore()).toBe('s-store') // u2's pin intact
+    expect(fetchSpy).toHaveBeenCalledTimes(1) // and no retry with u1's Bearer
+  })
+
   it('a slow store_forbidden landing after a re-pin does not evict the fresh lens', async () => {
     setThinActiveStore('s-old')
     let resolveFirst: (r: Response) => void = () => {}
