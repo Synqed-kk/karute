@@ -191,7 +191,10 @@ export async function dismissVisitReconcileAction(input: {
   // { ok: false } origin/main produced when the old cookie fn's internal
   // try/catch swallowed this exact failure.
   const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch(() => null),
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
     getCurrentUserStaffId().catch(() => null),
   ])
   if (!synqed) return { ok: false }
@@ -250,7 +253,10 @@ export async function logCustomerContactAction(input: {
   // { ok:false, error:'write failed' } origin/main produced when the old
   // cookie fn's internal try/catch swallowed this exact failure.
   const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch(() => null),
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
     getCurrentUserStaffId().catch(() => null),
   ])
   if (!synqed) return { ok: false, error: 'write failed' }
@@ -304,7 +310,10 @@ export async function dismissPackAlertAction(input: {
   // { ok:false, error:'write failed' } origin/main produced when the old
   // cookie fn's internal try/catch swallowed this exact failure.
   const [synqed, staffId] = await Promise.all([
-    getSynqedClient().catch(() => null),
+    getSynqedClient().catch((err) => {
+      console.warn('[packs] synqed client init failed:', err)
+      return null
+    }),
     getCurrentUserStaffId().catch(() => null),
   ])
   if (!synqed) return { ok: false, error: 'write failed' }
