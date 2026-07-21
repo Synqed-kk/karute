@@ -22,8 +22,8 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { updateStoreCore, STORE_OWNER_DENIAL } from '@/actions/stores'
-import type { StoreInput } from '@/lib/validations/store'
+import { updateStoreCore } from '@/actions/stores'
+import { STORE_OWNER_DENIAL, type StoreInput } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'
 

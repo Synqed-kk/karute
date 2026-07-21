@@ -36,8 +36,8 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { listStoresWithClient, createStoreCore, STORE_OWNER_DENIAL } from '@/actions/stores'
-import type { StoreInput } from '@/lib/validations/store'
+import { listStoresWithClient, createStoreCore } from '@/actions/stores'
+import { STORE_OWNER_DENIAL, type StoreInput } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'
 

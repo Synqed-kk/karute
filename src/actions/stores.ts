@@ -8,7 +8,7 @@ import type { SynqedClient } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
-import { storeSchema, type StoreInput } from '@/lib/validations/store'
+import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { auditWeb } from '@/lib/audit-web'
@@ -23,11 +23,6 @@ type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
 type RosterRow = { id: string; display_role?: string | null }
-
-/** Owner-denial message — single source so the facade routes' exact-string
- *  403 elevation (a non-owner core result vs. every other soft error) can
- *  never drift out of sync with a wording change here. */
-export const STORE_OWNER_DENIAL = 'Only the salon owner can manage stores.'
 
 /** Pure owner-roster check — the ONE place "is this caller the salon owner"
  *  is decided, shared by the cookie gate below (requireOwnerBusiness) and the
