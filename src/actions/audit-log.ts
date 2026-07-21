@@ -52,11 +52,10 @@ export interface AuditLogFilters {
 
 const PAGE_SIZE = 100
 
-/** View-kind actions (customer.view, privacy.audit_log_view, …) — core's
- *  exclude_views param (T2, packet 18) now does this filtering server-side,
- *  so this file no longer calls it. Kept per packet instruction: still the
- *  naming-convention reference other callers may need. */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept intentionally, see above
+/** View-kind actions (customer.view, privacy.audit_log_view, …) stay out of
+ *  the default feed by naming convention. Core's exclude_views (SDK 1.14)
+ *  covers the '.view' suffix server-side; this belt still guards the '_view'
+ *  suffix core misses (audit_log_view) until the core-side widen ships. */
 function isViewAction(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
@@ -123,7 +122,7 @@ export async function listAuditLogWithClient(
     // breakGlass on (that feed IS the count strip then).
     const skipStripProbes = Boolean(filters.breakGlass) || Boolean(filters.actorId)
 
-    const [res, breakGlassRes, warnAllRes, critAllRes, nvAllRes, nvWarnRes, nvCritRes] =
+    const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes] =
       await Promise.all([
         synqed.audit.list({
           ...baseQuery,
@@ -149,11 +148,6 @@ export async function listAuditLogWithClient(
         skipStripProbes
           ? null
           : auditListProbe({ ...baseQuery, severity: 'critical', page: 1, page_size: 1 }).catch(
-              () => null,
-            ),
-        skipStripProbes
-          ? null
-          : auditListProbe({ ...baseQuery, exclude_views: true, page: 1, page_size: 1 }).catch(
               () => null,
             ),
         skipStripProbes
@@ -194,31 +188,43 @@ export async function listAuditLogWithClient(
       })
     }
 
-    // exclude_views:true above is now the ONLY view-kind filter on this path
-    // (T2) — core does the exact same job the client used to do with
-    // isViewAction, so the events don't get re-filtered here.
-    // includeViews:true sends no exclude_views param, so this stays every row.
-    const events = res.events as AuditLogEvent[]
-    // Both totals null together on any probe failure or skip — never a
-    // partial sum from a failed pair (T1).
-    const probesOk = [warnAllRes, critAllRes, nvAllRes, nvWarnRes, nvCritRes].every(
-      (r) => r !== null,
+    // BELT on top of server exclude_views (packet-18 fix round): core's
+    // exclusion matches endsWith '.view' | ='view' but NOT the '_view' suffix
+    // (verified in synqed-core PR #52's where-clause), so its filter alone
+    // would surface privacy.audit_log_view rows in the default feed. Client
+    // filter re-applied until core widens (Anthony ask pending); the server
+    // param still does the bulk work and keeps res.total near-exact.
+    const events = (res.events as AuditLogEvent[]).filter(
+      (e) => filters.includeViews || !isViewAction(e.action),
     )
+    // 警告 is exact in BOTH view states: views hidden → count only non-'.view'
+    // warn/crit (nvWarn/nvCrit, matching what the feed shows); views shown →
+    // count all warn/crit (warnAll/critAll). Pair must be complete — never a
+    // partial sum from a failed probe (T1).
+    const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
+    const warnPairOk = warnPair.every((r) => r !== null)
     return {
       ok: true,
       events,
       total: res.total,
       page: res.page,
-      // hasMore now follows the exact-filtered count — exclude_views:true
-      // above means res.total already matches what's on screen.
+      // hasMore follows the server-filtered total; the belt above may hide a
+      // few '_view' rows the server still counts, so a page can render short —
+      // same class of imperfection the pre-18 code had, much smaller window.
       hasMore: res.page * res.page_size < res.total,
       breakGlassTotal: breakGlassRes
         ? breakGlassRes.total
         : filters.breakGlass
           ? res.total
           : null,
-      warningsTotal: probesOk ? warnAllRes!.total + critAllRes!.total : null,
-      changesTotal: probesOk ? nvAllRes!.total - nvWarnRes!.total - nvCritRes!.total : null,
+      warningsTotal: warnPairOk ? warnPair[0]!.total + warnPair[1]!.total : null,
+      // BLOCKED on the same core '_view' gap: exact 変更 = nvAll − nvWarn −
+      // nvCrit, but nvAll today still counts '_view' rows (e.g. every
+      // audit-log open) as "changes" — a visibly wrong number for the chip.
+      // Held at null so the component keeps its honest client approx + '+'
+      // until core widens exclude_views; then restore the nvAll probe and the
+      // subtraction (shape preserved in this PR's history).
+      changesTotal: null,
       targetLabels: await resolveTargetLabels(synqed, events),
     }
   } catch {

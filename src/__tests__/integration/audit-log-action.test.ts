@@ -256,12 +256,61 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     })
   }
 
-  it('warningsTotal = warnAll + critAll; changesTotal = nvAll - nvWarn - nvCrit (meaning preserved exactly)', async () => {
+  it('警告 exact per view state: views hidden → nvWarn + nvCrit (matches the visible feed); views shown → warnAll + critAll', async () => {
+    mockProbes()
+    const hidden = await listAuditLog({})
+    if (!hidden.ok) throw new Error('expected ok')
+    expect(hidden.warningsTotal).toBe(3 + 2)
+
+    mockProbes()
+    const shown = await listAuditLog({ includeViews: true })
+    if (!shown.ok) throw new Error('expected ok')
+    expect(shown.warningsTotal).toBe(8 + 4)
+  })
+
+  it('変更 stays null (client approx + "+" remains): exact math is blocked on core widening exclude_views to the _view suffix', async () => {
     mockProbes()
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
-    expect(res.warningsTotal).toBe(8 + 4)
-    expect(res.changesTotal).toBe(20 - 3 - 2)
+    expect(res.changesTotal).toBeNull()
+    // The nvAll probe was dropped with it — 4 strip probes + break-glass, and
+    // never a bare exclude_views-only page_size:1 call.
+    const probeCalls = list.mock.calls.filter(
+      ([opts]) => (opts as { page_size?: number }).page_size === 1,
+    )
+    expect(probeCalls).toHaveLength(5)
+    expect(
+      probeCalls.some(
+        ([opts]) =>
+          (opts as { exclude_views?: boolean; severity?: string; break_glass?: boolean })
+            .exclude_views &&
+          !(opts as { severity?: string }).severity,
+      ),
+    ).toBe(false)
+  })
+
+  it('BELT: a privacy.audit_log_view row the server fails to exclude (the _view gap) is still hidden from the default feed', async () => {
+    list.mockImplementation(async (opts: { page_size?: number }) => {
+      if (opts.page_size === 100)
+        return {
+          events: [
+            coreEvent(),
+            { ...coreEvent(), id: 'evt-open', action: 'privacy.audit_log_view' },
+          ],
+          total: 2,
+          page: 1,
+          page_size: 100,
+        }
+      return { events: [], total: 0, page: 1, page_size: 1 }
+    })
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).not.toContain('evt-open')
+
+    // includeViews keeps it — the belt only guards the default state.
+    const shown = await listAuditLog({ includeViews: true })
+    if (!shown.ok) throw new Error('expected ok')
+    expect(shown.events.map((e) => e.id)).toContain('evt-open')
   })
 
   it('ONE probe failing (nvCrit) nulls BOTH totals — never a partial sum, even though warnAll/critAll both succeeded', async () => {
