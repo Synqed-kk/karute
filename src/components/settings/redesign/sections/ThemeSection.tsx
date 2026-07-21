@@ -23,6 +23,7 @@ import {
   useSidebarStyleMutations,
   type SidebarStyle,
 } from '@/lib/sidebar-style/hooks'
+import { WebOnly } from '@/components/shell/WebOnly'
 
 const BAR_COLOR_FIELDS: { key: keyof ThemeColors; label: string }[] = [
   { key: 'barOpen', label: 'Open' },
@@ -128,26 +129,34 @@ export function ThemeSection({ orgSettings, locale }: ThemeSectionProps) {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <label className="text-sm font-medium mb-1.5 block">
-            {t('displayLanguage')}
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            <LangButton
-              active={locale === 'en'}
-              onClick={() => handleLanguageChange('en')}
-              label="English"
-            />
-            <LangButton
-              active={locale === 'ja'}
-              onClick={() => handleLanguageChange('ja')}
-              label="日本語"
-            />
+        {/* Language switcher — hidden in the thin shell (WebOnly, the same
+         *  gate the profile page's language toggle uses, design-parity
+         *  packet 12 §S1 pre-ruling): the shell is a single-locale bundle
+         *  with no path segment to swap into. On web the switcher now mounts
+         *  post-hydration (WebOnly's brief first-paint absence — the same
+         *  accepted tradeoff as the profile toggle). */}
+        <WebOnly>
+          <div>
+            <label className="text-sm font-medium mb-1.5 block">
+              {t('displayLanguage')}
+            </label>
+            <div className="grid grid-cols-2 gap-2">
+              <LangButton
+                active={locale === 'en'}
+                onClick={() => handleLanguageChange('en')}
+                label="English"
+              />
+              <LangButton
+                active={locale === 'ja'}
+                onClick={() => handleLanguageChange('ja')}
+                label="日本語"
+              />
+            </div>
+            <p className="text-xs text-muted-foreground mt-1.5">
+              {t('displayLanguageDescription')}
+            </p>
           </div>
-          <p className="text-xs text-muted-foreground mt-1.5">
-            {t('displayLanguageDescription')}
-          </p>
-        </div>
+        </WebOnly>
         <div>
           <label className="text-sm font-medium mb-1.5 block">
             {t('displayMode')}

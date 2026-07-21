@@ -353,6 +353,40 @@ async function facadeUndoRedemption(redemptionId: string): Promise<{ ok: boolean
   return { ok: !!body?.ok }
 }
 
+// -- org-settings (design-parity packet 12 §S1). RPC-style, same class as
+// statusCall below: upsertOrgSettings's own result shape ({ success: true } |
+// { error: string }) rides the 2xx body VERBATIM — OrganizationSection/
+// ThemeSection/AISection/RecordingSection/PacksSection all branch on
+// `'error' in result` exactly as they do against the web action. try/catch
+// delivers the transport promise every caller here awaits WITHOUT one of
+// their own (same #566 precedent as statusCall): an offline/DNS reject must
+// land as { error }, never an unhandled rejection.
+type UpsertOrgSettingsResult = { success: true } | { error: string }
+
+async function facadeUpsertOrgSettings(
+  settings: Record<string, unknown>,
+): Promise<UpsertOrgSettingsResult> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/org-settings', jsonInit('PATCH', settings))
+    const parsed = (await res.json().catch(() => null)) as
+      | (UpsertOrgSettingsResult & { error?: unknown })
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && parsed) return parsed as UpsertOrgSettingsResult
+    const envelope = parsed as { error?: { code?: string; message?: string } } | null
+    // Web-parity for the one denial the sections actually surface: web's
+    // upsertOrgSettings soft-returns this exact string on a failed
+    // settings.manage gate, and 4 of 5 sections toast result.error VERBATIM
+    // — the facade's raw capability-key message must never reach the UI.
+    if (envelope?.error?.code === 'forbidden') {
+      return { error: 'You do not have permission to change settings.' }
+    }
+    return { error: envelope?.error?.message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 // -- dashboard pack mutations (design-parity Gap B-1 PR 2). RPC-style: the
 // facade's 2xx body rides through VERBATIM — dismissVisitReconcileAction /
 // dismissPackAlertAction / logCustomerContactAction return { ok, error? } and
@@ -467,7 +501,42 @@ export const setActiveStore = async (
   window.location.reload()
   return { ok: true }
 }
+export const listStores = notWired('listStores')
+export const createStore = notWired('createStore')
+export const updateStore = notWired('updateStore')
+export const getActiveStoreId = notWired('getActiveStoreId')
+export const getStaffStores = notWired('getStaffStores')
+export const setStaffStores = notWired('setStaffStores')
+export const getEntitlement = notWired('getEntitlement')
 export const startRecordingSession = facadeStartRecordingSession
+// -- settings (design-parity packet 12 §S1) — organization/theme/ai/recording/
+// packs tabs are LIVE this slice; upsertOrgSettings is the one write all five
+// share. 店舗/スタッフ/同期/監査ログ render an in-shell 準備中 panel
+// (SettingsShell's pendingTabIds) — SettingsShell still statically imports
+// every section unconditionally, so StoresSection/StaffSection/SyncSection/
+// AuditLogSection (and their children: InviteStaffDialog, StaffList,
+// StaffForm, PinSetup, VoiceEnrollmentDialog) are ALL in the thin bundle's
+// import graph regardless of which tabs are pending — Rollup requires every
+// named import they make from @/actions/* to resolve, hence the stub roster
+// below. None of these run in S1 (their tabs never render past the pending
+// intercept); notWired throws loudly if that ever changes without a
+// deliberate wire-up.
+export const upsertOrgSettings = facadeUpsertOrgSettings
+export const getOrgSettings = notWired('getOrgSettings')
+export const listAuditLog = notWired('listAuditLog')
+export const createInvite = notWired('createInvite')
+export const listInvites = notWired('listInvites')
+export const revokeInvite = notWired('revokeInvite')
+export const getStaffPermissions = notWired('getStaffPermissions')
+export const setStaffPermissions = notWired('setStaffPermissions')
+export const createStaff = notWired('createStaff')
+export const deleteStaff = notWired('deleteStaff')
+export const updateStaff = notWired('updateStaff')
+export const uploadStaffAvatar = notWired('uploadStaffAvatar')
+export const removeStaffPin = notWired('removeStaffPin')
+export const setStaffPin = notWired('setStaffPin')
+export const enrollVoiceAction = notWired('enrollVoiceAction')
+export const revokeVoiceAction = notWired('revokeVoiceAction')
 // -- karute (sessions list — packet 05; New カルテ create is unwired in the
 //    read-only batch, but speaks the action's own { error } | void contract:
 //    NewKaruteDialog only renders RETURNED errors — a throw inside its

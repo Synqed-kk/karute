@@ -21,6 +21,7 @@ const port = (p: string) => path.resolve(__dirname, 'ports', p)
 const ACTIONS_DIR = path.resolve(root, 'src/actions') + path.sep
 const ACTIONS_PORT = port('actions.vite.ts')
 const PURCHASE_PORT = port('purchase-excluded.tsx')
+const PENDING_SECTIONS_PORT = port('pending-sections-excluded.tsx')
 
 // Payments-canon denylist (§1.5): purchase-surface FILES that must never enter
 // the bundle. Judged by resolved path, so relative imports are caught too.
@@ -32,6 +33,23 @@ const PURCHASE_FILES = new Set(
     'src/components/settings/redesign/sections/subscription/PaymentUpdateDialog.tsx',
     'src/components/settings/redesign/sections/stores/AddStoreSubscriptionDialog.tsx',
     'src/components/settings/redesign/sections/stores/PlanComparisonDialog.tsx',
+  ].map((p) => path.resolve(root, p)),
+)
+
+// Rollout-gate denylist (design-parity packet 12 §S1): settings sections
+// whose tabs are PENDING (in-shell 準備中 via SettingsShell's pendingTabIds)
+// — SettingsShell imports all ten sections unconditionally, so bundling
+// these four (+ their children: StoreFormDialog, StaffForm/PinSetup/
+// VoiceEnrollmentDialog, InviteStaffDialog) for code the pendingTabIds
+// intercept guarantees never renders pushed the thin bundle over budget.
+// Names must also exist in thin/ports/pending-sections-excluded.tsx. Remove
+// an entry the same PR its tab goes live.
+const PENDING_SECTION_FILES = new Set(
+  [
+    'src/components/settings/redesign/sections/StoresSection.tsx',
+    'src/components/settings/redesign/sections/StaffSection.tsx',
+    'src/components/settings/redesign/sections/SyncSection.tsx',
+    'src/components/settings/redesign/sections/AuditLogSection.tsx',
   ].map((p) => path.resolve(root, p)),
 )
 
@@ -84,6 +102,11 @@ function boundaryPlugin(): Plugin {
       // (b) Purchase surfaces → null renders, whatever the import shape.
       if (PURCHASE_FILES.has(resolved.id)) return PURCHASE_PORT
       if (PURCHASE_VENDOR_SUFFIXES.some((s) => resolved.id.endsWith(s))) return PURCHASE_PORT
+
+      // (d) Pending-tab settings sections (§S1) → null renders. The
+      // pendingTabIds runtime intercept already guarantees these never
+      // render; this cuts them (and their children) from the bundle too.
+      if (PENDING_SECTION_FILES.has(resolved.id)) return PENDING_SECTIONS_PORT
 
       return null
     },

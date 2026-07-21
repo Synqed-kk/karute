@@ -1,0 +1,278 @@
+// Settings screen facade GET (design-parity packet 12 §S1). Pins: missing
+// Bearer → 401, no reads · missing capability → 403, no reads · store-id
+// outside a clamped staff's assignment → 403 store_forbidden · isOwner
+// derives from the self row keyed by the CONFIRMED authUserId (never the
+// first roster row), literal 'owner' match (no case-folding — page.tsx's own
+// comparison) · canViewAllStores/canManageStaff/canInviteStaff/canViewAudit
+// derive from ctx.identity.capabilities (+ isOwner for canViewAudit) ·
+// ?tab=audit only passes through with the canViewAudit grant, else null ·
+// initialActiveStoreId reflects the store clamp's resolved storeId ·
+// activeStaffId is roster-gated (web parity: getCurrentUserStaffId) — the
+// auth id only when its row is present in the DTO's staff roster, else null
+// · orgSettings.voice_enrollments always reads back as {} (least-privilege,
+// S1 fix batch) · a failed load-bearing read (staff roster / org settings) →
+// 502.
+import { createHmac } from 'node:crypto'
+
+process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
+process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
+process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({
+    auth: {
+      getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }),
+    },
+  }),
+}))
+
+const fullOrgSettings = () => ({
+  id: 'business-1',
+  salon_name: 'テストサロン',
+  business_type: 'salon',
+  webhook_url: '',
+  ai_model: 'gpt-4o-mini',
+  confidence_threshold: 0.7,
+  audio_quality: 'standard',
+  auto_stop_minutes: 30,
+  operating_hours: {
+    mon: { openMinute: 600, closeMinute: 1200 },
+    tue: { openMinute: 600, closeMinute: 1200 },
+    wed: { openMinute: 600, closeMinute: 1200 },
+    thu: { openMinute: 600, closeMinute: 1200 },
+    fri: { openMinute: 600, closeMinute: 1200 },
+    sat: { openMinute: 600, closeMinute: 1200 },
+    sun: { openMinute: 600, closeMinute: 1200 },
+  },
+  theme_colors: {},
+  recording_disclosure_mode: 'B' as const,
+  recording_disclosure_privacy_confirmed: false,
+  setup_completed_at: null,
+  timezone: 'Asia/Tokyo',
+  solo_mode: false,
+  ai_auto_summary: true,
+  ai_auto_outreach: false,
+  ai_voice_style: 'polite' as const,
+  audio_source: 'phone' as const,
+  noise_suppression: true,
+  speaker_diarization: true,
+  voice_recognition_improved: false,
+  recording_consent_required: false,
+  recording_consent_template: '',
+  pack_presets: [],
+  voice_enrollments: {},
+  staff_can_customize_packs: true,
+  ticket_packs_enabled: true,
+  coaching_enabled: false,
+})
+
+const staffListByBusinessOrThrow = jest.fn(async (..._a: unknown[]) => [
+  { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'stylist', has_pin: true, created_at: '2026-01-01' },
+  { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+])
+jest.mock('@/lib/staff', () => ({
+  businessIdForUser: jest.fn(async () => 'business-1'),
+  staffListByBusinessOrThrow: (...a: unknown[]) => staffListByBusinessOrThrow(...a),
+}))
+
+const mockCapabilities = jest.fn(async () => new Set(['customers.view']))
+jest.mock('@/lib/auth/require-permission', () => {
+  const actual = jest.requireActual('@/lib/auth/require-permission')
+  return { ...actual, capabilitiesForUser: () => mockCapabilities() }
+})
+
+const orgSettingsWithClient = jest.fn(async (..._a: unknown[]) => fullOrgSettings())
+jest.mock('@/actions/org-settings', () => ({
+  orgSettingsWithClient: (...a: unknown[]) => orgSettingsWithClient(...a),
+}))
+
+const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
+const storesGet = jest.fn(async () => ({}))
+const fakeClient = {
+  stores: { get: storesGet },
+  staffStores: { get: staffStoresGet },
+}
+const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
+jest.mock('@/lib/synqed/client', () => ({
+  newSynqedClient: (businessId: string) => newSynqedClient(businessId),
+}))
+
+import { GET } from '@/app/api/app/v1/screens/settings/route'
+import { SettingsScreenDTO } from '@/lib/app-api/settings-screen-dto'
+
+const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
+const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
+const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url')
+function bearer(overrides: Record<string, unknown> = {}) {
+  const now = Math.floor(Date.now() / 1000)
+  const header = b64({ alg: 'HS256', typ: 'JWT' })
+  const payload = b64({
+    sub: 'auth-user-1',
+    iss: ISSUER,
+    aud: 'authenticated',
+    exp: now + 3600,
+    iat: now,
+    ...overrides,
+  })
+  const sig = createHmac('sha256', SECRET).update(`${header}.${payload}`).digest('base64url')
+  return `${header}.${payload}.${sig}`
+}
+const route = { params: Promise.resolve({}) }
+const req = (
+  path = 'https://s/api/app/v1/screens/settings',
+  headers: Record<string, string> = {},
+  token = bearer(),
+) => new Request(path, { headers: { authorization: `Bearer ${token}`, ...headers } })
+
+async function dtoOf(res: Response) {
+  const body = await res.json()
+  return SettingsScreenDTO.parse(body.data ?? body)
+}
+
+beforeEach(() => {
+  jest.clearAllMocks()
+  mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+  staffListByBusinessOrThrow.mockResolvedValue([
+    { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'stylist', has_pin: true, created_at: '2026-01-01' },
+    { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+  ])
+  orgSettingsWithClient.mockResolvedValue(fullOrgSettings())
+  staffStoresGet.mockResolvedValue({ store_ids: [] })
+  storesGet.mockResolvedValue({})
+})
+
+describe('GET /api/app/v1/screens/settings', () => {
+  it('missing Bearer → 401, no reads', async () => {
+    const res = await GET(new Request('https://s/api/app/v1/screens/settings'), route)
+    expect(res.status).toBe(401)
+    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('missing capability → 403, no reads', async () => {
+    mockCapabilities.mockResolvedValue(new Set())
+    const res = await GET(req(), route)
+    expect(res.status).toBe(403)
+    expect(newSynqedClient).not.toHaveBeenCalled()
+    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('store-id outside a clamped assignment → 403 store_forbidden, no reads', async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-A'] })
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': 'store-B' }), route)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('happy path (non-owner, no grants) → 200, capability-derived flags all false, real self row', async () => {
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.isOwner).toBe(false)
+    expect(dto.canViewAllStores).toBe(false)
+    expect(dto.canManageStaff).toBe(false)
+    expect(dto.canInviteStaff).toBe(false)
+    expect(dto.canViewAudit).toBe(false)
+    // Roster-gated: auth-user-1 IS present in the default roster (beforeEach).
+    expect(dto.activeStaffId).toBe('auth-user-1')
+    expect(dto.staffList).toHaveLength(2)
+    expect(dto.orgSettings?.salon_name).toBe('テストサロン')
+  })
+
+  it('activeStaffId is null when the authenticated id is absent from the DTO staff roster (roster gate)', async () => {
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+    ])
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.activeStaffId).toBeNull()
+  })
+
+  it('voice_enrollments is always {} in the GET response, even when org settings has entries for several staff (least-privilege pin)', async () => {
+    orgSettingsWithClient.mockResolvedValue({
+      ...fullOrgSettings(),
+      voice_enrollments: {
+        'auth-user-1': { consent_at: '2026-01-01', sample_path: 'p1', status: 'saved' as const },
+        'staff-2': { consent_at: '2026-01-02', sample_path: 'p2', status: 'saved' as const },
+      },
+    })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.orgSettings?.voice_enrollments).toEqual({})
+  })
+
+  it('self row selected by authUserId, not the first roster row', async () => {
+    // auth-user-1 is SECOND in the roster — proves the isOwner lookup is
+    // keyed by id, not list order.
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+      { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner', has_pin: true, created_at: '2026-01-01' },
+    ])
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.isOwner).toBe(true)
+  })
+
+  it('capabilities → canViewAllStores/canManageStaff/canInviteStaff/canViewAudit true when granted', async () => {
+    mockCapabilities.mockResolvedValue(
+      new Set(['customers.view', 'stores.viewAll', 'staff.manage', 'staff.invite', 'audit.view']),
+    )
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.canViewAllStores).toBe(true)
+    expect(dto.canManageStaff).toBe(true)
+    expect(dto.canInviteStaff).toBe(true)
+    expect(dto.canViewAudit).toBe(true)
+  })
+
+  it('canViewAudit is true for an owner even without the explicit audit.view grant', async () => {
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner', has_pin: true, created_at: '2026-01-01' },
+    ])
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.canViewAudit).toBe(true)
+  })
+
+  it('?tab=audit passes through to initialTab only WITH the canViewAudit grant', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view']))
+    const res = await GET(req('https://s/api/app/v1/screens/settings?tab=audit&target=cust-1'), route)
+    const dto = await dtoOf(res)
+    expect(dto.initialTab).toBe('audit')
+    expect(dto.auditTargetId).toBe('cust-1')
+  })
+
+  it('?tab=audit is dropped to null WITHOUT the canViewAudit grant (web parity)', async () => {
+    const res = await GET(req('https://s/api/app/v1/screens/settings?tab=audit&target=cust-1'), route)
+    const dto = await dtoOf(res)
+    expect(dto.initialTab).toBeNull()
+    expect(dto.auditTargetId).toBeNull()
+  })
+
+  it('an unrecognized ?tab= value falls through to null (page.tsx only ever honors audit)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'audit.view']))
+    const res = await GET(req('https://s/api/app/v1/screens/settings?tab=organization'), route)
+    const dto = await dtoOf(res)
+    expect(dto.initialTab).toBeNull()
+  })
+
+  it('initialActiveStoreId reflects the store clamp — a cross-store viewer keeps the requested store-id', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    const res = await GET(req('https://s/api/app/v1/screens/settings', { 'store-id': 'store-A' }), route)
+    const dto = await dtoOf(res)
+    expect(dto.initialActiveStoreId).toBe('store-A')
+  })
+
+  it('a failed load-bearing read (staff roster) → 502', async () => {
+    staffListByBusinessOrThrow.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+
+  it('a failed load-bearing read (org settings) → 502', async () => {
+    orgSettingsWithClient.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(502)
+    expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+})
