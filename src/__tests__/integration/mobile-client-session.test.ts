@@ -144,6 +144,12 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // the IDENTICAL local sequence (purge always runs, unconditionally, first)
   // — remoteOk is purely informational (F1/#572's old asymmetry is gone,
   // there is no longer a separate "fail-closed branch").
+  //
+  // Count note (packet 15 P3): the token trio is now removed TWICE per sign-out
+  // — once before the revoke, once after it settles (the at-rest re-persist
+  // belt) — so removeItem lands 6 times (3 keys × 2 passes) on every path where
+  // the revoke settles. The only exception is the never-settling revoke below,
+  // where the belt never runs.
   it('clean revoke (2xx) → remoteOk true, SAME local purge as a failure', async () => {
     global.fetch = jest.fn(
       async () => new Response(null, { status: 204 }),
@@ -170,7 +176,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(false)
     expect(purge).toHaveBeenCalledWith('staff-A')
-    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(removeItem).toHaveBeenCalledTimes(6)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
@@ -189,7 +195,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
       })
       const r = await auth.signOut()
       expect(r.remoteOk).toBe(true)
-      expect(removeItem).toHaveBeenCalledTimes(3)
+      expect(removeItem).toHaveBeenCalledTimes(6)
       expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
     },
   )
@@ -226,7 +232,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(false)
     expect(purge).toHaveBeenCalledWith('staff-A')
-    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(removeItem).toHaveBeenCalledTimes(6)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
@@ -244,7 +250,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(false)
     expect(purge).toHaveBeenCalledWith('staff-A')
-    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(removeItem).toHaveBeenCalledTimes(6)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
@@ -291,6 +297,8 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     void auth.signOut() // deliberately not awaited — the revoke never settles
     await flush()
     expect(purge).toHaveBeenCalledWith('staff-A')
+    // Only the FIRST purge has landed: the belt re-purge runs after the revoke
+    // settles, and this revoke never does (so signOut() itself never resolves).
     expect(removeItem).toHaveBeenCalledTimes(3)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
@@ -324,7 +332,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     expect(r.remoteOk).toBe(true)
     expect(fetchSpy).not.toHaveBeenCalled()
     expect(purge).toHaveBeenCalledWith(undefined)
-    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(removeItem).toHaveBeenCalledTimes(6)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
@@ -332,6 +340,26 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // ALWAYS fires" guarantee — a broken storage adapter must not swallow the
   // sign-out this exists for. No longer tied to a revoke failure (there is
   // no longer a separate fail-closed branch); a broken adapter alone proves it.
+  // packet 15 P3: the at-rest re-persist belt. stopAutoRefresh cannot abort an
+  // in-flight refresh, which could _saveSession a session back to disk AFTER the
+  // first purge; so once the revoke settles the trio removal runs a SECOND time
+  // to sweep any late re-persist. Pins the belt's observable effect (a second
+  // purge pass) — fully simulating the late refresh would fight the mocked
+  // GoTrueClient, and the honest limit (an unbounded refresh can still land
+  // after this) is documented at the belt itself.
+  it('re-runs the storage purge after the revoke settles (P3 re-persist belt)', async () => {
+    global.fetch = jest.fn(
+      async () => new Response(null, { status: 204 }),
+    ) as unknown as typeof fetch
+    const { auth, removeItem } = makeAuth({ storedSession: storedSessionFixture() })
+    await auth.signOut()
+    // trio removed once pre-revoke, once post-revoke = two full passes
+    expect(removeItem).toHaveBeenCalledTimes(6)
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session')
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-code-verifier')
+    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-user')
+  })
+
   it('storage.removeItem REJECTS → onSessionState STILL fires, signOut still resolves', async () => {
     global.fetch = jest.fn(
       async () => new Response(null, { status: 204 }),
@@ -348,7 +376,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     expect(purge).toHaveBeenCalledWith('staff-A')
     // All THREE removals attempted despite the rejections (allSettled,
     // Greptile #572) — one failed delete must not retain the sibling keys.
-    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(removeItem).toHaveBeenCalledTimes(6)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 })

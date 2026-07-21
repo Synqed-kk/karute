@@ -156,7 +156,26 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
       // next SIGNED_IN in thin/auth/session.ts (shared iPad — the next staff
       // member signs in on this same client with no page reload).
       await auth.stopAutoRefresh()
-      return signOutAndPurge({
+      // Remove the SAME three keys GoTrue's own _removeSession does (installed
+      // @supabase/auth-js 2.99.1, GoTrueClient.js:2249-2258): the storage key
+      // itself, its PKCE code-verifier sibling, and its `-user` sibling (only
+      // populated when a separate userStorage is configured — not wired today,
+      // but mirrored so the Keychain-storage migration, a named future item,
+      // doesn't have to rediscover this list). auth-js reads the session FROM
+      // storage on every call, so a missing key makes getSession()/autorefresh/
+      // resume all resolve null, no private API needed. Each removal is attempted
+      // INDEPENDENTLY (allSettled, Greptile #572): one failed delete must not
+      // retain the sibling credentials — best-effort (a broken adapter must not
+      // block the sign-out this exists for). Hoisted to a named local so the
+      // packet-15 P3 belt below can re-run the IDENTICAL removal after the revoke.
+      const purgeTokenTrio = async () => {
+        await Promise.allSettled([
+          opts.storage.removeItem(SESSION_STORAGE_KEY),
+          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`),
+          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`),
+        ])
+      }
+      const result = await signOutAndPurge({
         captureSession: async () => {
           // PURE disk read of the persisted session — NOT auth.getSession().
           // getSession() serializes behind a navigator.locks mutex and, on a
@@ -187,27 +206,11 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
           }
         },
         wipeLocal: opts.purgeLocalCaches,
-        purgeStorage: async () => {
-          // UNCONDITIONAL now (packet 13 — fail-closed is the only path, not
-          // a fallback on remote failure). Remove the SAME three keys
-          // GoTrue's own _removeSession does (installed @supabase/auth-js,
-          // GoTrueClient.js:2246-2255): the storage key itself, its PKCE
-          // code-verifier sibling, and its `-user` sibling (only populated
-          // when a separate userStorage is configured — not wired today, but
-          // mirrored so the Keychain-storage migration, a named future item,
-          // doesn't have to rediscover this list). auth-js reads the session
-          // FROM storage on every call, so a missing key makes getSession()/
-          // autorefresh/resume all resolve null, no private API needed. Each
-          // removal is attempted INDEPENDENTLY (allSettled, Greptile #572):
-          // one failed delete must not retain the sibling credentials — the
-          // whole step stays best-effort (a broken adapter must not block
-          // the sign-out this exists for).
-          await Promise.allSettled([
-            opts.storage.removeItem(SESSION_STORAGE_KEY),
-            opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`),
-            opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`),
-          ])
-        },
+        // UNCONDITIONAL now (packet 13 — fail-closed is the only path, not a
+        // fallback on remote failure): the token trio comes off disk regardless
+        // of the remote revoke's outcome. purgeTokenTrio is the hoisted removal
+        // above; the P3 belt re-runs it after the revoke settles.
+        purgeStorage: purgeTokenTrio,
         // No SIGNED_OUT event drives this anymore (we never call
         // auth.signOut()) — flip ourselves, and only after purgeStorage
         // above resolves, so the visible demote never precedes the disk
@@ -221,6 +224,24 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         revokeRemote: (accessToken) =>
           revokeGoTrueSession(opts.config, accessToken, opts.bootTimeoutMs ?? 4000),
       })
+      // P3 belt (packet 15 — at-rest re-persist window): stopAutoRefresh clears
+      // the ticker but CANNOT abort an already in-flight _callRefreshToken
+      // (installed @supabase/auth-js 2.99.1 has no AbortController on the refresh
+      // fetch; _stopAutoRefresh GoTrueClient.js:2325-2337 only clears the timers),
+      // and purgeTokenTrio bypasses auth-js's storage lock. A refresh that lands
+      // AFTER the purge above re-writes the session key via _saveSession
+      // (GoTrueClient.js:2156 → 2246) — the store flip is fenced, the at-rest
+      // copy is not, and the next cold boot would read it back. Now the revoke
+      // has settled (signOutAndPurge's last step, bounded by the AbortController
+      // timeout), re-run the IDENTICAL trio removal once more to sweep such a
+      // late re-persist. HONEST LIMIT: this NARROWS the window, it does not close
+      // it — an unbounded in-flight refresh can still land after this re-purge;
+      // full closure would need aborting in-flight refreshes, which auth-js does
+      // not expose. A successful scope=global revoke already kills the
+      // re-persisted session server-side, so the residual needs a revoke FAILURE
+      // and a late-landing refresh together.
+      await purgeTokenTrio()
+      return result
     },
   }
 }

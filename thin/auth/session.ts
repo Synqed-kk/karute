@@ -9,10 +9,10 @@ import { createMobileAuth, type MobileAuth } from '@/lib/auth/mobile/client-sess
 import { loadAuthClientConfig } from '@/lib/auth/mobile/config'
 import type { SupportsStorage } from '@/lib/auth/mobile/secure-storage'
 import {
+  applyTokenRotation,
   currentGeneration,
   getCurrentSession,
   setSessionState,
-  setSessionStateIfCurrent,
 } from '@/lib/auth/mobile/session-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { getThinEnv } from '../env'
@@ -78,23 +78,23 @@ export function getMobileAuth(): MobileAuth {
   // subscription handle is deliberately dropped: exactly one subscription per
   // app lifetime (this module is a cached singleton), never torn down.
   //
-  // `epochGen` tracks the generation of the session this listener currently
-  // mirrors (packet 14 P1-b). Authoritative events (SIGNED_IN / INITIAL_SESSION)
-  // open a new epoch via setSessionState and refresh it; a within-epoch
-  // TOKEN_REFRESHED writes through setSessionStateIfCurrent(epochGen), so a
-  // STALE refresh — e.g. an in-flight autorefresh that resolves AFTER the
-  // sign-out flip already bumped the generation — is dropped instead of
-  // resurrecting the signed-out session.
-  let epochGen = currentGeneration()
+  // A within-epoch TOKEN_REFRESHED / USER_UPDATED goes through
+  // applyTokenRotation, which mirrors the fresh token IFF the store still holds
+  // THIS user's session (packet 15 P1). It drops the write on a signed-out or
+  // other-user store, so a stale in-flight refresh — e.g. one that resolves
+  // AFTER the sign-out flip — cannot resurrect the signed-out session or
+  // cross-apply it under the next staff member on a shared device. The rule is
+  // by IDENTITY, not by generation, so it cannot desync against the
+  // authoritative writes (boot/resume settles, LoginScreen's belt-and-braces)
+  // that the removed epoch fence miscounted.
   const client = auth.auth
   client.onAuthStateChange((event, session) => {
     if (session) {
       if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
-        setSessionStateIfCurrent({ status: 'signed-in', session }, epochGen)
+        applyTokenRotation(session)
       } else {
         // SIGNED_IN / INITIAL_SESSION / PASSWORD_RECOVERY — authoritative.
         setSessionState({ status: 'signed-in', session })
-        epochGen = currentGeneration()
         if (event === 'SIGNED_IN') {
           // Re-arm autorefresh: the sign-out path calls auth.stopAutoRefresh(),
           // which also removes auth-js's managed visibility callback. On a
@@ -116,7 +116,6 @@ export function getMobileAuth(): MobileAuth {
       // leaving staff member's takes on the shared device.
       const outgoingUid = getCurrentSession()?.user?.id
       setSessionState({ status: 'signed-out' })
-      epochGen = currentGeneration()
       // This branch fires ONLY on a SERVER-driven session death: auth-js emits
       // SIGNED_OUT from _removeSession (a non-retryable failed refresh, admin
       // revoke, or password reset). The in-app sign-out BUTTON does NOT reach
