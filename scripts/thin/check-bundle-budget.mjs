@@ -26,7 +26,11 @@ const DIST = 'thin/dist/assets'
 // number is only a bloat tripwire; the §1.5 purchase-marker scan below and the
 // on-device first-paint stop-rule (packet-09) are the gates that matter and
 // neither depends on it.
-const BUDGET_BYTES = 1_500_000
+// Raised 2026-07-21 at packet 12 §B-3 S2 — the live 店舗 tab ships
+// StoresSection + StoreFormDialog (+12.6 KB genuine section code,
+// duplication-checked) against 6.2 KB of remaining headroom; still only a
+// tripwire — the purchase-marker scan stays the real gate.
+const BUDGET_BYTES = 1_600_000
 
 let dir
 try {

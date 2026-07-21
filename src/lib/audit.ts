@@ -186,4 +186,12 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   // something web itself never logs. Same parity rule as the appointment.*
   // rows above.
   'orgSettings.update': { kind: 'skip', category: 'settings', action: '' },
+  // stores CRUD (design-parity packet 12 §B-3 S2): the OPPOSITE reason from
+  // orgSettings.update above — createStoreCore/updateStoreCore (the ONE core
+  // both the web action and this facade route call) already emit
+  // settings.store_create / settings.store_update themselves. A rule here
+  // would double-log every facade create/update; list reads stay unmapped
+  // (list-render-is-not-a-view, same ruling as customers.list).
+  'stores.create': { kind: 'skip', category: 'settings', action: '' },
+  'stores.update': { kind: 'skip', category: 'settings', action: '' },
 }

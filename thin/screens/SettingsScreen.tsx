@@ -1,15 +1,12 @@
 // 設定 (settings) screen in the thin bundle (design-parity packet 12 §S1) —
 // retires its 準備中 placeholder. Fetches the screen-shaped DTO through the
 // DataPort and renders the REAL SettingsShell — the same leaf component tree
-// the web page renders — with organization/theme/ai/recording/packs/coaching
-// LIVE and stores/staff/sync/audit routed to SettingsShell's own in-shell
-// 準備中 panel via the new pendingTabIds prop.
+// the web page renders — with organization/theme/ai/recording/packs/coaching/
+// 店舗 LIVE and staff/sync/audit routed to SettingsShell's own in-shell
+// 準備中 panel via the pendingTabIds prop.
 //
-// initialStores/initialEntitlement are hardcoded to the empty/null values
-// StoresSection's own fallback path already tolerates (see
-// settings-screen-dto.ts's header comment) — both props are dead this slice
-// since 店舗/スタッフ are pending, same "hardcode the unused prop" call
-// AppointmentsScreenInner makes for orgSettings={null}.
+// initialStores/initialEntitlement now thread the real DTO fields (packet 12
+// §B-3 S2 — the 店舗 tab going live).
 
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
@@ -19,8 +16,8 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(raw)
 
 // Tabs not yet ported to the shell this slice — shrinks to empty as later
-// design-parity packets land the real 店舗/スタッフ/同期/監査ログ sections.
-const PENDING_TAB_IDS: readonly SettingsTabId[] = ['stores', 'staff', 'sync', 'audit']
+// design-parity packets land the real スタッフ/同期/監査ログ sections.
+const PENDING_TAB_IDS: readonly SettingsTabId[] = ['staff', 'sync', 'audit']
 
 // Exported for the real-render prop-mapping smoke test (same idiom as
 // DashboardScreenInner) — this passthrough has its own coverage beyond the
@@ -39,9 +36,9 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
       canViewAudit={dto.canViewAudit}
       initialTab={dto.initialTab}
       auditTargetId={dto.auditTargetId}
-      initialStores={[]}
+      initialStores={dto.initialStores}
       initialActiveStoreId={dto.initialActiveStoreId}
-      initialEntitlement={null}
+      initialEntitlement={dto.initialEntitlement}
       pendingTabIds={PENDING_TAB_IDS}
     />
   )

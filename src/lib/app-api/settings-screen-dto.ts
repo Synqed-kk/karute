@@ -6,16 +6,56 @@
 // and those sections read `orgSettings: OrgSettings | null` as a whole —
 // there is no narrower shape to project onto.
 //
-// initialStores / initialEntitlement are DELIBERATELY NOT part of this DTO.
-// Both only ever reach StoresSection/StaffSection, and both tabs render the
-// in-shell 準備中 panel this slice (pendingTabIds) — SettingsShell never
-// forwards them to a real section. The thin screen passes StoresSection's own
-// documented empty/null fallback (its comment: "Entitlement fetched on the
-// server... Null on fetch failure → StoresSection falls back to its client
-// fetch") directly at the call site, same as AppointmentsScreenInner hardcodes
-// `orgSettings={null}` for a prop its view never reads over the facade.
+// initialStores / initialEntitlement (design-parity packet 12 §B-3 S2): the
+// 店舗 tab is now LIVE, so both fields are real — StoreRowSchema mirrors
+// StoreRow (src/actions/stores.ts) and EntitlementSchema mirrors Entitlement
+// (src/lib/subscription/entitlement-resolve.ts) field-for-field, same
+// approach as OrgSettingsSchema below. Both are least-privilege-gated in the
+// route (canViewAllStores only) — the tab is hidden without that grant.
 
 import { z } from 'zod'
+
+/** Mirrors StoreRow (src/actions/stores.ts). */
+export const StoreRowSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  address: z.string().nullable(),
+  phone: z.string().nullable(),
+  isPrimary: z.boolean(),
+  active: z.boolean(),
+  staffCount: z.number(),
+  customerCount: z.number(),
+  businessType: z.string().nullable(),
+})
+
+/** Mirrors TierFeatures (src/lib/subscription/types.ts). */
+const TierFeaturesSchema = z.object({
+  stores: z.union([z.number(), z.literal('unlimited')]),
+  staff: z.union([z.number(), z.literal('unlimited')]),
+  customers: z.union([z.number(), z.literal('unlimited')]),
+  recordingsPerMonth: z.union([z.number(), z.literal('unlimited')]),
+  aiKaruteGeneration: z.boolean(),
+  customerMemoryAutoExtract: z.boolean(),
+  aiOutreachDrafts: z.boolean(),
+  coachingInsights: z.boolean(),
+  advancedCoachingAnalytics: z.boolean(),
+  prioritySupport: z.boolean(),
+})
+
+/** Mirrors Entitlement (src/lib/subscription/entitlement-resolve.ts). Every
+ *  field is already JSON-safe (string/number/boolean/'unlimited' literal) —
+ *  no non-serializable field to map explicitly. */
+export const EntitlementSchema = z.object({
+  tier: z.enum(['trial', 'free', 'standard', 'professional', 'enterprise']),
+  storeLimit: z.union([z.number(), z.literal('unlimited')]),
+  storeCount: z.number(),
+  isUnlimited: z.boolean(),
+  features: TierFeaturesSchema,
+  staffLimit: z.union([z.number(), z.literal('unlimited')]),
+  canAddStore: z.boolean(),
+  enforced: z.boolean(),
+  degraded: z.boolean(),
+})
 
 const DailyOperatingHoursSchema = z.object({
   openMinute: z.number(),
@@ -138,6 +178,10 @@ export const SettingsScreenDTO = z.object({
   initialTab: z.enum(['audit']).nullable(),
   auditTargetId: z.string().nullable(),
   initialActiveStoreId: z.string().nullable(),
+  // Least-privilege (packet 12 §B-3 S2): [] / null for a non-viewAll identity
+  // — the 店舗 tab is hidden for them anyway (canViewAllStores === false).
+  initialStores: z.array(StoreRowSchema),
+  initialEntitlement: EntitlementSchema.nullable(),
 })
 
 export type SettingsScreenDTOType = z.infer<typeof SettingsScreenDTO>

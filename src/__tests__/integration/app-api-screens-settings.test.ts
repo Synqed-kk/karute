@@ -11,7 +11,11 @@
 // auth id only when its row is present in the DTO's staff roster, else null
 // · orgSettings.voice_enrollments always reads back as {} (least-privilege,
 // S1 fix batch) · a failed load-bearing read (staff roster / org settings) →
-// 502.
+// 502 · initialStores/initialEntitlement populate for a stores.viewAll
+// identity via the SAME WithClient twins the web action delegates to, and
+// stay []/null for everyone else (packet 12 §B-3 S2, least-privilege — the
+// 店舗 tab is hidden without that grant) · a stores-read failure still 200s
+// with initialStores: [] (web's own page.tsx:38 tolerance, mirrored here).
 import { createHmac } from 'node:crypto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
@@ -87,9 +91,15 @@ jest.mock('@/actions/org-settings', () => ({
 
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const storesGet = jest.fn(async () => ({}))
+const storesList = jest.fn(async () => ({ stores: [] as Record<string, unknown>[] }))
+const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
+const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
+const entitlementsGet = jest.fn(async () => ({ tier: 'free', is_unlimited: false }))
 const fakeClient = {
-  stores: { get: storesGet },
-  staffStores: { get: staffStoresGet },
+  stores: { get: storesGet, list: storesList },
+  staffStores: { get: staffStoresGet, counts: staffStoresCounts },
+  customers: { countsByStore: customersCountsByStore },
+  entitlements: { get: entitlementsGet },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -138,6 +148,11 @@ beforeEach(() => {
   orgSettingsWithClient.mockResolvedValue(fullOrgSettings())
   staffStoresGet.mockResolvedValue({ store_ids: [] })
   storesGet.mockResolvedValue({})
+  storesList.mockResolvedValue({ stores: [] })
+  staffStoresCounts.mockResolvedValue({ counts: {} })
+  customersCountsByStore.mockResolvedValue({ counts: {} })
+  entitlementsGet.mockResolvedValue({ tier: 'free', is_unlimited: false })
+  delete process.env.KARUTE_BILLING_ENFORCEMENT
 })
 
 describe('GET /api/app/v1/screens/settings', () => {
@@ -163,9 +178,11 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
   })
 
-  it('happy path (non-owner, no grants) → 200, capability-derived flags all false, real self row', async () => {
+  it('happy path (non-owner, no grants) → 200, capability-derived flags all false, real self row, client + roster scoped to the resolved businessId', async () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
+    expect(staffListByBusinessOrThrow).toHaveBeenCalledWith('business-1')
     const dto = await dtoOf(res)
     expect(dto.isOwner).toBe(false)
     expect(dto.canViewAllStores).toBe(false)
@@ -274,5 +291,58 @@ describe('GET /api/app/v1/screens/settings', () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(502)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+
+  it('initialStores/initialEntitlement populate for a stores.viewAll identity (packet 12 §B-3 S2)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    storesList.mockResolvedValue({
+      stores: [
+        { id: 'store-A', name: '代官山', address: null, phone: null, is_primary: true, active: true },
+      ],
+    })
+    entitlementsGet.mockResolvedValue({ tier: 'professional', is_unlimited: true })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.initialStores).toEqual([
+      {
+        id: 'store-A',
+        name: '代官山',
+        address: null,
+        phone: null,
+        isPrimary: true,
+        active: true,
+        staffCount: 0,
+        customerCount: 0,
+        businessType: null,
+      },
+    ])
+    expect(dto.initialEntitlement).toMatchObject({ tier: 'professional', isUnlimited: true })
+  })
+
+  it('initialStores: [] / initialEntitlement: null for a non-viewAll identity (least-privilege pin) — no read triggered', async () => {
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.initialStores).toEqual([])
+    expect(dto.initialEntitlement).toBeNull()
+    expect(storesList).not.toHaveBeenCalled()
+    expect(entitlementsGet).not.toHaveBeenCalled()
+  })
+
+  it('a stores-read failure still 200s with initialStores: [] (web page.tsx:38 tolerance, mirrored)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    storesList.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.initialStores).toEqual([])
+  })
+
+  it("an entitlement-read failure still 200s with the TWIN's own degraded shape, not null — loadEntitlementWithClient swallows the read internally", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    entitlementsGet.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.initialEntitlement).toMatchObject({ tier: 'free', degraded: true })
   })
 })
