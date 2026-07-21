@@ -141,6 +141,12 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         initialActiveStoreId: clamp.storeId,
         initialStores: storesResult,
         initialEntitlement: entitlementResult,
+        // Server-truth flags (design-parity packet 12 §S4a) — this route's
+        // own process.env is real (unlike thin's, which is {}); ship the
+        // resolved booleans so StaffSection/StaffForm don't have to read the
+        // env var directly and silently go dark in the native bundle.
+        featureStaffInvites: process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true',
+        featureMultiStore: process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true',
       }),
     )
   } catch (err) {

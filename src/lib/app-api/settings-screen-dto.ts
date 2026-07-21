@@ -182,6 +182,16 @@ export const SettingsScreenDTO = z.object({
   // — the 店舗 tab is hidden for them anyway (canViewAllStores === false).
   initialStores: z.array(StoreRowSchema),
   initialEntitlement: EntitlementSchema.nullable(),
+  // Server-truth feature flags (design-parity packet 12 §S4a): thin's
+  // process.env is {} (thin/vite.config.ts:125), so a component reading
+  // NEXT_PUBLIC_FEATURE_STAFF_INVITES / _MULTI_STORE directly would always
+  // read false in native even though both are ON in prod web — silently
+  // hiding the invite dialog + store-assignment UI, not a parity gap the UI
+  // should ever show. The facade route reads its OWN (real) env and ships
+  // the resolved booleans here; StaffSection/StaffForm read `prop ?? env` so
+  // web (which never passes these props) is byte-for-byte unchanged.
+  featureStaffInvites: z.boolean(),
+  featureMultiStore: z.boolean(),
 })
 
 export type SettingsScreenDTOType = z.infer<typeof SettingsScreenDTO>

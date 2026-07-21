@@ -3,6 +3,7 @@
 import { useTranslations } from 'next-intl'
 import type { StaffMember } from '@/lib/staff'
 import type { Entitlement } from '@/lib/entitlements'
+import type { StoreRow } from '@/actions/stores'
 import { StaffList } from '@/components/staff/StaffList'
 import { InviteStaffDialog } from './staff/InviteStaffDialog'
 
@@ -19,6 +20,20 @@ interface StaffSectionProps {
    *  staff-cap meter + add/invite lock. Null / disarmed / degraded /
    *  unlimited → no cap UI at all (today's look, byte-for-byte). */
   entitlement?: Entitlement | null
+  /** The salon's business_type — threaded from orgSettings (server-fetched
+   *  by the caller) instead of StaffForm fetching it itself client-side
+   *  (design-parity packet 12 §S4a, T3: kills a client re-fetch). */
+  businessType?: string
+  /** The business's stores — threaded from the caller's own fetch (same
+   *  data StoresSection gets) instead of StaffForm fetching it itself
+   *  client-side (T3). */
+  stores?: StoreRow[]
+  /** Server-truth override for NEXT_PUBLIC_FEATURE_STAFF_INVITES (T3) —
+   *  `prop ?? env` so web (which never passes this) is unchanged. */
+  featureStaffInvites?: boolean
+  /** Same, for NEXT_PUBLIC_FEATURE_MULTI_STORE — threaded through to
+   *  StaffForm's store-assignment UI. */
+  featureMultiStore?: boolean
 }
 
 export function StaffSection({
@@ -28,8 +43,14 @@ export function StaffSection({
   canManageStaff,
   canInviteStaff,
   entitlement,
+  businessType,
+  stores,
+  featureStaffInvites,
+  featureMultiStore,
 }: StaffSectionProps) {
   const t = useTranslations('settings')
+  const invitesEnabled =
+    featureStaffInvites ?? process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true'
 
   // Cap UI only when the walls are ARMED and the plan really is finite —
   // mirrors the server's staffAddAllowed. (The server also counts pending
@@ -62,6 +83,9 @@ export function StaffSection({
         currentUserId={activeStaffId}
         canManageStaff={canManageStaff}
         staffCap={staffCap}
+        businessType={businessType}
+        stores={stores}
+        featureMultiStore={featureMultiStore}
       />
 
       {/* Invite staff — capability-gated (staff.invite: owner + manager + any
@@ -72,7 +96,7 @@ export function StaffSection({
           reachable at the cap — RE-invites to existing staff are always
           allowed (they add nobody); the server rejects only brand-new people
           and the dialog shows the plan copy. */}
-      {canInviteStaff && process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true' && (
+      {canInviteStaff && invitesEnabled && (
         <div className="flex flex-col items-end gap-1.5">
           {staffCap?.atLimit && (
             <p className="text-xs text-amber-700 dark:text-amber-400">

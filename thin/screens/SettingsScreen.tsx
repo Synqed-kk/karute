@@ -41,6 +41,8 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
       initialActiveStoreId={dto.initialActiveStoreId}
       initialEntitlement={dto.initialEntitlement}
       pendingTabIds={PENDING_TAB_IDS}
+      featureStaffInvites={dto.featureStaffInvites}
+      featureMultiStore={dto.featureMultiStore}
     />
   )
 }

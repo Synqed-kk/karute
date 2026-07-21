@@ -503,7 +503,6 @@ export async function setStaffStoresCore(
       detail: { store_ids: storeIds.join(','), count: storeIds.length },
       source: deps.source,
     })
-    updateTag('staff-list')
     return { ok: true }
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Could not update stores' }
@@ -536,6 +535,11 @@ export async function setStaffStores(
     staffId,
     storeIds,
   )
-  if ('ok' in result) revalidatePath('/settings')
+  if ('ok' in result) {
+    // updateTag is Server-Action-only (throws from a Route Handler) — stays
+    // here, not in the core the facade route also calls.
+    updateTag('staff-list')
+    revalidatePath('/settings')
+  }
   return result
 }

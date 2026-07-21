@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { deleteStaff, uploadStaffAvatar } from '@/actions/staff'
+import type { StoreRow } from '@/actions/stores'
 import { StaffConsentStatusBadge } from '@/components/coaching/redesign/StaffConsentStatusBadge'
 import { StaffForm } from './StaffForm'
 import { PinSetup } from './PinSetup'
@@ -94,6 +95,11 @@ interface StaffListProps {
   /** Plan staff cap (armed billing only) — shows the N/M meter and locks the
    *  add button at the limit. Null → no cap UI (today's rendering). */
   staffCap?: { limit: number; atLimit: boolean } | null
+  /** Threaded down to StaffForm (design-parity packet 12 §S4a, T3) — see
+   *  StaffSection's doc comments for why these replace two client fetches. */
+  businessType?: string
+  stores?: StoreRow[]
+  featureMultiStore?: boolean
 }
 
 function formatJpDate(dateString: string, locale: 'ja' | 'en'): string {
@@ -121,6 +127,9 @@ export function StaffList({
   canManageStaff = false,
   voiceEnrollments,
   staffCap,
+  businessType,
+  stores,
+  featureMultiStore,
 }: StaffListProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
@@ -209,6 +218,9 @@ export function StaffList({
           <StaffForm
             mode="create"
             onClose={() => setShowCreateForm(false)}
+            businessType={businessType}
+            stores={stores}
+            featureMultiStore={featureMultiStore}
           />
         )}
       </div>
@@ -283,7 +295,13 @@ export function StaffList({
       </div>
 
       {showCreateForm && (
-        <StaffForm mode="create" onClose={() => setShowCreateForm(false)} />
+        <StaffForm
+          mode="create"
+          onClose={() => setShowCreateForm(false)}
+          businessType={businessType}
+          stores={stores}
+          featureMultiStore={featureMultiStore}
+        />
       )}
 
       {editingStaff && (
@@ -297,6 +315,9 @@ export function StaffList({
             phone: editingStaff.phone ?? '',
             avatarUrl: editingStaff.avatar_url ?? undefined,
           }}
+          businessType={businessType}
+          stores={stores}
+          featureMultiStore={featureMultiStore}
           onClose={() => setEditingStaff(null)}
         />
       )}
