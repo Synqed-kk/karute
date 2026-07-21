@@ -15,8 +15,13 @@
  */
 process.env.OPENAI_API_KEY = 'test-key'
 
+// Full completions surface, not just parse (#573 reconciliation item 4): with
+// only parse stubbed, a regression calling chat.completions.create would throw
+// on the missing method INSIDE the try — swallowed by the fallback catch, so
+// every assertion here still passes while prod silently serves template copy.
+// Stubbing create + pinning it never-called makes that regression fail loudly.
 jest.mock('@/lib/openai', () => ({
-  openai: { chat: { completions: { parse: jest.fn() } } },
+  openai: { chat: { completions: { parse: jest.fn(), create: jest.fn() } } },
 }))
 
 const getCachedAI = jest.fn(async (_prefix: string, _input: unknown): Promise<unknown> => null)
@@ -28,9 +33,11 @@ jest.mock('@/lib/ai-cache', () => ({
 }))
 
 import { getDailyAttentionLines, type AttentionInputItem } from '@/lib/dashboard/daily-attention-ai'
+import { fallbackLine } from '@/lib/dashboard/attention'
 import { openai } from '@/lib/openai'
 
 const parse = openai.chat.completions.parse as jest.Mock
+const create = (openai.chat.completions as unknown as { create: jest.Mock }).create
 
 // Deferred-call guard (fresh-round finding): a regression that schedules the
 // AI call on a macrotask (setTimeout / after()-style fire-and-forget) would
@@ -130,10 +137,14 @@ describe('getDailyAttentionLines cache-key tenancy', () => {
     // regression that re-introduces the OpenAI call here (independent of
     // whether it also happens to skip the cache) must fail this test.
     expect(parse).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
     // Deterministic fallback line, one per item — the degraded-auth path
-    // serves template copy, never a shared-bucket cached AI line.
+    // serves template copy, never a shared-bucket cached AI line. Exact value
+    // (#573 reconciliation item 5): toBeTruthy would also pass on an error
+    // string, a raw template with unfilled placeholders, or a cached AI line
+    // leaking through — the ONLY correct output here is fallbackLine(item).
     expect(lines.size).toBe(1)
-    expect(lines.get('c1')).toBeTruthy()
+    expect(lines.get('c1')).toBe(fallbackLine(item))
   })
 })
 
@@ -154,6 +165,9 @@ describe('getDailyAttentionLines generate + cache-hit path', () => {
 
     await flushDeferred()
     expect(parse).toHaveBeenCalledTimes(1)
+    // The generate path must ride parse (structured output), never create —
+    // a create regression would otherwise vanish into the fallback catch.
+    expect(create).not.toHaveBeenCalled()
     expect(lines.get('c1')).toBe('AI line')
     // EXACT cache-input shape, not objectContaining: dropping items/storeId
     // from the key (stale text served across different card sets) must fail
@@ -202,6 +216,7 @@ describe('getDailyAttentionLines generate + cache-hit path', () => {
     await flushDeferred()
     // Still just the one call from the first (cache-miss) request above.
     expect(parse).toHaveBeenCalledTimes(1)
+    expect(create).not.toHaveBeenCalled()
     // A hit must not WRITE the cache either (TTL-touch/refresh regressions);
     // the single recorded write is the first (miss) request's.
     expect(setCachedAI).toHaveBeenCalledTimes(1)
