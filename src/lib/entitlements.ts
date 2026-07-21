@@ -17,6 +17,7 @@
 //   2. KARUTE_UNLIMITED_BUSINESS_IDS env (comma-separated business_ids) — a
 //      zero-migration switch Anthony/Liam can flip on Vercel for the dev account.
 
+import type { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { ALL_TIERS, type SubscriptionTier } from '@/lib/subscription/types'
 import {
@@ -52,14 +53,14 @@ function envUnlimited(businessId: string): boolean {
     .includes(businessId)
 }
 
-/** Load the live entitlement for a business. Graceful: an absent row (or a
- *  pre-migration DB without the table/column) degrades to 'free', so nothing
- *  throws on the preview before the migration is applied — and the arming
- *  switch (Entitlement.enforced) keeps that fallback harmless until billing
- *  actually exists. */
-export async function loadEntitlement(businessId: string): Promise<Entitlement> {
-  const synqed = await getSynqedClient()
-
+/** Client-threaded core of loadEntitlement (facade Bearer path, design-parity
+ *  packet 12 §B-3 S2 — same WithClient split as orgSettingsWithClient).
+ *  Fully tolerant (never throws): a degraded read still resolves an
+ *  Entitlement with `degraded: true` so armed gates stay permissive. */
+export async function loadEntitlementWithClient(
+  synqed: Pick<SynqedClient, 'entitlements' | 'stores'>,
+  businessId: string,
+): Promise<Entitlement> {
   let fetchedTier: SubscriptionTier = 'free'
   let rowUnlimited = false
   let fetchFailed = false
@@ -91,4 +92,17 @@ export async function loadEntitlement(businessId: string): Promise<Entitlement> 
     fetchFailed,
     storeCount,
   })
+}
+
+/** Load the live entitlement for a business. Graceful: an absent row (or a
+ *  pre-migration DB without the table/column) degrades to 'free', so nothing
+ *  throws on the preview before the migration is applied — and the arming
+ *  switch (Entitlement.enforced) keeps that fallback harmless until billing
+ *  actually exists. NOTE: builds its client from the cookie session, NOT from
+ *  `businessId` — that param only feeds the env-allowlist check below (a
+ *  pre-existing quirk, preserved as-is; both resolve to the same business in
+ *  practice). */
+export async function loadEntitlement(businessId: string): Promise<Entitlement> {
+  const synqed = await getSynqedClient()
+  return loadEntitlementWithClient(synqed, businessId)
 }

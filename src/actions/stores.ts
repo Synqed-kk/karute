@@ -3,14 +3,45 @@
 import { cache } from 'react'
 import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
+import type { SynqedClient } from '@synqed-kk/client'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput } from '@/lib/validations/store'
-import { loadEntitlement } from '@/lib/entitlements'
+import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { auditWeb } from '@/lib/audit-web'
+import { audit } from '@/lib/audit'
+
+// Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
+// every twin below takes this instead of resolving getSynqedClient() from the
+// cookie session, so the facade (Bearer path, business resolved from the
+// verified token) and the web actions run the IDENTICAL write/read logic.
+type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements'>
+
+/** Roster row shape the owner gate needs — a subset of StaffMember so the
+ *  twin doesn't import the whole staff module's type surface. */
+type RosterRow = { id: string; display_role?: string | null }
+
+/** Pure owner-roster check — the ONE place "is this caller the salon owner"
+ *  is decided, shared by the cookie gate below (requireOwnerBusiness) and the
+ *  Bearer cores (fed the same roster + resolved auth id via deps). */
+function isRosterOwner(staffList: RosterRow[], selfUserId: string | null): boolean {
+  return (
+    !!selfUserId &&
+    staffList.some((s) => s.id === selfUserId && (s.display_role ?? '').toLowerCase() === 'owner')
+  )
+}
+
+/** Identity + provenance a Bearer/cookie caller feeds the write cores: the
+ *  roster (for the owner check), the resolved caller id (owner check +
+ *  audit actor), and which path is calling (the audit event's `source`). */
+type StoreWriteDeps = {
+  staffList: RosterRow[]
+  selfUserId: string | null
+  source: 'web' | 'facade'
+}
 
 // Active-store view filter — which location the viewer is looking at. A cookie,
 // not a security boundary (RLS/business scope is the boundary); the owner switch
@@ -54,9 +85,7 @@ function coreBusinessType(row: unknown): string | null {
 
 async function requireOwnerBusiness(): Promise<string> {
   const [list, uid] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
-  const isOwner =
-    !!uid && list.some((s) => s.id === uid && (s.display_role ?? '').toLowerCase() === 'owner')
-  if (!isOwner) throw new Error('Only the salon owner can manage stores.')
+  if (!isRosterOwner(list, uid)) throw new Error('Only the salon owner can manage stores.')
   return getBusinessId()
 }
 
@@ -77,17 +106,15 @@ async function primaryStoreName(
   return data?.full_name || 'Main store'
 }
 
-/** All stores for the caller's business (anyone in the business can read).
- *  Lazily creates the 本店 primary store so every business always has one. */
-export async function listStores(): Promise<StoreRow[]> {
-  let businessId: string
-  try {
-    businessId = await getBusinessId()
-  } catch {
-    return []
-  }
-  const synqed = await getSynqedClient()
-
+/** Client-threaded core of listStores (facade Bearer path, design-parity
+ *  packet 12 §B-3 S2 — same WithClient split as orgSettingsWithClient).
+ *  Pure read: list + BOTH per-store count maps, merged. Deliberately NO lazy
+ *  本店-create prelude — a Bearer GET performs no writes; tenants are
+ *  provisioned on the web path (listStores below), which delegates here for
+ *  the actual list+merge once provisioning is settled. */
+export async function listStoresWithClient(
+  synqed: StoresClient,
+): Promise<StoreRow[]> {
   // Fetch the store list AND both per-store count maps in one parallel batch —
   // they're independent reads, so there's no reason to await them in series
   // (3 back-to-back round-trips → 1; the settings 店舗 list felt this as a
@@ -109,24 +136,7 @@ export async function listStores(): Promise<StoreRow[]> {
       .catch(() => new Map<string, number>()),
   ])
 
-  // Lazily create the 本店 primary store so every business always has one. Only
-  // hit on a brand-new business (no stores yet) — its counts are empty anyway,
-  // so the parallel fetch above isn't wasted. The unique index in core blocks a
-  // 2nd primary, so a race is harmless.
-  let stores = storesRes.stores
-  if (stores.length === 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = createServiceClient() as any
-    const name = await primaryStoreName(service, businessId)
-    try {
-      await synqed.stores.create({ name, is_primary: true })
-    } catch {
-      /* race: another request created the primary — ignore */
-    }
-    stores = (await synqed.stores.list()).stores
-  }
-
-  return stores.map((s) => ({
+  return storesRes.stores.map((s) => ({
     id: s.id,
     name: s.name,
     address: s.address,
@@ -137,6 +147,36 @@ export async function listStores(): Promise<StoreRow[]> {
     customerCount: customersByStore.get(s.id) ?? 0,
     businessType: coreBusinessType(s),
   }))
+}
+
+/** All stores for the caller's business (anyone in the business can read).
+ *  Lazily creates the 本店 primary store so every business always has one —
+ *  the ONE web-only write in this file's read path (see listStoresWithClient's
+ *  own comment). Calls the twin twice on a brand-new business (once to find
+ *  it empty, once after the create) — both count maps are empty either way,
+ *  so the second pass costs a negligible re-read, never a wrong answer. */
+export async function listStores(): Promise<StoreRow[]> {
+  let businessId: string
+  try {
+    businessId = await getBusinessId()
+  } catch {
+    return []
+  }
+  const synqed = await getSynqedClient()
+
+  const rows = await listStoresWithClient(synqed)
+  if (rows.length > 0) return rows
+
+  // The unique index in core blocks a 2nd primary, so a race is harmless.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
+  const name = await primaryStoreName(service, businessId)
+  try {
+    await synqed.stores.create({ name, is_primary: true })
+  } catch {
+    /* race: another request created the primary — ignore */
+  }
+  return listStoresWithClient(synqed)
 }
 
 /** The viewer's active store (a cookie). Null when unset → "all / primary". */
@@ -226,18 +266,26 @@ export async function clearActiveStore(): Promise<{ ok: true }> {
   return { ok: true }
 }
 
-export async function createStore(
+/** Client-threaded core of createStore (facade Bearer path, design-parity
+ *  packet 12 §B-3 S2). Carries EVERY rule the write needs so web and facade
+ *  can never diverge: zod validation, the owner gate (against the roster/
+ *  self-id `deps` supplies — cookie-resolved for web, Bearer-resolved for
+ *  the facade), the entitlement cap, and the audit write. `deps.source`
+ *  labels the ONE audit row this write ever produces — see the
+ *  FACADE_AUDIT_MAP 'skip' rows for stores.create/stores.update
+ *  (src/lib/audit.ts): a facade-side audit rule here would double it. */
+export async function createStoreCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
   input: StoreInput,
 ): Promise<{ id: string } | { error: string }> {
   const parsed = storeSchema.safeParse(input)
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   }
-  let businessId: string
-  try {
-    businessId = await requireOwnerBusiness()
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
+    return { error: 'Only the salon owner can manage stores.' }
   }
 
   // Plan gate (P3): server-side store cap — the authoritative app-level check
@@ -250,13 +298,12 @@ export async function createStore(
   // owner-only). Billing-grade atomicity arrives with Stripe seat creation (seats
   // are transactional); a sooner hard floor = a Postgres RPC wrapping count+insert
   // in pg_advisory_xact_lock(hashtext(business_id)).
-  const entitlement = await loadEntitlement(businessId)
+  const entitlement = await loadEntitlementWithClient(synqed, businessId)
   if (!entitlement.canAddStore) return { error: 'STORE_LIMIT_REACHED' }
 
   // New stores must declare their vertical (edits stay tolerant — see schema).
   if (!parsed.data.business_type) return { error: 'Business type is required' }
 
-  const synqed = await getSynqedClient()
   try {
     // business_type persists in core (stores.business_type — Anthony's column,
     // brief 2026-07-08). Until the column + SDK field land, core's parser strips
@@ -271,20 +318,53 @@ export async function createStore(
       business_type: parsed.data.business_type,
     }
     const store = await synqed.stores.create(payload)
-    await auditWeb({
+    audit({
       category: 'settings',
       action: 'settings.store_create',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
       targetType: 'store',
       targetId: store.id,
+      source: deps.source,
     })
-    revalidatePath('/settings')
     return { id: store.id }
   } catch (e) {
     return { error: `Could not create store: ${e instanceof Error ? e.message : 'unknown'}` }
   }
 }
 
-export async function updateStore(
+export async function createStore(
+  input: StoreInput,
+): Promise<{ id: string } | { error: string }> {
+  let businessId: string
+  try {
+    businessId = await requireOwnerBusiness()
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+  // Same roster/self-id requireOwnerBusiness() already resolved above — cheap
+  // (React cache()-memoized per request) and lets the core run the IDENTICAL
+  // owner check the facade path runs, rather than trusting the wrapper alone.
+  const [staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+  const synqed = await getSynqedClient()
+  const result = await createStoreCore(
+    synqed,
+    businessId,
+    { staffList, selfUserId, source: 'web' },
+    input,
+  )
+  if ('id' in result) revalidatePath('/settings')
+  return result
+}
+
+/** Client-threaded core of updateStore — see createStoreCore's doc comment
+ *  for the shared owner-gate + audit-source contract. No entitlement check
+ *  (edits never touch the store count). */
+export async function updateStoreCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
   id: string,
   input: StoreInput,
 ): Promise<{ ok: true } | { error: string }> {
@@ -292,15 +372,11 @@ export async function updateStore(
   if (!parsed.success) {
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   }
-  // Owner-only gate (throws if not the salon owner).
-  try {
-    await requireOwnerBusiness()
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
+    return { error: 'Only the salon owner can manage stores.' }
   }
-  const synqed = await getSynqedClient()
   try {
-    // Same passthrough as createStore — see the note there.
+    // Same passthrough as createStoreCore — see the note there.
     const payload: Parameters<typeof synqed.stores.update>[1] & {
       business_type?: string
     } = {
@@ -310,17 +386,44 @@ export async function updateStore(
       business_type: parsed.data.business_type,
     }
     await synqed.stores.update(id, payload)
-    await auditWeb({
+    audit({
       category: 'settings',
       action: 'settings.store_update',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
       targetType: 'store',
       targetId: id,
+      source: deps.source,
     })
-    revalidatePath('/settings')
     return { ok: true }
   } catch (e) {
     return { error: `Could not update store: ${e instanceof Error ? e.message : 'unknown'}` }
   }
+}
+
+export async function updateStore(
+  id: string,
+  input: StoreInput,
+): Promise<{ ok: true } | { error: string }> {
+  // Owner-only gate (throws if not the salon owner).
+  let businessId: string
+  try {
+    businessId = await requireOwnerBusiness()
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+  const [staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+  const synqed = await getSynqedClient()
+  const result = await updateStoreCore(
+    synqed,
+    businessId,
+    { staffList, selfUserId, source: 'web' },
+    id,
+    input,
+  )
+  if ('ok' in result) revalidatePath('/settings')
+  return result
 }
 
 /** The stores a staff member belongs to (empty = works in every store). Graceful

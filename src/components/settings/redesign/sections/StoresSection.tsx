@@ -44,6 +44,7 @@ import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId,
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
 import { WebOnly } from '@/components/shell/WebOnly'
+import { isNativeShell } from '@/lib/platform'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
@@ -136,6 +137,16 @@ export function StoresSection({
       initialMapped[0]?.id ??
       'primary',
   )
+
+  // App-store safety (see lib/platform.ts): AddStoreSubscriptionDialog is a
+  // purchase surface, aliased to a null render in the thin bundle
+  // (thin/ports/purchase-excluded.tsx) — opening ONLY that dialog left the
+  // add-store button dead in the shell. Effect-set so SSR/web hydration is
+  // byte-identical (same idiom as PlanComparisonGrid.tsx).
+  const [nativeShell, setNativeShell] = useState(false)
+  useEffect(() => {
+    setNativeShell(isNativeShell())
+  }, [])
 
   const refresh = useCallback(async () => {
     const [rows, persisted, ent] = await Promise.all([
@@ -318,10 +329,15 @@ export function StoresSection({
          *  not a global env flag, so enabling it for one salon never exposes the
          *  flow to others. createStore persists to the real `stores` table and
          *  re-enforces the plan cap server-side. NOTE: switching the active store
-         *  is still render-only — no route filters by it yet (step 2). */}
+         *  is still render-only — no route filters by it yet (step 2).
+         *  Native shell: purchase surfaces are web-only by policy (store
+         *  creation itself is service administration, not a purchase) — skip
+         *  the mock billing-confirm step and open StoreFormDialog directly. */}
         {isOwner && multiStoreEnabled && (
           <Button
-            onClick={() => setSubscriptionStepOpen(true)}
+            onClick={() =>
+              nativeShell ? setFormMode({ kind: 'add' }) : setSubscriptionStepOpen(true)
+            }
             disabled={!canAdd}
             title={!canAdd ? t('limitReached') : undefined}
             className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"

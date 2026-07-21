@@ -11,6 +11,12 @@
 
 import { getDataPort } from '@/lib/ports/data-port'
 import { redirect as thinRedirect } from './nav.vite'
+// Pure, side-effect-free constants (no next/*, no synqed client) — safe to
+// import directly rather than duplicating the tier/feature matrix by hand.
+// FREE_TIER_LIMITS only (not the full 5-tier TIER_FEATURES) — the fallback
+// below is always 'free', and this keeps the other 4 tiers' data out of the
+// thin bundle (budget headroom).
+import { FREE_TIER_LIMITS, type TierFeatures } from '@/lib/subscription/types'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -487,12 +493,128 @@ export const upsertPassportFieldAction = facadeUpsertPassportField
 export const saveKaruteRecord = facadeSaveKarute
 export const saveKaruteRecordInline = facadeSaveKaruteInline
 
-// -- stores (chrome packet — the StoreSwitcher's one mutation). The web
-// version writes the karute_active_store cookie; the shell persists the
-// store-id header source instead and reloads so every screen re-fetches
-// through the new lens. Validity is the SERVER's call: the facade clamp
-// fails closed on a store outside the caller's scope, so no pre-validation
-// here. Reload is safe from the switcher — it is hidden while recording.
+// -- stores (design-parity packet 12 §B-3 S2 — 店舗 tab live). Mirrors
+// StoreRow (src/actions/stores.ts) — a local redeclaration, not an import:
+// the real module's import chain pulls in next/headers et al via
+// getSynqedClient, which the boundary would need to unwind for a type-only
+// need (same "redeclare the shape" convention this file already uses for
+// MarkNoShowResult / UpsertOrgSettingsResult above).
+type StoreRow = {
+  id: string
+  name: string
+  address: string | null
+  phone: string | null
+  isPrimary: boolean
+  active: boolean
+  staffCount: number
+  customerCount: number
+  businessType: string | null
+}
+type StoreInput = {
+  name: string
+  address?: string
+  phone?: string
+  business_type?: string
+}
+
+async function facadeListStores(): Promise<StoreRow[]> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/stores')
+    if (!res.ok) return []
+    const body = (await res.json().catch(() => null)) as { stores?: StoreRow[] } | null
+    return body?.stores ?? []
+  } catch {
+    return []
+  }
+}
+
+async function facadeCreateStore(
+  input: StoreInput,
+): Promise<{ id: string } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/stores', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.id) return { id: body.id }
+    // Business failure (e.g. STORE_LIMIT_REACHED) rides a 2xx { error: string }
+    // VERBATIM — RPC-style, same class as createAppointment/facadeUpsertOrgSettings
+    // above — so StoresSection's `res.error === 'STORE_LIMIT_REACHED'` branch
+    // sees the identical string on both paths. Transport/auth failures carry
+    // the facade's { error: { message } } envelope.
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Create failed (${res.status})` }
+  } catch (err) {
+    // try/catch: handleFormSave awaits without one — a transport reject would
+    // strand the dialog's `saved` state (see statusCall's identical rationale).
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeUpdateStore(
+  id: string,
+  input: StoreInput,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/stores/${enc(id)}`, jsonInit('PATCH', input))
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Update failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// -- entitlement (design-parity packet 12 §B-3 S2). Mirrors Entitlement
+// (src/lib/subscription/entitlement-resolve.ts) — local redeclaration for
+// the same reason as StoreRow above; built on the pure, side-effect-free
+// subscription/types constants (safe to import — no next/*, no synqed
+// client) rather than duplicating the tier/feature matrix by hand.
+type SubscriptionTier = 'trial' | 'free' | 'standard' | 'professional' | 'enterprise'
+type Entitlement = {
+  tier: SubscriptionTier
+  storeLimit: number | 'unlimited'
+  storeCount: number
+  isUnlimited: boolean
+  features: TierFeatures
+  staffLimit: number | 'unlimited'
+  canAddStore: boolean
+  enforced: boolean
+  degraded: boolean
+}
+
+const FALLBACK_ENTITLEMENT: Entitlement = {
+  tier: 'free',
+  storeLimit: 1,
+  storeCount: 0,
+  isUnlimited: false,
+  features: FREE_TIER_LIMITS,
+  staffLimit: FREE_TIER_LIMITS.staff,
+  canAddStore: false,
+  enforced: false,
+  degraded: false,
+}
+
+async function facadeGetEntitlement(): Promise<Entitlement> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/entitlement')
+    if (!res.ok) return FALLBACK_ENTITLEMENT
+    const body = (await res.json().catch(() => null)) as { entitlement?: Entitlement } | null
+    return body?.entitlement ?? FALLBACK_ENTITLEMENT
+  } catch {
+    return FALLBACK_ENTITLEMENT
+  }
+}
+
+// (chrome packet — the StoreSwitcher's one mutation). The web version writes
+// the karute_active_store cookie; the shell persists the store-id header
+// source instead and reloads so every screen re-fetches through the new
+// lens. Validity is the SERVER's call: the facade clamp fails closed on a
+// store outside the caller's scope, so no pre-validation here. Reload is
+// safe from the switcher — it is hidden while recording.
 export const setActiveStore = async (
   storeId: string,
 ): Promise<{ ok: true } | { error: string }> => {
@@ -501,13 +623,18 @@ export const setActiveStore = async (
   window.location.reload()
   return { ok: true }
 }
-export const listStores = notWired('listStores')
-export const createStore = notWired('createStore')
-export const updateStore = notWired('updateStore')
-export const getActiveStoreId = notWired('getActiveStoreId')
+export const listStores = facadeListStores
+export const createStore = facadeCreateStore
+export const updateStore = facadeUpdateStore
+// Local read, no network — the same store-pref module setActiveStore writes
+// to, keyed per signed-in user (see thin/chrome/store-pref.ts's own header).
+export const getActiveStoreId = async (): Promise<string | null> => {
+  const { getThinActiveStore } = await import('../chrome/store-pref')
+  return getThinActiveStore()
+}
 export const getStaffStores = notWired('getStaffStores')
 export const setStaffStores = notWired('setStaffStores')
-export const getEntitlement = notWired('getEntitlement')
+export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
 // -- settings (design-parity packet 12 §S1) — organization/theme/ai/recording/
 // packs tabs are LIVE this slice; upsertOrgSettings is the one write all five

@@ -7,16 +7,17 @@
 // Standing recipe (#565/#566/#570/#571/#572): facadeHandler + ensureCapability
 // + the store clamp BEFORE any read + a zod DTO in src/lib/app-api/.
 //
-// SCOPE NOTE (judgment call, flagged for review): the web page ALSO fans out
-// listStores()/getActiveStoreId()/getEntitlement() for StoresSection/
-// StaffSection. This slice ships those two tabs PENDING (in-shell 準備中 via
-// pendingTabIds) — neither ever reaches a real section this PR — so this
-// route does NOT build listStores/getEntitlement WithClient twins; the thin
-// screen passes StoresSection's own documented empty-input fallback
-// (initialStores=[], initialEntitlement=null) directly, the same "hardcode
-// the unused prop" call AppointmentsScreenInner already makes for
-// orgSettings. initialActiveStoreId is still real (see below) — it falls out
-// of the store clamp this route runs regardless, at no extra cost.
+// STORES/ENTITLEMENT (design-parity packet 12 §B-3 S2): the 店舗 tab is now
+// LIVE. initialStores/initialEntitlement fan out via the listStores/
+// loadEntitlement WithClient twins (src/actions/stores.ts,
+// src/lib/entitlements.ts) alongside the existing reads — but ONLY for a
+// canViewAllStores identity (least-privilege: the tab is hidden without that
+// grant, same divergence-from-web rule S1 applied to voice_enrollments).
+// Read failures mirror web's OWN tolerance for these two (page.tsx:38,43 —
+// `.catch(() => [])` / `.catch(() => null)`): a stores/entitlement hiccup
+// must not 502 the whole settings screen. initialActiveStoreId is still real
+// — it falls out of the store clamp this route runs regardless, at no extra
+// cost.
 //
 // FAILURE CONTRACT: staff roster / org settings read failures → 502. NOT
 // page parity — the web page's getStaffList() catches its own read error and
@@ -31,6 +32,8 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
 import { orgSettingsWithClient } from '@/actions/org-settings'
+import { listStoresWithClient } from '@/actions/stores'
+import { loadEntitlementWithClient } from '@/lib/entitlements'
 
 export const runtime = 'nodejs'
 
@@ -60,10 +63,23 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
 
+  // Independent of any read below — gates the stores/entitlement fan-out.
+  const canViewAllStores = ctx.identity.capabilities.has('stores.viewAll')
+
   try {
-    const [staffList, orgSettings] = await Promise.all([
+    const [staffList, orgSettings, storesResult, entitlementResult] = await Promise.all([
       staffListByBusinessOrThrow(businessId),
       orgSettingsWithClient(synqed),
+      // Least-privilege: a non-viewAll identity never triggers the read at
+      // all (the tab is hidden for them anyway) — same posture as web's own
+      // `canViewAllStores ? stores : []` gate (page.tsx:82), just applied
+      // before the fetch instead of after it.
+      canViewAllStores
+        ? listStoresWithClient(synqed).catch(() => [])
+        : Promise.resolve([]),
+      canViewAllStores
+        ? loadEntitlementWithClient(synqed, businessId).catch(() => null)
+        : Promise.resolve(null),
     ])
 
     // isOwner mirrors page.tsx's own literal comparison (staffList.some(s =>
@@ -73,7 +89,6 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     const selfRow = staffList.find((s) => s.id === ctx.identity.authUserId) ?? null
     const isOwner = (selfRow?.display_role ?? '') === 'owner'
 
-    const canViewAllStores = ctx.identity.capabilities.has('stores.viewAll')
     const canManageStaff = ctx.identity.capabilities.has('staff.manage')
     const canInviteStaff = ctx.identity.capabilities.has('staff.invite')
     const canViewAudit = isOwner || ctx.identity.capabilities.has('audit.view')
@@ -111,8 +126,12 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         auditTargetId,
         // Deliberate divergence from web (web: null-default cookie via
         // getActiveStoreId; native: RBAC-clamped assigned[0] default via the
-        // store clamp above) — revisit at S2 stores. No behavior change here.
+        // store clamp above) — reviewed at S2 stores (packet 12 §B-3 S2) and
+        // deliberately left as-is; out of that packet's scope. No behavior
+        // change here.
         initialActiveStoreId: clamp.storeId,
+        initialStores: storesResult,
+        initialEntitlement: entitlementResult,
       }),
     )
   } catch (err) {

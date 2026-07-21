@@ -96,6 +96,11 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'customer.pack.reconcile.dismiss',
   'customer.pack.alert.dismiss',
   'customer.pack.contact.log',
+  // stores CRUD (design-parity packet 12 §B-3 S2): owner-only location
+  // create/edit. A just-terminated (owner-role) staffer must not create or
+  // rename a store on the local fast-path.
+  'stores.create',
+  'stores.update',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */
