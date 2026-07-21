@@ -3,7 +3,7 @@
 import { revalidatePath, updateTag } from 'next/cache'
 import { SynqedError, type SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { lookupSynqedStaffId } from '@/lib/synqed/staff-map'
+import { lookupSynqedStaffIdForBusiness } from '@/lib/synqed/staff-map'
 import { getTranslations } from 'next-intl/server'
 import { getBusinessId } from '@/lib/staff'
 import { createServiceClient } from '@/lib/supabase/service'
@@ -260,7 +260,11 @@ export async function deleteStaffCore(
   // Pure lookup — null means the profile has no synqed record, i.e. nothing
   // to delete on the synqed side: skip the delete and just refresh the roster,
   // the same treatment as the 404 below.
-  const synqedStaffId = profile ? await lookupSynqedStaffId(id) : id
+  // Business-explicit lookup (the Bearer-safe twin) — the cookie-bound
+  // lookupSynqedStaffId would re-resolve the tenant via getBusinessId() and
+  // throw on every facade call. Web passes the same cookie-resolved
+  // businessId, so the resolved mapping is identical on both paths.
+  const synqedStaffId = profile ? await lookupSynqedStaffIdForBusiness(id, businessId) : id
 
   if (synqedStaffId) {
     try {

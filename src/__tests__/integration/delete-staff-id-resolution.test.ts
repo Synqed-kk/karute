@@ -63,7 +63,13 @@ const lookupSynqedStaffId = jest.fn(
   async (_id: string): Promise<string | null> => 'synqed-resolved',
 )
 jest.mock('@/lib/synqed/staff-map', () => ({
-  lookupSynqedStaffId: (id: string) => lookupSynqedStaffId(id),
+  // deleteStaffCore resolves via the business-explicit twin now (Bearer-safe,
+  // PR #583); the spy keeps its single-arg call surface so every pin below
+  // stays byte-identical — the tenant arg is asserted once, here.
+  lookupSynqedStaffIdForBusiness: (id: string, businessId: string) => {
+    expect(businessId).toBe('biz-1')
+    return lookupSynqedStaffId(id)
+  },
 }))
 
 const staffDelete = jest.fn(async (_id: string) => {})

@@ -84,7 +84,12 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 jest.mock('@/lib/synqed/staff-map', () => ({
-  lookupSynqedStaffId: jest.fn(async () => 'synqed-7'),
+  // Cookie-bound variant kept in the mock as a tripwire: the cores must call
+  // the business-explicit twin — the cookie one throws on every Bearer call.
+  lookupSynqedStaffId: jest.fn(async () => {
+    throw new Error('cookie-bound lookup reached from a facade path')
+  }),
+  lookupSynqedStaffIdForBusiness: jest.fn(async () => 'synqed-7'),
 }))
 
 const staffCreate = jest.fn(async () => ({ id: 'staff-new' }))
@@ -269,6 +274,15 @@ describe('PATCH /api/app/v1/staff/[id] (update)', () => {
     })
     expect(lines).toHaveLength(0)
   })
+
+  it("core's REAL not-found → 404 (permanent, not a retryable 502), no audit row", async () => {
+    staffUpdate.mockRejectedValueOnce(new SynqedError(404, 'Staff not found'))
+    const lines = await auditLines(async () => {
+      const res = await updatePATCH(patchReq('staff-ghost', VALID_STAFF), params('staff-ghost'))
+      expect(res.status).toBe(404)
+    })
+    expect(lines).toHaveLength(0)
+  })
 })
 
 describe('DELETE /api/app/v1/staff/[id]', () => {
@@ -288,6 +302,18 @@ describe('DELETE /api/app/v1/staff/[id]', () => {
     expect(await res.json()).toEqual({ ok: true })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ action: 'staff.remove', severity: 'notice', target_id: 'staff-9', source: 'facade' })
+  })
+
+  it('profile-backed delete resolves the synqed id via the BUSINESS-EXPLICIT lookup (no cookie re-entry)', async () => {
+    // The cookie-bound lookupSynqedStaffId throws in this suite's mock — a
+    // regression back to it turns this red immediately.
+    profileRow = { id: 'staff-9' }
+    const { lookupSynqedStaffIdForBusiness } = jest.requireMock('@/lib/synqed/staff-map')
+    const res = await deleteDELETE(deleteReq('staff-9'), params('staff-9'))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lookupSynqedStaffIdForBusiness).toHaveBeenCalledWith('staff-9', 'business-1')
+    expect(staffDelete).toHaveBeenCalledWith('synqed-7')
   })
 
   it('the 400 guard (last-member) rides the 2xx body VERBATIM, no audit row', async () => {

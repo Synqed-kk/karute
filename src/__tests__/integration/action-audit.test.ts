@@ -77,6 +77,8 @@ jest.mock('@/lib/synqed/client', () => ({
 
 jest.mock('@/lib/synqed/staff-map', () => ({
   lookupSynqedStaffId: jest.fn(async () => 'synqed-7'),
+  // deleteStaffCore resolves via the business-explicit twin (PR #583).
+  lookupSynqedStaffIdForBusiness: jest.fn(async () => 'synqed-7'),
 }))
 jest.mock('@/lib/subscription/feature-gate', () => ({
   staffAddAllowed: jest.fn(async () => ({ allowed: true })),

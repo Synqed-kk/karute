@@ -30,8 +30,22 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
+import { SynqedError } from '@synqed-kk/client'
 import { updateStaffCore, deleteStaffCore } from '@/actions/staff'
 import { staffProfileSchema } from '@/lib/validations/staff'
+
+/** Only core's REAL not-found maps to 404 (an unknown/foreign staff id is a
+ *  permanent failure the client must not retry); everything else stays 502 —
+ *  the same classification the customer routes adopted after #486's review
+ *  round (classifyCustomerLookupError). deleteStaffCore never rethrows a 404
+ *  (already-gone = success, web parity), so this applies to PATCH only. */
+function classifyStaffWriteError(err: unknown): AppApiError {
+  if (err instanceof AppApiError) return err
+  if (err instanceof SynqedError && err.status === 404) {
+    return new AppApiError('not_found', 'staff not found in this business')
+  }
+  return new AppApiError('upstream_unavailable', 'staff update failed')
+}
 
 export const runtime = 'nodejs'
 
@@ -64,8 +78,8 @@ export const PATCH = facadeHandler<Params>('staff.update', async (ctx) => {
       parsed.data,
     )
     return ok(ctx, result)
-  } catch {
-    throw new AppApiError('upstream_unavailable', 'staff update failed')
+  } catch (err) {
+    throw classifyStaffWriteError(err)
   }
 })
 
