@@ -17,7 +17,15 @@ jest.mock('@/lib/auth/require-permission', () => ({
   },
 }))
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ audit: { list: jest.fn() } })),
+  // Placeholder only — jest hoists this factory above the
+  // ThisSensitiveAuditClient class declared further down this file, so it
+  // can't build a real this-sensitive mock here. Every test overrides this
+  // via the top-level beforeEach's getSynqedClient.mockImplementation(...)
+  // before it's ever read, so this initial value is never actually
+  // exercised; kept as an inert empty object rather than a `{ list }`
+  // literal so it can't be mistaken for the forbidden shape the class
+  // comment below warns against.
+  getSynqedClient: jest.fn(async () => ({})),
 }))
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 jest.mock('@/lib/staff', () => ({
