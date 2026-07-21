@@ -160,8 +160,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       setError(null)
       setEvents((prev) => (append ? [...prev, ...res.events] : res.events))
       setBreakGlassTotal(res.breakGlassTotal)
-      setWarningsTotal(res.warningsTotal)
-      setChangesTotal(res.changesTotal)
+      // The totals describe the whole filtered window, which an append (page
+      // N+1, same filters) does not change — so a transient probe failure on
+      // a later page must not downgrade a known-exact total to the client
+      // approximation. Filter changes go through append=false and take the
+      // fresh value either way (Greptile #581 P1).
+      setWarningsTotal((prev) => (append && res.warningsTotal === null ? prev : res.warningsTotal))
+      setChangesTotal((prev) => (append && res.changesTotal === null ? prev : res.changesTotal))
       setTargetLabels((prev) => (append ? { ...prev, ...res.targetLabels } : res.targetLabels))
       setPage(res.page)
       setHasMore(res.hasMore)
@@ -421,10 +426,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                 // written before core started sending it; 不明 last. System
                 // rows keep their own distinct label (unaffected — core
                 // never resolves a label for a null actor_id).
+                // || not ?? — an empty-string snapshot must fall through to
+                // the roster/不明 chain, never render a blank (Greptile #581 P2).
                 const actorName =
                   e.actor_type === 'system'
                     ? t('systemActor')
-                    : e.actor_label ??
+                    : e.actor_label ||
                       ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
                 return (
                   <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">

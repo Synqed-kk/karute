@@ -176,3 +176,58 @@ describe('AuditLogSection — system rows are label-immune (fleet lens-3 gap)', 
     expect(row.textContent).not.toContain('Should Never Render')
   })
 })
+
+describe('AuditLogSection — Greptile #581 round-1 pins', () => {
+  it('P1: an append whose probes fail keeps the page-1 exact total (no downgrade to approx)', async () => {
+    const { fireEvent } = require('@testing-library/react')
+    listAuditLog
+      .mockResolvedValueOnce({
+        ok: true,
+        events: [coreEvent({ severity: 'warn' })],
+        total: 300,
+        page: 1,
+        hasMore: true,
+        breakGlassTotal: 0,
+        warningsTotal: 5,
+        changesTotal: null,
+        targetLabels: {},
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        events: [coreEvent({ id: 'e2', severity: 'info' })],
+        total: 300,
+        page: 2,
+        hasMore: true,
+        breakGlassTotal: 0,
+        warningsTotal: null, // transient probe failure on the append call
+        changesTotal: null,
+        targetLabels: {},
+      })
+    const { container, getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(statSpans(container)[1]).toBe('5'))
+    fireEvent.click(getByText('loadMore'))
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    // Exact total survives the failed-probe append; no '+' downgrade.
+    await waitFor(() => expect(statSpans(container)[1]).toBe('5'))
+  })
+
+  it("P2: an empty-string actor_label falls through to the roster name, never a blank", async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [coreEvent({ actor_id: 'staff-1', actor_label: '' })],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: null,
+      targetLabels: {},
+    })
+    const staffList = [
+      { id: 'staff-1', full_name: 'Roster Name' },
+    ] as unknown as StaffMember[]
+    const { container } = render(<AuditLogSection staffList={staffList} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    expect((container.querySelector('ul') as HTMLElement).textContent).toContain('Roster Name')
+  })
+})
