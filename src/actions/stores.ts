@@ -108,12 +108,15 @@ async function primaryStoreName(
 
 /** Client-threaded core of listStores (facade Bearer path, design-parity
  *  packet 12 §B-3 S2 — same WithClient split as orgSettingsWithClient).
- *  Pure read: list + BOTH per-store count maps, merged. Deliberately NO lazy
- *  本店-create prelude — a Bearer GET performs no writes; tenants are
- *  provisioned on the web path (listStores below), which delegates here for
- *  the actual list+merge once provisioning is settled. */
+ *  BYTE-PARITY with the pre-S2 web-only listStores body (810e4b6d): list +
+ *  BOTH per-store count maps, merged, AND the lazy 本店-create — every
+ *  caller (web action, stores GET route, settings screen fan-out) now
+ *  provisions a brand-new tenant's primary store the same way web always
+ *  did. Race-tolerant: the unique index in core blocks a 2nd primary, so a
+ *  losing create is ignored and the caller still gets the winner's row. */
 export async function listStoresWithClient(
   synqed: StoresClient,
+  businessId: string,
 ): Promise<StoreRow[]> {
   // Fetch the store list AND both per-store count maps in one parallel batch —
   // they're independent reads, so there's no reason to await them in series
@@ -136,7 +139,25 @@ export async function listStoresWithClient(
       .catch(() => new Map<string, number>()),
   ])
 
-  return storesRes.stores.map((s) => ({
+  // Lazily create the 本店 primary store so every business always has one.
+  // Only hit on a brand-new business (no stores yet) — its counts are empty
+  // anyway, so the parallel fetch above isn't wasted. Re-lists (not a second
+  // full twin call) so the count maps from the first pass — both correctly
+  // empty for a business that had zero stores — merge with the fresh row.
+  let stores = storesRes.stores
+  if (stores.length === 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = createServiceClient() as any
+    const name = await primaryStoreName(service, businessId)
+    try {
+      await synqed.stores.create({ name, is_primary: true })
+    } catch {
+      /* race: another request created the primary — ignore */
+    }
+    stores = (await synqed.stores.list()).stores
+  }
+
+  return stores.map((s) => ({
     id: s.id,
     name: s.name,
     address: s.address,
@@ -150,11 +171,8 @@ export async function listStoresWithClient(
 }
 
 /** All stores for the caller's business (anyone in the business can read).
- *  Lazily creates the 本店 primary store so every business always has one —
- *  the ONE web-only write in this file's read path (see listStoresWithClient's
- *  own comment). Calls the twin twice on a brand-new business (once to find
- *  it empty, once after the create) — both count maps are empty either way,
- *  so the second pass costs a negligible re-read, never a wrong answer. */
+ *  Thin wrapper — the lazy 本店-create prelude lives in the twin now (shared
+ *  with the facade paths), so this just resolves cookie-session context. */
 export async function listStores(): Promise<StoreRow[]> {
   let businessId: string
   try {
@@ -163,20 +181,7 @@ export async function listStores(): Promise<StoreRow[]> {
     return []
   }
   const synqed = await getSynqedClient()
-
-  const rows = await listStoresWithClient(synqed)
-  if (rows.length > 0) return rows
-
-  // The unique index in core blocks a 2nd primary, so a race is harmless.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const name = await primaryStoreName(service, businessId)
-  try {
-    await synqed.stores.create({ name, is_primary: true })
-  } catch {
-    /* race: another request created the primary — ignore */
-  }
-  return listStoresWithClient(synqed)
+  return listStoresWithClient(synqed, businessId)
 }
 
 /** The viewer's active store (a cookie). Null when unset → "all / primary". */

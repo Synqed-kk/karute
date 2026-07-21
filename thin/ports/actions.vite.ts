@@ -517,15 +517,18 @@ type StoreInput = {
   business_type?: string
 }
 
+// Web-exact failure semantics (Greptile P2, PR #579): web's listStores()
+// action degrades to [] ONLY on its getBusinessId() catch (unauthenticated);
+// every other failure propagates so StoresSection's refresh()/mount effect —
+// which never wraps this call in its own try/catch — sees the reject and
+// leaves last-good state untouched, same as web. A blanket []-on-any-failure
+// here would instead silently blank out a paying tenant's real store list.
 async function facadeListStores(): Promise<StoreRow[]> {
-  try {
-    const res = await getDataPort().apiFetch('/api/app/v1/stores')
-    if (!res.ok) return []
-    const body = (await res.json().catch(() => null)) as { stores?: StoreRow[] } | null
-    return body?.stores ?? []
-  } catch {
-    return []
-  }
+  const res = await getDataPort().apiFetch('/api/app/v1/stores')
+  if (res.status === 401) return []
+  if (!res.ok) throw new Error(`store list failed (${res.status})`)
+  const body = (await res.json()) as { stores?: StoreRow[] }
+  return body.stores ?? []
 }
 
 async function facadeCreateStore(
@@ -586,7 +589,10 @@ type Entitlement = {
   degraded: boolean
 }
 
-const FALLBACK_ENTITLEMENT: Entitlement = {
+// Exists ONLY for the 401 class — mirrors web's getEntitlement() action,
+// which returns this exact safe/blocked shape when getBusinessId() throws
+// (unauthenticated), never for any other failure.
+const UNAUTH_ENTITLEMENT: Entitlement = {
   tier: 'free',
   storeLimit: 1,
   storeCount: 0,
@@ -598,15 +604,18 @@ const FALLBACK_ENTITLEMENT: Entitlement = {
   degraded: false,
 }
 
+// Web-exact failure semantics (Greptile P2, PR #579): any failure OTHER than
+// 401 propagates — a transport blip or a 500 must not replace a paying
+// tenant's real plan state with the blocked-free default (StoresSection's
+// mount effect catches this to console and keeps its last-good entitlement,
+// same as web's own try/catch around getEntitlement()).
 async function facadeGetEntitlement(): Promise<Entitlement> {
-  try {
-    const res = await getDataPort().apiFetch('/api/app/v1/entitlement')
-    if (!res.ok) return FALLBACK_ENTITLEMENT
-    const body = (await res.json().catch(() => null)) as { entitlement?: Entitlement } | null
-    return body?.entitlement ?? FALLBACK_ENTITLEMENT
-  } catch {
-    return FALLBACK_ENTITLEMENT
-  }
+  const res = await getDataPort().apiFetch('/api/app/v1/entitlement')
+  if (res.status === 401) return UNAUTH_ENTITLEMENT
+  if (!res.ok) throw new Error(`entitlement fetch failed (${res.status})`)
+  const body = (await res.json()) as { entitlement?: Entitlement }
+  if (!body.entitlement) throw new Error('entitlement fetch failed: malformed response')
+  return body.entitlement
 }
 
 // (chrome packet — the StoreSwitcher's one mutation). The web version writes

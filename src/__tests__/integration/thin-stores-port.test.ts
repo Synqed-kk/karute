@@ -2,18 +2,24 @@
  * Stores/entitlement entries of the thin actions port (design-parity packet
  * 12 §B-3 S2 — 店舗 tab live). Pins the TRANSPORT contract for the 4 newly
  * wired actions (URL, method, headers, unwrap, error mapping):
- *   - listStores: GET, unwraps { stores } → StoreRow[]; a non-ok response
- *     degrades to [] (never throws — StoresSection's refresh() awaits it
- *     with no try/catch of its own).
+ *   - listStores: GET, unwraps { stores } → StoreRow[]; an empty 200 → [];
+ *     401 → [] (web-exact — listStores() degrades to [] ONLY on its
+ *     getBusinessId() catch, i.e. unauthenticated); any OTHER non-ok status
+ *     or a transport reject THROWS (Greptile P2, PR #579 — a blanket []
+ *     on any failure would blank out a paying tenant's real store list;
+ *     StoresSection's refresh()/mount effect has no try/catch of its own,
+ *     so a throw here leaves last-good state untouched, same as web).
  *   - createStore: POST with an Idempotency-Key; success → { id }; a
  *     business-level { error } (e.g. STORE_LIMIT_REACHED) rides the 2xx body
  *     VERBATIM; a transport reject maps to { error: message } (same
  *     statusCall/facadeUpsertOrgSettings rationale — handleFormSave awaits
  *     without its own catch).
  *   - updateStore: PATCH, no Idempotency-Key; same success/error contract.
- *   - getEntitlement: GET, unwraps { entitlement }; a non-ok response
- *     degrades to the safe blocked-free default (web parity — getEntitlement
- *     resolves the same shape on an unauthenticated caller).
+ *   - getEntitlement: GET, unwraps { entitlement }; 401 → the blocked-free
+ *     default (web-exact — getEntitlement() resolves this exact shape ONLY
+ *     when unauthenticated); any OTHER non-ok status, a malformed 200 body,
+ *     or a transport reject THROWS — same "don't clobber a real plan with a
+ *     placeholder" rationale as listStores above.
  *
  * getActiveStoreId (window/localStorage-backed) is pinned separately in
  * thin-active-store-id-port.test.ts — jsdom has no global Response (this
@@ -40,20 +46,34 @@ describe('thin actions port — stores/entitlement transport contract', () => {
     expect(rows).toEqual([{ id: 's-1', name: '代官山' }])
   })
 
-  it('listStores: a non-ok response degrades to [] (never throws)', async () => {
-    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 403 }))
+  it('listStores: an empty 200 body → []', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ stores: [] }), { status: 200 }))
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(listStores()).resolves.toEqual([])
   })
 
-  it('listStores: a transport reject degrades to [] (never throws)', async () => {
+  it('listStores: 401 (unauthenticated) → [] (web-exact — the getBusinessId-catch class only)', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 401 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(listStores()).resolves.toEqual([])
+  })
+
+  it('listStores: a 500 THROWS — never silently degrades to []', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 500 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(listStores()).rejects.toThrow()
+  })
+
+  it('listStores: a transport reject THROWS — never silently degrades to []', async () => {
     const apiFetch = jest.fn(async () => {
       throw new TypeError('Load failed')
     })
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
-    await expect(listStores()).resolves.toEqual([])
+    await expect(listStores()).rejects.toThrow('Load failed')
   })
 
   it('createStore: POST with an Idempotency-Key header, success → { id }', async () => {
@@ -131,12 +151,35 @@ describe('thin actions port — stores/entitlement transport contract', () => {
     await expect(getEntitlement()).resolves.toEqual(entitlement)
   })
 
-  it('getEntitlement: a non-ok response degrades to the safe blocked-free default', async () => {
-    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 403 }))
+  it('getEntitlement: 401 (unauthenticated) → the safe blocked-free default (web-exact)', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 401 }))
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     const result = await getEntitlement()
     expect(result.tier).toBe('free')
     expect(result.canAddStore).toBe(false)
+  })
+
+  it('getEntitlement: a 500 THROWS — never silently clobbers a real plan with the placeholder', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 500 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getEntitlement()).rejects.toThrow()
+  })
+
+  it('getEntitlement: a transport reject THROWS', async () => {
+    const apiFetch = jest.fn(async () => {
+      throw new TypeError('Load failed')
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getEntitlement()).rejects.toThrow('Load failed')
+  })
+
+  it('getEntitlement: a malformed 200 body (missing entitlement) THROWS', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({}), { status: 200 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getEntitlement()).rejects.toThrow()
   })
 })

@@ -8,7 +8,12 @@
 // (web never exposed a stores endpoint over HTTP), and its only consumer is
 // the viewAll-gated 店舗 tab (S1 voice_enrollments precedent: a facade-only
 // surface may gate tighter than the web action it mirrors, since nothing on
-// web reaches this route directly).
+// web reaches this route directly). listStoresWithClient's lazy 本店-create
+// is shared with web via the twin (race-tolerant, no audit row) — a
+// zero-store tenant is provisioned here exactly as it is on web, so the
+// native 店舗 tab never has to fall back to a synthetic placeholder row
+// (Greptile P1, PR #579: a fake 'primary' row was interactive with nothing
+// real behind it).
 //
 // POST: owner gate lives INSIDE createStoreCore (roster + resolved Bearer
 // identity, same predicate requireOwnerBusiness() applies on web) — a
@@ -43,9 +48,10 @@ export const runtime = 'nodejs'
 
 export const GET = facadeHandler('stores.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'stores.viewAll')
-  const synqed = newSynqedClient(ctx.identity.businessId)
+  const businessId = ctx.identity.businessId
+  const synqed = newSynqedClient(businessId)
   try {
-    const stores = await listStoresWithClient(synqed)
+    const stores = await listStoresWithClient(synqed, businessId)
     return ok(ctx, { stores })
   } catch (err) {
     if (err instanceof AppApiError) throw err
