@@ -77,38 +77,53 @@ describe('listAuditLog — authz', () => {
 })
 
 describe('listAuditLog — feed', () => {
-  it('default feed hides view-kind events; includeViews opts them in', async () => {
-    list.mockImplementation(async () => ({
-      events: [
-        coreEvent({ id: 'e1', action: 'customer.view' }),
-        coreEvent({ id: 'e2', action: 'customer.edit' }),
-        coreEvent({ id: 'e3', action: 'privacy.audit_log_view' }),
-      ],
-      total: 3,
+  // The main feed call is the only `list` invocation with page_size:100 — the
+  // break-glass probe and T1's five strip-count probes all use page_size:1.
+  function mainFeedCall() {
+    const call = list.mock.calls.find(([opts]) => (opts as { page_size?: number }).page_size === 100)
+    if (!call) throw new Error('expected a page_size:100 call')
+    return call[0] as { exclude_views?: boolean }
+  }
+
+  it('passes exclude_views to core by default; includeViews omits it — core does the filtering now, no client re-filter either way (T2)', async () => {
+    list.mockImplementation(async (opts: { exclude_views?: boolean }) => ({
+      events: opts.exclude_views
+        ? [coreEvent({ id: 'e2', action: 'customer.edit' })]
+        : [
+            coreEvent({ id: 'e1', action: 'customer.view' }),
+            coreEvent({ id: 'e2', action: 'customer.edit' }),
+            coreEvent({ id: 'e3', action: 'privacy.audit_log_view' }),
+          ],
+      total: opts.exclude_views ? 1 : 3,
       page: 1,
       page_size: 100,
     }))
 
     const hidden = await listAuditLog({})
     if (!hidden.ok) throw new Error('expected ok')
+    // Server already excluded views — the action no longer re-filters, so
+    // whatever core returned comes back verbatim.
     expect(hidden.events.map((e) => e.id)).toEqual(['e2'])
+    expect(mainFeedCall().exclude_views).toBe(true)
 
+    list.mockClear()
     const shown = await listAuditLog({ includeViews: true })
     if (!shown.ok) throw new Error('expected ok')
     expect(shown.events.map((e) => e.id)).toEqual(['e1', 'e2', 'e3'])
+    expect(mainFeedCall().exclude_views).toBeUndefined()
   })
 
-  it('hasMore follows the unfiltered total', async () => {
+  it('hasMore follows res.total — exact now that core pre-filters views (T2), no client re-filter to distort the count', async () => {
     list.mockImplementation(async () => ({
-      events: [coreEvent({ action: 'customer.view' })],
+      events: [coreEvent({ action: 'customer.edit' })],
       total: 250,
       page: 1,
       page_size: 100,
     }))
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
-    expect(res.events).toEqual([]) // page filtered empty…
-    expect(res.hasMore).toBe(true) // …but more unfiltered pages remain
+    expect(res.events).toHaveLength(1) // events pass through verbatim
+    expect(res.hasMore).toBe(true)
   })
 
   it('core failure returns a safe error, never throws', async () => {
@@ -166,10 +181,14 @@ describe('listAuditLog — per-customer deep-link', () => {
 describe('listAuditLog — person filter (§10 cause-based, raw events only)', () => {
   it('passes actorId as actor_id on the feed and SKIPS the strip query (I7: no per-staff counts)', async () => {
     const res = await listAuditLog({ actorId: 'staff-7' })
+    // ONE call total: I7 skips the break-glass probe AND all five T1
+    // strip-count probes the same way — actorId scope means no aux queries.
     expect(list).toHaveBeenCalledTimes(1)
     expect(list).toHaveBeenCalledWith(expect.objectContaining({ actor_id: 'staff-7' }))
     if (!res.ok) throw new Error('expected ok')
     expect(res.breakGlassTotal).toBeNull()
+    expect(res.warningsTotal).toBeNull()
+    expect(res.changesTotal).toBeNull()
   })
 })
 
@@ -198,7 +217,11 @@ describe('listAuditLog — summary strip count', () => {
     const res = await listAuditLog({ breakGlass: true })
     if (!res.ok) throw new Error('expected ok')
     expect(res.breakGlassTotal).toBe(5)
+    // breakGlass on skips the T1 probes too — the break-glass feed IS the
+    // count strip then, same reasoning as I7.
     expect(list).toHaveBeenCalledTimes(1)
+    expect(res.warningsTotal).toBeNull()
+    expect(res.changesTotal).toBeNull()
   })
 
   it('a failed strip query degrades to null — the feed itself survives', async () => {
@@ -210,6 +233,148 @@ describe('listAuditLog — summary strip count', () => {
     if (!res.ok) throw new Error('expected ok')
     expect(res.events).toHaveLength(1)
     expect(res.breakGlassTotal).toBeNull()
+  })
+})
+
+describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)', () => {
+  // Every probe is page_size:1 — only the main feed call uses page_size:100.
+  function mockProbes() {
+    list.mockImplementation(async (opts: {
+      page_size?: number
+      break_glass?: boolean
+      severity?: string
+      exclude_views?: boolean
+    }) => {
+      if (opts.page_size === 100) return { events: [coreEvent()], total: 999, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      if (opts.exclude_views && opts.severity === 'warn') return { events: [], total: 3, page: 1, page_size: 1 } // nvWarn
+      if (opts.exclude_views && opts.severity === 'critical') return { events: [], total: 2, page: 1, page_size: 1 } // nvCrit
+      if (opts.exclude_views) return { events: [], total: 20, page: 1, page_size: 1 } // nvAll
+      if (opts.severity === 'warn') return { events: [], total: 8, page: 1, page_size: 1 } // warnAll
+      if (opts.severity === 'critical') return { events: [], total: 4, page: 1, page_size: 1 } // critAll
+      throw new Error('unexpected probe call: ' + JSON.stringify(opts))
+    })
+  }
+
+  it('警告 exact per view state: views hidden → nvWarn + nvCrit (matches the visible feed); views shown → warnAll + critAll', async () => {
+    mockProbes()
+    const hidden = await listAuditLog({})
+    if (!hidden.ok) throw new Error('expected ok')
+    expect(hidden.warningsTotal).toBe(3 + 2)
+
+    mockProbes()
+    const shown = await listAuditLog({ includeViews: true })
+    if (!shown.ok) throw new Error('expected ok')
+    expect(shown.warningsTotal).toBe(8 + 4)
+  })
+
+  it('変更 stays null (client approx + "+" remains): exact math is blocked on core widening exclude_views to the _view suffix', async () => {
+    mockProbes()
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.changesTotal).toBeNull()
+    // The nvAll probe was dropped with it — 4 strip probes + break-glass, and
+    // never a bare exclude_views-only page_size:1 call.
+    const probeCalls = list.mock.calls.filter(
+      ([opts]) => (opts as { page_size?: number }).page_size === 1,
+    )
+    expect(probeCalls).toHaveLength(5)
+    expect(
+      probeCalls.some(
+        ([opts]) =>
+          (opts as { exclude_views?: boolean; severity?: string; break_glass?: boolean })
+            .exclude_views &&
+          !(opts as { severity?: string }).severity,
+      ),
+    ).toBe(false)
+  })
+
+  it('BELT: a privacy.audit_log_view row the server fails to exclude (the _view gap) is still hidden from the default feed', async () => {
+    list.mockImplementation(async (opts: { page_size?: number }) => {
+      if (opts.page_size === 100)
+        return {
+          events: [
+            coreEvent(),
+            { ...coreEvent(), id: 'evt-open', action: 'privacy.audit_log_view' },
+          ],
+          total: 2,
+          page: 1,
+          page_size: 100,
+        }
+      return { events: [], total: 0, page: 1, page_size: 1 }
+    })
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events.map((e) => e.id)).not.toContain('evt-open')
+
+    // includeViews keeps it — the belt only guards the default state.
+    const shown = await listAuditLog({ includeViews: true })
+    if (!shown.ok) throw new Error('expected ok')
+    expect(shown.events.map((e) => e.id)).toContain('evt-open')
+  })
+
+  it('ONE probe failing (nvCrit) nulls BOTH totals — never a partial sum, even though warnAll/critAll both succeeded', async () => {
+    list.mockImplementation(async (opts: {
+      page_size?: number
+      break_glass?: boolean
+      severity?: string
+      exclude_views?: boolean
+    }) => {
+      if (opts.page_size === 100) return { events: [coreEvent()], total: 999, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      if (opts.exclude_views && opts.severity === 'critical') throw new Error('rate limited') // nvCrit only
+      return { events: [], total: 5, page: 1, page_size: 1 }
+    })
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.warningsTotal).toBeNull() // warnAll+critAll both succeeded — still null
+    expect(res.changesTotal).toBeNull()
+  })
+
+  it('probes carry the active category/from/to/target scope, same as the main feed', async () => {
+    mockProbes()
+    const res = await listAuditLog({ category: 'staff', from: '2026-01-01T00:00:00.000Z' })
+    if (!res.ok) throw new Error('expected ok')
+    const probeCalls = list.mock.calls.filter(([opts]) => (opts as { page_size?: number }).page_size === 1)
+    expect(probeCalls.length).toBeGreaterThan(0)
+    for (const [opts] of probeCalls) {
+      expect(opts).toEqual(expect.objectContaining({ category: 'staff', from: '2026-01-01T00:00:00.000Z' }))
+    }
+  })
+
+  it('probes never carry logOpen — only the main call writes the open row', async () => {
+    mockProbes()
+    await listAuditLog({ logOpen: true })
+    expect(audit).toHaveBeenCalledTimes(1) // the write path, unrelated to probe params
+    for (const [opts] of list.mock.calls) {
+      expect(opts).not.toHaveProperty('logOpen')
+    }
+  })
+})
+
+describe('listAuditLog — T3 actor_label pass-through (SDK 1.14 write-time snapshot)', () => {
+  it('actor_label rides the event through verbatim when core sends it', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent({ actor_label: '田中 美香' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].actor_label).toBe('田中 美香')
+  })
+
+  it('an old cached response missing actor_label entirely does not crash the read', async () => {
+    list.mockImplementation(async () => ({
+      events: [coreEvent()], // coreEvent() never sets actor_label — key absent
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events[0].actor_label).toBeUndefined()
   })
 })
 

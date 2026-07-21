@@ -208,4 +208,38 @@ describe('GET /api/app/v1/audit-log', () => {
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ ok: false, error: 'failed' })
   })
+
+  it('default request (no includeViews) sends exclude_views:true on the main feed call (T2)', async () => {
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
+    expect(mainCall?.[0].exclude_views).toBe(true)
+  })
+
+  it('includeViews:1 omits exclude_views on the main feed call (T2)', async () => {
+    const res = await GET(getReq({ includeViews: '1' }), noParams)
+    expect(res.status).toBe(200)
+    const mainCall = auditList.mock.calls.find(([opts]) => opts.page_size === 100)
+    expect(mainCall?.[0].exclude_views).toBeUndefined()
+  })
+
+  it('the DTO parse boundary normalizes an absent actor_label to null (T3)', async () => {
+    auditList.mockResolvedValue({ events: [coreEvent()], total: 1, page: 1, page_size: 100 })
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { ok: true; events: { actor_label: string | null }[] }
+    expect(body.events[0].actor_label).toBeNull()
+  })
+
+  it('the DTO parse boundary passes a real actor_label through verbatim (T3)', async () => {
+    auditList.mockResolvedValue({
+      events: [coreEvent({ actor_label: '田中 美香' })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    })
+    const res = await GET(getReq(), noParams)
+    const body = (await res.json()) as { ok: true; events: { actor_label: string | null }[] }
+    expect(body.events[0].actor_label).toBe('田中 美香')
+  })
 })
