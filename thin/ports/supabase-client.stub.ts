@@ -16,19 +16,20 @@
 //   upload leg (facade-minted signed URLs, tenant-prefixed paths); web
 //   supabase storage must never be reachable from the bundle.
 // - auth.signOut() → delegates to getMobileAuth().signOut() (packet 12 §B-2,
-//   the binary's FIRST in-app sign-out): that adapter is
-//   signOutAndPurge(remote GoTrueClient.signOut + purgeLocalCaches) —
-//   ALWAYS purges locally regardless of remote outcome (session-lifecycle.ts,
-//   covered by mobile-client-session.test.ts's sign-out-adapter suite). A
-//   clean remote revoke fires SIGNED_OUT itself (the onAuthStateChange
-//   listener in thin/auth/session.ts flips the AuthGate). When the remote
-//   revoke FAILS (offline/5xx), no SIGNED_OUT event would otherwise arrive —
-//   the adapter itself now guarantees the local sign-out in that case
-//   (storage-key removal + a forced onSessionState('signed-out'), F1, packet
-//   12 fix batch), so this stub still has nothing extra to do either way.
-//   ProfilePageView's handleSignOut awaits the call and never inspects the
-//   return value, so the supabase-shaped `{ error }` result only needs to
-//   resolve, never throw.
+//   the binary's FIRST in-app sign-out): that adapter is signOutAndPurge, which
+//   runs the SAME fail-closed sequence win or lose (packet 13/14) — capture the
+//   outgoing token off storage, purge the GoTrue token trio, flip the store to
+//   signed-out, wipe the per-user vault, then a best-effort remote revoke LAST
+//   (session-lifecycle.ts, covered by mobile-client-session.test.ts's sign-out
+//   suite). It NEVER calls auth-js's own signOut() (that would re-read the
+//   storage it just purged), so NO SIGNED_OUT event is emitted — the adapter's
+//   own `flip` (onSessionState('signed-out')) is what demotes the AuthGate, and
+//   the remote revoke's outcome is informational only (remoteOk), never gating
+//   the local sign-out. (The onAuthStateChange listener's SIGNED_OUT branch in
+//   thin/auth/session.ts therefore backstops only SERVER-driven session death —
+//   a failed refresh / admin revoke — not this button.) ProfilePageView's
+//   handleSignOut awaits the call and never inspects the return value, so the
+//   supabase-shaped `{ error }` result only needs to resolve, never throw.
 
 import { getCurrentSession } from '@/lib/auth/mobile/session-store'
 import { getMobileAuth } from '../auth/session'

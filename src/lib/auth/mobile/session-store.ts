@@ -28,15 +28,59 @@ let current: SessionState = { status: 'recovering' }
 let lastSession: Session | null = null
 const listeners = new Set<Listener>()
 
+// Monotonic authoritative-write counter (packet 14 P1-b generation fence).
+// Every authoritative transition — boot result, explicit login, sign-out flip —
+// opens a new generation via setSessionState. The background-resume coordinator
+// snapshots the generation at resume start and drops its re-enable if a
+// sign-out/sign-in intervened during recovery, instead of clobbering the store
+// back to the outgoing user (the shared-iPad cross-user leak / resurrection).
+// The onAuthStateChange rotation mirror does NOT use this fence — a token
+// rotation is guarded SEMANTICALLY, by current-user identity (applyTokenRotation
+// below), immune to authoritative-write churn (packet 15 P1).
+let generation = 0
+
 export function getSessionState(): SessionState {
   return current
 }
 
-export function setSessionState(state: SessionState): void {
+/** The current authoritative-write generation. The background-resume coordinator
+ *  snapshots this at resume start and drops its own settle emit if the generation
+ *  has advanced by the time recovery settles (background-resume.ts). */
+export function currentGeneration(): number {
+  return generation
+}
+
+function apply(state: SessionState): void {
   current = state
   if (state.status === 'signed-in') lastSession = state.session
   else if (state.status === 'signed-out') lastSession = null
   listeners.forEach((l) => l())
+}
+
+/** Authoritative session transition (boot result, explicit login, sign-out
+ *  flip). Opens a NEW generation, so a background resume that snapshotted the
+ *  prior generation drops its settle emit rather than clobbering the store back
+ *  to the outgoing session (background-resume.ts). */
+export function setSessionState(state: SessionState): void {
+  generation++
+  apply(state)
+}
+
+/** Mirror a within-epoch token rotation (onAuthStateChange TOKEN_REFRESHED /
+ *  USER_UPDATED) IFF the store still holds the SAME user's session — signed-in,
+ *  or 'recovering' with a matching last-known uid (getCurrentSession is
+ *  live-or-last-known, null once signed out). A signed-out store or a uid
+ *  mismatch DROPS the write, so a stale in-flight refresh can neither resurrect
+ *  a signed-out session nor cross-apply one user's token under another on a
+ *  shared device (packet 15 P1). Encodes that invariant by IDENTITY, so it is
+ *  immune to the authoritative-write generation churn that the old epoch-fence
+ *  desynced against. Does NOT open a new generation — a rotation stays within
+ *  the current epoch. */
+export function applyTokenRotation(session: Session): void {
+  const currentUid = getCurrentSession()?.user?.id
+  if (currentUid !== undefined && currentUid === session.user?.id) {
+    apply({ status: 'signed-in', session })
+  }
 }
 
 /** A session has been seen this page-load and not explicitly signed out.
@@ -66,8 +110,9 @@ export function subscribeSessionState(listener: Listener): () => void {
 }
 
 /** Current Bearer for the DataPort, or null when signed out / never signed
- *  in. Synchronous on purpose — kept fresh by onAuthStateChange
- *  (TOKEN_REFRESHED included). During 'recovering' the LAST-KNOWN token is
+ *  in. Synchronous on purpose — kept fresh by the onAuthStateChange rotation
+ *  mirror (applyTokenRotation applies a same-user TOKEN_REFRESHED in place).
+ *  During 'recovering' the LAST-KNOWN token is
  *  served: dropping it would strip auth off in-flight work on every offline
  *  resume; if it is truly stale the facade 401s and screens degrade
  *  per-request with retry, which recovery then heals. */

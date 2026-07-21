@@ -128,6 +128,37 @@ describe('createResumeCoordinator', () => {
     )
   })
 
+  it('generation fence: a resume whose generation advances mid-recovery is DROPPED (no resurrection)', async () => {
+    // packet 14 P1-b: a foreground resume snapshots the generation at start; if a
+    // sign-out/sign-in bumps it DURING recovery, the signed-in re-enable must be
+    // fenced out rather than clobbering the store back to the outgoing session.
+    let gen = 5
+    const onResumed = jest.fn()
+    const coord = createResumeCoordinator<{ token: string }>({
+      recover: async () => {
+        gen++ // a sign-out (or new sign-in) intervenes during recovery
+        return { token: 't' }
+      },
+      onResumed,
+      generation: () => gen,
+    })
+    await coord.onAppActive()
+    expect(onResumed).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'signed-in' }),
+    )
+  })
+
+  it('generation fence: a resume within the SAME generation still emits normally', async () => {
+    const onResumed = jest.fn()
+    const coord = createResumeCoordinator<{ token: string }>({
+      recover: async () => ({ token: 't' }),
+      onResumed,
+      generation: () => 7, // never advances during this resume
+    })
+    await coord.onAppActive()
+    expect(onResumed).toHaveBeenCalledWith({ status: 'signed-in', session: { token: 't' } })
+  })
+
   it('recovery HANGS (offline + expired token — the spike behavior) → recovering, never silently stuck', async () => {
     // The gap this closes: boot bounds getSession(), but the resume path reused
     // the same unguarded call. A hang (NOT a reject — the spike's proven offline
@@ -147,24 +178,91 @@ describe('createResumeCoordinator', () => {
   })
 })
 
-describe('signOutAndPurge — local purge regardless of remote outcome', () => {
-  it('remote revoke succeeds → purge runs, remoteOk true', async () => {
+describe('signOutAndPurge — purge-first, wipe-after (packet 14 P2 reorder)', () => {
+  it('order is capture → purge → flip → wipe:uid → remote', async () => {
     const order: string[] = []
     const r = await signOutAndPurge({
-      signOutRemote: async () => { order.push('remote') },
-      purgeLocal: async () => { order.push('purge') },
+      captureSession: async () => {
+        order.push('capture')
+        return { accessToken: 'captured-token', uid: 'u1' }
+      },
+      wipeLocal: async (uid) => { order.push(`wipe:${uid}`) },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      revokeRemote: async () => { order.push('remote') },
     })
     expect(r.remoteOk).toBe(true)
-    expect(order).toEqual(['remote', 'purge'])
+    expect(order).toEqual(['capture', 'purge', 'flip', 'wipe:u1', 'remote'])
   })
 
-  it('remote revoke THROWS (offline) → purge STILL runs, remoteOk false', async () => {
-    const purge = jest.fn(async () => {})
+  it('remote revoke THROWS (offline) → local sequence already complete, remoteOk false', async () => {
+    const order: string[] = []
     const r = await signOutAndPurge({
-      signOutRemote: async () => { throw new Error('network down') },
-      purgeLocal: purge,
+      captureSession: async () => ({ accessToken: 'tok', uid: 'u1' }),
+      wipeLocal: async () => { order.push('wipe') },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      revokeRemote: async () => { throw new Error('network down') },
     })
     expect(r.remoteOk).toBe(false)
-    expect(purge).toHaveBeenCalledTimes(1) // the whole point: never stranded
+    // the whole point: never stranded — local sequence ran in full regardless
+    expect(order).toEqual(['purge', 'flip', 'wipe'])
+  })
+
+  it('wipeLocal THROWS → purge/flip already landed, revoke still runs (guarded, packet 14 P2)', async () => {
+    const order: string[] = []
+    const r = await signOutAndPurge({
+      captureSession: async () => ({ accessToken: 'tok', uid: 'u1' }),
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      wipeLocal: async () => {
+        order.push('wipe')
+        throw new Error('teardown blew up')
+      },
+      revokeRemote: async () => { order.push('remote') },
+    })
+    expect(r.remoteOk).toBe(true)
+    // a throw in wipeLocal never skips purge/flip (already done) NOR the revoke
+    expect(order).toEqual(['purge', 'flip', 'wipe', 'remote'])
+  })
+
+  it('captureSession REJECTS → purge/flip/wipe:undefined still run, revoke skipped, resolves remoteOk true', async () => {
+    const order: string[] = []
+    const r = await signOutAndPurge({
+      // a broken storage adapter rejects the outgoing-session read
+      captureSession: async () => { throw new Error('storage adapter down') },
+      wipeLocal: async (uid) => { order.push(`wipe:${uid}`) },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      // mirrors revokeGoTrueSession: a null token short-circuits before any call
+      revokeRemote: async (accessToken) => { if (accessToken) order.push('remote') },
+    })
+    // a capture throw can never strand the token: the local fail-closed sequence
+    // runs in full, revoke is a no-op (no token), and sign-out still resolves
+    expect(r.remoteOk).toBe(true)
+    expect(order).toEqual(['purge', 'flip', 'wipe:undefined'])
+  })
+
+  it('a revoke that never resolves does not delay purge/flip', async () => {
+    const order: string[] = []
+    let releaseRevoke!: () => void
+    const revokePending = new Promise<void>((resolve) => {
+      releaseRevoke = resolve
+    })
+    const donePromise = signOutAndPurge({
+      captureSession: async () => ({ accessToken: 'tok', uid: 'u1' }),
+      wipeLocal: async () => { order.push('wipe') },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      revokeRemote: () => revokePending,
+    })
+    // Flush microtasks WITHOUT ever resolving the revoke — purge/flip (and now
+    // the wipe, which precedes the revoke) must already have landed.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(order).toEqual(['purge', 'flip', 'wipe'])
+    releaseRevoke()
+    await donePromise
   })
 })

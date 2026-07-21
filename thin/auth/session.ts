@@ -8,7 +8,12 @@
 import { createMobileAuth, type MobileAuth } from '@/lib/auth/mobile/client-session'
 import { loadAuthClientConfig } from '@/lib/auth/mobile/config'
 import type { SupportsStorage } from '@/lib/auth/mobile/secure-storage'
-import { getCurrentSession, setSessionState } from '@/lib/auth/mobile/session-store'
+import {
+  applyTokenRotation,
+  currentGeneration,
+  getCurrentSession,
+  setSessionState,
+} from '@/lib/auth/mobile/session-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { getThinEnv } from '../env'
 
@@ -52,12 +57,18 @@ export function getMobileAuth(): MobileAuth {
       },
     },
     onSessionState: setSessionState,
+    // Generation fence (packet 14 P1-b): lets the background-resume coordinator
+    // drop a re-enable that raced a sign-out/sign-in instead of resurrecting the
+    // outgoing session.
+    generation: currentGeneration,
     // onQuiesce deliberately unwired: the thin bundle has no global query
     // cache to pause, and in-flight ScreenBoundary fetches self-resolve via
     // their `alive` flag — there is nothing to quiesce yet.
     // The one logout wipe (packet-10): recorder/pipeline singletons + takes +
     // draft — routed here exactly as REV-48 planned for the packet-01 wiring.
-    purgeLocalCaches: wipeSessionVault,
+    // uid comes threaded from signOut()'s own pre-purge capture now (packet
+    // 13) rather than this module's session-store read.
+    purgeLocalCaches: (uid) => wipeSessionVault({ uid }),
   })
   // Token rotation truth: auth-js emits SIGNED_IN / TOKEN_REFRESHED with the
   // fresh session — mirror into the store so the DataPort's Bearer never goes
@@ -66,31 +77,57 @@ export function getMobileAuth(): MobileAuth {
   // gate's call — a network hiccup must never look like a logout. The
   // subscription handle is deliberately dropped: exactly one subscription per
   // app lifetime (this module is a cached singleton), never torn down.
-  auth.auth.onAuthStateChange((event, session) => {
+  //
+  // A within-epoch TOKEN_REFRESHED / USER_UPDATED goes through
+  // applyTokenRotation, which mirrors the fresh token IFF the store still holds
+  // THIS user's session (packet 15 P1). It drops the write on a signed-out or
+  // other-user store, so a stale in-flight refresh — e.g. one that resolves
+  // AFTER the sign-out flip — cannot resurrect the signed-out session or
+  // cross-apply it under the next staff member on a shared device. The rule is
+  // by IDENTITY, not by generation, so it cannot desync against the
+  // authoritative writes (boot/resume settles, LoginScreen's belt-and-braces)
+  // that the removed epoch fence miscounted.
+  const client = auth.auth
+  client.onAuthStateChange((event, session) => {
     if (session) {
-      setSessionState({ status: 'signed-in', session })
+      if (event === 'TOKEN_REFRESHED' || event === 'USER_UPDATED') {
+        applyTokenRotation(session)
+      } else {
+        // SIGNED_IN / INITIAL_SESSION / PASSWORD_RECOVERY — authoritative.
+        setSessionState({ status: 'signed-in', session })
+        if (event === 'SIGNED_IN') {
+          // Re-arm autorefresh: the sign-out path calls auth.stopAutoRefresh(),
+          // which also removes auth-js's managed visibility callback. On a
+          // shared iPad the next staff member signs in on the SAME client with
+          // NO page reload, so nothing would otherwise restart the ticker — a
+          // long continuous-foreground recording would then cross token expiry
+          // with no refresh. startAutoRefresh restores it (GoTrueClient.js:2357).
+          // INITIAL_SESSION is excluded: cold boot already has the ticker
+          // running from auth-js _initialize.
+          void client.startAutoRefresh()
+        }
+      }
     } else if (event === 'SIGNED_OUT') {
       // Capture the OUTGOING uid SYNCHRONOUSLY, before nulling the store
       // below (F3, packet 12 fix batch): clearOwnTakes' currentUserId()
       // reads FROM this store on the thin path, so it would otherwise
       // resolve null for every SERVER-driven sign-out (failed refresh,
       // password reset, admin revoke) — silently no-op'ing and leaving the
-      // leaving staff member's takes on the shared device. The in-app
-      // sign-out button is unaffected: ProfilePageView wipes BEFORE calling
-      // signOut, while the uid is still alive either way.
+      // leaving staff member's takes on the shared device.
       const outgoingUid = getCurrentSession()?.user?.id
       setSessionState({ status: 'signed-out' })
-      // SIGNED_OUT is also how that server-driven session death arrives, so
-      // this is the catch-all vault purge — a button-driven sign-out wipes
-      // THREE times: ProfilePageView's own pre-wipe (before calling
-      // signOut), signOutAndPurge's composed purgeLocalCaches (client-
-      // session.ts), and this listener firing on the SIGNED_OUT it
-      // produces; all three are idempotent/best-effort by design. Without
-      // this listener firing too, a server-driven death (no button ever
-      // pressed) would never purge at all: the previous staff's live
-      // recorder/pipeline singletons (audio, transcript) would stay armed
-      // for the next sign-in on a shared device (packet-10 leak class).
-      // Best-effort by design: the UI demotes first, the wipe follows.
+      // This branch fires ONLY on a SERVER-driven session death: auth-js emits
+      // SIGNED_OUT from _removeSession (a non-retryable failed refresh, admin
+      // revoke, or password reset). The in-app sign-out BUTTON does NOT reach
+      // here — getMobileAuth().signOut() never calls auth.signOut() (it would
+      // re-read the storage it just purged), so no SIGNED_OUT is emitted; that
+      // path already wipes twice (ProfilePageView's pre-wipe + signOutAndPurge's
+      // composed purgeLocalCaches). This listener is the catch-all for the
+      // no-button case: without it a server-driven death would never purge, and
+      // the previous staff's live recorder/pipeline singletons (audio,
+      // transcript) would stay armed for the next sign-in on a shared device
+      // (packet-10 leak class). Best-effort by design: the UI demotes first,
+      // the wipe follows.
       void wipeSessionVault({ uid: outgoingUid }).catch(() => {})
     }
   })
