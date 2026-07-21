@@ -200,7 +200,11 @@ export async function listAuditLogWithClient(
     // 警告 is exact in BOTH view states: views hidden → count only non-'.view'
     // warn/crit (nvWarn/nvCrit, matching what the feed shows); views shown →
     // count all warn/crit (warnAll/critAll). Pair must be complete — never a
-    // partial sum from a failed probe (T1).
+    // partial sum from a failed probe (T1). Exactness in the hidden state
+    // additionally rests on no '_view'-suffix action ever carrying warn/crit
+    // severity (today's only one, privacy.audit_log_view, is always info) —
+    // if the audit taxonomy ever grows one, it inherits the same core-side
+    // exclude_views gap 変更 is parked on below.
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
     return {

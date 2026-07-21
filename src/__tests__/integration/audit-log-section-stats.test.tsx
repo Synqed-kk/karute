@@ -139,3 +139,40 @@ describe('AuditLogSection — actor name (T3: label wins, roster fallback, 不�
     expect(row.textContent).toContain('unknownActor')
   })
 })
+
+describe('AuditLogSection — system rows are label-immune (fleet lens-3 gap)', () => {
+  it('actor_type system renders systemActor even when a stray actor_label is attached', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [
+        {
+          id: 'e-sys',
+          at: '2026-07-21T00:00:00.000Z',
+          actor_id: null,
+          actor_type: 'system',
+          actor_label: 'Should Never Render',
+          category: 'settings',
+          action: 'settings.sync_config_update',
+          target_type: null,
+          target_id: null,
+          target_label: null,
+          detail: null,
+          break_glass: false,
+          severity: 'info',
+        },
+      ],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      targetLabels: {},
+    })
+    const { container } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const row = container.querySelector('ul') as HTMLElement
+    expect(row.textContent).toContain('systemActor')
+    expect(row.textContent).not.toContain('Should Never Render')
+  })
+})
