@@ -47,8 +47,10 @@ export interface MobileAuthOptions {
   onQuiesce?: () => void
   /** Re-enable the data planes after boot/resume settles. */
   onSessionState: (state: BootState<Session>) => void
-  /** Purge partitioned caches + secure store on sign-out (see session-lifecycle). */
-  purgeLocalCaches: () => Promise<void>
+  /** Purge partitioned caches + secure store on sign-out (see
+   *  session-lifecycle). `uid` is the outgoing user, captured before purge —
+   *  threaded explicitly so the wipe never depends on session-store timing. */
+  purgeLocalCaches: (uid: string | undefined) => Promise<void>
   /** Boot timeout before falling through to the recovering state. Default 4000ms. */
   bootTimeoutMs?: number
 }
@@ -60,12 +62,10 @@ export interface MobileAuth {
   boot(): Promise<BootState<Session>>
   /** Wire background-resume to the app-state source. Call once after boot. */
   bindLifecycle(): ResumeCoordinator
-  /** Sign out: remote revoke (best-effort) + unconditional local purge. When
-   *  the remote revoke fails, ALSO forces a local sign-out (storage-key
-   *  removal + onSessionState('signed-out')) — GoTrueClient's own signOut
-   *  early-returns without removing its storage or emitting SIGNED_OUT on a
-   *  non-401/403/404 remote error (offline/5xx), so nothing else would flip
-   *  the session store (F1, packet 12 fix batch). */
+  /** Sign out: purge local state UNCONDITIONALLY (storage-key removal +
+   *  onSessionState('signed-out')) FIRST, then best-effort remote revoke
+   *  with the token captured before the purge (packet 13 — fail-closed is
+   *  now the only path, not a fallback on remote failure). */
   signOut(): Promise<SignOutResult>
 }
 
@@ -127,45 +127,89 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
       return coordinator
     },
     async signOut() {
-      const result = await signOutAndPurge({
-        signOutRemote: async () => {
-          // auth-js reports remote revocation failures IN-BAND — rethrow so
-          // signOutAndPurge records remoteOk: false truthfully (purge still runs).
-          const { error } = await auth.signOut()
-          if (error) throw error
+      return signOutAndPurge({
+        captureSession: async () => {
+          // The module's own live session accessor — reads storage ONCE,
+          // before anything below purges it (installed @supabase/auth-js
+          // 2.99.1, GoTrueClient.js getSession():1264 → __loadSession:1351,
+          // reading getItemAsync(this.storage, this.storageKey) — the SAME
+          // read _signOut():1751 itself does via _useSession). Capturing
+          // AFTER the purge below would hit that same read against empty
+          // storage — exactly the naive-purge-first bug the mechanism
+          // constraints ruled out, where the revoke silently has no token to
+          // send.
+          const { data } = await auth.getSession()
+          return {
+            accessToken: data.session?.access_token ?? null,
+            uid: data.session?.user?.id,
+          }
         },
-        purgeLocal: opts.purgeLocalCaches,
+        wipeLocal: opts.purgeLocalCaches,
+        purgeStorage: async () => {
+          // UNCONDITIONAL now (packet 13 — fail-closed is the only path, not
+          // a fallback on remote failure). Remove the SAME three keys
+          // GoTrue's own _removeSession does (installed @supabase/auth-js,
+          // GoTrueClient.js:2246-2255): the storage key itself, its PKCE
+          // code-verifier sibling, and its `-user` sibling (only populated
+          // when a separate userStorage is configured — not wired today, but
+          // mirrored so the Keychain-storage migration, a named future item,
+          // doesn't have to rediscover this list). auth-js reads the session
+          // FROM storage on every call, so a missing key makes getSession()/
+          // autorefresh/resume all resolve null, no private API needed. Each
+          // removal is attempted INDEPENDENTLY (allSettled, Greptile #572):
+          // one failed delete must not retain the sibling credentials — the
+          // whole step stays best-effort (a broken adapter must not block
+          // the sign-out this exists for).
+          await Promise.allSettled([
+            opts.storage.removeItem(SESSION_STORAGE_KEY),
+            opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`),
+            opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`),
+          ])
+        },
+        // No SIGNED_OUT event drives this anymore (we never call
+        // auth.signOut()) — flip ourselves, and only after purgeStorage
+        // above resolves, so the visible demote never precedes the disk
+        // purge landing. Always fires — the whole point of fail-closed.
+        flip: () => opts.onSessionState({ status: 'signed-out' }),
+        // LAST and best-effort, riding the token captured above. Never
+        // auth.signOut() here: it would re-run __loadSession against the
+        // storage this just purged and silently find nothing to revoke.
+        revokeRemote: (accessToken) => revokeGoTrueSession(opts.config, accessToken),
       })
-      if (!result.remoteOk) {
-        // FAIL-CLOSED LOCAL SIGN-OUT (F1, packet 12 fix batch — verified
-        // against the installed @supabase/auth-js): GoTrueClient's own
-        // signOut() early-returns on any non-401/403/404 remote error
-        // (offline, 5xx) WITHOUT removing its storage key and WITHOUT
-        // emitting SIGNED_OUT — so without this, nothing would flip the
-        // session store and the token would sit in storage. Remove the SAME
-        // THREE keys GoTrue's _removeSession does (installed @supabase/
-        // auth-js, GoTrueClient.js ~2249-2258): the storage key itself, its
-        // PKCE code-verifier sibling, and its `-user` sibling (only
-        // populated when a separate userStorage is configured — not wired
-        // today, but mirrored now so the Keychain-storage migration, a
-        // named future item, doesn't have to rediscover this list) — via
-        // the injected storage adapter. auth-js reads the session FROM
-        // storage on every call, so a missing key makes getSession()/
-        // autorefresh/resume all resolve null, no private API needed. Then
-        // flip the store ourselves, since no SIGNED_OUT event will arrive
-        // to do it. Each removal is attempted INDEPENDENTLY (allSettled,
-        // Greptile #572): one failed delete must not retain the sibling
-        // credentials — and the whole step stays best-effort (a broken
-        // adapter must not block the fail-closed sign-out this exists for);
-        // onSessionState ALWAYS fires.
-        await Promise.allSettled([
-          opts.storage.removeItem(SESSION_STORAGE_KEY),
-          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-code-verifier`),
-          opts.storage.removeItem(`${SESSION_STORAGE_KEY}-user`),
-        ])
-        opts.onSessionState({ status: 'signed-out' })
-      }
-      return result
     },
   }
+}
+
+/**
+ * Direct GoTrue logout call, bypassing GoTrueClient entirely — auth.signOut()
+ * would re-read the token from storage this module has already purged by the
+ * time this runs. Request shape verified against the installed
+ * @supabase/auth-js 2.99.1 dist: GoTrueAdminApi.signOut()
+ * (GoTrueAdminApi.js:49-58) hits `POST ${url}/logout?scope=${scope}` with
+ * `noResolveJson`; `_request` (lib/fetch.js:67-75) overrides the base
+ * Authorization header with `Bearer ${jwt}` when a jwt is passed, keeping
+ * `apikey` from the base headers. `url` there is the SAME `settings.url` this
+ * client constructs `auth` with (GoTrueClient.js:118-123, `this.admin = new
+ * GoTrueAdminApi({ url: settings.url, headers: settings.headers, ... })`) —
+ * i.e. `${config.url}/auth/v1`. Scope defaults to 'global'
+ * (lib/types.js:19, `SIGN_OUT_SCOPES[0]`) — the same default `auth.signOut()`
+ * used, never configured differently today.
+ *
+ * `accessToken` null (nothing was ever captured) skips the network call
+ * entirely — mirrors _signOut() itself (GoTrueClient.js:1758-1759), which
+ * only calls admin.signOut when a session token was found.
+ */
+async function revokeGoTrueSession(
+  config: AuthClientConfig,
+  accessToken: string | null,
+): Promise<void> {
+  if (!accessToken) return
+  const res = await fetch(`${config.url.replace(/\/+$/, '')}/auth/v1/logout?scope=global`, {
+    method: 'POST',
+    headers: {
+      apikey: config.anonKey,
+      Authorization: `Bearer ${accessToken}`,
+    },
+  })
+  if (!res.ok) throw new Error(`GoTrue logout failed: ${res.status}`)
 }

@@ -57,7 +57,9 @@ export function getMobileAuth(): MobileAuth {
     // their `alive` flag — there is nothing to quiesce yet.
     // The one logout wipe (packet-10): recorder/pipeline singletons + takes +
     // draft — routed here exactly as REV-48 planned for the packet-01 wiring.
-    purgeLocalCaches: wipeSessionVault,
+    // uid comes threaded from signOut()'s own pre-purge capture now (packet
+    // 13) rather than this module's session-store read.
+    purgeLocalCaches: (uid) => wipeSessionVault({ uid }),
   })
   // Token rotation truth: auth-js emits SIGNED_IN / TOKEN_REFRESHED with the
   // fresh session — mirror into the store so the DataPort's Bearer never goes
