@@ -14,7 +14,6 @@ import {
   getSessionState,
   hasKnownSession,
   setSessionState,
-  setSessionStateIfCurrent,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 
@@ -60,28 +59,6 @@ describe('session-store', () => {
 
     setSessionState({ status: 'signed-out' })
     expect(getAccessToken()).toBeNull()
-  })
-
-  it('generation fence: a stale speculative write is dropped, a fresh one is accepted (packet 14 P1-b)', () => {
-    // Epoch A signs in, then signs out, then B signs in — each authoritative
-    // write opens a new generation.
-    setSessionState({ status: 'signed-in', session: session('tok-A') })
-    const genA = currentGeneration()
-    setSessionState({ status: 'signed-out' }) // A signs out (generation bumps)
-    setSessionState({ status: 'signed-in', session: session('tok-B') }) // B signs in (bumps)
-
-    // A stale autorefresh/resume write tagged with A's OLD generation must NOT
-    // clobber the store back to A (the shared-iPad cross-user leak).
-    setSessionStateIfCurrent({ status: 'signed-in', session: session('tok-A') }, genA)
-    expect(getAccessToken()).toBe('tok-B')
-
-    // A within-epoch write for the CURRENT generation (B's own token rotation)
-    // is still accepted.
-    setSessionStateIfCurrent(
-      { status: 'signed-in', session: session('tok-B2') },
-      currentGeneration(),
-    )
-    expect(getAccessToken()).toBe('tok-B2')
   })
 
   describe('applyTokenRotation — identity-based within-epoch mirror (packet 15 P1)', () => {

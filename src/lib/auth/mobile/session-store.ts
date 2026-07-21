@@ -43,8 +43,9 @@ export function getSessionState(): SessionState {
   return current
 }
 
-/** The current authoritative-write generation. Background writers snapshot this
- *  while their session is still current and pass it to setSessionStateIfCurrent. */
+/** The current authoritative-write generation. The background-resume coordinator
+ *  snapshots this at resume start and drops its own settle emit if the generation
+ *  has advanced by the time recovery settles (background-resume.ts). */
 export function currentGeneration(): number {
   return generation
 }
@@ -57,21 +58,11 @@ function apply(state: SessionState): void {
 }
 
 /** Authoritative session transition (boot result, explicit login, sign-out
- *  flip). Opens a NEW generation, so any in-flight speculative write tagged with
- *  an older generation is fenced out by setSessionStateIfCurrent. */
+ *  flip). Opens a NEW generation, so a background resume that snapshotted the
+ *  prior generation drops its settle emit rather than clobbering the store back
+ *  to the outgoing session (background-resume.ts). */
 export function setSessionState(state: SessionState): void {
   generation++
-  apply(state)
-}
-
-/** Speculative session write from a background source that snapshotted `gen`
- *  while its session was still current (autorefresh TOKEN_REFRESHED,
- *  background-resume). Dropped if a newer generation has opened since — a stale
- *  refresh, or a resume that raced a sign-out/sign-in, must not resurrect the
- *  outgoing session (packet 14 P1-b). Does NOT open a new generation: a token
- *  rotation is within the same epoch. */
-export function setSessionStateIfCurrent(state: SessionState, gen: number): void {
-  if (gen !== generation) return
   apply(state)
 }
 
