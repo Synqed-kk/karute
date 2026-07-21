@@ -105,7 +105,10 @@ export async function enrollVoiceActionCore(
       },
     }
     const saved = await writeOrgSettingsBlobWithClient(synqed, { voice_enrollments: next })
-    if (!saved) return { ok: false }
+    // The blob writer returns { success } | { error }, never a falsy value —
+    // the old `if (!saved)` check was dead, so a failed settings write still
+    // reported ok:true and logged the enrollment. Branch on the real result.
+    if ('error' in saved) return { ok: false }
     audit({
       category: 'privacy',
       action: 'privacy.voice_enroll',
@@ -189,7 +192,8 @@ export async function revokeVoiceActionCore(
       },
     }
     const saved = await writeOrgSettingsBlobWithClient(synqed, { voice_enrollments: next })
-    if (!saved) return { ok: false }
+    // Same real-result branch as enrollVoiceActionCore (the `!saved` check was dead).
+    if ('error' in saved) return { ok: false }
     audit({
       category: 'privacy',
       action: 'privacy.voice_revoke',

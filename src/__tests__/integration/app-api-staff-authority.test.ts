@@ -144,6 +144,34 @@ describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
     expect(lines).toHaveLength(0)
   })
 
+  it('never-target-owner holds on the display_role signal ALONE (pre-migration row, mixed case)', async () => {
+    // The core's owner check is an OR over two signals; exercise each half
+    // independently so dropping either branch turns a pin red.
+    selectResults = [{ id: 'staff-owner', display_role: 'Owner', permission_role: null, permissions: null }]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-owner/permissions', { permissionRole: 'manager', capabilities: [] }),
+        params('staff-owner'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/owner/i)
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('never-target-owner holds on the permission_role signal ALONE (post-migration row)', async () => {
+    selectResults = [{ id: 'staff-owner', display_role: 'stylist', permission_role: 'owner', permissions: null }]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-owner/permissions', { permissionRole: 'manager', capabilities: [] }),
+        params('staff-owner'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/owner/i)
+    })
+    expect(lines).toHaveLength(0)
+  })
+
   it('no-escalation-by-delta: caller lacks a capability being ADDED → { error }, no write, no audit row', async () => {
     mockCapabilities.mockResolvedValue(new Set(['staff.manage'])) // no billing.manage
     selectResults = [nonOwnerTarget]

@@ -38,17 +38,26 @@ type StaffWriteDeps = {
  *  a clean message. */
 type StaffActionResult = { error: string } | void
 
-// Look up an existing Supabase profile by email. Returns its id (which equals
-// auth.users.id) when found, else null. Lets createStaff seed synqed
-// staff.user_id at insert time when the teammate already has an auth account
-// — otherwise the link is filled in later by the resolver's self-heal path
-// in src/lib/synqed/staff-map.ts.
-async function findProfileIdByEmail(email: string): Promise<string | null> {
+// Look up an existing Supabase profile by email WITHIN this business. Returns
+// its id (which equals auth.users.id) when found, else null. Lets createStaff
+// seed synqed staff.user_id at insert time when the teammate already has an
+// auth account in this tenant — otherwise the link is filled in later by the
+// resolver's self-heal path in src/lib/synqed/staff-map.ts. Tenant-scoped
+// like every other profiles query in this file: the service client bypasses
+// RLS, and an email match alone would link a FOREIGN tenant's auth identity
+// into this roster. Unknown scope (null businessId) → no link; the staff row
+// is still created and self-heals later.
+async function findProfileIdByEmail(
+  email: string,
+  businessId: string | null,
+): Promise<string | null> {
+  if (!businessId) return null
   const service = createServiceClient()
   const { data } = await service
     .from('profiles')
     .select('id')
     .eq('email', email)
+    .eq('customer_id', businessId)
     .maybeSingle()
   return (data as { id?: string } | null)?.id ?? null
 }
@@ -56,9 +65,11 @@ async function findProfileIdByEmail(email: string): Promise<string | null> {
 /** Client-threaded core of createStaff (facade Bearer path, design-parity
  *  packet 12 §S4a — same WithClient split as createStoreCore). Carries the
  *  email→profile link lookup + the synqed write + the audit row, so web and
- *  facade can never diverge. businessId is AUDIT-ONLY here (the synqed
- *  client is already tenant-scoped) — a resolution failure upstream degrades
- *  to null rather than blocking the write (see resolveWebAuditContext). */
+ *  facade can never diverge. businessId scopes the email→profile link (see
+ *  findProfileIdByEmail) and stamps the audit row; the synqed write itself is
+ *  already tenant-scoped by the client. A resolution failure upstream
+ *  degrades to null — the write proceeds unlinked rather than blocking (see
+ *  resolveWebAuditContext). */
 export async function createStaffCore(
   synqed: StaffClient,
   businessId: string | null,
@@ -67,7 +78,7 @@ export async function createStaffCore(
 ): Promise<{ id: string } | { error: string }> {
   try {
     const email = data.email || null
-    const userId = email ? await findProfileIdByEmail(email) : null
+    const userId = email ? await findProfileIdByEmail(email, businessId) : null
 
     const created = await synqed.staff.create({
       name: data.name,

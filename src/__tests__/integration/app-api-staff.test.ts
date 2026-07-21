@@ -60,10 +60,18 @@ jest.mock('@/lib/staff', () => ({
 // Supabase update).
 let profileRow: { id: string } | null = null
 let profileUpdateError: { message: string } | null = null
+// Every .eq() applied to a profiles query, recorded so pins can assert
+// tenant scoping (the service client bypasses RLS — the .eq('customer_id',…)
+// IS the isolation).
+let profileEqCalls: Array<[string, unknown]> = []
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
-    for (const m of ['select', 'eq']) builder[m] = () => builder
+    builder.select = () => builder
+    builder.eq = (col: string, val: unknown) => {
+      profileEqCalls.push([col, val])
+      return builder
+    }
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
     ;(builder as { update: unknown }).update = () => {
       const chain: Record<string, unknown> = {}
@@ -143,6 +151,7 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['staff.invite', 'staff.manage']))
   profileRow = null
   profileUpdateError = null
+  profileEqCalls = []
   staffCreate.mockResolvedValue({ id: 'staff-new' })
   staffUpdate.mockResolvedValue({})
   staffDelete.mockResolvedValue({})
@@ -212,6 +221,23 @@ describe('POST /api/app/v1/staff (create)', () => {
     expect(await res.json()).toEqual({ error: 'Staff limit reached for the current plan.' })
     expect(staffCreate).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
+  })
+
+  it('the email→profile link lookup is tenant-scoped (customer_id = caller business)', async () => {
+    // The service client bypasses RLS — without the customer_id scope, an
+    // email guess would link a FOREIGN tenant's auth identity into this
+    // roster (a same-email user in another business).
+    const res = await createPOST(
+      postReq({ ...VALID_STAFF, email: 'teammate@example.test' }),
+      noParams,
+    )
+    expect(res.status).toBe(201)
+    expect(profileEqCalls).toEqual(
+      expect.arrayContaining([
+        ['email', 'teammate@example.test'],
+        ['customer_id', 'business-1'],
+      ]),
+    )
   })
 })
 

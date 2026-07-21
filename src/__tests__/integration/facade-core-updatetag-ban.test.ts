@@ -95,6 +95,26 @@ describe('facade-imported action cores never call updateTag (Server-Action-only)
     expect(imports.size).toBeGreaterThan(20)
   })
 
+  it('route files import actions modules ONLY in the form this scan parses', () => {
+    // Guard of the guard: a relative-path, namespace (`import * as`), or
+    // default import of an actions module would be invisible to
+    // actionImports() — not even the missing[] check would fire. Strip every
+    // import actionImports CAN parse (named `import {…} from '@/actions/mod'`,
+    // single- or multi-line — [^}]+ spans newlines), then fail loud on any
+    // remaining reference to an actions path.
+    const named = /import\s*(type\s+)?\{[^}]+\}\s*from\s*['"]@\/actions\/[\w-]+['"]/g
+    const offenders: string[] = []
+    for (const file of routeFiles(ROOT)) {
+      const residue = readFileSync(file, 'utf8').replace(named, '')
+      for (const line of residue.split('\n')) {
+        if (/from\s*['"][^'"]*actions\//.test(line)) {
+          offenders.push(`${file.replace(process.cwd(), '.')}: ${line.trim()}`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
   it('every route-imported action function body is updateTag-free', () => {
     const offenders: string[] = []
     const missing: string[] = []

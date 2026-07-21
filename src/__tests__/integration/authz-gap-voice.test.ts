@@ -87,6 +87,26 @@ describe('voice audit writers (wave A part 3)', () => {
     })
   })
 
+  it('a FAILED settings write → ok:false, no audit row, no invalidation', async () => {
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
+    ;(createServiceClient as jest.Mock).mockReturnValue({
+      storage: { from: () => ({ remove: jest.fn(async () => ({})) }) },
+    })
+    const { orgSettingsWithClient } = await import('@/actions/org-settings')
+    ;(orgSettingsWithClient as jest.Mock).mockResolvedValue({
+      voice_enrollments: { me: { sample_path: 'p', status: 'saved' } },
+    })
+    ;(writeOrgSettingsBlobWithClient as jest.Mock).mockResolvedValueOnce({
+      error: 'upstream unavailable',
+    })
+    const { updateTag } = jest.requireMock('next/cache')
+    const lines = await auditLines(async () => {
+      await expect(revokeVoiceAction('me')).resolves.toEqual({ ok: false })
+    })
+    expect(lines).toHaveLength(0)
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
   it('a successful revoke emits privacy.voice_revoke; a refused one emits nothing', async () => {
     ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
     ;(createServiceClient as jest.Mock).mockReturnValue({
