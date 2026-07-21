@@ -109,14 +109,16 @@ export async function listAuditLogWithClient(
     }
     // Local SDK (1.11.1) has no `audit` property yet — `synqed.audit.list`
     // below already errors at tsc baseline (11, unchanged by CI's real
-    // ^1.15.0). Extracting the accessor ONCE keeps that a single error site
+    // ^1.15.0). Wrapping the call ONCE keeps that a single error site
     // instead of one per probe call (ponytail: `as any` scoped to this one
     // line, not sprinkled per call — upgrade path is deleting this cast once
-    // the SDK bump lands).
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same stale-SDK gap as above, scoped to one line
-    const auditListProbe = (synqed as any).audit.list as (
-      q: Record<string, unknown>,
-    ) => Promise<{ total: number }>
+    // the SDK bump lands). MUST stay a call THROUGH `synqed.audit` — a bare
+    // method extraction loses the receiver, and AuditClient.list reads
+    // `this.client`, so every probe rejects and the catch nulls the pair
+    // (probes silently dead in prod; found by the post-#581 live wire check).
+    const auditListProbe = (q: Record<string, unknown>): Promise<{ total: number }> =>
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same stale-SDK gap as above, scoped to one line
+      (synqed as any).audit.list(q)
     // T1 strip-count probes (page_size 1, total only) — skipped under the
     // SAME condition as the break-glass probe below (I7 actorId scope) plus
     // breakGlass on (that feed IS the count strip then).

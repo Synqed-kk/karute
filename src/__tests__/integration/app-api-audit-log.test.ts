@@ -66,7 +66,17 @@ const auditList = jest.fn(async (_opts: Record<string, unknown>) => ({
   page: 1,
   page_size: 100,
 }))
-const fakeClient = { audit: { list: auditList } }
+/** Mirrors the real SDK: AuditClient.list is a PROTOTYPE method that reads
+ *  `this` — a receiver-losing call in the shared twin rejects here exactly
+ *  like prod (same fidelity upgrade as audit-log-action.test.ts; a plain
+ *  `{ list }` literal cannot catch that bug class). */
+class ThisSensitiveAuditClient {
+  constructor(private impl: jest.Mock) {}
+  async list(q: unknown) {
+    return this.impl(q)
+  }
+}
+const fakeClient = { audit: new ThisSensitiveAuditClient(auditList) }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: (businessId: string) => newSynqedClient(businessId),
@@ -241,5 +251,40 @@ describe('GET /api/app/v1/audit-log', () => {
     const res = await GET(getReq(), noParams)
     const body = (await res.json()) as { ok: true; events: { actor_label: string | null }[] }
     expect(body.events[0].actor_label).toBe('田中 美香')
+  })
+
+  // The route's OWN exact-totals pin (probe-binding fix follow-through): the
+  // twin's count probes must survive the DTO boundary as numbers — this is
+  // the assertion that goes null-and-red if a probe ever loses its receiver
+  // again, independent of audit-log-action.test.ts's pins on the twin.
+  it('exact strip totals ride the DTO: 警告 = severity-pair sum, 緊急 = break-glass total, 変更 held null', async () => {
+    // exclude_views-sensitive totals so the assertion also proves the twin
+    // picked the HIDDEN-state pair (nv 3+2=5), not the shown pair (8+4=12).
+    auditList.mockImplementation(async (opts: Record<string, unknown>) => {
+      const total =
+        opts.severity === 'warn'
+          ? opts.exclude_views
+            ? 3
+            : 8
+          : opts.severity === 'critical'
+            ? opts.exclude_views
+              ? 2
+              : 4
+            : opts.break_glass
+              ? 4
+              : 9
+      return { events: [coreEvent()], total, page: 1, page_size: (opts.page_size as number) ?? 100 }
+    })
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as {
+      ok: true
+      warningsTotal: number | null
+      breakGlassTotal: number | null
+      changesTotal: number | null
+    }
+    expect(body.warningsTotal).toBe(3 + 2)
+    expect(body.breakGlassTotal).toBe(4)
+    expect(body.changesTotal).toBeNull()
   })
 })

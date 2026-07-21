@@ -36,6 +36,21 @@ const audit = auditImport as jest.Mock
 
 const list = jest.fn()
 
+/** Mirrors the real SDK: AuditClient.list is a PROTOTYPE method that reads
+ *  `this` — so a bare method extraction breaks here exactly like it does in
+ *  prod (the silently-dead-probes bug this fidelity upgrade pins against).
+ *  Every mock client below MUST build audit via this class, never a plain
+ *  `{ list }` literal. */
+class ThisSensitiveAuditClient {
+  constructor(private impl: jest.Mock) {}
+  // async like the real method: an unbound call REJECTS (caught by the
+  // probes' .catch → null totals), it never throws synchronously.
+  async list(q: unknown) {
+    return this.impl(q)
+  }
+}
+const mockAudit = () => new ThisSensitiveAuditClient(list)
+
 function coreEvent(overrides: Record<string, unknown> = {}) {
   return {
     id: 'evt-1',
@@ -57,7 +72,7 @@ function coreEvent(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks()
   getMyCapabilities.mockImplementation(async () => new Set(['audit.view']))
-  getSynqedClient.mockImplementation(async () => ({ audit: { list } }))
+  getSynqedClient.mockImplementation(async () => ({ audit: mockAudit() }))
   list.mockImplementation(async () => ({
     events: [coreEvent()],
     total: 1,
@@ -384,7 +399,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
       customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
     }))
     getSynqedClient.mockImplementation(async () => ({
-      audit: { list },
+      audit: mockAudit(),
       customers: { list: customersList },
     }))
     const res = await listAuditLog({})
@@ -396,7 +411,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
 
   it('a failed lookup degrades to empty labels — the feed never fails', async () => {
     getSynqedClient.mockImplementation(async () => ({
-      audit: { list },
+      audit: mockAudit(),
       customers: { list: jest.fn(async () => { throw new Error('core down') }) },
     }))
     const res = await listAuditLog({})
