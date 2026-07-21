@@ -6,8 +6,12 @@
 // comparison) · canViewAllStores/canManageStaff/canInviteStaff/canViewAudit
 // derive from ctx.identity.capabilities (+ isOwner for canViewAudit) ·
 // ?tab=audit only passes through with the canViewAudit grant, else null ·
-// initialActiveStoreId reflects the store clamp's resolved storeId · a failed
-// load-bearing read (staff roster / org settings) → 502.
+// initialActiveStoreId reflects the store clamp's resolved storeId ·
+// activeStaffId is roster-gated (web parity: getCurrentUserStaffId) — the
+// auth id only when its row is present in the DTO's staff roster, else null
+// · orgSettings.voice_enrollments always reads back as {} (least-privilege,
+// S1 fix batch) · a failed load-bearing read (staff roster / org settings) →
+// 502.
 import { createHmac } from 'node:crypto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
@@ -168,9 +172,32 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.canManageStaff).toBe(false)
     expect(dto.canInviteStaff).toBe(false)
     expect(dto.canViewAudit).toBe(false)
+    // Roster-gated: auth-user-1 IS present in the default roster (beforeEach).
     expect(dto.activeStaffId).toBe('auth-user-1')
     expect(dto.staffList).toHaveLength(2)
     expect(dto.orgSettings?.salon_name).toBe('テストサロン')
+  })
+
+  it('activeStaffId is null when the authenticated id is absent from the DTO staff roster (roster gate)', async () => {
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+    ])
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.activeStaffId).toBeNull()
+  })
+
+  it('voice_enrollments is always {} in the GET response, even when org settings has entries for several staff (least-privilege pin)', async () => {
+    orgSettingsWithClient.mockResolvedValue({
+      ...fullOrgSettings(),
+      voice_enrollments: {
+        'auth-user-1': { consent_at: '2026-01-01', sample_path: 'p1', status: 'saved' as const },
+        'staff-2': { consent_at: '2026-01-02', sample_path: 'p2', status: 'saved' as const },
+      },
+    })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.orgSettings?.voice_enrollments).toEqual({})
   })
 
   it('self row selected by authUserId, not the first roster row', async () => {

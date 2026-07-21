@@ -83,12 +83,25 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     const auditTargetId =
       initialTab === 'audit' ? new URL(ctx.req.url).searchParams.get('target') : null
 
+    // Least-privilege (S1 fix batch): voice_enrollments always reads back as
+    // {} here — no live S1 section reads this field (grep-proven) and the
+    // write path already excludes it (writeOrgSettingsBlobWithClient never
+    // accepts it, pinned at app-api-org-settings-patch.test.ts:126), so the
+    // read path now matches that posture. org-settings.ts's own reads are
+    // untouched — voice.ts still resolves real enrollment data on its paths.
+    const orgSettingsForDto = orgSettings
+      ? { ...orgSettings, voice_enrollments: {} }
+      : orgSettings
+
     return ok(
       ctx,
       SettingsScreenDTO.parse({
-        orgSettings,
+        orgSettings: orgSettingsForDto,
         staffList,
-        activeStaffId: ctx.identity.authUserId,
+        // Roster-gated (web parity: getCurrentUserStaffId) — the auth id only
+        // when its row is present in the staff roster this DTO ships; a
+        // removed-but-still-authenticated staffer gets null, same as web.
+        activeStaffId: selfRow?.id ?? null,
         isOwner,
         canViewAllStores,
         canManageStaff,
@@ -96,6 +109,9 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         canViewAudit,
         initialTab,
         auditTargetId,
+        // Deliberate divergence from web (web: null-default cookie via
+        // getActiveStoreId; native: RBAC-clamped assigned[0] default via the
+        // store clamp above) — revisit at S2 stores. No behavior change here.
         initialActiveStoreId: clamp.storeId,
       }),
     )
