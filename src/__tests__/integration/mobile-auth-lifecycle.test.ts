@@ -147,24 +147,54 @@ describe('createResumeCoordinator', () => {
   })
 })
 
-describe('signOutAndPurge — local purge regardless of remote outcome', () => {
-  it('remote revoke succeeds → purge runs, remoteOk true', async () => {
+describe('signOutAndPurge — purge-then-revoke (packet 13 fail-closed reorder)', () => {
+  it('order is wipe → purge → flip → remote (rewritten from the old remote-first pin)', async () => {
     const order: string[] = []
     const r = await signOutAndPurge({
-      signOutRemote: async () => { order.push('remote') },
-      purgeLocal: async () => { order.push('purge') },
+      captureSession: async () => ({ accessToken: 'captured-token', uid: 'u1' }),
+      wipeLocal: async (uid) => { order.push(`wipe:${uid}`) },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      revokeRemote: async () => { order.push('remote') },
     })
     expect(r.remoteOk).toBe(true)
-    expect(order).toEqual(['remote', 'purge'])
+    expect(order).toEqual(['wipe:u1', 'purge', 'flip', 'remote'])
   })
 
-  it('remote revoke THROWS (offline) → purge STILL runs, remoteOk false', async () => {
-    const purge = jest.fn(async () => {})
+  it('remote revoke THROWS (offline) → local sequence already complete, remoteOk false', async () => {
+    const order: string[] = []
     const r = await signOutAndPurge({
-      signOutRemote: async () => { throw new Error('network down') },
-      purgeLocal: purge,
+      captureSession: async () => ({ accessToken: 'tok', uid: 'u1' }),
+      wipeLocal: async () => { order.push('wipe') },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      revokeRemote: async () => { throw new Error('network down') },
     })
     expect(r.remoteOk).toBe(false)
-    expect(purge).toHaveBeenCalledTimes(1) // the whole point: never stranded
+    // the whole point: never stranded — local sequence ran in full regardless
+    expect(order).toEqual(['wipe', 'purge', 'flip'])
+  })
+
+  it('a revoke that never resolves does not delay purge/flip', async () => {
+    const order: string[] = []
+    let releaseRevoke!: () => void
+    const revokePending = new Promise<void>((resolve) => {
+      releaseRevoke = resolve
+    })
+    const donePromise = signOutAndPurge({
+      captureSession: async () => ({ accessToken: 'tok', uid: 'u1' }),
+      wipeLocal: async () => { order.push('wipe') },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      revokeRemote: () => revokePending,
+    })
+    // Flush microtasks WITHOUT ever resolving the revoke — purge/flip must
+    // already have landed by the time the revoke is merely PENDING.
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(order).toEqual(['wipe', 'purge', 'flip'])
+    releaseRevoke()
+    await donePromise
   })
 })

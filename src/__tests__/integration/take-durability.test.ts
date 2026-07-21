@@ -390,6 +390,28 @@ describe('take durability — deletion lifecycle', () => {
     expect(takes().size).toBe(0)
   })
 
+  it('packet 13: the uid captured pre-purge by client-session.ts\'s signOut() (session.user.id) still threads through the REAL chain, same as T4', async () => {
+    await startAndSettle()
+    pushChunk('aaa')
+    await jest.advanceTimersByTimeAsync(5_000)
+    globalRecorder.discard({ keepTake: true })
+    await drain()
+    expect(takes().size).toBe(1)
+
+    // createMobileAuth.signOut() now captures the outgoing uid from the live
+    // session (session.user.id) BEFORE purging anything, then threads it
+    // into purgeLocalCaches(uid) — which thin/auth/session.ts wires to
+    // wipeSessionVault({ uid }), the EXACT call below. wipeSessionVault is
+    // UNMOCKED, same real chain as T4 — this pins that the packet-13 capture
+    // idiom still lands on the real rows, not just the mocked seam covered
+    // in mobile-client-session.test.ts.
+    const capturedSession = { user: { id: 'staff-A' } }
+    mockUid = null // the session/storage this uid was read from is already gone
+    await wipeSessionVault({ uid: capturedSession.user.id })
+    await drain()
+    expect(takes().size).toBe(0)
+  })
+
   it('clearOwnTakes(explicitUid) deletes that uid\'s takes even when the session-derived uid would resolve null (F3: server-driven sign-out ordering)', async () => {
     await startAndSettle()
     pushChunk('aaa')
