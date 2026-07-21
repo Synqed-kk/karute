@@ -111,6 +111,13 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // always calls the twin with ensurePrimary:false, so it is genuinely
   // write-free.
   'stores.list',
+  // 監査ログ list (design-parity packet 17 §S3): a GET whose handler can
+  // WRITE — a logOpen fetch fires the twin's privacy.audit_log_view row
+  // (src/actions/audit-log.ts). Also an owner-class surface on its own
+  // terms. A just-terminated staffer's Bearer token must not keep opening
+  // the audit log on the local fast-path; the getUser round-trip's added
+  // latency is acceptable here.
+  'audit.list',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

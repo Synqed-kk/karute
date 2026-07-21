@@ -20,11 +20,10 @@ import { join } from 'node:path'
 
 // Tab id → its section file/export name. Mirrors the pairing all three
 // source files already document in their own header comments (design-parity
-// packet 12 §S1/§B-3 S2).
+// packet 12 §S1/§B-3 S2; audit removed at packet 17 §S3 — its tab is live).
 const SECTION_FILE_BY_TAB: Record<string, string> = {
   staff: 'StaffSection.tsx',
   sync: 'SyncSection.tsx',
-  audit: 'AuditLogSection.tsx',
 }
 
 function pendingTabIds(): string[] {
