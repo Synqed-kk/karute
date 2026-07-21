@@ -83,6 +83,9 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
 }))
 jest.mock('@/lib/entitlements', () => ({
   loadEntitlement: jest.fn(async () => ({ canAddStore: true })),
+  // createStore now delegates to createStoreCore, which calls the WithClient
+  // twin (design-parity packet 12 §B-3 S2) instead of the cookie-path reader.
+  loadEntitlementWithClient: jest.fn(async () => ({ canAddStore: true })),
 }))
 
 // acceptInvite constructs SynqedClient directly (pre-auth paths).
