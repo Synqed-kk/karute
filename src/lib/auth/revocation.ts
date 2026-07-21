@@ -118,6 +118,12 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // the audit log on the local fast-path; the getUser round-trip's added
   // latency is acceptable here.
   'audit.list',
+  // staff avatar upload + staff-stores assignment (design-parity packet 12
+  // §S4a — the two keys the S1 facts block flagged as MISSING). staff CRUD
+  // (create/update/delete), PIN, and permissions.update were already
+  // pre-registered above before this packet.
+  'staff.uploadAvatar',
+  'staffStores.set',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

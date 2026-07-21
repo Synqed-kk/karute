@@ -194,4 +194,18 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   // (list-render-is-not-a-view, same ruling as customers.list).
   'stores.create': { kind: 'skip', category: 'settings', action: '' },
   'stores.update': { kind: 'skip', category: 'settings', action: '' },
+  // staff CRUD + avatar + permissions + staff-stores (design-parity packet
+  // 12 §S4a): createStaffCore/updateStaffCore/deleteStaffCore/
+  // uploadStaffAvatarCore/setStaffPermissionsCore/setStaffStoresCore (the
+  // ONE core both the web action and the matching facade route call) already
+  // emit their own row (staff.add/update/remove/avatar_update,
+  // settings.permissions_change, settings.staff_stores_change). Same
+  // reasoning as stores.create/update above — a rule here would double-log
+  // every facade write.
+  'staff.create': { kind: 'skip', category: 'staff', action: '' },
+  'staff.update': { kind: 'skip', category: 'staff', action: '' },
+  'staff.delete': { kind: 'skip', category: 'staff', action: '' },
+  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '' },
+  'permissions.update': { kind: 'skip', category: 'settings', action: '' },
+  'staffStores.set': { kind: 'skip', category: 'settings', action: '' },
 }
