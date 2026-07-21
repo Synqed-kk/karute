@@ -15,9 +15,10 @@ import 'server-only'
 // Callers that surface UX (再学習 button) branch on the false to show honest
 // upgrade copy; background/best-effort callers just skip silently.
 
+import type { SynqedClient } from '@synqed-kk/client'
 import { getBusinessId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { billingEnforced, loadEntitlement } from '@/lib/entitlements'
+import { billingEnforced, loadEntitlement, loadEntitlementWithClient } from '@/lib/entitlements'
 import {
   canAddStaffFor,
   entitlementHasFeature,
@@ -72,11 +73,30 @@ export async function staffAddAllowed(): Promise<{
   if (!billingEnforced()) return { allowed: true, count: 0, limit: 'unlimited' }
   try {
     const businessId = await getBusinessId()
-    const ent = await loadEntitlement(businessId)
-    const staff = await getStaffList()
+    const synqed = await getSynqedClient()
+    return await staffAddAllowedWithClient(synqed, businessId, async () => (await getStaffList()).length)
+  } catch {
+    return { allowed: true, count: 0, limit: 'unlimited' }
+  }
+}
+
+/** Client-threaded twin of staffAddAllowed — the identity seam the facade
+ *  staff-create route uses (businessId from the verified token, Bearer-scoped
+ *  client, roster count from the caller's own lookup; the cookie path above
+ *  delegates here so the two can never diverge). Same counting rules + the
+ *  same fail-open posture. staffCount is a thunk so the roster read only
+ *  happens once enforcement is armed. */
+export async function staffAddAllowedWithClient(
+  synqed: Pick<SynqedClient, 'entitlements' | 'stores' | 'invites'>,
+  businessId: string,
+  staffCount: () => Promise<number>,
+): Promise<{ allowed: boolean; count: number; limit: number | 'unlimited' }> {
+  if (!billingEnforced()) return { allowed: true, count: 0, limit: 'unlimited' }
+  try {
+    const ent = await loadEntitlementWithClient(synqed, businessId)
+    const staff = await staffCount()
     let pendingNew = 0
     try {
-      const synqed = await getSynqedClient()
       const { invites } = await synqed.invites.list()
       pendingNew = invites.filter(
         (i) => i.status === 'pending' && !i.invited_staff_id,
@@ -84,7 +104,7 @@ export async function staffAddAllowed(): Promise<{
     } catch {
       /* count what we can — invites unreadable ≠ blocked */
     }
-    const count = staff.length + pendingNew
+    const count = staff + pendingNew
     if (!ent.enforced || ent.degraded) {
       return { allowed: true, count, limit: ent.staffLimit }
     }

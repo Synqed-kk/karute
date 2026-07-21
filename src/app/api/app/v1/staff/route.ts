@@ -3,13 +3,11 @@
 //
 // Gate: 'staff.invite' (staff.ts:41 — NOT staff.manage; adding a teammate is
 // the invite capability, matching the web action's own `can('staff.invite')`
-// gate) + the plan gate (staffAddAllowed(), same function web calls). NOTE:
-// staffAddAllowed() still resolves off the cookie session — it is not yet
-// client-threaded, so on a Bearer-only request (no cookie) it fails open,
-// the same fail-open posture every other soft failure in that gate already
-// has (see src/lib/subscription/feature-gate.ts's doc comment). Flagged as a
-// known limitation, not silently fixed here — S4a scope is the CRUD/authz
-// surface, not a new staffAddAllowedWithClient twin.
+// gate) + the plan gate via staffAddAllowedWithClient — the client-threaded
+// twin of the staffAddAllowed the web action calls (same counting rules +
+// fail-open posture; the cookie path delegates to the same twin, so the two
+// doors can't disagree). The cookie-bound staffAddAllowed() would have
+// silently failed open on every Bearer request — a dead gate, not a gate.
 //
 // Idempotency-Key required: staff.create is create-class (S1 facts block —
 // idemPost ONLY on createStaff + createInvite), matching stores.create.
@@ -34,7 +32,8 @@ import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { createStaffCore } from '@/actions/staff'
 import { staffProfileSchema } from '@/lib/validations/staff'
-import { staffAddAllowed } from '@/lib/subscription/feature-gate'
+import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
+import { staffListByBusinessOrThrow } from '@/lib/staff'
 
 export const runtime = 'nodejs'
 
@@ -53,12 +52,15 @@ export const POST = facadeHandler('staff.create', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((i) => i.message).join(', '))
   }
 
-  if (!(await staffAddAllowed()).allowed) {
-    return ok(ctx, { error: 'Staff limit reached for the current plan.' })
-  }
-
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
+
+  const gate = await staffAddAllowedWithClient(synqed, businessId, async () => {
+    return (await staffListByBusinessOrThrow(businessId)).length
+  })
+  if (!gate.allowed) {
+    return ok(ctx, { error: 'Staff limit reached for the current plan.' })
+  }
   const result = await createStaffCore(
     synqed,
     businessId,

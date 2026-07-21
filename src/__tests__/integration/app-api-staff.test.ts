@@ -47,11 +47,12 @@ jest.mock('@/lib/auth/require-permission', () => {
 })
 
 jest.mock('@/lib/subscription/feature-gate', () => ({
-  staffAddAllowed: jest.fn(async () => ({ allowed: true })),
+  staffAddAllowedWithClient: jest.fn(async () => ({ allowed: true })),
 }))
 
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
+  staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1' }]),
 }))
 
 // profiles lookup used by updateStaffCore/deleteStaffCore — null = synqed-only
@@ -186,6 +187,30 @@ describe('POST /api/app/v1/staff (create)', () => {
     const lines = await auditLines(async () => {
       await createPOST(postReq(VALID_STAFF), noParams)
     })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('plan gate at the limit → soft 200 { error } (matches web), no write, no audit row', async () => {
+    const { staffAddAllowedWithClient } = jest.requireMock('@/lib/subscription/feature-gate')
+    ;(staffAddAllowedWithClient as jest.Mock).mockResolvedValueOnce({
+      allowed: false,
+      count: 3,
+      limit: 3,
+    })
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await createPOST(postReq(VALID_STAFF), noParams)
+    })
+    // The Bearer-scoped client + businessId reach the gate — the cookie-bound
+    // staffAddAllowed() would have failed open on every facade request.
+    expect(staffAddAllowedWithClient).toHaveBeenCalledWith(
+      fakeClient,
+      'business-1',
+      expect.any(Function),
+    )
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ error: 'Staff limit reached for the current plan.' })
+    expect(staffCreate).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
   })
 })
