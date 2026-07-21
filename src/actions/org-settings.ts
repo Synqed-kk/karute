@@ -266,8 +266,10 @@ export async function writeOrgSettingsBlobWithClient(
       settings: { ...existingSettings, ...rest },
     })
 
-    revalidatePath('/settings')
-    updateTag('org-settings')
+    // No cache invalidation here: updateTag is Server-Action-only (throws from
+    // a Route Handler, next/dist/server/web/spec-extension/revalidate.js), and
+    // the org-settings PATCH facade route calls this core directly. The web
+    // wrapper below owns revalidatePath/updateTag.
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -295,7 +297,12 @@ export async function writeOrgSettingsBlob(settings: Partial<OrgSettings>) {
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
-  return writeOrgSettingsBlobWithClient(synqed, settings)
+  const result = await writeOrgSettingsBlobWithClient(synqed, settings)
+  if ('success' in result) {
+    revalidatePath('/settings')
+    updateTag('org-settings')
+  }
+  return result
 }
 
 /**

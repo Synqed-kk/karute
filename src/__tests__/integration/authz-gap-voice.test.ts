@@ -2,7 +2,7 @@
 // caller-supplied staffId; a staffer may act only on their OWN voice, owner/
 // manager (staff.manage) on anyone's. Proven: a foreign staffId without
 // staff.manage is refused and NO write reaches the settings blob.
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),

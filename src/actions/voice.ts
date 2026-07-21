@@ -13,7 +13,7 @@
 // list) — their ROUTES are S4b (packet T4); nothing here is reachable over
 // the facade yet, but the split is done now so S4b only has to add routes.
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
 import type { SynqedClient } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { audit } from '@/lib/audit'
@@ -142,7 +142,14 @@ export async function enrollVoiceAction(
       staffId,
       formData,
     )
-    if (result.ok) revalidatePath('/[locale]/(app)/settings', 'page')
+    if (result.ok) {
+      revalidatePath('/[locale]/(app)/settings', 'page')
+      // The blob writer no longer invalidates (updateTag is Server-Action-only
+      // — it lives on action wrappers, never in a core a route can call); the
+      // org-settings invalidation this chain always produced lands here.
+      revalidatePath('/settings')
+      updateTag('org-settings')
+    }
     return result
   } catch {
     return { ok: false }
@@ -217,7 +224,13 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
       { selfUserId, callerCapabilities, actorId, source: 'web' },
       staffId,
     )
-    if (result.ok) revalidatePath('/[locale]/(app)/settings', 'page')
+    if (result.ok) {
+      revalidatePath('/[locale]/(app)/settings', 'page')
+      // Same as enrollVoiceAction: the org-settings invalidation moved out of
+      // the blob writer lands on the action wrapper.
+      revalidatePath('/settings')
+      updateTag('org-settings')
+    }
     return result
   } catch {
     return { ok: false }
