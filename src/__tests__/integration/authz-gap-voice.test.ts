@@ -87,6 +87,22 @@ describe('voice audit writers (wave A part 3)', () => {
     })
   })
 
+  it('a FAILED settings write on ENROLL → ok:false, no audit row, no invalidation', async () => {
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
+    ;(createServiceClient as jest.Mock).mockReturnValue({
+      storage: { from: () => ({ upload: jest.fn(async () => ({ error: null })) }) },
+    })
+    ;(writeOrgSettingsBlobWithClient as jest.Mock).mockResolvedValueOnce({
+      error: 'upstream unavailable',
+    })
+    const { updateTag } = jest.requireMock('next/cache')
+    const lines = await auditLines(async () => {
+      await expect(enrollVoiceAction('me', audioForm())).resolves.toEqual({ ok: false })
+    })
+    expect(lines).toHaveLength(0)
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
   it('a FAILED settings write → ok:false, no audit row, no invalidation', async () => {
     ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
     ;(createServiceClient as jest.Mock).mockReturnValue({
