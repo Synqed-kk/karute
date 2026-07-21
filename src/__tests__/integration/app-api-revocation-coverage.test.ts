@@ -4,9 +4,18 @@
 // facadeHandler registration on a non-GET/OPTIONS method and asserts that
 // registration's endpoint key ∈ REVOCATION_SENSITIVE_ENDPOINTS. A new write
 // route that forgets to add its key fails THIS test — not production.
+//
+// The method-scan is blind to a WRITE hidden under a GET-classified key
+// (design-parity packet 12 §B-3 S2, Greptile finding: 'stores.list' is a GET
+// whose ensurePrimary:true path lazily provisions the 本店 primary store).
+// GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS below is the maintained registry
+// that closes that gap — register any future facade GET that performs a
+// write here, and add its key to REVOCATION_SENSITIVE_ENDPOINTS.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { REVOCATION_SENSITIVE_ENDPOINTS } from '@/lib/auth/revocation'
+import { REVOCATION_SENSITIVE_ENDPOINTS, requiresRevocationCheck } from '@/lib/auth/revocation'
+
+const GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS = ['stores.list']
 
 const ROOT = join(process.cwd(), 'src/app/api/app/v1')
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -57,5 +66,15 @@ describe('facade write endpoints are all revocation-sensitive (follow-up-e)', ()
     // be flagged. (Guards against a future refactor that no-ops the check.)
     const hypothetical = 'customer.__unlisted_write__'
     expect(REVOCATION_SENSITIVE_ENDPOINTS.has(hypothetical)).toBe(false)
+  })
+
+  it('every registered GET-hidden-write endpoint is in REVOCATION_SENSITIVE_ENDPOINTS', () => {
+    for (const key of GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS) {
+      expect(REVOCATION_SENSITIVE_ENDPOINTS.has(key)).toBe(true)
+    }
+  })
+
+  it("'stores.list' requires the revocation round-trip (its GET hides a write)", () => {
+    expect(requiresRevocationCheck('stores.list')).toBe(true)
   })
 })

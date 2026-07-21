@@ -13,13 +13,20 @@
 // src/lib/entitlements.ts) alongside the existing reads — but ONLY for a
 // canViewAllStores identity (least-privilege: the tab is hidden without that
 // grant, same divergence-from-web rule S1 applied to voice_enrollments).
-// listStoresWithClient's lazy 本店-create is shared with web via the twin
-// (race-tolerant, no audit row) — a zero-store tenant is provisioned here
-// exactly as it is on web. Read failures mirror web's OWN tolerance for
-// these two (page.tsx:38,43 — `.catch(() => [])` / `.catch(() => null)`): a
-// stores/entitlement hiccup must not 502 the whole settings screen.
-// initialActiveStoreId is still real — it falls out of the store clamp this
-// route runs regardless, at no extra cost.
+// listStoresWithClient is called with ensurePrimary: FALSE here (unlike the
+// stores GET route / web action) — this screen-wide GET stays write-free so
+// every user's settings load never pays the revocation round-trip for a
+// write only viewAll identities can even trigger; 'screens.settings' is
+// deliberately NOT in REVOCATION_SENSITIVE_ENDPOINTS. A zero-store tenant's
+// first paint instead shows StoresSection's own designed seeded-primary
+// placeholder for one refresh round-trip (StoresSection.tsx:28) — its mount
+// effect's own refresh() calls the (ensurePrimary: true) stores GET route,
+// which provisions and replaces the placeholder with the real row. Read
+// failures mirror web's OWN tolerance for these two (page.tsx:38,43 —
+// `.catch(() => [])` / `.catch(() => null)`): a stores/entitlement hiccup
+// must not 502 the whole settings screen. initialActiveStoreId is still real
+// — it falls out of the store clamp this route runs regardless, at no extra
+// cost.
 //
 // FAILURE CONTRACT: staff roster / org settings read failures → 502. NOT
 // page parity — the web page's getStaffList() catches its own read error and
@@ -77,7 +84,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
       // `canViewAllStores ? stores : []` gate (page.tsx:82), just applied
       // before the fetch instead of after it.
       canViewAllStores
-        ? listStoresWithClient(synqed, businessId).catch(() => [])
+        ? listStoresWithClient(synqed, businessId, { ensurePrimary: false }).catch(() => [])
         : Promise.resolve([]),
       canViewAllStores
         ? loadEntitlementWithClient(synqed, businessId).catch(() => null)

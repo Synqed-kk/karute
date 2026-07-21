@@ -178,9 +178,11 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
   })
 
-  it('happy path (non-owner, no grants) → 200, capability-derived flags all false, real self row', async () => {
+  it('happy path (non-owner, no grants) → 200, capability-derived flags all false, real self row, client + roster scoped to the resolved businessId', async () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
+    expect(staffListByBusinessOrThrow).toHaveBeenCalledWith('business-1')
     const dto = await dtoOf(res)
     expect(dto.isOwner).toBe(false)
     expect(dto.canViewAllStores).toBe(false)
@@ -333,5 +335,14 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.initialStores).toEqual([])
+  })
+
+  it("an entitlement-read failure still 200s with the TWIN's own degraded shape, not null — loadEntitlementWithClient swallows the read internally", async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'stores.viewAll']))
+    entitlementsGet.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.initialEntitlement).toMatchObject({ tier: 'free', degraded: true })
   })
 })

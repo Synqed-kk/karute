@@ -34,6 +34,12 @@
 // REVOCATION_SENSITIVE_ENDPOINTS (src/lib/auth/revocation.ts) — a
 // just-terminated staffer's Bearer token can't create a store on the local
 // fast-path (the exhaustive coverage test enforces this for every write key).
+// 'stores.list' is ALSO in that set even though it's a GET — its
+// ensurePrimary: true call above can WRITE (the lazy 本店-create), a write
+// the method-scan coverage test can't see because it's hidden under a GET
+// key; GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS in
+// app-api-revocation-coverage.test.ts is the maintained registry that closes
+// that gap.
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
@@ -51,7 +57,7 @@ export const GET = facadeHandler('stores.list', async (ctx) => {
   const businessId = ctx.identity.businessId
   const synqed = newSynqedClient(businessId)
   try {
-    const stores = await listStoresWithClient(synqed, businessId)
+    const stores = await listStoresWithClient(synqed, businessId, { ensurePrimary: true })
     return ok(ctx, { stores })
   } catch (err) {
     if (err instanceof AppApiError) throw err

@@ -101,6 +101,16 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // rename a store on the local fast-path.
   'stores.create',
   'stores.update',
+  // 'stores.list' is a GET but write-capable: listStoresWithClient's
+  // ensurePrimary:true path lazily provisions the 本店 primary store
+  // (src/actions/stores.ts). The method-scan coverage test can't see a
+  // write hidden under a GET key, so this entry is asserted directly by
+  // GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS in
+  // app-api-revocation-coverage.test.ts — a revoked token must not reach
+  // this write on the local fast-path. 'screens.settings' stays OUT: it
+  // always calls the twin with ensurePrimary:false, so it is genuinely
+  // write-free.
+  'stores.list',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

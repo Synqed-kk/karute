@@ -73,10 +73,11 @@ describe('GET /api/app/v1/entitlement', () => {
     expect(entitlementsGet).not.toHaveBeenCalled()
   })
 
-  it('happy path → 200 { entitlement } matching the WithClient twin', async () => {
+  it('happy path → 200 { entitlement } matching the WithClient twin, client scoped to the resolved businessId', async () => {
     storesList.mockResolvedValue({ stores: [{ id: 'a' }, { id: 'b' }] })
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
     const body = await res.json()
     expect(body.entitlement).toMatchObject({
       tier: 'professional',

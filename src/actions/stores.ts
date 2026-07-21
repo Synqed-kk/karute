@@ -109,14 +109,24 @@ async function primaryStoreName(
 /** Client-threaded core of listStores (facade Bearer path, design-parity
  *  packet 12 §B-3 S2 — same WithClient split as orgSettingsWithClient).
  *  BYTE-PARITY with the pre-S2 web-only listStores body (810e4b6d): list +
- *  BOTH per-store count maps, merged, AND the lazy 本店-create — every
- *  caller (web action, stores GET route, settings screen fan-out) now
- *  provisions a brand-new tenant's primary store the same way web always
- *  did. Race-tolerant: the unique index in core blocks a 2nd primary, so a
- *  losing create is ignored and the caller still gets the winner's row. */
+ *  BOTH per-store count maps, merged, AND (when `opts.ensurePrimary`) the
+ *  lazy 本店-create — web always performed this write, and callers that opt
+ *  in provision a brand-new tenant's primary store the same way. Race-
+ *  tolerant: the unique index in core blocks a 2nd primary, so a losing
+ *  create is ignored and the caller still gets the winner's row.
+ *
+ *  `ensurePrimary` is explicit at every call site (no default) — this write
+ *  is reachable via GET-classified facade keys, so which keys can trigger it
+ *  must stay visible at the call site, not buried in a default. Any facade
+ *  GET that passes `true` MUST carry its endpoint key in
+ *  REVOCATION_SENSITIVE_ENDPOINTS (src/lib/auth/revocation.ts) — the method-
+ *  scan coverage test can't see a write hidden under a GET, so
+ *  GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS in
+ *  app-api-revocation-coverage.test.ts is the maintained registry for it. */
 export async function listStoresWithClient(
   synqed: StoresClient,
   businessId: string,
+  opts: { ensurePrimary: boolean },
 ): Promise<StoreRow[]> {
   // Fetch the store list AND both per-store count maps in one parallel batch —
   // they're independent reads, so there's no reason to await them in series
@@ -145,7 +155,7 @@ export async function listStoresWithClient(
   // full twin call) so the count maps from the first pass — both correctly
   // empty for a business that had zero stores — merge with the fresh row.
   let stores = storesRes.stores
-  if (stores.length === 0) {
+  if (opts.ensurePrimary && stores.length === 0) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const service = createServiceClient() as any
     const name = await primaryStoreName(service, businessId)
@@ -181,7 +191,7 @@ export async function listStores(): Promise<StoreRow[]> {
     return []
   }
   const synqed = await getSynqedClient()
-  return listStoresWithClient(synqed, businessId)
+  return listStoresWithClient(synqed, businessId, { ensurePrimary: true })
 }
 
 /** The viewer's active store (a cookie). Null when unset → "all / primary". */

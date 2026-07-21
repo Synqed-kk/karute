@@ -148,7 +148,7 @@ describe('GET /api/app/v1/stores', () => {
     expect(storesList).not.toHaveBeenCalled()
   })
 
-  it('happy path → 200 { stores }, list+counts merged', async () => {
+  it('happy path → 200 { stores }, list+counts merged, client scoped to the resolved businessId', async () => {
     storesList.mockResolvedValue({
       stores: [
         { id: 'store-A', name: '代官山', address: null, phone: null, is_primary: true, active: true },
@@ -158,6 +158,7 @@ describe('GET /api/app/v1/stores', () => {
     customersCountsByStore.mockResolvedValue({ counts: { 'store-A': 12 } })
     const res = await listGET(getReq(), noParams)
     expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
     const body = await res.json()
     expect(body.stores).toEqual([
       {
@@ -264,29 +265,37 @@ describe('POST /api/app/v1/stores (create)', () => {
     expect(storesCreate).not.toHaveBeenCalled()
   })
 
-  it('validation reject (empty name) → business-level { error } rides the 2xx body, no write', async () => {
-    const res = await createPOST(postReq({ ...VALID_INPUT, name: '' }), noParams)
-    expect(res.status).toBe(200)
-    expect((await res.json()).error).toBeTruthy()
+  it('validation reject (empty name) → business-level { error } rides the 2xx body, no write, no audit row', async () => {
+    const lines = await auditLines(async () => {
+      const res = await createPOST(postReq({ ...VALID_INPUT, name: '' }), noParams)
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toBeTruthy()
+    })
     expect(storesCreate).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
-  it('STORE_LIMIT_REACHED when the entitlement cap is armed and reached', async () => {
+  it('STORE_LIMIT_REACHED when the entitlement cap is armed and reached, no write, no audit row', async () => {
     process.env.KARUTE_BILLING_ENFORCEMENT = 'on'
     entitlementsGet.mockResolvedValue({ tier: 'free', is_unlimited: false })
     storesList.mockResolvedValue({ stores: [{ id: 'store-A', name: 'x', is_primary: true, active: true }] })
-    const res = await createPOST(postReq(VALID_INPUT), noParams)
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ error: 'STORE_LIMIT_REACHED' })
+    const lines = await auditLines(async () => {
+      const res = await createPOST(postReq(VALID_INPUT), noParams)
+      expect(res.status).toBe(200)
+      expect(await res.json()).toEqual({ error: 'STORE_LIMIT_REACHED' })
+    })
     expect(storesCreate).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
-  it('happy path → 201 { id }, exactly one settings.store_create audit row', async () => {
+  it('happy path → 201 { id }, exactly one settings.store_create audit row, client + roster scoped to the resolved businessId', async () => {
     let res!: Response
     const lines = await auditLines(async () => {
       res = await createPOST(postReq(VALID_INPUT), noParams)
     })
     expect(res.status).toBe(201)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
+    expect(staffListByBusinessOrThrow).toHaveBeenCalledWith('business-1')
     expect(await res.json()).toEqual({ id: 'store-new' })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
@@ -334,12 +343,14 @@ describe('PATCH /api/app/v1/stores/[id] (update)', () => {
     expect(storesUpdate).not.toHaveBeenCalled()
   })
 
-  it('happy path → 200 { ok: true }, exactly one settings.store_update audit row', async () => {
+  it('happy path → 200 { ok: true }, exactly one settings.store_update audit row, client + roster scoped to the resolved businessId', async () => {
     let res!: Response
     const lines = await auditLines(async () => {
       res = await updatePATCH(patchReq(VALID_INPUT), params('store-7'))
     })
     expect(res.status).toBe(200)
+    expect(newSynqedClient).toHaveBeenCalledWith('business-1')
+    expect(staffListByBusinessOrThrow).toHaveBeenCalledWith('business-1')
     expect(await res.json()).toEqual({ ok: true })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
@@ -349,7 +360,7 @@ describe('PATCH /api/app/v1/stores/[id] (update)', () => {
     })
   })
 
-  it('an unknown/out-of-tenant id does not write and emits no audit row', async () => {
+  it('a core write rejection (e.g. an unknown/out-of-tenant id) produces no write and no audit row — tenant isolation itself is enforced by the businessId-scoped SDK/RLS layer, not this test', async () => {
     storesUpdate.mockRejectedValueOnce(new Error('not found'))
     const lines = await auditLines(async () => {
       const res = await updatePATCH(patchReq(VALID_INPUT), params('store-missing'))
