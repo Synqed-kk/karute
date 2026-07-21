@@ -55,7 +55,18 @@ export async function signOutAndPurge(args: {
   flip: () => void
   revokeRemote: (accessToken: string | null) => Promise<void>
 }): Promise<SignOutResult> {
-  const { accessToken, uid } = await args.captureSession()
+  // INVARIANT: a capture failure must NEVER block the purge/flip — the whole
+  // reason this module exists. A rejecting read (e.g. a broken storage adapter)
+  // degrades to no token so the fail-closed sequence below still runs: purge/
+  // flip land, wipe(undefined) is best-effort, revoke is skipped for the null
+  // token. The token trio never survives a capture throw.
+  let captured: { accessToken: string | null; uid: string | undefined }
+  try {
+    captured = await args.captureSession()
+  } catch {
+    captured = { accessToken: null, uid: undefined }
+  }
+  const { accessToken, uid } = captured
   // Fail-closed core FIRST: token trio off disk, then demote the store.
   await args.purgeStorage()
   args.flip()

@@ -226,6 +226,23 @@ describe('signOutAndPurge — purge-first, wipe-after (packet 14 P2 reorder)', (
     expect(order).toEqual(['purge', 'flip', 'wipe', 'remote'])
   })
 
+  it('captureSession REJECTS → purge/flip/wipe:undefined still run, revoke skipped, resolves remoteOk true', async () => {
+    const order: string[] = []
+    const r = await signOutAndPurge({
+      // a broken storage adapter rejects the outgoing-session read
+      captureSession: async () => { throw new Error('storage adapter down') },
+      wipeLocal: async (uid) => { order.push(`wipe:${uid}`) },
+      purgeStorage: async () => { order.push('purge') },
+      flip: () => order.push('flip'),
+      // mirrors revokeGoTrueSession: a null token short-circuits before any call
+      revokeRemote: async (accessToken) => { if (accessToken) order.push('remote') },
+    })
+    // a capture throw can never strand the token: the local fail-closed sequence
+    // runs in full, revoke is a no-op (no token), and sign-out still resolves
+    expect(r.remoteOk).toBe(true)
+    expect(order).toEqual(['purge', 'flip', 'wipe:undefined'])
+  })
+
   it('a revoke that never resolves does not delay purge/flip', async () => {
     const order: string[] = []
     let releaseRevoke!: () => void
