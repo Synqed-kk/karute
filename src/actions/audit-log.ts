@@ -161,7 +161,15 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
   } catch {
     return { ok: false, error: 'forbidden' }
   }
-  const synqed = await getSynqedClient()
+  // Pre-extraction this call sat inside the read's own try — a failed client
+  // construction must keep returning the 'failed' envelope, never throw
+  // across the server-action boundary.
+  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  try {
+    synqed = await getSynqedClient()
+  } catch {
+    return { ok: false, error: 'failed' }
+  }
   const actor = filters.logOpen
     ? {
         staffId: await getCurrentUserStaffId().catch(() => null),

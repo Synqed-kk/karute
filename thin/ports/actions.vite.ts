@@ -697,6 +697,7 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   if (filters.category) q.set('category', filters.category)
   if (filters.actorId) q.set('actorId', filters.actorId)
   if (filters.from) q.set('from', filters.from)
+  if (filters.to) q.set('to', filters.to)
   if (filters.targetId) q.set('targetId', filters.targetId)
   if (filters.includeViews) q.set('includeViews', '1')
   if (filters.breakGlass) q.set('breakGlass', '1')

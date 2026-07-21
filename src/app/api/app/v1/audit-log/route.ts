@@ -46,6 +46,7 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
     category: q.get('category') ?? undefined,
     actorId: q.get('actorId') ?? undefined,
     from: q.get('from') ?? undefined,
+    to: q.get('to') ?? undefined,
     targetId: q.get('targetId') ?? undefined,
     includeViews: q.get('includeViews') === '1',
     breakGlass: q.get('breakGlass') === '1',

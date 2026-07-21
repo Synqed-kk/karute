@@ -35,7 +35,7 @@ describe('thin actions port — audit-log transport contract', () => {
   it('serializes filters: booleans as "1", false/absent omitted, page forwarded', async () => {
     const apiFetch = jest.fn(async (path: string) => {
       expect(path).toBe(
-        '/api/app/v1/audit-log?category=staff&targetId=cus-9&includeViews=1&logOpen=1&page=2',
+        '/api/app/v1/audit-log?category=staff&to=2026-06-30T00%3A00%3A00.000Z&targetId=cus-9&includeViews=1&logOpen=1&page=2',
       )
       return new Response(JSON.stringify({ ok: true, events: [], total: 0, page: 2, hasMore: false, breakGlassTotal: null, targetLabels: {} }), {
         status: 200,
@@ -45,6 +45,7 @@ describe('thin actions port — audit-log transport contract', () => {
 
     await listAuditLog({
       category: 'staff',
+      to: '2026-06-30T00:00:00.000Z',
       targetId: 'cus-9',
       includeViews: true,
       breakGlass: false,

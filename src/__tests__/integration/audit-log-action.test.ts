@@ -117,6 +117,16 @@ describe('listAuditLog — feed', () => {
     })
     await expect(listAuditLog({})).resolves.toEqual({ ok: false, error: 'failed' })
   })
+
+  // Added at packet 17 §S3 (add-only — every pin above is untouched): the
+  // twin extraction hoisted client construction out of the read's try; this
+  // pins that a failed construction still resolves the 'failed' envelope.
+  it('client-construction failure returns the same safe error, never throws', async () => {
+    getSynqedClient.mockImplementation(async () => {
+      throw new Error('no session')
+    })
+    await expect(listAuditLog({})).resolves.toEqual({ ok: false, error: 'failed' })
+  })
 })
 
 describe('listAuditLog — the log logs its own opens', () => {
