@@ -663,6 +663,9 @@ type AuditLogEvent = {
   detail: unknown
   break_glass: boolean
   severity: string
+  // SDK 1.14 write-time snapshot name (packet 18 T3) — optional/nullable so
+  // an old cached response (missing the key entirely) still parses.
+  actor_label?: string | null
 }
 type AuditLogFilters = {
   category?: string
@@ -683,6 +686,9 @@ type AuditLogListResult =
       page: number
       hasMore: boolean
       breakGlassTotal: number | null
+      // Exact 変更/警告 strip counts (packet 18 T1) — add-only.
+      warningsTotal: number | null
+      changesTotal: number | null
       targetLabels: Record<string, string>
     }
   | { ok: false; error: 'forbidden' | 'failed' }

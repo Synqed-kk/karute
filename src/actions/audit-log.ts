@@ -24,6 +24,11 @@ export interface AuditLogEvent {
   detail: unknown
   break_glass: boolean
   severity: string
+  /** Write-time snapshot name (SDK 1.14, synqed-core PR #52) — durable even
+   *  after the staff row is renamed/removed. Absent on old cached responses;
+   *  optional here so those keep parsing. Component prefers this over the
+   *  live roster lookup. */
+  actor_label?: string | null
 }
 
 export interface AuditLogFilters {
@@ -47,8 +52,11 @@ export interface AuditLogFilters {
 
 const PAGE_SIZE = 100
 
-/** View-kind actions (customer.view, privacy.audit_log_view, …) stay out of
- *  the default feed by naming convention — core has no kind column/filter. */
+/** View-kind actions (customer.view, privacy.audit_log_view, …) — core's
+ *  exclude_views param (T2, packet 18) now does this filtering server-side,
+ *  so this file no longer calls it. Kept per packet instruction: still the
+ *  naming-convention reference other callers may need. */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept intentionally, see above
 function isViewAction(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
@@ -65,6 +73,13 @@ type ListAuditLogResult =
        *  a person filter is active (I7 — the strip never renders per-staff
        *  counts, so no aux query is spent). */
       breakGlassTotal: number | null
+      /** Exact 変更/警告 strip counts (SDK 1.14 severity/exclude_views params —
+       *  packet 18 T1). Both null together on ANY probe failure (never a
+       *  partial sum) or when the probes are skipped (I7 actorId scope, or
+       *  breakGlass — the strip's own feed IS the count then). Component
+       *  falls back to its client-side approximate count + '+' when null. */
+      warningsTotal: number | null
+      changesTotal: number | null
       /** Display names for this page's customer/store targets — rows store ids
        *  only (PII rule), so names join at read time. Staff resolve client-side
        *  off the roster the section already holds. */
@@ -93,23 +108,73 @@ export async function listAuditLogWithClient(
       from: filters.from || undefined,
       to: filters.to || undefined,
     }
-    const [res, breakGlassRes] = await Promise.all([
-      synqed.audit.list({
-        ...baseQuery,
-        break_glass: filters.breakGlass ? true : undefined,
-        page,
-        page_size: PAGE_SIZE,
-      }),
-      // Strip count — page_size 1, only the total matters. Skipped when the
-      // break-glass filter is already on (the main total IS the count) and
-      // when a person filter is active (the strip hides — I7). Best-effort:
-      // a failed count must never take the feed down with it.
-      filters.breakGlass || filters.actorId
-        ? null
-        : synqed.audit
-            .list({ ...baseQuery, break_glass: true, page: 1, page_size: 1 })
-            .catch(() => null),
-    ])
+    // Local SDK (1.11.1) has no `audit` property yet — `synqed.audit.list`
+    // below already errors at tsc baseline (11, unchanged by CI's real
+    // ^1.15.0). Extracting the accessor ONCE keeps that a single error site
+    // instead of one per probe call (ponytail: `as any` scoped to this one
+    // line, not sprinkled per call — upgrade path is deleting this cast once
+    // the SDK bump lands).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- same stale-SDK gap as above, scoped to one line
+    const auditListProbe = (synqed as any).audit.list as (
+      q: Record<string, unknown>,
+    ) => Promise<{ total: number }>
+    // T1 strip-count probes (page_size 1, total only) — skipped under the
+    // SAME condition as the break-glass probe below (I7 actorId scope) plus
+    // breakGlass on (that feed IS the count strip then).
+    const skipStripProbes = Boolean(filters.breakGlass) || Boolean(filters.actorId)
+
+    const [res, breakGlassRes, warnAllRes, critAllRes, nvAllRes, nvWarnRes, nvCritRes] =
+      await Promise.all([
+        synqed.audit.list({
+          ...baseQuery,
+          exclude_views: filters.includeViews ? undefined : true,
+          break_glass: filters.breakGlass ? true : undefined,
+          page,
+          page_size: PAGE_SIZE,
+        }),
+        // Strip count — page_size 1, only the total matters. Skipped when the
+        // break-glass filter is already on (the main total IS the count) and
+        // when a person filter is active (the strip hides — I7). Best-effort:
+        // a failed count must never take the feed down with it.
+        filters.breakGlass || filters.actorId
+          ? null
+          : synqed.audit
+              .list({ ...baseQuery, break_glass: true, page: 1, page_size: 1 })
+              .catch(() => null),
+        skipStripProbes
+          ? null
+          : auditListProbe({ ...baseQuery, severity: 'warn', page: 1, page_size: 1 }).catch(
+              () => null,
+            ),
+        skipStripProbes
+          ? null
+          : auditListProbe({ ...baseQuery, severity: 'critical', page: 1, page_size: 1 }).catch(
+              () => null,
+            ),
+        skipStripProbes
+          ? null
+          : auditListProbe({ ...baseQuery, exclude_views: true, page: 1, page_size: 1 }).catch(
+              () => null,
+            ),
+        skipStripProbes
+          ? null
+          : auditListProbe({
+              ...baseQuery,
+              exclude_views: true,
+              severity: 'warn',
+              page: 1,
+              page_size: 1,
+            }).catch(() => null),
+        skipStripProbes
+          ? null
+          : auditListProbe({
+              ...baseQuery,
+              exclude_views: true,
+              severity: 'critical',
+              page: 1,
+              page_size: 1,
+            }).catch(() => null),
+      ])
 
     // Opening the 監査ログ is itself a privileged read — one row per open
     // (the section sends logOpen on its first fetch only; filter clicks and
@@ -129,22 +194,31 @@ export async function listAuditLogWithClient(
       })
     }
 
-    const events = (res.events as AuditLogEvent[]).filter(
-      (e) => filters.includeViews || !isViewAction(e.action),
+    // exclude_views:true above is now the ONLY view-kind filter on this path
+    // (T2) — core does the exact same job the client used to do with
+    // isViewAction, so the events don't get re-filtered here.
+    // includeViews:true sends no exclude_views param, so this stays every row.
+    const events = res.events as AuditLogEvent[]
+    // Both totals null together on any probe failure or skip — never a
+    // partial sum from a failed pair (T1).
+    const probesOk = [warnAllRes, critAllRes, nvAllRes, nvWarnRes, nvCritRes].every(
+      (r) => r !== null,
     )
     return {
       ok: true,
       events,
       total: res.total,
       page: res.page,
-      // hasMore follows the UNFILTERED count — the next page may still hold
-      // non-view rows even when this one filtered to empty.
+      // hasMore now follows the exact-filtered count — exclude_views:true
+      // above means res.total already matches what's on screen.
       hasMore: res.page * res.page_size < res.total,
       breakGlassTotal: breakGlassRes
         ? breakGlassRes.total
         : filters.breakGlass
           ? res.total
           : null,
+      warningsTotal: probesOk ? warnAllRes!.total + critAllRes!.total : null,
+      changesTotal: probesOk ? nvAllRes!.total - nvWarnRes!.total - nvCritRes!.total : null,
       targetLabels: await resolveTargetLabels(synqed, events),
     }
   } catch {

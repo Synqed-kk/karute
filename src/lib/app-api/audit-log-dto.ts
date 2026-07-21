@@ -20,6 +20,14 @@ const AuditLogEventSchema = z.object({
   detail: z.unknown(),
   break_glass: z.boolean(),
   severity: z.string(),
+  // SDK 1.14 (synqed-core PR #52) — write-time snapshot name. Absent on old
+  // cached responses; normalized to null at this parse boundary so every
+  // consumer sees string | null, never undefined (packet 18 T3).
+  actor_label: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null),
 })
 
 export const AuditLogListResultDTO = z.discriminatedUnion('ok', [
@@ -30,6 +38,10 @@ export const AuditLogListResultDTO = z.discriminatedUnion('ok', [
     page: z.number(),
     hasMore: z.boolean(),
     breakGlassTotal: z.number().nullable(),
+    // Exact 変更/警告 strip counts (packet 18 T1) — null together on any
+    // probe failure/skip; add-only, existing consumers unaffected.
+    warningsTotal: z.number().nullable(),
+    changesTotal: z.number().nullable(),
     targetLabels: z.record(z.string(), z.string()),
   }),
   z.object({
