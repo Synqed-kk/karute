@@ -3,7 +3,7 @@
 // Renders the REAL component (not mocked away, unlike
 // settings-shell-pending-tabs.test.tsx) with only the server-action boundary
 // mocked — same seam audit-log-action.test.ts mocks.
-import { render, waitFor } from '@testing-library/react'
+import { fireEvent, render, waitFor } from '@testing-library/react'
 import type { StaffMember } from '@/lib/staff'
 
 jest.mock('next-intl', () => ({
@@ -179,7 +179,6 @@ describe('AuditLogSection — system rows are label-immune (fleet lens-3 gap)', 
 
 describe('AuditLogSection — Greptile #581 round-1 pins', () => {
   it('P1: an append whose probes fail keeps the page-1 exact total (no downgrade to approx)', async () => {
-    const { fireEvent } = require('@testing-library/react')
     listAuditLog
       .mockResolvedValueOnce({
         ok: true,
@@ -209,6 +208,38 @@ describe('AuditLogSection — Greptile #581 round-1 pins', () => {
     await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
     // Exact total survives the failed-probe append; no '+' downgrade.
     await waitFor(() => expect(statSpans(container)[1]).toBe('5'))
+  })
+
+  it('P1 round 2: an append whose break-glass probe fails keeps the page-1 exact 緊急アクセス total', async () => {
+    listAuditLog
+      .mockResolvedValueOnce({
+        ok: true,
+        events: [coreEvent()],
+        total: 300,
+        page: 1,
+        hasMore: true,
+        breakGlassTotal: 3,
+        warningsTotal: 0,
+        changesTotal: null,
+        targetLabels: {},
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        events: [coreEvent({ id: 'e2' })],
+        total: 300,
+        page: 2,
+        hasMore: true,
+        breakGlassTotal: null, // transient break-glass probe failure on append
+        warningsTotal: 0,
+        changesTotal: null,
+        targetLabels: {},
+      })
+    const { container, getByText } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(statSpans(container)[2]).toBe('3'))
+    fireEvent.click(getByText('loadMore'))
+    await waitFor(() => expect(listAuditLog).toHaveBeenCalledTimes(2))
+    // Exact break-glass total survives; no downgrade to the – placeholder.
+    await waitFor(() => expect(statSpans(container)[2]).toBe('3'))
   })
 
   it("P2: an empty-string actor_label falls through to the roster name, never a blank", async () => {

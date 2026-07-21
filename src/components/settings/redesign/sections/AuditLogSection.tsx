@@ -159,12 +159,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       }
       setError(null)
       setEvents((prev) => (append ? [...prev, ...res.events] : res.events))
-      setBreakGlassTotal(res.breakGlassTotal)
       // The totals describe the whole filtered window, which an append (page
       // N+1, same filters) does not change — so a transient probe failure on
       // a later page must not downgrade a known-exact total to the client
-      // approximation. Filter changes go through append=false and take the
-      // fresh value either way (Greptile #581 P1).
+      // approximation (or, for break-glass, to the – placeholder). Filter
+      // changes go through append=false and take the fresh value either way
+      // (Greptile #581 P1 rounds 1+2).
+      setBreakGlassTotal((prev) =>
+        append && res.breakGlassTotal === null ? prev : res.breakGlassTotal,
+      )
       setWarningsTotal((prev) => (append && res.warningsTotal === null ? prev : res.warningsTotal))
       setChangesTotal((prev) => (append && res.changesTotal === null ? prev : res.changesTotal))
       setTargetLabels((prev) => (append ? { ...prev, ...res.targetLabels } : res.targetLabels))
