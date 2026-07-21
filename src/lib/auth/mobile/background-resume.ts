@@ -45,6 +45,12 @@ export function createResumeCoordinator<S>(args: {
   onResumed: (state: BootState<S>) => void
   /** Bound before falling through to `recovering`. Default 4000ms (matches boot). */
   timeoutMs?: number
+  /** Session-store generation accessor (packet 14 P1-b). Snapshotted at the
+   *  START of each resume; if it advances before a settle emits — a sign-out or
+   *  sign-in intervened during recovery — that emit is DROPPED rather than
+   *  clobbering the store back to the outgoing session. Omitted → resume
+   *  unfenced (unchanged behaviour, used by the unit tests). */
+  generation?: () => number
 }): ResumeCoordinator {
   // TWO single-flight layers, both needed:
   //  - recoverOnce shares one getSession across resumes — a resume that timed
@@ -57,12 +63,19 @@ export function createResumeCoordinator<S>(args: {
   const timeoutMs = args.timeoutMs ?? 4000
 
   const resumeOnce = createSingleFlight(async () => {
+    // Snapshot the generation at resume start; a sign-out/sign-in during
+    // recovery advances it and fences every emit below (packet 14 P1-b).
+    const snap = args.generation?.()
+    const emit = (state: BootState<S>) => {
+      if (snap !== undefined && args.generation!() !== snap) return
+      args.onResumed(state)
+    }
     args.onQuiesce?.()
-    // onResumed is the single sink: bootSessionGate reports a post-timeout
-    // eventual through it, and we emit the immediate/returned state through it
-    // too — never both for the same settle.
-    const state = await bootSessionGate<S>(recoverOnce, timeoutMs, args.onResumed)
-    args.onResumed(state)
+    // `emit` is the single sink: bootSessionGate reports a post-timeout eventual
+    // through it, and we emit the immediate/returned state through it too —
+    // never both for the same settle, and both fenced by the same snapshot.
+    const state = await bootSessionGate<S>(recoverOnce, timeoutMs, emit)
+    emit(state)
   })
 
   return {

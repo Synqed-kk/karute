@@ -11,25 +11,37 @@
 import { createMobileAuth } from '@/lib/auth/mobile/client-session'
 
 const mockGetSession = jest.fn()
+const mockStopAutoRefresh = jest.fn(async () => {})
 
 jest.mock('@supabase/auth-js', () => ({
   // signOut is deliberately NOT on this mock: packet 13's signOut() never
   // calls auth.signOut() (it would re-read the storage this module has
-  // already purged) — getSession() is the only GoTrueClient method the
-  // sign-out path still touches, for the pre-purge capture.
+  // already purged). getSession() is used by BOOT only now; the sign-out
+  // capture reads storage DIRECTLY (packet 14 P1-a — no getSession, no locks,
+  // no unbounded refresh). stopAutoRefresh() is called on sign-out (P1-b).
   GoTrueClient: jest.fn(() => ({
     getSession: (...a: unknown[]) => mockGetSession(...a),
+    stopAutoRefresh: () => mockStopAutoRefresh(),
+    startAutoRefresh: jest.fn(async () => {}),
   })),
 }))
 
-function makeAuth(overrides: { purge?: jest.Mock; removeItem?: jest.Mock } = {}) {
+function makeAuth(
+  overrides: {
+    purge?: jest.Mock
+    removeItem?: jest.Mock
+    /** Raw persisted-session JSON the sign-out capture will read + parse. */
+    storedSession?: string | null
+  } = {},
+) {
   const onSessionState = jest.fn()
   const purge = overrides.purge ?? jest.fn(async () => {})
   const removeItem = overrides.removeItem ?? jest.fn(async () => {})
+  const storedSession = overrides.storedSession ?? null
   const auth = createMobileAuth({
     config: { url: 'https://test.supabase.co', anonKey: 'anon' },
     storage: {
-      getItem: async () => null,
+      getItem: async () => storedSession,
       setItem: async () => {},
       removeItem,
     },
@@ -41,18 +53,14 @@ function makeAuth(overrides: { purge?: jest.Mock; removeItem?: jest.Mock } = {})
   return { auth, onSessionState, purge, removeItem }
 }
 
-/** Fixture session for the sign-out capture step — OUR OWN string, never a
- *  real token (safeguard: tests assert on this fixture via mock capture, not
- *  on any decoded/logged value). */
-function mockCapturedSession(overrides: { accessToken?: string; uid?: string } = {}) {
-  mockGetSession.mockResolvedValue({
-    data: {
-      session: {
-        access_token: overrides.accessToken ?? 'fixture-captured-token',
-        user: { id: overrides.uid ?? 'staff-A' },
-      },
-    },
-    error: null,
+/** Our OWN fixture session, serialized exactly as auth-js persists it (the full
+ *  session under the storage key — no userStorage configured). The sign-out
+ *  capture reads + parses THIS off storage (packet 14 P1-a); safeguard: tests
+ *  assert on this fixture string, never on any real/decoded token. */
+function storedSessionFixture(overrides: { accessToken?: string; uid?: string } = {}) {
+  return JSON.stringify({
+    access_token: overrides.accessToken ?? 'fixture-captured-token',
+    user: { id: overrides.uid ?? 'staff-A' },
   })
 }
 
@@ -65,6 +73,7 @@ async function flush(n = 10) {
 
 beforeEach(() => {
   mockGetSession.mockReset()
+  mockStopAutoRefresh.mockClear()
 })
 
 describe('createMobileAuth — session read adapter', () => {
@@ -136,11 +145,12 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // — remoteOk is purely informational (F1/#572's old asymmetry is gone,
   // there is no longer a separate "fail-closed branch").
   it('clean revoke (2xx) → remoteOk true, SAME local purge as a failure', async () => {
-    mockCapturedSession({ uid: 'staff-A' })
     global.fetch = jest.fn(
       async () => new Response(null, { status: 204 }),
     ) as unknown as typeof fetch
-    const { auth, onSessionState, purge, removeItem } = makeAuth()
+    const { auth, onSessionState, purge, removeItem } = makeAuth({
+      storedSession: storedSessionFixture({ uid: 'staff-A' }),
+    })
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(true)
     expect(purge).toHaveBeenCalledWith('staff-A')
@@ -150,12 +160,69 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
-  it('remote revoke responds non-2xx → IDENTICAL local sequence, remoteOk false', async () => {
-    mockCapturedSession({ uid: 'staff-A' })
+  it('remote revoke responds non-2xx (5xx) → IDENTICAL local sequence, remoteOk false', async () => {
     global.fetch = jest.fn(
       async () => new Response(null, { status: 500 }),
     ) as unknown as typeof fetch
-    const { auth, onSessionState, purge, removeItem } = makeAuth()
+    const { auth, onSessionState, purge, removeItem } = makeAuth({
+      storedSession: storedSessionFixture({ uid: 'staff-A' }),
+    })
+    const r = await auth.signOut()
+    expect(r.remoteOk).toBe(false)
+    expect(purge).toHaveBeenCalledWith('staff-A')
+    expect(removeItem).toHaveBeenCalledTimes(3)
+    expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
+  })
+
+  // packet 14 P3: 401/403/404 mean the user is already logged out server-side
+  // (expired/absent) — auth-js's own _signOut treats them as success
+  // (GoTrueClient.js:1762-1766). The direct revoke must not misreport them as
+  // remoteOk:false. Only a genuine failure (5xx above, network below) does.
+  it.each([401, 403, 404])(
+    'revoke %s (expired/absent user) → remoteOk true (tolerant)',
+    async (status) => {
+      global.fetch = jest.fn(
+        async () => new Response(null, { status }),
+      ) as unknown as typeof fetch
+      const { auth, onSessionState, removeItem } = makeAuth({
+        storedSession: storedSessionFixture({ uid: 'staff-A' }),
+      })
+      const r = await auth.signOut()
+      expect(r.remoteOk).toBe(true)
+      expect(removeItem).toHaveBeenCalledTimes(3)
+      expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
+    },
+  )
+
+  // packet 14 P1-b: the autorefresh ticker must be stopped on sign-out so a
+  // surviving 30s tick can't _saveSession a refreshed token back into the
+  // storage the purge just emptied and resurrect the session.
+  it('stops the autorefresh ticker on sign-out', async () => {
+    global.fetch = jest.fn(
+      async () => new Response(null, { status: 204 }),
+    ) as unknown as typeof fetch
+    const { auth } = makeAuth({ storedSession: storedSessionFixture() })
+    await auth.signOut()
+    expect(mockStopAutoRefresh).toHaveBeenCalledTimes(1)
+  })
+
+  // packet 14 P2: a stalled-not-erroring revoke (no response, never rejects on
+  // its own) must be aborted by the timeout → remoteOk false, and the local
+  // purge/flip (which ran BEFORE the revoke) is unaffected. The fetch here only
+  // rejects when its abort signal fires — proving the TIMEOUT, not a response,
+  // is what ends it. bootTimeoutMs (50ms here) is the revoke bound too.
+  it('revoke timeout: a hung revoke aborts → remoteOk false, purge/flip already landed', async () => {
+    global.fetch = jest.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(new DOMException('aborted', 'AbortError')),
+          )
+        }),
+    ) as unknown as typeof fetch
+    const { auth, onSessionState, purge, removeItem } = makeAuth({
+      storedSession: storedSessionFixture({ uid: 'staff-A' }),
+    })
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(false)
     expect(purge).toHaveBeenCalledWith('staff-A')
@@ -168,11 +235,12 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // (the internal try/catch around revokeRemote means this test itself is
   // the proof: an escaping rejection would fail the suite).
   it('(d) offline (transport REJECTS) → identical local end state, no unhandled rejection', async () => {
-    mockCapturedSession({ uid: 'staff-A' })
     global.fetch = jest.fn(async () => {
       throw new Error('network down')
     }) as unknown as typeof fetch
-    const { auth, onSessionState, purge, removeItem } = makeAuth()
+    const { auth, onSessionState, purge, removeItem } = makeAuth({
+      storedSession: storedSessionFixture({ uid: 'staff-A' }),
+    })
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(false)
     expect(purge).toHaveBeenCalledWith('staff-A')
@@ -180,13 +248,14 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
-  // (a) the revoke must ride the token captured BEFORE the purge, sent AFTER
-  // storage is already empty — never a fresh post-purge read (which would
-  // find nothing). Header equality is against OUR OWN fixture string only
-  // (mockCapturedSession's 'fixture-captured-token'), never a real/decoded
-  // token — safeguard-compliant.
+  // (a) the revoke must ride the token captured (off storage) BEFORE the purge,
+  // sent AFTER storage is already empty — never a fresh post-purge read (which
+  // would find nothing). This also PINS the real capture accessor (packet 14
+  // P1-a/P3-test): the header token IS the one parsed off the seeded storage, so
+  // any mutation to the storage-read capture fails this test. Header equality is
+  // against OUR OWN fixture string only ('fixture-captured-token'), never a
+  // real/decoded token — safeguard-compliant.
   it('(a) revoke rides the CAPTURED token, fired only after storage is already empty', async () => {
-    mockCapturedSession({ accessToken: 'fixture-captured-token', uid: 'staff-A' })
     const removeItem = jest.fn(async () => {})
     let removalsDoneWhenFetchFired = -1
     const fetchSpy = jest.fn<Promise<Response>, [url: string, init?: RequestInit]>(async () => {
@@ -194,7 +263,13 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
       return new Response(null, { status: 204 })
     })
     global.fetch = fetchSpy as unknown as typeof fetch
-    const { auth } = makeAuth({ removeItem })
+    const { auth } = makeAuth({
+      removeItem,
+      storedSession: storedSessionFixture({
+        accessToken: 'fixture-captured-token',
+        uid: 'staff-A',
+      }),
+    })
     await auth.signOut()
     expect(fetchSpy).toHaveBeenCalledTimes(1)
     const [url, init] = fetchSpy.mock.calls[0]
@@ -209,9 +284,10 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // (b) a revoke that never resolves must not delay the local sequence —
   // purge/flip are already done by the time the revoke is merely PENDING.
   it('(b) a revoke that never resolves does not delay purge/flip', async () => {
-    mockCapturedSession({ uid: 'staff-A' })
     global.fetch = jest.fn(() => new Promise<Response>(() => {})) as unknown as typeof fetch
-    const { auth, onSessionState, purge, removeItem } = makeAuth()
+    const { auth, onSessionState, purge, removeItem } = makeAuth({
+      storedSession: storedSessionFixture({ uid: 'staff-A' }),
+    })
     void auth.signOut() // deliberately not awaited — the revoke never settles
     await flush()
     expect(purge).toHaveBeenCalledWith('staff-A')
@@ -225,11 +301,12 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // the right rows through the REAL take-store) is T4's real-chain proof in
   // take-durability.test.ts, extended there for this exact capture idiom.
   it('(c) the uid captured from the live session threads into purgeLocalCaches', async () => {
-    mockCapturedSession({ uid: 'staff-B' })
     global.fetch = jest.fn(
       async () => new Response(null, { status: 204 }),
     ) as unknown as typeof fetch
-    const { auth, purge } = makeAuth()
+    const { auth, purge } = makeAuth({
+      storedSession: storedSessionFixture({ uid: 'staff-B' }),
+    })
     await auth.signOut()
     expect(purge).toHaveBeenCalledWith('staff-B')
   })
@@ -239,7 +316,7 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // _signOut (only calls admin.signOut when a token was found), and local
   // purge still runs unconditionally.
   it('no captured session → revoke skipped entirely, local purge still runs', async () => {
-    mockGetSession.mockResolvedValue({ data: { session: null }, error: null })
+    // storage empty (already signed out some other way) → capture reads null.
     const fetchSpy = jest.fn()
     global.fetch = fetchSpy as unknown as typeof fetch
     const { auth, onSessionState, purge, removeItem } = makeAuth()
@@ -256,14 +333,16 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
   // sign-out this exists for. No longer tied to a revoke failure (there is
   // no longer a separate fail-closed branch); a broken adapter alone proves it.
   it('storage.removeItem REJECTS → onSessionState STILL fires, signOut still resolves', async () => {
-    mockCapturedSession({ uid: 'staff-A' })
     global.fetch = jest.fn(
       async () => new Response(null, { status: 204 }),
     ) as unknown as typeof fetch
     const removeItem = jest.fn(async () => {
       throw new Error('storage adapter unavailable')
     })
-    const { auth, onSessionState, purge } = makeAuth({ removeItem })
+    const { auth, onSessionState, purge } = makeAuth({
+      removeItem,
+      storedSession: storedSessionFixture({ uid: 'staff-A' }),
+    })
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(true)
     expect(purge).toHaveBeenCalledWith('staff-A')

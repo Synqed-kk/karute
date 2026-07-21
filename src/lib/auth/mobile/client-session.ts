@@ -1,5 +1,13 @@
 // Client auth module for the mobile bundle (packet-01 point 1, composition).
 //
+// ⚠ SAFEGUARD (this is a classifier-sensitive auth seam — see the karute
+// phase-2 Fable→Opus flag incident): NEVER read, decode, print, or log an
+// auth-token VALUE here — not in code, not in a test, not in debug output. The
+// sign-out capture below lifts access_token + user.id off storage and threads
+// the token ONLY into the remote revoke; it is never logged. Session reads on
+// the fail-closed path use the pure disk/store source, never auth.getSession()
+// (which serializes behind navigator.locks and can fire an unbounded refresh).
+//
 // The bundled iOS app has no Next.js server, so login runs on-device with plain
 // auth-js (web keeps @supabase/ssr cookie auth, untouched). This module
 // composes: the parameterized client + Keychain-backed storage + the loud-boot
@@ -53,6 +61,11 @@ export interface MobileAuthOptions {
   purgeLocalCaches: (uid: string | undefined) => Promise<void>
   /** Boot timeout before falling through to the recovering state. Default 4000ms. */
   bootTimeoutMs?: number
+  /** Session-store generation accessor (packet 14 P1-b), injected so a
+   *  background-resume that races a sign-out/sign-in is fenced out. The thin
+   *  binding wires session-store's `currentGeneration`; omitted in unit tests →
+   *  resume is unfenced (unchanged behaviour). */
+  generation?: () => number
 }
 
 export interface MobileAuth {
@@ -119,6 +132,9 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         // Same bound as boot — a hung resume falls through to `recovering`,
         // never leaves the app silently quiesced.
         timeoutMs: opts.bootTimeoutMs,
+        // Fence resume writes: a sign-out/sign-in during recovery drops the
+        // stale re-enable rather than resurrecting the outgoing session.
+        generation: opts.generation,
       })
       // Single-flighted inside the coordinator: rapid foregrounds → one recovery.
       opts.appState.onActive(() => {
@@ -127,21 +143,47 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
       return coordinator
     },
     async signOut() {
+      // Stop auth-js's autorefresh ticker BEFORE the purge (packet 14 P1-b): a
+      // surviving 30s tick — or its in-flight refresh — would _saveSession a
+      // refreshed token back into the storage we are about to empty and
+      // _notifyAllSubscribers('TOKEN_REFRESHED') → session resurrection
+      // (installed @supabase/auth-js 2.99.1: _autoRefreshTokenTick
+      // GoTrueClient.js:2376 → _callRefreshToken:2135 → _saveSession:2153 +
+      // notify:2154). stopAutoRefresh() (GoTrueClient.js:2369 → _stopAutoRefresh
+      // :2322) clears the ticker; the session-store generation fence backstops
+      // any write that still slips through. NOTE: stopAutoRefresh also removes
+      // auth-js's managed visibility callback, so the ticker is re-armed on the
+      // next SIGNED_IN in thin/auth/session.ts (shared iPad — the next staff
+      // member signs in on this same client with no page reload).
+      await auth.stopAutoRefresh()
       return signOutAndPurge({
         captureSession: async () => {
-          // The module's own live session accessor — reads storage ONCE,
-          // before anything below purges it (installed @supabase/auth-js
-          // 2.99.1, GoTrueClient.js getSession():1264 → __loadSession:1351,
-          // reading getItemAsync(this.storage, this.storageKey) — the SAME
-          // read _signOut():1751 itself does via _useSession). Capturing
-          // AFTER the purge below would hit that same read against empty
-          // storage — exactly the naive-purge-first bug the mechanism
-          // constraints ruled out, where the revoke silently has no token to
-          // send.
-          const { data } = await auth.getSession()
-          return {
-            accessToken: data.session?.access_token ?? null,
-            uid: data.session?.user?.id,
+          // PURE disk read of the persisted session — NOT auth.getSession().
+          // getSession() serializes behind a navigator.locks mutex and, on a
+          // token within EXPIRY_MARGIN_MS (90s) of expiry, fires an UNBOUNDED
+          // network refresh (installed @supabase/auth-js 2.99.1: getSession()
+          // GoTrueClient.js:1264 → _acquireLock → __loadSession:1351, which at
+          // :1405 calls _callRefreshToken → a bare fetch in lib/fetch.js with NO
+          // timeout/AbortController). Capturing through it would reopen the
+          // REV-81 kill-window this packet closes — the "unconditional first"
+          // local purge would stall behind that refresh on flaky wifi. Instead
+          // read the SAME storage the client persists to (_saveSession stores
+          // the full session as JSON under storageKey, GoTrueClient.js:2242-2243,
+          // no userStorage configured) and lift access_token + user.id off it —
+          // lock-free, network-free, fail-closed instant. SAFEGUARD: the parsed
+          // token VALUE is threaded ONLY to revokeRemote (as before), NEVER
+          // logged/printed/decoded here.
+          const raw = await opts.storage.getItem(SESSION_STORAGE_KEY)
+          if (!raw) return { accessToken: null, uid: undefined }
+          try {
+            const session = JSON.parse(raw) as {
+              access_token?: string
+              user?: { id?: string }
+            }
+            return { accessToken: session.access_token ?? null, uid: session.user?.id }
+          } catch {
+            // malformed storage → nothing to revoke; purge/flip still run
+            return { accessToken: null, uid: undefined }
           }
         },
         wipeLocal: opts.purgeLocalCaches,
@@ -173,8 +215,11 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
         flip: () => opts.onSessionState({ status: 'signed-out' }),
         // LAST and best-effort, riding the token captured above. Never
         // auth.signOut() here: it would re-run __loadSession against the
-        // storage this just purged and silently find nothing to revoke.
-        revokeRemote: (accessToken) => revokeGoTrueSession(opts.config, accessToken),
+        // storage this just purged and silently find nothing to revoke. Bounded
+        // by the same few-second idiom as boot (a hung revoke must not keep
+        // signOut() pending for the page lifetime — packet 14 P2).
+        revokeRemote: (accessToken) =>
+          revokeGoTrueSession(opts.config, accessToken, opts.bootTimeoutMs ?? 4000),
       })
     },
   }
@@ -198,18 +243,37 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
  * `accessToken` null (nothing was ever captured) skips the network call
  * entirely — mirrors _signOut() itself (GoTrueClient.js:1758-1759), which
  * only calls admin.signOut when a session token was found.
+ *
+ * Bounded by an AbortController `timeoutMs` (packet 14 P2): lib/fetch.js is a
+ * bare fetch with no timeout, so a stalled-not-erroring connection would keep
+ * this — and therefore signOut()'s promise — pending for the page lifetime. On
+ * timeout the abort rejects → the caller's try/catch yields remoteOk:false;
+ * the local purge/flip already ran, so this never blocks the sign-out. Status
+ * handling mirrors auth-js _signOut (GoTrueClient.js:1762-1766): 401/403/404 are
+ * signed-out-equivalent (expired/absent user is already logged out) — only a
+ * genuine failure (5xx, network) is remoteOk:false (packet 14 P3).
  */
 async function revokeGoTrueSession(
   config: AuthClientConfig,
   accessToken: string | null,
+  timeoutMs: number,
 ): Promise<void> {
   if (!accessToken) return
-  const res = await fetch(`${config.url.replace(/\/+$/, '')}/auth/v1/logout?scope=global`, {
-    method: 'POST',
-    headers: {
-      apikey: config.anonKey,
-      Authorization: `Bearer ${accessToken}`,
-    },
-  })
-  if (!res.ok) throw new Error(`GoTrue logout failed: ${res.status}`)
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${config.url.replace(/\/+$/, '')}/auth/v1/logout?scope=global`, {
+      method: 'POST',
+      headers: {
+        apikey: config.anonKey,
+        Authorization: `Bearer ${accessToken}`,
+      },
+      signal: controller.signal,
+    })
+    if (!res.ok && ![401, 403, 404].includes(res.status)) {
+      throw new Error(`GoTrue logout failed: ${res.status}`)
+    }
+  } finally {
+    clearTimeout(timer)
+  }
 }

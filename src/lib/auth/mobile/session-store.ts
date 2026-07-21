@@ -28,15 +28,51 @@ let current: SessionState = { status: 'recovering' }
 let lastSession: Session | null = null
 const listeners = new Set<Listener>()
 
+// Monotonic authoritative-write counter (packet 14 P1-b generation fence).
+// Every authoritative transition — boot result, explicit login, sign-out flip —
+// opens a new generation via setSessionState. Speculative BACKGROUND writes (the
+// autorefresh TOKEN_REFRESHED handler and background-resume) snapshot the
+// generation they belong to and write through setSessionStateIfCurrent; if the
+// generation has advanced since (a sign-out/sign-in intervened) their write is
+// dropped instead of clobbering the store back to the outgoing user — the
+// shared-iPad cross-user session leak / sign-out resurrection this fence exists
+// to prevent.
+let generation = 0
+
 export function getSessionState(): SessionState {
   return current
 }
 
-export function setSessionState(state: SessionState): void {
+/** The current authoritative-write generation. Background writers snapshot this
+ *  while their session is still current and pass it to setSessionStateIfCurrent. */
+export function currentGeneration(): number {
+  return generation
+}
+
+function apply(state: SessionState): void {
   current = state
   if (state.status === 'signed-in') lastSession = state.session
   else if (state.status === 'signed-out') lastSession = null
   listeners.forEach((l) => l())
+}
+
+/** Authoritative session transition (boot result, explicit login, sign-out
+ *  flip). Opens a NEW generation, so any in-flight speculative write tagged with
+ *  an older generation is fenced out by setSessionStateIfCurrent. */
+export function setSessionState(state: SessionState): void {
+  generation++
+  apply(state)
+}
+
+/** Speculative session write from a background source that snapshotted `gen`
+ *  while its session was still current (autorefresh TOKEN_REFRESHED,
+ *  background-resume). Dropped if a newer generation has opened since — a stale
+ *  refresh, or a resume that raced a sign-out/sign-in, must not resurrect the
+ *  outgoing session (packet 14 P1-b). Does NOT open a new generation: a token
+ *  rotation is within the same epoch. */
+export function setSessionStateIfCurrent(state: SessionState, gen: number): void {
+  if (gen !== generation) return
+  apply(state)
 }
 
 /** A session has been seen this page-load and not explicitly signed out.
