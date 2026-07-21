@@ -22,14 +22,12 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { updateStoreCore } from '@/actions/stores'
+import { updateStoreCore, STORE_OWNER_DENIAL } from '@/actions/stores'
 import type { StoreInput } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'
 
 type Params = { id: string }
-
-const OWNER_DENIAL = 'Only the salon owner can manage stores.'
 
 export const PATCH = facadeHandler<Params>('stores.update', async (ctx) => {
   const { id } = await ctx.route.params
@@ -53,7 +51,7 @@ export const PATCH = facadeHandler<Params>('stores.update', async (ctx) => {
     id,
     body as StoreInput,
   )
-  if ('error' in result && result.error === OWNER_DENIAL) {
+  if ('error' in result && result.error === STORE_OWNER_DENIAL) {
     throw new AppApiError('forbidden', result.error)
   }
   return ok(ctx, result)

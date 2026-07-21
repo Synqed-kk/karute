@@ -36,12 +36,10 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { listStoresWithClient, createStoreCore } from '@/actions/stores'
+import { listStoresWithClient, createStoreCore, STORE_OWNER_DENIAL } from '@/actions/stores'
 import type { StoreInput } from '@/lib/validations/store'
 
 export const runtime = 'nodejs'
-
-const OWNER_DENIAL = 'Only the salon owner can manage stores.'
 
 export const GET = facadeHandler('stores.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'stores.viewAll')
@@ -74,7 +72,7 @@ export const POST = facadeHandler('stores.create', async (ctx) => {
     { staffList, selfUserId: ctx.identity.authUserId, source: 'facade' },
     body as StoreInput,
   )
-  if ('error' in result && result.error === OWNER_DENIAL) {
+  if ('error' in result && result.error === STORE_OWNER_DENIAL) {
     throw new AppApiError('forbidden', result.error)
   }
   return ok(ctx, result, 'id' in result ? 201 : 200)

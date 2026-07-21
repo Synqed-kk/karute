@@ -24,6 +24,11 @@ type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 
  *  twin doesn't import the whole staff module's type surface. */
 type RosterRow = { id: string; display_role?: string | null }
 
+/** Owner-denial message — single source so the facade routes' exact-string
+ *  403 elevation (a non-owner core result vs. every other soft error) can
+ *  never drift out of sync with a wording change here. */
+export const STORE_OWNER_DENIAL = 'Only the salon owner can manage stores.'
+
 /** Pure owner-roster check — the ONE place "is this caller the salon owner"
  *  is decided, shared by the cookie gate below (requireOwnerBusiness) and the
  *  Bearer cores (fed the same roster + resolved auth id via deps). */
@@ -85,7 +90,7 @@ function coreBusinessType(row: unknown): string | null {
 
 async function requireOwnerBusiness(): Promise<string> {
   const [list, uid] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
-  if (!isRosterOwner(list, uid)) throw new Error('Only the salon owner can manage stores.')
+  if (!isRosterOwner(list, uid)) throw new Error(STORE_OWNER_DENIAL)
   return getBusinessId()
 }
 
@@ -285,7 +290,7 @@ export async function createStoreCore(
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   }
   if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
-    return { error: 'Only the salon owner can manage stores.' }
+    return { error: STORE_OWNER_DENIAL }
   }
 
   // Plan gate (P3): server-side store cap — the authoritative app-level check
@@ -373,7 +378,7 @@ export async function updateStoreCore(
     return { error: parsed.error.issues.map((i) => i.message).join(', ') }
   }
   if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
-    return { error: 'Only the salon owner can manage stores.' }
+    return { error: STORE_OWNER_DENIAL }
   }
   try {
     // Same passthrough as createStoreCore — see the note there.
