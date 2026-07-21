@@ -36,23 +36,22 @@ const PURCHASE_FILES = new Set(
   ].map((p) => path.resolve(root, p)),
 )
 
-// Rollout-gate denylist (design-parity packet 12 §S1, §B-3 S2): settings
-// sections whose tabs are PENDING (in-shell 準備中 via SettingsShell's
-// pendingTabIds) — SettingsShell imports all ten sections unconditionally,
-// so bundling these (+ their children: StaffForm/PinSetup/
+// Rollout-gate denylist (design-parity packet 12 §S1, §B-3 S2, packet 17
+// §S3): settings sections whose tabs are PENDING (in-shell 準備中 via
+// SettingsShell's pendingTabIds) — SettingsShell imports all ten sections
+// unconditionally, so bundling these (+ their children: StaffForm/PinSetup/
 // VoiceEnrollmentDialog, InviteStaffDialog) for code the pendingTabIds
 // intercept guarantees never renders pushed the thin bundle over budget.
-// StoresSection moved OUT of this list at S2 — the 店舗 tab is live and its
-// section (+ StoreFormDialog) now ships in the bundle; StoreFormDialog and
-// its stores dialogs are NOT purchase surfaces (PURCHASE_FILES below still
-// excludes the two that are). Names must also exist in
-// thin/ports/pending-sections-excluded.tsx. Remove an entry the same PR its
-// tab goes live.
+// StoresSection moved OUT of this list at S2, AuditLogSection at packet 17
+// §S3 — both tabs are live and their sections now ship in the bundle;
+// StoreFormDialog and its stores dialogs are NOT purchase surfaces
+// (PURCHASE_FILES below still excludes the two that are). Names must also
+// exist in thin/ports/pending-sections-excluded.tsx. Remove an entry the
+// same PR its tab goes live.
 const PENDING_SECTION_FILES = new Set(
   [
     'src/components/settings/redesign/sections/StaffSection.tsx',
     'src/components/settings/redesign/sections/SyncSection.tsx',
-    'src/components/settings/redesign/sections/AuditLogSection.tsx',
   ].map((p) => path.resolve(root, p)),
 )
 

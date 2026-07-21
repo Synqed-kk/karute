@@ -645,21 +645,90 @@ export const getStaffStores = notWired('getStaffStores')
 export const setStaffStores = notWired('setStaffStores')
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
-// -- settings (design-parity packet 12 §S1) — organization/theme/ai/recording/
-// packs tabs are LIVE this slice; upsertOrgSettings is the one write all five
-// share. 店舗/スタッフ/同期/監査ログ render an in-shell 準備中 panel
-// (SettingsShell's pendingTabIds) — SettingsShell still statically imports
-// every section unconditionally, so StoresSection/StaffSection/SyncSection/
-// AuditLogSection (and their children: InviteStaffDialog, StaffList,
-// StaffForm, PinSetup, VoiceEnrollmentDialog) are ALL in the thin bundle's
-// import graph regardless of which tabs are pending — Rollup requires every
-// named import they make from @/actions/* to resolve, hence the stub roster
-// below. None of these run in S1 (their tabs never render past the pending
-// intercept); notWired throws loudly if that ever changes without a
-// deliberate wire-up.
+
+// -- audit log (design-parity packet 17 §S3 — 監査ログ tab live). Mirrors
+// AuditLogEvent/AuditLogFilters (src/actions/audit-log.ts) — local
+// redeclarations, not imports: same "redeclare the shape" convention as
+// StoreRow/StoreInput above.
+type AuditLogEvent = {
+  id: string
+  at: string
+  actor_id: string | null
+  actor_type: string
+  category: string
+  action: string
+  target_type: string | null
+  target_id: string | null
+  target_label: string | null
+  detail: unknown
+  break_glass: boolean
+  severity: string
+}
+type AuditLogFilters = {
+  category?: string
+  actorId?: string
+  from?: string
+  to?: string
+  targetId?: string
+  includeViews?: boolean
+  breakGlass?: boolean
+  page?: number
+  logOpen?: boolean
+}
+type AuditLogListResult =
+  | {
+      ok: true
+      events: AuditLogEvent[]
+      total: number
+      page: number
+      hasMore: boolean
+      breakGlassTotal: number | null
+      targetLabels: Record<string, string>
+    }
+  | { ok: false; error: 'forbidden' | 'failed' }
+
+// Web-exact never-throw envelope (mirrors listAuditLog's own web behavior):
+// a 2xx body already IS the union, forwarded verbatim; 403 → the
+// capability-missing meaning; 401 → 'failed' (transient auth — AuthGate
+// owns session death, never render a permissions error for a dying token);
+// any other non-ok status or a transport reject also degrades to 'failed'.
+async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogListResult> {
+  const q = new URLSearchParams()
+  if (filters.category) q.set('category', filters.category)
+  if (filters.actorId) q.set('actorId', filters.actorId)
+  if (filters.from) q.set('from', filters.from)
+  if (filters.targetId) q.set('targetId', filters.targetId)
+  if (filters.includeViews) q.set('includeViews', '1')
+  if (filters.breakGlass) q.set('breakGlass', '1')
+  if (filters.logOpen) q.set('logOpen', '1')
+  q.set('page', String(filters.page ?? 1))
+
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/audit-log?${q.toString()}`)
+    if (res.status === 403) return { ok: false, error: 'forbidden' }
+    if (!res.ok) return { ok: false, error: 'failed' }
+    const body = (await res.json().catch(() => null)) as AuditLogListResult | null
+    return body ?? { ok: false, error: 'failed' }
+  } catch {
+    return { ok: false, error: 'failed' }
+  }
+}
+
+// -- settings (design-parity packet 12 §S1, packet 17 §S3) — organization/
+// theme/ai/recording/packs/店舗/監査ログ tabs are LIVE (upsertOrgSettings is
+// the one write the first five share; audit is read-only). スタッフ/同期
+// still render an in-shell 準備中 panel (SettingsShell's pendingTabIds) —
+// SettingsShell still statically imports every section unconditionally, so
+// StaffSection/SyncSection (and their children: InviteStaffDialog,
+// StaffList, StaffForm, PinSetup, VoiceEnrollmentDialog) are ALL in the thin
+// bundle's import graph regardless of which tabs are pending — Rollup
+// requires every named import they make from @/actions/* to resolve, hence
+// the stub roster below. None of these run in S1 (their tabs never render
+// past the pending intercept); notWired throws loudly if that ever changes
+// without a deliberate wire-up.
 export const upsertOrgSettings = facadeUpsertOrgSettings
 export const getOrgSettings = notWired('getOrgSettings')
-export const listAuditLog = notWired('listAuditLog')
+export const listAuditLog = facadeListAuditLog
 export const createInvite = notWired('createInvite')
 export const listInvites = notWired('listInvites')
 export const revokeInvite = notWired('revokeInvite')

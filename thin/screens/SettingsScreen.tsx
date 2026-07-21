@@ -16,8 +16,9 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(raw)
 
 // Tabs not yet ported to the shell this slice — shrinks to empty as later
-// design-parity packets land the real スタッフ/同期/監査ログ sections.
-const PENDING_TAB_IDS: readonly SettingsTabId[] = ['staff', 'sync', 'audit']
+// design-parity packets land the real スタッフ/同期 sections. 監査ログ moved
+// OUT at packet 17 §S3 — the audit tab is now live.
+const PENDING_TAB_IDS: readonly SettingsTabId[] = ['staff', 'sync']
 
 // Exported for the real-render prop-mapping smoke test (same idiom as
 // DashboardScreenInner) — this passthrough has its own coverage beyond the

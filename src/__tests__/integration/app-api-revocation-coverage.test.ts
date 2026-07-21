@@ -6,8 +6,9 @@
 // route that forgets to add its key fails THIS test — not production.
 //
 // The method-scan is blind to a WRITE hidden under a GET-classified key
-// (design-parity packet 12 §B-3 S2, Greptile finding: 'stores.list' is a GET
-// whose ensurePrimary:true path lazily provisions the 本店 primary store).
+// (design-parity packet 12 §B-3 S2, added after a review-round audit of
+// GET-hidden writes: 'stores.list' is a GET whose ensurePrimary:true path
+// lazily provisions the 本店 primary store).
 // GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS below is the maintained registry
 // that closes that gap — register any future facade GET that performs a
 // write here, and add its key to REVOCATION_SENSITIVE_ENDPOINTS.
@@ -15,7 +16,9 @@ import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { REVOCATION_SENSITIVE_ENDPOINTS, requiresRevocationCheck } from '@/lib/auth/revocation'
 
-const GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS = ['stores.list']
+// 'audit.list' joins at packet 17 §S3: its GET fires the twin's
+// privacy.audit_log_view write on a logOpen fetch (src/actions/audit-log.ts).
+const GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS = ['stores.list', 'audit.list']
 
 const ROOT = join(process.cwd(), 'src/app/api/app/v1')
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
@@ -76,5 +79,9 @@ describe('facade write endpoints are all revocation-sensitive (follow-up-e)', ()
 
   it("'stores.list' requires the revocation round-trip (its GET hides a write)", () => {
     expect(requiresRevocationCheck('stores.list')).toBe(true)
+  })
+
+  it("'audit.list' requires the revocation round-trip (its GET hides a write)", () => {
+    expect(requiresRevocationCheck('audit.list')).toBe(true)
   })
 })

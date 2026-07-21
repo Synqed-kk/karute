@@ -53,7 +53,7 @@ function isViewAction(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
 
-export async function listAuditLog(filters: AuditLogFilters): Promise<
+type ListAuditLogResult =
   | {
       ok: true
       events: AuditLogEvent[]
@@ -71,14 +71,19 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
       targetLabels: Record<string, string>
     }
   | { ok: false; error: 'forbidden' | 'failed' }
-> {
+
+/** Client-threaded core of listAuditLog (facade Bearer path, design-parity
+ *  packet 17 §S3 — the 監査ログ tab going live). Carries the post-gate read
+ *  AND the logOpen write so web and facade can never diverge; `actor` is the
+ *  ONLY thing that differs between callers (cookie-resolved staff/business
+ *  for web, Bearer-resolved for the facade) — null when this fetch isn't
+ *  opening the log (filter clicks and paging never write the row). */
+export async function listAuditLogWithClient(
+  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
+  actor: { staffId: string | null; businessId: string | null; source: 'web' | 'facade' } | null,
+  filters: AuditLogFilters,
+): Promise<ListAuditLogResult> {
   try {
-    ensureCapability(await getMyCapabilities(), 'audit.view')
-  } catch {
-    return { ok: false, error: 'forbidden' }
-  }
-  try {
-    const synqed = await getSynqedClient()
     const page = Math.max(1, Math.trunc(filters.page ?? 1))
     const baseQuery = {
       category: filters.category || undefined,
@@ -114,13 +119,13 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
       audit({
         category: 'privacy',
         action: 'privacy.audit_log_view',
-        actorId: await getCurrentUserStaffId().catch(() => null),
+        actorId: actor?.staffId ?? null,
         actorType: 'staff',
-        businessId: await getBusinessId().catch(() => null),
+        businessId: actor?.businessId ?? null,
         ...(filters.targetId
           ? { targetType: 'customer' as const, targetId: filters.targetId }
           : {}),
-        source: 'web',
+        source: actor?.source ?? 'web',
       })
     }
 
@@ -145,6 +150,26 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<
   } catch {
     return { ok: false, error: 'failed' }
   }
+}
+
+/** Thin wrapper — resolves the cookie session into `actor` ONLY when opening
+ *  the log (the cookie reads stay gated exactly as before: filters.logOpen
+ *  decides whether they run at all), then delegates to the twin. */
+export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditLogResult> {
+  try {
+    ensureCapability(await getMyCapabilities(), 'audit.view')
+  } catch {
+    return { ok: false, error: 'forbidden' }
+  }
+  const synqed = await getSynqedClient()
+  const actor = filters.logOpen
+    ? {
+        staffId: await getCurrentUserStaffId().catch(() => null),
+        businessId: await getBusinessId().catch(() => null),
+        source: 'web' as const,
+      }
+    : null
+  return listAuditLogWithClient(synqed, actor, filters)
 }
 
 /** Batch name lookup for this page's customer + store targets. Best-effort:
