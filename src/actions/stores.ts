@@ -342,17 +342,23 @@ export async function createStoreCore(
 export async function createStore(
   input: StoreInput,
 ): Promise<{ id: string } | { error: string }> {
+  // No pre-gate: resolve context tolerantly and let the core decide
+  // everything (validation, THEN the owner check — web parity, #578 audit
+  // finding). A requireOwnerBusiness() pre-gate here would short-circuit
+  // before the core's zod parse, so a non-owner submitting an invalid body
+  // would see the ownership denial instead of the validation message the
+  // action always returned.
   let businessId: string
+  let staffList: RosterRow[]
+  let selfUserId: string | null
+  let synqed: StoresClient
   try {
-    businessId = await requireOwnerBusiness()
+    businessId = await getBusinessId()
+    ;[staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+    synqed = await getSynqedClient()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  // Same roster/self-id requireOwnerBusiness() already resolved above — cheap
-  // (React cache()-memoized per request) and lets the core run the IDENTICAL
-  // owner check the facade path runs, rather than trusting the wrapper alone.
-  const [staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
-  const synqed = await getSynqedClient()
   const result = await createStoreCore(
     synqed,
     businessId,
@@ -411,15 +417,20 @@ export async function updateStore(
   id: string,
   input: StoreInput,
 ): Promise<{ ok: true } | { error: string }> {
-  // Owner-only gate (throws if not the salon owner).
+  // No pre-gate — same reasoning as createStore above: the core decides
+  // validation before ownership, so a non-owner's invalid body still gets
+  // the validation message.
   let businessId: string
+  let staffList: RosterRow[]
+  let selfUserId: string | null
+  let synqed: StoresClient
   try {
-    businessId = await requireOwnerBusiness()
+    businessId = await getBusinessId()
+    ;[staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+    synqed = await getSynqedClient()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  const [staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
-  const synqed = await getSynqedClient()
   const result = await updateStoreCore(
     synqed,
     businessId,

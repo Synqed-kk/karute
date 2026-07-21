@@ -362,6 +362,22 @@ describe('credential + store + profile writers (wave A part 3)', () => {
     expect(lines[0]).toMatchObject({ action: 'settings.store_update', target_id: 'store-7' })
   })
 
+  it('createStore: a non-owner submitting an invalid body gets the VALIDATION message, not the ownership denial (ordering pin)', async () => {
+    const staffLib = jest.requireMock('@/lib/staff') as { getStaffList: jest.Mock }
+    staffLib.getStaffList.mockResolvedValueOnce([{ id: 'user-1', display_role: 'stylist' }])
+    await expect(
+      createStore({ name: '', address: '', phone: '', business_type: 'esthetic_salon' }),
+    ).resolves.toEqual({ error: 'Store name is required' })
+  })
+
+  it('updateStore: a non-owner submitting an invalid body gets the VALIDATION message, not the ownership denial (ordering pin)', async () => {
+    const staffLib = jest.requireMock('@/lib/staff') as { getStaffList: jest.Mock }
+    staffLib.getStaffList.mockResolvedValueOnce([{ id: 'user-1', display_role: 'stylist' }])
+    await expect(
+      updateStore('store-7', { name: '', address: '', phone: '', business_type: 'esthetic_salon' }),
+    ).resolves.toEqual({ error: 'Store name is required' })
+  })
+
   it('a failed PIN write emits nothing (silence contract)', async () => {
     staffSetPin.mockRejectedValueOnce(new Error('core down'))
     const lines = await auditLines(async () => {
