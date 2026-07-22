@@ -14,11 +14,12 @@
 
 import { headers } from 'next/headers'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 export interface EnqueueRecordingJobInput {
   recordingSessionId: string
@@ -28,6 +29,10 @@ export interface EnqueueRecordingJobInput {
   appointmentId?: string | null
   locale?: string
   durationSeconds?: number
+  /** Coaching label chosen at stop (packet 22 B4) — carried so the worker's
+   *  save writes the SAME outcome the in-tab autosave would. Absent for the
+   *  cohorts that never reach the server path (walk-ins, review takes). */
+  outcome?: SessionOutcome
 }
 
 export async function enqueueRecordingJob(
@@ -40,11 +45,22 @@ export async function enqueueRecordingJob(
       return { error: 'recordingSessionId, customerId and audioPath are required' }
     }
 
-    const [synqed, profileStaffId, scope] = await Promise.all([
+    const [synqed, businessId, profileStaffId, scope] = await Promise.all([
       getSynqedClient(),
+      getBusinessId(),
       getCurrentUserStaffId(),
       resolveStoreScope(),
     ])
+    // Tenancy gate — the cookie-path twin of the facade route's check. audioPath
+    // is a client-supplied storage key the worker later reads AND deletes via a
+    // service-role client (no RLS); it MUST carry this caller's own tenant
+    // prefix. Web takes staged for a job go through this shape too, so a
+    // hand-crafted RPC pointing at another tenant's object (or a guessable
+    // non-tenant `rec_*` key) is refused before any job is queued. The worker
+    // re-checks the same invariant as the last line of defense.
+    if (!input.audioPath.startsWith(`app_${businessId}_`)) {
+      return { error: 'recording not found in this business' }
+    }
     // The worker runs without a session — attribution is captured NOW, at
     // enqueue, from the signed-in recorder (same rule as the interactive save).
     const staffId = profileStaffId
@@ -60,6 +76,7 @@ export async function enqueueRecordingJob(
       audio_path: input.audioPath,
       locale: input.locale ?? 'ja',
       duration_seconds: input.durationSeconds,
+      outcome: input.outcome,
     }
     const job = await synqed.recordingJobs.enqueue({
       recording_session_id: input.recordingSessionId,

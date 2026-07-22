@@ -49,6 +49,35 @@ export function ProcessingIndicator() {
     if (autosavedRunRef.current === runId) return
     autosavedRunRef.current = runId
 
+    // Server path (packet 22 B3): the job already wrote the record and the
+    // take (runServerJob's DONE branch already deleted it) — settle with the
+    // SAME toast/hold/reset the in-tab autosave produces below, without the
+    // ctx/result guard or the save call (the server path has no `result`;
+    // runAIPipeline never ran client-side).
+    if (globalPipeline.serverSavedRecordId) {
+      const id = globalPipeline.serverSavedRecordId
+      if (globalPipeline.isCurrentRun(runId)) {
+        toast.success(t('autoSaved'), {
+          action: {
+            label: t('viewSaved'),
+            onClick: () =>
+              router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
+          },
+        })
+      }
+      setDone({ runId, leaving: false })
+      setTimeout(
+        () =>
+          setDone((d) => (d && d.runId === runId ? { ...d, leaving: true } : d)),
+        2000,
+      )
+      setTimeout(() => {
+        globalPipeline.reset(runId)
+        setDone((d) => (d && d.runId === runId ? null : d))
+      }, 2250)
+      return
+    }
+
     const ctx = globalPipeline.context
     const result = globalPipeline.result
     // The state machine only enters 'autosaving' with a customer + outcome; this

@@ -128,3 +128,28 @@ export const SaveKaruteSchema = z
     duration: z.number().nullish(),
   })
   .strict()
+
+// ── Recording job enqueue (packet 22 B2) — mirrors EnqueueRecordingJobInput.
+// staffId/store_id are SERVER-resolved (never accepted from the client, same
+// #452 posture as the session mint's selfStaffId); outcome reuses the SAME
+// vocabulary/shape as SaveKaruteSchema's outcome above.
+export const RecordingJobEnqueueSchema = z
+  .object({
+    recordingSessionId: z.string().max(MAX_ID_CHARS),
+    customerId: z.string().max(MAX_ID_CHARS),
+    audioPath: z.string().max(MAX_STORAGE_PATH_CHARS),
+    appointmentId: z.string().max(MAX_ID_CHARS).nullish(),
+    locale: z.string().max(MAX_LOCALE_CHARS).optional(),
+    durationSeconds: z.number().optional(),
+    outcome: z
+      .object({
+        status: z.enum(['success', 'no_deal', 'pending']),
+        reason: z
+          .enum(['budget', 'considering', 'mismatch', 'follow_up', 'other'])
+          .nullish(),
+        isFirstVisit: z.boolean().optional(),
+      })
+      .strict()
+      .nullish(),
+  })
+  .strict()

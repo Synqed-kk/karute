@@ -533,6 +533,7 @@
     "recordDescription": "セッションを録音してカルテを自動生成します",
     "micError": "マイクへのアクセスが拒否されました。マイクへのアクセスを許可してもう一度お試しください。",
     "pipelineErrorEmptyTranscript": "音声が認識できませんでした。録音に音声が入っているかご確認のうえ、もう一度お試しください。",
+    "pipelineErrorConsentRequired": "録音の同意が必要です。同意を取得してからもう一度お試しください。",
     "pipelineErrorGeneric": "処理中にエラーが発生しました。もう一度お試しください。",
     "recordingFor": "録音対象",
     "noUpcomingAppointment": "予約がありません",

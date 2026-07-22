@@ -24,6 +24,8 @@ import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { audit } from '@/lib/audit'
+import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /** The enqueue payload contract (client → core job row → this worker). */
 export interface RecordingJobPayload {
@@ -38,6 +40,12 @@ export interface RecordingJobPayload {
   audio_mime?: string
   locale?: string
   duration_seconds?: number
+  /** Coaching label chosen at stop (packet 22 B4) — written via the SAME
+   *  best-effort upsert the interactive save uses (setKaruteOutcomeWithClient),
+   *  but a failure here THROWS (unlike the interactive save's swallow):
+   *  the audio is deleted right after this function returns, so a silently
+   *  lost label has no retry path. Absent = no outcome to write. */
+  outcome?: SessionOutcome
 }
 
 function coreClient(businessId: string): SynqedClient {
@@ -55,6 +63,19 @@ async function processJob(job: RecordingJob): Promise<string> {
     throw new Error('Job payload missing customer_id/staff_id/audio_path')
   }
   const synqed = coreClient(job.business_id)
+
+  // Tenancy gate at the chokepoint EVERY arm routes through — the last line
+  // before a service-role read + delete of the object (no RLS on that client).
+  // A job's audio MUST live under this job's own tenant prefix; anything else
+  // — a cross-tenant `app_${other}_*` key OR a non-tenant-scoped `rec_*` key
+  // whose owner can't be verified — is refused before it can be read or
+  // deleted. This is why the ONLY audio the worker will touch is a
+  // `app_${businessId}_*` object the upload-url facade minted for THIS tenant;
+  // both the facade route and the web action enforce the same shape up front,
+  // and this is the invariant that holds even if a future caller forgets to.
+  if (!payload.audio_path.startsWith(`app_${job.business_id}_`)) {
+    throw new Error('audio_path does not belong to this job’s business')
+  }
 
   // Consent gate FIRST — fail closed before spending a yen on transcription.
   // Same rule as the interactive save: unreadable consent rejects, never bypasses.
@@ -136,6 +157,23 @@ async function processJob(job: RecordingJob): Promise<string> {
     summary: summary.result.summary,
     entries: extraction.result.entries,
   })
+
+  // Coaching label (packet 22 B4) — same idempotent upsert the interactive
+  // save uses. UNLIKE that call site, a write failure here THROWS: the audio
+  // is deleted right after this function returns, so there is no later
+  // opportunity to retry just the outcome — failing the whole job lets core's
+  // requeue converge on the SAME record (the upsert above is idempotent too).
+  if (payload.outcome) {
+    const outcomeResult = await setKaruteOutcomeWithClient(synqed, {
+      karuteRecordId: record,
+      customerId: payload.customer_id,
+      status: payload.outcome.status,
+      reason: payload.outcome.reason,
+      isFirstVisit: payload.outcome.isFirstVisit,
+      decidedBy: payload.staff_id,
+    })
+    if (outcomeResult.error) throw new Error(`outcome write failed: ${outcomeResult.error}`)
+  }
 
   // Audit: the save is a completed action (server-side actor = the recorder).
   audit({

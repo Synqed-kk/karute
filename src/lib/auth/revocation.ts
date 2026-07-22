@@ -133,6 +133,12 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   'staff.voice.revoke',
   'invite.create',
   'invite.revoke',
+  // recording job enqueue (packet 22 B2 — the server-pipeline swap): mints a
+  // core job that runs transcription + the karute save unattended. A
+  // just-terminated staffer must not keep queuing jobs on the local
+  // fast-path. The status GET is read-only (no write side effect) and stays
+  // OFF this list, like every other unlisted facade GET.
+  'recordings.job.enqueue',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

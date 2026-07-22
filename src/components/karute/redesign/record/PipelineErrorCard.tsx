@@ -26,7 +26,9 @@ export function PipelineErrorCard({
           {t(
             code === 'empty-transcript'
               ? 'pipelineErrorEmptyTranscript'
-              : 'pipelineErrorGeneric',
+              : code === 'consent-required'
+                ? 'pipelineErrorConsentRequired'
+                : 'pipelineErrorGeneric',
           )}
         </p>
         <div className="mt-5 flex justify-center gap-3">
