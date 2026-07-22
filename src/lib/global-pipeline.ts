@@ -105,9 +105,17 @@ function isServerJobEligible(context: PipelineContext): boolean {
   )
 }
 
-/** Poll cadence + hard cap for the server path (packet 22 B3). */
+/** Poll cadence + caps for the server path (packet 22 B3). 5s while fresh;
+ *  past the fast window the cadence backs off to 30s — a busy day's queue
+ *  backlog (worker ticks process jobs sequentially) can push a real job past
+ *  10 minutes, and declaring failure while it's alive would show 処理に失敗
+ *  for a record that then saves (Greptile #587 P2). Core terminally settles
+ *  every job (stale-claim reclaim, attempts→FAILED), so the 60-min cap is a
+ *  poller backstop, not the job's arbiter. */
 const SERVER_POLL_INTERVAL_MS = 5_000
-const SERVER_JOB_TIMEOUT_MS = 10 * 60 * 1000
+const SERVER_POLL_SLOW_INTERVAL_MS = 30_000
+const SERVER_POLL_FAST_WINDOW_MS = 10 * 60 * 1000
+const SERVER_JOB_TIMEOUT_MS = 60 * 60 * 1000
 
 class GlobalPipeline {
   state: PipelineState = 'idle'
@@ -253,9 +261,9 @@ class GlobalPipeline {
     const runId = ++this.runId
     const blob = this.blob
     const context = this.context
+    const port = getRecordingPipelinePort()
     let sessionId: string
     try {
-      const port = getRecordingPipelinePort()
       const { path } = await port.stageForJob(blob)
       const enqueued = await port.enqueueJob({
         recordingSessionId: context.recordingSessionId as string,
@@ -270,6 +278,27 @@ class GlobalPipeline {
       sessionId = context.recordingSessionId as string
     } catch (err) {
       if (runId !== this.runId) return
+      // This failure is AMBIGUOUS (Greptile #587 P1): the response can be lost
+      // AFTER core committed the job, and falling back then would run BOTH
+      // pipelines — double AI spend + competing saves on one session. Probe by
+      // session first: a QUEUED/RUNNING/DONE job means the enqueue landed (or a
+      // prior attempt's job is still live) → poll it instead. A confirmed
+      // FAILED/absent job falls back (a dead job can't race). An UNREACHABLE
+      // probe also falls back — the take must never be left pathless — which
+      // accepts a residual dual-run window (probe dark while the committed job
+      // is alive, or an in-transit enqueue landing after a client-side reject).
+      // Both converge on ONE record via core's idempotent by-session save; the
+      // residual cost is duplicate AI spend in that rare window, not data.
+      const probe = await port
+        .jobStatus(context.recordingSessionId as string)
+        .catch((): { error: string } => ({ error: 'probe unreachable' }))
+      if (runId !== this.runId) return
+      if (!('error' in probe) && probe.status !== 'FAILED') {
+        console.warn('[global-pipeline] enqueue ambiguous but the job landed — polling it:', err)
+        this.isServerPath = true
+        await this.pollServerJob(runId, context.recordingSessionId as string)
+        return
+      }
       // Recording must never be degraded by the new path — warn once and fall
       // back to the proven in-tab pipeline with the SAME blob/context.
       console.warn('[global-pipeline] server stage/enqueue failed, falling back to in-tab:', err)
@@ -289,11 +318,16 @@ class GlobalPipeline {
    *  re-checks runId — a superseding start()/reset() must make a stale poll
    *  settle nothing, same guard class as run(). */
   private async pollServerJob(runId: number, recordingSessionId: string) {
-    const deadline = Date.now() + SERVER_JOB_TIMEOUT_MS
+    const start = Date.now()
+    const deadline = start + SERVER_JOB_TIMEOUT_MS
     const port = getRecordingPipelinePort()
     while (Date.now() < deadline) {
       if (runId !== this.runId) return
-      await new Promise((r) => setTimeout(r, SERVER_POLL_INTERVAL_MS))
+      const interval =
+        Date.now() - start < SERVER_POLL_FAST_WINDOW_MS
+          ? SERVER_POLL_INTERVAL_MS
+          : SERVER_POLL_SLOW_INTERVAL_MS
+      await new Promise((r) => setTimeout(r, interval))
       if (runId !== this.runId) return
 
       const status = await port.jobStatus(recordingSessionId).catch(

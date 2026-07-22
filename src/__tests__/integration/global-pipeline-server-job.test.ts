@@ -142,6 +142,7 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
 describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
   it('stageForJob throws → falls back to the in-tab path with the SAME blob/context', async () => {
     stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    jobStatus.mockResolvedValueOnce({ error: 'job not found' }) // the ambiguity probe: no job
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
@@ -154,6 +155,51 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
 
   it('enqueueJob returns {error} → falls back to the in-tab path', async () => {
     enqueueJob.mockResolvedValueOnce({ error: 'no staff identity' })
+    jobStatus.mockResolvedValueOnce({ error: 'job not found' }) // the ambiguity probe: no job
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(mockDeferreds).toHaveLength(1)
+    warn.mockRestore()
+  })
+
+  it('ambiguous enqueue (fetch rejects) but the job landed → polls it, NEVER runs the in-tab pipeline (Greptile #587 P1)', async () => {
+    enqueueJob.mockRejectedValueOnce(new Error('response lost'))
+    jobStatus
+      // the ambiguity probe finds the committed job alive…
+      .mockResolvedValueOnce({ status: 'QUEUED', karuteRecordId: null, attempts: 0, maxAttempts: 3, lastError: null })
+      // …and the first poll tick finds it DONE
+      .mockResolvedValueOnce({ status: 'DONE', karuteRecordId: 'record-9', attempts: 1, maxAttempts: 3, lastError: null })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(mockDeferreds).toHaveLength(0) // no dual pipeline
+    await tick(5000)
+    expect(globalPipeline.state).toBe('autosaving')
+    expect(globalPipeline.serverSavedRecordId).toBe('record-9')
+    expect(mockDeferreds).toHaveLength(0)
+    warn.mockRestore()
+  })
+
+  it('ambiguous enqueue with only a dead (FAILED) prior job → falls back in-tab (a dead job cannot race)', async () => {
+    enqueueJob.mockRejectedValueOnce(new Error('response lost'))
+    jobStatus.mockResolvedValueOnce({
+      status: 'FAILED',
+      karuteRecordId: null,
+      attempts: 3,
+      maxAttempts: 3,
+      lastError: 'boom',
+    })
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(mockDeferreds).toHaveLength(1)
+    warn.mockRestore()
+  })
+
+  it('ambiguous enqueue + unreachable probe → falls back in-tab (the take must still get a path)', async () => {
+    enqueueJob.mockRejectedValueOnce(new Error('response lost'))
+    jobStatus.mockRejectedValueOnce(new Error('network down'))
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
@@ -252,6 +298,36 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
     await tick(5000)
+    expect(globalPipeline.error).toBe('unknown')
+    expect(deleteTake).not.toHaveBeenCalled()
+  })
+})
+
+describe('globalPipeline server-path poll cadence + cap (packet 22, Greptile #587 P2)', () => {
+  it('a job alive past the 10-min fast window keeps polling on the slow cadence — no false failure', async () => {
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(10 * 60 * 1000) // burn the whole fast window; default mock stays QUEUED
+    expect(globalPipeline.state).toBe('processing')
+    expect(globalPipeline.error).toBeNull()
+    // Now on the 30s cadence: the next tick finds it DONE and settles normally.
+    jobStatus.mockResolvedValueOnce({
+      status: 'DONE',
+      karuteRecordId: 'record-2',
+      attempts: 1,
+      maxAttempts: 3,
+      lastError: null,
+    })
+    await tick(30_000)
+    expect(globalPipeline.state).toBe('autosaving')
+    expect(globalPipeline.serverSavedRecordId).toBe('record-2')
+  })
+
+  it('the 60-min absolute cap → unknown error, take KEPT', async () => {
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(60 * 60 * 1000 + 30_000) // past the backstop; job never settles
+    expect(globalPipeline.state).toBe('error')
     expect(globalPipeline.error).toBe('unknown')
     expect(deleteTake).not.toHaveBeenCalled()
   })
