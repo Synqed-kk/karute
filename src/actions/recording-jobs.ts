@@ -19,6 +19,7 @@ import { requireCapability } from '@/lib/auth/require-permission'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import type { RecordingJobPayload } from '@/lib/jobs/process-recording'
+import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 export interface EnqueueRecordingJobInput {
   recordingSessionId: string
@@ -28,6 +29,10 @@ export interface EnqueueRecordingJobInput {
   appointmentId?: string | null
   locale?: string
   durationSeconds?: number
+  /** Coaching label chosen at stop (packet 22 B4) — carried so the worker's
+   *  save writes the SAME outcome the in-tab autosave would. Absent for the
+   *  cohorts that never reach the server path (walk-ins, review takes). */
+  outcome?: SessionOutcome
 }
 
 export async function enqueueRecordingJob(
@@ -60,6 +65,7 @@ export async function enqueueRecordingJob(
       audio_path: input.audioPath,
       locale: input.locale ?? 'ja',
       duration_seconds: input.durationSeconds,
+      outcome: input.outcome,
     }
     const job = await synqed.recordingJobs.enqueue({
       recording_session_id: input.recordingSessionId,

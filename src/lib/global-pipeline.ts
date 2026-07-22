@@ -8,6 +8,9 @@ import {
 } from '@/lib/ai-pipeline'
 import type { CustomerOption } from '@/components/karute/CustomerCombobox'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+import { deleteTake } from '@/lib/karute/take-store'
+import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 
 /**
  * Global AI-pipeline singleton — the background counterpart to globalRecorder.
@@ -27,8 +30,15 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
  * but NOT a full page reload/close. The AUDIO does survive: the persisted take
  * (lib/karute/take-store, context.takeId) is kept until the save lands, and
  * RecordPageView re-offers it after a reload — costing a re-transcription, not
- * the session. A mid-processing state that survives reload would mean a
- * server-side job (upload + poll); that's the durable v2 (flagged for Anthony).
+ * the session.
+ *
+ * SERVER PATH (packet 22 Stage 1): the autosave cohort — a known customer +
+ * outcome AND a minted recording_sessions id — runs on Anthony's server
+ * worker instead (runServerJob): stage the blob, enqueue a core job, poll.
+ * That job survives a dead tab (core owns it, not this in-memory singleton),
+ * closing the exact gap the note above describes for that cohort. Walk-ins,
+ * review takes, and take-recovery accepts still run the original run() below
+ * — Stage 2 (durable v2 for the review cohort) is a later PR.
  */
 
 export interface PipelineContext {
@@ -69,10 +79,30 @@ export type PipelineState =
 
 /** Stable UI-facing failure codes. The error card renders a localized message
  *  from THIS — raw exception text must never reach the screen (it surfaced
- *  English mid-app; the raw error goes to the console for field debugging). */
-export type PipelineErrorCode = 'empty-transcript' | 'unknown'
+ *  English mid-app; the raw error goes to the console for field debugging).
+ *  'consent-required' (packet 22 B3): the server job's FAILED status carries
+ *  CONSENT_REQUIRED_ERROR when consent was revoked mid-session — the same
+ *  fail-closed gate the in-tab save enforces, just discovered server-side. */
+export type PipelineErrorCode = 'empty-transcript' | 'consent-required' | 'unknown'
 
 type Listener = () => void
+
+/** Stage-1 server-path cohort (packet 22, locked scope — do not widen here):
+ *  takes that autosave with ZERO staff interaction AND have a server-minted
+ *  recording_sessions id to key the job on. Walk-ins, review takes, and
+ *  take-recovery accepts (they never carry outcome — see RecordPageView's
+ *  doRecoverTake) fall through to the unchanged in-tab run() below. */
+function isServerJobEligible(context: PipelineContext): boolean {
+  return !!(
+    context.recordingSessionId &&
+    context.appointmentCustomerId &&
+    (context.outcome || context.outcomeSkipped)
+  )
+}
+
+/** Poll cadence + hard cap for the server path (packet 22 B3). */
+const SERVER_POLL_INTERVAL_MS = 5_000
+const SERVER_JOB_TIMEOUT_MS = 10 * 60 * 1000
 
 class GlobalPipeline {
   state: PipelineState = 'idle'
@@ -82,8 +112,21 @@ class GlobalPipeline {
   context: PipelineContext | null = null
   /** Bumped on every change so useSyncExternalStore re-renders subscribers. */
   version = 0
+  /**
+   * Set the instant a server-path job reaches DONE (packet 22 B3) — the
+   * karute record already exists server-side under this id. ProcessingIndicator's
+   * 'autosaving' effect checks this FIRST: when set, it skips saveKaruteRecordInline
+   * entirely and settles with the SAME toast/hold/reset the in-tab autosave
+   * produces (reusing that effect is the smallest wiring that gets the
+   * localized toast strings + router without duplicating them here — this
+   * module is not a React component). null for every in-tab run.
+   */
+  serverSavedRecordId: string | null = null
 
   private blob: Blob | null = null
+  /** True once a server job's enqueue has succeeded for the CURRENT run — a
+   *  retry() on that run must re-run the server path, not the in-tab one. */
+  private isServerPath = false
   private listeners = new Set<Listener>()
   /**
    * Identifies the live run. A new start()/retry() supersedes an in-flight run,
@@ -132,8 +175,11 @@ class GlobalPipeline {
     this.step = 'transcribing'
     this.result = null
     this.error = null
+    this.serverSavedRecordId = null
+    this.isServerPath = false
     this.notify()
-    void this.run()
+    if (isServerJobEligible(context)) void this.runServerJob()
+    else void this.run()
   }
 
   private async run() {
@@ -185,14 +231,115 @@ class GlobalPipeline {
     }
   }
 
-  /** Re-run after an error (the blob + context are retained). */
+  /** Server-path run (packet 22 B3, Stage-1 eligible cohort only): stage the
+   *  blob, enqueue a core job, then poll. NO fallback once enqueue succeeds —
+   *  the job now owns the save, so falling back here would double-process
+   *  (double AI spend, a possible duplicate record). The chip stays on
+   *  'processing'/'transcribing' the whole time (no server-side sub-steps to
+   *  report) until the settle below flips it to 'autosaving'. */
+  private async runServerJob() {
+    if (!this.blob || !this.context) return
+    const runId = ++this.runId
+    const blob = this.blob
+    const context = this.context
+    let sessionId: string
+    try {
+      const port = getRecordingPipelinePort()
+      const { path } = await port.stageForJob(blob)
+      const enqueued = await port.enqueueJob({
+        recordingSessionId: context.recordingSessionId as string,
+        customerId: context.appointmentCustomerId as string,
+        audioPath: path,
+        appointmentId: context.appointmentId,
+        locale: context.locale,
+        durationSeconds: context.duration,
+        outcome: context.outcome,
+      })
+      if ('error' in enqueued) throw new Error(enqueued.error)
+      sessionId = context.recordingSessionId as string
+    } catch (err) {
+      if (runId !== this.runId) return
+      // Recording must never be degraded by the new path — warn once and fall
+      // back to the proven in-tab pipeline with the SAME blob/context.
+      console.warn('[global-pipeline] server stage/enqueue failed, falling back to in-tab:', err)
+      void this.run()
+      return
+    }
+    // Enqueue landed — but a NEWER run may have superseded while we were
+    // awaiting it. Don't let a stale run's success mutate isServerPath for
+    // whatever run is now live; pollServerJob's own runId checks handle the
+    // rest, but this write happens BEFORE its first check.
+    if (runId !== this.runId) return
+    this.isServerPath = true
+    await this.pollServerJob(runId, sessionId)
+  }
+
+  /** Poll the enqueued job to settlement. Every tick (and every await return)
+   *  re-checks runId — a superseding start()/reset() must make a stale poll
+   *  settle nothing, same guard class as run(). */
+  private async pollServerJob(runId: number, recordingSessionId: string) {
+    const deadline = Date.now() + SERVER_JOB_TIMEOUT_MS
+    const port = getRecordingPipelinePort()
+    while (Date.now() < deadline) {
+      if (runId !== this.runId) return
+      await new Promise((r) => setTimeout(r, SERVER_POLL_INTERVAL_MS))
+      if (runId !== this.runId) return
+
+      const status = await port.jobStatus(recordingSessionId).catch(
+        (err): { error: string } => ({ error: err instanceof Error ? err.message : 'poll failed' }),
+      )
+      if (runId !== this.runId) return
+      // A transient hiccup checking OUR OWN status endpoint is not the job's
+      // outcome — keep polling rather than declaring failure on a blip.
+      if ('error' in status) continue
+
+      if (status.status === 'DONE') {
+        // The record already exists server-side. Delete the take, then settle
+        // via the SAME 'autosaving' path the in-tab autosave uses — its effect
+        // (ProcessingIndicator) checks serverSavedRecordId FIRST and skips
+        // straight to the toast/hold/reset, reusing that UI verbatim instead
+        // of duplicating localized strings in this non-React module.
+        if (this.context?.takeId) void deleteTake(this.context.takeId)
+        this.serverSavedRecordId = status.karuteRecordId
+        this.state = 'autosaving'
+        this.notify()
+        return
+      }
+      if (status.status === 'FAILED') {
+        // Take is NEVER deleted on FAILED — the staff can retry or fall back.
+        this.error =
+          status.lastError === CONSENT_REQUIRED_ERROR
+            ? 'consent-required'
+            : status.lastError === 'EMPTY_TRANSCRIPT'
+              ? 'empty-transcript'
+              : 'unknown'
+        this.state = 'error'
+        this.notify()
+        return
+      }
+      // QUEUED/RUNNING — keep polling; the chip stays on 'transcribing'.
+    }
+    // Hard cap reached — generic failure, take kept (same as any other FAILED).
+    if (runId !== this.runId) return
+    this.error = 'unknown'
+    this.state = 'error'
+    this.notify()
+  }
+
+  /** Re-run after an error (the blob + context are retained). A server-path
+   *  error re-runs the server path (packet 22: core's recording-jobs enqueue
+   *  RE-ARMS a FAILED job with a FRESH payload on re-enqueue — so retry must
+   *  re-stage a fresh audio_path too, which runServerJob already does from
+   *  scratch; the old object is orphaned to the daily sweep, same as any
+   *  other abandoned job's audio). */
   retry() {
     if (!this.blob || !this.context) return
     this.state = 'processing'
     this.step = 'transcribing'
     this.error = null
     this.notify()
-    void this.run()
+    if (this.isServerPath) void this.runServerJob()
+    else void this.run()
   }
 
   /** Auto-save failed — fall back to review so the take is never lost. The
@@ -221,6 +368,8 @@ class GlobalPipeline {
     this.error = null
     this.context = null
     this.blob = null
+    this.serverSavedRecordId = null
+    this.isServerPath = false
     this.notify()
   }
 }
