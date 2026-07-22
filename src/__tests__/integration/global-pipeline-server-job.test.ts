@@ -49,8 +49,12 @@ const jobStatus = jest.fn(
     lastError: null,
   }),
 )
+const portSupportsServerJob = { current: true }
 jest.mock('@/lib/ports/recording-port', () => ({
   getRecordingPipelinePort: () => ({
+    get supportsServerJob() {
+      return portSupportsServerJob.current
+    },
     stageForJob: (...a: unknown[]) => (stageForJob as (...a: unknown[]) => unknown)(...a),
     enqueueJob: (...a: unknown[]) => (enqueueJob as (...a: unknown[]) => unknown)(...a),
     jobStatus: (...a: unknown[]) => (jobStatus as (...a: unknown[]) => unknown)(...a),
@@ -79,6 +83,7 @@ beforeEach(() => {
   globalPipeline.reset()
   mockDeferreds.length = 0
   jest.clearAllMocks()
+  portSupportsServerJob.current = true
   stageForJob.mockResolvedValue({ path: 'staged.webm' })
   enqueueJob.mockResolvedValue({ ok: true, jobId: 'job-1', status: 'QUEUED' })
   jobStatus.mockResolvedValue({
@@ -121,6 +126,15 @@ describe('globalPipeline server-path eligibility (packet 22)', () => {
     globalPipeline.start(new Blob(['a']), { ...eligibleCtx, recordingSessionId: undefined })
     await tick(0)
     expect(stageForJob).not.toHaveBeenCalled()
+    expect(mockDeferreds).toHaveLength(1)
+  })
+
+  it('port without supportsServerJob (web arm) → in-tab path even when eligible', async () => {
+    portSupportsServerJob.current = false
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(stageForJob).not.toHaveBeenCalled()
+    expect(enqueueJob).not.toHaveBeenCalled()
     expect(mockDeferreds).toHaveLength(1)
   })
 })

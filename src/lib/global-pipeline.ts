@@ -183,8 +183,14 @@ class GlobalPipeline {
     this.serverSavedRecordId = null
     this.isServerPath = false
     this.notify()
-    if (isServerJobEligible(context)) void this.runServerJob()
-    else void this.run()
+    // Server path only where the world can stage a tenant-scoped key the worker
+    // can prove ownership of (thin arm). Web stays in-tab — see the port's
+    // supportsServerJob doc. Everything else (walk-ins, review, recovery) too.
+    if (isServerJobEligible(context) && getRecordingPipelinePort().supportsServerJob) {
+      void this.runServerJob()
+    } else {
+      void this.run()
+    }
   }
 
   private async run() {

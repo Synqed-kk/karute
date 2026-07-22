@@ -14,6 +14,9 @@ import type {
 
 export const viteRecordingPort: RecordingPipelinePort = {
   aiBase: '/api/app/v1/ai',
+  // stageForJob uses the upload-url facade, which mints a tenant-scoped
+  // `app_${businessId}_*` key — so the worker can prove ownership. Server path ON.
+  supportsServerJob: true,
   async prepareTranscription(blob) {
     // 1. Service-minted signed upload URL (tenant-prefixed path).
     const res = await getDataPort().apiFetch('/api/app/v1/recordings/upload-url', {

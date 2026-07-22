@@ -138,21 +138,24 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
     expect(fail).not.toHaveBeenCalled()
   })
 
-  it('cross-tenant app_ audio_path → job FAILS before any service-role read (defense-in-depth)', async () => {
-    claim
-      .mockResolvedValueOnce({
-        ...baseJob,
-        payload: { ...baseJob.payload, audio_path: 'app_biz-2_stolen.webm' },
-      })
-      .mockResolvedValueOnce(null)
+  it.each([
+    ['cross-tenant app_ path', 'app_biz-2_stolen.webm'],
+    ['untenanted rec_* path', 'rec_1700000000000.webm'],
+  ])(
+    '%s → job FAILS before any service-role read (universal tenant-prefix gate)',
+    async (_label, audio_path) => {
+      claim
+        .mockResolvedValueOnce({ ...baseJob, payload: { ...baseJob.payload, audio_path } })
+        .mockResolvedValueOnce(null)
 
-    await processRecordingJobs(10_000)
+      await processRecordingJobs(10_000)
 
-    expect(createSignedUrl).not.toHaveBeenCalled()
-    expect(removeObj).not.toHaveBeenCalled()
-    expect(complete).not.toHaveBeenCalled()
-    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('does not belong'))
-  })
+      expect(createSignedUrl).not.toHaveBeenCalled()
+      expect(removeObj).not.toHaveBeenCalled()
+      expect(complete).not.toHaveBeenCalled()
+      expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('does not belong'))
+    },
+  )
 
   it('payload.outcome absent → outcome upsert never called', async () => {
     claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)

@@ -15,6 +15,19 @@ export interface RecordingPipelinePort {
   /** AI route base — web '/api/ai', thin '/api/app/v1/ai'. */
   aiBase: string
   /**
+   * Whether this world may route the autosave cohort to the SERVER pipeline
+   * (packet 22 Stage 1). TRUE only where stageForJob writes a TENANT-SCOPED
+   * key the worker can prove ownership of — the thin arm (the upload-url facade
+   * mints `app_${businessId}_*`). The web arm is FALSE: its supabase-js upload
+   * names takes `rec_${Date.now()}.webm` — no tenant prefix, and the worker
+   * reads/deletes via a service-role client (no RLS), so it can't verify a
+   * `rec_*` object's owner. Web keeps the proven in-tab path until its job
+   * upload is tenant-scoped (a Stage-2 / Anthony item). Gating it here — not
+   * relying on the enqueue guard to bounce it — avoids a wasteful orphaned
+   * upload and keeps the unsafe `rec_*` staging path from ever running.
+   */
+  supportsServerJob: boolean
+  /**
    * Upload the take and return the transcribe-leg request body + a cleanup fn.
    * Web uploads to Supabase Storage via supabase-js and returns a signed URL
    * (`{ audioUrl }`); thin gets a service-minted upload URL from the facade, PUTs
@@ -49,6 +62,9 @@ export interface RecordingPipelinePort {
  *  identical to the pre-port pipeline. */
 export const webRecordingPort: RecordingPipelinePort = {
   aiBase: '/api/ai',
+  // Web stays on the in-tab pipeline for Stage 1 — its `rec_*` upload isn't
+  // tenant-scoped, so the server worker can't prove ownership. See the flag doc.
+  supportsServerJob: false,
   async prepareTranscription(blob) {
     const supabase = createClient()
     const fileName = `rec_${Date.now()}.webm`
