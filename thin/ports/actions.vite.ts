@@ -407,13 +407,17 @@ async function facadeUpsertOrgSettings(
 // write path the settings sections already use — with the wizard's 5-field
 // payload.
 //
-// Two stated divergences from the web action (src/actions/org-settings.ts):
-//  (a) setup_completed_at rides the DEVICE clock here (web: server action
-//      clock) — it only drives OnboardingBanner's hide condition
-//      (!onboardingComplete), cosmetic.
-//  (b) validation runs in the port, not a server — the facade PATCH still
-//      enforces settings.manage + zod server-side regardless, so this is a
-//      backstop on both platforms, same as the wizard's own step gating.
+// Stated divergence from the web action (src/actions/org-settings.ts):
+// validation runs in the port, not a server — the facade PATCH still
+// enforces settings.manage + zod server-side regardless, so this is a
+// backstop on both platforms, same as the wizard's own step gating.
+//
+// setup_completed_at: the ISO string sent below is ADVISORY ONLY — the
+// facade PATCH route clamps any client-supplied value to SERVER time
+// (org-settings/route.ts), because the stamp renders verbatim as the
+// salon's setup-complete date in OrganizationSection and a device clock
+// must never write that record. Web parity holds: both platforms end up
+// server-clock.
 async function facadeCompleteOnboarding(input: {
   businessName: string
   businessType: string

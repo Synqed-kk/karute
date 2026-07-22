@@ -9,8 +9,6 @@
  */
 import { setDataPort } from '@/lib/ports/data-port'
 
-jest.mock('@/lib/karute/take-store', () => ({}))
-
 import { completeOnboarding } from '../../../thin/ports/actions.vite'
 
 function jsonResponse(body: unknown, status = 200): Response {

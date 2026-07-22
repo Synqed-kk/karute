@@ -19,7 +19,6 @@ import {
 } from 'lucide-react'
 
 import { completeOnboarding } from '@/actions/org-settings'
-import { WebOnly } from '@/components/shell/WebOnly'
 import {
   BUSINESS_TYPES,
   DISCLOSURE_MODES,
@@ -33,6 +32,12 @@ interface WelcomeWizardProps {
   initialBusinessName: string
   initialBusinessType: string
   initialDisclosureMode: 'A' | 'B' | 'C' | null
+  /** Hides the app-language choice (thin shell is single-locale — ruling ②).
+   *  Optional-prop shape per the S5 webOnlyTabIds precedent: default false
+   *  keeps the web page byte-identical (fieldset stays in SSR/first paint —
+   *  a WebOnly wrap would pop it in an effect-tick late on the very first
+   *  screen a new salon owner sees). */
+  hideLanguageChoice?: boolean
 }
 
 const MODE_ICONS: Record<DisclosureMode['mode'], typeof Eye> = {
@@ -45,6 +50,7 @@ export function WelcomeWizard({
   initialBusinessName,
   initialBusinessType,
   initialDisclosureMode,
+  hideLanguageChoice = false,
 }: WelcomeWizardProps) {
   const router = useRouter()
   const currentLocale = useLocale() as WizardLocale
@@ -136,6 +142,7 @@ export function WelcomeWizard({
               profile={profile}
               language={language}
               setLanguage={setLanguage}
+              hideLanguageChoice={hideLanguageChoice}
             />
           )}
           {step === 2 && (
@@ -266,6 +273,7 @@ function Step1Business({
   profile,
   language,
   setLanguage,
+  hideLanguageChoice,
 }: {
   t: T
   businessName: string
@@ -275,6 +283,7 @@ function Step1Business({
   profile: ReturnType<typeof getBusinessProfile> | null
   language: WizardLocale
   setLanguage: (v: WizardLocale) => void
+  hideLanguageChoice: boolean
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -285,7 +294,7 @@ function Step1Business({
       <p className="text-sm text-muted-foreground">{t('step1.intro')}</p>
 
       <div className="flex flex-col gap-4">
-        <WebOnly>
+        {!hideLanguageChoice && (
           <fieldset className="flex flex-col gap-1.5">
             <legend className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
               <Globe size={11} />
@@ -324,7 +333,7 @@ function Step1Business({
               {t('step1.languageHint')}
             </p>
           </fieldset>
-        </WebOnly>
+        )}
 
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">

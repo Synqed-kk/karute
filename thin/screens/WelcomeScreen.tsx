@@ -7,9 +7,10 @@
 // export is needed for test coverage: the wired-mount test drives this
 // component directly through the DataPort seam).
 //
-// Language switcher shell-hide (WebOnly, ruling ② precedent) and the
-// completeOnboarding write are both handled entirely inside WelcomeWizard —
-// nothing extra to wire here.
+// The app-language choice is hidden via hideLanguageChoice (ruling ②; the
+// S5 webOnlyTabIds optional-prop shape — web default unchanged, so the web
+// page keeps the fieldset in SSR/first paint). The completeOnboarding write
+// is handled entirely inside WelcomeWizard — nothing extra to wire here.
 
 import { WelcomeWizard } from '@/components/welcome/WelcomeWizard'
 import { WelcomeScreenDTO, type WelcomeScreenDTOType } from '@/lib/app-api/welcome-screen-dto'
@@ -26,6 +27,7 @@ export function WelcomeScreen() {
           initialBusinessName={dto.salon_name}
           initialBusinessType={dto.business_type}
           initialDisclosureMode={dto.recording_disclosure_mode}
+          hideLanguageChoice
         />
       )}
     </ScreenStates>

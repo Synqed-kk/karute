@@ -7,8 +7,9 @@
  * (throw-on-missing-key t(), same pattern as
  * thin-dashboard-screen-render.test.tsx) so a typo'd i18n key fails loud
  * instead of silently rendering the raw key. Pins: the DTO prefills the
- * store-name input · the app-language fieldset is ABSENT under the native
- * shell (WebOnly gate) · driving step1→step2→step3 to Finish PATCHes
+ * store-name input · the app-language fieldset is ABSENT in the shell
+ * (WelcomeScreen passes hideLanguageChoice — ruling ②, S5 optional-prop
+ * shape) · driving step1→step2→step3 to Finish PATCHes
  * /api/app/v1/org-settings with exactly the 5-field payload (name TRIMMED,
  * setup_completed_at a real ISO string) · on {success:true} the REAL nav
  * port (thin/ports/nav.vite — the module @/i18n/navigation resolves to in
@@ -49,9 +50,6 @@ jest.mock('@/i18n/navigation', () => jest.requireActual('../../../thin/ports/nav
 // suite stubs OwnerBand/TodoCard instead of letting them resolve '@/actions/packs'
 // for real) — rerouting the specifier avoids ever loading that file.
 jest.mock('@/actions/org-settings', () => jest.requireActual('../../../thin/ports/actions.vite'))
-
-// Native shell — WebOnly must hide the language fieldset.
-jest.mock('@/lib/platform', () => ({ isNativeShell: () => true }))
 
 import { WelcomeScreen } from '../../../thin/screens/WelcomeScreen'
 
@@ -120,5 +118,33 @@ describe('WelcomeScreen — wired mount (design-parity packet 21)', () => {
     expect(new Date(body.setup_completed_at).toISOString()).toBe(body.setup_completed_at)
 
     await waitFor(() => expect(location.pathname).toBe('/dashboard'))
+  })
+
+  it('a failing Finish renders the error banner and re-enables the button — no navigation', async () => {
+    const apiFetch = jest.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/app/v1/screens/welcome' && !init) return jsonResponse(dto)
+      if (path === '/api/app/v1/org-settings' && init?.method === 'PATCH') {
+        // The core's business-level { error } rides the 2xx body verbatim
+        // (RPC passthrough) — the wizard must surface it, not swallow it.
+        return jsonResponse({ error: '保存に失敗しました' })
+      }
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<WelcomeScreen />)
+    await screen.findByDisplayValue('テストサロン')
+
+    fireEvent.click(screen.getByText('次へ'))
+    fireEvent.click(screen.getByText('Verbal disclosure (recommended)'))
+    fireEvent.click(screen.getByText('次へ'))
+    fireEvent.click(screen.getByText('セットアップ完了'))
+
+    // Banner shows the returned error verbatim (WelcomeWizard's setError
+    // branch), the button leaves its submitting state, and we stay put.
+    expect(await screen.findByText('保存に失敗しました')).toBeTruthy()
+    const finish = screen.getByText('セットアップ完了').closest('button')
+    expect(finish?.disabled).toBe(false)
+    expect(location.pathname).not.toBe('/dashboard')
   })
 })
