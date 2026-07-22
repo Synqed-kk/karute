@@ -231,10 +231,23 @@ describe('GET recordings/job/[sessionId] (status)', () => {
     expect((await res.json()).lastError).toBe('EMPTY_TRANSCRIPT')
   })
 
-  it('job not found → 404', async () => {
-    getByRecordingSession.mockRejectedValueOnce(new Error('not found'))
+  it('job not found (SynqedError 404) → 404 — the ONLY absence signal the client may fall back on', async () => {
+    getByRecordingSession.mockRejectedValueOnce(Object.assign(new Error('Job not found'), { status: 404 }))
     const res = await jobGET(new Request('https://s/x', { headers: authOnly }), sessionRoute())
     expect(res.status).toBe(404)
+  })
+
+  it('core trouble (SynqedError 500) → upstream error, NEVER 404 (a blip must not read as job absence)', async () => {
+    getByRecordingSession.mockRejectedValueOnce(Object.assign(new Error('boom'), { status: 500 }))
+    const res = await jobGET(new Request('https://s/x', { headers: authOnly }), sessionRoute())
+    expect(res.status).not.toBe(404)
+    expect(res.status).toBeGreaterThanOrEqual(500)
+  })
+
+  it('statusless throw (network/timeout inside the facade) → upstream error, NEVER 404', async () => {
+    getByRecordingSession.mockRejectedValueOnce(new Error('socket hang up'))
+    const res = await jobGET(new Request('https://s/x', { headers: authOnly }), sessionRoute())
+    expect(res.status).not.toBe(404)
   })
 
   it('missing capability → 403', async () => {

@@ -11,6 +11,7 @@ import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { deleteTake } from '@/lib/karute/take-store'
 import { CONSENT_REQUIRED_ERROR } from '@/lib/consent'
+import type { RecordingJobStatusView } from '@/actions/recording-jobs'
 
 /**
  * Global AI-pipeline singleton — the background counterpart to globalRecorder.
@@ -116,6 +117,11 @@ const SERVER_POLL_INTERVAL_MS = 5_000
 const SERVER_POLL_SLOW_INTERVAL_MS = 30_000
 const SERVER_POLL_FAST_WINDOW_MS = 10 * 60 * 1000
 const SERVER_JOB_TIMEOUT_MS = 60 * 60 * 1000
+/** How long resolveAmbiguousEnqueue keeps re-probing a network-dark status
+ *  endpoint before giving up (Greptile #587 P1). Long enough to ride out a
+ *  radio blip/handoff; short enough that a genuinely dead connection surfaces
+ *  an actionable error instead of a silent forever-spinner. */
+const AMBIGUOUS_RESOLVE_BUDGET_MS = 90_000
 
 class GlobalPipeline {
   state: PipelineState = 'idle'
@@ -137,9 +143,14 @@ class GlobalPipeline {
   serverSavedRecordId: string | null = null
 
   private blob: Blob | null = null
-  /** True once a server job's enqueue has succeeded for the CURRENT run — a
-   *  retry() on that run must re-run the server path, not the in-tab one. */
-  private isServerPath = false
+  /** Session whose server job ended in an UNKNOWN state (ambiguity budget
+   *  exhausted, or the poll cap hit with the job still alive) — a live ghost
+   *  may exist for it. While set, a stage-failure on this session must NOT
+   *  take the quick-fallback path (one dark probe → in-tab): it routes into
+   *  the full resolution budget instead, because blind-falling-back beside a
+   *  likely ghost is the dual-run this design exists to prevent. Cleared on
+   *  every DEFINITIVE settlement (DONE/FAILED/notFound) and on start/reset. */
+  private unresolvedServerSessionId: string | null = null
   private listeners = new Set<Listener>()
   /**
    * Identifies the live run. A new start()/retry() supersedes an in-flight run,
@@ -189,7 +200,7 @@ class GlobalPipeline {
     this.result = null
     this.error = null
     this.serverSavedRecordId = null
-    this.isServerPath = false
+    this.unresolvedServerSessionId = null
     this.notify()
     // Server path only where the world can stage a tenant-scoped key the worker
     // can prove ownership of (thin arm). Web stays in-tab — see the port's
@@ -263,8 +274,10 @@ class GlobalPipeline {
     const context = this.context
     const port = getRecordingPipelinePort()
     let sessionId: string
+    let enqueueDispatched = false
     try {
       const { path } = await port.stageForJob(blob)
+      enqueueDispatched = true
       const enqueued = await port.enqueueJob({
         recordingSessionId: context.recordingSessionId as string,
         customerId: context.appointmentCustomerId as string,
@@ -278,40 +291,113 @@ class GlobalPipeline {
       sessionId = context.recordingSessionId as string
     } catch (err) {
       if (runId !== this.runId) return
-      // This failure is AMBIGUOUS (Greptile #587 P1): the response can be lost
-      // AFTER core committed the job, and falling back then would run BOTH
-      // pipelines — double AI spend + competing saves on one session. Probe by
-      // session first: a QUEUED/RUNNING/DONE job means the enqueue landed (or a
-      // prior attempt's job is still live) → poll it instead. A confirmed
-      // FAILED/absent job falls back (a dead job can't race). An UNREACHABLE
-      // probe also falls back — the take must never be left pathless — which
-      // accepts a residual dual-run window (probe dark while the committed job
-      // is alive, or an in-transit enqueue landing after a client-side reject).
-      // Both converge on ONE record via core's idempotent by-session save; the
-      // residual cost is duplicate AI spend in that rare window, not data.
-      const probe = await port
-        .jobStatus(context.recordingSessionId as string)
-        .catch((): { error: string } => ({ error: 'probe unreachable' }))
-      if (runId !== this.runId) return
-      if (!('error' in probe) && probe.status !== 'FAILED') {
+      // A stage-failure with NO possible ghost takes the quick path: THIS run
+      // never dispatched an enqueue, and no prior attempt on this session
+      // ended unresolved, so no job can exist. One quick best-effort probe
+      // still guards the ghost corner; anything else — dark, trouble, or a
+      // definitive no-job — falls back to in-tab immediately. Offline-at-stop
+      // is the COMMON failure mode, and holding the take behind the full
+      // resolution budget here would trade a seconds-to-surface error for a
+      // pointless 90s spinner. When a prior attempt DID end unresolved
+      // (unresolvedServerSessionId matches), a live ghost is likely, so this
+      // shortcut is skipped and the full resolution below owns the answer.
+      const ghostPossible =
+        this.unresolvedServerSessionId === (context.recordingSessionId as string)
+      if (!enqueueDispatched && !ghostPossible) {
+        const ghost = await port
+          .jobStatus(context.recordingSessionId as string)
+          .catch(() => null)
+        if (runId !== this.runId) return
+        if (ghost && !('error' in ghost) && ghost.status !== 'FAILED') {
+          console.warn('[global-pipeline] stage failed but a prior job is live — polling it:', err)
+          await this.pollServerJob(runId, context.recordingSessionId as string)
+          return
+        }
+        console.warn('[global-pipeline] server staging failed, falling back to in-tab:', err)
+        void this.run()
+        return
+      }
+      // Either THIS run dispatched the enqueue and its outcome is AMBIGUOUS
+      // (Greptile #587 P1: the response can be lost AFTER core committed the
+      // job), or a PRIOR attempt on this session ended unresolved and a live
+      // ghost may exist. Blindly falling back in either case would run BOTH
+      // pipelines — double AI spend + competing saves on one session. So ambiguity is RESOLVED, never
+      // guessed: keep probing the job status until the server answers. A
+      // live/DONE job → poll it. A DEFINITIVE no-job answer (HTTP 404, surfaced
+      // as notFound by the port — server trouble like a 5xx/429 is NOT an
+      // answer and keeps probing) or a FAILED job → fall back (a dead or
+      // absent job can't race; the one residual is an in-transit enqueue
+      // delivered AFTER a client-side reject — exotic, and it converges on ONE
+      // record via core's idempotent by-session save). Server never answers
+      // within the budget → surface the error with the take KEPT: the in-tab
+      // pipeline needs the same network, so falling back offline would just
+      // fail slower AND reopen the dual-run window the moment connectivity
+      // returns; retry() re-dispatches through the server path, where core's
+      // idempotent enqueue reconciles with any ghost job this attempt may have
+      // committed.
+      const resolution = await this.resolveAmbiguousEnqueue(
+        runId,
+        context.recordingSessionId as string,
+      )
+      if (resolution === 'superseded') return
+      if (resolution === 'poll') {
         console.warn('[global-pipeline] enqueue ambiguous but the job landed — polling it:', err)
-        this.isServerPath = true
         await this.pollServerJob(runId, context.recordingSessionId as string)
         return
       }
+      if (resolution === 'error') {
+        console.warn('[global-pipeline] enqueue ambiguous and the server unreachable — take kept:', err)
+        // The job's existence is UNKNOWN — mark the session so a later
+        // stage-failure retry can't blind-fallback beside a possible ghost.
+        this.unresolvedServerSessionId = context.recordingSessionId as string
+        this.error = 'unknown'
+        this.state = 'error'
+        this.notify()
+        return
+      }
+      // 'fallback': the server answered — no live job owns this session.
       // Recording must never be degraded by the new path — warn once and fall
       // back to the proven in-tab pipeline with the SAME blob/context.
+      this.unresolvedServerSessionId = null
       console.warn('[global-pipeline] server stage/enqueue failed, falling back to in-tab:', err)
       void this.run()
       return
     }
     // Enqueue landed — but a NEWER run may have superseded while we were
-    // awaiting it. Don't let a stale run's success mutate isServerPath for
-    // whatever run is now live; pollServerJob's own runId checks handle the
-    // rest, but this write happens BEFORE its first check.
+    // awaiting it; pollServerJob re-checks runId at every await return.
     if (runId !== this.runId) return
-    this.isServerPath = true
     await this.pollServerJob(runId, sessionId)
+  }
+
+  /** Resolve an ambiguous enqueue failure to a DEFINITIVE answer (Greptile
+   *  #587 P1). Probes immediately (the common lost-response case settles on
+   *  the first probe, no added latency), then re-probes every
+   *  SERVER_POLL_INTERVAL_MS until the budget runs out. Definitive answers:
+   *  a status view (the job's truth) or `notFound` (HTTP 404 = the server
+   *  answered "no job for this session"). NOT answers, keep probing: a
+   *  rejected fetch (network-dark) AND a non-404 {error} (5xx/429/upstream
+   *  trouble — the same transient class pollServerJob rides out; reading it
+   *  as job absence would reopen the dual-run window on a server blip). */
+  private async resolveAmbiguousEnqueue(
+    runId: number,
+    recordingSessionId: string,
+  ): Promise<'poll' | 'fallback' | 'error' | 'superseded'> {
+    const port = getRecordingPipelinePort()
+    const deadline = Date.now() + AMBIGUOUS_RESOLVE_BUDGET_MS
+    while (Date.now() < deadline) {
+      if (runId !== this.runId) return 'superseded'
+      let view: RecordingJobStatusView | { error: string; notFound?: boolean } | null
+      try {
+        view = await port.jobStatus(recordingSessionId)
+      } catch {
+        view = null // network-dark — not an answer; keep probing
+      }
+      if (runId !== this.runId) return 'superseded'
+      if (view && !('error' in view)) return view.status === 'FAILED' ? 'fallback' : 'poll'
+      if (view?.notFound) return 'fallback'
+      await new Promise((r) => setTimeout(r, SERVER_POLL_INTERVAL_MS))
+    }
+    return runId === this.runId ? 'error' : 'superseded'
   }
 
   /** Poll the enqueued job to settlement. Every tick (and every await return)
@@ -338,6 +424,10 @@ class GlobalPipeline {
       // outcome — keep polling rather than declaring failure on a blip.
       if ('error' in status) continue
 
+      if (status.status === 'DONE' || status.status === 'FAILED') {
+        // Terminal answer — whatever happens next, no live ghost remains.
+        this.unresolvedServerSessionId = null
+      }
       if (status.status === 'DONE' && status.karuteRecordId) {
         // The record already exists server-side. Delete the take, then settle
         // via the SAME 'autosaving' path the in-tab autosave uses — its effect
@@ -378,25 +468,33 @@ class GlobalPipeline {
     }
     // Hard cap reached — generic failure, take kept (same as any other FAILED).
     if (runId !== this.runId) return
+    // The job may STILL be alive behind a backlog — mark the session so a
+    // later stage-failure retry can't blind-fallback beside it.
+    this.unresolvedServerSessionId = recordingSessionId
     this.error = 'unknown'
     this.state = 'error'
     this.notify()
   }
 
-  /** Re-run after an error (the blob + context are retained). A server-path
-   *  error re-runs the server path (packet 22: core's recording-jobs enqueue
-   *  RE-ARMS a FAILED job with a FRESH payload on re-enqueue — so retry must
-   *  re-stage a fresh audio_path too, which runServerJob already does from
-   *  scratch; the old object is orphaned to the daily sweep, same as any
-   *  other abandoned job's audio). */
+  /** Re-run after an error (the blob + context are retained). Re-dispatches
+   *  by the SAME rule as start(): an eligible take retries through the server
+   *  path, where core's idempotent enqueue reconciles with any job an earlier
+   *  attempt committed — returned unchanged while QUEUED/RUNNING/DONE (the
+   *  poll then converges on it), RE-ARMED with a fresh payload when FAILED
+   *  (so runServerJob's from-scratch re-stage is exactly right; the old
+   *  object is orphaned to the daily sweep). A retry can therefore never
+   *  start a second pipeline for a session that a live job already owns. */
   retry() {
     if (!this.blob || !this.context) return
     this.state = 'processing'
     this.step = 'transcribing'
     this.error = null
     this.notify()
-    if (this.isServerPath) void this.runServerJob()
-    else void this.run()
+    if (isServerJobEligible(this.context) && getRecordingPipelinePort().supportsServerJob) {
+      void this.runServerJob()
+    } else {
+      void this.run()
+    }
   }
 
   /** Auto-save failed — fall back to review so the take is never lost. The
@@ -426,7 +524,7 @@ class GlobalPipeline {
     this.context = null
     this.blob = null
     this.serverSavedRecordId = null
-    this.isServerPath = false
+    this.unresolvedServerSessionId = null
     this.notify()
   }
 }

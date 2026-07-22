@@ -82,7 +82,13 @@ export const viteRecordingPort: RecordingPipelinePort = {
       | null
     if (!res.ok || !body) {
       const err = body as { error?: { message?: string } } | null
-      return { error: err?.error?.message ?? `Job status failed (${res.status})` }
+      return {
+        error: err?.error?.message ?? `Job status failed (${res.status})`,
+        // Only a true 404 means "no job for this session" (the facade maps
+        // core trouble to upstream_unavailable, never 404) — the port
+        // contract's definitive-absence signal.
+        notFound: res.status === 404,
+      }
     }
     return body as RecordingJobStatusView
   },

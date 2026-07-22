@@ -52,10 +52,14 @@ export interface RecordingPipelinePort {
   enqueueJob(
     input: EnqueueRecordingJobInput,
   ): Promise<{ ok: true; jobId: string; status: string } | { error: string }>
-  /** Poll job status by recording-session id. */
+  /** Poll job status by recording-session id. `notFound: true` on the error
+   *  arm means the server DEFINITIVELY answered "no job for this session"
+   *  (HTTP 404) — the ambiguous-enqueue resolution may fall back in-tab on
+   *  it. Any other error (5xx/429/auth blips) is transient server trouble
+   *  and must NOT be read as job absence. */
   jobStatus(
     recordingSessionId: string,
-  ): Promise<RecordingJobStatusView | { error: string }>
+  ): Promise<RecordingJobStatusView | { error: string; notFound?: boolean }>
 }
 
 /** Web default — same-origin /api/ai + the supabase-js upload flow, byte-
