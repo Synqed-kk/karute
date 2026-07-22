@@ -153,14 +153,27 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     warn.mockRestore()
   })
 
-  it('stageForJob throws while OFFLINE (ghost probe dark) → falls back immediately, no resolution hold', async () => {
+  it('stageForJob throws while OFFLINE (probe dark) → immediate error with the take KEPT — never a blind fallback, never a 90s hold', async () => {
     stageForJob.mockRejectedValueOnce(new Error('upload failed'))
-    jobStatus.mockRejectedValueOnce(new Error('network down')) // dark — best-effort only on the stage path
+    jobStatus.mockRejectedValueOnce(new Error('network down')) // dark — NOT a definitive answer
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
-    await tick(0) // NO timer advance — the fallback must not wait on the 90s budget
-    expect(mockDeferreds).toHaveLength(1)
-    expect(globalPipeline.state).toBe('processing')
+    await tick(0) // NO timer advance — the error must surface in one round-trip
+    expect(mockDeferreds).toHaveLength(0) // in-tab never runs on a guess
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.error).toBe('unknown')
+    expect(deleteTake).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
+  it('stageForJob throws + probe answers with server TROUBLE (5xx, not notFound) → error, never a fallback on trouble', async () => {
+    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    jobStatus.mockResolvedValueOnce({ error: 'Job status failed (500)' }) // resolved but NOT definitive absence
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    expect(mockDeferreds).toHaveLength(0)
+    expect(globalPipeline.state).toBe('error')
     warn.mockRestore()
   })
 
@@ -273,7 +286,7 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     warn.mockRestore()
   })
 
-  it('retry after an UNRESOLVED error + stage-failure while still offline → full resolution, NEVER a blind in-tab fallback beside a possible ghost', async () => {
+  it('retry after an unresolved error + stage-failure while still offline → immediate error again, NOTHING ever runs beside the possible ghost', async () => {
     // Attempt 1: enqueue ambiguous, server dark for the whole budget → error
     // (a ghost job may exist server-side).
     enqueueJob.mockRejectedValueOnce(new Error('response lost'))
@@ -284,20 +297,18 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     await tick(90_000 + 5000)
     expect(globalPipeline.state).toBe('error')
 
-    // Retry while STILL offline: stage fails too. The quick fallback path
-    // must be skipped (prior attempt unresolved) — nothing may run in-tab.
+    // Retry while STILL offline: stage fails, probe dark = no answer → error
+    // in one round-trip. In-tab must never start on a guess.
     stageForJob.mockRejectedValueOnce(new Error('upload failed'))
     globalPipeline.retry()
     await tick(0)
     expect(mockDeferreds).toHaveLength(0) // no blind fallback
-    await tick(90_000 + 5000) // resolution budget burns dark again
     expect(globalPipeline.state).toBe('error')
-    expect(mockDeferreds).toHaveLength(0)
     expect(deleteTake).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
-  it('retry after an UNRESOLVED error + stage-failure, ghost then found alive → polls it to settlement', async () => {
+  it('retry after an unresolved error + stage-failure, ghost then found alive → polls it to settlement', async () => {
     enqueueJob.mockRejectedValueOnce(new Error('response lost'))
     jobStatus.mockRejectedValue(new Error('network down'))
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
@@ -306,8 +317,8 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     await tick(90_000 + 5000)
     expect(globalPipeline.state).toBe('error')
 
-    // Network back: the retry's stage still fails, but the resolution probe
-    // now finds the ghost committed by attempt 1 — poll it, never in-tab.
+    // Network back: the retry's stage still fails, but the probe now finds
+    // the ghost committed by attempt 1 — poll it, never in-tab.
     stageForJob.mockRejectedValueOnce(new Error('upload failed'))
     jobStatus
       .mockResolvedValueOnce({ status: 'RUNNING', karuteRecordId: null, attempts: 1, maxAttempts: 3, lastError: null })
@@ -321,33 +332,26 @@ describe('globalPipeline server-path pre-enqueue fallback (packet 22)', () => {
     warn.mockRestore()
   })
 
-  it('a DEFINITIVE settlement clears the unresolved marker — the next stage-failure takes the quick fallback again', async () => {
-    // Attempt 1: unresolved error marks the session.
-    enqueueJob.mockRejectedValueOnce(new Error('response lost'))
-    jobStatus.mockRejectedValue(new Error('network down'))
+  it('stage-failure with a DEFINITIVELY dead ghost (FAILED) → in-tab fallback; a later dark stage-failure still errors', async () => {
+    // The dead ghost permits the fallback (definitive answer).
+    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
+    jobStatus.mockResolvedValueOnce({ status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'boom' })
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
     globalPipeline.start(new Blob(['a']), eligibleCtx)
     await tick(0)
-    await tick(90_000 + 5000)
-    expect(globalPipeline.state).toBe('error')
-
-    // Retry resolves DEFINITIVELY: the ghost turns out FAILED (dead).
-    stageForJob.mockRejectedValueOnce(new Error('upload failed'))
-    jobStatus.mockResolvedValueOnce({ status: 'FAILED', karuteRecordId: null, attempts: 3, maxAttempts: 3, lastError: 'boom' })
-    globalPipeline.retry()
-    await tick(0)
     expect(mockDeferreds).toHaveLength(1) // definitive dead ghost → in-tab fallback
 
-    // In-tab run fails → error → retry with another stage-failure while dark:
-    // marker was cleared, so the QUICK path runs (immediate fallback, no hold).
+    // In-tab run fails → retry re-dispatches the server path; stage fails
+    // again while dark → error, never a second guess.
     mockDeferreds[0].reject(new Error('transcribe failed'))
     await tick(0)
     expect(globalPipeline.state).toBe('error')
     stageForJob.mockRejectedValueOnce(new Error('upload failed'))
     jobStatus.mockRejectedValueOnce(new Error('network down'))
     globalPipeline.retry()
-    await tick(0) // NO timer advance
-    expect(mockDeferreds).toHaveLength(2) // quick in-tab fallback fired again
+    await tick(0)
+    expect(mockDeferreds).toHaveLength(1) // still 1 — no new in-tab run on a dark probe
+    expect(globalPipeline.state).toBe('error')
     warn.mockRestore()
   })
 

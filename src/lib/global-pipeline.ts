@@ -143,14 +143,6 @@ class GlobalPipeline {
   serverSavedRecordId: string | null = null
 
   private blob: Blob | null = null
-  /** Session whose server job ended in an UNKNOWN state (ambiguity budget
-   *  exhausted, or the poll cap hit with the job still alive) — a live ghost
-   *  may exist for it. While set, a stage-failure on this session must NOT
-   *  take the quick-fallback path (one dark probe → in-tab): it routes into
-   *  the full resolution budget instead, because blind-falling-back beside a
-   *  likely ghost is the dual-run this design exists to prevent. Cleared on
-   *  every DEFINITIVE settlement (DONE/FAILED/notFound) and on start/reset. */
-  private unresolvedServerSessionId: string | null = null
   private listeners = new Set<Listener>()
   /**
    * Identifies the live run. A new start()/retry() supersedes an in-flight run,
@@ -200,7 +192,6 @@ class GlobalPipeline {
     this.result = null
     this.error = null
     this.serverSavedRecordId = null
-    this.unresolvedServerSessionId = null
     this.notify()
     // Server path only where the world can stage a tenant-scoped key the worker
     // can prove ownership of (thin arm). Web stays in-tab — see the port's
@@ -291,19 +282,22 @@ class GlobalPipeline {
       sessionId = context.recordingSessionId as string
     } catch (err) {
       if (runId !== this.runId) return
-      // A stage-failure with NO possible ghost takes the quick path: THIS run
-      // never dispatched an enqueue, and no prior attempt on this session
-      // ended unresolved, so no job can exist. One quick best-effort probe
-      // still guards the ghost corner; anything else — dark, trouble, or a
-      // definitive no-job — falls back to in-tab immediately. Offline-at-stop
-      // is the COMMON failure mode, and holding the take behind the full
-      // resolution budget here would trade a seconds-to-surface error for a
-      // pointless 90s spinner. When a prior attempt DID end unresolved
-      // (unresolvedServerSessionId matches), a live ghost is likely, so this
-      // shortcut is skipped and the full resolution below owns the answer.
-      const ghostPossible =
-        this.unresolvedServerSessionId === (context.recordingSessionId as string)
-      if (!enqueueDispatched && !ghostPossible) {
+      // THE INVARIANT (Greptile #587 r3 P1): the in-tab pipeline NEVER starts
+      // after a server-path attempt except on a DEFINITIVE server answer that
+      // no live job owns this session (notFound, or a FAILED job). A dark or
+      // erroring probe permits NOTHING — some prior run (superseded mid-poll,
+      // a lost response, a double-fire) may have enqueued this session, and a
+      // failed probe cannot rule that out.
+      //
+      // Stage-failures (THIS run dispatched no enqueue) settle it with ONE
+      // probe: alive job → poll it; notFound/FAILED → in-tab fallback; dark
+      // or trouble → error with the take KEPT. Erroring beats a blind in-tab
+      // attempt even for UX: staging just failed, so the network is already
+      // suspect and in-tab transcription needs it too — the error card
+      // surfaces in one round-trip instead of after a doomed pipeline run,
+      // and retry() re-dispatches through the server path, where core's
+      // idempotent enqueue reconciles with any live job.
+      if (!enqueueDispatched) {
         const ghost = await port
           .jobStatus(context.recordingSessionId as string)
           .catch(() => null)
@@ -313,15 +307,23 @@ class GlobalPipeline {
           await this.pollServerJob(runId, context.recordingSessionId as string)
           return
         }
-        console.warn('[global-pipeline] server staging failed, falling back to in-tab:', err)
-        void this.run()
+        if (ghost && ('error' in ghost ? ghost.notFound : true)) {
+          // Definitive: FAILED job or no job at all — nothing live can race.
+          console.warn('[global-pipeline] server staging failed, falling back to in-tab:', err)
+          void this.run()
+          return
+        }
+        // Dark or server trouble — not an answer; never fall back on a guess.
+        console.warn('[global-pipeline] staging failed and the probe gave no definitive answer — take kept:', err)
+        this.error = 'unknown'
+        this.state = 'error'
+        this.notify()
         return
       }
-      // Either THIS run dispatched the enqueue and its outcome is AMBIGUOUS
-      // (Greptile #587 P1: the response can be lost AFTER core committed the
-      // job), or a PRIOR attempt on this session ended unresolved and a live
-      // ghost may exist. Blindly falling back in either case would run BOTH
-      // pipelines — double AI spend + competing saves on one session. So ambiguity is RESOLVED, never
+      // THIS run dispatched the enqueue and its outcome is AMBIGUOUS (Greptile
+      // #587 P1: the response can be lost AFTER core committed the job).
+      // Blindly falling back would run BOTH pipelines — double AI spend +
+      // competing saves on one session. So ambiguity is RESOLVED, never
       // guessed: keep probing the job status until the server answers. A
       // live/DONE job → poll it. A DEFINITIVE no-job answer (HTTP 404, surfaced
       // as notFound by the port — server trouble like a 5xx/429 is NOT an
@@ -347,9 +349,6 @@ class GlobalPipeline {
       }
       if (resolution === 'error') {
         console.warn('[global-pipeline] enqueue ambiguous and the server unreachable — take kept:', err)
-        // The job's existence is UNKNOWN — mark the session so a later
-        // stage-failure retry can't blind-fallback beside a possible ghost.
-        this.unresolvedServerSessionId = context.recordingSessionId as string
         this.error = 'unknown'
         this.state = 'error'
         this.notify()
@@ -358,7 +357,6 @@ class GlobalPipeline {
       // 'fallback': the server answered — no live job owns this session.
       // Recording must never be degraded by the new path — warn once and fall
       // back to the proven in-tab pipeline with the SAME blob/context.
-      this.unresolvedServerSessionId = null
       console.warn('[global-pipeline] server stage/enqueue failed, falling back to in-tab:', err)
       void this.run()
       return
@@ -424,10 +422,6 @@ class GlobalPipeline {
       // outcome — keep polling rather than declaring failure on a blip.
       if ('error' in status) continue
 
-      if (status.status === 'DONE' || status.status === 'FAILED') {
-        // Terminal answer — whatever happens next, no live ghost remains.
-        this.unresolvedServerSessionId = null
-      }
       if (status.status === 'DONE' && status.karuteRecordId) {
         // The record already exists server-side. Delete the take, then settle
         // via the SAME 'autosaving' path the in-tab autosave uses — its effect
@@ -467,10 +461,10 @@ class GlobalPipeline {
       // QUEUED/RUNNING — keep polling; the chip stays on 'transcribing'.
     }
     // Hard cap reached — generic failure, take kept (same as any other FAILED).
+    // The job may still be alive behind a backlog; that is safe: no fallback
+    // ever runs without a definitive no-live-job answer, and retry()
+    // re-dispatches the server path where the idempotent enqueue reconciles.
     if (runId !== this.runId) return
-    // The job may STILL be alive behind a backlog — mark the session so a
-    // later stage-failure retry can't blind-fallback beside it.
-    this.unresolvedServerSessionId = recordingSessionId
     this.error = 'unknown'
     this.state = 'error'
     this.notify()
@@ -524,7 +518,6 @@ class GlobalPipeline {
     this.context = null
     this.blob = null
     this.serverSavedRecordId = null
-    this.unresolvedServerSessionId = null
     this.notify()
   }
 }
