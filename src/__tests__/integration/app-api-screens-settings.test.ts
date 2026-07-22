@@ -9,8 +9,10 @@
 // initialActiveStoreId reflects the store clamp's resolved storeId ·
 // activeStaffId is roster-gated (web parity: getCurrentUserStaffId) — the
 // auth id only when its row is present in the DTO's staff roster, else null
-// · orgSettings.voice_enrollments always reads back as {} (least-privilege,
-// S1 fix batch) · a failed load-bearing read (staff roster / org settings) →
+// · orgSettings.voice_enrollments is per-staff scoped (design-parity packet
+// 12 §S4b — un-zeroed from the S1 placeholder): a staff.manage identity sees
+// every entry, everyone else sees ONLY their own row · a failed load-bearing
+// read (staff roster / org settings) →
 // 502 · initialStores/initialEntitlement populate for a stores.viewAll
 // identity via the SAME WithClient twins the web action delegates to, and
 // stay []/null for everyone else (packet 12 §B-3 S2, least-privilege — the
@@ -204,11 +206,42 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(dto.activeStaffId).toBeNull()
   })
 
-  it('voice_enrollments is always {} in the GET response, even when org settings has entries for several staff (least-privilege pin)', async () => {
+  it('voice_enrollments is clamped to the caller\'s OWN entry without staff.manage (self-scope pin)', async () => {
     orgSettingsWithClient.mockResolvedValue({
       ...fullOrgSettings(),
       voice_enrollments: {
         'auth-user-1': { consent_at: '2026-01-01', sample_path: 'p1', status: 'saved' as const },
+        'staff-2': { consent_at: '2026-01-02', sample_path: 'p2', status: 'saved' as const },
+      },
+    })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.orgSettings?.voice_enrollments).toEqual({
+      'auth-user-1': { consent_at: '2026-01-01', sample_path: 'p1', status: 'saved' },
+    })
+  })
+
+  it('voice_enrollments carries EVERY staff entry for a staff.manage identity (manage-scope pin)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'staff.manage']))
+    orgSettingsWithClient.mockResolvedValue({
+      ...fullOrgSettings(),
+      voice_enrollments: {
+        'auth-user-1': { consent_at: '2026-01-01', sample_path: 'p1', status: 'saved' as const },
+        'staff-2': { consent_at: '2026-01-02', sample_path: 'p2', status: 'saved' as const },
+      },
+    })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.orgSettings?.voice_enrollments).toEqual({
+      'auth-user-1': { consent_at: '2026-01-01', sample_path: 'p1', status: 'saved' },
+      'staff-2': { consent_at: '2026-01-02', sample_path: 'p2', status: 'saved' },
+    })
+  })
+
+  it('voice_enrollments is {} without staff.manage when the caller has no entry of their own', async () => {
+    orgSettingsWithClient.mockResolvedValue({
+      ...fullOrgSettings(),
+      voice_enrollments: {
         'staff-2': { consent_at: '2026-01-02', sample_path: 'p2', status: 'saved' as const },
       },
     })

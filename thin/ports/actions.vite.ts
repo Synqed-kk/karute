@@ -17,6 +17,12 @@ import { redirect as thinRedirect } from './nav.vite'
 // below is always 'free', and this keeps the other 4 tiers' data out of the
 // thin bundle (budget headroom).
 import { FREE_TIER_LIMITS, type TierFeatures } from '@/lib/subscription/types'
+// Pure, side-effect-free (zero imports of its own — the module's own header
+// comment states it is shared by server-action gates AND client UI gating);
+// StaffForm.tsx already imports CAPABILITIES/PERMISSION_ROLES/
+// presetCapabilities from here directly, so this type-only import adds
+// nothing new to the bundle's import graph.
+import type { Capability, PermissionRole } from '@/lib/auth/permissions'
 
 function notWired(name: string) {
   return async (): Promise<never> => {
@@ -618,6 +624,48 @@ async function facadeGetEntitlement(): Promise<Entitlement> {
   return body.entitlement
 }
 
+// Per-staff store assignment (design-parity packet 12 §B-3 S4b tab-live
+// prerequisite). getStaffStores never throws on web (catches to []
+// unconditionally, including on a facade 403 — the GET carries a
+// staff.manage floor web doesn't have); setStaffStores mirrors
+// facadeUpdateStore's business-result passthrough, with the PUT route's
+// owner-only 403 elevation mapped back to web's own exact copy (same
+// "forbidden code → the action's own copy" idiom as facadeUpsertOrgSettings
+// above — STORE_OWNER_DENIAL, src/lib/validations/store.ts).
+async function facadeGetStaffStores(staffId: string): Promise<string[]> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/stores`)
+    if (!res.ok) return []
+    const body = (await res.json().catch(() => null)) as { storeIds?: string[] } | null
+    return body?.storeIds ?? []
+  } catch {
+    return []
+  }
+}
+
+async function facadeSetStaffStores(
+  staffId: string,
+  storeIds: string[],
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/staff/${enc(staffId)}/stores`,
+      jsonInit('PUT', { storeIds }),
+    )
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string; code?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    if (typeof body?.error === 'object' && body.error?.code === 'forbidden') {
+      return { error: 'Only the salon owner can manage stores.' }
+    }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
 // (chrome packet — the StoreSwitcher's one mutation). The web version writes
 // the karute_active_store cookie; the shell persists the store-id header
 // source instead and reloads so every screen re-fetches through the new
@@ -641,8 +689,8 @@ export const getActiveStoreId = async (): Promise<string | null> => {
   const { getThinActiveStore } = await import('../chrome/store-pref')
   return getThinActiveStore()
 }
-export const getStaffStores = notWired('getStaffStores')
-export const setStaffStores = notWired('setStaffStores')
+export const getStaffStores = facadeGetStaffStores
+export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
 
@@ -721,34 +769,280 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   }
 }
 
-// -- settings (design-parity packet 12 §S1, packet 17 §S3) — organization/
-// theme/ai/recording/packs/店舗/監査ログ tabs are LIVE (upsertOrgSettings is
-// the one write the first five share; audit is read-only). スタッフ/同期
-// still render an in-shell 準備中 panel (SettingsShell's pendingTabIds) —
+// -- staff credentials/identity (design-parity packet 12 §B-3 S4b — スタッフ
+// tab live). Local redeclarations, not imports — same "redeclare the shape"
+// convention as StoreRow/AuditLogEvent above (the real modules' import
+// chains pull in next/cache et al).
+type InviteRole = 'ADMIN' | 'STYLIST' | 'ASSISTANT'
+type InviteInput = { email: string; role: InviteRole; staffId?: string }
+type InviteRow = {
+  id: string
+  email: string
+  role: InviteRole
+  status: 'pending' | 'accepted' | 'revoked'
+  created_at: string
+  expires_at: string
+}
+
+// PIN routes: web's own { error? } result rides the 2xx body VERBATIM (the
+// core's own business-result passthrough — a PIN write failure is a 200
+// with an error string, not a non-2xx status). Non-2xx (auth/validation/
+// transport) maps to the same fallback shape.
+async function facadeSetStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/pin`, jsonInit('PUT', { pin }))
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string }
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && body) return body as { error?: string }
+    const message = (body as { error?: { message?: string } } | null)?.error?.message
+    return { error: message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeRemoveStaffPin(staffId: string): Promise<{ error?: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/pin`, { method: 'DELETE' })
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string }
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && body) return body as { error?: string }
+    const message = (body as { error?: { message?: string } } | null)?.error?.message
+    return { error: message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// Voice routes: web's own { ok, enrolledAt? } / { ok } contracts never carry
+// an 'error' field — a denied/failed write is silently { ok: false }, so the
+// body's OWN `ok` is read (unlike okCall, which only checks HTTP status —
+// the facade route always 200s even on a business-level ownership denial,
+// same RPC-style class as every other core-backed route in this file).
+async function facadeEnrollVoice(
+  staffId: string,
+  formData: FormData,
+): Promise<{ ok: boolean; enrolledAt?: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!res.ok) return { ok: false }
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; enrolledAt?: string } | null
+    return { ok: !!body?.ok, enrolledAt: body?.enrolledAt }
+  } catch {
+    return { ok: false }
+  }
+}
+
+async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, { method: 'DELETE' })
+    if (!res.ok) return { ok: false }
+    const body = (await res.json().catch(() => null)) as { ok?: boolean } | null
+    return { ok: !!body?.ok }
+  } catch {
+    return { ok: false }
+  }
+}
+
+// Invites: createInvite is create-class → Idempotency-Key (idemPost). listInvites
+// degrades to [] on ANY failure (web-exact — the web action's own two catches
+// both return []). revokeInvite mirrors createStore's business-result
+// passthrough (2xx { ok: true } | { error } VERBATIM).
+async function facadeCreateInvite(input: InviteInput): Promise<{ token: string } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/invites', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { token?: string; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.token) return { token: body.token }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Create failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeListInvites(): Promise<InviteRow[]> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/invites')
+    if (!res.ok) return []
+    const body = (await res.json().catch(() => null)) as { invites?: InviteRow[] } | null
+    return body?.invites ?? []
+  } catch {
+    return []
+  }
+}
+
+async function facadeRevokeInvite(id: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/invites/${enc(id)}`, { method: 'DELETE' })
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Revoke failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// -- staff profile/authority (design-parity packet 12 §B-3 S4b tab-live
+// prerequisite — StaffForm calls getStaffPermissions/getStaffStores on
+// mount and create/update/setStaffPermissions/setStaffStores on submit;
+// StaffList calls deleteStaff/uploadStaffAvatar — all reachable now that
+// the tab is live). Local redeclarations, not imports — same "redeclare the
+// shape" convention as StoreRow/InviteRow above (the real actions modules'
+// import chains pull in next/cache et al).
+type StaffProfileInput = { name: string; position: string; email: string; phone: string }
+type StaffActionResult = { error: string } | void
+type StaffPermissionsResult = { permissionRole: PermissionRole; capabilities: Capability[]; isOwner: boolean }
+
+// create/update/delete: web's own { error } | void result rides the 2xx
+// body VERBATIM ({id}|{ok:true} on success, {error} on a business failure —
+// same RPC-style class as every other core-backed route in this file).
+// createStaff is create-class → Idempotency-Key (idemPost), matching
+// createInvite/createStore.
+async function facadeCreateStaffAction(data: StaffProfileInput): Promise<StaffActionResult> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/staff', idemPost(data))
+    const body = (await res.json().catch(() => null)) as
+      | { id?: string; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.id) return
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Create failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeUpdateStaffAction(id: string, data: StaffProfileInput): Promise<StaffActionResult> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(id)}`, jsonInit('PATCH', data))
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Update failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeDeleteStaffAction(id: string): Promise<StaffActionResult> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(id)}`, { method: 'DELETE' })
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Delete failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// avatar: multipart passthrough — same idiom as facadeUploadCustomerPhoto/
+// facadeEnrollVoice above (the browser sets the multipart Content-Type +
+// boundary; do NOT set it by hand).
+async function facadeUploadStaffAvatarAction(
+  staffId: string,
+  formData: FormData,
+): Promise<{ url: string } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/avatar`, {
+      method: 'POST',
+      body: formData,
+    })
+    const body = (await res.json().catch(() => null)) as
+      | { url?: string; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.url) return { url: body.url }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Upload failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// permissions: GET's 2xx body IS the union already (StaffPermissionsResult |
+// {error}) — verbatim passthrough, same class as facadeUpsertOrgSettings.
+// PUT mirrors it; StaffForm branches on 'error' in result exactly as it
+// does against the web action.
+async function facadeGetStaffPermissions(
+  staffId: string,
+): Promise<StaffPermissionsResult | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/permissions`)
+    const parsed = (await res.json().catch(() => null)) as
+      | (StaffPermissionsResult & { error?: unknown })
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && parsed) return parsed as StaffPermissionsResult | { error: string }
+    const envelope = parsed as { error?: { message?: string } } | null
+    return { error: envelope?.error?.message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeSetStaffPermissions(
+  staffId: string,
+  permissionRole: PermissionRole,
+  capabilities: Capability[],
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/staff/${enc(staffId)}/permissions`,
+      jsonInit('PUT', { permissionRole, capabilities }),
+    )
+    const parsed = (await res.json().catch(() => null)) as
+      | ({ ok: true } | { error: string })
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && parsed) return parsed as { ok: true } | { error: string }
+    const envelope = parsed as { error?: { message?: string } } | null
+    return { error: envelope?.error?.message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// -- settings (design-parity packet 12 §S1, packet 17 §S3, §B-3 S4b) —
+// organization/theme/ai/recording/packs/店舗/監査ログ/スタッフ tabs are LIVE
+// (upsertOrgSettings is the one write the first five share; audit is
+// read-only; staff profile/authority/credentials all wired below). 同期
+// still renders an in-shell 準備中 panel (SettingsShell's pendingTabIds) —
 // SettingsShell still statically imports every section unconditionally, so
-// StaffSection/SyncSection (and their children: InviteStaffDialog,
-// StaffList, StaffForm, PinSetup, VoiceEnrollmentDialog) are ALL in the thin
-// bundle's import graph regardless of which tabs are pending — Rollup
-// requires every named import they make from @/actions/* to resolve, hence
-// the stub roster below. None of these run in S1 (their tabs never render
-// past the pending intercept); notWired throws loudly if that ever changes
-// without a deliberate wire-up.
+// SyncSection is still in the thin bundle's import graph regardless of
+// whether its tab is pending — Rollup requires every named import it makes
+// from @/actions/* to resolve, hence the one remaining stub below.
 export const upsertOrgSettings = facadeUpsertOrgSettings
 export const getOrgSettings = notWired('getOrgSettings')
 export const listAuditLog = facadeListAuditLog
-export const createInvite = notWired('createInvite')
-export const listInvites = notWired('listInvites')
-export const revokeInvite = notWired('revokeInvite')
-export const getStaffPermissions = notWired('getStaffPermissions')
-export const setStaffPermissions = notWired('setStaffPermissions')
-export const createStaff = notWired('createStaff')
-export const deleteStaff = notWired('deleteStaff')
-export const updateStaff = notWired('updateStaff')
-export const uploadStaffAvatar = notWired('uploadStaffAvatar')
-export const removeStaffPin = notWired('removeStaffPin')
-export const setStaffPin = notWired('setStaffPin')
-export const enrollVoiceAction = notWired('enrollVoiceAction')
-export const revokeVoiceAction = notWired('revokeVoiceAction')
+export const createInvite = facadeCreateInvite
+export const listInvites = facadeListInvites
+export const revokeInvite = facadeRevokeInvite
+export const getStaffPermissions = facadeGetStaffPermissions
+export const setStaffPermissions = facadeSetStaffPermissions
+export const createStaff = facadeCreateStaffAction
+export const deleteStaff = facadeDeleteStaffAction
+export const updateStaff = facadeUpdateStaffAction
+export const uploadStaffAvatar = facadeUploadStaffAvatarAction
+export const removeStaffPin = facadeRemoveStaffPin
+export const setStaffPin = facadeSetStaffPin
+export const enrollVoiceAction = facadeEnrollVoice
+export const revokeVoiceAction = facadeRevokeVoice
 // -- karute (sessions list — packet 05; New カルテ create is unwired in the
 //    read-only batch, but speaks the action's own { error } | void contract:
 //    NewKaruteDialog only renders RETURNED errors — a throw inside its

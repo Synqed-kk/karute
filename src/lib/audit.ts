@@ -208,4 +208,17 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '' },
   'permissions.update': { kind: 'skip', category: 'settings', action: '' },
   'staffStores.set': { kind: 'skip', category: 'settings', action: '' },
+  // PIN + voice + invites (design-parity packet 12 §S4b): setStaffPinCore/
+  // removeStaffPinCore/enrollVoiceActionCore/revokeVoiceActionCore/
+  // createInviteCore/revokeInviteCore (the ONE core both the web action and
+  // the matching facade route call) already emit their own row
+  // (staff.pin_set/pin_removed, privacy.voice_enroll/voice_revoke,
+  // staff.invite_create/invite_revoke). Same reasoning as staff.create/
+  // update/delete above — a rule here would double-log every facade write.
+  'staff.setPin': { kind: 'skip', category: 'staff', action: '' },
+  'staff.removePin': { kind: 'skip', category: 'staff', action: '' },
+  'staff.voice.enroll': { kind: 'skip', category: 'privacy', action: '' },
+  'staff.voice.revoke': { kind: 'skip', category: 'privacy', action: '' },
+  'invite.create': { kind: 'skip', category: 'staff', action: '' },
+  'invite.revoke': { kind: 'skip', category: 'staff', action: '' },
 }

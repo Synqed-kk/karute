@@ -1,8 +1,10 @@
 'use server'
 
 import { updateTag } from 'next/cache'
+import type { SynqedClient } from '@synqed-kk/client'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { auditWeb } from '@/lib/audit-web'
+import { audit } from '@/lib/audit'
+import { resolveWebAuditContext } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import {
   checkPinThrottle,
@@ -10,33 +12,112 @@ import {
   recordPinSuccess,
 } from '@/lib/auth/pin-throttle'
 
+// Explicit-client seam (design-parity packet 12 §S4b — the P-B pattern, same
+// as the S4a cores): the set/remove cores below take this instead of
+// resolving getSynqedClient() from the cookie session, so the facade
+// (Bearer path) and the web actions run the IDENTICAL write logic.
+type StaffPinClient = Pick<SynqedClient, 'staff'>
+
+/** Identity + provenance a Bearer/cookie caller feeds a PIN write core. */
+type StaffPinWriteDeps = {
+  actorId: string | null
+  source: 'web' | 'facade'
+}
+
+/**
+ * Client-threaded core of setStaffPin (facade Bearer path, design-parity
+ * packet 12 §S4b). `actingStaffId` gates the change by the acting
+ * (signed-in) staff — you may set your own PIN, or an OWNER/ADMIN may set
+ * anyone's; synqed-core enforces that rule from this id, so a null id
+ * (unresolvable identity) fails closed here rather than reaching the SDK.
+ * businessId is AUDIT-ONLY (same reasoning as createStaffCore) — the synqed
+ * client already carries tenant scope.
+ */
+export async function setStaffPinCore(
+  synqed: StaffPinClient,
+  businessId: string | null,
+  deps: StaffPinWriteDeps,
+  staffId: string,
+  pin: string,
+  actingStaffId: string | null,
+): Promise<{ error?: string }> {
+  if (!/^\d{4}$/.test(pin)) {
+    return { error: 'PIN must be exactly 4 digits' }
+  }
+  if (!actingStaffId) {
+    return { error: 'Not authorized to set a PIN' }
+  }
+
+  try {
+    await synqed.staff.setPin(staffId, pin, actingStaffId)
+    // Credential change (never the PIN itself — ids only).
+    audit({
+      category: 'staff',
+      action: 'staff.pin_set',
+      severity: 'notice',
+      actorId: deps.actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      source: deps.source,
+    })
+    return {}
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
 /**
  * Set or update a staff member's 4-digit PIN. Hashing happens server-side.
  * Core gates the change by the acting (signed-in) staff: you may set your own
  * PIN, or an OWNER/ADMIN may set anyone's.
  */
 export async function setStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
-  if (!/^\d{4}$/.test(pin)) {
-    return { error: 'PIN must be exactly 4 digits' }
+  const actingStaffId = await getCurrentUserStaffId()
+
+  let synqed: StaffPinClient
+  try {
+    synqed = await getSynqedClient()
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 
-  const actingStaffId = await getCurrentUserStaffId()
+  const { actorId, businessId } = await resolveWebAuditContext()
+  const result = await setStaffPinCore(synqed, businessId, { actorId, source: 'web' }, staffId, pin, actingStaffId)
+  if (!result.error) updateTag('staff-list')
+  return result
+}
+
+/**
+ * Client-threaded core of removeStaffPin (facade Bearer path, design-parity
+ * packet 12 §S4b). Same actingStaffId gate + businessId posture as
+ * setStaffPinCore above.
+ */
+export async function removeStaffPinCore(
+  synqed: StaffPinClient,
+  businessId: string | null,
+  deps: StaffPinWriteDeps,
+  staffId: string,
+  actingStaffId: string | null,
+): Promise<{ error?: string }> {
   if (!actingStaffId) {
-    return { error: 'Not authorized to set a PIN' }
+    return { error: 'Not authorized to remove a PIN' }
   }
 
   try {
-    const synqed = await getSynqedClient()
-    await synqed.staff.setPin(staffId, pin, actingStaffId)
-    // Credential change (never the PIN itself — ids only).
-    await auditWeb({
+    await synqed.staff.removePin(staffId, actingStaffId)
+    audit({
       category: 'staff',
-      action: 'staff.pin_set',
+      action: 'staff.pin_removed',
       severity: 'notice',
+      actorId: deps.actorId,
+      actorType: 'staff',
+      businessId,
       targetType: 'staff',
       targetId: staffId,
+      source: deps.source,
     })
-    updateTag('staff-list')
     return {}
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -48,25 +129,18 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
  */
 export async function removeStaffPin(staffId: string): Promise<{ error?: string }> {
   const actingStaffId = await getCurrentUserStaffId()
-  if (!actingStaffId) {
-    return { error: 'Not authorized to remove a PIN' }
-  }
 
+  let synqed: StaffPinClient
   try {
-    const synqed = await getSynqedClient()
-    await synqed.staff.removePin(staffId, actingStaffId)
-    await auditWeb({
-      category: 'staff',
-      action: 'staff.pin_removed',
-      severity: 'notice',
-      targetType: 'staff',
-      targetId: staffId,
-    })
-    updateTag('staff-list')
-    return {}
+    synqed = await getSynqedClient()
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
+
+  const { actorId, businessId } = await resolveWebAuditContext()
+  const result = await removeStaffPinCore(synqed, businessId, { actorId, source: 'web' }, staffId, actingStaffId)
+  if (!result.error) updateTag('staff-list')
+  return result
 }
 
 /**

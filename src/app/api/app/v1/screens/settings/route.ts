@@ -107,14 +107,23 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     const auditTargetId =
       initialTab === 'audit' ? new URL(ctx.req.url).searchParams.get('target') : null
 
-    // Least-privilege (S1 fix batch): voice_enrollments always reads back as
-    // {} here — no live S1 section reads this field (grep-proven) and the
-    // write path already excludes it (writeOrgSettingsBlobWithClient never
-    // accepts it, pinned at app-api-org-settings-patch.test.ts:126), so the
-    // read path now matches that posture. org-settings.ts's own reads are
+    // Per-staff scoping (design-parity packet 12 §S4b — un-zeroing S1's
+    // placeholder now that スタッフ is live and StaffList/SettingsShell read
+    // this field to render the voice chip): staff-owned data rule — a
+    // staff.manage identity sees every entry (same floor as the voice
+    // routes' owner/manager branch); anyone else sees ONLY their own row
+    // (selfRow.id), never a coworker's enrollment state. The write path
+    // stays excluded regardless (writeOrgSettingsBlobWithClient never
+    // accepts this field, pinned at app-api-org-settings-patch.test.ts:126)
+    // — this is a read-scoping change only. org-settings.ts's own reads are
     // untouched — voice.ts still resolves real enrollment data on its paths.
+    const voiceEnrollmentsForDto = canManageStaff
+      ? (orgSettings?.voice_enrollments ?? {})
+      : selfRow && orgSettings?.voice_enrollments?.[selfRow.id]
+        ? { [selfRow.id]: orgSettings.voice_enrollments[selfRow.id] }
+        : {}
     const orgSettingsForDto = orgSettings
-      ? { ...orgSettings, voice_enrollments: {} }
+      ? { ...orgSettings, voice_enrollments: voiceEnrollmentsForDto }
       : orgSettings
 
     return ok(

@@ -30,7 +30,13 @@ const DIST = 'thin/dist/assets'
 // StoresSection + StoreFormDialog (+12.6 KB genuine section code,
 // duplication-checked) against 6.2 KB of remaining headroom; still only a
 // tripwire — the purchase-marker scan stays the real gate.
-const BUDGET_BYTES = 1_600_000
+// Raised 2026-07-22 at packet 12 §B-3 S4b — the スタッフ tab goes live
+// (StaffSection + StaffForm/PinSetup/VoiceEnrollmentDialog/
+// InviteStaffDialog now ship), measured at 1584.7 KB raw against the prior
+// 1562.5 KB ceiling. Still a NON-LOAD-BEARING size tripwire, not the real
+// gate — the purchase-exclusion marker scan below (0/13) is what actually
+// blocks a leak (Liam's 2026-07-19 ruling).
+const BUDGET_BYTES = 1_650_000
 
 let dir
 try {
