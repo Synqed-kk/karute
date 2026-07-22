@@ -721,34 +721,161 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   }
 }
 
-// -- settings (design-parity packet 12 §S1, packet 17 §S3) — organization/
-// theme/ai/recording/packs/店舗/監査ログ tabs are LIVE (upsertOrgSettings is
-// the one write the first five share; audit is read-only). スタッフ/同期
-// still render an in-shell 準備中 panel (SettingsShell's pendingTabIds) —
-// SettingsShell still statically imports every section unconditionally, so
-// StaffSection/SyncSection (and their children: InviteStaffDialog,
-// StaffList, StaffForm, PinSetup, VoiceEnrollmentDialog) are ALL in the thin
-// bundle's import graph regardless of which tabs are pending — Rollup
-// requires every named import they make from @/actions/* to resolve, hence
-// the stub roster below. None of these run in S1 (their tabs never render
-// past the pending intercept); notWired throws loudly if that ever changes
-// without a deliberate wire-up.
+// -- staff credentials/identity (design-parity packet 12 §B-3 S4b — スタッフ
+// tab live). Local redeclarations, not imports — same "redeclare the shape"
+// convention as StoreRow/AuditLogEvent above (the real modules' import
+// chains pull in next/cache et al).
+type InviteRole = 'ADMIN' | 'STYLIST' | 'ASSISTANT'
+type InviteInput = { email: string; role: InviteRole; staffId?: string }
+type InviteRow = {
+  id: string
+  email: string
+  role: InviteRole
+  status: 'pending' | 'accepted' | 'revoked'
+  created_at: string
+  expires_at: string
+}
+
+// PIN routes: web's own { error? } result rides the 2xx body VERBATIM (the
+// core's own business-result passthrough — a PIN write failure is a 200
+// with an error string, not a non-2xx status). Non-2xx (auth/validation/
+// transport) maps to the same fallback shape.
+async function facadeSetStaffPin(staffId: string, pin: string): Promise<{ error?: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/pin`, jsonInit('PUT', { pin }))
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string }
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && body) return body as { error?: string }
+    const message = (body as { error?: { message?: string } } | null)?.error?.message
+    return { error: message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeRemoveStaffPin(staffId: string): Promise<{ error?: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/pin`, { method: 'DELETE' })
+    const body = (await res.json().catch(() => null)) as
+      | { error?: string }
+      | { error?: { message?: string } }
+      | null
+    if (res.ok && body) return body as { error?: string }
+    const message = (body as { error?: { message?: string } } | null)?.error?.message
+    return { error: message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// Voice routes: web's own { ok, enrolledAt? } / { ok } contracts never carry
+// an 'error' field — a denied/failed write is silently { ok: false }, so the
+// body's OWN `ok` is read (unlike okCall, which only checks HTTP status —
+// the facade route always 200s even on a business-level ownership denial,
+// same RPC-style class as every other core-backed route in this file).
+async function facadeEnrollVoice(
+  staffId: string,
+  formData: FormData,
+): Promise<{ ok: boolean; enrolledAt?: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, {
+      method: 'POST',
+      body: formData,
+    })
+    if (!res.ok) return { ok: false }
+    const body = (await res.json().catch(() => null)) as { ok?: boolean; enrolledAt?: string } | null
+    return { ok: !!body?.ok, enrolledAt: body?.enrolledAt }
+  } catch {
+    return { ok: false }
+  }
+}
+
+async function facadeRevokeVoice(staffId: string): Promise<{ ok: boolean }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/voice`, { method: 'DELETE' })
+    if (!res.ok) return { ok: false }
+    const body = (await res.json().catch(() => null)) as { ok?: boolean } | null
+    return { ok: !!body?.ok }
+  } catch {
+    return { ok: false }
+  }
+}
+
+// Invites: createInvite is create-class → Idempotency-Key (idemPost). listInvites
+// degrades to [] on ANY failure (web-exact — the web action's own two catches
+// both return []). revokeInvite mirrors createStore's business-result
+// passthrough (2xx { ok: true } | { error } VERBATIM).
+async function facadeCreateInvite(input: InviteInput): Promise<{ token: string } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/invites', idemPost(input))
+    const body = (await res.json().catch(() => null)) as
+      | { token?: string; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.token) return { token: body.token }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Create failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+async function facadeListInvites(): Promise<InviteRow[]> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/invites')
+    if (!res.ok) return []
+    const body = (await res.json().catch(() => null)) as { invites?: InviteRow[] } | null
+    return body?.invites ?? []
+  } catch {
+    return []
+  }
+}
+
+async function facadeRevokeInvite(id: string): Promise<{ ok: true } | { error: string }> {
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/invites/${enc(id)}`, { method: 'DELETE' })
+    const body = (await res.json().catch(() => null)) as
+      | { ok?: boolean; error?: string | { message?: string } }
+      | null
+    if (res.ok && body?.ok) return { ok: true }
+    const message = typeof body?.error === 'string' ? body.error : body?.error?.message
+    return { error: message ?? `Revoke failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network error' }
+  }
+}
+
+// -- settings (design-parity packet 12 §S1, packet 17 §S3, §B-3 S4b) —
+// organization/theme/ai/recording/packs/店舗/監査ログ/スタッフ tabs are LIVE
+// (upsertOrgSettings is the one write the first five share; audit is
+// read-only; staff credentials wired below). 同期 still renders an in-shell
+// 準備中 panel (SettingsShell's pendingTabIds) — SettingsShell still
+// statically imports every section unconditionally, so SyncSection is
+// still in the thin bundle's import graph regardless of whether its tab is
+// pending — Rollup requires every named import it makes from @/actions/* to
+// resolve, hence the remaining stub roster below. getStaffPermissions/
+// setStaffPermissions/createStaff/deleteStaff/updateStaff/uploadStaffAvatar/
+// getStaffStores/setStaffStores stay notWired — S4a shipped their facade
+// routes but not their thin ports (a follow-up wire-up, out of S4b's scope);
+// notWired throws loudly if StaffForm/StaffList reach them before that
+// wire-up lands.
 export const upsertOrgSettings = facadeUpsertOrgSettings
 export const getOrgSettings = notWired('getOrgSettings')
 export const listAuditLog = facadeListAuditLog
-export const createInvite = notWired('createInvite')
-export const listInvites = notWired('listInvites')
-export const revokeInvite = notWired('revokeInvite')
+export const createInvite = facadeCreateInvite
+export const listInvites = facadeListInvites
+export const revokeInvite = facadeRevokeInvite
 export const getStaffPermissions = notWired('getStaffPermissions')
 export const setStaffPermissions = notWired('setStaffPermissions')
 export const createStaff = notWired('createStaff')
 export const deleteStaff = notWired('deleteStaff')
 export const updateStaff = notWired('updateStaff')
 export const uploadStaffAvatar = notWired('uploadStaffAvatar')
-export const removeStaffPin = notWired('removeStaffPin')
-export const setStaffPin = notWired('setStaffPin')
-export const enrollVoiceAction = notWired('enrollVoiceAction')
-export const revokeVoiceAction = notWired('revokeVoiceAction')
+export const removeStaffPin = facadeRemoveStaffPin
+export const setStaffPin = facadeSetStaffPin
+export const enrollVoiceAction = facadeEnrollVoice
+export const revokeVoiceAction = facadeRevokeVoice
 // -- karute (sessions list — packet 05; New カルテ create is unwired in the
 //    read-only batch, but speaks the action's own { error } | void contract:
 //    NewKaruteDialog only renders RETURNED errors — a throw inside its
