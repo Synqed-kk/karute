@@ -2,8 +2,9 @@
 // retires its 準備中 placeholder. Fetches the screen-shaped DTO through the
 // DataPort and renders the REAL SettingsShell — the same leaf component tree
 // the web page renders — with organization/theme/ai/recording/packs/coaching/
-// 店舗 LIVE and staff/sync/audit routed to SettingsShell's own in-shell
-// 準備中 panel via the pendingTabIds prop.
+// 店舗/staff LIVE and 同期 routed to SettingsShell's own in-shell web-only
+// panel via the webOnlyTabIds prop (packet 20 §S5 — sync stays web-only by
+// design, not "coming soon").
 //
 // initialStores/initialEntitlement now thread the real DTO fields (packet 12
 // §B-3 S2 — the 店舗 tab going live).
@@ -15,10 +16,16 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(raw)
 
-// Tabs not yet ported to the shell this slice — shrinks to empty as later
-// design-parity packets land the real 同期 section. 監査ログ moved OUT at
-// packet 17 §S3, スタッフ at packet 12 §B-3 S4b — both tabs are now live.
-const PENDING_TAB_IDS: readonly SettingsTabId[] = ['sync']
+// Tabs not yet ported to the shell this slice — the mechanism stays for
+// future tabs even though it's empty now. 監査ログ moved OUT at packet 17
+// §S3, スタッフ at packet 12 §B-3 S4b — both tabs are now live.
+const PENDING_TAB_IDS: readonly SettingsTabId[] = []
+
+// Tabs that stay permanently web-only (design-parity packet 20 §S5) — 同期
+// is La-Estro-specific and structurally unreachable from the Bearer-only
+// thin shell (see packet 20 for the full ruling). Distinct from
+// PENDING_TAB_IDS: this isn't "not built yet", it's "never coming to app".
+const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync']
 
 // Exported for the real-render prop-mapping smoke test (same idiom as
 // DashboardScreenInner) — this passthrough has its own coverage beyond the
@@ -41,6 +48,7 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
       initialActiveStoreId={dto.initialActiveStoreId}
       initialEntitlement={dto.initialEntitlement}
       pendingTabIds={PENDING_TAB_IDS}
+      webOnlyTabIds={WEB_ONLY_TAB_IDS}
       featureStaffInvites={dto.featureStaffInvites}
       featureMultiStore={dto.featureMultiStore}
     />

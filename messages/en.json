@@ -1934,6 +1934,9 @@
     "tableColors": "Table Colors",
     "bookingSync": "Booking Sync",
     "bookingSyncDescription": "Sync with Quick Reserve etc.",
+    "sync": {
+      "webOnly": "Reservation sync is managed from the web version's settings"
+    },
     "stores": {
       "plan": {
         "label": "Current plan",
