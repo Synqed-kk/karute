@@ -99,6 +99,12 @@ jest.mock('../../../thin/screens/ProfileScreen', () => ({
 jest.mock('../../../thin/screens/SettingsScreen', () => ({
   SettingsScreen: () => <div data-testid="settings-screen" />,
 }))
+// WelcomeScreen pulls the REAL WelcomeWizard (packet 21), which imports
+// next-intl (and '@/actions/org-settings') directly — same reason every
+// other real-screen sibling above gets a stub.
+jest.mock('../../../thin/screens/WelcomeScreen', () => ({
+  WelcomeScreen: () => <div data-testid="welcome-screen" />,
+}))
 
 const session = (token: string, userId = 'auth-user-1') =>
   ({ access_token: token, user: { id: userId } }) as Session

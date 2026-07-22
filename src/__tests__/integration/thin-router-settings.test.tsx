@@ -32,6 +32,12 @@ jest.mock('../../../thin/screens/CustomerProfileScreen', () => ({
 jest.mock('../../../thin/screens/KaruteDetailScreen', () => ({
   KaruteDetailScreen: () => <div>KARUTE_DETAIL</div>,
 }))
+// WelcomeScreen pulls the REAL WelcomeWizard (packet 21), which imports
+// next-intl (and '@/actions/org-settings') directly — same reason every
+// other real-screen sibling above gets a stub.
+jest.mock('../../../thin/screens/WelcomeScreen', () => ({
+  WelcomeScreen: () => <div>WELCOME</div>,
+}))
 
 import { render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
