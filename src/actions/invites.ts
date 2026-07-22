@@ -11,7 +11,8 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
-import { auditWeb } from '@/lib/audit-web'
+import { audit } from '@/lib/audit'
+import { auditWeb, resolveWebActorId, resolveWebAuditContext } from '@/lib/audit-web'
 import { synqedRoleToPreset } from '@/lib/auth/permissions'
 import {
   inviteSchema,
@@ -19,6 +20,18 @@ import {
   type InviteRole,
   INVITE_TTL_DAYS,
 } from '@/lib/validations/invite'
+
+// Explicit-client seam (design-parity packet 12 §S4b — the P-B pattern, same
+// as the S4a cores): the cores below take this instead of resolving
+// getSynqedClient() from the cookie session, so the facade (Bearer path) and
+// the web actions run the IDENTICAL write logic.
+type InviteClient = Pick<SynqedClient, 'invites'>
+
+/** Identity + provenance a Bearer/cookie caller feeds an invite write core. */
+type InviteWriteDeps = {
+  actorId: string | null
+  source: 'web' | 'facade'
+}
 
 // ───────────────────────────────────────────────────────────────────────────
 // Staff invites — owner creates a tokenized invite; invitee joins via /join.
@@ -62,6 +75,67 @@ function getPublicSynqedClient(): SynqedClient {
   return new SynqedClient({ baseUrl, apiKey, businessId: '' })
 }
 
+/** Client-threaded core of createInvite (facade Bearer path, design-parity
+ *  packet 12 §S4b). `invitedBy` is explicit — web resolves it via the
+ *  cookie-bound getCurrentUserStaffId, the facade via the Bearer identity
+ *  roster row (selfRow idiom); never caller-supplied. businessId is
+ *  REQUIRED — it scopes the existing-member lookup (tenant boundary), not
+ *  just the audit row. */
+export async function createInviteCore(
+  synqed: InviteClient,
+  businessId: string,
+  deps: InviteWriteDeps,
+  invitedBy: string | null,
+  input: InviteInput,
+): Promise<{ token: string } | { error: string }> {
+  const { email, role, staffId } = input
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const service = createServiceClient() as any
+
+  // Don't invite someone already in this business. Case-insensitive: the invite
+  // email is normalized lowercase, but profile emails may carry the original
+  // signup casing, so `.eq` would miss them. (Greptile flag, #158.)
+  const { data: existingMember } = await service
+    .from('profiles')
+    .select('id')
+    .ilike('email', email)
+    .eq('customer_id', businessId)
+    .maybeSingle()
+  if (existingMember) return { error: 'That email is already a member of this salon.' }
+
+  const token = randomBytes(32).toString('hex')
+  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
+
+  let created: { id?: string }
+  try {
+    created = await synqed.invites.create({
+      email,
+      role,
+      token,
+      invited_by: invitedBy,
+      invited_staff_id: staffId ?? null,
+      expires_at: expiresAt,
+    })
+  } catch (e) {
+    return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
+  }
+
+  // ids only — the invite email is deliberately NOT logged (PII-free sink rule).
+  audit({
+    category: 'staff',
+    action: 'staff.invite_create',
+    actorId: deps.actorId,
+    actorType: 'staff',
+    businessId,
+    targetType: staffId ? 'staff' : undefined,
+    targetId: staffId ?? undefined,
+    detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
+    source: deps.source,
+  })
+
+  return { token }
+}
+
 /** Owner action: create a pending invite, return its token (the dialog builds the
  *  full link with origin + locale). */
 export async function createInvite(
@@ -90,63 +164,24 @@ export async function createInvite(
     if (!gate.allowed) return { error: 'STAFF_LIMIT_REACHED' }
   }
 
-  const { email, role, staffId } = parsed.data
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-
-  // Don't invite someone already in this business. Case-insensitive: the invite
-  // email is normalized lowercase, but profile emails may carry the original
-  // signup casing, so `.eq` would miss them. (Greptile flag, #158.)
-  const { data: existingMember } = await service
-    .from('profiles')
-    .select('id')
-    .ilike('email', email)
-    .eq('customer_id', businessId)
-    .maybeSingle()
-  if (existingMember) return { error: 'That email is already a member of this salon.' }
-
-  const token = randomBytes(32).toString('hex')
-  const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 86_400_000).toISOString()
-  const invitedBy = await getCurrentUserStaffId().catch(() => null)
-
-  let created: { id?: string }
+  let synqed: InviteClient
   try {
-    const synqed = await getSynqedClient()
-    created = await synqed.invites.create({
-      email,
-      role,
-      token,
-      invited_by: invitedBy,
-      invited_staff_id: staffId ?? null,
-      expires_at: expiresAt,
-    })
+    synqed = await getSynqedClient()
   } catch (e) {
-    return { error: `Could not create invite: ${e instanceof Error ? e.message : 'unknown error'}` }
+    return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
-
-  // ids only — the invite email is deliberately NOT logged (PII-free sink rule).
-  await auditWeb({
-    category: 'staff',
-    action: 'staff.invite_create',
-    businessId,
-    targetType: staffId ? 'staff' : undefined,
-    targetId: staffId ?? undefined,
-    detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
-  })
-
-  updateTag('staff-invites')
-  return { token }
+  const invitedBy = await getCurrentUserStaffId().catch(() => null)
+  const actorId = await resolveWebActorId()
+  const result = await createInviteCore(synqed, businessId, { actorId, source: 'web' }, invitedBy, parsed.data)
+  if ('token' in result) updateTag('staff-invites')
+  return result
 }
 
-/** Owner action: list this business's pending invites. */
-export async function listInvites(): Promise<InviteRow[]> {
+/** Client-threaded core of listInvites (facade Bearer path, design-parity
+ *  packet 12 §S4b). Never throws — degrades to [] the same way the web
+ *  action's own catch does. */
+export async function listInvitesWithClient(synqed: InviteClient): Promise<InviteRow[]> {
   try {
-    await requireCapability('staff.invite')
-  } catch {
-    return []
-  }
-  try {
-    const synqed = await getSynqedClient()
     const { invites } = await synqed.invites.list()
     // Core returns all statuses (createdAt desc); the UI only wants pending.
     return invites
@@ -164,6 +199,49 @@ export async function listInvites(): Promise<InviteRow[]> {
   }
 }
 
+/** Owner action: list this business's pending invites. */
+export async function listInvites(): Promise<InviteRow[]> {
+  try {
+    await requireCapability('staff.invite')
+  } catch {
+    return []
+  }
+  try {
+    const synqed = await getSynqedClient()
+    return await listInvitesWithClient(synqed)
+  } catch {
+    return []
+  }
+}
+
+/** Client-threaded core of revokeInvite (facade Bearer path, design-parity
+ *  packet 12 §S4b). businessId is AUDIT-ONLY — updateStatus is already
+ *  business-scoped server-side by the synqed client (id + x-business-id). */
+export async function revokeInviteCore(
+  synqed: InviteClient,
+  businessId: string | null,
+  deps: InviteWriteDeps,
+  id: string,
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    // updateStatus is business-scoped server-side (id + x-business-id), so a
+    // foreign invite id can't be revoked across tenants.
+    await synqed.invites.updateStatus(id, 'revoked')
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Could not revoke invite.' }
+  }
+  audit({
+    category: 'staff',
+    action: 'staff.invite_revoke',
+    actorId: deps.actorId,
+    actorType: 'staff',
+    businessId,
+    detail: { invite_id: id },
+    source: deps.source,
+  })
+  return { ok: true }
+}
+
 /** Owner action: revoke a pending invite (scoped to this business). */
 export async function revokeInvite(id: string): Promise<{ ok: true } | { error: string }> {
   try {
@@ -171,21 +249,17 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
+
+  let synqed: InviteClient
   try {
-    // updateStatus is business-scoped server-side (id + x-business-id), so a
-    // foreign invite id can't be revoked across tenants.
-    const synqed = await getSynqedClient()
-    await synqed.invites.updateStatus(id, 'revoked')
+    synqed = await getSynqedClient()
   } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Could not revoke invite.' }
+    return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
-  await auditWeb({
-    category: 'staff',
-    action: 'staff.invite_revoke',
-    detail: { invite_id: id },
-  })
-  updateTag('staff-invites')
-  return { ok: true }
+  const { actorId, businessId } = await resolveWebAuditContext()
+  const result = await revokeInviteCore(synqed, businessId, { actorId, source: 'web' }, id)
+  if ('ok' in result) updateTag('staff-invites')
+  return result
 }
 
 /** Public (unauthenticated) — validate a token for the /join page. Returns only
