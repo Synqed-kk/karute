@@ -83,7 +83,8 @@ describe('WelcomeScreen — wired mount (design-parity packet 21)', () => {
     // Prefill: the store-name input carries the DTO's salon_name.
     const nameInput = await screen.findByDisplayValue('テストサロン')
 
-    // WebOnly under native: the app-language fieldset never renders.
+    // hideLanguageChoice (passed by WelcomeScreen): the app-language
+    // fieldset never renders in the shell.
     expect(screen.queryByText('日本語')).toBeNull()
     expect(screen.queryByText('English')).toBeNull()
 
