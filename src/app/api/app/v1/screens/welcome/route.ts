@@ -31,8 +31,16 @@ import { orgSettingsWithClient } from '@/actions/org-settings'
 export const runtime = 'nodejs'
 
 export const GET = facadeHandler('screens.welcome', async (ctx: FacadeContext) => {
-  // Screens-route class gate — same baseline every screens/* GET applies.
-  ensureCapability(ctx.identity.capabilities, 'customers.view')
+  // Screens-route class gate — the customers.view floor every screens/* GET
+  // applies — EXCEPT that settings.manage also passes: that is the capability
+  // authorizing COMPLETION of onboarding (the org-settings PATCH gate), and a
+  // custom role holding it without customers.view must not be locked out of
+  // the wizard it is authorized to submit (Greptile #586 P1 — write-without-
+  // read inconsistency). Web itself gates neither (auth-only getOrgSettings);
+  // the remaining floor is the documented family divergence.
+  if (!ctx.identity.capabilities.has('settings.manage')) {
+    ensureCapability(ctx.identity.capabilities, 'customers.view')
+  }
 
   try {
     const s = await orgSettingsWithClient(newSynqedClient(ctx.identity.businessId))

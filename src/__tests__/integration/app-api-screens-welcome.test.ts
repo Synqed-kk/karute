@@ -103,6 +103,12 @@ describe('GET /api/app/v1/screens/welcome', () => {
     expect(orgSettingsWithClient).not.toHaveBeenCalled()
   })
 
+  it('settings.manage WITHOUT customers.view → 200 (whoever can complete onboarding can open the wizard)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['settings.manage']))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+  })
+
   it('happy path → 200, configured salon maps 3 fields verbatim', async () => {
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
