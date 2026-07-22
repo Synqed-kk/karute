@@ -179,6 +179,13 @@ interface SettingsShellProps {
    *  visibleSettingsTabs capability gates as any other tab — only its
    *  CONTENT is replaced. Shrinks to empty as later parity slices land. */
   pendingTabIds?: readonly SettingsTabId[]
+  /** Server-truth feature flags (design-parity packet 12 §S4a). OPTIONAL;
+   *  omitted on web (StaffSection/StaffForm fall back to reading the env var
+   *  directly, today's behavior, byte-for-byte) — only the thin caller
+   *  passes these (its process.env is {}, so the env fallback alone would
+   *  always read false). */
+  featureStaffInvites?: boolean
+  featureMultiStore?: boolean
 }
 
 export function SettingsShell({
@@ -197,6 +204,8 @@ export function SettingsShell({
   initialActiveStoreId,
   initialEntitlement,
   pendingTabIds,
+  featureStaffInvites,
+  featureMultiStore,
 }: SettingsShellProps) {
   const t = useTranslations('settings')
   // null = mobile list view (no section drilled into).
@@ -256,6 +265,10 @@ export function SettingsShell({
                 ([id, v]) => [id, v.status === 'saved' ? v.consent_at : null],
               ),
             )}
+            businessType={orgSettings?.business_type}
+            stores={initialStores}
+            featureStaffInvites={featureStaffInvites}
+            featureMultiStore={featureMultiStore}
           />
         )
       case 'sync':

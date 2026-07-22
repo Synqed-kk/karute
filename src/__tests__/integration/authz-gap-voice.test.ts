@@ -2,7 +2,7 @@
 // caller-supplied staffId; a staffer may act only on their OWN voice, owner/
 // manager (staff.manage) on anyone's. Proven: a foreign staffId without
 // staff.manage is refused and NO write reaches the settings blob.
-jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }))
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn() }))
 jest.mock('@/lib/supabase/service', () => ({ createServiceClient: jest.fn() }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'business-1'),
@@ -10,14 +10,19 @@ jest.mock('@/lib/staff', () => ({
   resolveUserId: jest.fn(async () => 'me'),
 }))
 jest.mock('@/lib/auth/require-permission', () => ({ getMyCapabilities: jest.fn() }))
+// enrollVoiceAction/revokeVoiceAction now resolve a synqed client (design-
+// parity packet 12 §S4a core extraction) and delegate the org-settings
+// read/write to the WithClient twins instead of the cookie-path functions —
+// the client itself is opaque here (only threaded through to those twins).
+jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn(async () => ({})) }))
 jest.mock('@/actions/org-settings', () => ({
-  getOrgSettings: jest.fn(async () => ({ voice_enrollments: {} })),
-  writeOrgSettingsBlob: jest.fn(async () => ({ success: true })),
+  orgSettingsWithClient: jest.fn(async () => ({ voice_enrollments: {} })),
+  writeOrgSettingsBlobWithClient: jest.fn(async () => ({ success: true })),
 }))
 
 import { enrollVoiceAction, revokeVoiceAction } from '@/actions/voice'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { writeOrgSettingsBlob } from '@/actions/org-settings'
+import { writeOrgSettingsBlobWithClient } from '@/actions/org-settings'
 import { createServiceClient } from '@/lib/supabase/service'
 import { auditLines } from './helpers/audit-lines'
 
@@ -34,7 +39,7 @@ describe('voice enrollment ownership', () => {
     ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set()) // practitioner
     const res = await enrollVoiceAction('someone-else', audioForm())
     expect(res.ok).toBe(false)
-    expect(writeOrgSettingsBlob).not.toHaveBeenCalled()
+    expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
     expect(createServiceClient).not.toHaveBeenCalled() // never reached the storage upload
   })
 
@@ -42,7 +47,7 @@ describe('voice enrollment ownership', () => {
     ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
     const res = await revokeVoiceAction('someone-else')
     expect(res.ok).toBe(false)
-    expect(writeOrgSettingsBlob).not.toHaveBeenCalled()
+    expect(writeOrgSettingsBlobWithClient).not.toHaveBeenCalled()
   })
 
   it('allows a manager (staff.manage) to revoke another staffer', async () => {
@@ -50,13 +55,13 @@ describe('voice enrollment ownership', () => {
     ;(createServiceClient as jest.Mock).mockReturnValue({
       storage: { from: () => ({ remove: jest.fn(async () => ({})) }) },
     })
-    const { getOrgSettings } = await import('@/actions/org-settings')
-    ;(getOrgSettings as jest.Mock).mockResolvedValue({
+    const { orgSettingsWithClient } = await import('@/actions/org-settings')
+    ;(orgSettingsWithClient as jest.Mock).mockResolvedValue({
       voice_enrollments: { 'someone-else': { sample_path: 'p', status: 'saved' } },
     })
     const res = await revokeVoiceAction('someone-else')
     expect(res.ok).toBe(true)
-    expect(writeOrgSettingsBlob).toHaveBeenCalled()
+    expect(writeOrgSettingsBlobWithClient).toHaveBeenCalled()
   })
 })
 
@@ -82,13 +87,49 @@ describe('voice audit writers (wave A part 3)', () => {
     })
   })
 
+  it('a FAILED settings write on ENROLL → ok:false, no audit row, no invalidation', async () => {
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
+    ;(createServiceClient as jest.Mock).mockReturnValue({
+      storage: { from: () => ({ upload: jest.fn(async () => ({ error: null })) }) },
+    })
+    ;(writeOrgSettingsBlobWithClient as jest.Mock).mockResolvedValueOnce({
+      error: 'upstream unavailable',
+    })
+    const { updateTag } = jest.requireMock('next/cache')
+    const lines = await auditLines(async () => {
+      await expect(enrollVoiceAction('me', audioForm())).resolves.toEqual({ ok: false })
+    })
+    expect(lines).toHaveLength(0)
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
+  it('a FAILED settings write → ok:false, no audit row, no invalidation', async () => {
+    ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
+    ;(createServiceClient as jest.Mock).mockReturnValue({
+      storage: { from: () => ({ remove: jest.fn(async () => ({})) }) },
+    })
+    const { orgSettingsWithClient } = await import('@/actions/org-settings')
+    ;(orgSettingsWithClient as jest.Mock).mockResolvedValue({
+      voice_enrollments: { me: { sample_path: 'p', status: 'saved' } },
+    })
+    ;(writeOrgSettingsBlobWithClient as jest.Mock).mockResolvedValueOnce({
+      error: 'upstream unavailable',
+    })
+    const { updateTag } = jest.requireMock('next/cache')
+    const lines = await auditLines(async () => {
+      await expect(revokeVoiceAction('me')).resolves.toEqual({ ok: false })
+    })
+    expect(lines).toHaveLength(0)
+    expect(updateTag).not.toHaveBeenCalled()
+  })
+
   it('a successful revoke emits privacy.voice_revoke; a refused one emits nothing', async () => {
     ;(getMyCapabilities as jest.Mock).mockResolvedValue(new Set())
     ;(createServiceClient as jest.Mock).mockReturnValue({
       storage: { from: () => ({ remove: jest.fn(async () => ({})) }) },
     })
-    const { getOrgSettings } = await import('@/actions/org-settings')
-    ;(getOrgSettings as jest.Mock).mockResolvedValue({
+    const { orgSettingsWithClient } = await import('@/actions/org-settings')
+    ;(orgSettingsWithClient as jest.Mock).mockResolvedValue({
       voice_enrollments: { me: { sample_path: 'p', status: 'saved' } },
     })
     const ok = await auditLines(async () => {

@@ -90,6 +90,8 @@ const dto: SettingsScreenDTOType = {
   initialActiveStoreId: null,
   initialStores: [],
   initialEntitlement: null,
+  featureStaffInvites: false,
+  featureMultiStore: false,
 }
 
 describe('thin settings wiring — 監査ログ tab mount (packet 18 T4)', () => {

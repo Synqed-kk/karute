@@ -11,7 +11,6 @@ import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
-import { auditWeb } from '@/lib/audit-web'
 import { audit } from '@/lib/audit'
 
 // Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
@@ -25,8 +24,9 @@ type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 
 type RosterRow = { id: string; display_role?: string | null }
 
 /** Pure owner-roster check — the ONE place "is this caller the salon owner"
- *  is decided, shared by the cookie gate below (requireOwnerBusiness) and the
- *  Bearer cores (fed the same roster + resolved auth id via deps). */
+ *  is decided, shared by every write core below (fed the same roster +
+ *  resolved auth id via deps, cookie-resolved on web / Bearer-resolved on
+ *  the facade). */
 function isRosterOwner(staffList: RosterRow[], selfUserId: string | null): boolean {
   return (
     !!selfUserId &&
@@ -81,12 +81,6 @@ export interface StoreRow {
 function coreBusinessType(row: unknown): string | null {
   const v = (row as { business_type?: unknown }).business_type
   return typeof v === 'string' && v.length > 0 ? v : null
-}
-
-async function requireOwnerBusiness(): Promise<string> {
-  const [list, uid] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
-  if (!isRosterOwner(list, uid)) throw new Error(STORE_OWNER_DENIAL)
-  return getBusinessId()
 }
 
 /** Name for the auto-created primary store — the salon name from the owner's
@@ -452,14 +446,66 @@ export async function updateStore(
   return result
 }
 
+/** Client-threaded core of getStaffStores (facade Bearer path, design-parity
+ *  packet 12 §S4a). Graceful pre-migration (no profile_stores table → []) —
+ *  same tolerance as the web wrapper below. */
+export async function getStaffStoresWithClient(
+  synqed: StoresClient,
+  staffId: string,
+): Promise<string[]> {
+  try {
+    return (await synqed.staffStores.get(staffId)).store_ids
+  } catch {
+    return []
+  }
+}
+
 /** The stores a staff member belongs to (empty = works in every store). Graceful
  *  pre-migration (no profile_stores table → []). */
 export async function getStaffStores(staffId: string): Promise<string[]> {
   try {
     const synqed = await getSynqedClient()
-    return (await synqed.staffStores.get(staffId)).store_ids
+    return getStaffStoresWithClient(synqed, staffId)
   } catch {
     return []
+  }
+}
+
+/** Client-threaded core of setStaffStores (facade Bearer path, design-parity
+ *  packet 12 §S4a — same owner gate + audit-source contract as
+ *  createStoreCore/updateStoreCore; STRICTER than staff.manage per the
+ *  original requireOwnerBusiness gate, kept as-is here). */
+export async function setStaffStoresCore(
+  synqed: StoresClient,
+  businessId: string,
+  deps: StoreWriteDeps,
+  staffId: string,
+  storeIds: string[],
+): Promise<{ ok: true } | { error: string }> {
+  if (!isRosterOwner(deps.staffList, deps.selfUserId)) {
+    return { error: STORE_OWNER_DENIAL }
+  }
+  // staff_stores lives in core now; the reconcile (validate + atomic upsert/
+  // delete) happens server-side in one transaction.
+  try {
+    await synqed.staffStores.set(staffId, storeIds)
+    // Store assignment changes what data a staff member can reach — notice,
+    // like permissions_change. count 0 = the "works in every store" state.
+    audit({
+      category: 'settings',
+      action: 'settings.staff_stores_change',
+      severity: 'notice',
+      actorId: deps.selfUserId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      detail: { store_ids: storeIds.join(','), count: storeIds.length },
+      source: deps.source,
+    })
+    return { ok: true }
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Could not update stores' }
   }
 }
 
@@ -471,33 +517,29 @@ export async function setStaffStores(
   staffId: string,
   storeIds: string[],
 ): Promise<{ ok: true } | { error: string }> {
-  // Owner-only gate.
   let businessId: string
+  let staffList: RosterRow[]
+  let selfUserId: string | null
+  let synqed: StoresClient
   try {
-    businessId = await requireOwnerBusiness()
+    businessId = await getBusinessId()
+    ;[staffList, selfUserId] = await Promise.all([getStaffList(), getCurrentUserStaffId()])
+    synqed = await getSynqedClient()
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
-  // staff_stores lives in core now; the reconcile (validate + atomic upsert/
-  // delete) happens server-side in one transaction.
-  const synqed = await getSynqedClient()
-  try {
-    await synqed.staffStores.set(staffId, storeIds)
-    // Store assignment changes what data a staff member can reach — notice,
-    // like permissions_change. count 0 = the "works in every store" state.
-    await auditWeb({
-      category: 'settings',
-      action: 'settings.staff_stores_change',
-      severity: 'notice',
-      businessId,
-      targetType: 'staff',
-      targetId: staffId,
-      detail: { store_ids: storeIds.join(','), count: storeIds.length },
-    })
+  const result = await setStaffStoresCore(
+    synqed,
+    businessId,
+    { staffList, selfUserId, source: 'web' },
+    staffId,
+    storeIds,
+  )
+  if ('ok' in result) {
+    // updateTag is Server-Action-only (throws from a Route Handler) — stays
+    // here, not in the core the facade route also calls.
     updateTag('staff-list')
     revalidatePath('/settings')
-    return { ok: true }
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Could not update stores' }
   }
+  return result
 }

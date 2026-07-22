@@ -247,9 +247,10 @@ export async function updateCustomerWithClient(
 
   try {
     await synqed.customers.update(id, patch)
-    revalidatePath('/customers')
-    revalidatePath(`/customers/${id}`)
-    updateTag('customers')
+    // No cache invalidation here: updateTag is Server-Action-only (throws from
+    // a Route Handler), and the customer PATCH facade route calls this core
+    // directly — the write would land but the response would report failure.
+    // The web wrapper below owns revalidatePath/updateTag.
     return { success: true, id }
   } catch (err) {
     console.error('[updateCustomer] backend error:', err)
@@ -262,7 +263,13 @@ export async function updateCustomer(
   input: CustomerFormInput | Record<string, unknown>,
 ): Promise<ActionResult> {
   const synqed = await getSynqedClient()
-  return updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
+  const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
+  if (result.success) {
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    updateTag('customers')
+  }
+  return result
 }
 
 // ---------------------------------------------------------------------------

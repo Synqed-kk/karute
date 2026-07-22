@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
 import { getStaffPermissions, setStaffPermissions } from '@/actions/permissions'
-import { listStores, getStaffStores, setStaffStores, type StoreRow } from '@/actions/stores'
+import { getStaffStores, setStaffStores, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import {
   CAPABILITIES,
@@ -38,11 +38,7 @@ import {
   type Capability,
   type PermissionRole,
 } from '@/lib/auth/permissions'
-import { getOrgSettings } from '@/actions/org-settings'
 import { getJobTitles } from '@/lib/staff/job-titles'
-
-// Store/location assignment shows only when multi-store is enabled + editing.
-const STORES_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
 
 // Roles assignable here — never 'owner' (that's the account owner / ownership transfer).
 const ASSIGNABLE_ROLES = PERMISSION_ROLES.filter((r) => r !== 'owner')
@@ -59,9 +55,22 @@ interface StaffFormProps {
     avatarUrl?: string
   }
   onClose: () => void
+  /** business_type + the business's stores — threaded from the caller's own
+   *  server-side fetch (design-parity packet 12 §S4a, T3) instead of this
+   *  form fetching getOrgSettings()/listStores() itself client-side. Both
+   *  optional (a caller that hasn't wired the newer props yet still renders
+   *  with the same defaults this form always had). */
+  businessType?: string
+  stores?: StoreRow[]
+  /** Server-truth override for NEXT_PUBLIC_FEATURE_MULTI_STORE — `prop ??
+   *  env` so web (which never passes this) reads the real env var, byte-for-
+   *  byte unchanged. */
+  featureMultiStore?: boolean
 }
 
-export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
+export function StaffForm({ mode, staff, onClose, businessType, stores, featureMultiStore }: StaffFormProps) {
+  // Store/location assignment shows only when multi-store is enabled + editing.
+  const storesEnabled = featureMultiStore ?? process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
   const tp = useTranslations('permissions')
@@ -89,15 +98,16 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   const [role, setRole] = useState<PermissionRole>('practitioner')
   const [caps, setCaps] = useState<Set<Capability>>(new Set())
 
-  // Store/location assignment (multi-store). Loads the business's stores + the
-  // staff's current store on open; saved alongside identity on 保存.
-  const [stores, setStores] = useState<StoreRow[]>([])
+  // Store/location assignment (multi-store). The business's store LIST comes
+  // in as a prop now (T3); only the staff's current assignment is still
+  // fetched here (per-staff, edit-target-dependent — the DTO can't carry
+  // every staff member's assignment up front).
   const [storeIds, setStoreIds] = useState<string[]>([])
 
   // 役職 options adapt to the salon's business type (a 美容整体 shows 整体師, a
-  // hair salon スタイリスト). Fetched from org-settings on open; the default list
-  // shows until it resolves.
-  const [titles, setTitles] = useState<string[]>(() => getJobTitles())
+  // hair salon スタイリスト). businessType arrives as a prop now (T3) — resolved
+  // synchronously at mount, no fetch/loading flicker.
+  const [titles] = useState<string[]>(() => getJobTitles(businessType))
 
   const staffId = staff?.id
 
@@ -126,27 +136,16 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   }, [mode, staffId])
 
   useEffect(() => {
-    if (!(STORES_ENABLED && mode === 'edit' && staffId)) return
+    if (!(storesEnabled && mode === 'edit' && staffId)) return
     let cancelled = false
-    void Promise.all([listStores(), getStaffStores(staffId)]).then(([rows, current]) => {
+    void getStaffStores(staffId).then((current) => {
       if (cancelled) return
-      setStores(rows)
       setStoreIds(current ?? [])
     })
     return () => {
       cancelled = true
     }
-  }, [mode, staffId])
-
-  useEffect(() => {
-    let cancelled = false
-    void getOrgSettings().then((s) => {
-      if (!cancelled && s?.business_type) setTitles(getJobTitles(s.business_type))
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  }, [storesEnabled, mode, staffId])
 
   function onRoleChange(next: PermissionRole) {
     setRole(next)
@@ -183,7 +182,7 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
             return
           }
         }
-        if (STORES_ENABLED) {
+        if (storesEnabled) {
           const res = await setStaffStores(staff.id, storeIds)
           if ('error' in res) {
             toast.error(res.error)
@@ -240,12 +239,12 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 
           {/* 所属店舗 — which stores this staff works at. Multi-store, many-to-many:
            *  check any number; none = works in every store (owner / floating staff). */}
-          {STORES_ENABLED && mode === 'edit' && (
+          {storesEnabled && mode === 'edit' && (
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">{tStore('assignLabel')}</label>
               <p className="text-xs text-muted-foreground">{tStore('assignMultiHint')}</p>
               <div className="flex flex-col gap-1.5">
-                {stores.map((s) => {
+                {(stores ?? []).map((s) => {
                   const checked = storeIds.includes(s.id)
                   return (
                     <label

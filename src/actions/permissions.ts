@@ -5,7 +5,8 @@ import { updateTag } from 'next/cache'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getMyCapabilities, requireCapability } from '@/lib/auth/require-permission'
-import { auditWeb } from '@/lib/audit-web'
+import { resolveWebActorId } from '@/lib/audit-web'
+import { audit } from '@/lib/audit'
 import {
   PERMISSION_ROLES,
   presetCapabilities,
@@ -41,17 +42,14 @@ export interface StaffPermissions {
   isOwner: boolean
 }
 
-/** Read a staff member's role + effective capabilities. Graceful pre-migration
- *  (derives the preset from display_role). */
-export async function getStaffPermissions(
+/** Client-threaded core of getStaffPermissions (facade Bearer path, design-
+ *  parity packet 12 §S4a). No capability gate — the caller enforces
+ *  staff.manage BEFORE calling this (getStaffPermissions below, or the
+ *  facade GET route via ensureCapability), same split as every other core. */
+export async function getStaffPermissionsCore(
+  businessId: string,
   staffId: string,
 ): Promise<StaffPermissions | { error: string }> {
-  try {
-    await requireCapability('staff.manage')
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
-  }
-  const businessId = await getBusinessId()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
@@ -97,22 +95,56 @@ export async function getStaffPermissions(
   }
 }
 
-/** Assign a role + (optionally customized) capabilities to a staff member. */
-export async function setStaffPermissions(
+/** Read a staff member's role + effective capabilities. Graceful pre-migration
+ *  (derives the preset from display_role). */
+export async function getStaffPermissions(
   staffId: string,
-  permissionRole: PermissionRole,
-  capabilities: Capability[],
-): Promise<{ ok: true } | { error: string }> {
+): Promise<StaffPermissions | { error: string }> {
   try {
     await requireCapability('staff.manage')
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
+  const businessId = await getBusinessId()
+  return getStaffPermissionsCore(businessId, staffId)
+}
+
+/** Identity a permissions-write core needs, explicit instead of cookie-
+ *  resolved (design-parity packet 12 §S4a — same P-B pattern as
+ *  StoreWriteDeps): callerStaffId + callerCapabilities carry the two
+ *  invariants moved in from the web action (no-escalation-by-delta,
+ *  audit.view grant = owner only); actorId + source feed the moved-in audit
+ *  row. */
+export interface PermissionsWriteDeps {
+  /** The acting caller's OWN staff/profile id — cookie-resolved
+   *  (getCurrentUserStaffId) on web, the confirmed Bearer auth user id on
+   *  the facade (profiles.id === auth.users.id, so no extra roster lookup
+   *  is needed there). Null never satisfies the owner check below. */
+  callerStaffId: string | null
+  /** The caller's own effective capabilities — enforces "you can only grant
+   *  a capability you hold yourself" (no-escalation-by-delta). */
+  callerCapabilities: Set<Capability>
+  actorId: string | null
+  source: 'web' | 'facade'
+}
+
+/** Client-threaded core of setStaffPermissions (facade Bearer path, design-
+ *  parity packet 12 §S4a). Carries all three invariants from the SECURITY
+ *  block above (never target owner, no-escalation-by-delta, audit.view
+ *  grant = owner only) plus the moved-in audit row, so web and facade can
+ *  never diverge. businessId is REQUIRED — every query below is tenant-
+ *  scoped by it. */
+export async function setStaffPermissionsCore(
+  businessId: string,
+  deps: PermissionsWriteDeps,
+  staffId: string,
+  permissionRole: PermissionRole,
+  capabilities: Capability[],
+): Promise<{ ok: true } | { error: string }> {
   if (!PERMISSION_ROLES.includes(permissionRole) || permissionRole === 'owner') {
     return { error: 'Invalid role.' }
   }
 
-  const businessId = await getBusinessId()
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
@@ -141,15 +173,14 @@ export async function setStaffPermissions(
     (target.permissions as string[] | null) ?? null,
   )
   const requested = effectiveCapabilities(permissionRole, capabilities)
-  const myCaps = await getMyCapabilities()
   const added = [...requested].filter((c) => !targetCurrent.has(c))
   for (const c of added) {
-    if (!myCaps.has(c)) return { error: 'You can only grant permissions you have yourself.' }
+    if (!deps.callerCapabilities.has(c)) return { error: 'You can only grant permissions you have yourself.' }
   }
   // 監査ログ spreads only from the owner's hand: a granted manager passes the
   // hold-what-you-grant check above, so gate the ADD on ownership explicitly.
   if (added.includes('audit.view')) {
-    const me = await getCurrentUserStaffId()
+    const me = deps.callerStaffId
     const { data: caller } = me
       ? await service
           .from('profiles')
@@ -180,16 +211,47 @@ export async function setStaffPermissions(
   // An authority change is consequential (severity notice — same class as the
   // audit.view grant ruling, design §9). Roles in detail; capability sets stay
   // out of the line — `customized` records that an override array was stored.
-  await auditWeb({
+  audit({
     category: 'settings',
     action: 'settings.permissions_change',
     severity: 'notice',
+    actorId: deps.actorId,
+    actorType: 'staff',
     businessId,
     targetType: 'staff',
     targetId: staffId,
     detail: { before_role: beforeRole, after_role: permissionRole, customized: !matchesPreset },
+    source: deps.source,
   })
 
-  updateTag('staff-list')
   return { ok: true }
+}
+
+/** Assign a role + (optionally customized) capabilities to a staff member. */
+export async function setStaffPermissions(
+  staffId: string,
+  permissionRole: PermissionRole,
+  capabilities: Capability[],
+): Promise<{ ok: true } | { error: string }> {
+  try {
+    await requireCapability('staff.manage')
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
+
+  const businessId = await getBusinessId()
+  const [callerCapabilities, callerStaffId, actorId] = await Promise.all([
+    getMyCapabilities(),
+    getCurrentUserStaffId(),
+    resolveWebActorId(),
+  ])
+  const result = await setStaffPermissionsCore(
+    businessId,
+    { callerCapabilities, callerStaffId, actorId, source: 'web' },
+    staffId,
+    permissionRole,
+    capabilities,
+  )
+  if ('ok' in result) updateTag('staff-list')
+  return result
 }
