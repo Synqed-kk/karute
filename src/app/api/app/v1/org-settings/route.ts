@@ -58,6 +58,17 @@ export const PATCH = facadeHandler('orgSettings.update', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((i) => i.message).join(', '))
   }
 
+  // setup_completed_at parity clamp (design-parity packet 21): on web this
+  // stamp is only ever written SERVER-side (completeOnboarding,
+  // src/actions/org-settings.ts) — the shell port can only send its device
+  // clock, and the value renders verbatim as the salon's setup-complete date
+  // (OrganizationSection). Any client-supplied string becomes server time so
+  // both platforms write server-clock truth; null passes through untouched
+  // (an explicit clear must stay a clear — nothing sends it today).
+  if (typeof parsed.data.setup_completed_at === 'string') {
+    parsed.data.setup_completed_at = new Date().toISOString()
+  }
+
   const synqed = newSynqedClient(ctx.identity.businessId)
   const result = await writeOrgSettingsBlobWithClient(synqed, parsed.data)
   return ok(ctx, result)

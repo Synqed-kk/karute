@@ -1,18 +1,20 @@
 /** @jest-environment jsdom */
-// Thin router change smoke (design-parity packet 12 §B-2): /profile now
-// renders the real ProfileScreen instead of the 準備中 PendingScreen
-// placeholder, and PENDING_WEB_ROUTES no longer lists it. Every sibling
-// screen is stubbed — this test pins ROUTING, not screen internals (those
-// are covered by app-api-screens-profile.test.ts + ProfilePageView's own
-// coverage).
+// Thin router change smoke (design-parity packet 21): /welcome now renders
+// the real WelcomeScreen instead of the 準備中 PendingScreen placeholder, and
+// PENDING_WEB_ROUTES no longer lists it. Every sibling screen is stubbed —
+// this test pins ROUTING, not screen internals (those are covered by
+// app-api-screens-welcome.test.ts + the wired-mount/port-validation suites).
 
+jest.mock('../../../thin/screens/WelcomeScreen', () => ({
+  WelcomeScreen: () => <div data-testid="welcome-screen">WELCOME_SCREEN</div>,
+}))
 jest.mock('../../../thin/screens/ProfileScreen', () => ({
-  ProfileScreen: () => <div data-testid="profile-screen">PROFILE_SCREEN</div>,
+  ProfileScreen: () => <div>PROFILE</div>,
 }))
 // SettingsScreen pulls the REAL SettingsShell (packet 12 §S1), which imports
 // next-intl directly — this suite doesn't mock next-intl, so an unstubbed
 // import here would break the router's whole module graph for every test in
-// this file (same reason ProfileScreen itself gets a testid stub above).
+// this file (same reason ProfileScreen/WelcomeScreen get testid stubs above).
 jest.mock('../../../thin/screens/SettingsScreen', () => ({
   SettingsScreen: () => <div>SETTINGS</div>,
 }))
@@ -36,12 +38,6 @@ jest.mock('../../../thin/screens/CustomerProfileScreen', () => ({
 jest.mock('../../../thin/screens/KaruteDetailScreen', () => ({
   KaruteDetailScreen: () => <div>KARUTE_DETAIL</div>,
 }))
-// Same reason as SettingsScreen above: WelcomeScreen pulls the REAL
-// WelcomeWizard (packet 21), which also imports next-intl (and
-// '@/actions/org-settings') directly.
-jest.mock('../../../thin/screens/WelcomeScreen', () => ({
-  WelcomeScreen: () => <div>WELCOME</div>,
-}))
 
 import { render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'
@@ -54,18 +50,18 @@ function renderAt(pathname: string) {
   return render(<ThinRouter />)
 }
 
-describe('ThinRouter — /profile (design-parity packet 12 §B-2)', () => {
-  it('renders the real ProfileScreen, not PendingScreen', () => {
-    renderAt('/profile')
-    expect(screen.getByTestId('profile-screen')).toBeTruthy()
+describe('ThinRouter — /welcome (design-parity packet 21)', () => {
+  it('renders the real WelcomeScreen, not PendingScreen', () => {
+    renderAt('/welcome')
+    expect(screen.getByTestId('welcome-screen')).toBeTruthy()
     expect(screen.queryByText('この画面は準備中です')).toBeNull()
   })
 
-  it('PENDING_WEB_ROUTES no longer lists /profile (source-parity lock)', () => {
+  it('PENDING_WEB_ROUTES no longer lists /welcome (source-parity lock)', () => {
     const src = readFileSync(join(process.cwd(), 'thin/router.tsx'), 'utf8')
     const match = /const PENDING_WEB_ROUTES = \[([\s\S]*?)\]/.exec(src)
     expect(match).not.toBeNull()
-    expect(match![1]).not.toContain("'/profile'")
+    expect(match![1]).not.toContain("'/welcome'")
   })
 
   it('a still-pending route (e.g. /coaching) keeps rendering PendingScreen', () => {

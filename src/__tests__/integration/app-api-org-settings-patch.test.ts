@@ -123,6 +123,24 @@ describe('PATCH /api/app/v1/org-settings', () => {
     expect(writeOrgSettingsBlobWithClient).toHaveBeenCalledWith(fakeClient, { salon_name: 'New name' })
   })
 
+  it('a client-supplied setup_completed_at string is clamped to SERVER time (packet 21 — device clocks never write the setup-complete date)', async () => {
+    const before = Date.now()
+    await PATCH(patchReq({ setup_completed_at: '1999-01-01T00:00:00.000Z' }), route)
+    const [, forwarded] = writeOrgSettingsBlobWithClient.mock.calls[0] as [
+      unknown,
+      { setup_completed_at: string },
+    ]
+    expect(forwarded.setup_completed_at).not.toBe('1999-01-01T00:00:00.000Z')
+    expect(new Date(forwarded.setup_completed_at).getTime()).toBeGreaterThanOrEqual(before)
+  })
+
+  it('setup_completed_at: null passes through untouched — an explicit clear stays a clear', async () => {
+    await PATCH(patchReq({ setup_completed_at: null }), route)
+    expect(writeOrgSettingsBlobWithClient).toHaveBeenCalledWith(fakeClient, {
+      setup_completed_at: null,
+    })
+  })
+
   it('voice_enrollments never reaches the writer — staff-owned data does not ride the settings.manage gate (auditor pin)', async () => {
     await PATCH(
       patchReq({
