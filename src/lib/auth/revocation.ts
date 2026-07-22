@@ -124,6 +124,15 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // pre-registered above before this packet.
   'staff.uploadAvatar',
   'staffStores.set',
+  // staff voice enroll/revoke + invite create/revoke (design-parity packet
+  // 12 §S4b — the credential/identity surface). PIN keys (staff.setPin/
+  // removePin) were already pre-registered above before this packet — a
+  // just-terminated staffer must not enroll/revoke a voice sample, or
+  // create/revoke an invite, on the local fast-path.
+  'staff.voice.enroll',
+  'staff.voice.revoke',
+  'invite.create',
+  'invite.revoke',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */
