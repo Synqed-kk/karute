@@ -186,10 +186,6 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   // something web itself never logs. Same parity rule as the appointment.*
   // rows above.
   'orgSettings.update': { kind: 'skip', category: 'settings', action: '' },
-  // welcome screen read (design-parity packet 21): page.tsx calls only
-  // getOrgSettings() — no audit-log import, verified at source. Same parity
-  // rule as orgSettings.update above (the write path this screen prefills).
-  'screens.welcome': { kind: 'skip', category: 'settings', action: '' },
   // stores CRUD (design-parity packet 12 §B-3 S2): the OPPOSITE reason from
   // orgSettings.update above — createStoreCore/updateStoreCore (the ONE core
   // both the web action and this facade route call) already emit

@@ -89,6 +89,16 @@ describe('thin actions port — completeOnboarding (welcome wizard)', () => {
       recording_disclosure_mode: 'B',
       recording_disclosure_privacy_confirmed: false,
     })
+    // EXACTLY the 5 wizard fields — OrgSettingsPatchDTO is a .partial() of the
+    // whole settings schema, so a stray extra key here would be silently
+    // WRITTEN to the org-settings blob, not rejected.
+    expect(Object.keys(body).sort()).toEqual([
+      'business_type',
+      'recording_disclosure_mode',
+      'recording_disclosure_privacy_confirmed',
+      'salon_name',
+      'setup_completed_at',
+    ])
     expect(typeof body.setup_completed_at).toBe('string')
     expect(new Date(body.setup_completed_at).toISOString()).toBe(body.setup_completed_at)
     expect(new Date(body.setup_completed_at).getTime()).toBeGreaterThanOrEqual(before)
