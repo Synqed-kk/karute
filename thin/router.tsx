@@ -22,6 +22,7 @@ import { KaruteDetailScreen } from './screens/KaruteDetailScreen'
 import { DashboardScreen } from './screens/DashboardScreen'
 import { ProfileScreen } from './screens/ProfileScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
+import { WelcomeScreen } from './screens/WelcomeScreen'
 
 // A malformed escape in a deep link (/karute/%FF) must not URIError the whole
 // router into its error path (Greptile P2 on #494) — fall back to the raw
@@ -50,7 +51,6 @@ const PENDING_WEB_ROUTES = [
   '/coaching',
   '/data-export',
   '/data-import',
-  '/welcome',
 ]
 
 // ponytail: hardcoded ja — the shell is single-locale and this screen dies as
@@ -73,6 +73,10 @@ export function ThinRouter() {
   // Web has no /settings/* subroutes (same shape as /profile) — no subpath
   // guard needed (F-7 class rule only applies where a real subroute exists).
   if (pathname === '/settings') return <SettingsScreen />
+  // Web has no /welcome/* subroutes (same shape as /profile, /settings) — no
+  // subpath guard needed (F-7 class rule only applies where a real subroute
+  // exists).
+  if (pathname === '/welcome') return <WelcomeScreen />
   if (pathname === '/appointments') return <AppointmentsScreen />
   // Web has no /appointments/* subroutes today — but an unknown one must land
   // on 準備中, never silently on the customer list (the F-7 wrong-screen

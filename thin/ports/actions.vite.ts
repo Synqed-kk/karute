@@ -399,6 +399,41 @@ async function facadeUpsertOrgSettings(
   }
 }
 
+// -- welcome wizard onboarding (design-parity packet 21). Mirrors
+// completeOnboarding's validation EXACTLY (src/actions/org-settings.ts:
+// 217-221, same order, same strings) — WelcomeWizard's own step gating
+// already blocks these on both platforms, so this is a backstop, not new
+// behavior. On pass, delegates to facadeUpsertOrgSettings above — the SAME
+// write path the settings sections already use — with the wizard's 5-field
+// payload.
+//
+// Two stated divergences from the web action (src/actions/org-settings.ts):
+//  (a) setup_completed_at rides the DEVICE clock here (web: server action
+//      clock) — it only drives OnboardingBanner's hide condition
+//      (!onboardingComplete), cosmetic.
+//  (b) validation runs in the port, not a server — the facade PATCH still
+//      enforces settings.manage + zod server-side regardless, so this is a
+//      backstop on both platforms, same as the wizard's own step gating.
+async function facadeCompleteOnboarding(input: {
+  businessName: string
+  businessType: string
+  disclosureMode: 'A' | 'B' | 'C'
+  privacyConfirmed: boolean
+}): Promise<UpsertOrgSettingsResult> {
+  if (!input.businessName.trim()) return { error: 'Store name is required' }
+  if (!input.businessType) return { error: 'Business type is required' }
+  if (input.disclosureMode === 'A' && !input.privacyConfirmed) {
+    return { error: 'Privacy policy confirmation required for Mode A' }
+  }
+  return facadeUpsertOrgSettings({
+    salon_name: input.businessName.trim(),
+    business_type: input.businessType,
+    recording_disclosure_mode: input.disclosureMode,
+    recording_disclosure_privacy_confirmed: input.privacyConfirmed,
+    setup_completed_at: new Date().toISOString(),
+  })
+}
+
 // -- dashboard pack mutations (design-parity Gap B-1 PR 2). RPC-style: the
 // facade's 2xx body rides through VERBATIM — dismissVisitReconcileAction /
 // dismissPackAlertAction / logCustomerContactAction return { ok, error? } and
@@ -1021,13 +1056,21 @@ async function facadeSetStaffPermissions(
 // -- settings (design-parity packet 12 §S1, packet 17 §S3, §B-3 S4b) —
 // organization/theme/ai/recording/packs/店舗/監査ログ/スタッフ tabs are LIVE
 // (upsertOrgSettings is the one write the first five share; audit is
-// read-only; staff profile/authority/credentials all wired below). 同期
-// still renders an in-shell 準備中 panel (SettingsShell's pendingTabIds) —
-// SettingsShell still statically imports every section unconditionally, so
-// SyncSection is still in the thin bundle's import graph regardless of
-// whether its tab is pending — Rollup requires every named import it makes
-// from @/actions/* to resolve, hence the one remaining stub below.
+// read-only; staff profile/authority/credentials all wired below). 同期 is
+// WEB-ONLY via SettingsShell's webOnlyTabIds (honest Web版 copy, not 準備中
+// — #585) — SettingsShell still statically imports every section
+// unconditionally, so SyncSection stays in the thin bundle's import graph
+// regardless of the tab never rendering it in-shell — Rollup requires every
+// named import it makes from @/actions/* to resolve, hence the one
+// remaining stub below.
 export const upsertOrgSettings = facadeUpsertOrgSettings
+// completeOnboarding (design-parity packet 21): WelcomeWizard imports it by
+// name from '@/actions/org-settings' — Rollup fails without it now that
+// WelcomeScreen brings the wizard into the bundle's import graph.
+export const completeOnboarding = facadeCompleteOnboarding
+// getOrgSettings stays notWired — web-only cached cookie reader (the thin
+// welcome screen reads via WelcomeScreenDTO/screens/welcome instead); zero
+// thin callers remain.
 export const getOrgSettings = notWired('getOrgSettings')
 export const listAuditLog = facadeListAuditLog
 export const createInvite = facadeCreateInvite

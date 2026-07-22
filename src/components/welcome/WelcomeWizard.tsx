@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 
 import { completeOnboarding } from '@/actions/org-settings'
+import { WebOnly } from '@/components/shell/WebOnly'
 import {
   BUSINESS_TYPES,
   DISCLOSURE_MODES,
@@ -284,44 +285,46 @@ function Step1Business({
       <p className="text-sm text-muted-foreground">{t('step1.intro')}</p>
 
       <div className="flex flex-col gap-4">
-        <fieldset className="flex flex-col gap-1.5">
-          <legend className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
-            <Globe size={11} />
-            {t('step1.appLanguage')}
-          </legend>
-          <div
-            className="grid grid-cols-2 gap-2"
-            role="radiogroup"
-            aria-label={t('step1.appLanguageAria')}
-          >
-            {([
-              { value: 'ja', label: '日本語' },
-              { value: 'en', label: 'English' },
-            ] as const).map((opt) => {
-              const active = language === opt.value
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => setLanguage(opt.value)}
-                  className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
-                    active
-                      ? 'border-sky-500/60 bg-sky-500/10 text-foreground'
-                      : 'border-border bg-card text-muted-foreground hover:bg-muted'
-                  }`}
-                >
-                  {active && <Check size={13} className="text-sky-400" />}
-                  <span>{opt.label}</span>
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-[11px] text-muted-foreground/70">
-            {t('step1.languageHint')}
-          </p>
-        </fieldset>
+        <WebOnly>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className="mb-1.5 inline-flex items-center gap-1.5 text-xs font-medium text-foreground">
+              <Globe size={11} />
+              {t('step1.appLanguage')}
+            </legend>
+            <div
+              className="grid grid-cols-2 gap-2"
+              role="radiogroup"
+              aria-label={t('step1.appLanguageAria')}
+            >
+              {([
+                { value: 'ja', label: '日本語' },
+                { value: 'en', label: 'English' },
+              ] as const).map((opt) => {
+                const active = language === opt.value
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={active}
+                    onClick={() => setLanguage(opt.value)}
+                    className={`flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                      active
+                        ? 'border-sky-500/60 bg-sky-500/10 text-foreground'
+                        : 'border-border bg-card text-muted-foreground hover:bg-muted'
+                    }`}
+                  >
+                    {active && <Check size={13} className="text-sky-400" />}
+                    <span>{opt.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <p className="text-[11px] text-muted-foreground/70">
+              {t('step1.languageHint')}
+            </p>
+          </fieldset>
+        </WebOnly>
 
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-foreground">
