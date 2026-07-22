@@ -1934,6 +1934,9 @@
     "tableColors": "テーブル色",
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
+    "sync": {
+      "webOnly": "予約同期の設定はWeb版からご利用ください"
+    },
     "stores": {
       "plan": {
         "label": "現在のプラン",

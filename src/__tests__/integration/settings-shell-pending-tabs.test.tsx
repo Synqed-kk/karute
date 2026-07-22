@@ -6,12 +6,17 @@
 // 準備中 panel instead; organization/theme/ai/coaching/recording/packs stay
 // live regardless of what's in pendingTabIds.
 //
+// Also covers webOnlyTabIds (design-parity packet 20 §S5) — same shape as
+// pendingTabIds but for tabs that stay permanently web-only (同期): renders
+// WebOnlyTabPanel's i18n copy instead of the hardcoded ja 準備中 copy, and
+// takes precedence when a tab is listed in BOTH props.
+//
 // Every section is mocked to isolate the SHELL's own tab-switching/
-// pendingTabIds branch from section internals (their own coverage is
-// elsewhere). `initialTab` drives which tab is active on mount — both the
-// mobile drill-in view and the desktop tab panel render the SAME activeTab
-// simultaneously in jsdom (no CSS media-query collapse), so assertions use
-// getAllBy* rather than assuming a single match.
+// pendingTabIds/webOnlyTabIds branches from section internals (their own
+// coverage is elsewhere). `initialTab` drives which tab is active on mount —
+// both the mobile drill-in view and the desktop tab panel render the SAME
+// activeTab simultaneously in jsdom (no CSS media-query collapse), so
+// assertions use getAllBy* rather than assuming a single match.
 import { render, screen } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
@@ -118,4 +123,38 @@ describe('SettingsShell — pendingTabIds (design-parity packet 12 §S1)', () =>
       expect(screen.queryByText(PENDING_JA)).toBeNull()
     },
   )
+})
+
+describe('SettingsShell — webOnlyTabIds (design-parity packet 20 §S5)', () => {
+  const WEB_ONLY_COPY = 'webOnly'
+
+  it('a tab in webOnlyTabIds renders the i18n web-only copy, not 準備中', () => {
+    render(
+      <SettingsShell {...baseProps} initialTab={'sync' as SettingsTabId} webOnlyTabIds={['sync']} />,
+    )
+    expect(screen.queryByTestId('section-sync')).toBeNull()
+    expect(screen.getAllByText(WEB_ONLY_COPY).length).toBeGreaterThan(0)
+    expect(screen.queryByText(PENDING_JA)).toBeNull()
+  })
+
+  it('web regression pin: with no webOnlyTabIds prop, sync renders SyncSection exactly as today', () => {
+    render(<SettingsShell {...baseProps} initialTab={'sync' as SettingsTabId} />)
+    expect(screen.getAllByTestId('section-sync').length).toBeGreaterThan(0)
+    expect(screen.queryByText(WEB_ONLY_COPY)).toBeNull()
+    expect(screen.queryByText(PENDING_JA)).toBeNull()
+  })
+
+  it('precedence pin: a tab in BOTH webOnlyTabIds and pendingTabIds renders the web-only panel, not 準備中', () => {
+    render(
+      <SettingsShell
+        {...baseProps}
+        initialTab={'sync' as SettingsTabId}
+        webOnlyTabIds={['sync']}
+        pendingTabIds={['sync']}
+      />,
+    )
+    expect(screen.queryByTestId('section-sync')).toBeNull()
+    expect(screen.getAllByText(WEB_ONLY_COPY).length).toBeGreaterThan(0)
+    expect(screen.queryByText(PENDING_JA)).toBeNull()
+  })
 })

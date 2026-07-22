@@ -179,6 +179,13 @@ interface SettingsShellProps {
    *  visibleSettingsTabs capability gates as any other tab — only its
    *  CONTENT is replaced. Shrinks to empty as later parity slices land. */
   pendingTabIds?: readonly SettingsTabId[]
+  /** Tab ids that render an in-shell "web-only" panel instead of their real
+   *  section — for tabs that stay permanently web-only (design-parity
+   *  packet 20 §S5, e.g. 同期). OPTIONAL; default/omitted = every tab
+   *  renders its real section, i.e. WEB IS UNTOUCHED (only the thin caller
+   *  ever passes this). Checked BEFORE pendingTabIds in renderSection, so a
+   *  tab in both takes the web-only panel. */
+  webOnlyTabIds?: readonly SettingsTabId[]
   /** Server-truth feature flags (design-parity packet 12 §S4a). OPTIONAL;
    *  omitted on web (StaffSection/StaffForm fall back to reading the env var
    *  directly, today's behavior, byte-for-byte) — only the thin caller
@@ -204,6 +211,7 @@ export function SettingsShell({
   initialActiveStoreId,
   initialEntitlement,
   pendingTabIds,
+  webOnlyTabIds,
   featureStaffInvites,
   featureMultiStore,
 }: SettingsShellProps) {
@@ -225,6 +233,9 @@ export function SettingsShell({
     : null
 
   function renderSection(id: SettingsTabId | null): ReactNode {
+    // Web-only intercept (design-parity packet 20 §S5) — BEFORE pendingTabIds,
+    // so a tab in both takes the web-only panel over the generic pending one.
+    if (id && webOnlyTabIds?.includes(id)) return <WebOnlyTabPanel />
     // Pending-tab intercept (design-parity packet 12 §S1) — BEFORE the real
     // switch, so a pending tab never reaches (and never needs) its section's
     // own defense-in-depth capability check below.
@@ -502,6 +513,22 @@ function PendingTabPanel() {
       <p className="text-xs text-muted-foreground">
         次のアップデートでご利用いただけます
       </p>
+    </div>
+  )
+}
+
+// Web-only panel — the thin bundle's per-tab carve-out lever (design-parity
+// packet 20 §S5). Rendered ONLY when the caller opts a tab into
+// webOnlyTabIds; web's default omits the prop, so this branch never executes
+// there. Unlike PendingTabPanel this copy is real (not "coming soon") — the
+// tab stays web-only by design (see packet 20), so it goes through i18n
+// rather than the hardcoded ja PendingTabPanel uses.
+// ponytail: webOnlyTabIds is thin-only in practice, same as pendingTabIds.
+function WebOnlyTabPanel() {
+  const t = useTranslations('settings.sync')
+  return (
+    <div className="flex min-h-[40vh] flex-col items-center justify-center gap-2 px-6 text-center">
+      <p className="text-sm font-medium text-foreground">{t('webOnly')}</p>
     </div>
   )
 }
