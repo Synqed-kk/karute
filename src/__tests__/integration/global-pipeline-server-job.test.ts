@@ -179,6 +179,23 @@ describe('globalPipeline server-path poll settlement (packet 22)', () => {
     expect(deleteTake).toHaveBeenCalledWith('take-1')
   })
 
+  it('DONE but karuteRecordId null (core anomaly) → unknown error, take KEPT (never deleted on a falsy id)', async () => {
+    jobStatus.mockResolvedValueOnce({
+      status: 'DONE',
+      karuteRecordId: null,
+      attempts: 1,
+      maxAttempts: 3,
+      lastError: null,
+    })
+    globalPipeline.start(new Blob(['a']), eligibleCtx)
+    await tick(0)
+    await tick(5000)
+    expect(globalPipeline.state).toBe('error')
+    expect(globalPipeline.error).toBe('unknown')
+    expect(globalPipeline.serverSavedRecordId).toBeNull()
+    expect(deleteTake).not.toHaveBeenCalled()
+  })
+
   it('FAILED with CONSENT_REQUIRED_ERROR → consent-required, take kept', async () => {
     jobStatus.mockResolvedValueOnce({
       status: 'FAILED',

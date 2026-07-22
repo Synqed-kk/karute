@@ -42,6 +42,18 @@ export const POST = facadeHandler('recordings.job.enqueue', async (ctx) => {
     throw new AppApiError('validation', parsed.error.issues.map((e) => e.message).join(', '))
   }
 
+  // Tenant-prefix gate — the SAME by-construction check the transcribe twin
+  // enforces (ai/transcribe/route.ts): audioPath is a client-supplied storage
+  // key that the worker later reads AND deletes via a service-role client (no
+  // RLS). Without this, a Bearer staffer at business A could point the job at
+  // business B's `app_${B}_*.webm` object → B's audio transcribed into an A
+  // record, then B's file deleted. The upload-url facade only ever mints
+  // `app_${businessId}_*`, so a path that doesn't carry this caller's prefix is
+  // not theirs → not_found, before any job is queued.
+  if (!parsed.data.audioPath.startsWith(`app_${ctx.identity.businessId}_`)) {
+    throw new AppApiError('not_found', 'recording not found in this business')
+  }
+
   const synqed = newSynqedClient(ctx.identity.businessId)
 
   // Fail closed: no acting staff id ⇒ no job (the #452 posture, same as

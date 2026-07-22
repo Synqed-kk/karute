@@ -64,6 +64,20 @@ async function processJob(job: RecordingJob): Promise<string> {
   }
   const synqed = coreClient(job.business_id)
 
+  // Defense-in-depth tenancy gate at the chokepoint every arm routes through:
+  // an `app_`-prefixed path (the app upload-url convention) MUST carry this
+  // job's own business prefix. The facade enqueue route already rejects a
+  // cross-tenant path, but this is the last line before a service-role read +
+  // delete of the object — so a cross-tenant `app_${other}_*` key never gets
+  // read or deleted even if some future caller skips the route check. Web
+  // `rec_*` keys carry no tenant prefix and are left to the route/RLS layer.
+  if (
+    payload.audio_path.startsWith('app_') &&
+    !payload.audio_path.startsWith(`app_${job.business_id}_`)
+  ) {
+    throw new Error('audio_path does not belong to this job’s business')
+  }
+
   // Consent gate FIRST — fail closed before spending a yen on transcription.
   // Same rule as the interactive save: unreadable consent rejects, never bypasses.
   const { consent } = await synqed.customers.getConsent(payload.customer_id)

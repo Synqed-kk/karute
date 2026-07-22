@@ -81,8 +81,13 @@ export type PipelineState =
  *  from THIS — raw exception text must never reach the screen (it surfaced
  *  English mid-app; the raw error goes to the console for field debugging).
  *  'consent-required' (packet 22 B3): the server job's FAILED status carries
- *  CONSENT_REQUIRED_ERROR when consent was revoked mid-session — the same
- *  fail-closed gate the in-tab save enforces, just discovered server-side. */
+ *  CONSENT_REQUIRED_ERROR when consent was revoked mid-session. NOTE this is
+ *  NOT full parity with the in-tab path, which routes a consent failure to
+ *  'review' → ReviewScreen's RecordingConsentDialog so staff can grant consent
+ *  and resave in place. The server path has no client-side result to review, so
+ *  Stage 1 surfaces the error card instead; the take is KEPT and recoverable
+ *  via the record-page banner (which runs the in-tab review/consent flow).
+ *  Wiring a grant-consent affordance onto the server path is Stage 2. */
 export type PipelineErrorCode = 'empty-transcript' | 'consent-required' | 'unknown'
 
 type Listener = () => void
@@ -293,15 +298,27 @@ class GlobalPipeline {
       // outcome — keep polling rather than declaring failure on a blip.
       if ('error' in status) continue
 
-      if (status.status === 'DONE') {
+      if (status.status === 'DONE' && status.karuteRecordId) {
         // The record already exists server-side. Delete the take, then settle
         // via the SAME 'autosaving' path the in-tab autosave uses — its effect
         // (ProcessingIndicator) checks serverSavedRecordId FIRST and skips
         // straight to the toast/hold/reset, reusing that UI verbatim instead
         // of duplicating localized strings in this non-React module.
+        // Guard on karuteRecordId (typed string|null): a DONE with no id is a
+        // core anomaly — treat it as a generic failure with the take KEPT
+        // rather than deleting the audio and then settling on a falsy id (which
+        // would slip past ProcessingIndicator's truthy check into the in-tab
+        // branch with no result → a dead review state, audio already gone).
         if (this.context?.takeId) void deleteTake(this.context.takeId)
         this.serverSavedRecordId = status.karuteRecordId
         this.state = 'autosaving'
+        this.notify()
+        return
+      }
+      if (status.status === 'DONE') {
+        // DONE but no karuteRecordId — see the guard above. Take kept.
+        this.error = 'unknown'
+        this.state = 'error'
         this.notify()
         return
       }

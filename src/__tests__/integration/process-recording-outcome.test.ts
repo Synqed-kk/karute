@@ -138,6 +138,22 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
     expect(fail).not.toHaveBeenCalled()
   })
 
+  it('cross-tenant app_ audio_path → job FAILS before any service-role read (defense-in-depth)', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, audio_path: 'app_biz-2_stolen.webm' },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(createSignedUrl).not.toHaveBeenCalled()
+    expect(removeObj).not.toHaveBeenCalled()
+    expect(complete).not.toHaveBeenCalled()
+    expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('does not belong'))
+  })
+
   it('payload.outcome absent → outcome upsert never called', async () => {
     claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
 

@@ -91,7 +91,9 @@ const sessionRoute = (sessionId = 'sess-1') => ({ params: Promise.resolve({ sess
 const jreq = (method: string, headers: Record<string, string>, body?: unknown) =>
   new Request('https://s/x', { method, headers, body: body === undefined ? undefined : JSON.stringify(body) })
 
-const validBody = { recordingSessionId: 'sess-1', customerId: 'cust-1', audioPath: 'rec_1.webm' }
+// audioPath MUST carry this caller's tenant prefix — the upload-url facade only
+// ever mints `app_${businessId}_*` (businessId here = 'business-1').
+const validBody = { recordingSessionId: 'sess-1', customerId: 'cust-1', audioPath: 'app_business-1_take-1.webm' }
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -118,9 +120,29 @@ describe('POST recordings/job (enqueue)', () => {
     expect(call.recording_session_id).toBe('sess-1')
     expect(call.payload).toMatchObject({
       customer_id: 'cust-1',
-      audio_path: 'rec_1.webm',
+      audio_path: 'app_business-1_take-1.webm',
       staff_id: 'synqed-auth-user-1',
     })
+  })
+
+  it('cross-tenant audioPath → 404, no enqueue (the service-role read/delete gate)', async () => {
+    // A path carrying ANOTHER business's prefix must never reach the worker's
+    // service-role signed-URL mint. Mirrors the transcribe twin's guard.
+    const res = await jobPOST(
+      jreq('POST', { ...auth, ...idem }, { ...validBody, audioPath: 'app_business-2_stolen.webm' }),
+      noRoute,
+    )
+    expect(res.status).toBe(404)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
+  })
+
+  it('untenanted (web rec_*) audioPath → 404, no enqueue (facade is the app arm)', async () => {
+    const res = await jobPOST(
+      jreq('POST', { ...auth, ...idem }, { ...validBody, audioPath: 'rec_1.webm' }),
+      noRoute,
+    )
+    expect(res.status).toBe(404)
+    expect(jobsEnqueue).not.toHaveBeenCalled()
   })
 
   it('outcome rides the payload untouched', async () => {
