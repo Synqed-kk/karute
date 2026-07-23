@@ -75,6 +75,20 @@ describe('SettingsShell — drill-in opens at the top (7/24 back-button field re
     expect(container.scrollTop).toBe(0)
   })
 
+  it('desktop tab switch (drill view stays mounted) also resets — no inherited offset', () => {
+    const { container } = render(
+      <SettingsShell {...baseProps} initialTab={'organization' as SettingsTabId} />,
+    )
+    // Drilled: the mobile list is unmounted, so 'theme.label' matches only
+    // the desktop tab chip. The CSS-hidden DrillInView stays MOUNTED across
+    // desktop tab switches — the reset must re-run per section change, not
+    // only on mount (Greptile #595 finding).
+    container.scrollTop = 250
+    fireEvent.click(screen.getAllByText('theme.label')[0])
+    expect(screen.getAllByTestId('section-theme').length).toBeGreaterThan(0)
+    expect(container.scrollTop).toBe(0)
+  })
+
   it('a drill mounted directly via initialTab (deep link) also opens at the top', () => {
     const container = document.createElement('div')
     document.body.appendChild(container)
