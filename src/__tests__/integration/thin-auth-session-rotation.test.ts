@@ -12,7 +12,7 @@
 // SAFEGUARD (classifier-sensitive auth seam): fixture token strings only —
 // never a real or decoded token value.
 import type { Session } from '@supabase/supabase-js'
-import { getAccessToken, setSessionState } from '@/lib/auth/mobile/session-store'
+import { getAccessToken, getSessionState, setSessionState } from '@/lib/auth/mobile/session-store'
 
 jest.mock('@/lib/karute/logout-wipe', () => ({
   wipeSessionVault: jest.fn(async () => {}),
@@ -53,6 +53,10 @@ afterEach(() => {
   setSessionState({ status: 'recovering' })
 })
 
+beforeEach(() => {
+  startAutoRefresh.mockClear()
+})
+
 describe('thin/auth/session — token-rotation mirror (packet 15 P1)', () => {
   it('mirrors a TOKEN_REFRESHED for the current user even after login bumps the generation', () => {
     getMobileAuth() // wires the onAuthStateChange listener via the mocked createMobileAuth
@@ -82,5 +86,56 @@ describe('thin/auth/session — token-rotation mirror (packet 15 P1)', () => {
     // a stale in-flight refresh for the now-signed-out user lands late.
     authCb!('TOKEN_REFRESHED', s('tok-late', 'staff-A'))
     expect(getAccessToken()).toBeNull()
+  })
+})
+
+describe('thin/auth/session — identity-guarded SIGNED_IN branch (packet 25 fix F2-2, P1)', () => {
+  // GoTrue's constructor-launched _recoverAndRefresh can notify SIGNED_IN
+  // with a session captured BEFORE a concurrent sign-out purge lands
+  // (stopAutoRefresh only clears the ticker; in-flight chains survive) — an
+  // unconditional write would resurrect the signed-out user's Bearer or
+  // clobber a second user's fresh sign-in on a shared device. Real logins
+  // never depend on this event: LoginScreen.tsx:39 writes the store
+  // DIRECTLY from signInWithPassword's response.
+  it('a stale SIGNED_IN arriving after sign-out is DROPPED — store stays signed-out', () => {
+    getMobileAuth()
+    authCb!('SIGNED_IN', s('tok-A', 'staff-A'))
+    setSessionState({ status: 'signed-out' })
+
+    authCb!('SIGNED_IN', s('tok-stale', 'staff-A'))
+    expect(getSessionState().status).toBe('signed-out')
+    expect(getAccessToken()).toBeNull()
+  })
+
+  it('a stale SIGNED_IN for the OUTGOING user after a second user signed in is DROPPED', () => {
+    getMobileAuth()
+    authCb!('SIGNED_IN', s('tok-A', 'staff-A'))
+    // Staff B signs in on the shared device (LoginScreen's direct write).
+    setSessionState({ status: 'signed-in', session: s('tok-B', 'staff-B') })
+
+    // Staff A's stale SIGNED_IN (captured before A signed out) lands late.
+    authCb!('SIGNED_IN', s('tok-A-stale', 'staff-A'))
+    expect(getAccessToken()).toBe('tok-B')
+  })
+
+  it('INITIAL_SESSION while still recovering applies (normal cold-boot settle)', () => {
+    getMobileAuth()
+    authCb!('INITIAL_SESSION', s('tok-boot', 'staff-A'))
+    expect(getSessionState()).toEqual({ status: 'signed-in', session: s('tok-boot', 'staff-A') })
+  })
+
+  it('a same-uid SIGNED_IN echo while already signed-in applies (session object refreshed)', () => {
+    getMobileAuth()
+    setSessionState({ status: 'signed-in', session: s('tok-1', 'staff-A') })
+    authCb!('SIGNED_IN', s('tok-2', 'staff-A'))
+    expect(getAccessToken()).toBe('tok-2')
+  })
+
+  it('startAutoRefresh still fires on a DROPPED SIGNED_IN (re-arm survives even when the write is dropped)', () => {
+    getMobileAuth()
+    setSessionState({ status: 'signed-out' })
+    authCb!('SIGNED_IN', s('tok-stale', 'staff-A')) // dropped: store stays signed-out
+    expect(getSessionState().status).toBe('signed-out')
+    expect(startAutoRefresh).toHaveBeenCalledTimes(1)
   })
 })

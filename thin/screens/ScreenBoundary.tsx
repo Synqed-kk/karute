@@ -102,6 +102,11 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
 
   useEffect(() => {
     let alive = true
+    // Fix F2-3: the grace branch below parks a contentless screen on
+    // `loading` with no retry button and nothing bumping `attempt` — set (and
+    // cleared) only by the grace branch itself, so it can self-escape without
+    // leaking a subscription past this effect's own lifetime.
+    let unsubscribeGrace: (() => void) | undefined
     setFetching(true)
     // Straggler-write fence (audit find on the packet): a fetch still in
     // flight across a sign-out would settle AFTER the signed-out cache wipe
@@ -146,11 +151,32 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         // The same-path-keeps-dto rule below still wins inside the window: a
         // screen already showing content must never drop to a blank loading
         // frame because a revalidate 401'd — only a contentless screen holds
-        // `loading` here.
+        // `loading` here. `fetching` still flips false via .finally below
+        // even while parked here — this branch is a transient (≤4s, F2-3
+        // self-escape bounded) `loading` state, not a genuinely in-flight one.
         if (err instanceof HttpError && err.status === 401 && isSeedPendingVerification()) {
           setState((prev) =>
             prev.status === 'ready' && prev.path === path ? prev : { status: 'loading' },
           )
+          // Fix F2-3 (P2, both lenses converged): a contentless screen parked
+          // here has no retry button and nothing else bumps `attempt` — if
+          // the settle brings the SAME token (F3: no emitRefresh) or recovery
+          // stays 'recovering', it would be stranded until a tab switch.
+          // Self-escape: a ONE-SHOT store-write listener bumps `attempt` on
+          // the NEXT write — the boot gate GUARANTEES one ≤4s (a real settle,
+          // or the timeout's own recovering echo), which re-runs this effect.
+          // By then seedPendingVerification is already cleared (apply()
+          // clears it on every write, this one included), so a still-401
+          // refetch lands on the honest error card + retry below. Note: a
+          // rotated-token settle can double-bump (this hook fires, and
+          // armSettleRefresh's emitRefresh also clears dtoCache + bumps via
+          // subscribeRefresh) — the second effect run supersedes the first
+          // via `alive`, one visible result, accepted.
+          unsubscribeGrace = subscribeSessionState(() => {
+            if (!alive) return
+            unsubscribeGrace?.()
+            setAttempt((n) => n + 1)
+          })
           return
         }
         // A failed re-fetch of the SAME path keeps the rendered dto — web
@@ -172,6 +198,9 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
       })
     return () => {
       alive = false
+      // F2-3: unmounting (or re-running for a new attempt) before the grace
+      // escape fires must drop the listener — no leak, no post-unmount setState.
+      unsubscribeGrace?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- parse is a module-level schema fn; attempt drives retries
   }, [path, attempt])

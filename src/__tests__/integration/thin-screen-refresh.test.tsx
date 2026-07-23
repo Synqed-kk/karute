@@ -13,7 +13,7 @@
  * still shows the loading frame.
  */
 import type { Session } from '@supabase/supabase-js'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { emitRefresh, useRouter } from '../../../thin/ports/nav.vite'
@@ -353,6 +353,15 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
 
 describe('useScreenDto × seed-pending-verification 401 grace window (packet 25 fix F2)', () => {
   afterEach(() => {
+    // Explicit cleanup FIRST (F2-3, fix round 2): several tests below enter
+    // the grace branch, which now arms a one-shot store-write listener
+    // (F2-3). RTL's own auto-cleanup afterEach is registered at module scope
+    // (outermost), so nested-describe afterEach hooks like this one run
+    // BEFORE it — an un-unmounted Probe would still be subscribed when the
+    // session-store reset below fires, re-triggering the listener outside
+    // act() (harmless in production; a noisy false-positive in tests). Unmount
+    // FIRST so the effect cleanup unsubscribes before any store write below.
+    cleanup()
     // Local cleanup (this file has no global session-store afterEach) —
     // restore the pristine pre-boot state for the next test.
     setSessionState({ status: 'signed-out' })
@@ -420,5 +429,89 @@ describe('useScreenDto × seed-pending-verification 401 grace window (packet 25 
 
     render(<Probe path="/api/app/v1/screens/probe-non401-seed-window" />)
     await waitFor(() => expect(screen.getByText('somethingWentWrong')).toBeTruthy())
+  })
+})
+
+describe('useScreenDto × grace-parked screen self-escape (packet 25 fix F2-3)', () => {
+  afterEach(() => {
+    // cleanup() FIRST — see the sibling describe above for why.
+    cleanup()
+    setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'recovering' })
+  })
+
+  it('a still-401 after the self-escape write shows the error card WITH retry (flag cleared)', async () => {
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(unauthorizedResponse())
+      .mockResolvedValueOnce(unauthorizedResponse())
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path="/api/app/v1/screens/probe-f2-3-still-401" />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByText('loading')).toBeTruthy() // parked in grace
+
+    // The boot-gate's timeout recovering-echo write (or any settle) fires —
+    // clears seedPendingVerification AND bumps this screen's self-escape.
+    act(() => {
+      setSessionState({ status: 'recovering' })
+    })
+
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByText('somethingWentWrong')).toBeTruthy())
+    expect(screen.getByText('retry')).toBeTruthy()
+  })
+
+  it('a refetch that succeeds after the self-escape write swaps content in', async () => {
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(unauthorizedResponse())
+      .mockResolvedValueOnce(jsonResponse({ label: 'healed' }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path="/api/app/v1/screens/probe-f2-3-heals" />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    act(() => {
+      setSessionState({ status: 'recovering' })
+    })
+
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('healed'))
+  })
+
+  it('unmount before the escape write: the listener is unsubscribed (no leak, no post-unmount setState)', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(unauthorizedResponse())
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    const probe = render(<Probe path="/api/app/v1/screens/probe-f2-3-unmount" />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    probe.unmount()
+    // The escape write arrives AFTER unmount — a leaked listener would call
+    // setAttempt on an unmounted component, which React reports via
+    // console.error; a properly-unsubscribed one is a silent no-op.
+    act(() => {
+      setSessionState({ status: 'recovering' })
+    })
+
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
   })
 })

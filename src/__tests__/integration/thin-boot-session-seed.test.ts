@@ -17,6 +17,11 @@
  * subscribed; F5 strengthens the seed's shape guard; F6 pins the newly-
  * reachable pre-boot rotation path.
  *
+ * Fix round 2 (fresh 3-lens round on 6d07d73b): F2-1 pins the null-parse
+ * crash guard; F2-4 closes two missing F1 matrix cells (intervening
+ * sign-out / second-user sign-in tested against the FAST-resolve path, not
+ * just the late-settle one).
+ *
  * SAFEGUARD (classifier-sensitive auth seam): fixture token strings only —
  * never a real or decoded token value.
  */
@@ -76,7 +81,7 @@ jest.mock('@/lib/auth/mobile/client-session', () => ({
 }))
 
 import { SESSION_STORAGE_KEY } from '@/lib/auth/mobile/client-session'
-import { bootMobileAuth } from '../../../thin/auth/session'
+import { REFRESH_RETRY_MAX, REFRESH_RETRY_MS, bootMobileAuth } from '../../../thin/auth/session'
 
 const stored = (token: string, uid: string) =>
   JSON.stringify({
@@ -138,6 +143,22 @@ describe('bootMobileAuth — synchronous known-session seed (packet 25 PR-B)', (
     if (raw === null) window.localStorage.removeItem(SESSION_STORAGE_KEY)
     else window.localStorage.setItem(SESSION_STORAGE_KEY, raw as string)
 
+    expect(() => bootMobileAuth()).not.toThrow()
+    expect(hasKnownSession()).toBe(false)
+  })
+
+  // F2-1 (P1, fix round 2): JSON.parse('null') is a VALID parse (no throw)
+  // that returns JS `null` — `typeof null === 'object'`, so a typeof-only
+  // guard would miss it, and unguarded property access on it throws
+  // synchronously, propagating out of bootMobileAuth with no wrapper (unlike
+  // getThinEnv) → a white screen until the +8s native failsafe.
+  it.each([
+    ['null', 'null'],
+    ['number', '42'],
+    ['string', '"str"'],
+    ['array', '[]'],
+  ])('F2-1 crash guard — parsed JSON is a %s: no throw, no seed', (_label, raw) => {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, raw)
     expect(() => bootMobileAuth()).not.toThrow()
     expect(hasKnownSession()).toBe(false)
   })
@@ -232,7 +253,7 @@ describe('bootMobileAuth — synchronous known-session seed (packet 25 PR-B)', (
       const unsubscribe = subscribeRefresh(onRefresh)
       expect(onRefresh).not.toHaveBeenCalled()
 
-      jest.advanceTimersByTime(50)
+      jest.advanceTimersByTime(REFRESH_RETRY_MS)
       expect(onRefresh).toHaveBeenCalledTimes(1)
 
       unsubscribe()
@@ -243,7 +264,7 @@ describe('bootMobileAuth — synchronous known-session seed (packet 25 PR-B)', (
       bootMobileAuth()
       expect(() => {
         setSessionState({ status: 'signed-in', session: liveSession('tok-fresh', 'staff-A') })
-        jest.advanceTimersByTime(50 * 41) // past REFRESH_RETRY_MAX (40 tries)
+        jest.advanceTimersByTime(REFRESH_RETRY_MS * (REFRESH_RETRY_MAX + 1)) // past the ceiling
       }).not.toThrow()
 
       // The retry loop has already abandoned the emit — a listener that
@@ -336,6 +357,31 @@ describe('bootMobileAuth — synchronous known-session seed (packet 25 PR-B)', (
       // reject) — the guard is about STATUS, not about which BootState variant.
       bootOnSettled!({ status: 'recovering' })
       expect(getSessionState()).toEqual({ status: 'recovering' })
+    })
+
+    // F2-4 (P1 test-integrity, fix round 2): the sign-out/second-user cells
+    // above only exercised the LATE-settle path (bootOnSettled!). The guard
+    // must drop the stale write on the FAST-resolve path too (bootResolve!)
+    // — an intervening write can land while boot()'s OWN returned promise is
+    // still pending, before it ever resolves.
+    it('F2-4: sign-out intervening BEFORE the FAST-resolve settles still drops the stale boot write', async () => {
+      bootMobileAuth()
+      // An explicit sign-out lands while boot()'s promise is still pending.
+      setSessionState({ status: 'signed-out' })
+      bootResolve!({ status: 'signed-in', session: liveSession('tok-stale', 'staff-A') })
+      await flush()
+      expect(getSessionState()).toEqual({ status: 'signed-out' })
+    })
+
+    it('F2-4: a second user signing in BEFORE the FAST-resolve settles still drops the stale boot write', async () => {
+      bootMobileAuth()
+      setSessionState({ status: 'signed-in', session: liveSession('tok-B', 'staff-B') })
+      bootResolve!({ status: 'signed-in', session: liveSession('tok-A-stale', 'staff-A') })
+      await flush()
+      expect(getSessionState()).toEqual({
+        status: 'signed-in',
+        session: liveSession('tok-B', 'staff-B'),
+      })
     })
   })
 })
