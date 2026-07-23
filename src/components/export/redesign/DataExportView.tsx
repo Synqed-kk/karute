@@ -72,15 +72,26 @@ export function DataExportView({
     setPendingBlob(null)
   }, [scope])
 
-  // Latest requested scope|format, for the stale-result drop below: the
-  // pickers stay tappable while a fetch is in flight, so a finished export
-  // must be DISCARDED if it no longer matches what the user is asking for —
-  // otherwise the done panel delivers the old blob under the new name
-  // (worst case: customer PII labeled as another scope). Fresh-eyes round 2.
+  // The FULL request as a key (fresh-eyes rounds 2+3): the pickers stay
+  // tappable while a fetch is in flight and after completion, so a result is
+  // only valid while EVERY parameter that produced it still matches the
+  // screen. Round 2 keyed scope|format only; round 3 caught the worse case —
+  // flip 個人情報をリダクト mid-fetch and the RAW file delivers under a
+  // panel that says redacted. Any param change: (a) drops an in-flight
+  // result, (b) resets a shown done panel — the summary rail always renders
+  // LIVE state, so a held blob must never outlive the state that made it.
+  const requestKey = useMemo(
+    () =>
+      [scope, format, privacy ? '1' : '0', dateRange, columns.join(','), JSON.stringify(filters)].join('|'),
+    [scope, format, privacy, dateRange, columns, filters],
+  )
   const liveExportKey = useRef('')
   useEffect(() => {
-    liveExportKey.current = `${scope}|${format}`
-  }, [scope, format])
+    liveExportKey.current = requestKey
+    setStep((s) => (s === 'configure' ? s : 'configure'))
+    setDownloadUrl(null)
+    setPendingBlob(null)
+  }, [requestKey])
 
   const activeStep = step === 'done' ? 3 : step === 'preparing' ? 2 : 0
 
@@ -115,15 +126,15 @@ export function DataExportView({
       // Greptile P1 on #588). Values live on the ports; the seam-coverage
       // sweep fails any quoted web-path literal in components, comments
       // included.
-      const startKey = `${scope}|${format}`
+      const startKey = requestKey
       const port = getDataPort()
       const res = await port.apiFetch(`${port.exportBase}?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       if (liveExportKey.current !== startKey) {
-        // The user changed scope/format while this fetch ran — the result no
-        // longer matches the request on screen. Drop it (a format-only flip
-        // doesn't reset step, so unstick it here); they re-tap export.
+        // ANY export parameter changed while this fetch ran — the result no
+        // longer matches the request on screen. Drop it and unstick the
+        // step; they re-tap export.
         setStep('configure')
         return
       }

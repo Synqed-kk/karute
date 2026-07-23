@@ -132,6 +132,69 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
     expect(screen.queryByText(/をダウンロード$/)).toBeNull()
   })
 
+  it('a PRIVACY flip while the export fetch is in flight DROPS the raw result — the panel must never claim redaction over an unredacted blob (fresh-eyes round 3)', async () => {
+    let resolveExport!: (r: Response) => void
+    const exportPromise = new Promise<Response>((r) => {
+      resolveExport = r
+    })
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
+      if (path.startsWith('/pin/export-base?')) return exportPromise
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({
+      apiFetch,
+      exportBase: '/pin/export-base',
+      supportsAutoDeliver: false,
+      deliverFile: jest.fn(),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<DataExportScreen />)
+    const [cta] = await screen.findAllByText(/をエクスポート$/)
+    fireEvent.click(cta)
+
+    // Flip 個人情報をリダクト while the raw (privacy=0) fetch is pending…
+    const privacyLabel = await screen.findByText('個人情報をリダクト')
+    fireEvent.click(privacyLabel.closest('div.flex.items-start')!.querySelector('button')!)
+    // …then the RAW export resolves. It must be discarded.
+    await act(async () => {
+      resolveExport({ ok: true, blob: async () => new Blob(['raw-pii']) } as unknown as Response)
+      await exportPromise
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    expect(screen.queryByText(/をダウンロード$/)).toBeNull()
+  })
+
+  it('a PRIVACY flip AFTER completion resets the done panel — a held blob never outlives the settings that made it (fresh-eyes round 3)', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
+      if (path.startsWith('/pin/export-base?'))
+        return { ok: true, blob: async () => new Blob(['csv']) } as unknown as Response
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({
+      apiFetch,
+      exportBase: '/pin/export-base',
+      supportsAutoDeliver: false,
+      deliverFile: jest.fn(),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<DataExportScreen />)
+    const [cta] = await screen.findAllByText(/をエクスポート$/)
+    fireEvent.click(cta)
+    // Done panel up: the delivery button is present.
+    expect((await screen.findAllByText(/をダウンロード$/)).length).toBeGreaterThan(0)
+
+    // Flip 個人情報をリダクト — the held blob no longer matches the screen.
+    const privacyLabel = await screen.findByText('個人情報をリダクト')
+    fireEvent.click(privacyLabel.closest('div.flex.items-start')!.querySelector('button')!)
+
+    await waitFor(() => {
+      expect(screen.queryByText(/をダウンロード$/)).toBeNull()
+    })
+  })
+
   it('a failed fetch renders the retry error state, not a crash', async () => {
     const apiFetch = jest.fn(async () => {
       throw new Error('network down')
