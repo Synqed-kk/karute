@@ -143,8 +143,14 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         // by the ≤4s boot-gate timeout (whose own recovering write clears
         // the flag same as any store write). Any OTHER failure, or a 401
         // outside this window, keeps today's exact semantics below.
+        // The same-path-keeps-dto rule below still wins inside the window: a
+        // screen already showing content must never drop to a blank loading
+        // frame because a revalidate 401'd — only a contentless screen holds
+        // `loading` here.
         if (err instanceof HttpError && err.status === 401 && isSeedPendingVerification()) {
-          setState({ status: 'loading' })
+          setState((prev) =>
+            prev.status === 'ready' && prev.path === path ? prev : { status: 'loading' },
+          )
           return
         }
         // A failed re-fetch of the SAME path keeps the rendered dto — web

@@ -373,6 +373,32 @@ describe('useScreenDto × seed-pending-verification 401 grace window (packet 25 
     expect(screen.queryByText('somethingWentWrong')).toBeNull()
   })
 
+  it('a seed-window 401 on a re-fetch KEEPS already-rendered same-path content (never drops to loading)', async () => {
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ label: 'seed-good' }))
+      .mockResolvedValueOnce(unauthorizedResponse())
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path="/api/app/v1/screens/probe-401-keeps-dto" />)
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('seed-good'))
+
+    // Same-path re-fetch (post-mutation refresh) that 401s inside the window:
+    // the rendered dto must survive — a blank loading frame here would be a
+    // regression of the same-path-keeps-dto contract.
+    act(() => {
+      emitRefresh()
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByTestId('content').textContent).toBe('seed-good')
+    expect(screen.queryByText('loading')).toBeNull()
+    expect(screen.queryByText('somethingWentWrong')).toBeNull()
+  })
+
   it('a 401 OUTSIDE the window (a store write already cleared the flag) shows the error card, unchanged', async () => {
     seedKnownSession(seedSession('tok-seed', 'u1'))
     // Any store write clears seedPendingVerification (F2) — simulate the
