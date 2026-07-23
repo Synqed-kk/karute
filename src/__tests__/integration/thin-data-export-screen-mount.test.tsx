@@ -10,7 +10,7 @@
  * dataExport string (the eyebrow label) · the scope picker renders the
  * customers total from the DTO.
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 
 // PageHeader calls useRouter() from '@/i18n/navigation' at render time (the
@@ -92,6 +92,44 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
       expect(exportCall).toBeTruthy()
       expect(exportCall![0]).toContain('scope=customers')
     })
+  })
+
+  it('a scope flip while the export fetch is in flight DROPS the stale result — never the old blob under a new name (fresh-eyes round 2)', async () => {
+    let resolveExport!: (r: Response) => void
+    const exportPromise = new Promise<Response>((r) => {
+      resolveExport = r
+    })
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
+      if (path.startsWith('/pin/export-base?')) return exportPromise
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({
+      apiFetch,
+      exportBase: '/pin/export-base',
+      supportsAutoDeliver: false,
+      deliverFile: jest.fn(),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<DataExportScreen />)
+    const [cta] = await screen.findAllByText(/をエクスポート$/)
+    fireEvent.click(cta)
+
+    // Flip the scope while the fetch is pending…
+    fireEvent.click(await screen.findByText('Bookings'))
+    // …then the OLD scope's export resolves — and the continuation is FLUSHED
+    // before asserting (a bare waitFor here passes vacuously on the
+    // pre-continuation state and never catches a missing guard).
+    await act(async () => {
+      resolveExport({ ok: true, blob: async () => new Blob(['stale']) } as unknown as Response)
+      await exportPromise
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    // Back on configure (export CTA rendered), and NO done-step download
+    // button anywhere — the stale blob never reached the delivery path.
+    expect(screen.getAllByText(/をエクスポート$/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/をダウンロード$/)).toBeNull()
   })
 
   it('a failed fetch renders the retry error state, not a crash', async () => {

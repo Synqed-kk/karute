@@ -2,7 +2,7 @@
 
 import { getDataPort } from '@/lib/ports/data-port'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import {
@@ -72,6 +72,16 @@ export function DataExportView({
     setPendingBlob(null)
   }, [scope])
 
+  // Latest requested scope|format, for the stale-result drop below: the
+  // pickers stay tappable while a fetch is in flight, so a finished export
+  // must be DISCARDED if it no longer matches what the user is asking for —
+  // otherwise the done panel delivers the old blob under the new name
+  // (worst case: customer PII labeled as another scope). Fresh-eyes round 2.
+  const liveExportKey = useRef('')
+  useEffect(() => {
+    liveExportKey.current = `${scope}|${format}`
+  }, [scope, format])
+
   const activeStep = step === 'done' ? 3 : step === 'preparing' ? 2 : 0
 
   const fileName = useMemo(() => {
@@ -105,10 +115,18 @@ export function DataExportView({
       // Greptile P1 on #588). Values live on the ports; the seam-coverage
       // sweep fails any quoted web-path literal in components, comments
       // included.
+      const startKey = `${scope}|${format}`
       const port = getDataPort()
       const res = await port.apiFetch(`${port.exportBase}?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
+      if (liveExportKey.current !== startKey) {
+        // The user changed scope/format while this fetch ran — the result no
+        // longer matches the request on screen. Drop it (a format-only flip
+        // doesn't reset step, so unstick it here); they re-tap export.
+        setStep('configure')
+        return
+      }
       if (port.supportsAutoDeliver) {
         // Web: current behavior verbatim — a persistent object-URL link/copy
         // button (ExportSummaryRail's done step) PLUS the auto-triggered
@@ -153,6 +171,9 @@ export function DataExportView({
     setStep('configure')
     setDownloadUrl(null)
     setPendingBlob(null)
+    // `delivering` deliberately NOT reset: it mirrors an in-flight share
+    // sheet, not this panel — clearing it early would re-arm the button the
+    // re-entrancy guard exists to disable. Its own finally clears it.
   }
 
   return (

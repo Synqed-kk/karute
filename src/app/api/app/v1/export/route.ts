@@ -89,13 +89,23 @@ export const GET = facadeHandler('export', async (ctx) => {
     // re-resolve identity from cookies via listCustomers/getBusinessId,
     // which on this path ignored the token identity entirely — cross-tenant
     // read if a cookie rode the request, hard 500 for the cookieless shell).
-    const res = await exportCustomers({
-      businessId: ctx.identity.businessId,
-      columns,
-      format,
-      privacy,
-      storeId,
-    })
+    // Family wrap (fresh-eyes round 2): a core outage must surface as the
+    // retryable 502 class, not a 500 — an unwrapped SynqedError falls to
+    // 'internal' in toAppApiError and hides export failures from
+    // upstream_unavailable-keyed alerting.
+    let res: Response
+    try {
+      res = await exportCustomers({
+        businessId: ctx.identity.businessId,
+        columns,
+        format,
+        privacy,
+        storeId,
+      })
+    } catch (err) {
+      if (err instanceof AppApiError) throw err
+      throw new AppApiError('upstream_unavailable', 'export data unavailable')
+    }
     // Bulk PII egress — logged with the QUERY SCOPE persisted (AUDIT-LOG-
     // DESIGN §7), AFTER the body builds successfully (errors above throw
     // before this line — errors are not actions). See the header comment for

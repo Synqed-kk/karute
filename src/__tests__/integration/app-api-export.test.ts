@@ -262,6 +262,18 @@ describe('GET /api/app/v1/export — audit trail (AUDIT-LOG-DESIGN §7, facade s
   })
 })
 
+describe('GET /api/app/v1/export — upstream outage class (fresh-eyes round 2)', () => {
+  it('a core failure during the read → 502 upstream_unavailable (the retryable class every sibling uses), never a 500 — and NO audit line', async () => {
+    fetchCustomers.mockRejectedValueOnce(Object.assign(new Error('core 503'), { status: 503 }))
+    const lines = await auditLines(async () => {
+      const res = await GET(req(auth), route)
+      expect(res.status).toBe(502)
+      expect((await res.json()).error.code).toBe('upstream_unavailable')
+    })
+    expect(lines).toHaveLength(0)
+  })
+})
+
 describe('GET /api/app/v1/export — error envelope matches the facade family', () => {
   it('{error:{code,message}} — not web bare-route\'s {error:string}', async () => {
     mockCapabilities.mockResolvedValue(new Set())
