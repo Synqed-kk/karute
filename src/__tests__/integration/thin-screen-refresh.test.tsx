@@ -216,9 +216,10 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     const probe = render(<Probe path={path} />)
     expect(screen.getByText('loading')).toBeTruthy()
 
-    // Outgoing user signs out while the fetch is still on the wire; the app
-    // unmounts the screen (AuthGate swaps to login) and the cache wipes.
-    probe.unmount()
+    // Outgoing user signs out while the fetch is still on the wire. The probe
+    // stays MOUNTED on purpose: in production AuthGate unmounts the screen,
+    // but the unmount commit is async — this pins the generation fence for
+    // the window where `alive` is still true when the straggler settles.
     setSessionState({ status: 'signed-out' })
     expect(dtoCache.has(path)).toBe(false)
 
@@ -230,6 +231,7 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(dtoCache.has(path)).toBe(false)
+    probe.unmount()
 
     // Even after the NEXT user signs in (a later generation), the straggler's
     // write stays dropped and their first mount starts honestly at loading.
@@ -244,6 +246,35 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     await waitFor(() =>
       expect(screen.getByTestId('content').textContent).toBe('next-user-data'),
     )
+  })
+
+  it('alive gate: a superseded fetch (refresh mid-flight, same auth generation) never overwrites the newer cached dto', async () => {
+    const path = '/api/app/v1/screens/superseded'
+    let resolveFirst: (r: Response) => void = () => {}
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFirst = res)))
+      .mockResolvedValueOnce(jsonResponse({ label: 'fresh' }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    // A mutation/heal fires refresh while fetch #1 is still on the wire: the
+    // old effect is superseded (alive=false), fetch #2 dispatches and lands.
+    act(() => emitRefresh())
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('fresh'))
+    expect(dtoCache.get(path)).toEqual({ label: 'fresh' })
+
+    // The superseded fetch settles LAST, same auth generation throughout —
+    // e.g. a wrong-store-lens response after a self-heal. The alive gate must
+    // drop its cache write; last-writer-wins here would cache stale/wrong-
+    // scope data for the next revisit's first frame.
+    await act(async () => {
+      resolveFirst(jsonResponse({ label: 'stale-superseded' }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(dtoCache.get(path)).toEqual({ label: 'fresh' })
   })
 
   it('retry: clears a stale cache entry for that path so a later revisit never flashes it', async () => {

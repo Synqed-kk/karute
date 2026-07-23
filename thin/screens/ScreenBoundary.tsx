@@ -111,7 +111,14 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
-        if (currentGeneration() === gen) cacheDto(path, dto)
+        // Both gates, different windows (two blind lenses converged on this):
+        // `alive` drops SAME-generation stragglers — a superseded fetch (nav
+        // A→B→A, retry, refresh, and critically the store-lens self-heal,
+        // none of which advance the auth generation) must not overwrite the
+        // cache with older or wrong-store data. The generation fence drops
+        // CROSS-generation stragglers in the microtask window before React
+        // commits the sign-out unmount (alive can still be true there).
+        if (alive && currentGeneration() === gen) cacheDto(path, dto)
         if (alive) setState({ status: 'ready', dto, path })
       })
       .catch((err: unknown) => {
