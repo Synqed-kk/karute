@@ -8,6 +8,7 @@ import type { DataPort } from '@/lib/ports/types'
 import { facadeApiUrl } from '@/lib/ports/rewrite'
 import { getThinEnv } from '../env'
 import { facadeApiFetch } from './facade-fetch'
+import { deliverFile } from './deliver-file.vite'
 
 export const viteDataPort: DataPort = {
   // getThinEnv() resolves lazily at call time — main.tsx has already validated
@@ -20,4 +21,11 @@ export const viteDataPort: DataPort = {
   // the reflected capacitor://localhost allow-origin.
   apiFetch: (path, init) =>
     facadeApiFetch((p) => facadeApiUrl(getThinEnv().facadeUrl, p), path, init),
+  // Packet 23 (/data-export port) — deliver-file.vite.ts (import.meta-free,
+  // see its header comment).
+  deliverFile,
+  supportsAutoDeliver: false,
+  // Bearer twin of /api/export — the cookie-only web route 401s on this path
+  // (exportBase seam, aiBase precedent; Greptile P1 on #588).
+  exportBase: '/api/app/v1/export',
 }

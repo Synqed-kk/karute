@@ -27,6 +27,12 @@ interface ExportSummaryRailProps {
   step: ExportStep
   fileName: string
   downloadUrl: string | null
+  /** Packet 23: called on a tap when there's no downloadUrl (thin — no
+   *  object URL, the port's deliverFile handles the blob it already holds). */
+  onDeliverFile: () => void
+  /** True while deliverFile is in flight — disables the button so a second
+   *  tap can't race a share sheet that's already open. */
+  delivering: boolean
   totals: Record<ScopeKey, number>
 }
 
@@ -59,6 +65,8 @@ export function ExportSummaryRail({
   step,
   fileName,
   downloadUrl,
+  onDeliverFile,
+  delivering,
   totals,
 }: ExportSummaryRailProps) {
   const t = useTranslations('dataExport')
@@ -205,7 +213,7 @@ export function ExportSummaryRail({
               </div>
             </div>
           </div>
-          {downloadUrl && (
+          {downloadUrl ? (
             <a
               href={downloadUrl}
               download={fileName}
@@ -214,20 +222,33 @@ export function ExportSummaryRail({
               <Download className="size-4" />
               {t('downloadFile', { ext: format.toUpperCase() })}
             </a>
+          ) : (
+            // Thin: no object URL to link to — hand the already-fetched blob
+            // to the port's deliverFile on this tap (the user gesture WebKit's
+            // share() needs).
+            <button
+              type="button"
+              onClick={onDeliverFile}
+              disabled={delivering}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <Download className="size-4" />
+              {t('downloadFile', { ext: format.toUpperCase() })}
+            </button>
           )}
-          <button
-            type="button"
-            onClick={() => {
-              if (downloadUrl) {
+          {downloadUrl && (
+            <button
+              type="button"
+              onClick={() => {
                 navigator.clipboard.writeText(downloadUrl)
                 toast.success('Copied')
-              }
-            }}
-            className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-muted mt-2"
-          >
-            <Copy className="size-3" />
-            {t('copySignedUrl')}
-          </button>
+              }}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg border border-border px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-muted mt-2"
+            >
+              <Copy className="size-3" />
+              {t('copySignedUrl')}
+            </button>
+          )}
           <button
             type="button"
             onClick={onReset}

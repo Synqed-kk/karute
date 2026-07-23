@@ -22,6 +22,25 @@ import type { AnchorHTMLAttributes, ComponentType } from 'react'
  */
 export interface DataPort {
   apiFetch(path: string, init?: RequestInit): Promise<Response>
+  /**
+   * Deliver an already-fetched file blob to the user (packet 23, /data-export
+   * port). Web triggers the browser's native download (anchor+click);
+   * WebKit's share() needs a user gesture, so the thin impl never calls this
+   * from an async fetch continuation — a view wires it to a tap AFTER the
+   * blob is already in state. Returns which path actually happened, so the
+   * caller can toast on 'copied' (the only silent-otherwise outcome).
+   */
+  deliverFile(blob: Blob, fileName: string): Promise<'downloaded' | 'shared' | 'copied'>
+  /** Whether this world may auto-trigger deliverFile right after a fetch
+   *  resolves (web: yes, same-tab anchor click needs no gesture). Thin is
+   *  false — see deliverFile's doc. Precedent: RecordingPipelinePort's
+   *  supportsServerJob (src/lib/ports/recording-port.ts). */
+  supportsAutoDeliver: boolean
+  /** Export endpoint base (Greptile P1 on #588): '/api/export' on web,
+   *  '/api/app/v1/export' in the shell — the cookie-only web route 401s on
+   *  the Bearer path. Same seam class as RecordingPipelinePort's aiBase
+   *  (F-9b); both routes take identical query params by design. */
+  exportBase: string
 }
 
 /** Anchor-shaped Link, the subset every shared component uses. */

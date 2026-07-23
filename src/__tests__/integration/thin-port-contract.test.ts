@@ -43,9 +43,16 @@ describe('DataPort routing', () => {
     const spy = jest.fn(async () => new Response('ok'))
     global.fetch = spy as unknown as typeof fetch
     // Replicates thin/ports/data.vite.ts without its import.meta wrapper.
+    // deliverFile/supportsAutoDeliver (packet 23) aren't under test here —
+    // see deliver-file-port.test.ts for those.
     const facadePort: DataPort = {
       apiFetch: (path, init) =>
         fetch(facadeApiUrl('https://karute-omega.vercel.app', path), init),
+      deliverFile: async () => {
+        throw new Error('not exercised in this suite')
+      },
+      supportsAutoDeliver: false,
+      exportBase: '/api/app/v1/export',
     }
     await facadePort.apiFetch('/api/ai/extract', { method: 'POST' })
     expect(spy).toHaveBeenCalledWith(

@@ -40,7 +40,10 @@ interface FetchArgs {
   storeId?: string
 }
 
-async function fetchCustomers(
+// Exported for the export core (packet 23 fix round): callers that carry their
+// own verified businessId (the Bearer facade) must NEVER re-resolve identity
+// from cookies — they pass it explicitly and bypass listCustomers entirely.
+export async function fetchCustomers(
   businessId: string,
   args: FetchArgs,
 ): Promise<ListCustomersResult> {

@@ -23,6 +23,7 @@ import { DashboardScreen } from './screens/DashboardScreen'
 import { ProfileScreen } from './screens/ProfileScreen'
 import { SettingsScreen } from './screens/SettingsScreen'
 import { WelcomeScreen } from './screens/WelcomeScreen'
+import { DataExportScreen } from './screens/DataExportScreen'
 
 // A malformed escape in a deep link (/karute/%FF) must not URIError the whole
 // router into its error path (Greptile P2 on #494) — fall back to the raw
@@ -49,7 +50,6 @@ const KARUTE_DETAIL_PATH = /^\/karute\/([^/]+)$/
 // packets port each page; a route leaves it the moment its screen exists.
 const PENDING_WEB_ROUTES = [
   '/coaching',
-  '/data-export',
   '/data-import',
 ]
 
@@ -77,6 +77,9 @@ export function ThinRouter() {
   // subpath guard needed (F-7 class rule only applies where a real subroute
   // exists).
   if (pathname === '/welcome') return <WelcomeScreen />
+  // Web has no /data-export/* subroutes (same shape as /profile, /settings,
+  // /welcome) — no subpath guard needed.
+  if (pathname === '/data-export') return <DataExportScreen />
   if (pathname === '/appointments') return <AppointmentsScreen />
   // Web has no /appointments/* subroutes today — but an unknown one must land
   // on 準備中, never silently on the customer list (the F-7 wrong-screen

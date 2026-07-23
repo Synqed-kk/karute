@@ -36,7 +36,12 @@ const DIST = 'thin/dist/assets'
 // 1562.5 KB ceiling. Still a NON-LOAD-BEARING size tripwire, not the real
 // gate — the purchase-exclusion marker scan below (0/13) is what actually
 // blocks a leak (Liam's 2026-07-19 ruling).
-const BUDGET_BYTES = 1_650_000
+// Raised 2026-07-23 at packet 23 — /data-export goes live (DataExportView +
+// its 9 section components, never bundled before today), measured at
+// 1642.9 KB raw against the prior 1611.3 KB ceiling. Genuine new-screen
+// volume (icons + column/filter metadata for a whole export config UI), not
+// bloat — same class as every prior raise on this line.
+const BUDGET_BYTES = 1_710_000
 
 let dir
 try {

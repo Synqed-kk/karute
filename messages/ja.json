@@ -2556,6 +2556,7 @@
     "linkValid": "リンクは24時間有効です。",
     "downloadFile": "{ext}をダウンロード",
     "copySignedUrl": "署名付きURLをコピー",
+    "copiedToClipboard": "クリップボードにコピーしました",
     "recentExports": "最近のエクスポート",
     "refresh": "更新",
     "completed": "完了",
