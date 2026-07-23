@@ -7,7 +7,7 @@
 // Booking mutations (create / cancel / no-show / restore) route through the
 // actions port; they are wired to facade endpoints in the P-B mutations PR.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { MonthGridCell } from '@synqed-kk/ui'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
@@ -15,13 +15,38 @@ import {
   AppointmentsScreenDTO,
   type AppointmentsScreenDTOType,
 } from '@/lib/app-api/appointments-screen-dto'
+import { warmBriefsForToday } from '../data/brief-warm'
 import { useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): AppointmentsScreenDTOType =>
   AppointmentsScreenDTO.parse(raw)
 
+// Device-local date, not toISOString (UTC would mislabel late-night JST as
+// the previous day) — same construction as global-pipeline.ts's sessionDate.
+function todayIso(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
 function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
+  // Perf packet 28: warm the pre-session-brief cache for today's active
+  // bookings while staff are still on 予約, so 録音's brief is already cached
+  // by the time they open it. Only today (Liam: dashboard is cold-start-only,
+  // so 予約 is the trigger that covers the real flow) and only once per
+  // settle — repeat settles hit brief-warm's own dedupe for free.
+  useEffect(() => {
+    if (dto.selectedDateIso !== todayIso()) return
+    const ids = [
+      ...new Set(
+        dto.reservationViews
+          .filter((r) => !r.isCancelled && !r.isNoShow)
+          .map((r) => r.clientId),
+      ),
+    ]
+    warmBriefsForToday(ids)
+  }, [dto])
+
   // MonthGridCell wants a real Date; the DTO ships dateIso (JSON-safe).
   const monthData = useMemo<MonthGridCell[] | null>(
     () =>
