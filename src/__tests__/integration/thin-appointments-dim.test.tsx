@@ -77,6 +77,26 @@ it('same-path background revalidate does NOT dim or input-block the screen', asy
   await act(async () => resolveSecond(jsonResponse(DTO)))
 })
 
+it('cache-hit mount (the literal reported repro): instant paint, revalidate in flight, NOT dimmed', async () => {
+  // The named bug: revisit paints instantly from the packet-24 cache, then
+  // background-revalidates — and the old wiring greyed + froze that whole
+  // revalidate. Pre-populate the cache and mount.
+  const path = '/api/app/v1/screens/appointments?date=2026-07-23&locale=ja'
+  dtoCache.set(path, DTO)
+  const apiFetch = jest
+    .fn<Promise<Response>, unknown[]>()
+    .mockImplementationOnce(() => new Promise<Response>(() => {}))
+  setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+  const { container } = render(<AppointmentsScreen />)
+  // Cached content painted immediately, revalidate fetch in flight...
+  expect(screen.getByTestId('appointments-view')).toBeTruthy()
+  expect(apiFetch).toHaveBeenCalledTimes(1)
+  // ...and the screen is fully interactive the whole time.
+  expect(dimmed(container)).toBe(false)
+  expect(container.querySelector('.pointer-events-none')).toBeNull()
+})
+
 it('cross-path date-nav DOES dim + block while the new day fetches', async () => {
   const apiFetch = jest
     .fn<Promise<Response>, unknown[]>()
