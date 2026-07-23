@@ -86,7 +86,7 @@ export const SCOPES: Record<ScopeKey, ExportScope> = {
       { key: 'name', label: 'Name', labelJa: '氏名', group: 'Identifiers', required: false, recommended: true, pii: true },
       { key: 'furigana', label: 'Name (kana)', labelJa: 'ふりがな', group: 'Identifiers', required: false, recommended: false, pii: true },
       { key: 'phone', label: 'Phone', labelJa: '電話番号', group: 'Contact', required: false, recommended: true, pii: true },
-      { key: 'email', label: 'Email', labelJa: 'メール', group: 'Contact', required: false, recommended: true, pii: true },
+      { key: 'email', label: 'Email', labelJa: 'メールアドレス', group: 'Contact', required: false, recommended: true, pii: true },
       { key: 'preferred_staff', label: 'Preferred staff', labelJa: '担当スタッフ', group: 'Relationship', required: false, recommended: true, pii: false },
       { key: 'visit_count', label: 'Visit count', labelJa: '来店回数', group: 'Activity', required: false, recommended: false, pii: false },
       { key: 'last_visit_at', label: 'Last visit', labelJa: '最終来店', group: 'Activity', required: false, recommended: false, pii: false },

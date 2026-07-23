@@ -63,7 +63,9 @@ export function ExportFormatPicker({
               }`}
               title={
                 !supported
-                  ? t('notAvailableFor', { scope: SCOPES[scopeKey].label })
+                  ? t('notAvailableFor', {
+                      scope: isJa ? SCOPES[scopeKey].labelJa : SCOPES[scopeKey].label,
+                    })
                   : undefined
               }
             >

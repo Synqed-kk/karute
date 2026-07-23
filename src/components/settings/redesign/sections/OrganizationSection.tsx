@@ -105,7 +105,7 @@ export function OrganizationSection({
   )
 
   const profile = orgSettings?.business_type
-    ? getBusinessProfile(orgSettings.business_type)
+    ? getBusinessProfile(orgSettings.business_type, locale === 'ja' ? 'ja' : 'en')
     : null
 
   return (
