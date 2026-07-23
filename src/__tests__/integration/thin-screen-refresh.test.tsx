@@ -300,6 +300,33 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('fresh'))
   })
 
+  it('warm-cache revisit whose background revalidate FAILS keeps the cached content (deliberate SWR contract, no error frame)', async () => {
+    const path = '/api/app/v1/screens/warm-revalidate-fail'
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ label: 'known-good' }))
+      .mockRejectedValueOnce(new Error('revalidate blip'))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    const first = render(<Probe path={path} />)
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('known-good'))
+    first.unmount()
+
+    // Revisit paints from cache; the background revalidate then rejects.
+    // PINNED AS INTENDED: last-known content stays (same-path-failure-keeps-
+    // dto contract now also covers cache-seeded frames — offline-tolerant SWR,
+    // the same posture as the recovering-session DataPort). If product ever
+    // wants a degraded-state hint here, change this test deliberately.
+    render(<Probe path={path} />)
+    expect(screen.getByTestId('content').textContent).toBe('known-good')
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByTestId('content').textContent).toBe('known-good')
+    expect(screen.queryByText('somethingWentWrong')).toBeNull()
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
   it('cap: 51 distinct paths evict the oldest, keeping the newest 50', () => {
     dtoCache.clear()
     for (let i = 0; i < 51; i++) {

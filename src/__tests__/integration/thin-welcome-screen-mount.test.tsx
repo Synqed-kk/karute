@@ -52,6 +52,7 @@ jest.mock('@/i18n/navigation', () => jest.requireActual('../../../thin/ports/nav
 jest.mock('@/actions/org-settings', () => jest.requireActual('../../../thin/ports/actions.vite'))
 
 import { WelcomeScreen } from '../../../thin/screens/WelcomeScreen'
+import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 
 const dto = {
   salon_name: 'テストサロン',
@@ -64,6 +65,11 @@ function jsonResponse(body: unknown): Response {
 }
 
 describe('WelcomeScreen — wired mount (design-parity packet 21)', () => {
+  // Screen DTO cache (packet 24) is a module singleton — clear per test so no
+  // test inherits a cache-seeded first frame from an earlier one (the exact
+  // order-dependence that broke thin-data-export-screen-mount pre-patch).
+  beforeEach(() => dtoCache.clear())
+
   afterEach(() => {
     history.replaceState({}, '', '/')
   })
