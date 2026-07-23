@@ -15,6 +15,7 @@ import {
   AppointmentsScreenDTO,
   type AppointmentsScreenDTOType,
 } from '@/lib/app-api/appointments-screen-dto'
+import { ymdInJst } from '@/lib/date/jst'
 import { warmBriefsForToday } from '../data/brief-warm'
 import { useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
@@ -22,29 +23,20 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 const parse = (raw: unknown): AppointmentsScreenDTOType =>
   AppointmentsScreenDTO.parse(raw)
 
-// Device-local date, not toISOString (UTC would mislabel late-night JST as
-// the previous day) — same construction as global-pipeline.ts's sessionDate.
-function todayIso(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
 function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
   // Perf packet 28: warm the pre-session-brief cache for today's active
   // bookings while staff are still on 予約, so 録音's brief is already cached
-  // by the time they open it. Only today (Liam: dashboard is cold-start-only,
-  // so 予約 is the trigger that covers the real flow) and only once per
-  // settle — repeat settles hit brief-warm's own dedupe for free.
+  // by the time they open it. Only today — compared as JST CALENDAR days
+  // (selectedDateIso is a JST-midnight instant, e.g.
+  // "2026-07-23T15:00:00.000Z" for 7/24 JST; a bare string compare never
+  // matches) — and only once per settle: repeat settles hit brief-warm's own
+  // dedupe for free.
   useEffect(() => {
-    if (dto.selectedDateIso !== todayIso()) return
-    const ids = [
-      ...new Set(
-        dto.reservationViews
-          .filter((r) => !r.isCancelled && !r.isNoShow)
-          .map((r) => r.clientId),
-      ),
-    ]
-    warmBriefsForToday(ids)
+    if (ymdInJst(new Date(dto.selectedDateIso)) !== ymdInJst(new Date())) return
+    const bookings = dto.reservationViews
+      .filter((r) => !r.isCancelled && !r.isNoShow)
+      .map((r) => ({ customerId: r.clientId, appointmentId: r.id }))
+    warmBriefsForToday(bookings)
   }, [dto])
 
   // MonthGridCell wants a real Date; the DTO ships dateIso (JSON-safe).

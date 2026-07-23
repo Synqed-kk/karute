@@ -2,9 +2,12 @@
  * @jest-environment jsdom
  *
  * 予約 screen wiring for the pre-session-brief warmer (perf packet 28): once
- * the DTO settles for TODAY (device-local date), warmBriefsForToday fires
- * with the unique active (non-cancelled, non-no-show) clientIds from
- * reservationViews. Any other date must never call it.
+ * the DTO settles for TODAY — compared as JST calendar days, using the REAL
+ * server shape for selectedDateIso (a JST-midnight instant's .toISOString(),
+ * not a bare YYYY-MM-DD — a hand-typed bare string previously masked the
+ * today-guard being dead code) — warmBriefsForToday fires with
+ * {customerId, appointmentId} pairs for the active (non-cancelled,
+ * non-no-show) reservationViews. Any other date must never call it.
  */
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -66,6 +69,10 @@ function reservation(clientId: string, overrides: Record<string, unknown> = {}) 
   }
 }
 
+// Real server shape (src/app/api/app/v1/screens/appointments/route.ts):
+// selectedDate.toISOString() where selectedDate is JST midnight of `ymd`.
+const jstMidnightIso = (ymd: string) => new Date(`${ymd}T00:00:00+09:00`).toISOString()
+
 function jsonResponse(body: unknown): Response {
   return { ok: true, json: async () => body } as unknown as Response
 }
@@ -79,8 +86,7 @@ function mountWithDto(dto: unknown, path: string) {
 }
 
 beforeEach(() => {
-  // Device-local "today" (this machine/CI runs Asia/Tokyo — see
-  // global-pipeline.ts's identical device-local sessionDate construction).
+  // Pins "now" for the screen's ymdInJst(new Date()) side of the compare.
   jest.useFakeTimers().setSystemTime(new Date('2026-07-23T12:00:00+09:00'))
   dtoCache.clear()
   jest.mocked(warmBriefsForToday).mockClear()
@@ -90,10 +96,10 @@ afterEach(() => {
   jest.useRealTimers()
 })
 
-it("today's settle warms exactly the active clientIds, excluding cancelled/no-show", async () => {
+it("today's settle warms exactly the active bookings, excluding cancelled/no-show", async () => {
   const dto = {
     ...baseDto,
-    selectedDateIso: '2026-07-23',
+    selectedDateIso: jstMidnightIso('2026-07-23'),
     reservationViews: [
       reservation('c1'),
       reservation('c2'),
@@ -105,13 +111,16 @@ it("today's settle warms exactly the active clientIds, excluding cancelled/no-sh
   await waitFor(() => expect(screen.getByTestId('appointments-view')).toBeTruthy())
 
   expect(warmBriefsForToday).toHaveBeenCalledTimes(1)
-  expect(warmBriefsForToday).toHaveBeenCalledWith(['c1', 'c2'])
+  expect(warmBriefsForToday).toHaveBeenCalledWith([
+    { customerId: 'c1', appointmentId: 'r-c1' },
+    { customerId: 'c2', appointmentId: 'r-c2' },
+  ])
 })
 
 it('a non-today settle never calls the warmer', async () => {
   const dto = {
     ...baseDto,
-    selectedDateIso: '2026-07-24',
+    selectedDateIso: jstMidnightIso('2026-07-24'),
     reservationViews: [reservation('c1')],
   }
   mountWithDto(dto, '/appointments?date=2026-07-24')

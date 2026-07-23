@@ -1,49 +1,65 @@
 // Pre-session-brief cache warmer (perf packet 28). The 録音 screen's
 // per-customer brief generates live (gpt-4o) on first view — a multi-second
-// skeleton. The facade already caches it 24h keyed on records
-// (src/lib/karute/ai-brief.ts, getCachedAI('presession_brief')); this module
-// just fires that SAME read early, while staff are still on 予約, so the
-// cache is already warm by the time 録音 opens. Fire-and-forget: nothing
-// renders from this, and a failed warm just means the normal on-open
-// generation happens as it does today.
+// skeleton. The facade already caches it 24h keyed on records + the booking
+// memo (src/lib/karute/ai-brief.ts, getCachedAI('presession_brief')); this
+// module fires the SAME read RecordScreen.tsx makes (locale + appointmentId
+// included — otherwise it warms a cache key the real read never hits) early,
+// while staff are still on 予約, so the cache is already warm by the time
+// 録音 opens. Fire-and-forget: nothing renders from this, and a failed warm
+// just means the normal on-open generation happens as it does today.
 //
-// Staggered rather than immediate so the warm traffic never competes with
-// the appointments screen's own fetch for bandwidth on first paint.
+// Staggered (per batch: first at 3s, then one every 4s within that same
+// batch) rather than immediate so the warm traffic never competes with the
+// appointments screen's own fetch for bandwidth on first paint.
 
 import { getDataPort } from '@/lib/ports/data-port'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 
 const FIRST_DELAY_MS = 3_000
 const STAGGER_MS = 4_000
+// Give up after this many failed attempts per booking — the real page-open
+// takes it from there instead of retrying forever.
+const MAX_ATTEMPTS = 2
+
+export type BriefWarmTarget = { customerId: string; appointmentId: string }
 
 // Module-level, deliberately outlives every screen mount (mirrors
 // thin/chrome/chrome-store.ts's singleton idiom) — the warm keeps running in
-// the background after staff navigate off 予約.
+// the background after staff navigate off 予約. Keyed by appointmentId (not
+// customerId): a customer can have two bookings today with different memos,
+// each caching under its own key.
 let warmed = new Set<string>()
+let attempts = new Map<string, number>()
 let pendingTimers: number[] = []
 
 /** Fire-and-forget: warm the pre-session-brief cache for today's active
- *  bookings. Ids already warmed (or already scheduled) are skipped, so
+ *  bookings. Bookings already warmed (or already scheduled) are skipped, so
  *  calling this again on every DTO settle is free. */
-export function warmBriefsForToday(customerIds: string[]): void {
-  for (const id of customerIds) {
-    if (warmed.has(id)) continue
-    warmed.add(id)
+export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
+  for (const { customerId, appointmentId } of bookings) {
+    if (warmed.has(appointmentId)) continue
+    warmed.add(appointmentId)
     const delay = FIRST_DELAY_MS + pendingTimers.length * STAGGER_MS
     const timer = window.setTimeout(() => {
       pendingTimers = pendingTimers.filter((t) => t !== timer)
+      const attempt = (attempts.get(appointmentId) ?? 0) + 1
+      attempts.set(appointmentId, attempt)
+      const release = () => {
+        // Below the ceiling: remove so a later trigger (or the staff member
+        // actually opening the page) can retry. At the ceiling: leave it
+        // warmed — stop trying, the real page-open takes over.
+        if (attempt < MAX_ATTEMPTS) warmed.delete(appointmentId)
+      }
       void getDataPort()
-        .apiFetch(`/api/app/v1/customers/${id}/ai/pre-session-brief`)
+        .apiFetch(
+          `/api/app/v1/customers/${encodeURIComponent(customerId)}/ai/pre-session-brief?locale=ja&appointmentId=${encodeURIComponent(appointmentId)}`,
+        )
+        // Non-OK (500/503, an auth-blip 401) means no brief actually got
+        // generated. Body deliberately unread either way.
         .then((res) => {
-          // Non-OK (500/503, an auth-blip 401) means no brief actually got
-          // generated — remove so a later trigger (or the staff member
-          // actually opening the page) can retry. Body deliberately unread.
-          if (!res.ok) warmed.delete(id)
+          if (!res.ok) release()
         })
-        .catch(() => {
-          // Network failure — same retry contract as a non-OK response.
-          warmed.delete(id)
-        })
+        .catch(release)
     }, delay)
     pendingTimers.push(timer)
   }
@@ -57,5 +73,6 @@ subscribeSessionState(() => {
     pendingTimers.forEach((t) => window.clearTimeout(t))
     pendingTimers = []
     warmed = new Set()
+    attempts = new Map()
   }
 })
