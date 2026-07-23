@@ -12,6 +12,7 @@
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
+import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 
 // PageHeader calls useRouter() from '@/i18n/navigation' at render time (the
 // switchToImport/exportSettings buttons) — mapped to the REAL thin nav port,
@@ -61,6 +62,16 @@ function jsonResponse(body: unknown): Response {
 }
 
 describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
+  // This file mounts the REAL DataExportScreen (real useScreenDto) against the
+  // SAME real path across several its, each expecting a genuinely fresh
+  // mount — the packet-24 screen DTO cache would otherwise seed a later
+  // mount's initial state from an earlier it's cached (successful) dto,
+  // which then swallows a same-path fetch failure per the existing
+  // same-path-keeps-dto contract (see ScreenBoundary.tsx).
+  beforeEach(() => {
+    dtoCache.clear()
+  })
+
   it('renders the REAL DataExportView with a rendered dataExport string, and the DTO totals', async () => {
     const apiFetch = jest.fn(async (path: string) => {
       if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
