@@ -102,13 +102,15 @@ export function DataExportView({
   const abortRef = useRef<AbortController | null>(null)
   useEffect(() => {
     liveExportKey.current = requestKey
-    // Abort the abandoned fetch (round 4): without this, `busy` stays true
-    // until the stale request settles on its own — the Export button sits
-    // greyed with no spinner for an unbounded network wait.
-    abortRef.current?.abort()
     setStep((s) => (s === 'configure' ? s : 'configure'))
     setDownloadUrl(null)
     setPendingBlob(null)
+    // Abort the abandoned fetch in the CLEANUP (rounds 4+5): it runs both
+    // before the next param-change invocation (round 4's greyed dead-window
+    // fix) AND on unmount (round 5 — navigating away mid-export otherwise
+    // let the fetch finish in the background; on web the auto-deliver then
+    // fired a surprise PII file download onto an unrelated page).
+    return () => abortRef.current?.abort()
   }, [requestKey])
 
   const activeStep = step === 'done' ? 3 : step === 'preparing' ? 2 : 0

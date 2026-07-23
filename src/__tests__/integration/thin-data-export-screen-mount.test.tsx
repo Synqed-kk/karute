@@ -186,6 +186,40 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
     expect(toastError).not.toHaveBeenCalled()
   })
 
+  it('unmounting mid-export ABORTS the fetch — navigating away must never leave a background request that later fires a delivery (fresh-eyes round 5)', async () => {
+    let exportSignal: AbortSignal | undefined
+    const apiFetch = jest.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/app/v1/screens/data-export') return Promise.resolve(jsonResponse(dto))
+      if (path.startsWith('/pin/export-base?')) {
+        exportSignal = init?.signal ?? undefined
+        return new Promise<Response>((_res, rej) => {
+          init?.signal?.addEventListener('abort', () =>
+            rej(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          )
+        })
+      }
+      return Promise.reject(new Error(`unexpected apiFetch(${path})`))
+    })
+    setDataPort({
+      apiFetch,
+      exportBase: '/pin/export-base',
+      supportsAutoDeliver: false,
+      deliverFile: jest.fn(),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    const { unmount } = render(<DataExportScreen />)
+    const [cta] = await screen.findAllByText(/をエクスポート$/)
+    fireEvent.click(cta)
+    expect(exportSignal?.aborted).toBe(false)
+
+    unmount()
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    expect(exportSignal?.aborted).toBe(true)
+  })
+
   it('a PRIVACY flip AFTER completion resets the done panel — a held blob never outlives the settings that made it (fresh-eyes round 3)', async () => {
     const apiFetch = jest.fn(async (path: string) => {
       if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
