@@ -170,7 +170,7 @@ export const FORMATS: ExportFormat[] = [
     key: 'xlsx',
     label: 'Excel',
     sub: 'One sheet per scope · types preserved',
-    subJa: 'スコープごとに1シート・型を保持',
+    subJa: 'データ種別ごとに1シート・型を保持',
     icon: 'FileSpreadsheet',
     meta: '.xlsx · ≈90 KB / 1,000 rows',
     metaJa: '.xlsx · 約90KB / 1,000件',
