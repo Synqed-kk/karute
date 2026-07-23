@@ -101,7 +101,12 @@ export function ensureChromeLoaded(): void {
         // shot, module-level: the NEXT store write of ANY kind retries;
         // ensureChromeLoaded re-checks every gate itself (a sign-out write
         // lands on mounted=false and no-ops). Writes are sparse (settle,
-        // echo, rotation, sign-out) — no retry storm.
+        // echo, rotation, sign-out) — no retry storm. If the fetch failed
+        // SLOWER than the boot timeout (bare fetch, no client abort), the
+        // boot echo has already passed — the escape then rides the next
+        // write from a foreground resume echo / rotation / settle instead;
+        // unbounded wait only in the already-degraded fully-offline case,
+        // where a retry could not succeed anyway.
         if (!errorRetryArmed && getSessionState().status === 'recovering') {
           errorRetryArmed = true
           const unsub = subscribeSessionState(() => {

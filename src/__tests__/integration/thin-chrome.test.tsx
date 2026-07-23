@@ -252,6 +252,25 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
   })
+
+  it('the escape RE-ARMS after firing: a second failure cycle retries again (single-flight flag resets)', async () => {
+    // Two consecutive failure→echo cycles. A mutant that never resets the
+    // single-flight flag passes cycle 1 but can never arm cycle 2 — the
+    // third fetch would not fire.
+    apiFetch.mockRejectedValueOnce(new Error('fail 1')).mockRejectedValueOnce(new Error('fail 2'))
+    seedKnownSession(session('tok-seed'))
+    render(<ThinChromeNav />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      setSessionState({ status: 'recovering' })
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      setSessionState({ status: 'recovering' })
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
+  })
 })
 
 describe('fresh-install store lens seed (Gap B½)', () => {
