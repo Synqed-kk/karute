@@ -4,9 +4,11 @@
  * Pre-session-brief cache warmer (perf packet 28) — fire-and-forget staggered
  * warm of GET /api/app/v1/customers/:id/ai/pre-session-brief for today's
  * active bookings. Pins: Set-dedupe across calls (repeat triggers are free) ·
- * stagger timing (nothing before 3s, then one every 4s) · a failed warm
+ * stagger timing (nothing before 3s, then one every 4s) · a rejected fetch
  * removes the id so a later trigger can retry, and never throws/rejects
- * unhandled · signed-out wipes the Set AND cancels pending timers so no
+ * unhandled · a RESOLVED non-OK response (500/503, an auth-blip 401) is
+ * treated the same as a failure — no silent stuck-warmed id · signed-out
+ * wipes the Set AND cancels pending timers so no
  * warmed id from the outgoing staff member's scope ever fetches afterward
  * (shared-iPad hygiene, mirrors chrome-store.ts / ScreenBoundary's dtoCache).
  */
@@ -82,6 +84,23 @@ it('a failed warm removes the id so a later trigger retries, and never throws', 
   await Promise.resolve()
 
   warmBriefsForToday(['c1']) // removed from the Set on failure — retries
+  jest.advanceTimersByTime(3_000)
+  expect(apiFetch).toHaveBeenCalledTimes(2)
+})
+
+it('a resolved non-OK response removes the id so a later trigger retries', async () => {
+  const apiFetch = jest
+    .fn<Promise<Response>, unknown[]>()
+    .mockResolvedValueOnce({ ok: false } as Response)
+    .mockResolvedValue({ ok: true } as Response)
+  mockApiFetch(apiFetch)
+
+  warmBriefsForToday(['c1'])
+  jest.advanceTimersByTime(3_000)
+  await Promise.resolve()
+  await Promise.resolve()
+
+  warmBriefsForToday(['c1']) // removed from the Set on !ok — retries
   jest.advanceTimersByTime(3_000)
   expect(apiFetch).toHaveBeenCalledTimes(2)
 })

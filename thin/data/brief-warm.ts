@@ -34,9 +34,14 @@ export function warmBriefsForToday(customerIds: string[]): void {
       pendingTimers = pendingTimers.filter((t) => t !== timer)
       void getDataPort()
         .apiFetch(`/api/app/v1/customers/${id}/ai/pre-session-brief`)
+        .then((res) => {
+          // Non-OK (500/503, an auth-blip 401) means no brief actually got
+          // generated — remove so a later trigger (or the staff member
+          // actually opening the page) can retry. Body deliberately unread.
+          if (!res.ok) warmed.delete(id)
+        })
         .catch(() => {
-          // A network failure, not a cache hit — remove so a later trigger
-          // (or the staff member actually opening the page) can retry.
+          // Network failure — same retry contract as a non-OK response.
           warmed.delete(id)
         })
     }, delay)
