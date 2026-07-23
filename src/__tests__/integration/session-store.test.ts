@@ -13,6 +13,7 @@ import {
   getAccessToken,
   getSessionState,
   hasKnownSession,
+  seedKnownSession,
   setSessionState,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
@@ -90,6 +91,36 @@ describe('session-store', () => {
       setSessionState({ status: 'signed-in', session: sessionU('tok-B', 'B') })
       applyTokenRotation(sessionU('tok-A', 'A'))
       expect(getAccessToken()).toBe('tok-B') // B's token untouched
+    })
+  })
+
+  describe('seedKnownSession — pre-boot synchronous seed (packet 25 PR-B)', () => {
+    it('no-clobber: store already signed-in → no-op', () => {
+      setSessionState({ status: 'signed-in', session: sessionU('tok-live', 'A') })
+      seedKnownSession(sessionU('tok-seed', 'B'))
+      expect(getAccessToken()).toBe('tok-live')
+    })
+
+    it('no-clobber: lastSession already set (recovering w/ known session) → no-op', () => {
+      setSessionState({ status: 'signed-in', session: sessionU('tok-live', 'A') })
+      setSessionState({ status: 'recovering' })
+      seedKnownSession(sessionU('tok-seed', 'B'))
+      expect(getAccessToken()).toBe('tok-live')
+    })
+
+    it('no-clobber: store already signed-out → no-op', () => {
+      setSessionState({ status: 'signed-out' })
+      seedKnownSession(sessionU('tok-seed', 'A'))
+      expect(hasKnownSession()).toBe(false)
+      expect(getSessionState()).toEqual({ status: 'signed-out' })
+    })
+
+    it('generation fence: seed contributes 0; a following authoritative write still advances by exactly 1', () => {
+      const gen = currentGeneration()
+      seedKnownSession(sessionU('tok-seed', 'A'))
+      expect(currentGeneration()).toBe(gen)
+      setSessionState({ status: 'signed-in', session: sessionU('tok-seed', 'A') })
+      expect(currentGeneration()).toBe(gen + 1)
     })
   })
 

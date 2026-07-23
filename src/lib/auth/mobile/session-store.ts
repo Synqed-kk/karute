@@ -109,6 +109,20 @@ export function subscribeSessionState(listener: Listener): () => void {
   }
 }
 
+/** Pre-boot synchronous seed of the last-known session (perf packet 25).
+ *  Populates ONLY lastSession so AuthGate's recovering-with-known-session
+ *  contract mounts the app instantly and getAccessToken() serves the
+ *  persisted Bearer while boot() verifies in the background. NEVER touches
+ *  `current` and NEVER advances the generation — this is not an
+ *  authoritative transition; the facade stays the validity oracle. Guarded
+ *  to the pristine pre-boot state so it can never clobber a settled boot,
+ *  an explicit sign-out, or an already-seen session. */
+export function seedKnownSession(session: Session): void {
+  if (current.status !== 'recovering' || lastSession !== null) return
+  lastSession = session
+  listeners.forEach((l) => l())
+}
+
 /** Current Bearer for the DataPort, or null when signed out / never signed
  *  in. Synchronous on purpose — kept fresh by the onAuthStateChange rotation
  *  mirror (applyTokenRotation applies a same-user TOKEN_REFRESHED in place).

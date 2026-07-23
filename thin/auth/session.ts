@@ -5,17 +5,27 @@
 // app-state ports, session state routed into the session-store the AuthGate
 // and DataPort read. All auth LOGIC stays in src/lib/auth/mobile/*.
 
-import { createMobileAuth, type MobileAuth } from '@/lib/auth/mobile/client-session'
+import type { Session } from '@supabase/supabase-js'
+import {
+  createMobileAuth,
+  SESSION_STORAGE_KEY,
+  type MobileAuth,
+} from '@/lib/auth/mobile/client-session'
 import { loadAuthClientConfig } from '@/lib/auth/mobile/config'
 import type { SupportsStorage } from '@/lib/auth/mobile/secure-storage'
 import {
   applyTokenRotation,
   currentGeneration,
   getCurrentSession,
+  getSessionState,
+  hasKnownSession,
+  seedKnownSession,
   setSessionState,
+  subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { getThinEnv } from '../env'
+import { emitRefresh } from '../ports/nav.vite'
 
 // localStorage-backed session storage. WKWebView localStorage survives
 // force-quit and cold launch (auth spike + packet-10 W3, both proven on
@@ -134,11 +144,66 @@ export function getMobileAuth(): MobileAuth {
   return auth
 }
 
+/** Pre-boot synchronous seed (perf packet 25 PR-B): read the SAME storage key
+ *  GoTrue persists to, DIRECTLY off window.localStorage (not the async
+ *  storage adapter above — the whole point is seeding before first render).
+ *  Absent key / malformed JSON / missing required fields → skip silently, no
+ *  log (a signed-out device has no key, so cold signed-out boot is
+ *  unchanged). Deliberately no expiry check — seeding a near/past-expiry
+ *  token is the design; the recovering contract plus armSettleRefresh below
+ *  heal it, and a truly-dead session still settles signed-out via boot
+ *  exactly as today, just with the splash held a beat less.
+ *  ⚠ SAFEGUARD: never log/print/decode/slice the token value — parse, hand
+ *  the object to seedKnownSession, done. */
+function seedFromPersistedSession(): void {
+  const raw = window.localStorage.getItem(SESSION_STORAGE_KEY)
+  if (!raw) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    return
+  }
+  const candidate = parsed as { access_token?: unknown; user?: { id?: unknown } }
+  if (typeof candidate.access_token !== 'string' || typeof candidate.user?.id !== 'string') return
+  const wasKnown = hasKnownSession()
+  seedKnownSession(parsed as Session)
+  // Only arm the settle-refresh below if this call actually flipped the
+  // store from unknown to known — seedKnownSession itself may still no-op
+  // (store already settled/signed-out by the time this runs).
+  if (!wasKnown && hasKnownSession()) armSettleRefresh()
+}
+
+/** MANDATORY second-order pin (packet 25 PR-B): a seeded EXPIRED Bearer means
+ *  first-screen fetches can 401 into the error frame, and useScreenDto never
+ *  re-fetches on session settle. Subscribe once and on the FIRST authoritative
+ *  settle: signed-in → emitRefresh() exactly once (SWR swap-not-flash of the
+ *  already-mounted screen), then unsubscribe; signed-out → unsubscribe, no
+ *  refresh (LoginScreen owns the tree). A 'recovering' notification (timeout
+ *  fall-through) keeps the subscription armed so the LATE settle — via
+ *  onSettled or onAuthStateChange's INITIAL_SESSION, both of which write the
+ *  store through setSessionState — still fires it. Accepted costs (PR body):
+ *  one extra background re-fetch of the mounted screen per seeded boot with a
+ *  VALID token (invisible SWR swap); emitRefresh clears PR-A's dtoCache
+ *  (by-design), which at boot is only seconds old — nothing of value lost. */
+function armSettleRefresh(): void {
+  const unsubscribe = subscribeSessionState(() => {
+    const state = getSessionState()
+    if (state.status === 'recovering') return
+    unsubscribe()
+    if (state.status === 'signed-in') emitRefresh()
+  })
+}
+
 /** Run once from the thin entry, after the env gate, before render. Never
  *  blocks first paint: boot resolves ≤ bootTimeoutMs and the store starts in
- *  'recovering' (a renderable state) until it does. */
+ *  'recovering' (a renderable state) until it does. The synchronous seed
+ *  above runs FIRST (before boot()), so a cold boot with a persisted session
+ *  mounts the app instantly instead of waiting on the network (packet 25
+ *  PR-B). */
 export function bootMobileAuth(): void {
   const a = getMobileAuth()
+  seedFromPersistedSession()
   // boot() RESOLVES the fast path; onSessionState (already wired) reports only
   // the late settle after a timeout fall-through — both must reach the store.
   void a.boot().then(setSessionState)

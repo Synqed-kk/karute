@@ -82,7 +82,7 @@ export interface MobileAuth {
   signOut(): Promise<SignOutResult>
 }
 
-const SESSION_STORAGE_KEY = 'karute.auth.session'
+export const SESSION_STORAGE_KEY = 'karute.auth.session'
 
 export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
   const auth = new GoTrueClient({

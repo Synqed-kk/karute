@@ -12,7 +12,7 @@
 import { StrictMode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { act, render, screen } from '@testing-library/react'
-import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { AuthGate } from '../../../thin/AuthGate'
 
 // next-intl's react-client entry ships production ESM that CI's node 20 jest
@@ -135,6 +135,20 @@ describe('AuthGate splash handshake (launch-flash fix)', () => {
     expect(screen.getByTestId('app')).toBeTruthy()
     expect(hide).toHaveBeenCalledTimes(1)
     expect(mark).toHaveBeenCalledTimes(1)
+  })
+
+  it('seeded lastSession (packet 25 boot seed): mounts instantly, no loading frame', () => {
+    // Cold-boot equivalent of a synchronous seed: booting flips false before
+    // the render, without any authoritative store transition.
+    seedKnownSession(session('tok-seeded'))
+    render(
+      <AuthGate>
+        <div data-testid="app" />
+      </AuthGate>,
+    )
+    expect(screen.getByTestId('app')).toBeTruthy()
+    expect(screen.queryByText('読み込み中...')).toBeNull()
+    expect(hide).toHaveBeenCalledTimes(1)
   })
 
   it('offline resume (recovering WITH a known session): app mounted, splash still releases', () => {
