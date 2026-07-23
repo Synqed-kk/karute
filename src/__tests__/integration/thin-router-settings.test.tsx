@@ -38,6 +38,12 @@ jest.mock('../../../thin/screens/KaruteDetailScreen', () => ({
 jest.mock('../../../thin/screens/WelcomeScreen', () => ({
   WelcomeScreen: () => <div>WELCOME</div>,
 }))
+// DataExportScreen pulls the REAL DataExportView (packet 23), which imports
+// next-intl (and '@/i18n/navigation') directly — same reason WelcomeScreen
+// gets a stub above.
+jest.mock('../../../thin/screens/DataExportScreen', () => ({
+  DataExportScreen: () => <div>DATA_EXPORT</div>,
+}))
 
 import { render, screen } from '@testing-library/react'
 import { readFileSync } from 'node:fs'

@@ -49,6 +49,10 @@ export function DataExportView({
   const [filters, setFilters] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+  // Thin path only (packet 23): the fetched blob held in state instead of an
+  // object URL, so the done-step affordance can hand it to deliverFile on a
+  // later user gesture (WebKit's share() needs one — see the port's doc).
+  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
 
   // Reset format if the new scope doesn't support it
   useEffect(() => {
@@ -64,6 +68,7 @@ export function DataExportView({
     setFilters({})
     setStep('configure')
     setDownloadUrl(null)
+    setPendingBlob(null)
   }, [scope])
 
   const activeStep = step === 'done' ? 3 : step === 'preparing' ? 2 : 0
@@ -97,16 +102,20 @@ export function DataExportView({
       const res = await getDataPort().apiFetch(`/api/export?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      setDownloadUrl(url)
-      setStep('done')
-      // Auto-trigger the download
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      const port = getDataPort()
+      if (port.supportsAutoDeliver) {
+        // Web: current behavior verbatim — a persistent object-URL link/copy
+        // button (ExportSummaryRail's done step) PLUS the auto-triggered
+        // download, now living in the port's deliverFile.
+        setDownloadUrl(URL.createObjectURL(blob))
+        setStep('done')
+        await port.deliverFile(blob, fileName)
+      } else {
+        // Thin: no auto-deliver (no user gesture yet for WebKit's share()) —
+        // hold the blob for the done-step affordance to hand to deliverFile.
+        setPendingBlob(blob)
+        setStep('done')
+      }
     } catch (err) {
       console.error('[export]', err)
       toast.error(t('exportFailed'))
@@ -116,9 +125,21 @@ export function DataExportView({
     }
   }
 
+  async function handleDeliverFile() {
+    if (!pendingBlob) return
+    try {
+      const result = await getDataPort().deliverFile(pendingBlob, fileName)
+      if (result === 'copied') toast.message(t('copiedToClipboard'))
+    } catch (err) {
+      console.error('[export]', err)
+      toast.error(t('exportFailed'))
+    }
+  }
+
   function handleReset() {
     setStep('configure')
     setDownloadUrl(null)
+    setPendingBlob(null)
   }
 
   return (
@@ -191,6 +212,7 @@ export function DataExportView({
             step={step}
             fileName={fileName}
             downloadUrl={downloadUrl}
+            onDeliverFile={handleDeliverFile}
             totals={totals}
           />
         </div>
@@ -211,6 +233,7 @@ export function DataExportView({
           step={step}
           fileName={fileName}
           downloadUrl={downloadUrl}
+          onDeliverFile={handleDeliverFile}
           totals={totals}
         />
       </div>

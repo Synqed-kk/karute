@@ -105,6 +105,12 @@ jest.mock('../../../thin/screens/SettingsScreen', () => ({
 jest.mock('../../../thin/screens/WelcomeScreen', () => ({
   WelcomeScreen: () => <div data-testid="welcome-screen" />,
 }))
+// DataExportScreen pulls the REAL DataExportView (packet 23), which imports
+// next-intl (and '@/i18n/navigation') directly — same reason every other
+// real-screen sibling above gets a stub.
+jest.mock('../../../thin/screens/DataExportScreen', () => ({
+  DataExportScreen: () => <div data-testid="data-export-screen" />,
+}))
 
 const session = (token: string, userId = 'auth-user-1') =>
   ({ access_token: token, user: { id: userId } }) as Session
@@ -487,7 +493,7 @@ describe('ThinChromeContent (MobileHeader + web content frame)', () => {
 })
 
 describe('ThinRouter pending routes (no silent wrong screen)', () => {
-  it.each(['/data-export', '/coaching/data', '/appointments/deep'])(
+  it.each(['/coaching/data', '/appointments/deep'])(
     '%s lands on the 準備中 placeholder',
     (path) => {
       history.replaceState({}, '', path)
@@ -536,6 +542,16 @@ describe('ThinRouter pending routes (no silent wrong screen)', () => {
     })
     render(<ThinRouter />)
     expect(screen.getByTestId('settings-screen')).toBeTruthy()
+    expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
+
+  it('/data-export renders the real screen, not the placeholder (packet 23)', () => {
+    history.replaceState({}, '', '/data-export')
+    act(() => {
+      setSessionState({ status: 'signed-in', session: session('tok') })
+    })
+    render(<ThinRouter />)
+    expect(screen.getByTestId('data-export-screen')).toBeTruthy()
     expect(screen.queryByText('この画面は準備中です')).toBeNull()
   })
 })

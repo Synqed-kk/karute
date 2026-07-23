@@ -20,6 +20,7 @@ export type AppApiErrorCode =
   | 'not_found' // 404
   | 'conflict' // 409 — If-Match / optimistic-concurrency mismatch
   | 'rate_limited' // 429 — throttled (e.g. PIN attempts)
+  | 'not_implemented' // 501 — a valid-but-unwired param combo (export scope/format)
   | 'jwks_unavailable' // 503 — the verifier could not CHECK the token (upstream down)
   | 'upstream_unavailable' // 502 — synqed-core / dependency failed
   | 'config' // 500 — server misconfiguration (missing env)
@@ -36,6 +37,7 @@ const STATUS: Record<AppApiErrorCode, number> = {
   not_found: 404,
   conflict: 409,
   rate_limited: 429,
+  not_implemented: 501,
   jwks_unavailable: 503,
   upstream_unavailable: 502,
   config: 500,

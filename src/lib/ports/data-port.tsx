@@ -19,6 +19,20 @@ import type { DataPort } from './types'
 /** Web default: same-origin passthrough. Identical to a bare `fetch(path,init)`. */
 export const sameOriginDataPort: DataPort = {
   apiFetch: (path, init) => fetch(path, init),
+  // Packet 23 (/data-export port): the EXACT anchor-click block moved out of
+  // DataExportView's handleExport, unchanged — web UX stays pixel-identical.
+  // Object-URL lifecycle stays as-is (never revoked), same as before the move.
+  async deliverFile(blob, fileName) {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    return 'downloaded'
+  },
+  supportsAutoDeliver: true,
 }
 
 // Module singleton for non-hook callers. AppRoot overrides it in the shell.

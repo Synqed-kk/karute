@@ -2556,6 +2556,7 @@
     "linkValid": "Link valid for 24 hours.",
     "downloadFile": "Download {ext}",
     "copySignedUrl": "Copy signed URL",
+    "copiedToClipboard": "Copied to clipboard",
     "recentExports": "Recent exports",
     "refresh": "Refresh",
     "completed": "Completed",
