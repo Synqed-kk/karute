@@ -17,10 +17,16 @@ import { auditLines } from './helpers/audit-lines'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
 process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
+// Overridable getUser (fresh-eyes round 6, recording-job precedent): the
+// 'export' endpoint key rides REVOCATION_SENSITIVE_ENDPOINTS, which forces a
+// real server round-trip here — a fixed inline mock could never regression-
+// test the one property this endpoint's revocation registration exists for.
+type GetUserResult = { data: { user: { id: string } | null }; error: { message: string } | null }
+const getUser = {
+  fn: jest.fn(async (): Promise<GetUserResult> => ({ data: { user: { id: 'auth-user-1' } }, error: null })),
+}
 jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({
-    auth: { getUser: async () => ({ data: { user: { id: 'auth-user-1' } }, error: null }) },
-  }),
+  createClient: () => ({ auth: { getUser: (...a: unknown[]) => getUser.fn(...(a as [])) } }),
 }))
 
 jest.mock('@/lib/staff', () => ({
@@ -99,6 +105,16 @@ describe('GET /api/app/v1/export — auth / capability', () => {
     const res = await GET(new Request('https://s/api/app/v1/export?scope=customers&format=json'), route)
     expect(res.status).toBe(401)
     expect(fetchCustomers).not.toHaveBeenCalled()
+  })
+
+  it('revoked staffer → 401 via the server round-trip, no reads, no audit — the terminated-token property the endpoint key exists for (fresh-eyes round 6)', async () => {
+    getUser.fn.mockResolvedValueOnce({ data: { user: null }, error: { message: 'revoked' } })
+    const lines = await auditLines(async () => {
+      const res = await GET(req(auth), route)
+      expect(res.status).toBe(401)
+    })
+    expect(fetchCustomers).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 
   it('missing data.export capability → 403, no reads', async () => {

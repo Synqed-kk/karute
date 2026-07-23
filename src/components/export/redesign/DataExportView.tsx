@@ -88,13 +88,11 @@ export function DataExportView({
         privacy ? '1' : '0',
         dateRange,
         // columns order matters (it IS the CSV column order); filters are an
-        // unordered map — sort keys so clear-and-rebuild in a different order
-        // can't falsely invalidate a still-accurate result (round 4).
+        // unordered map of unordered sets — sorted + JSON-escaped so neither
+        // rebuild order (round 4) nor a future delimiter-carrying option
+        // value (round 6) can falsely alias two different states.
         columns.join(','),
-        Object.keys(filters)
-          .sort()
-          .map((k) => `${k}:${filters[k].join('+')}`)
-          .join('&'),
+        JSON.stringify(Object.keys(filters).sort().map((k) => [k, [...filters[k]].sort()])),
       ].join('|'),
     [scope, format, privacy, dateRange, columns, filters],
   )
