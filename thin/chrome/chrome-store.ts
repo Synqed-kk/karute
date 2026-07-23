@@ -77,6 +77,10 @@ export function ensureChromeLoaded(): void {
     (session.status === 'recovering' && hasKnownSession())
   if (!mounted) return
   const myEpoch = epoch
+  // Captured for the settle-race branch in the catch below (Greptile #596
+  // P1): a settle that lands DURING this fetch flips the status before the
+  // stale-Bearer failure arrives.
+  const startedStatus = session.status
   set({ status: 'loading', dto: null })
   void fetchChromeDto()
     .then((dto) => {
@@ -107,13 +111,25 @@ export function ensureChromeLoaded(): void {
         // write from a foreground resume echo / rotation / settle instead;
         // unbounded wait only in the already-degraded fully-offline case,
         // where a retry could not succeed anyway.
-        if (!errorRetryArmed && getSessionState().status === 'recovering') {
+        const statusNow = getSessionState().status
+        if (!errorRetryArmed && statusNow === 'recovering') {
           errorRetryArmed = true
           const unsub = subscribeSessionState(() => {
             unsub()
             errorRetryArmed = false
             ensureChromeLoaded()
           })
+        } else if (statusNow === 'signed-in' && statusNow !== startedStatus) {
+          // Settle-race escape (Greptile #596 P1): the session settled to
+          // signed-in WHILE this recovering-window fetch was in flight — so
+          // useChromeDto's [session.status] effect already fired into the
+          // 'loading' guard and was skipped, and the recovering-only arm
+          // above can't fire either. The failure was the stale seeded
+          // Bearer; retry once immediately with the settled token. Storm-
+          // safe by construction: the retry captures startedStatus =
+          // 'signed-in', so ITS failure lands on statusNow === startedStatus
+          // and stops here (today's behavior — foreground/next write heals).
+          ensureChromeLoaded()
         }
       }
     })

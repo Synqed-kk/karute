@@ -13,7 +13,7 @@
 import type { Session } from '@supabase/supabase-js'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
-import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { globalRecorder } from '@/lib/global-recorder'
 
 jest.mock('next-intl', () => ({
@@ -129,6 +129,79 @@ describe('bindForegroundRevalidate — mounted screen', () => {
     act(() => setVisibility('visible'))
     expect(apiFetch).toHaveBeenCalledTimes(1)
     expect(screen.getByTestId('content').textContent).toBe('v1')
+  })
+
+  it('in-flight dedup: a second foreground during a running revalidate fires no duplicate fetch', async () => {
+    let resolveSecond: (r: Response) => void = () => {}
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValueOnce(jsonResponse({ label: 'v1' }))
+      .mockImplementationOnce(() => new Promise<Response>((res) => (resolveSecond = res)))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    const path = '/api/app/v1/screens/fg-dedup'
+    render(<Probe path={path} />)
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('v1'))
+    fetchedAtByPath.set(path, 0)
+
+    // First foreground starts the revalidate; the stamp stays stale until it
+    // SUCCEEDS — a second foreground while it runs must not fire a duplicate
+    // (Greptile #596 P2: fetchingRef suppresses the bump).
+    act(() => setVisibility('visible'))
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    act(() => setVisibility('visible'))
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Settle → stamp fresh → a further foreground is a staleness no-op.
+    act(() => resolveSecond(jsonResponse({ label: 'v2' })))
+    await waitFor(() => expect(screen.getByTestId('content').textContent).toBe('v2'))
+    act(() => setVisibility('visible'))
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('chrome settle-race: sign-in landing mid-flight retries the failed chrome fetch once', async () => {
+    // Seeded cold boot: recovering + known session mounts chrome (packet 25
+    // contract). The session settles to signed-in WHILE the chrome fetch is
+    // in flight; the stale-Bearer failure then lands with status already
+    // 'signed-in' — useChromeDto's [session.status] effect fired into the
+    // 'loading' guard, and the recovering-only arm can't fire (Greptile
+    // #596 P1). The catch's settle-race branch must retry once immediately.
+    setSessionState({ status: 'recovering' })
+    seedKnownSession(session('tok-stale'))
+    let rejectFirst: (e: Error) => void = () => {}
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(() => new Promise<Response>((_res, rej) => (rejectFirst = rej)))
+      .mockResolvedValueOnce(jsonResponse({ data: CHROME_DTO }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    ensureChromeLoaded()
+    expect(getChromeState().status).toBe('loading')
+    // Settle lands mid-flight…
+    act(() => setSessionState({ status: 'signed-in', session: session('tok-fresh') }))
+    // …then the stale-Bearer fetch fails.
+    await act(async () => {
+      rejectFirst(new Error('chrome 401'))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(getChromeState().status).toBe('ready')
+  })
+
+  it('chrome settle-race retry is single-shot: a signed-in-at-start failure does not loop', async () => {
+    setSessionState({ status: 'signed-in', session: session('tok') })
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockRejectedValue(new Error('network down'))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await act(async () => {
+      ensureChromeLoaded()
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    // startedStatus === statusNow === 'signed-in' → no immediate retry; the
+    // error state waits for the next foreground / session write as today.
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(getChromeState().status).toBe('error')
   })
 
   it('offline reopen: a stale + rejected revalidate keeps the rendered dto, no error card', async () => {
