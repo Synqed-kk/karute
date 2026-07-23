@@ -6,7 +6,11 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { getDataPort } from '@/lib/ports/data-port'
-import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
+import {
+  currentGeneration,
+  getSessionState,
+  subscribeSessionState,
+} from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh } from '../ports/nav.vite'
 
 type State<T> =
@@ -86,6 +90,15 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
   useEffect(() => {
     let alive = true
     setFetching(true)
+    // Straggler-write fence (audit find on the packet): a fetch still in
+    // flight across a sign-out would settle AFTER the signed-out cache wipe
+    // and re-populate the cache with the outgoing user's dto — the next
+    // user's first frame on a shared iPad would paint it. Capture the auth
+    // generation at fetch start; any authoritative transition (sign-out,
+    // sign-in, boot result) advances it, so a cross-generation settle never
+    // writes the cache. Same fence background-resume uses; same-user token
+    // rotations stay within a generation and cache normally.
+    const gen = currentGeneration()
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -98,7 +111,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
-        cacheDto(path, dto)
+        if (currentGeneration() === gen) cacheDto(path, dto)
         if (alive) setState({ status: 'ready', dto, path })
       })
       .catch((err: unknown) => {

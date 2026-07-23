@@ -204,6 +204,48 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     setSessionState({ status: 'recovering' })
   })
 
+  it('straggler fence: a fetch in flight across sign-out settles WITHOUT re-populating the cache', async () => {
+    const path = '/api/app/v1/screens/straggler'
+    let resolveFetch: (r: Response) => void = () => {}
+    setDataPort({
+      apiFetch: jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFetch = res))),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    const probe = render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    // Outgoing user signs out while the fetch is still on the wire; the app
+    // unmounts the screen (AuthGate swaps to login) and the cache wipes.
+    probe.unmount()
+    setSessionState({ status: 'signed-out' })
+    expect(dtoCache.has(path)).toBe(false)
+
+    // The straggler settles AFTER the wipe — the generation fence must drop
+    // the cache write, or the next user's first frame paints this dto.
+    await act(async () => {
+      resolveFetch(jsonResponse({ label: 'outgoing-user-data' }))
+      // Drain the full then-chain (json → parse → cache write attempt).
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(dtoCache.has(path)).toBe(false)
+
+    // Even after the NEXT user signs in (a later generation), the straggler's
+    // write stays dropped and their first mount starts honestly at loading.
+    setSessionState({ status: 'recovering' })
+    setDataPort({
+      apiFetch: jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockResolvedValueOnce(jsonResponse({ label: 'next-user-data' })),
+    } as unknown as Parameters<typeof setDataPort>[0])
+    render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+    await waitFor(() =>
+      expect(screen.getByTestId('content').textContent).toBe('next-user-data'),
+    )
+  })
+
   it('retry: clears a stale cache entry for that path so a later revisit never flashes it', async () => {
     const path = '/api/app/v1/screens/retry-cache'
     const apiFetch = jest
