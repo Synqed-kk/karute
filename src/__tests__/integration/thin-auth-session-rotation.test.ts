@@ -131,6 +131,17 @@ describe('thin/auth/session — identity-guarded SIGNED_IN branch (packet 25 fix
     expect(getAccessToken()).toBe('tok-2')
   })
 
+  it('an undefined-uid store session never identity-matches — undefined === undefined is not a match', () => {
+    getMobileAuth()
+    setSessionState({
+      status: 'signed-in',
+      session: { access_token: 'tok-anon' } as Session,
+    })
+    authCb!('SIGNED_IN', { access_token: 'tok-evil' } as Session)
+    // Same rule as applyTokenRotation: uid must be PRESENT on both sides.
+    expect(getAccessToken()).toBe('tok-anon')
+  })
+
   it('startAutoRefresh still fires on a DROPPED SIGNED_IN (re-arm survives even when the write is dropped)', () => {
     getMobileAuth()
     setSessionState({ status: 'signed-out' })

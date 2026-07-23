@@ -118,8 +118,12 @@ export function getMobileAuth(): MobileAuth {
         // event delivery order and drop a legitimate same-user echo/refresh
         // once already signed-in.
         const storeState = getSessionState()
+        // uid must be PRESENT on both sides — undefined === undefined is not
+        // an identity match (same rule as applyTokenRotation's guard).
         const sameUser =
-          storeState.status === 'signed-in' && storeState.session.user?.id === session.user?.id
+          storeState.status === 'signed-in' &&
+          storeState.session.user?.id !== undefined &&
+          storeState.session.user?.id === session.user?.id
         if (storeState.status === 'recovering' || sameUser) {
           setSessionState({ status: 'signed-in', session })
         }
