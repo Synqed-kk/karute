@@ -108,9 +108,10 @@ function boundaryPlugin(): Plugin {
       if (PURCHASE_FILES.has(resolved.id)) return PURCHASE_PORT
       if (PURCHASE_VENDOR_SUFFIXES.some((s) => resolved.id.endsWith(s))) return PURCHASE_PORT
 
-      // (d) Pending-tab settings sections (§S1) → null renders. The
-      // pendingTabIds runtime intercept already guarantees these never
-      // render; this cuts them (and their children) from the bundle too.
+      // (d) Excluded settings sections (§S1, #585) → null renders. The
+      // pendingTabIds/webOnlyTabIds runtime intercept already guarantees
+      // these never render (SyncSection is webOnlyTabIds since #585, not
+      // pendingTabIds); this cuts them (and their children) from the bundle too.
       if (PENDING_SECTION_FILES.has(resolved.id)) return PENDING_SECTIONS_PORT
 
       return null
