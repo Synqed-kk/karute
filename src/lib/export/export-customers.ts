@@ -1,21 +1,31 @@
-// Bulk customer export core (packet 23 §Build 1) — extracted UNCHANGED from
+// Bulk customer export core (packet 23 §Build 1) — extracted from
 // src/app/api/export/route.ts so the facade twin (src/app/api/app/v1/export/
-// route.ts) and the web route can call the exact same body-building logic.
-// Pure move: same params, same CSV/JSON output, same headers.
+// route.ts) and the web route call the same body-building logic.
+//
+// TENANT IS EXPLICIT (fix round after the blind fleet): the first extraction
+// kept listCustomers(), whose getBusinessId() resolves identity from the
+// request COOKIE — correct on web, but on the Bearer facade it ignored the
+// verified token identity (cross-tenant read if a cookie rode along; hard 500
+// for the cookieless shell). Callers now pass their own verified businessId
+// and the read goes straight to fetchCustomers — no ambient identity, ever.
+// Side effect on web, deliberate: page-1 exports no longer serve from the 60s
+// landing cache; an export reads fresh.
 
 import { NextResponse } from 'next/server'
-import { listCustomers } from '@/lib/customers/queries'
+import { fetchCustomers } from '@/lib/customers/queries'
 import type { FormatKey } from '@/lib/export/scopes'
 
 const MAX_PAGE_SIZE = 500
 const MAX_ROWS = 5000
 
 export async function exportCustomers({
+  businessId,
   columns,
   format,
   privacy,
   storeId,
 }: {
+  businessId: string
   columns: string[]
   format: FormatKey
   privacy: boolean
@@ -24,7 +34,7 @@ export async function exportCustomers({
   const rows: Record<string, unknown>[] = []
   let page = 1
   while (rows.length < MAX_ROWS) {
-    const { customers, totalPages } = await listCustomers({
+    const { customers, totalPages } = await fetchCustomers(businessId, {
       page,
       pageSize: MAX_PAGE_SIZE,
       sortBy: 'updated_at',

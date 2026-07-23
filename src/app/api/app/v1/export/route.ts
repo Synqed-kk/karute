@@ -13,21 +13,16 @@
 // just-terminated staffer's still-unexpired Bearer token could keep
 // exporting the whole customer book. Verified at source, not assumed.
 //
-// STORE CLAMP (⚠ MUST-VERIFY, resolved at source): the Bearer path has no
-// cookie session, so web's resolveStoreScope() doesn't apply. The facade
-// family's twin is resolveStoreForRequest (src/lib/app-api/store-clamp.ts,
-// copied from recordings/job/route.ts + screens/customers/route.ts) —
-// TENANCY-first, then staff-assignment. `allowedStoreIds != null` is the
-// facade's viewAll-equivalent flag (screens/customers/route.ts's
-// `enforceStore` precedent): null = cross-store viewer OR floating staff
-// (unrestricted within the tenant, same as web's storeScope.viewAll), a
-// non-null array = a clamped staff member, always resolving to a concrete
-// store (never an ambiguous null-storeId-while-clamped state — the module's
-// own construction guarantees that; see its header comment). FAIL CLOSED at
-// the SAME single layer web needed two checks for: resolveStoreForRequest
-// itself throws store_forbidden (→ 403) on a lookup failure OR a foreign
-// store-id — there is no second "non-viewAll-without-store" gap to plug here
-// because the module never returns that state.
+// STORE CLAMP (fix round — the blind fleet caught the first version): exports
+// use resolveExportStoreId (store-clamp.ts), NOT the ordinary-read
+// `allowedStoreIds != null` convention. The list convention treats floating
+// staff (empty assignment) as unrestricted — fine for reads, but web's
+// /api/export deliberately clamps floating staff to their store lens (a rule
+// it earned from two Greptile P1s; see its comment). The first cut here
+// reused the list convention and silently reopened that bug class on the
+// Bearer path. resolveExportStoreId keeps every tenancy/assignment
+// fail-closed rule and adds the export-hardened floating clamp: header
+// store ?? primary store, refuse if unresolvable.
 //
 // AUDIT (⚠ MUST-VERIFY, resolved at source): the facade's generic hook
 // (FACADE_AUDIT_MAP + handler.ts's logFacadeAudit) classifies by endpoint key
@@ -52,7 +47,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { corsHeaders } from '@/lib/app-api/cors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveExportStoreId } from '@/lib/app-api/store-clamp'
 import { exportCustomers } from '@/lib/export/export-customers'
 import { audit } from '@/lib/audit'
 import { SCOPES, isWired, type ScopeKey, type FormatKey } from '@/lib/export/scopes'
@@ -81,20 +76,26 @@ export const GET = facadeHandler('export', async (ctx) => {
   }
 
   const synqed = newSynqedClient(ctx.identity.businessId)
-  const clamp = await resolveStoreForRequest({
+  const storeId = await resolveExportStoreId({
     synqed,
     authUserId: ctx.identity.authUserId,
     capabilities: ctx.identity.capabilities,
     requestedStoreId: ctx.req.headers.get('store-id'),
   })
-  // Mirror web's `storeScope.viewAll ? undefined : storeId` — a cross-store
-  // viewer/floating staff NEVER store-filters the export, even if an
-  // explicit store-id rode the request; only a clamped staff member narrows.
-  const enforceStore = clamp.allowedStoreIds != null
-  const storeId = enforceStore ? (clamp.storeId ?? undefined) : undefined
 
   if (scope === 'customers') {
-    const res = await exportCustomers({ columns, format, privacy, storeId })
+    // businessId from the VERIFIED BEARER IDENTITY, explicitly — the core
+    // takes no ambient identity (fix round: the first cut let the core
+    // re-resolve identity from cookies via listCustomers/getBusinessId,
+    // which on this path ignored the token identity entirely — cross-tenant
+    // read if a cookie rode the request, hard 500 for the cookieless shell).
+    const res = await exportCustomers({
+      businessId: ctx.identity.businessId,
+      columns,
+      format,
+      privacy,
+      storeId,
+    })
     // Bulk PII egress — logged with the QUERY SCOPE persisted (AUDIT-LOG-
     // DESIGN §7), AFTER the body builds successfully (errors above throw
     // before this line — errors are not actions). See the header comment for

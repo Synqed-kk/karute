@@ -31,7 +31,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { DataExportScreenDTO } from '@/lib/app-api/data-export-screen-dto'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
-import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
+import { resolveExportStoreId } from '@/lib/app-api/store-clamp'
 
 export const runtime = 'nodejs'
 
@@ -45,14 +45,16 @@ export const GET = facadeHandler('screens.dataExport', async (ctx) => {
   let storeId: string | undefined
   let scopeFailed = false
   try {
-    const clamp = await resolveStoreForRequest({
+    // Export-hardened lens (fix round): floating staff see THEIR store's
+    // totals, not business-wide ones — the numbers must preview what the
+    // export twin will actually produce (web's page clamps them the same
+    // way via resolveStoreScope's floating branch).
+    storeId = await resolveExportStoreId({
       synqed,
       authUserId: ctx.identity.authUserId,
       capabilities: ctx.identity.capabilities,
       requestedStoreId: ctx.req.headers.get('store-id'),
     })
-    const enforceStore = clamp.allowedStoreIds != null
-    storeId = enforceStore ? (clamp.storeId ?? undefined) : undefined
   } catch {
     scopeFailed = true
   }

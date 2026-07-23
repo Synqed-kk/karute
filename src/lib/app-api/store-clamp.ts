@@ -103,3 +103,51 @@ export async function resolveStoreForRequest(args: {
   }
   return { storeId: requestedStoreId ?? assigned[0], allowedStoreIds: assigned }
 }
+
+/**
+ * EXPORT-HARDENED store lens (packet 23 fix round, blind-fleet finding).
+ *
+ * Bulk-PII surfaces follow web's /api/export rule, which is DELIBERATELY
+ * stricter than the ordinary-read convention above: ONLY `stores.viewAll`
+ * exports business-wide. Floating staff (empty assignment — `allowedStoreIds:
+ * null` from resolveStoreForRequest, indistinguishable there from viewAll)
+ * clamp to their store lens: the tenant-validated `store-id` header if one
+ * rode the request, else the business's primary store — the Bearer twin of
+ * web's `activeStore ?? getPrimaryStoreId()`. Web earned this rule from two
+ * Greptile P1s (see /api/export's own comment); reusing the list convention
+ * here silently reopened that bug class on the facade.
+ *
+ * FAIL CLOSED: a floating caller whose store lens cannot be resolved
+ * (stores.list failed / zero stores) is refused, never widened.
+ *
+ * Returns the storeId to filter by, or undefined = business-wide (viewAll only).
+ */
+export async function resolveExportStoreId(args: {
+  synqed: Pick<SynqedClient, 'stores' | 'staffStores'>
+  authUserId: string
+  capabilities: Set<Capability>
+  requestedStoreId: string | null
+}): Promise<string | undefined> {
+  // Full clamp first — keeps every tenancy/assignment validation and
+  // fail-closed rule above, including header-store verification.
+  const clamp = await resolveStoreForRequest(args)
+
+  // Mirror web: a cross-store viewer NEVER store-filters the export, even if
+  // an explicit store-id rode the request.
+  if (args.capabilities.has('stores.viewAll')) return undefined
+
+  // Clamped staff: resolveStoreForRequest's storeId is requested ?? assigned[0]
+  // by construction — always concrete.
+  if (clamp.allowedStoreIds != null) return clamp.storeId ?? clamp.allowedStoreIds[0]
+
+  // Floating staff: header store already passed tenancy validation above.
+  if (clamp.storeId) return clamp.storeId
+  try {
+    const { stores } = await args.synqed.stores.list()
+    const primary = stores.find((s) => s.is_primary)?.id ?? stores[0]?.id
+    if (primary) return primary
+  } catch {
+    /* fall through to fail-closed */
+  }
+  throw new AppApiError('store_forbidden', 'could not resolve your store scope (fail-closed)')
+}

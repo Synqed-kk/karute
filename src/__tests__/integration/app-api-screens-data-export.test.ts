@@ -36,12 +36,18 @@ const storesGet = jest.fn(async (id: string) => {
   if (id !== 'store-1' && id !== 'store-2') throw new Error('404 not this tenant')
   return { id }
 })
+const storesList = jest.fn(async () => ({
+  stores: [
+    { id: 'store-1', is_primary: true },
+    { id: 'store-2', is_primary: false },
+  ],
+}))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   customers: { list: customersList },
   appointments: { list: appointmentsList },
   karuteRecords: { list: karuteRecordsList },
-  stores: { get: storesGet },
+  stores: { get: storesGet, list: storesList },
   staffStores: { get: staffStoresGet },
 }
 jest.mock('@/lib/synqed/client', () => ({
@@ -153,6 +159,15 @@ describe('GET /api/app/v1/screens/data-export — store clamp threads store_id',
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
     expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: undefined }))
+  })
+
+  it('floating staff (no stores.viewAll, empty assignment) see PRIMARY-store totals, not business-wide — the numbers must preview what the export twin produces (fix round, blind-fleet finding)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view']))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    expect(customersList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
+    expect(appointmentsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
+    expect(karuteRecordsList).toHaveBeenCalledWith(expect.objectContaining({ store_id: 'store-1' }))
   })
 })
 

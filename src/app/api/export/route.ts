@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { can } from '@/lib/auth/require-permission'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { auditWeb } from '@/lib/audit-web'
+import { getBusinessId } from '@/lib/staff'
 import { SCOPES, isWired, type ScopeKey, type FormatKey } from '@/lib/export/scopes'
 import { exportCustomers } from '@/lib/export/export-customers'
 
@@ -72,7 +73,15 @@ export async function GET(request: Request) {
   }
 
   if (scope === 'customers') {
-    const res = await exportCustomers({ columns, format, privacy, storeId })
+    // Cookie identity resolved ONCE here and passed explicitly — the core
+    // takes no ambient identity (see export-customers.ts's header).
+    const res = await exportCustomers({
+      businessId: await getBusinessId(),
+      columns,
+      format,
+      privacy,
+      storeId,
+    })
     // Bulk PII egress — logged with the QUERY SCOPE persisted (design §7): the
     // per-customer subject-access answer re-derives export membership from it.
     // Emitted only after the export body built successfully (errors above

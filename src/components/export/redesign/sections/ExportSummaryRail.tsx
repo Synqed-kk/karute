@@ -30,6 +30,9 @@ interface ExportSummaryRailProps {
   /** Packet 23: called on a tap when there's no downloadUrl (thin — no
    *  object URL, the port's deliverFile handles the blob it already holds). */
   onDeliverFile: () => void
+  /** True while deliverFile is in flight — disables the button so a second
+   *  tap can't race a share sheet that's already open. */
+  delivering: boolean
   totals: Record<ScopeKey, number>
 }
 
@@ -63,6 +66,7 @@ export function ExportSummaryRail({
   fileName,
   downloadUrl,
   onDeliverFile,
+  delivering,
   totals,
 }: ExportSummaryRailProps) {
   const t = useTranslations('dataExport')
@@ -225,7 +229,8 @@ export function ExportSummaryRail({
             <button
               type="button"
               onClick={onDeliverFile}
-              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90"
+              disabled={delivering}
+              className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Download className="size-4" />
               {t('downloadFile', { ext: format.toUpperCase() })}

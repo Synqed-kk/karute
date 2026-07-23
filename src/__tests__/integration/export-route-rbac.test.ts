@@ -19,7 +19,7 @@ jest.mock('@/lib/supabase/server', () => ({
 // references back out via the mocked modules after import.
 jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => true) }))
 jest.mock('@/lib/customers/queries', () => ({
-  listCustomers: jest.fn(async () => ({ customers: [], totalPages: 1 })),
+  fetchCustomers: jest.fn(async () => ({ customers: [], totalPages: 1 })),
 }))
 jest.mock('@/lib/auth/store-scope', () => ({
   resolveStoreScope: jest.fn(async () => ({
@@ -38,11 +38,11 @@ jest.mock('@/lib/staff', () => ({
 import { GET } from '@/app/api/export/route'
 import { auditLines } from './helpers/audit-lines'
 import { can as canImport } from '@/lib/auth/require-permission'
-import { listCustomers as listCustomersImport } from '@/lib/customers/queries'
+import { fetchCustomers as fetchCustomersImport } from '@/lib/customers/queries'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 
 const can = canImport as jest.Mock
-const listCustomers = listCustomersImport as jest.Mock
+const fetchCustomers = fetchCustomersImport as jest.Mock
 const resolveStoreScope = resolveStoreScopeImport as jest.Mock
 
 function req(qs = 'scope=customers&format=json&columns=customer_id,name') {
@@ -68,13 +68,13 @@ describe('GET /api/export — data.export enforcement', () => {
     expect(await res.json()).toEqual({
       error: 'You do not have permission to export data.',
     })
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
   it('allows the export when the caller holds data.export', async () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
-    expect(listCustomers).toHaveBeenCalled()
+    expect(fetchCustomers).toHaveBeenCalled()
   })
 
   it('the capability check runs only after auth (401 with no user)', async () => {
@@ -100,7 +100,8 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     }))
     const res = await GET(req())
     expect(res.status).toBe(200)
-    expect(listCustomers).toHaveBeenCalledWith(
+    expect(fetchCustomers).toHaveBeenCalledWith(
+      'biz-1',
       expect.objectContaining({ storeId: 'store-ginza' }),
     )
   })
@@ -108,7 +109,8 @@ describe('GET /api/export — store clamp (#465 family)', () => {
   it('keeps the business-wide export for viewAll staff', async () => {
     const res = await GET(req())
     expect(res.status).toBe(200)
-    expect(listCustomers).toHaveBeenCalledWith(
+    expect(fetchCustomers).toHaveBeenCalledWith(
+      'biz-1',
       expect.objectContaining({ storeId: undefined }),
     )
   })
@@ -121,7 +123,8 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     }))
     const res = await GET(req())
     expect(res.status).toBe(200)
-    expect(listCustomers).toHaveBeenCalledWith(
+    expect(fetchCustomers).toHaveBeenCalledWith(
+      'biz-1',
       expect.objectContaining({ storeId: 'store-primary' }),
     )
   })
@@ -134,7 +137,7 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     }))
     const res = await GET(req())
     expect(res.status).toBe(403)
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
   it('fails CLOSED when scope resolution throws — 403, no rows read', async () => {
@@ -143,7 +146,7 @@ describe('GET /api/export — store clamp (#465 family)', () => {
     })
     const res = await GET(req())
     expect(res.status).toBe(403)
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 })
 

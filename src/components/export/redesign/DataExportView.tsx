@@ -53,6 +53,7 @@ export function DataExportView({
   // object URL, so the done-step affordance can hand it to deliverFile on a
   // later user gesture (WebKit's share() needs one — see the port's doc).
   const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
+  const [delivering, setDelivering] = useState(false)
 
   // Reset format if the new scope doesn't support it
   useEffect(() => {
@@ -126,13 +127,20 @@ export function DataExportView({
   }
 
   async function handleDeliverFile() {
-    if (!pendingBlob) return
+    // Re-entrancy guard: a second tap while the share sheet is open would
+    // fire a concurrent share() — WebKit rejects it with a non-Abort error,
+    // which would fall through to the clipboard and toast 'copied' while the
+    // first sheet is still up.
+    if (!pendingBlob || delivering) return
+    setDelivering(true)
     try {
       const result = await getDataPort().deliverFile(pendingBlob, fileName)
       if (result === 'copied') toast.message(t('copiedToClipboard'))
     } catch (err) {
       console.error('[export]', err)
       toast.error(t('exportFailed'))
+    } finally {
+      setDelivering(false)
     }
   }
 
@@ -213,6 +221,7 @@ export function DataExportView({
             fileName={fileName}
             downloadUrl={downloadUrl}
             onDeliverFile={handleDeliverFile}
+            delivering={delivering}
             totals={totals}
           />
         </div>
@@ -234,6 +243,7 @@ export function DataExportView({
           fileName={fileName}
           downloadUrl={downloadUrl}
           onDeliverFile={handleDeliverFile}
+          delivering={delivering}
           totals={totals}
         />
       </div>

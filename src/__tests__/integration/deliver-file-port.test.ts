@@ -148,4 +148,12 @@ describe('deliverFile (thin, deliver-file.vite.ts) — Web Share API level 2 wit
 
     await expect(viteDeliverFile(blob, 'customers.csv')).rejects.toThrow('clipboard denied')
   })
+
+  it('clipboard API entirely ABSENT (guarded per repo convention) → throws, never a silent "copied" lie', async () => {
+    Object.defineProperty(navigator, 'canShare', { value: undefined, configurable: true })
+    Object.defineProperty(navigator, 'share', { value: undefined, configurable: true })
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true })
+
+    await expect(viteDeliverFile(blob, 'customers.csv')).rejects.toThrow('no delivery mechanism')
+  })
 })

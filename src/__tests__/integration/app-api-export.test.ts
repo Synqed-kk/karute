@@ -1,7 +1,9 @@
-// Facade bulk-customer-export twin (design-parity packet 23). The store
-// clamp runs REAL (only the synqed SDK client + listCustomers are faked), so
-// these tests exercise the actual resolveStoreForRequest wiring, same class
-// as app-api-screens-customers.test.ts. Pins:
+// Facade bulk-customer-export twin (design-parity packet 23 + fix round). The
+// store clamp runs REAL (only the synqed SDK client + fetchCustomers are
+// faked), so these tests exercise the actual resolveExportStoreId wiring.
+// Fix-round pins on top of the originals: the BEARER businessId reaches the
+// read explicitly · the cookie client is NEVER touched (throwing mock) ·
+// floating staff clamp to header-store ?? primary, fail-closed. Pins:
 //   401 no Bearer, no reads · 403 no data.export capability, no reads ·
 //   403 store-clamp fail-closed (wrong-tenant store-id, errored assignment
 //   lookup) · 501 an unwired scope/format combo · params (columns/format/
@@ -25,23 +27,45 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
 }))
 
+// COOKIE-INDEPENDENCE PIN (fix round, blind-fleet CRITICAL): the facade export
+// path must NEVER touch the cookie-based Supabase server client — the first
+// cut of the core re-resolved identity from cookies (listCustomers →
+// getBusinessId), silently ignoring the verified Bearer identity. Any call
+// into this module from any test below is an instant failure.
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: () => {
+    throw new Error('facade export path must never resolve identity from cookies')
+  },
+}))
+
 const mockCapabilities = jest.fn(async () => new Set(['customers.view', 'data.export', 'stores.viewAll']))
 jest.mock('@/lib/auth/require-permission', () => {
   const actual = jest.requireActual('@/lib/auth/require-permission')
   return { ...actual, capabilitiesForUser: () => mockCapabilities() }
 })
 
-const listCustomers = jest.fn(async () => ({ customers: [], totalPages: 1 }))
+// The core reads via fetchCustomers(businessId, args) — businessId EXPLICIT
+// (the fix-round contract; no ambient identity inside the core).
+const fetchCustomers = jest.fn(async () => ({ customers: [], totalPages: 1 }))
 jest.mock('@/lib/customers/queries', () => ({
-  listCustomers: (...a: unknown[]) => listCustomers(...(a as [])),
+  fetchCustomers: (...a: unknown[]) => fetchCustomers(...(a as [])),
 }))
 
 const storesGet = jest.fn(async (id: string) => {
   if (id !== 'store-1' && id !== 'store-2') throw new Error('404 not this tenant')
   return { id }
 })
+const storesList = jest.fn(async () => ({
+  stores: [
+    { id: 'store-1', is_primary: true },
+    { id: 'store-2', is_primary: false },
+  ],
+}))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
-const fakeClient = { stores: { get: storesGet }, staffStores: { get: staffStoresGet } }
+const fakeClient = {
+  stores: { get: storesGet, list: storesList },
+  staffStores: { get: staffStoresGet },
+}
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: jest.fn(() => fakeClient),
 }))
@@ -67,14 +91,14 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockCapabilities.mockResolvedValue(new Set(['customers.view', 'data.export', 'stores.viewAll']))
   staffStoresGet.mockResolvedValue({ store_ids: [] })
-  listCustomers.mockResolvedValue({ customers: [], totalPages: 1 })
+  fetchCustomers.mockResolvedValue({ customers: [], totalPages: 1 })
 })
 
 describe('GET /api/app/v1/export — auth / capability', () => {
   it('missing Bearer → 401, no reads', async () => {
     const res = await GET(new Request('https://s/api/app/v1/export?scope=customers&format=json'), route)
     expect(res.status).toBe(401)
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
   it('missing data.export capability → 403, no reads', async () => {
@@ -83,7 +107,7 @@ describe('GET /api/app/v1/export — auth / capability', () => {
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('forbidden')
     expect(storesGet).not.toHaveBeenCalled()
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 })
 
@@ -92,7 +116,7 @@ describe('GET /api/app/v1/export — store clamp fail-closed (both layers, resol
     const res = await GET(req({ ...auth, 'store-id': 'store-OTHER-TENANT' }), route)
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
   it('errored assignment lookup → fails CLOSED (403), never a widened business-wide export', async () => {
@@ -101,7 +125,7 @@ describe('GET /api/app/v1/export — store clamp fail-closed (both layers, resol
     const res = await GET(req(auth), route)
     expect(res.status).toBe(403)
     expect((await res.json()).error.code).toBe('store_forbidden')
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
   it('branch-restricted staff: the export is CLAMPED to their store', async () => {
@@ -109,13 +133,43 @@ describe('GET /api/app/v1/export — store clamp fail-closed (both layers, resol
     staffStoresGet.mockResolvedValue({ store_ids: ['store-1'] })
     const res = await GET(req(auth), route)
     expect(res.status).toBe(200)
-    expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ storeId: 'store-1' }))
+    expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: 'store-1' }))
   })
 
   it('cross-store viewer (stores.viewAll) stays business-wide even with an explicit store-id header — mirrors web, never lets viewAll narrow the export', async () => {
     const res = await GET(req({ ...auth, 'store-id': 'store-2' }), route)
     expect(res.status).toBe(200)
-    expect(listCustomers).toHaveBeenCalledWith(expect.objectContaining({ storeId: undefined }))
+    expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: undefined }))
+  })
+})
+
+describe('GET /api/app/v1/export — export-hardened floating clamp (fix round, blind-fleet HIGH)', () => {
+  // Floating staff = data.export granted, NO stores.viewAll, empty assignment.
+  // Web's /api/export deliberately clamps them to a store lens (its own
+  // Greptile-P1 history); the facade must never widen them business-wide.
+  const floatingCaps = new Set(['customers.view', 'data.export'])
+
+  it('floating staff WITHOUT stores.viewAll clamps to the primary store — never business-wide', async () => {
+    mockCapabilities.mockResolvedValue(floatingCaps)
+    const res = await GET(req(auth), route)
+    expect(res.status).toBe(200)
+    expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: 'store-1' }))
+  })
+
+  it('floating staff with a tenant-valid store-id header clamps to THAT store', async () => {
+    mockCapabilities.mockResolvedValue(floatingCaps)
+    const res = await GET(req({ ...auth, 'store-id': 'store-2' }), route)
+    expect(res.status).toBe(200)
+    expect(fetchCustomers).toHaveBeenCalledWith('business-1', expect.objectContaining({ storeId: 'store-2' }))
+  })
+
+  it('floating staff whose store lens cannot be resolved → 403 fail-closed, no reads', async () => {
+    mockCapabilities.mockResolvedValue(floatingCaps)
+    storesList.mockRejectedValueOnce(new Error('boom'))
+    const res = await GET(req(auth), route)
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 })
 
@@ -124,7 +178,7 @@ describe('GET /api/app/v1/export — params passthrough + wired combos', () => {
     const res = await GET(req(auth, 'scope=customers&format=xlsx'), route)
     expect(res.status).toBe(501)
     expect((await res.json()).error.code).toBe('not_implemented')
-    expect(listCustomers).not.toHaveBeenCalled()
+    expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
   it('400 validation for an unknown scope', async () => {
@@ -141,7 +195,8 @@ describe('GET /api/app/v1/export — params passthrough + wired combos', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('Content-Type')).toContain('application/json')
     expect(res.headers.get('Content-Disposition')).toContain('customers_export.json')
-    expect(listCustomers).toHaveBeenCalledWith(
+    expect(fetchCustomers).toHaveBeenCalledWith(
+      'business-1',
       expect.objectContaining({ page: 1, pageSize: 500, sortBy: 'updated_at', sortOrder: 'desc' }),
     )
   })

@@ -30,6 +30,14 @@ export async function deliverFile(
       // Any other share failure falls through to the clipboard fallback below.
     }
   }
+  // Fallback assumes TEXT formats — true for everything wired today
+  // (customers + csv/json); a future binary format (xlsx) must not reach this
+  // line. Guarded existence per the repo convention (MessageComposeDialog):
+  // clipboard absent → throw → the view's exportFailed toast, never a silent
+  // 'copied' lie.
+  if (typeof navigator === 'undefined' || !navigator.clipboard) {
+    throw new Error('no delivery mechanism available (share and clipboard both missing)')
+  }
   await navigator.clipboard.writeText(await blob.text())
   return 'copied'
 }
