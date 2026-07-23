@@ -12,6 +12,7 @@ import { ChromeScreenDTO, type ChromeScreenDTOType } from '@/lib/app-api/chrome-
 import { getDataPort } from '@/lib/ports/data-port'
 import {
   getSessionState,
+  hasKnownSession,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { emitRefresh } from '../ports/nav.vite'
@@ -59,7 +60,17 @@ async function fetchChromeDto(): Promise<ChromeScreenDTOType> {
  *  retried by a later call — e.g. the next mount/navigation). */
 export function ensureChromeLoaded(): void {
   if (current.status === 'loading' || current.status === 'ready') return
-  if (getSessionState().status !== 'signed-in') return
+  // Same mounted-app contract as AuthGate/ThinChromeNav (packet 25 round-3
+  // fix): the boot seed makes recovering-with-known-session the normal COLD
+  // BOOT state, and gating chrome on full 'signed-in' left the nav/header
+  // empty while screens filled — chrome must load whenever the app is
+  // mounted. A 401 on a stale seeded Bearer lands in 'error', which the
+  // settle's status-change re-arm (useChromeDto's effect) retries.
+  const session = getSessionState()
+  const mounted =
+    session.status === 'signed-in' ||
+    (session.status === 'recovering' && hasKnownSession())
+  if (!mounted) return
   const myEpoch = epoch
   set({ status: 'loading', dto: null })
   void fetchChromeDto()

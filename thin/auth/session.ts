@@ -251,6 +251,12 @@ function seedFromPersistedSession(): void {
  *  re-fetch of the mounted screen per seeded boot whose token actually
  *  rotated (invisible SWR swap); emitRefresh clears PR-A's dtoCache
  *  (by-design), which at boot is only seconds old — nothing of value lost. */
+// DELIBERATE: on a recovery that never settles (hung refresh — no
+// non-'recovering' write ever lands) this single subscription stays armed for
+// the page life, so an arbitrarily-LATE settle still heals the 401'd screens.
+// One closure, not a growing leak; the ≤4s hard bound in the ScreenBoundary
+// grace comment refers to the seedPendingVerification WINDOW, not this
+// subscription's lifetime.
 function armSettleRefresh(seededToken: string): void {
   const unsubscribe = subscribeSessionState(() => {
     const state = getSessionState()
