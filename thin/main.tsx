@@ -10,6 +10,7 @@ import { ThinRouter } from './router'
 import { ThinChromeContent, ThinChromeNav } from './chrome/Chrome'
 import { AuthGate } from './AuthGate'
 import { bootMobileAuth } from './auth/session'
+import { bindForegroundRevalidate } from './data/foreground-revalidate'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
 import { viteRecordingPort } from './ports/recording.vite'
@@ -63,6 +64,10 @@ function main(): void {
   // render: never blocks first paint — the AuthGate renders 'recovering' until
   // the boot gate settles (≤4s; instant for a locally persisted session).
   bootMobileAuth()
+
+  // Perf packet 29: quiet re-fetch of the mounted screen on every app
+  // foreground (visibilitychange) — see thin/data/foreground-revalidate.ts.
+  bindForegroundRevalidate()
 
   // Locale-prefixed boot pathname / deep link (B3, packet 12 fix batch round
   // 3): toHref's write-side strip (nav.vite.tsx) covers every push/Link, but
