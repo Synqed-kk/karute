@@ -11,18 +11,16 @@
 // TWIN (src/app/api/app/v1/export/route.ts) is the real gate, exactly
 // mirroring web where the page is ungated and the route enforces.
 //
-// FAILURE CONTRACT — a DELIBERATE divergence from the screens-family default
-// (ask-ai/customers propagate any read failure as 502): this route mirrors
-// the WEB PAGE's own posture instead, because that is what the packet asks
-// for verbatim ("3 × page_size=1, store clamp, fail-closed zeros"). The page
-// catches a failed store-scope resolution AND swallows each count read to
-// zero (`.catch(() => zero)`) so a transient upstream blip renders an
-// honest-if-empty screen rather than a hard error the user can't self-serve
-// past. Store-scope resolution failing here (resolveStoreForRequest throws)
-// is the facade's ONLY equivalent of web's `storeScope === null` case (the
-// module never returns an ambiguous non-null-viewAll/null-storeId state by
-// construction — see store-clamp.ts's header comment) — so ONE catch site
-// covers what web needed two checks for.
+// FAILURE CONTRACT (fixed in the fresh-eyes round — the first cut swallowed
+// the clamp into 200-zeros "for web-page parity" and broke the family rule):
+// the store clamp runs OUTSIDE any catch, exactly like every sibling
+// screens/* route — its store_forbidden throws MUST reach the client as 403
+// because facade-fetch's stranded-pin self-heal fires only on
+// 403 + store_forbidden + reason:'store_header'. Swallowing it renders a
+// silent 0/0/0 screen forever on a stale store pin and hides transient
+// backend failures from ScreenBoundary's retry UI. What DOES keep the web
+// page's zero-degrade posture is each COUNT read (`.catch(() => ZERO)`) —
+// a transient count blip renders honest-if-low numbers, page parity.
 //
 // No FACADE_AUDIT_MAP row (deny-default = skip) — matches EVERY other
 // screens/* route; list/count reads never log (Liam 2026-07-17 ruling).
@@ -42,33 +40,21 @@ export const GET = facadeHandler('screens.dataExport', async (ctx) => {
 
   const synqed = newSynqedClient(ctx.identity.businessId)
 
-  let storeId: string | undefined
-  let scopeFailed = false
-  try {
-    // Export-hardened lens (fix round): floating staff see THEIR store's
-    // totals, not business-wide ones — the numbers must preview what the
-    // export twin will actually produce (web's page clamps them the same
-    // way via resolveStoreScope's floating branch).
-    storeId = await resolveExportStoreId({
-      synqed,
-      authUserId: ctx.identity.authUserId,
-      capabilities: ctx.identity.capabilities,
-      requestedStoreId: ctx.req.headers.get('store-id'),
-    })
-  } catch {
-    scopeFailed = true
-  }
+  // Export-hardened lens (fix round): floating staff see THEIR store's
+  // totals, not business-wide ones — the numbers must preview what the
+  // export twin will actually produce. OUTSIDE any catch — see the header's
+  // failure contract (403 must reach the self-heal).
+  const storeId = await resolveExportStoreId({
+    synqed,
+    authUserId: ctx.identity.authUserId,
+    capabilities: ctx.identity.capabilities,
+    requestedStoreId: ctx.req.headers.get('store-id'),
+  })
 
   const [customers, bookings, karute] = await Promise.all([
-    scopeFailed
-      ? ZERO
-      : synqed.customers.list({ page_size: 1, store_id: storeId }).catch(() => ZERO),
-    scopeFailed
-      ? ZERO
-      : synqed.appointments.list({ page_size: 1, store_id: storeId }).catch(() => ZERO),
-    scopeFailed
-      ? ZERO
-      : synqed.karuteRecords.list({ page_size: 1, store_id: storeId }).catch(() => ZERO),
+    synqed.customers.list({ page_size: 1, store_id: storeId }).catch(() => ZERO),
+    synqed.appointments.list({ page_size: 1, store_id: storeId }).catch(() => ZERO),
+    synqed.karuteRecords.list({ page_size: 1, store_id: storeId }).catch(() => ZERO),
   ])
 
   const dto = DataExportScreenDTO.parse({

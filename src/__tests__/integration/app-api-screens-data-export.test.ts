@@ -124,18 +124,28 @@ describe('GET /api/app/v1/screens/data-export — happy path DTO shape', () => {
   })
 })
 
-describe('GET /api/app/v1/screens/data-export — fail-closed zeros (page parity, NOT the ask-ai 502 posture)', () => {
-  it('a failed store-scope resolution renders zero totals, 200 — not an error', async () => {
+describe('GET /api/app/v1/screens/data-export — failure contract (family rule: clamp 403s reach the client; counts zero-degrade)', () => {
+  it('a failed store-scope resolution → 403 store_forbidden, NOT silent zeros (fresh-eyes round: the self-heal + ScreenBoundary retry both need the error to surface)', async () => {
     mockCapabilities.mockResolvedValue(new Set(['customers.view'])) // forces the assignment-lookup path
     staffStoresGet.mockRejectedValueOnce(new Error('boom'))
     const res = await GET(req(), route)
-    expect(res.status).toBe(200)
-    const dto = await res.json()
-    expect(dto.totals).toEqual({ customers: 0, bookings: 0, karute: 0 })
+    expect(res.status).toBe(403)
+    expect((await res.json()).error.code).toBe('store_forbidden')
     expect(customersList).not.toHaveBeenCalled()
   })
 
-  it('a single failed count (e.g. appointments) degrades to zero for THAT scope only', async () => {
+  it('a stranded store-id pin → 403 with reason store_header — the exact shape facade-fetch self-heals on', async () => {
+    // A DEFINITIVE core verdict (404 = not this tenant's store), not a blip —
+    // only verdicts carry the self-heal reason (store-clamp.ts's marker rule).
+    storesGet.mockRejectedValueOnce(Object.assign(new Error('not found'), { status: 404 }))
+    const res = await GET(req({ 'store-id': 'store-DELETED' }), route)
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body.error.code).toBe('store_forbidden')
+    expect(body.error.reason).toBe('store_header')
+  })
+
+  it('a single failed count (e.g. appointments) degrades to zero for THAT scope only — page parity for count blips', async () => {
     appointmentsList.mockRejectedValueOnce(new Error('core down'))
     const res = await GET(req(), route)
     expect(res.status).toBe(200)
