@@ -9,6 +9,7 @@ import { getDataPort } from '@/lib/ports/data-port'
 import {
   currentGeneration,
   getSessionState,
+  isSeedPendingVerification,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh } from '../ports/nav.vite'
@@ -19,6 +20,18 @@ type State<T> =
   // `path` = the URL this dto belongs to, so a failed SAME-path re-fetch can
   // keep it while a failed fetch for a NEW path still errors honestly.
   | { status: 'ready'; dto: T; path: string }
+
+/** Carries the HTTP status onto the thrown fetch error (packet 25 fix F2) so
+ *  the catch below can detect a 401 by STATUS, never by string-matching the
+ *  message. */
+class HttpError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string,
+  ) {
+    super(message)
+  }
+}
 
 // Screen DTO memory cache (packet 24 PR-A): instant revisit paint. ThinRouter
 // fully unmounts a screen per tab switch, so without this every revisit paid
@@ -106,7 +119,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         if (!res.ok) {
           const message = (body as { error?: { message?: string } } | null)?.error
             ?.message
-          throw new Error(message ?? `HTTP ${res.status}`)
+          throw new HttpError(res.status, message ?? `HTTP ${res.status}`)
         }
         return parse(body)
       })
@@ -123,6 +136,17 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
       })
       .catch((err: unknown) => {
         if (!alive) return
+        // Fix F2: a seeded EXPIRED Bearer races the settle-refresh — first
+        // fetches can 401 before the heal lands. Hold `loading` instead of
+        // flashing the error card; the settle refresh (armSettleRefresh)
+        // clears dtoCache and re-fetches once the token heals, hard-bounded
+        // by the ≤4s boot-gate timeout (whose own recovering write clears
+        // the flag same as any store write). Any OTHER failure, or a 401
+        // outside this window, keeps today's exact semantics below.
+        if (err instanceof HttpError && err.status === 401 && isSeedPendingVerification()) {
+          setState({ status: 'loading' })
+          return
+        }
         // A failed re-fetch of the SAME path keeps the rendered dto — web
         // parity: a failed router.refresh() leaves the page intact (the
         // mutation's success toast must not be followed by an error frame).

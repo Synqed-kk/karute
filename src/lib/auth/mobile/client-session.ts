@@ -71,8 +71,12 @@ export interface MobileAuthOptions {
 export interface MobileAuth {
   /** The auth plane — the ONLY supabase client surface in the mobile bundle. */
   auth: GoTrueClient
-  /** Run at first paint. Never blocks longer than bootTimeoutMs. */
-  boot(): Promise<BootState<Session>>
+  /** Run at first paint. Never blocks longer than bootTimeoutMs. `onSettled`
+   *  (packet 25 fix F1), when passed, replaces `opts.onSessionState` as the
+   *  LATE-settle callback (recovery resolving after a timeout fall-through) —
+   *  the caller can route it through its own guard instead of writing the
+   *  store unconditionally. Omitted → unchanged (opts.onSessionState). */
+  boot(onSettled?: (state: BootState<Session>) => void): Promise<BootState<Session>>
   /** Wire background-resume to the app-state source. Call once after boot. */
   bindLifecycle(): ResumeCoordinator
   /** Sign out: purge local state UNCONDITIONALLY (storage-key removal +
@@ -116,12 +120,12 @@ export function createMobileAuth(opts: MobileAuthOptions): MobileAuth {
 
   return {
     auth,
-    boot() {
+    boot(onSettled) {
       // Never `await getSession()` unbounded — the spike proved it hangs offline.
       return bootSessionGate<Session>(
         recoverOnce,
         opts.bootTimeoutMs ?? 4000,
-        opts.onSessionState,
+        onSettled ?? opts.onSessionState,
       )
     },
     bindLifecycle() {

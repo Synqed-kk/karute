@@ -22,10 +22,11 @@ import {
   seedKnownSession,
   setSessionState,
   subscribeSessionState,
+  type SessionState,
 } from '@/lib/auth/mobile/session-store'
 import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { getThinEnv } from '../env'
-import { emitRefresh } from '../ports/nav.vite'
+import { emitRefresh, hasRefreshListeners } from '../ports/nav.vite'
 
 // localStorage-backed session storage. WKWebView localStorage survives
 // force-quit and cold launch (auth spike + packet-10 W3, both proven on
@@ -149,10 +150,13 @@ export function getMobileAuth(): MobileAuth {
  *  storage adapter above — the whole point is seeding before first render).
  *  Absent key / malformed JSON / missing required fields → skip silently, no
  *  log (a signed-out device has no key, so cold signed-out boot is
- *  unchanged). Deliberately no expiry check — seeding a near/past-expiry
- *  token is the design; the recovering contract plus armSettleRefresh below
- *  heal it, and a truly-dead session still settles signed-out via boot
- *  exactly as today, just with the splash held a beat less.
+ *  unchanged). The refresh_token/expires_at presence checks (fix F5) match
+ *  installed @supabase/auth-js 2.99.1's own _isValidSession shape check, so
+ *  the seed and auth-js agree on what counts as a plausible session.
+ *  Deliberately no expiry check — seeding a near/past-expiry token is the
+ *  design; the recovering contract plus armSettleRefresh below heal it, and
+ *  a truly-dead session still settles signed-out via boot exactly as today,
+ *  just with the splash held a beat less.
  *  ⚠ SAFEGUARD: never log/print/decode/slice the token value — parse, hand
  *  the object to seedKnownSession, done. */
 function seedFromPersistedSession(): void {
@@ -164,35 +168,88 @@ function seedFromPersistedSession(): void {
   } catch {
     return
   }
-  const candidate = parsed as { access_token?: unknown; user?: { id?: unknown } }
-  if (typeof candidate.access_token !== 'string' || typeof candidate.user?.id !== 'string') return
+  const candidate = parsed as {
+    access_token?: unknown
+    user?: { id?: unknown }
+    refresh_token?: unknown
+    expires_at?: unknown
+  }
+  if (
+    typeof candidate.access_token !== 'string' ||
+    typeof candidate.user?.id !== 'string' ||
+    !('refresh_token' in candidate) ||
+    !('expires_at' in candidate)
+  )
+    return
+  const seededToken = candidate.access_token
   const wasKnown = hasKnownSession()
   seedKnownSession(parsed as Session)
   // Only arm the settle-refresh below if this call actually flipped the
   // store from unknown to known — seedKnownSession itself may still no-op
   // (store already settled/signed-out by the time this runs).
-  if (!wasKnown && hasKnownSession()) armSettleRefresh()
+  if (!wasKnown && hasKnownSession()) armSettleRefresh(seededToken)
 }
 
 /** MANDATORY second-order pin (packet 25 PR-B): a seeded EXPIRED Bearer means
  *  first-screen fetches can 401 into the error frame, and useScreenDto never
  *  re-fetches on session settle. Subscribe once and on the FIRST authoritative
- *  settle: signed-in → emitRefresh() exactly once (SWR swap-not-flash of the
+ *  settle: signed-in with a DIFFERENT access_token than the one seeded (fix
+ *  F3 — a valid unchanged token means every fetch already succeeded, nothing
+ *  to heal) → emitRefresh() exactly once (SWR swap-not-flash of the
  *  already-mounted screen), then unsubscribe; signed-out → unsubscribe, no
  *  refresh (LoginScreen owns the tree). A 'recovering' notification (timeout
  *  fall-through) keeps the subscription armed so the LATE settle — via
  *  onSettled or onAuthStateChange's INITIAL_SESSION, both of which write the
- *  store through setSessionState — still fires it. Accepted costs (PR body):
- *  one extra background re-fetch of the mounted screen per seeded boot with a
- *  VALID token (invisible SWR swap); emitRefresh clears PR-A's dtoCache
+ *  store through setSessionState, or a pre-boot applyTokenRotation heal (fix
+ *  F6) — still fires it. Accepted costs (PR body): one extra background
+ *  re-fetch of the mounted screen per seeded boot whose token actually
+ *  rotated (invisible SWR swap); emitRefresh clears PR-A's dtoCache
  *  (by-design), which at boot is only seconds old — nothing of value lost. */
-function armSettleRefresh(): void {
+function armSettleRefresh(seededToken: string): void {
   const unsubscribe = subscribeSessionState(() => {
     const state = getSessionState()
     if (state.status === 'recovering') return
     unsubscribe()
-    if (state.status === 'signed-in') emitRefresh()
+    if (state.status === 'signed-in' && state.session.access_token !== seededToken) {
+      emitWhenListening()
+    }
   })
+}
+
+const REFRESH_RETRY_MS = 50
+const REFRESH_RETRY_MAX = 40 // ~2s total
+
+/** Fix F4: the settle can resolve before any screen has mounted (and
+ *  therefore before ScreenBoundary's useEffect has called subscribeRefresh),
+ *  so emitting straight away would fire into an empty listener set and the
+ *  stale-token screen would never re-fetch. Retry on a short timer until a
+ *  listener exists; give up silently past REFRESH_RETRY_MAX — by then
+ *  something else (a real navigation) will have mounted a fresh fetch. */
+function emitWhenListening(tries = 0): void {
+  if (hasRefreshListeners()) {
+    emitRefresh()
+    return
+  }
+  if (tries >= REFRESH_RETRY_MAX) return
+  setTimeout(() => emitWhenListening(tries + 1), REFRESH_RETRY_MS)
+}
+
+/** Fix F1 (P1): both boot-settle paths — the fast `.then` resolution and the
+ *  late settle via bootSessionGate's onSettled — must route through this ONE
+ *  guard before writing the store. Pre-seed, an unconditional write was
+ *  inert (no UI existed until the first settle). Post-seed the full app,
+ *  including Profile sign-out, is live during the UNBOUNDED late-settle
+ *  window (bad wifi): an intervening explicit sign-out or a second user's
+ *  sign-in must not be silently overwritten when the OLD boot recovery
+ *  finally resolves — that is session resurrection / a cross-user Bearer on
+ *  a shared device. SEMANTIC guard, not a generation counter: boot's own
+ *  legitimate timeout-recovering write and a possible INITIAL_SESSION write
+ *  make raw generation fencing wrong here. Any authoritative exit from
+ *  'recovering' (explicit sign-out, LoginScreen sign-in, INITIAL_SESSION)
+ *  means someone already settled — boot's write is then redundant or
+ *  dangerous, so it is dropped. */
+const settleBoot = (state: SessionState): void => {
+  if (getSessionState().status === 'recovering') setSessionState(state)
 }
 
 /** Run once from the thin entry, after the env gate, before render. Never
@@ -200,12 +257,17 @@ function armSettleRefresh(): void {
  *  'recovering' (a renderable state) until it does. The synchronous seed
  *  above runs FIRST (before boot()), so a cold boot with a persisted session
  *  mounts the app instantly instead of waiting on the network (packet 25
- *  PR-B). */
+ *  PR-B). On a persisted-session cold boot the store usually settles via
+ *  onAuthStateChange's INITIAL_SESSION (auth-js's own lock queue) before
+ *  boot()'s own resolution ever lands — boot()'s write here is the backstop
+ *  for the case it doesn't, now guarded by settleBoot (fix F1) so a stale
+ *  resolution can never clobber a sign-out or a later sign-in. */
 export function bootMobileAuth(): void {
   const a = getMobileAuth()
   seedFromPersistedSession()
-  // boot() RESOLVES the fast path; onSessionState (already wired) reports only
-  // the late settle after a timeout fall-through — both must reach the store.
-  void a.boot().then(setSessionState)
+  // boot() RESOLVES the fast path; the passed callback reports only the late
+  // settle after a timeout fall-through — both must reach the store, both
+  // through settleBoot.
+  void a.boot(settleBoot).then(settleBoot)
   a.bindLifecycle()
 }

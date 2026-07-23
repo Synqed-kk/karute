@@ -13,6 +13,7 @@ import {
   getAccessToken,
   getSessionState,
   hasKnownSession,
+  isSeedPendingVerification,
   seedKnownSession,
   setSessionState,
   subscribeSessionState,
@@ -121,6 +122,38 @@ describe('session-store', () => {
       expect(currentGeneration()).toBe(gen)
       setSessionState({ status: 'signed-in', session: sessionU('tok-seed', 'A') })
       expect(currentGeneration()).toBe(gen + 1)
+    })
+
+    // F2 (fix round 1): seedPendingVerification is what ScreenBoundary reads
+    // to hold `loading` instead of flashing the error card on a seeded-
+    // expired-Bearer 401.
+    it('F2: a successful seed flips seedPendingVerification true; ANY store write clears it', () => {
+      expect(isSeedPendingVerification()).toBe(false)
+      seedKnownSession(sessionU('tok-seed', 'A'))
+      expect(isSeedPendingVerification()).toBe(true)
+
+      // even a same-status recovering echo (the timeout fall-through write)
+      // clears it — the hard bound on the window.
+      setSessionState({ status: 'recovering' })
+      expect(isSeedPendingVerification()).toBe(false)
+    })
+
+    it('F2: a no-op seed (guard already false) never sets seedPendingVerification', () => {
+      setSessionState({ status: 'signed-in', session: sessionU('tok-live', 'A') })
+      expect(isSeedPendingVerification()).toBe(false)
+      seedKnownSession(sessionU('tok-seed', 'B'))
+      expect(isSeedPendingVerification()).toBe(false)
+    })
+
+    // F6 (fix round 1): a pre-boot rotation is newly reachable because the
+    // seed populates lastSession before any authoritative write — a
+    // TOKEN_REFRESHED during GoTrue's own _initialize can now heal straight
+    // to signed-in with no boot settle in between.
+    it('F6: seed then applyTokenRotation for the SAME uid settles signed-in (newly reachable pre-boot path)', () => {
+      seedKnownSession(sessionU('tok-seed', 'A'))
+      applyTokenRotation(sessionU('tok-rotated', 'A'))
+      expect(getSessionState().status).toBe('signed-in')
+      expect(getAccessToken()).toBe('tok-rotated')
     })
   })
 

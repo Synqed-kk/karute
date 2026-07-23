@@ -12,9 +12,10 @@
  * toast must never be followed by an error frame) · retry() after an error
  * still shows the loading frame.
  */
+import type { Session } from '@supabase/supabase-js'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
-import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { emitRefresh, useRouter } from '../../../thin/ports/nav.vite'
 import { cacheDto, dtoCache, ScreenStates, useScreenDto } from '../../../thin/screens/ScreenBoundary'
 
@@ -40,6 +41,17 @@ function Probe({ path }: { path: string }) {
 function jsonResponse(body: unknown): Response {
   return { ok: true, json: async () => body } as unknown as Response
 }
+
+function unauthorizedResponse(): Response {
+  return {
+    ok: false,
+    status: 401,
+    json: async () => ({ error: { message: 'unauthorized' } }),
+  } as unknown as Response
+}
+
+const seedSession = (token: string, uid: string): Session =>
+  ({ access_token: token, user: { id: uid } }) as Session
 
 describe('useScreenDto refresh (stale-while-revalidate)', () => {
   it('refresh re-fetches; content stays visible until the fresh DTO lands', async () => {
@@ -336,5 +348,51 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     expect(dtoCache.has('/api/app/v1/screens/cap-0')).toBe(false)
     expect(dtoCache.has('/api/app/v1/screens/cap-1')).toBe(true)
     expect(dtoCache.has('/api/app/v1/screens/cap-50')).toBe(true)
+  })
+})
+
+describe('useScreenDto × seed-pending-verification 401 grace window (packet 25 fix F2)', () => {
+  afterEach(() => {
+    // Local cleanup (this file has no global session-store afterEach) —
+    // restore the pristine pre-boot state for the next test.
+    setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'recovering' })
+  })
+
+  it('a 401 during the seed-pending window holds `loading`, not the error card', async () => {
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>().mockResolvedValueOnce(unauthorizedResponse())
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path="/api/app/v1/screens/probe-401-seed-window" />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(screen.getByText('loading')).toBeTruthy()
+    expect(screen.queryByText('somethingWentWrong')).toBeNull()
+  })
+
+  it('a 401 OUTSIDE the window (a store write already cleared the flag) shows the error card, unchanged', async () => {
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    // Any store write clears seedPendingVerification (F2) — simulate the
+    // settle having already landed before this fetch's 401 arrives.
+    setSessionState({ status: 'signed-in', session: seedSession('tok-seed', 'u1') })
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>().mockResolvedValueOnce(unauthorizedResponse())
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path="/api/app/v1/screens/probe-401-outside-window" />)
+    await waitFor(() => expect(screen.getByText('somethingWentWrong')).toBeTruthy())
+  })
+
+  it('a NON-401 failure during the seed-pending window still shows the error card, unchanged', async () => {
+    seedKnownSession(seedSession('tok-seed', 'u1'))
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockRejectedValueOnce(new Error('offline blip'))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path="/api/app/v1/screens/probe-non401-seed-window" />)
+    await waitFor(() => expect(screen.getByText('somethingWentWrong')).toBeTruthy())
   })
 })
