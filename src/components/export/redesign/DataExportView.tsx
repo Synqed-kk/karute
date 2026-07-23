@@ -237,6 +237,7 @@ export function DataExportView({
             scopeKey={scope}
             value={format}
             onChange={setFormat}
+            locale={locale}
           />
 
           <ExportColumnsPicker
@@ -244,6 +245,7 @@ export function DataExportView({
             selected={columns}
             onChange={setColumns}
             privacy={privacy}
+            locale={locale}
           />
 
           <ExportFilterPanel
@@ -252,6 +254,7 @@ export function DataExportView({
             onChange={setFilters}
             range={dateRange}
             onRangeChange={setDateRange}
+            locale={locale}
           />
 
           <ExportAdvancedOptions

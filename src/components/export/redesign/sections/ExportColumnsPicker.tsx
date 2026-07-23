@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import {
   SCOPES,
+  GROUP_LABELS_JA,
   defaultColumnsFor,
   type ScopeKey,
 } from '@/lib/export/scopes'
@@ -24,6 +25,7 @@ interface ExportColumnsPickerProps {
   selected: string[]
   onChange: (next: string[]) => void
   privacy: boolean
+  locale: string
 }
 
 export function ExportColumnsPicker({
@@ -31,9 +33,11 @@ export function ExportColumnsPicker({
   selected,
   onChange,
   privacy,
+  locale,
 }: ExportColumnsPickerProps) {
   const t = useTranslations('dataExport')
   const scope = SCOPES[scopeKey]
+  const isJa = locale === 'ja'
   const [expanded, setExpanded] = useState(true)
   const [search, setSearch] = useState('')
 
@@ -198,7 +202,7 @@ export function ExportColumnsPicker({
             {Object.entries(grouped).map(([group, cols]) => (
               <div key={group} className="mb-2">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-1.5">
-                  {group}
+                  {isJa ? (GROUP_LABELS_JA[group] ?? group) : group}
                 </div>
                 <ul className="flex flex-col">
                   {cols.map((col) => {
@@ -236,7 +240,7 @@ export function ExportColumnsPicker({
                             {col.key}
                           </span>
                           <span className="text-[11.5px] text-muted-foreground truncate flex-1">
-                            {col.label}
+                            {isJa ? col.labelJa : col.label}
                           </span>
                           <span className="flex items-center gap-1 shrink-0">
                             {col.required && (

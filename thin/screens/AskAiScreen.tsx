@@ -22,8 +22,11 @@ export function AskAiScreen() {
         // Page parity (app/[locale]/(app)/ask-ai/page.tsx): '' and null both
         // mean "no business type" → generic profile, default prompts.
         const businessType = dto.businessType
-        const profile = businessType ? getBusinessProfile(businessType) : null
-        const prompts = getConsultationQuestions(businessType ?? null).slice(0, 3)
+        // thin is ja-only (locale="ja" below) — pass it through so the AI
+        // profile label + prompt cards resolve their Ja twins instead of
+        // silently defaulting to the functions' English default.
+        const profile = businessType ? getBusinessProfile(businessType, 'ja') : null
+        const prompts = getConsultationQuestions(businessType ?? null, 'ja').slice(0, 3)
         const scope: DataScopeItem[] = [
           { label: 'Karute', count: dto.scope.karute },
           { label: 'Customers', count: dto.scope.customers },
