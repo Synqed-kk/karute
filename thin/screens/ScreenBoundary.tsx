@@ -3,7 +3,7 @@
 // wrapper is just "fetch DTO, validate, render view". No route-level data
 // magic per the packet: screens fetch via the DataPort on mount.
 
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { getDataPort } from '@/lib/ports/data-port'
 import {
@@ -12,7 +12,7 @@ import {
   isSeedPendingVerification,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
-import { subscribeRefresh } from '../ports/nav.vite'
+import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
 
 type State<T> =
   | { status: 'loading' }
@@ -44,12 +44,23 @@ class HttpError extends Error {
 const DTO_CACHE_CAP = 50
 export const dtoCache = new Map<string, unknown>()
 
+// Foreground revalidate (perf packet 29): per-path staleness, mirrored 1:1
+// with dtoCache so the two maps never diverge. 30s = the fresh end of Liam's
+// ruled 30–60s band; a hop-away-and-back inside 30s costs zero network.
+// Exported for the packet's hygiene tests, same rationale as dtoCache's export.
+const STALE_MS = 30_000
+export const fetchedAtByPath = new Map<string, number>()
+
 export function cacheDto(path: string, dto: unknown): void {
   if (dtoCache.size >= DTO_CACHE_CAP && !dtoCache.has(path)) {
     const oldest = dtoCache.keys().next().value as string | undefined
-    if (oldest !== undefined) dtoCache.delete(oldest)
+    if (oldest !== undefined) {
+      dtoCache.delete(oldest)
+      fetchedAtByPath.delete(oldest)
+    }
   }
   dtoCache.set(path, dto)
+  fetchedAtByPath.set(path, Date.now())
 }
 
 // SHARED-IPAD LEAK GUARD: a signed-out transition wipes every cached DTO so
@@ -60,7 +71,10 @@ export function cacheDto(path: string, dto: unknown): void {
 // (actions.vite.ts:714), so this module's state (including dtoCache) already
 // dies with it.
 subscribeSessionState(() => {
-  if (getSessionState().status === 'signed-out') dtoCache.clear()
+  if (getSessionState().status === 'signed-out') {
+    dtoCache.clear()
+    fetchedAtByPath.clear()
+  }
 })
 
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
@@ -75,10 +89,15 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
   )
   const [attempt, setAttempt] = useState(0)
   const [fetching, setFetching] = useState(true)
+  // Ref twin of `fetching` for the revalidate subscriber below (Greptile
+  // #596 P2): the subscription closure would capture a stale `fetching`
+  // value; the ref always reads current. Written ONLY beside setFetching.
+  const fetchingRef = useRef(true)
   const retry = useCallback(() => {
     // An explicit retry after an error must never flash stale content on a
     // later revisit — drop this path's cache entry along with the state.
     dtoCache.delete(path)
+    fetchedAtByPath.delete(path)
     setState({ status: 'loading' })
     setAttempt((n) => n + 1)
   }, [path])
@@ -95,9 +114,37 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     () =>
       subscribeRefresh(() => {
         dtoCache.clear()
+        fetchedAtByPath.clear()
         setAttempt((n) => n + 1)
       }),
     [],
+  )
+
+  // Foreground revalidate (perf packet 29): a quiet re-check on app
+  // foreground — unlike the refresh subscription above, this keeps the
+  // cache and only re-fetches if THIS path is past STALE_MS. Bumping
+  // `attempt` re-runs the fetch effect with state still 'ready' — the
+  // current dto stays painted and swaps when the fresh one lands
+  // (swap-not-flash, no new state machinery). Dep is [path] (the closure
+  // reads it), unlike the refresh effect's [] — each mounted screen only
+  // revalidates itself.
+  // In-flight dedup (Greptile #596 P2): the stamp lands only on SUCCESS, so
+  // a second foreground during a still-running revalidate would read the
+  // same stale stamp and fire a duplicate fetch (superseding the first via
+  // `alive` — correct but wasted). Any in-flight fetch for this hook's path
+  // (mount, refresh, retry, a previous revalidate) suppresses the bump; on
+  // settle `fetching` flips false and the NEXT foreground re-checks
+  // staleness, so a failed revalidate still self-heals.
+  useEffect(
+    () =>
+      subscribeRevalidate(() => {
+        if (
+          !fetchingRef.current &&
+          Date.now() - (fetchedAtByPath.get(path) ?? 0) > STALE_MS
+        )
+          setAttempt((n) => n + 1)
+      }),
+    [path],
   )
 
   useEffect(() => {
@@ -108,6 +155,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     // leaking a subscription past this effect's own lifetime.
     let unsubscribeGrace: (() => void) | undefined
     setFetching(true)
+    fetchingRef.current = true
     // Straggler-write fence (audit find on the packet): a fetch still in
     // flight across a sign-out would settle AFTER the signed-out cache wipe
     // and re-populate the cache with the outgoing user's dto — the next
@@ -194,7 +242,12 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         )
       })
       .finally(() => {
-        if (alive) setFetching(false)
+        // `alive` guard on the ref too: a superseded run's settle must not
+        // mark the NEWER run's in-flight fetch as done.
+        if (alive) {
+          setFetching(false)
+          fetchingRef.current = false
+        }
       })
     return () => {
       alive = false

@@ -42,6 +42,25 @@ export function emitRefresh(): void {
   refreshListeners.forEach((l) => l())
 }
 
+// Foreground revalidate (perf packet 29) subscribers. A NARROWER sibling of
+// refreshListeners above — deliberately NOT the same event: emitRefresh's
+// cache-clear is post-mutation semantics ("everything may be stale, nuke the
+// cache"), which is wrong for a quiet foreground re-check. Here, unlike
+// emitRefresh, subscribers keep their cache and decide per-path staleness
+// themselves.
+const revalidateListeners = new Set<() => void>()
+
+export function subscribeRevalidate(listener: () => void): () => void {
+  revalidateListeners.add(listener)
+  return () => {
+    revalidateListeners.delete(listener)
+  }
+}
+
+export function emitRevalidate(): void {
+  revalidateListeners.forEach((l) => l())
+}
+
 // Next's Link/router accept `{pathname, query}` objects as well as strings
 // (CustomerIdentityCard's mic button passes one). Without this normalizer the
 // History API stringifies the object to "[object Object]", the profile route
