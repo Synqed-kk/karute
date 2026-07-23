@@ -71,24 +71,29 @@ export function AppointmentsScreen() {
     if (v) qs.set(key, v)
   }
   qs.set('locale', 'ja')
-  const { state, retry, fetching } = useScreenDto(
-    `/api/app/v1/screens/appointments?${qs.toString()}`,
-    parse,
-  )
+  const path = `/api/app/v1/screens/appointments?${qs.toString()}`
+  const { state, retry, fetching } = useScreenDto(path, parse)
+  // Dim ONLY a cross-path fetch — date/view/filter nav where the rendered
+  // dto is still the OLD day and misreading it as the new one is the real
+  // hazard. A SAME-path background revalidate (the packet-24 cache's
+  // revisit refresh, or a post-mutation refresh) must keep the screen fully
+  // interactive: dimming it froze every 予約 revisit for the whole network
+  // round trip (Liam field report 7/23).
+  const crossPathPending = fetching && state.status === 'ready' && state.path !== path
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => (
         // Web-parity pending treatment for in-place date/view/filter nav: the
         // page dims + blocks input during its server roundtrip (isPending);
         // in the shell pushState commits synchronously so that transition
-        // never shows — this dim covers the DTO refetch instead, and the
-        // pointer-events block stops a second 翌日 tap from re-pushing the
-        // same stale-derived date mid-fetch.
+        // never shows — this dim covers the cross-path DTO refetch instead,
+        // and the pointer-events block stops a second 翌日 tap from
+        // re-pushing the same stale-derived date mid-fetch.
         <div
           className={`transition-opacity duration-150 ${
-            fetching ? 'pointer-events-none opacity-50' : ''
+            crossPathPending ? 'pointer-events-none opacity-50' : ''
           }`}
-          aria-busy={fetching}
+          aria-busy={crossPathPending}
         >
           <AppointmentsScreenInner dto={dto} />
         </div>
