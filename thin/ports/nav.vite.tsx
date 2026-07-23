@@ -28,6 +28,14 @@ export function subscribeRefresh(listener: () => void): () => void {
   }
 }
 
+/** True once at least one screen has subscribed (packet 25 fix F4): lets a
+ *  module-level caller (the boot-seed's settle-refresh) retry until a
+ *  listener actually exists instead of firing into an empty set during the
+ *  window before the first screen mounts. */
+export function hasRefreshListeners(): boolean {
+  return refreshListeners.size > 0
+}
+
 /** Module-level refresh trigger — for non-component callers (the chrome
  *  store's lens seed); useRouter().refresh delegates here. */
 export function emitRefresh(): void {

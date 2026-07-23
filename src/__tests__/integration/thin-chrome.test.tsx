@@ -14,7 +14,7 @@
  */
 import type { Session } from '@supabase/supabase-js'
 import { act, render, screen, waitFor } from '@testing-library/react'
-import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
 import { setDataPort } from '@/lib/ports/data-port'
 import type { ChromeScreenDTOType } from '@/lib/app-api/chrome-dto'
 
@@ -223,6 +223,53 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
     setSessionState({ status: 'recovering' })
     render(<ThinChromeNav />)
     expect(screen.getAllByText('顧客').length).toBeGreaterThan(0)
+  })
+
+  it('SEEDED cold boot (recovering w/ known session, packet 25): chrome loads immediately, DTO-fed', async () => {
+    // Pristine pre-boot state + seed — the round-3 P1 was screens filling
+    // while the nav/header stayed empty because ensureChromeLoaded still
+    // gated on full 'signed-in'. The mounted-app contract now includes the
+    // seeded pre-verification window.
+    seedKnownSession(session('tok-seed'))
+    render(<ThinChromeNav />)
+    await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('a chrome failure during the seeded window retries on the recovering→recovering timeout echo (round-3 escape)', async () => {
+    // First fetch fails (stale seeded Bearer / offline); the boot timeout
+    // then echoes recovering→recovering — same status STRING, invisible to
+    // useChromeDto's [session.status] effect — and the one-shot next-write
+    // escape must retry. The retry succeeds and the nav fills in.
+    apiFetch.mockRejectedValueOnce(new Error('chrome 401'))
+    seedKnownSession(session('tok-seed'))
+    render(<ThinChromeNav />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    // Settled into 'error' — now the guaranteed timeout echo lands.
+    await act(async () => {
+      setSessionState({ status: 'recovering' })
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
+  })
+
+  it('the escape RE-ARMS after firing: a second failure cycle retries again (single-flight flag resets)', async () => {
+    // Two consecutive failure→echo cycles. A mutant that never resets the
+    // single-flight flag passes cycle 1 but can never arm cycle 2 — the
+    // third fetch would not fire.
+    apiFetch.mockRejectedValueOnce(new Error('fail 1')).mockRejectedValueOnce(new Error('fail 2'))
+    seedKnownSession(session('tok-seed'))
+    render(<ThinChromeNav />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    await act(async () => {
+      setSessionState({ status: 'recovering' })
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await act(async () => {
+      setSessionState({ status: 'recovering' })
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(3))
+    await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
   })
 })
 

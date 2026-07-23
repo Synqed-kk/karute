@@ -8,7 +8,7 @@
  *     revoke attempt (packet 13 — fail-closed is the only path now, success
  *     and failure run the IDENTICAL local sequence)
  */
-import { createMobileAuth } from '@/lib/auth/mobile/client-session'
+import { createMobileAuth, SESSION_STORAGE_KEY } from '@/lib/auth/mobile/client-session'
 
 const mockGetSession = jest.fn()
 const mockStopAutoRefresh = jest.fn(async () => {})
@@ -160,9 +160,9 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     const r = await auth.signOut()
     expect(r.remoteOk).toBe(true)
     expect(purge).toHaveBeenCalledWith('staff-A')
-    expect(removeItem).toHaveBeenCalledWith('karute.auth.session')
-    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-code-verifier')
-    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-user')
+    expect(removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEY)
+    expect(removeItem).toHaveBeenCalledWith(`${SESSION_STORAGE_KEY}-code-verifier`)
+    expect(removeItem).toHaveBeenCalledWith(`${SESSION_STORAGE_KEY}-user`)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
   })
 
@@ -355,9 +355,9 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     await auth.signOut()
     // trio removed once pre-revoke, once post-revoke = two full passes
     expect(removeItem).toHaveBeenCalledTimes(6)
-    expect(removeItem).toHaveBeenCalledWith('karute.auth.session')
-    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-code-verifier')
-    expect(removeItem).toHaveBeenCalledWith('karute.auth.session-user')
+    expect(removeItem).toHaveBeenCalledWith(SESSION_STORAGE_KEY)
+    expect(removeItem).toHaveBeenCalledWith(`${SESSION_STORAGE_KEY}-code-verifier`)
+    expect(removeItem).toHaveBeenCalledWith(`${SESSION_STORAGE_KEY}-user`)
   })
 
   it('storage.removeItem REJECTS → onSessionState STILL fires, signOut still resolves', async () => {
@@ -378,5 +378,38 @@ describe('createMobileAuth — sign-out adapter (packet 13: purge-then-revoke, a
     // Greptile #572) — one failed delete must not retain the sibling keys.
     expect(removeItem).toHaveBeenCalledTimes(6)
     expect(onSessionState).toHaveBeenCalledWith({ status: 'signed-out' })
+  })
+})
+
+describe('createMobileAuth — boot() onSettled param (packet 25 fix F1 / F2-4b)', () => {
+  // Kills the `onSettled ?? opts.onSessionState` → `opts.onSessionState`
+  // mutation: a LATE settle (recover() resolving AFTER bootTimeoutMs, once
+  // the fast path already resolved 'recovering') must reach the callback
+  // PASSED TO boot() — thin/auth/session.ts's settleBoot guard — not the
+  // constructor-level opts.onSessionState (which would bypass that guard).
+  it('a LATE settle calls the onSettled passed to boot(), NOT opts.onSessionState', async () => {
+    let release!: (v: { data: { session: unknown }; error: null }) => void
+    mockGetSession.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve
+      }),
+    )
+    const { auth, onSessionState } = makeAuth() // bootTimeoutMs: 50
+    const onSettled = jest.fn()
+
+    const fastState = await auth.boot(onSettled)
+    expect(fastState).toEqual({ status: 'recovering' }) // timeout won the race
+    expect(onSettled).not.toHaveBeenCalled()
+    expect(onSessionState).not.toHaveBeenCalled()
+
+    // Recovery resolves NOW, well after the timeout already fell through.
+    release({ data: { session: { access_token: 't' } }, error: null })
+    await flush()
+
+    expect(onSettled).toHaveBeenCalledWith({
+      status: 'signed-in',
+      session: { access_token: 't' },
+    })
+    expect(onSessionState).not.toHaveBeenCalled()
   })
 })

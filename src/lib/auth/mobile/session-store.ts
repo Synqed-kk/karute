@@ -28,6 +28,16 @@ let current: SessionState = { status: 'recovering' }
 let lastSession: Session | null = null
 const listeners = new Set<Listener>()
 
+// Seeded-but-unverified window (perf packet 25 fix F2): true only from a
+// successful seedKnownSession() until the NEXT store write of any kind
+// (apply() covers both authoritative setSessionState and the rotation
+// mirror). A seeded EXPIRED Bearer can 401 first-screen fetches before boot
+// settles; ScreenBoundary reads this to hold `loading` instead of flashing
+// the error card for that narrow window. Hard-bounded by the boot-gate
+// timeout: even a hung recovery still writes a recovering→recovering echo at
+// the timeout, which clears the flag same as any other write.
+let seedPendingVerification = false
+
 // Monotonic authoritative-write counter (packet 14 P1-b generation fence).
 // Every authoritative transition — boot result, explicit login, sign-out flip —
 // opens a new generation via setSessionState. The background-resume coordinator
@@ -52,6 +62,7 @@ export function currentGeneration(): number {
 
 function apply(state: SessionState): void {
   current = state
+  seedPendingVerification = false
   if (state.status === 'signed-in') lastSession = state.session
   else if (state.status === 'signed-out') lastSession = null
   listeners.forEach((l) => l())
@@ -107,6 +118,34 @@ export function subscribeSessionState(listener: Listener): () => void {
   return () => {
     listeners.delete(listener)
   }
+}
+
+/** Pre-boot synchronous seed of the last-known session (perf packet 25).
+ *  Populates ONLY lastSession so AuthGate's recovering-with-known-session
+ *  contract mounts the app instantly and getAccessToken() serves the
+ *  persisted Bearer while boot() verifies in the background. NEVER touches
+ *  `current` and NEVER advances the generation — this is not an
+ *  authoritative transition; the facade stays the validity oracle. Guarded
+ *  to the pristine pre-boot state so it can never clobber a settled boot,
+ *  an explicit sign-out, or an already-seen session.
+ *  CALLING INVARIANT (packet 25 fix F7): this is a PRE-RENDER call only —
+ *  thin/auth/session.ts's bootMobileAuth calls it before first paint. The
+ *  listener notify above is harmless pre-render (correct if render raced
+ *  first) but must never fire from a POST-mount re-seed: `current`'s
+ *  identity is unchanged, so a useSyncExternalStore consumer (AuthGate) would
+ *  bail on the notify and never see the newly-known session. There is only
+ *  the one caller today; a future one must preserve this. */
+export function seedKnownSession(session: Session): void {
+  if (current.status !== 'recovering' || lastSession !== null) return
+  lastSession = session
+  seedPendingVerification = true
+  listeners.forEach((l) => l())
+}
+
+/** True from a successful seed until the next store write (packet 25 fix
+ *  F2) — see seedPendingVerification above. */
+export function isSeedPendingVerification(): boolean {
+  return seedPendingVerification
 }
 
 /** Current Bearer for the DataPort, or null when signed out / never signed

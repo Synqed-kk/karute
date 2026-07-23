@@ -8,10 +8,12 @@ export const MARKS = {
   firstPixel: 'thin:first-pixel',
   interactive: 'thin:interactive',
   dataReady: 'thin:data-ready',
-  // When the AuthGate actually dropped the native splash (boot gate resolved).
-  // firstPixel stays the raw first paint, which lands under the splash — this
-  // is the user-visible reveal. Set after reportMarks() on cold boots; read it
-  // off performance.getEntriesByName on device runs.
+  // When the AuthGate actually dropped the native splash: the first commit of
+  // a RENDERABLE state (signed-in, signed-out, or a seeded resume — packet 25
+  // PR-B), not necessarily a boot-VERIFIED one. firstPixel stays the raw
+  // first paint, which lands under the splash — this is the user-visible
+  // reveal. Set after reportMarks() on cold boots; read it off
+  // performance.getEntriesByName on device runs.
   splashReleased: 'thin:splash-released',
 } as const
 
