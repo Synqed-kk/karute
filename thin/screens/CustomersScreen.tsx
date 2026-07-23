@@ -29,6 +29,8 @@ export function CustomersScreen() {
           selfStaffId={dto.selfStaffId}
           bookingDataAvailable={dto.bookingDataAvailable}
           staffList={dto.staffList}
+          burnByCustomer={dto.burnByCustomer}
+          burnUnpricedIds={dto.burnUnpricedIds}
         />
       )}
     </ScreenStates>

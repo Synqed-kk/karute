@@ -9,6 +9,8 @@
 //   missing Bearer w/ cookie → 401 · missing capability → 403 (no reads)
 //   synqed failure (incl. packs) → 502, never a swallowed empty DTO
 import { createHmac } from 'node:crypto'
+import { ymdInJst } from '@/lib/date/jst'
+import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
@@ -94,6 +96,11 @@ const fakeClient = {
     listActivePacks,
     listAllRedemptionPackIds: jest.fn(async () => ['pack-1', 'pack-1']),
     listLifecycles: jest.fn(async () => [{ customer_id: 'cust-2', status: 'graduated' }]),
+    // redeemed TODAY (JST) so the fixture lands in the mtd window regardless
+    // of the actual date the test suite runs on.
+    listRecentRedemptions: jest.fn(async () => [
+      { customer_id: 'cust-1', redeemed_on: ymdInJst(new Date()), unit_price: 5000 },
+    ]),
   },
   orgSettings: { get: jest.fn(async () => ({ settings: { ticket_packs_enabled: true } })) },
 }
@@ -151,6 +158,35 @@ describe('GET /api/app/v1/screens/customers — happy path', () => {
     const res = await GET(req({ headers: auth }), route)
     const dto = await res.json()
     expect(dto.rows.find((r: { id: string }) => r.id === 'cust-1').pack).toBeNull()
+  })
+
+  it('wires 今月消化 burn stats — per-customer {mtd, prev} via the shared burn source (packet 26)', async () => {
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.burnByCustomer).toEqual({ 'cust-1': { mtd: 5000, prev: 0 } })
+    expect(dto.burnUnpricedIds).toEqual([]) // no unpriced rows in the base fixture
+  })
+
+  it('burn source throws → burnByCustomer null + burnUnpricedIds [] (honesty gate), never a 502 (page parity)', async () => {
+    fakeClient.packs.listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.burnByCustomer).toBeNull()
+    expect(dto.burnUnpricedIds).toEqual([])
+    expect(dto.totalRegistered).toBe(2) // the rest of the screen still renders
+  })
+
+  it('an unpriced in-window redemption lands its customer id in burnUnpricedIds (packet 26 fix)', async () => {
+    fakeClient.packs.listRecentRedemptions.mockResolvedValueOnce([
+      { customer_id: 'cust-1', redeemed_on: ymdInJst(new Date()) }, // no unit_price
+    ] as never)
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.burnUnpricedIds).toEqual(['cust-1'])
+    expect(dto.burnByCustomer).toEqual({}) // the unpriceable row contributes nothing
   })
 })
 
@@ -239,6 +275,24 @@ describe('authn / validation / failure contract', () => {
     const res = await GET(req({ headers: auth }), route)
     expect(res.status).toBe(502)
     expect((await res.json()).error.code).toBe('upstream_unavailable')
+  })
+})
+
+describe('CustomersScreenDTO — burnUnpricedIds schema round-trip (packet 26 fix)', () => {
+  const base = {
+    rows: [], totalRegistered: 0, selfStaffId: null, bookingDataAvailable: true, staffList: [],
+  }
+  it('parses the empty-array shape (burn unavailable / no unpriced customers)', () => {
+    const dto = CustomersScreenDTO.parse({ ...base, burnByCustomer: null, burnUnpricedIds: [] })
+    expect(dto.burnUnpricedIds).toEqual([])
+  })
+  it('parses the populated shape (burn available, one customer unpriceable)', () => {
+    const dto = CustomersScreenDTO.parse({
+      ...base,
+      burnByCustomer: { 'cust-1': { mtd: 1000, prev: 0 } },
+      burnUnpricedIds: ['cust-2'],
+    })
+    expect(dto.burnUnpricedIds).toEqual(['cust-2'])
   })
 })
 

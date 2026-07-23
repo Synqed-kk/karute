@@ -7,10 +7,11 @@
 // synqed-core to completion). No invented pagination — the report records the
 // row-count reality so pagination can be a later, evidenced decision.
 //
-// Known deliberate gap: the web page's burnByCustomer prop (今月消化 strip
-// stat, 案A) is NOT in this DTO — web-only for now. If the mobile screens
-// strip grows the stat, add burn fields HERE (per-customer {mtd, prev}), not
-// a separate endpoint.
+// burnByCustomer (今月消化 strip stat, 案A, PR #535 lineage) wired in packet
+// 26 — same derivation the web page uses (monthlyBurnByCustomer over
+// listBurnRedemptionsWithClient), same store/tenant scoping as the rest of
+// this DTO. null = burn source unavailable (matches the strip's honesty
+// gate); the field hides the stat, never the whole screen.
 
 import { z } from 'zod'
 
@@ -55,6 +56,19 @@ export const CustomersScreenDTO = z.object({
   staffList: z.array(
     z.object({ id: z.string(), name: z.string(), initials: z.string() }),
   ),
+  /** Per-customer 今月消化 yen (mtd + prev-month same window), keyed by
+   *  customer id. null = burn source unavailable (honesty gate). */
+  burnByCustomer: z
+    .record(z.string(), z.object({ mtd: z.number(), prev: z.number() }))
+    .nullable(),
+  /** Customers whose in-window burn couldn't be priced (orphaned packs) — the
+   *  SAME list CustomersListView's burnUnpriceable gate checks (view hides
+   *  the stat when one of these ids is in the current filtered rows). ALWAYS
+   *  an array, never null — this mirrors the web page's own
+   *  `burn?.unpricedCustomers ?? []` (page.tsx), so an unavailable burn
+   *  source degrades to "no known unpriced customers", not "hide nothing" —
+   *  burnByCustomer already being null is what hides the stat in that case. */
+  burnUnpricedIds: z.array(z.string()),
 })
 
 export type CustomersScreenDTOType = z.infer<typeof CustomersScreenDTO>

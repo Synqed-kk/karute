@@ -20,7 +20,11 @@ import {
  * UI renders its empty/error states rather than crashing if core is unreachable.
  */
 
-const warn = (fn: string, err: unknown) => console.warn(`[packs] ${fn} failed:`, err)
+// Exported (packet 26 fix round) so a call site that catches a WithClient
+// twin's failure inline (e.g. the customers screen route's burn read) can
+// log through the SAME idiom every graceful wrapper in this file uses,
+// instead of inventing a second log line shape.
+export const warn = (fn: string, err: unknown) => console.warn(`[packs] ${fn} failed:`, err)
 
 /** Client-threaded core of listCustomerPacks — takes an EXPLICIT business-scoped
  *  client (facade Bearer path). THROWS on failure (the facade caller decides
@@ -479,23 +483,32 @@ export async function listRecentRedemptions(
 }
 
 /** Dated redemptions since the previous JST month began — feeds the 今月消化
- *  strip stat. Returns null (NOT []) when core is unreachable: null hides the
- *  stat, [] is a real "no burns" ¥0. Runtime-defensive on the priced fields:
- *  until core ships pack_id/unit_price on this endpoint (SDK 1.12), rows
- *  price as null and monthlyBurnByCustomer's allPriced gate keeps the stat
- *  hidden — a partial sum must never render. */
+ *  strip stat. THROWS on failure (WithClient convention); callers decide the
+ *  fallback (the web wrapper below catches to null, the facade DTO builder
+ *  does the same — a burn failure hides only the stat, never the whole
+ *  screen). Runtime-defensive on the priced fields: until core ships
+ *  pack_id/unit_price on this endpoint (SDK 1.12), rows price as null and
+ *  monthlyBurnByCustomer's allPriced gate keeps the stat hidden — a partial
+ *  sum must never render. Business-scoped twin (packet 26). */
+export async function listBurnRedemptionsWithClient(
+  synqed: Pick<SynqedClient, 'packs'>,
+): Promise<BurnRedemption[]> {
+  const rows = await synqed.packs.listRecentRedemptions(burnFetchSinceYmd())
+  return rows.map((r) => {
+    const priced = r as { unit_price?: unknown }
+    return {
+      customer_id: r.customer_id,
+      redeemed_on: r.redeemed_on,
+      unit_price: typeof priced.unit_price === 'number' ? priced.unit_price : null,
+    }
+  })
+}
+
+/** Returns null (NOT []) when core is unreachable: null hides the stat, []
+ *  is a real "no burns" ¥0. */
 export async function listBurnRedemptions(): Promise<BurnRedemption[] | null> {
   try {
-    const synqed = await getSynqedClient()
-    const rows = await synqed.packs.listRecentRedemptions(burnFetchSinceYmd())
-    return rows.map((r) => {
-      const priced = r as { unit_price?: unknown }
-      return {
-        customer_id: r.customer_id,
-        redeemed_on: r.redeemed_on,
-        unit_price: typeof priced.unit_price === 'number' ? priced.unit_price : null,
-      }
-    })
+    return await listBurnRedemptionsWithClient(await getSynqedClient())
   } catch (err) {
     warn('listBurnRedemptions', err)
     return null

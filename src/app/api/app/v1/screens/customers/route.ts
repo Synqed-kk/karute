@@ -24,7 +24,10 @@ import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
 import {
   listAllLifecyclesWithClient,
   listAllPackUsageWithClient,
+  listBurnRedemptionsWithClient,
+  warn,
 } from '@/lib/packs/store'
+import { monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 // Node runtime: the synqed SDK + node:crypto verifier are server-only.
 export const runtime = 'nodejs'
@@ -71,6 +74,8 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
 
   let screen: ReturnType<typeof buildCustomersListScreen>
   let selfStaffId: string | null
+  let burnByCustomer: Record<string, { mtd: number; prev: number }> | null
+  let burnUnpricedIds: string[]
   try {
     // Wave 1 — rows + roster (mirrors the page's first Promise.all).
     const [list, staffList] = await Promise.all([
@@ -94,17 +99,30 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
       ? ctx.identity.authUserId
       : null
 
-    // Wave 2 — enrichment + packs + lifecycles + org settings (page parity).
+    // Wave 2 — enrichment + packs + lifecycles + org settings + burn (page
+    // parity). Burn is the ONE soft-fail read here (.catch → null): a burn
+    // failure hides only the 今月消化 stat (honesty gate), never the whole
+    // screen — unlike packUsage/lifecycles above, which throw into the 502
+    // catch below.
     const customerIds = list.customers.map((c) => c.id)
-    const [enrichment, packUsage, lifecycles, rawSettings] = await Promise.all([
+    const [enrichment, packUsage, lifecycles, rawSettings, burnRows] = await Promise.all([
       enrichCustomers(ctx.identity.businessId, customerIds),
       listAllPackUsageWithClient(synqed),
       listAllLifecyclesWithClient(synqed),
       // Only ticket_packs_enabled is needed; the shared cached reader lives in
       // a 'use server' file and must stay unexported (see ask-ai route).
       synqed.orgSettings.get(),
+      listBurnRedemptionsWithClient(synqed).catch((err) => {
+        warn('screens/customers burn', err)
+        return null
+      }),
     ])
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
+    // Page parity (page.tsx): same null-coalescing split — byCustomer stays
+    // null (hides the stat), unpricedCustomers degrades to [] (nothing to hide).
+    const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+    burnByCustomer = burn?.byCustomer ?? null
+    burnUnpricedIds = burn?.unpricedCustomers ?? []
 
     screen = buildCustomersListScreen({
       list,
@@ -123,7 +141,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'customers screen data unavailable')
   }
 
-  const dto = CustomersScreenDTO.parse({ ...screen, selfStaffId })
+  const dto = CustomersScreenDTO.parse({ ...screen, selfStaffId, burnByCustomer, burnUnpricedIds })
   return ok(ctx, dto)
 })
 

@@ -26,6 +26,7 @@ import {
   listRecentContactsWithClient,
   listVisitReconcileDismissalsWithClient,
   listRecentRedemptionsWithClient,
+  listBurnRedemptionsWithClient,
 } from '@/lib/packs/store'
 import { getPackAlertsWithClient } from '@/lib/packs/alerts'
 import { loadUnprocessedVisitsWithClient } from '@/lib/packs/reconcile'
@@ -88,6 +89,30 @@ describe('store.ts WithClient twins (mechanical)', () => {
     const synqed = { packs: { listRecentRedemptions } }
     const rows = await listRecentRedemptionsWithClient(synqed as never, 7)
     expect(rows).toEqual([{ customer_id: 'a', appointment_id: 'ap1', redeemed_on: '2026-06-01' }])
+  })
+
+  it('listBurnRedemptionsWithClient maps priced rows and defaults a missing unit_price to null', async () => {
+    const listRecentRedemptions = jest.fn(async () => [
+      { customer_id: 'a', redeemed_on: '2026-07-01', unit_price: 5000 },
+      { customer_id: 'b', redeemed_on: '2026-07-02' },
+    ])
+    const synqed = { packs: { listRecentRedemptions } }
+    const rows = await listBurnRedemptionsWithClient(synqed as never)
+    expect(rows).toEqual([
+      { customer_id: 'a', redeemed_on: '2026-07-01', unit_price: 5000 },
+      { customer_id: 'b', redeemed_on: '2026-07-02', unit_price: null },
+    ])
+  })
+
+  it('listBurnRedemptionsWithClient THROWS on failure (WithClient convention — no swallow)', async () => {
+    const synqed = {
+      packs: {
+        listRecentRedemptions: jest.fn(async () => {
+          throw new Error('core down')
+        }),
+      },
+    }
+    await expect(listBurnRedemptionsWithClient(synqed as never)).rejects.toThrow('core down')
   })
 })
 
