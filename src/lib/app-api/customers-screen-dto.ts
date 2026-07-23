@@ -7,10 +7,11 @@
 // synqed-core to completion). No invented pagination — the report records the
 // row-count reality so pagination can be a later, evidenced decision.
 //
-// Known deliberate gap: the web page's burnByCustomer prop (今月消化 strip
-// stat, 案A) is NOT in this DTO — web-only for now. If the mobile screens
-// strip grows the stat, add burn fields HERE (per-customer {mtd, prev}), not
-// a separate endpoint.
+// burnByCustomer (今月消化 strip stat, 案A, PR #535 lineage) wired in packet
+// 26 — same derivation the web page uses (monthlyBurnByCustomer over
+// listBurnRedemptionsWithClient), same store/tenant scoping as the rest of
+// this DTO. null = burn source unavailable (matches the strip's honesty
+// gate); the field hides the stat, never the whole screen.
 
 import { z } from 'zod'
 
@@ -55,6 +56,11 @@ export const CustomersScreenDTO = z.object({
   staffList: z.array(
     z.object({ id: z.string(), name: z.string(), initials: z.string() }),
   ),
+  /** Per-customer 今月消化 yen (mtd + prev-month same window), keyed by
+   *  customer id. null = burn source unavailable (honesty gate). */
+  burnByCustomer: z
+    .record(z.string(), z.object({ mtd: z.number(), prev: z.number() }))
+    .nullable(),
 })
 
 export type CustomersScreenDTOType = z.infer<typeof CustomersScreenDTO>

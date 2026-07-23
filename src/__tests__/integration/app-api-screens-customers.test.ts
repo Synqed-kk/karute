@@ -9,6 +9,7 @@
 //   missing Bearer w/ cookie → 401 · missing capability → 403 (no reads)
 //   synqed failure (incl. packs) → 502, never a swallowed empty DTO
 import { createHmac } from 'node:crypto'
+import { ymdInJst } from '@/lib/date/jst'
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
@@ -94,6 +95,11 @@ const fakeClient = {
     listActivePacks,
     listAllRedemptionPackIds: jest.fn(async () => ['pack-1', 'pack-1']),
     listLifecycles: jest.fn(async () => [{ customer_id: 'cust-2', status: 'graduated' }]),
+    // redeemed TODAY (JST) so the fixture lands in the mtd window regardless
+    // of the actual date the test suite runs on.
+    listRecentRedemptions: jest.fn(async () => [
+      { customer_id: 'cust-1', redeemed_on: ymdInJst(new Date()), unit_price: 5000 },
+    ]),
   },
   orgSettings: { get: jest.fn(async () => ({ settings: { ticket_packs_enabled: true } })) },
 }
@@ -151,6 +157,22 @@ describe('GET /api/app/v1/screens/customers — happy path', () => {
     const res = await GET(req({ headers: auth }), route)
     const dto = await res.json()
     expect(dto.rows.find((r: { id: string }) => r.id === 'cust-1').pack).toBeNull()
+  })
+
+  it('wires 今月消化 burn stats — per-customer {mtd, prev} via the shared burn source (packet 26)', async () => {
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.burnByCustomer).toEqual({ 'cust-1': { mtd: 5000, prev: 0 } })
+  })
+
+  it('burn source throws → burnByCustomer is null (honesty gate), never a 502 (page parity)', async () => {
+    fakeClient.packs.listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    expect(dto.burnByCustomer).toBeNull()
+    expect(dto.totalRegistered).toBe(2) // the rest of the screen still renders
   })
 })
 
