@@ -14,7 +14,10 @@
  * ceiling — a booking that fails twice gives up for the session (the real
  * page-open takes over) · signed-out wipes everything so no warmed booking
  * from the outgoing staff member's scope ever fetches afterward (shared-iPad
- * hygiene, mirrors chrome-store.ts / ScreenBoundary's dtoCache).
+ * hygiene, mirrors chrome-store.ts / ScreenBoundary's dtoCache) · a STALE
+ * in-flight fetch from a signed-out session cannot corrupt the replacement
+ * session's warmed set on late resolution (epoch guard, mirrors
+ * chrome-store.ts's epoch idiom — Greptile round 1 on #594).
  */
 import type { Session } from '@supabase/supabase-js'
 import { setDataPort } from '@/lib/ports/data-port'
@@ -138,6 +141,48 @@ it('gives up after 2 failed attempts — a third call schedules nothing', async 
   expect(apiFetch).toHaveBeenCalledTimes(2)
 
   warmBriefsForToday([target('c1', 'a1')]) // ceiling hit — no third schedule
+  jest.advanceTimersByTime(10_000)
+  expect(apiFetch).toHaveBeenCalledTimes(2)
+})
+
+it('a stale in-flight release from a signed-out session cannot corrupt the new session (epoch guard)', async () => {
+  let resolveFirst: (r: Response) => void = () => {}
+  const apiFetch = jest
+    .fn<Promise<Response>, unknown[]>()
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((r) => {
+          resolveFirst = r
+        }),
+    )
+    .mockResolvedValue({ ok: true } as Response)
+  mockApiFetch(apiFetch)
+
+  // u1, epoch 0: fire the warm — fetch #1 in flight, held.
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(3_000)
+  expect(apiFetch).toHaveBeenCalledTimes(1)
+
+  // Sign-out resets warmed/attempts and bumps the epoch; u2 signs in and
+  // re-warms the SAME appointmentId — its own fresh timer fires fetch #2.
+  setSessionState({ status: 'signed-out' })
+  setSessionState({
+    status: 'signed-in',
+    session: { access_token: 'tok2', user: { id: 'u2' } } as Session,
+  })
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(3_000)
+  expect(apiFetch).toHaveBeenCalledTimes(2)
+
+  // NOW u1's stale fetch resolves non-OK. Its release() must be a no-op
+  // against u2's warmed set — the whole point of the epoch guard.
+  resolveFirst({ ok: false } as Response)
+  await Promise.resolve()
+  await Promise.resolve()
+
+  // A later trigger for the same booking must NOT re-schedule a redundant
+  // paid warm — u2's entry was never deleted.
+  warmBriefsForToday([target('c1', 'a1')])
   jest.advanceTimersByTime(10_000)
   expect(apiFetch).toHaveBeenCalledTimes(2)
 })

@@ -31,6 +31,12 @@ export type BriefWarmTarget = { customerId: string; appointmentId: string }
 let warmed = new Set<string>()
 let attempts = new Map<string, number>()
 let pendingTimers: number[] = []
+// Bumped on every sign-out reset (same idiom as chrome-store.ts's epoch): a
+// fetch that was in flight when the user signed out must not write into the
+// REPLACEMENT session's freshly-populated warmed/attempts — deleting a
+// same-named appointmentId there would force a redundant paid re-warm while
+// the new session's own timer for it is still pending.
+let epoch = 0
 
 /** Fire-and-forget: warm the pre-session-brief cache for today's active
  *  bookings. Bookings already warmed (or already scheduled) are skipped, so
@@ -42,9 +48,17 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
     const delay = FIRST_DELAY_MS + pendingTimers.length * STAGGER_MS
     const timer = window.setTimeout(() => {
       pendingTimers = pendingTimers.filter((t) => t !== timer)
+      // Captured at FIRE time (not schedule time) — mirrors chrome-store.ts's
+      // capture-before-async pattern, right here since the async leg starts now.
+      const myEpoch = epoch
+      // Safe unguarded: this write happens synchronously, before the fetch
+      // (the async boundary) starts — no sign-out can land between "timer
+      // fires" and "this line runs", so it can never straddle an epoch bump
+      // the way the release() paths below (post-await) can.
       const attempt = (attempts.get(appointmentId) ?? 0) + 1
       attempts.set(appointmentId, attempt)
       const release = () => {
+        if (epoch !== myEpoch) return // superseded by a sign-out reset
         // Below the ceiling: remove so a later trigger (or the staff member
         // actually opening the page) can retry. At the ceiling: leave it
         // warmed — stop trying, the real page-open takes over.
@@ -70,6 +84,7 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
 // and without a reset the Set would grow for the whole page lifetime.
 subscribeSessionState(() => {
   if (getSessionState().status === 'signed-out') {
+    epoch++ // invalidate any in-flight release (see the epoch note above)
     pendingTimers.forEach((t) => window.clearTimeout(t))
     pendingTimers = []
     warmed = new Set()
