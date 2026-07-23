@@ -61,6 +61,14 @@ export const CustomersScreenDTO = z.object({
   burnByCustomer: z
     .record(z.string(), z.object({ mtd: z.number(), prev: z.number() }))
     .nullable(),
+  /** Customers whose in-window burn couldn't be priced (orphaned packs) — the
+   *  SAME list CustomersListView's burnUnpriceable gate checks (view hides
+   *  the stat when one of these ids is in the current filtered rows). ALWAYS
+   *  an array, never null — this mirrors the web page's own
+   *  `burn?.unpricedCustomers ?? []` (page.tsx), so an unavailable burn
+   *  source degrades to "no known unpriced customers", not "hide nothing" —
+   *  burnByCustomer already being null is what hides the stat in that case. */
+  burnUnpricedIds: z.array(z.string()),
 })
 
 export type CustomersScreenDTOType = z.infer<typeof CustomersScreenDTO>

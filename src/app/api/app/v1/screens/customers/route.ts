@@ -74,6 +74,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
   let screen: ReturnType<typeof buildCustomersListScreen>
   let selfStaffId: string | null
   let burnByCustomer: Record<string, { mtd: number; prev: number }> | null
+  let burnUnpricedIds: string[]
   try {
     // Wave 1 — rows + roster (mirrors the page's first Promise.all).
     const [list, staffList] = await Promise.all([
@@ -113,7 +114,11 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
       listBurnRedemptionsWithClient(synqed).catch(() => null),
     ])
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
-    burnByCustomer = burnRows ? monthlyBurnByCustomer(burnRows).byCustomer : null
+    // Page parity (page.tsx): same null-coalescing split — byCustomer stays
+    // null (hides the stat), unpricedCustomers degrades to [] (nothing to hide).
+    const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+    burnByCustomer = burn?.byCustomer ?? null
+    burnUnpricedIds = burn?.unpricedCustomers ?? []
 
     screen = buildCustomersListScreen({
       list,
@@ -132,7 +137,7 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
     throw new AppApiError('upstream_unavailable', 'customers screen data unavailable')
   }
 
-  const dto = CustomersScreenDTO.parse({ ...screen, selfStaffId, burnByCustomer })
+  const dto = CustomersScreenDTO.parse({ ...screen, selfStaffId, burnByCustomer, burnUnpricedIds })
   return ok(ctx, dto)
 })
 

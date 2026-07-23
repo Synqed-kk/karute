@@ -1,9 +1,9 @@
 /**
  * @jest-environment jsdom
  *
- * Customers-list thin screen wired mount (packet 26): pins that
- * dto.burnByCustomer reaches CustomerListStatsStrip through the REAL
- * CustomersScreen → CustomersListView chain (mocked apiFetch only), so a
+ * Customers-list thin screen wired mount (packet 26 + fix round): pins that
+ * dto.burnByCustomer/burnUnpricedIds reach CustomerListStatsStrip through the
+ * REAL CustomersScreen → CustomersListView chain (mocked apiFetch only), so a
  * future prop-wiring regression fails a render, not just a type check.
  * Real ja.json messages (throw-on-missing-key, same pattern as
  * thin-dashboard-screen-render.test.tsx) so the assertion is the actual
@@ -78,6 +78,26 @@ const dto = {
   bookingDataAvailable: true,
   staffList: [],
   burnByCustomer: { c1: { mtd: 15000, prev: 10000 } },
+  burnUnpricedIds: [] as string[],
+}
+
+// Second row (c2) has an in-window redemption core couldn't price (orphaned
+// pack) — c2's id rides in burnUnpricedIds. Both rows are in view (2 < the
+// 12-per-page cap, no filters active), so the strip's burnUnpriceable gate
+// must hide the stat exactly like CustomersListView:275/CustomerListStatsStrip
+// do on web with the same inputs.
+const dtoWithUnpriced = {
+  ...dto,
+  rows: [
+    ...dto.rows,
+    {
+      ...dto.rows[0],
+      id: 'c2',
+      name: 'テスト 次郎',
+      pack: null,
+    },
+  ],
+  burnUnpricedIds: ['c2'],
 }
 
 function jsonResponse(body: unknown): Response {
@@ -98,5 +118,20 @@ describe('CustomersScreen — wired mount (packet 26)', () => {
 
     expect(await screen.findByText('今月消化')).toBeInTheDocument()
     expect(screen.getByText('¥15,000')).toBeInTheDocument()
+  })
+
+  it('hides 今月消化 when an unpriced customer is IN VIEW (honesty-gate parity, packet 26 fix)', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/customers') return jsonResponse(dtoWithUnpriced)
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<CustomersScreen />)
+
+    // Wait for the real content frame (header stub) before asserting absence,
+    // so this isn't just catching the loading state.
+    await screen.findByTestId('header')
+    expect(screen.queryByText('今月消化')).not.toBeInTheDocument()
   })
 })
