@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { getDataPort } from '@/lib/ports/data-port'
+import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh } from '../ports/nav.vite'
 
 type State<T> =
@@ -15,25 +16,72 @@ type State<T> =
   // keep it while a failed fetch for a NEW path still errors honestly.
   | { status: 'ready'; dto: T; path: string }
 
+// Screen DTO memory cache (packet 24 PR-A): instant revisit paint. ThinRouter
+// fully unmounts a screen per tab switch, so without this every revisit paid
+// a full network RTT before pixels changed even seconds after last seeing it.
+// Stores the PARSED dto (parse already ran once when it was cached — do not
+// re-run it on a cache hit). No TTL: the mount effect below always revalidates
+// in the background, so staleness self-heals on every visit.
+// Exported for the packet's cache tests (cap eviction, retry-delete) to probe
+// directly without spinning up a render for every scenario.
+const DTO_CACHE_CAP = 50
+export const dtoCache = new Map<string, unknown>()
+
+export function cacheDto(path: string, dto: unknown): void {
+  if (dtoCache.size >= DTO_CACHE_CAP && !dtoCache.has(path)) {
+    const oldest = dtoCache.keys().next().value as string | undefined
+    if (oldest !== undefined) dtoCache.delete(oldest)
+  }
+  dtoCache.set(path, dto)
+}
+
+// SHARED-IPAD LEAK GUARD: a signed-out transition wipes every cached DTO so
+// the next user (any user switch passes through 'signed-out' first) never
+// paints the outgoing user's data on first frame. Subscribed ONCE at module
+// scope — not per hook call. The store-lens SWITCH is covered by
+// construction, not here: the switcher does a full WebView reload
+// (actions.vite.ts:714), so this module's state (including dtoCache) already
+// dies with it.
+subscribeSessionState(() => {
+  if (getSessionState().status === 'signed-out') dtoCache.clear()
+})
+
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
  *  client too (same schema module the server validates with). `fetching` is
  *  true while any (re-)fetch is in flight — screens with in-place URL nav
  *  (予約 date-nav) use it for the web-parity pending dim. */
 export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
-  const [state, setState] = useState<State<T>>({ status: 'loading' })
+  const [state, setState] = useState<State<T>>(() =>
+    dtoCache.has(path)
+      ? { status: 'ready', dto: dtoCache.get(path) as T, path }
+      : { status: 'loading' },
+  )
   const [attempt, setAttempt] = useState(0)
   const [fetching, setFetching] = useState(true)
   const retry = useCallback(() => {
+    // An explicit retry after an error must never flash stale content on a
+    // later revisit — drop this path's cache entry along with the state.
+    dtoCache.delete(path)
     setState({ status: 'loading' })
     setAttempt((n) => n + 1)
-  }, [])
+  }, [path])
 
   // router.refresh() (post-mutation, e.g. a new booking) → re-fetch WITHOUT
   // dropping to the loading frame: the current dto stays on screen and swaps
   // when the fresh one lands — the shell's analogue of Next's refresh keeping
   // stale content visible during the server re-render. An in-flight previous
   // fetch can't clobber: each effect run's `alive` flag dies on re-run.
-  useEffect(() => subscribeRefresh(() => setAttempt((n) => n + 1)), [])
+  // Refresh events are rare (post-mutation, post-heal) and mean every other
+  // mounted/cached screen may now be stale too — nuke the whole dto cache;
+  // this mounted screen already re-fetches below, revisits after start fresh.
+  useEffect(
+    () =>
+      subscribeRefresh(() => {
+        dtoCache.clear()
+        setAttempt((n) => n + 1)
+      }),
+    [],
+  )
 
   useEffect(() => {
     let alive = true
@@ -50,6 +98,7 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
+        cacheDto(path, dto)
         if (alive) setState({ status: 'ready', dto, path })
       })
       .catch((err: unknown) => {
