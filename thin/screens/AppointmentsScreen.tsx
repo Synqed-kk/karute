@@ -7,7 +7,7 @@
 // Booking mutations (create / cancel / no-show / restore) route through the
 // actions port; they are wired to facade endpoints in the P-B mutations PR.
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { MonthGridCell } from '@synqed-kk/ui'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import type { ReservationView } from '@/lib/adapters/reservation-view'
@@ -15,6 +15,8 @@ import {
   AppointmentsScreenDTO,
   type AppointmentsScreenDTOType,
 } from '@/lib/app-api/appointments-screen-dto'
+import { ymdInJst } from '@/lib/date/jst'
+import { warmBriefsForToday } from '../data/brief-warm'
 import { useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
@@ -22,6 +24,21 @@ const parse = (raw: unknown): AppointmentsScreenDTOType =>
   AppointmentsScreenDTO.parse(raw)
 
 function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
+  // Perf packet 28: warm the pre-session-brief cache for today's active
+  // bookings while staff are still on 予約, so 録音's brief is already cached
+  // by the time they open it. Only today — compared as JST CALENDAR days
+  // (selectedDateIso is a JST-midnight instant, e.g.
+  // "2026-07-23T15:00:00.000Z" for 7/24 JST; a bare string compare never
+  // matches) — and only once per settle: repeat settles hit brief-warm's own
+  // dedupe for free.
+  useEffect(() => {
+    if (ymdInJst(new Date(dto.selectedDateIso)) !== ymdInJst(new Date())) return
+    const bookings = dto.reservationViews
+      .filter((r) => !r.isCancelled && !r.isNoShow)
+      .map((r) => ({ customerId: r.clientId, appointmentId: r.id }))
+    warmBriefsForToday(bookings)
+  }, [dto])
+
   // MonthGridCell wants a real Date; the DTO ships dateIso (JSON-safe).
   const monthData = useMemo<MonthGridCell[] | null>(
     () =>
