@@ -235,6 +235,23 @@ describe('ThinChromeNav (the real web BottomNav in the shell slot)', () => {
     await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
     expect(apiFetch).toHaveBeenCalledTimes(1)
   })
+
+  it('a chrome failure during the seeded window retries on the recovering→recovering timeout echo (round-3 escape)', async () => {
+    // First fetch fails (stale seeded Bearer / offline); the boot timeout
+    // then echoes recovering→recovering — same status STRING, invisible to
+    // useChromeDto's [session.status] effect — and the one-shot next-write
+    // escape must retry. The retry succeeds and the nav fills in.
+    apiFetch.mockRejectedValueOnce(new Error('chrome 401'))
+    seedKnownSession(session('tok-seed'))
+    render(<ThinChromeNav />)
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+    // Settled into 'error' — now the guaranteed timeout echo lands.
+    await act(async () => {
+      setSessionState({ status: 'recovering' })
+    })
+    await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(screen.getByText('田中様')).toBeTruthy())
+  })
 })
 
 describe('fresh-install store lens seed (Gap B½)', () => {

@@ -30,6 +30,9 @@ let current: ChromeState = { status: 'idle', dto: null }
 // into the store after the reset — the packet-10 shared-device leak class.
 // Same discipline as globalPipeline.runId.
 let epoch = 0
+// Single-flight for the recovering-window error escape (see the catch in
+// ensureChromeLoaded).
+let errorRetryArmed = false
 const listeners = new Set<() => void>()
 
 function set(state: ChromeState): void {
@@ -64,8 +67,10 @@ export function ensureChromeLoaded(): void {
   // fix): the boot seed makes recovering-with-known-session the normal COLD
   // BOOT state, and gating chrome on full 'signed-in' left the nav/header
   // empty while screens filled — chrome must load whenever the app is
-  // mounted. A 401 on a stale seeded Bearer lands in 'error', which the
-  // settle's status-change re-arm (useChromeDto's effect) retries.
+  // mounted. A failure on a stale seeded Bearer lands in 'error'; a settle
+  // that CHANGES session.status re-arms via useChromeDto's effect, and a
+  // recovering→recovering timeout echo (same string — invisible to that
+  // effect) is covered by the one-shot next-write escape in the catch below.
   const session = getSessionState()
   const mounted =
     session.status === 'signed-in' ||
@@ -86,8 +91,26 @@ export function ensureChromeLoaded(): void {
       if (seeded) refetchLensedChrome(myEpoch)
     })
     .catch(() => {
-      if (epoch === myEpoch && current.status === 'loading')
+      if (epoch === myEpoch && current.status === 'loading') {
         set({ status: 'error', dto: null })
+        // Round-3 focused-verify P1: a fetch that failed during the seeded
+        // 'recovering' window needs an escape that survives the boot
+        // timeout's recovering→recovering echo — same status STRING, so
+        // useChromeDto's [session.status] effect never re-fires on it
+        // (ScreenBoundary's grace escape solved this identically). One
+        // shot, module-level: the NEXT store write of ANY kind retries;
+        // ensureChromeLoaded re-checks every gate itself (a sign-out write
+        // lands on mounted=false and no-ops). Writes are sparse (settle,
+        // echo, rotation, sign-out) — no retry storm.
+        if (!errorRetryArmed && getSessionState().status === 'recovering') {
+          errorRetryArmed = true
+          const unsub = subscribeSessionState(() => {
+            unsub()
+            errorRetryArmed = false
+            ensureChromeLoaded()
+          })
+        }
+      }
     })
 }
 
