@@ -20,7 +20,11 @@ import {
  * UI renders its empty/error states rather than crashing if core is unreachable.
  */
 
-const warn = (fn: string, err: unknown) => console.warn(`[packs] ${fn} failed:`, err)
+// Exported (packet 26 fix round) so a call site that catches a WithClient
+// twin's failure inline (e.g. the customers screen route's burn read) can
+// log through the SAME idiom every graceful wrapper in this file uses,
+// instead of inventing a second log line shape.
+export const warn = (fn: string, err: unknown) => console.warn(`[packs] ${fn} failed:`, err)
 
 /** Client-threaded core of listCustomerPacks — takes an EXPLICIT business-scoped
  *  client (facade Bearer path). THROWS on failure (the facade caller decides

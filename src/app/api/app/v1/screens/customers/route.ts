@@ -25,6 +25,7 @@ import {
   listAllLifecyclesWithClient,
   listAllPackUsageWithClient,
   listBurnRedemptionsWithClient,
+  warn,
 } from '@/lib/packs/store'
 import { monthlyBurnByCustomer } from '@/lib/packs/burn'
 
@@ -111,7 +112,10 @@ export const GET = facadeHandler('customers.list', async (ctx) => {
       // Only ticket_packs_enabled is needed; the shared cached reader lives in
       // a 'use server' file and must stay unexported (see ask-ai route).
       synqed.orgSettings.get(),
-      listBurnRedemptionsWithClient(synqed).catch(() => null),
+      listBurnRedemptionsWithClient(synqed).catch((err) => {
+        warn('screens/customers burn', err)
+        return null
+      }),
     ])
     const settings = (rawSettings?.settings ?? {}) as { ticket_packs_enabled?: boolean }
     // Page parity (page.tsx): same null-coalescing split — byCustomer stays
