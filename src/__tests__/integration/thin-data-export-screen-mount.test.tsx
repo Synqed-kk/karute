@@ -20,6 +20,17 @@ import { setDataPort } from '@/lib/ports/data-port'
 // in next-intl's ESM navigation build, which jest can't parse at all.
 jest.mock('@/i18n/navigation', () => jest.requireActual('../../../thin/ports/nav.vite'))
 
+// Assertable toast spies (round 4): an ABORTED export must stay silent —
+// no exportFailed toast for a request the user already replaced.
+const toastError = jest.fn()
+jest.mock('sonner', () => ({
+  toast: {
+    error: (...a: unknown[]) => toastError(...a),
+    message: jest.fn(),
+    success: jest.fn(),
+  },
+}))
+
 jest.mock('next-intl', () => {
   const ja = jest.requireActual('../../../messages/ja.json')
   return {
@@ -132,15 +143,18 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
     expect(screen.queryByText(/をダウンロード$/)).toBeNull()
   })
 
-  it('a PRIVACY flip while the export fetch is in flight DROPS the raw result — the panel must never claim redaction over an unredacted blob (fresh-eyes round 3)', async () => {
-    let resolveExport!: (r: Response) => void
-    const exportPromise = new Promise<Response>((r) => {
-      resolveExport = r
-    })
-    const apiFetch = jest.fn(async (path: string) => {
-      if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
-      if (path.startsWith('/pin/export-base?')) return exportPromise
-      throw new Error(`unexpected apiFetch(${path})`)
+  it('a PRIVACY flip while the export fetch is in flight ABORTS it — raw result dropped, button promptly usable again, NO error toast (fresh-eyes rounds 3+4)', async () => {
+    const apiFetch = jest.fn((path: string, init?: RequestInit) => {
+      if (path === '/api/app/v1/screens/data-export') return Promise.resolve(jsonResponse(dto))
+      if (path.startsWith('/pin/export-base?'))
+        // Signal-aware: rejects with AbortError when the view aborts it —
+        // never resolves on its own (that's the round-4 dead-window setup).
+        return new Promise<Response>((_res, rej) => {
+          init?.signal?.addEventListener('abort', () =>
+            rej(Object.assign(new Error('aborted'), { name: 'AbortError' })),
+          )
+        })
+      return Promise.reject(new Error(`unexpected apiFetch(${path})`))
     })
     setDataPort({
       apiFetch,
@@ -149,21 +163,27 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
       deliverFile: jest.fn(),
     } as unknown as Parameters<typeof setDataPort>[0])
 
+    toastError.mockClear()
     render(<DataExportScreen />)
     const [cta] = await screen.findAllByText(/をエクスポート$/)
     fireEvent.click(cta)
 
-    // Flip 個人情報をリダクト while the raw (privacy=0) fetch is pending…
+    // Flip 個人情報をリダクト while the raw (privacy=0) fetch is pending —
+    // the requestKey effect must ABORT the abandoned fetch.
     const privacyLabel = await screen.findByText('個人情報をリダクト')
     fireEvent.click(privacyLabel.closest('div.flex.items-start')!.querySelector('button')!)
-    // …then the RAW export resolves. It must be discarded.
     await act(async () => {
-      resolveExport({ ok: true, blob: async () => new Blob(['raw-pii']) } as unknown as Response)
-      await exportPromise
       await new Promise((r) => setTimeout(r, 0))
     })
 
+    // Raw result never delivered…
     expect(screen.queryByText(/をダウンロード$/)).toBeNull()
+    // …the single-flight lock released immediately (no greyed dead window
+    // while the abandoned request waits out the network — round 4)…
+    const ctaButton = screen.getAllByText(/をエクスポート$/)[0].closest('button') as HTMLButtonElement
+    expect(ctaButton.disabled).toBe(false)
+    // …and the abandoned request never toasts an error.
+    expect(toastError).not.toHaveBeenCalled()
   })
 
   it('a PRIVACY flip AFTER completion resets the done panel — a held blob never outlives the settings that made it (fresh-eyes round 3)', async () => {

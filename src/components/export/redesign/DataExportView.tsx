@@ -82,12 +82,30 @@ export function DataExportView({
   // LIVE state, so a held blob must never outlive the state that made it.
   const requestKey = useMemo(
     () =>
-      [scope, format, privacy ? '1' : '0', dateRange, columns.join(','), JSON.stringify(filters)].join('|'),
+      [
+        scope,
+        format,
+        privacy ? '1' : '0',
+        dateRange,
+        // columns order matters (it IS the CSV column order); filters are an
+        // unordered map — sort keys so clear-and-rebuild in a different order
+        // can't falsely invalidate a still-accurate result (round 4).
+        columns.join(','),
+        Object.keys(filters)
+          .sort()
+          .map((k) => `${k}:${filters[k].join('+')}`)
+          .join('&'),
+      ].join('|'),
     [scope, format, privacy, dateRange, columns, filters],
   )
   const liveExportKey = useRef('')
+  const abortRef = useRef<AbortController | null>(null)
   useEffect(() => {
     liveExportKey.current = requestKey
+    // Abort the abandoned fetch (round 4): without this, `busy` stays true
+    // until the stale request settles on its own — the Export button sits
+    // greyed with no spinner for an unbounded network wait.
+    abortRef.current?.abort()
     setStep((s) => (s === 'configure' ? s : 'configure'))
     setDownloadUrl(null)
     setPendingBlob(null)
@@ -108,6 +126,8 @@ export function DataExportView({
     }
     setBusy(true)
     setStep('preparing')
+    // Hoisted above the try: the catch's staleness check needs it too.
+    const startKey = requestKey
     try {
       const params = new URLSearchParams({
         scope,
@@ -126,9 +146,12 @@ export function DataExportView({
       // Greptile P1 on #588). Values live on the ports; the seam-coverage
       // sweep fails any quoted web-path literal in components, comments
       // included.
-      const startKey = requestKey
+      const ac = new AbortController()
+      abortRef.current = ac
       const port = getDataPort()
-      const res = await port.apiFetch(`${port.exportBase}?${params.toString()}`)
+      const res = await port.apiFetch(`${port.exportBase}?${params.toString()}`, {
+        signal: ac.signal,
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
       if (liveExportKey.current !== startKey) {
@@ -152,6 +175,14 @@ export function DataExportView({
         setStep('done')
       }
     } catch (err) {
+      // An abandoned request (params changed → aborted, or failed after
+      // going stale) must never toast — the user already replaced it
+      // (round 4: the stale-failure toast referred to an export the user
+      // had forgotten about).
+      if ((err as Error)?.name === 'AbortError' || liveExportKey.current !== startKey) {
+        setStep((s) => (s === 'preparing' ? 'configure' : s))
+        return
+      }
       console.error('[export]', err)
       toast.error(t('exportFailed'))
       setStep('configure')
