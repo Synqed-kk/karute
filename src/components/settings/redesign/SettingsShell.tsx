@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   ArrowLeft,
@@ -423,8 +423,21 @@ function DrillInView({
   children: ReactNode
 }) {
   const Icon = tab?.icon
+  const rootRef = useRef<HTMLDivElement>(null)
+  // The scroll container (thin shell's <main>, or the web (app) layout's
+  // clamped scroll region) is a PERSISTENT element — the list's scroll offset
+  // survives the list→drill content swap, so tapping a card low in the list
+  // opened the section mid-scroll with 設定に戻る parked above the fold (read
+  // in the field as "the back button is gone"). Open every drill at the top:
+  // zeroing each ancestor is a no-op on containers that aren't scrolled.
+  // Mount-only is enough — list⇄drill always remounts this component.
+  useEffect(() => {
+    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      el.scrollTop = 0
+    }
+  }, [])
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       <button
         type="button"
         onClick={onBack}
