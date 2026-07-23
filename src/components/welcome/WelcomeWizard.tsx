@@ -73,7 +73,7 @@ export function WelcomeWizard({
   const step2Valid =
     !!disclosureMode && (disclosureMode !== 'A' || privacyConfirmed)
 
-  const profile = businessType ? getBusinessProfile(businessType) : null
+  const profile = businessType ? getBusinessProfile(businessType, currentLocale) : null
   const chosenMode = disclosureMode
     ? DISCLOSURE_MODES.find((m) => m.mode === disclosureMode)
     : null
@@ -143,6 +143,7 @@ export function WelcomeWizard({
               language={language}
               setLanguage={setLanguage}
               hideLanguageChoice={hideLanguageChoice}
+              locale={currentLocale}
             />
           )}
           {step === 2 && (
@@ -274,6 +275,7 @@ function Step1Business({
   language,
   setLanguage,
   hideLanguageChoice,
+  locale,
 }: {
   t: T
   businessName: string
@@ -284,6 +286,7 @@ function Step1Business({
   language: WizardLocale
   setLanguage: (v: WizardLocale) => void
   hideLanguageChoice: boolean
+  locale: WizardLocale
 }) {
   return (
     <div className="flex flex-col gap-5">
@@ -363,7 +366,7 @@ function Step1Business({
             </option>
             {BUSINESS_TYPES.map((bt) => (
               <option key={bt.value} value={bt.value}>
-                {bt.label}
+                {locale === 'ja' ? bt.labelJa : bt.label}
               </option>
             ))}
           </select>

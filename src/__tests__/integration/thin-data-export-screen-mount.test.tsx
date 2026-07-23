@@ -87,6 +87,12 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
 
     // The scope picker renders the customers total from the DTO.
     expect(await screen.findByText('128件のレコード')).toBeTruthy()
+
+    // Ja sweep (packet 27): thin hardcodes locale="ja" — the columns picker
+    // (expanded by default) renders the Ja column/group labels through the
+    // REAL DataExportView → ExportColumnsPicker wiring, not just English.
+    expect(await screen.findByText('顧客ID')).toBeTruthy()
+    expect(screen.getByText('識別子')).toBeTruthy()
   })
 
   it('the export CTA fetches through the port exportBase seam — never a hardcoded /api/export (Greptile P1, #588)', async () => {

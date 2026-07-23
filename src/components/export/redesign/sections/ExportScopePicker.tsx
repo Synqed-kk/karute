@@ -39,8 +39,10 @@ export function ExportScopePicker({
   value,
   onChange,
   totals,
+  locale,
 }: ExportScopePickerProps) {
   const t = useTranslations('dataExport')
+  const isJa = locale === 'ja'
 
   return (
     <section>
@@ -79,7 +81,7 @@ export function ExportScopePicker({
                     </span>
                   </div>
                   <div className="text-[12px] text-muted-foreground mt-0.5">
-                    {scope.sub}
+                    {isJa ? scope.subJa : scope.sub}
                   </div>
                 </div>
               </div>

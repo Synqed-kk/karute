@@ -3,6 +3,7 @@
 // prompt templates with the SAME pure lookup module the web page uses
 // (src/lib/welcome/business-types.ts) — the DTO carries only the key.
 
+import { useTranslations } from 'next-intl'
 import { AIAssistantView } from '@/components/ai/redesign/AIAssistantView'
 import {
   getBusinessProfile,
@@ -16,19 +17,25 @@ const parse = (raw: unknown): AskAiScreenDTOType => AskAiScreenDTO.parse(raw)
 
 export function AskAiScreen() {
   const { state, retry } = useScreenDto('/api/app/v1/screens/ask-ai', parse)
+  // Same i18n keys the web page uses (ask-ai/page.tsx t('scopeKarute') etc.)
+  // — the chips previously hardcoded English labels, thin-only.
+  const t = useTranslations('askAi')
   return (
     <ScreenStates state={state} retry={retry}>
       {(dto) => {
         // Page parity (app/[locale]/(app)/ask-ai/page.tsx): '' and null both
         // mean "no business type" → generic profile, default prompts.
         const businessType = dto.businessType
-        const profile = businessType ? getBusinessProfile(businessType) : null
-        const prompts = getConsultationQuestions(businessType ?? null).slice(0, 3)
+        // thin is ja-only (locale="ja" below) — pass it through so the AI
+        // profile label + prompt cards resolve their Ja twins instead of
+        // silently defaulting to the functions' English default.
+        const profile = businessType ? getBusinessProfile(businessType, 'ja') : null
+        const prompts = getConsultationQuestions(businessType ?? null, 'ja').slice(0, 3)
         const scope: DataScopeItem[] = [
-          { label: 'Karute', count: dto.scope.karute },
-          { label: 'Customers', count: dto.scope.customers },
-          { label: 'Bookings', count: dto.scope.bookings },
-          { label: 'Recordings', count: dto.scope.recordings },
+          { label: t('scopeKarute'), count: dto.scope.karute },
+          { label: t('scopeCustomers'), count: dto.scope.customers },
+          { label: t('scopeBookings'), count: dto.scope.bookings },
+          { label: t('scopeRecordings'), count: dto.scope.recordings },
         ]
         return (
           <AIAssistantView

@@ -50,4 +50,23 @@ describe('WelcomeWizard — app-language choice visibility', () => {
     expect(screen.queryByText('日本語')).toBeNull()
     expect(screen.queryByText('English')).toBeNull()
   })
+
+  // Ja sweep (packet 27): business-type select options + the AI-tuning
+  // profile label render their labelJa twin at ja (useLocale mocked 'ja'
+  // above) instead of the English BUSINESS_TYPES/business-types.ts default.
+  it('ja sweep: business-type options + AI-tuning profile label render Ja', () => {
+    render(
+      <WelcomeWizard
+        initialBusinessName="La Estro"
+        initialBusinessType="beauty_chiropractic"
+        initialDisclosureMode={null}
+      />,
+    )
+    expect(screen.getByText('ヘアサロン')).toBeTruthy()
+    expect(screen.queryByText('Hair Salon')).toBeNull()
+    // 美容整体 renders twice — the select option AND the AI-tuning profile
+    // label (both keyed off the same beauty_chiropractic labelJa).
+    expect(screen.getAllByText('美容整体').length).toBe(2)
+    expect(screen.queryByText('Beauty Chiropractic')).toBeNull()
+  })
 })
