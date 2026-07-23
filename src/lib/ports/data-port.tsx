@@ -35,6 +35,7 @@ export const sameOriginDataPort: DataPort = {
     return 'downloaded'
   },
   supportsAutoDeliver: true,
+  exportBase: '/api/export',
 }
 
 // Module singleton for non-hook callers. AppRoot overrides it in the shell.

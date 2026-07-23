@@ -36,6 +36,11 @@ export interface DataPort {
    *  false — see deliverFile's doc. Precedent: RecordingPipelinePort's
    *  supportsServerJob (src/lib/ports/recording-port.ts). */
   supportsAutoDeliver: boolean
+  /** Export endpoint base (Greptile P1 on #588): '/api/export' on web,
+   *  '/api/app/v1/export' in the shell — the cookie-only web route 401s on
+   *  the Bearer path. Same seam class as RecordingPipelinePort's aiBase
+   *  (F-9b); both routes take identical query params by design. */
+  exportBase: string
 }
 
 /** Anchor-shaped Link, the subset every shared component uses. */

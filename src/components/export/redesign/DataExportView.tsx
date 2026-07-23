@@ -100,10 +100,15 @@ export function DataExportView({
       )
       if (filterPairs.length) params.set('filters', filterPairs.join('&'))
 
-      const res = await getDataPort().apiFetch(`/api/export?${params.toString()}`)
+      // exportBase seam: web same-origin base vs the shell's facade twin —
+      // the cookie-only web route 401s on the Bearer path (aiBase precedent;
+      // Greptile P1 on #588). Values live on the ports; the seam-coverage
+      // sweep fails any quoted web-path literal in components, comments
+      // included.
+      const port = getDataPort()
+      const res = await port.apiFetch(`${port.exportBase}?${params.toString()}`)
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
-      const port = getDataPort()
       if (port.supportsAutoDeliver) {
         // Web: current behavior verbatim — a persistent object-URL link/copy
         // button (ExportSummaryRail's done step) PLUS the auto-triggered

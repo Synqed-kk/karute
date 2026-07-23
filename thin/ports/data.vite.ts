@@ -25,4 +25,7 @@ export const viteDataPort: DataPort = {
   // see its header comment).
   deliverFile,
   supportsAutoDeliver: false,
+  // Bearer twin of /api/export — the cookie-only web route 401s on this path
+  // (exportBase seam, aiBase precedent; Greptile P1 on #588).
+  exportBase: '/api/app/v1/export',
 }

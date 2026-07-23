@@ -10,7 +10,7 @@
  * dataExport string (the eyebrow label) · the scope picker renders the
  * customers total from the DTO.
  */
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 
 // PageHeader calls useRouter() from '@/i18n/navigation' at render time (the
@@ -65,6 +65,33 @@ describe('DataExportScreen — wired mount (design-parity packet 23)', () => {
 
     // The scope picker renders the customers total from the DTO.
     expect(await screen.findByText('128件のレコード')).toBeTruthy()
+  })
+
+  it('the export CTA fetches through the port exportBase seam — never a hardcoded /api/export (Greptile P1, #588)', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === '/api/app/v1/screens/data-export') return jsonResponse(dto)
+      if (path.startsWith('/pin/export-base?'))
+        return { ok: true, blob: async () => new Blob(['csv']) } as unknown as Response
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setDataPort({
+      apiFetch,
+      exportBase: '/pin/export-base',
+      supportsAutoDeliver: false,
+      deliverFile: jest.fn(),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<DataExportScreen />)
+    const [cta] = await screen.findAllByText(/をエクスポート$/)
+    fireEvent.click(cta)
+
+    // The sentinel base proves the view consulted port.exportBase; the query
+    // string proves the same params contract rides it.
+    await waitFor(() => {
+      const exportCall = apiFetch.mock.calls.find(([p]) => p.startsWith('/pin/export-base?'))
+      expect(exportCall).toBeTruthy()
+      expect(exportCall![0]).toContain('scope=customers')
+    })
   })
 
   it('a failed fetch renders the retry error state, not a crash', async () => {

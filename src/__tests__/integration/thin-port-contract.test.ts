@@ -52,6 +52,7 @@ describe('DataPort routing', () => {
         throw new Error('not exercised in this suite')
       },
       supportsAutoDeliver: false,
+      exportBase: '/api/app/v1/export',
     }
     await facadePort.apiFetch('/api/ai/extract', { method: 'POST' })
     expect(spy).toHaveBeenCalledWith(
