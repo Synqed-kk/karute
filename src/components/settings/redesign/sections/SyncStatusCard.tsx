@@ -93,7 +93,7 @@ export function SyncStatusCard({
       {/* Mock layout (Liam-approved, field report 7/24): relative time and
           the health pill share ONE row — number + unit baseline-aligned
           left, pill right. Never-synced keeps the pill right-aligned. */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         {relative ? (
           <div className="flex items-baseline gap-2">
             <span className="text-4xl font-bold tabular-nums text-foreground">
