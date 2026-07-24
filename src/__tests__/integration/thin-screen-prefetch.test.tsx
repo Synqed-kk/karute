@@ -104,6 +104,19 @@
  *      double-settle: cacheDto lands, same rationale as E1.
  *  E3. warmRecordForBookings settle straddling a SIGN-OUT: still discarded —
  *      the fence's real job, unaffected by the rename.
+ *  E4. warmRecordForBookings settle straddling a sign-out THEN a sign-in as
+ *      a DIFFERENT user: still discarded (the hook-level sibling of this is
+ *      R3 in thin-screen-refresh.test.tsx; cheap timer-side variant of E3).
+ *  E5. recorder lens P2 (Fable audit fix round): a warm fetch dispatched
+ *      pre-take that settles mid-take still lands in dtoCache (the network
+ *      round trip already happened — nothing re-checks the recorder at
+ *      settle, only at schedule/fire time) — mutation-proved via the E1/E2
+ *      same-user-resettle idiom. It also never disturbs an ALREADY-MOUNTED
+ *      screen at that same cache key: dtoCache is a plain, non-reactive Map,
+ *      so a write to it cannot re-render an existing consumer. That second
+ *      half is a forward-guard only, not mutation-proved — it only goes red
+ *      if a future change makes dtoCache reactive without also reconciling
+ *      an active take's frozen UI.
  */
 
 // ---- CustomersScreen render harness (test 8) — same proven mock set as
@@ -176,7 +189,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import { globalRecorder } from '@/lib/global-recorder'
-import { dtoCache } from '../../../thin/screens/ScreenBoundary'
+import { dtoCache, useScreenDto } from '../../../thin/screens/ScreenBoundary'
 import { emitRefresh, emitRevalidate } from '../../../thin/ports/nav.vite'
 import {
   PREFETCH_PATHS,
@@ -440,7 +453,7 @@ describe('screen-prefetch — sign-out epoch fence straggler (test 4)', () => {
   })
 })
 
-describe('screen-prefetch — sign-out epoch fence hardening (E1-E3, perf packet 37)', () => {
+describe('screen-prefetch — sign-out epoch fence hardening (E1-E5, perf packet 37 + Fable audit fix round)', () => {
   it('E1: tab-warm batch settle straddling a same-user boot double-settle lands in the cache', async () => {
     jest.useFakeTimers()
     let resolveRecord: (r: Response) => void = () => {}
@@ -510,6 +523,99 @@ describe('screen-prefetch — sign-out epoch fence hardening (E1-E3, perf packet
     await flushMicrotasks()
 
     expect(dtoCache.has(recordWarmPath('a'))).toBe(false)
+  })
+
+  it('E4: warmRecordForBookings settle straddling sign-out THEN sign-in as a DIFFERENT user is still discarded', async () => {
+    jest.useFakeTimers()
+    let resolveWarm: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === recordWarmPath('a'))
+        return new Promise<Response>((r) => {
+          resolveWarm = r
+        })
+      return new Promise<Response>(() => {})
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a'])
+    jest.advanceTimersByTime(1_000)
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('a'))
+
+    setSessionState({ status: 'signed-out' }) // bumps dtoSessionEpoch
+    signIn('u2', 'tok-b') // a DIFFERENT user signs in before the stale settle lands
+    resolveWarm(jsonResponse(recordDto())) // outgoing user A's stale settle
+    await flushMicrotasks()
+
+    // Outgoing user A's warm must never land in user B's cache — a sign-out
+    // sat between fetch-start and settle, so the epoch fence drops it
+    // regardless of how many signed-in writes followed the sign-out (the
+    // timer-side sibling of R3 in thin-screen-refresh.test.tsx).
+    expect(dtoCache.has(recordWarmPath('a'))).toBe(false)
+  })
+
+  it('E5 (recorder lens P2, Fable audit fix round): a warm fetch dispatched pre-take, straddling a same-user resettle, still lands mid-take — but never disturbs an already-mounted screen', async () => {
+    jest.useFakeTimers()
+    const path = recordWarmPath('a')
+    let mountFetchCalls = 0
+    let resolveWarmFetch: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((p: string) => {
+      if (p !== path) return new Promise<Response>(() => {})
+      mountFetchCalls++
+      // First call is the already-mounted screen's OWN mount fetch — held
+      // pending FOREVER (never resolved) so its rendered state stays fixed
+      // at `loading` for the whole test; the second is the background
+      // warm's fetch, under test.
+      if (mountFetchCalls === 1) return new Promise<Response>(() => {})
+      return new Promise<Response>((r) => (resolveWarmFetch = r))
+    })
+    mockApiFetch(apiFetch)
+
+    const parseLocale = (raw: unknown): { locale: string } => raw as { locale: string }
+    function RecordProbe() {
+      const { state } = useScreenDto(path, parseLocale)
+      return (
+        <div data-testid="mounted-content">
+          {state.status === 'ready' ? state.dto.locale : state.status}
+        </div>
+      )
+    }
+    // An already-mounted screen instance at the SAME cache key the warm
+    // will write to — its own mount fetch never settles in this test, so
+    // it stays on `loading` throughout.
+    render(<RecordProbe />)
+    expect(screen.getByTestId('mounted-content').textContent).toBe('loading')
+
+    warmRecordForBookings(['a'])
+    jest.advanceTimersByTime(1_000) // fire-time recorder-idle check passes (idle) — the warm fetch dispatches
+    expect(apiFetch).toHaveBeenCalledTimes(2) // the mount fetch + the warm fetch
+
+    // A routine same-user cold-boot double-settle lands while the warm
+    // fetch is in flight — not a sign-out, so the epoch fence must not
+    // discard the eventual write (same idiom as E1/E2).
+    signIn('u1', 'tok1')
+    signIn('u1', 'tok2')
+
+    // A take starts too, AFTER the warm fetch already dispatched — the
+    // fire-time recorder guard already let it through; nothing re-checks
+    // the recorder at settle, only at schedule/fire time.
+    globalRecorder.state = 'recording'
+    resolveWarmFetch(jsonResponse(recordDto()))
+    await flushMicrotasks()
+
+    // (a) mutation-proved (revert the epoch fence to currentGeneration-
+    // style: the same-user resettle above then discards this write too,
+    // going red): the write lands despite both the resettle and the
+    // mid-take settle — the network round trip already happened, so
+    // discarding it here would waste it for nothing.
+    expect(dtoCache.has(path)).toBe(true)
+
+    // (b) forward-guard only, NOT mutation-proved: dtoCache is a plain,
+    // non-reactive Map — a write to it cannot by construction re-render an
+    // already-mounted consumer (useScreenDto only reads the cache in its
+    // initial useState() and on its OWN fetch's settle). This assertion
+    // only goes red if a future change makes dtoCache reactive without also
+    // reconciling an active take's frozen UI.
+    expect(screen.getByTestId('mounted-content').textContent).toBe('loading')
   })
 })
 

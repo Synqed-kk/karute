@@ -163,9 +163,11 @@ subscribeRevalidate(() => {
 // live. tabWarmScheduled gets REBOUND to a fresh Set on sign-out (unlike
 // dtoCache, only ever mutated in place), so a stale settle from a
 // pre-sign-out fetch must delete from the SAME Set instance it was scheduled
-// against — currentGeneration() is the wrong delete guard for this, since it
-// bumps on every authoritative write including a same-user resume echo,
-// which would wrongly treat a mere resume as "delete via the old instance".
+// against — a generation-keyed guard (session-store's currentGeneration(),
+// no longer imported by this file — see dtoSessionEpoch's own comment in
+// ScreenBoundary.tsx) would be wrong for this: it bumps on every
+// authoritative write including a same-user resume echo, which would
+// wrongly treat a mere resume as "delete via the old instance".
 let tabWarmScheduled = new Set<string>()
 
 function schedule(): void {
@@ -307,13 +309,15 @@ export function warmRecordForBookings(appointmentIds: string[]): void {
       // (unlike dtoCache, which is only ever mutated in place) — a stale
       // settle from a pre-sign-out fetch must delete from the SAME Set
       // instance it was scheduled against, never from whatever Set happens
-      // to be live by the time it settles. currentGeneration() is the wrong
-      // proxy for that: it bumps on every authoritative session-store write,
-      // including a same-user resume/cold-boot echo (see `armed`'s comment
-      // above), while recordWarmScheduled only actually gets rebound on
-      // sign-out — gating the delete on currentGeneration() would strand
-      // `id` in this (still-live, unrebound) Set across a mere resume echo,
-      // the exact generation-keyed trap `armed` was already fixed for.
+      // to be live by the time it settles. A generation-keyed proxy
+      // (session-store's currentGeneration(), no longer imported by this
+      // file) would be wrong for that: it bumps on every authoritative
+      // session-store write, including a same-user resume/cold-boot echo
+      // (see `armed`'s comment above), while recordWarmScheduled only
+      // actually gets rebound on sign-out — gating the delete on generation
+      // would strand `id` in this (still-live, unrebound) Set across a mere
+      // resume echo, the exact generation-keyed trap `armed` was already
+      // fixed for.
       // Capturing the reference sidesteps that: on a same-session resume the
       // captured Set IS the live one (delete lands correctly); on a sign-out
       // the captured Set is the orphaned old one (delete is an inert no-op,

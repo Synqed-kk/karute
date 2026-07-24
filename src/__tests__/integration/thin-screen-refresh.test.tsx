@@ -452,6 +452,52 @@ describe('useScreenDto × sign-out epoch fence (packet 37): boot double-settle n
   })
 })
 
+describe('useScreenDto × refresh-wipe fence (Fable audit fix, races lens P2): a stale settle across emitRefresh never repopulates the cache', () => {
+  it('a fetch in flight when emitRefresh() clears the cache must not repopulate it once it settles', async () => {
+    const path = '/api/app/v1/screens/refresh-wipe-race'
+    let resolveFetch: (r: Response) => void = () => {}
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFetch = res)))
+      // The re-fetch emitRefresh's own subscribeRefresh triggers — held
+      // forever, so only the FIRST (stale) fetch's settle is under test.
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    // emitRefresh() called BARE (no act()): it synchronously clears dtoCache
+    // + fetchedAtByPath and bumps `attempt` via a React state update, but the
+    // OLD effect's cleanup (the thing that flips `alive` false) only runs
+    // once React flushes the resulting passive-effect teardown — a step
+    // this bare call does not force. The stale fetch's own `.then()` chain
+    // below is a microtask chain that can fully drain before that flush
+    // (React schedules passive effects via a macrotask, so pure microtask
+    // draining below never yields to it) — this reproduces the exact
+    // ordering the fix depends on, not just the eventually-consistent case
+    // `alive` alone already covered.
+    emitRefresh()
+    expect(dtoCache.has(path)).toBe(false) // the hard wipe already landed
+
+    resolveFetch(jsonResponse({ label: 'stale-pre-refresh' }))
+    // Drain the stale fetch's full then-chain (json → parse → cache write
+    // attempt) with bare microtasks only — no setTimeout, no act() — so
+    // nothing forces React's passive-effect flush ahead of this settle.
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+
+    // The straggler must never repopulate the just-wiped cache.
+    expect(dtoCache.has(path)).toBe(false)
+    expect(fetchedAtByPath.has(path)).toBe(false)
+
+    // Flush the rest (React's own effect re-run, the re-fetch dispatch) so
+    // nothing unflushed leaks into a later test.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
+  })
+})
+
 describe('useScreenDto × seed-pending-verification 401 grace window (packet 25 fix F2)', () => {
   afterEach(() => {
     // Explicit cleanup FIRST (F2-3, fix round 2): several tests below enter

@@ -100,6 +100,26 @@ subscribeSessionState(() => {
   }
 })
 
+// Refresh-wipe fence (Fable audit find, races lens P2): the per-hook
+// subscribeRefresh below does dtoCache.clear() + setAttempt SYNCHRONOUSLY on
+// emitRefresh, but that's a React state update — the OLD effect's cleanup
+// (the thing that flips `alive` false) only runs when React flushes the
+// resulting passive-effect teardown/re-run, which is DEFERRED past the
+// current tick. The stale fetch's own `.then()` chain is a microtask, which
+// can settle BEFORE that deferred cleanup — `alive` reads true and the
+// straggler re-populates the cache emitRefresh just cleared with
+// pre-mutation data. `sessionEpoch` above doesn't help either: a refresh is
+// not a sign-out. This is the exact class screen-prefetch.ts's wipeEpoch
+// fence already closes for its own timers (bumped by its OWN subscribeRefresh
+// listener, checked at settle) — mirrored here, but bumped by a MODULE-SCOPE
+// listener (not the per-hook one below, which keeps doing the hard clear +
+// attempt bump unchanged) so it closes the window for every mounted hook
+// instance regardless of which one's cleanup is still pending.
+let refreshEpoch = 0
+subscribeRefresh(() => {
+  refreshEpoch++
+})
+
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
  *  client too (same schema module the server validates with). `fetching` is
  *  true while any (re-)fetch is in flight — screens with in-place URL nav
@@ -190,6 +210,9 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     // never a correctness one (the `alive` guard below already keeps
     // setState honest regardless).
     const epoch = sessionEpoch
+    // Refresh-wipe fence (see refreshEpoch's declaration comment above):
+    // captured the same way, alongside the sign-out epoch.
+    const myRefreshEpoch = refreshEpoch
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -202,17 +225,29 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
-        // Both gates, different windows (two blind lenses converged on this):
-        // `alive` drops SAME-epoch stragglers — a superseded fetch (nav
-        // A→B→A, retry, refresh, and critically the store-lens self-heal,
-        // none of which bump the sign-out epoch) must not overwrite the
-        // cache with older or wrong-store data. A same-user boot
-        // double-settle supersedes NOTHING (no effect re-run in the
-        // same-token case) — its straddled write now lands, which is this
-        // fence's whole point. The epoch fence drops CROSS-user stragglers
-        // in the microtask window before React commits the sign-out unmount
-        // (alive can still be true there).
-        if (alive && sessionEpoch === epoch) cacheDto(path, dto)
+        // THREE gates, three different windows — `alive` is NOT enough on
+        // its own (Fable audit find): it only closes the race EVENTUALLY,
+        // once React flushes the old effect's cleanup. That flush is a
+        // deferred passive-effect teardown, while this `.then()` is a
+        // microtask — a stale fetch can settle with `alive` still true in
+        // the window before cleanup runs. So:
+        // - `alive` drops SAME-epoch stragglers once superseded (nav A→B→A,
+        //   retry, a later revalidate, the store-lens self-heal) — none of
+        //   these bump either epoch below, and none need a faster gate: they
+        //   aren't racing a synchronous wipe. A same-user boot double-settle
+        //   supersedes NOTHING (no effect re-run in the same-token case) —
+        //   its straddled write lands, which is this fence's whole point.
+        // - `sessionEpoch` drops CROSS-user stragglers: bumped synchronously
+        //   by the module-scope sign-out subscriber above, so it closes the
+        //   microtask window `alive` alone can't, before React ever commits
+        //   the sign-out unmount.
+        // - `refreshEpoch` drops post-mutation stragglers the same way: a
+        //   fetch in flight when emitRefresh() clears dtoCache must not
+        //   repopulate it with pre-mutation data, and `alive` alone races
+        //   that clear too (same deferred-cleanup-vs-microtask gap). Mirrors
+        //   screen-prefetch.ts's wipeEpoch fence for its own timers exactly.
+        if (alive && sessionEpoch === epoch && refreshEpoch === myRefreshEpoch)
+          cacheDto(path, dto)
         if (alive) setState({ status: 'ready', dto, path })
       })
       .catch((err: unknown) => {
