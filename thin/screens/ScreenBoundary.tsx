@@ -7,7 +7,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { getDataPort } from '@/lib/ports/data-port'
 import {
-  currentGeneration,
   getSessionState,
   isSeedPendingVerification,
   subscribeSessionState,
@@ -63,6 +62,29 @@ export function cacheDto(path: string, dto: unknown): void {
   fetchedAtByPath.set(path, Date.now())
 }
 
+// Straggler fence for in-flight mount-fetch writes — bumped ONLY on
+// sign-out (mirrors brief-cache.ts's sessionEpoch idiom exactly; that
+// module hit this same trap first, Liam field bug 7/25 — see its comment
+// for the full story). Deliberately NOT session-store's currentGeneration():
+// that bumps on EVERY authoritative write, including a routine same-user
+// cold-boot double-settle (boot recover + GoTrue INITIAL_SESSION landing on
+// the SAME user) — a generation fence treated that routine echo as
+// "different user" and silently discarded the mount fetch's cache write, so
+// dtoCache/fetchedAtByPath never stamped on a mount fetch straddling boot
+// churn: every revisit refetched, and foreground revalidate always saw
+// stamp 0 (screens still painted correctly — `alive` alone guards setState —
+// this was wasted network, not a correctness bug). The fence's real job is
+// narrower: a fetch started under user A must never write user B's cache,
+// and only a SIGN-OUT sits between any two users on a shared device.
+let sessionEpoch = 0
+
+/** Current sign-out epoch, for screen-prefetch.ts's timer bodies to capture
+ *  at their own fetch start — they write into this same dtoCache and need
+ *  the identical straggler fence. */
+export function dtoSessionEpoch(): number {
+  return sessionEpoch
+}
+
 // SHARED-IPAD LEAK GUARD: a signed-out transition wipes every cached DTO so
 // the next user (any user switch passes through 'signed-out' first) never
 // paints the outgoing user's data on first frame. Subscribed ONCE at module
@@ -72,9 +94,30 @@ export function cacheDto(path: string, dto: unknown): void {
 // dies with it.
 subscribeSessionState(() => {
   if (getSessionState().status === 'signed-out') {
+    sessionEpoch++ // invalidate every in-flight mount fetch's settle (fence above)
     dtoCache.clear()
     fetchedAtByPath.clear()
   }
+})
+
+// Refresh-wipe fence (Fable audit find, races lens P2): the per-hook
+// subscribeRefresh below does dtoCache.clear() + setAttempt SYNCHRONOUSLY on
+// emitRefresh, but that's a React state update — the OLD effect's cleanup
+// (the thing that flips `alive` false) only runs when React flushes the
+// resulting passive-effect teardown/re-run, which is DEFERRED past the
+// current tick. The stale fetch's own `.then()` chain is a microtask, which
+// can settle BEFORE that deferred cleanup — `alive` reads true and the
+// straggler re-populates the cache emitRefresh just cleared with
+// pre-mutation data. `sessionEpoch` above doesn't help either: a refresh is
+// not a sign-out. This is the exact class screen-prefetch.ts's wipeEpoch
+// fence already closes for its own timers (bumped by its OWN subscribeRefresh
+// listener, checked at settle) — mirrored here, but bumped by a MODULE-SCOPE
+// listener (not the per-hook one below, which keeps doing the hard clear +
+// attempt bump unchanged) so it closes the window for every mounted hook
+// instance regardless of which one's cleanup is still pending.
+let refreshEpoch = 0
+subscribeRefresh(() => {
+  refreshEpoch++
 })
 
 /** Fetch a facade screen DTO on mount; parse enforces the zod contract on the
@@ -156,15 +199,20 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
     let unsubscribeGrace: (() => void) | undefined
     setFetching(true)
     fetchingRef.current = true
-    // Straggler-write fence (audit find on the packet): a fetch still in
-    // flight across a sign-out would settle AFTER the signed-out cache wipe
-    // and re-populate the cache with the outgoing user's dto — the next
-    // user's first frame on a shared iPad would paint it. Capture the auth
-    // generation at fetch start; any authoritative transition (sign-out,
-    // sign-in, boot result) advances it, so a cross-generation settle never
-    // writes the cache. Same fence background-resume uses; same-user token
-    // rotations stay within a generation and cache normally.
-    const gen = currentGeneration()
+    // Straggler-write fence (Liam field bug 7/25, same root cause brief-
+    // cache.ts hit first — see sessionEpoch's declaration comment above for
+    // the full story). Capture this module's sign-out epoch at fetch start;
+    // only a sign-out bumps it, so a cross-user settle never writes the
+    // cache. Deliberately NOT currentGeneration(): a same-user cold-boot
+    // double-settle bumps that too, and used to discard this write for no
+    // reason — a pure efficiency bug (dtoCache/fetchedAtByPath never
+    // stamped, so every revisit and every foreground revalidate refetched),
+    // never a correctness one (the `alive` guard below already keeps
+    // setState honest regardless).
+    const epoch = sessionEpoch
+    // Refresh-wipe fence (see refreshEpoch's declaration comment above):
+    // captured the same way, alongside the sign-out epoch.
+    const myRefreshEpoch = refreshEpoch
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -177,14 +225,29 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
         return parse(body)
       })
       .then((dto) => {
-        // Both gates, different windows (two blind lenses converged on this):
-        // `alive` drops SAME-generation stragglers — a superseded fetch (nav
-        // A→B→A, retry, refresh, and critically the store-lens self-heal,
-        // none of which advance the auth generation) must not overwrite the
-        // cache with older or wrong-store data. The generation fence drops
-        // CROSS-generation stragglers in the microtask window before React
-        // commits the sign-out unmount (alive can still be true there).
-        if (alive && currentGeneration() === gen) cacheDto(path, dto)
+        // THREE gates, three different windows — `alive` is NOT enough on
+        // its own (Fable audit find): it only closes the race EVENTUALLY,
+        // once React flushes the old effect's cleanup. That flush is a
+        // deferred passive-effect teardown, while this `.then()` is a
+        // microtask — a stale fetch can settle with `alive` still true in
+        // the window before cleanup runs. So:
+        // - `alive` drops SAME-epoch stragglers once superseded (nav A→B→A,
+        //   retry, a later revalidate, the store-lens self-heal) — none of
+        //   these bump either epoch below, and none need a faster gate: they
+        //   aren't racing a synchronous wipe. A same-user boot double-settle
+        //   supersedes NOTHING (no effect re-run in the same-token case) —
+        //   its straddled write lands, which is this fence's whole point.
+        // - `sessionEpoch` drops CROSS-user stragglers: bumped synchronously
+        //   by the module-scope sign-out subscriber above, so it closes the
+        //   microtask window `alive` alone can't, before React ever commits
+        //   the sign-out unmount.
+        // - `refreshEpoch` drops post-mutation stragglers the same way: a
+        //   fetch in flight when emitRefresh() clears dtoCache must not
+        //   repopulate it with pre-mutation data, and `alive` alone races
+        //   that clear too (same deferred-cleanup-vs-microtask gap). Mirrors
+        //   screen-prefetch.ts's wipeEpoch fence for its own timers exactly.
+        if (alive && sessionEpoch === epoch && refreshEpoch === myRefreshEpoch)
+          cacheDto(path, dto)
         if (alive) setState({ status: 'ready', dto, path })
       })
       .catch((err: unknown) => {

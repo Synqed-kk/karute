@@ -16,8 +16,14 @@ import type { Session } from '@supabase/supabase-js'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { seedKnownSession, setSessionState } from '@/lib/auth/mobile/session-store'
-import { emitRefresh, useRouter } from '../../../thin/ports/nav.vite'
-import { cacheDto, dtoCache, ScreenStates, useScreenDto } from '../../../thin/screens/ScreenBoundary'
+import { emitRefresh, emitRevalidate, useRouter } from '../../../thin/ports/nav.vite'
+import {
+  cacheDto,
+  dtoCache,
+  fetchedAtByPath,
+  ScreenStates,
+  useScreenDto,
+} from '../../../thin/screens/ScreenBoundary'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -230,13 +236,13 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
 
     // Outgoing user signs out while the fetch is still on the wire. The probe
     // stays MOUNTED on purpose: in production AuthGate unmounts the screen,
-    // but the unmount commit is async — this pins the generation fence for
-    // the window where `alive` is still true when the straggler settles.
+    // but the unmount commit is async — this pins the sign-out epoch fence
+    // for the window where `alive` is still true when the straggler settles.
     setSessionState({ status: 'signed-out' })
     expect(dtoCache.has(path)).toBe(false)
 
-    // The straggler settles AFTER the wipe — the generation fence must drop
-    // the cache write, or the next user's first frame paints this dto.
+    // The straggler settles AFTER the wipe — the epoch fence must drop the
+    // cache write, or the next user's first frame paints this dto.
     await act(async () => {
       resolveFetch(jsonResponse({ label: 'outgoing-user-data' }))
       // Drain the full then-chain (json → parse → cache write attempt).
@@ -245,7 +251,7 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     expect(dtoCache.has(path)).toBe(false)
     probe.unmount()
 
-    // Even after the NEXT user signs in (a later generation), the straggler's
+    // Even after the NEXT user signs in (a later epoch), the straggler's
     // write stays dropped and their first mount starts honestly at loading.
     setSessionState({ status: 'recovering' })
     setDataPort({
@@ -348,6 +354,147 @@ describe('useScreenDto screen DTO cache (packet 24 PR-A — instant revisit pain
     expect(dtoCache.has('/api/app/v1/screens/cap-0')).toBe(false)
     expect(dtoCache.has('/api/app/v1/screens/cap-1')).toBe(true)
     expect(dtoCache.has('/api/app/v1/screens/cap-50')).toBe(true)
+  })
+})
+
+describe('useScreenDto × sign-out epoch fence (packet 37): boot double-settle no longer discards the stamp', () => {
+  afterEach(() => {
+    // This file has no global session-store afterEach (established idiom,
+    // see the 401-grace-window describe below) — every test in this block
+    // leaves the store signed-in, so reset locally to 'recovering' before
+    // the next describe (which relies on that pristine pre-boot state).
+    cleanup()
+    setSessionState({ status: 'signed-out' })
+    setSessionState({ status: 'recovering' })
+  })
+
+  it('same-user boot double-settle mid-flight: dtoCache AND fetchedAtByPath both stamp at settle', async () => {
+    const path = '/api/app/v1/screens/boot-double-settle'
+    let resolveFetch: (r: Response) => void = () => {}
+    setDataPort({
+      apiFetch: jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFetch = res))),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    // Cold-boot double-settle: boot recover + GoTrue INITIAL_SESSION both
+    // land for the SAME user while the mount fetch is still in flight.
+    // Neither is a sign-out, so the epoch fence must not discard the write.
+    const u1 = { access_token: 'tok1', user: { id: 'u1' } } as Session
+    act(() => setSessionState({ status: 'signed-in', session: u1 }))
+    act(() => setSessionState({ status: 'signed-in', session: u1 }))
+
+    await act(async () => {
+      resolveFetch(jsonResponse({ label: 'boot-settled' }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    expect(dtoCache.get(path)).toEqual({ label: 'boot-settled' })
+    expect(fetchedAtByPath.get(path)).toBeGreaterThan(0)
+  })
+
+  it('sign-out then sign-in as a DIFFERENT user before settle: the straddled write is still discarded', async () => {
+    const path = '/api/app/v1/screens/signout-then-signin'
+    let resolveFetch: (r: Response) => void = () => {}
+    setDataPort({
+      apiFetch: jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFetch = res))),
+    } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    setSessionState({ status: 'signed-out' })
+    const u2 = { access_token: 'tok2', user: { id: 'u2' } } as Session
+    setSessionState({ status: 'signed-in', session: u2 })
+
+    await act(async () => {
+      resolveFetch(jsonResponse({ label: 'stale-user-a-data' }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+
+    // Outgoing user A's fetch must never land in user B's cache — a
+    // sign-out sat between fetch-start and settle, so the epoch fence drops
+    // it regardless of how many signed-in writes followed the sign-out.
+    expect(dtoCache.has(path)).toBe(false)
+  })
+
+  it('foreground revalidate right after a boot-straddled mount fetch: the fresh stamp means NO duplicate fetch inside STALE_MS', async () => {
+    const path = '/api/app/v1/screens/boot-then-foreground'
+    let resolveFetch: (r: Response) => void = () => {}
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFetch = res)))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path={path} />)
+    const u1 = { access_token: 'tok1', user: { id: 'u1' } } as Session
+    act(() => setSessionState({ status: 'signed-in', session: u1 }))
+
+    await act(async () => {
+      resolveFetch(jsonResponse({ label: 'settled' }))
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(fetchedAtByPath.get(path)).toBeGreaterThan(0)
+
+    // The user-visible symptom this packet fixes: under the old
+    // currentGeneration() fence the stamp never landed on a boot-straddled
+    // mount fetch, so age was measured from 0 (undefined) — always past
+    // STALE_MS — and EVERY foreground refetched needlessly. With a real
+    // stamp, an immediate foreground is a staleness no-op.
+    act(() => emitRevalidate())
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('useScreenDto × refresh-wipe fence (Fable audit fix, races lens P2): a stale settle across emitRefresh never repopulates the cache', () => {
+  it('a fetch in flight when emitRefresh() clears the cache must not repopulate it once it settles', async () => {
+    const path = '/api/app/v1/screens/refresh-wipe-race'
+    let resolveFetch: (r: Response) => void = () => {}
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockImplementationOnce(() => new Promise<Response>((res) => (resolveFetch = res)))
+      // The re-fetch emitRefresh's own subscribeRefresh triggers — held
+      // forever, so only the FIRST (stale) fetch's settle is under test.
+      .mockImplementationOnce(() => new Promise<Response>(() => {}))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    render(<Probe path={path} />)
+    expect(screen.getByText('loading')).toBeTruthy()
+
+    // emitRefresh() called BARE (no act()): it synchronously clears dtoCache
+    // + fetchedAtByPath and bumps `attempt` via a React state update, but the
+    // OLD effect's cleanup (the thing that flips `alive` false) only runs
+    // once React flushes the resulting passive-effect teardown — a step
+    // this bare call does not force. The stale fetch's own `.then()` chain
+    // below is a microtask chain that can fully drain before that flush
+    // (React schedules passive effects via a macrotask, so pure microtask
+    // draining below never yields to it) — this reproduces the exact
+    // ordering the fix depends on, not just the eventually-consistent case
+    // `alive` alone already covered.
+    emitRefresh()
+    expect(dtoCache.has(path)).toBe(false) // the hard wipe already landed
+
+    resolveFetch(jsonResponse({ label: 'stale-pre-refresh' }))
+    // Drain the stale fetch's full then-chain (json → parse → cache write
+    // attempt) with bare microtasks only — no setTimeout, no act() — so
+    // nothing forces React's passive-effect flush ahead of this settle.
+    for (let i = 0; i < 10; i++) await Promise.resolve()
+
+    // The straggler must never repopulate the just-wiped cache.
+    expect(dtoCache.has(path)).toBe(false)
+    expect(fetchedAtByPath.has(path)).toBe(false)
+
+    // Flush the rest (React's own effect re-run, the re-fetch dispatch) so
+    // nothing unflushed leaks into a later test.
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0))
+    })
   })
 })
 

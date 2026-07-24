@@ -3,8 +3,9 @@
 // any tab this session always pays a full facade RTT and shows 読み込み中.
 // While staff look at the first screen after sign-in, this silently
 // pre-loads the OTHER screens' DTOs in the background (mirrors brief-warm.ts's
-// singleton/stagger/one-shot idioms and ScreenBoundary's generation fence),
-// so every first tap this session paints instantly instead of shimmering.
+// singleton/stagger/one-shot idioms and ScreenBoundary's sign-out epoch
+// fence), so every first tap this session paints instantly instead of
+// shimmering.
 //
 // Recording safety: the sign-in one-shot (`armed` below) can't coincide with
 // an active recording — the recorder only starts from a mounted RecordScreen,
@@ -30,13 +31,9 @@ import { AppointmentsScreenDTO } from '@/lib/app-api/appointments-screen-dto'
 import { CustomersScreenDTO } from '@/lib/app-api/customers-screen-dto'
 import { SessionsScreenDTO } from '@/lib/app-api/sessions-screen-dto'
 import { DashboardScreenDTO } from '@/lib/app-api/dashboard-screen-dto'
-import {
-  currentGeneration,
-  getSessionState,
-  subscribeSessionState,
-} from '@/lib/auth/mobile/session-store'
+import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
-import { cacheDto, dtoCache } from '../screens/ScreenBoundary'
+import { cacheDto, dtoCache, dtoSessionEpoch } from '../screens/ScreenBoundary'
 
 // Compressed vs brief-warm.ts's 3s/4s (Liam field feedback: staff tap
 // 予約→録音 faster than that 3s/4s cadence covers). Approved tradeoff: the
@@ -102,13 +99,13 @@ let armed = false
 let pendingTimers: number[] = []
 
 // Wipe fence (Greptile #604 P1, same class as brief-cache's F3 fences): a
-// post-mutation emitRefresh clears dtoCache but does NOT advance the auth
-// generation, so the generation fence alone lets a prefetch that STARTED
-// pre-mutation settle after the wipe and re-populate the cleared entry with
-// pre-mutation data — the next mount would paint stale content until its own
-// revalidate swaps. Bump an epoch on every refresh wipe; a settle whose
-// captured epoch is stale discards. Timers not yet fired are unaffected —
-// they fetch AFTER the wipe, so their data is post-mutation fresh.
+// post-mutation emitRefresh clears dtoCache but is NOT a sign-out, so the
+// sign-out epoch fence alone lets a prefetch that STARTED pre-mutation
+// settle after the wipe and re-populate the cleared entry with pre-mutation
+// data — the next mount would paint stale content until its own revalidate
+// swaps. Bump an epoch on every refresh wipe; a settle whose captured epoch
+// is stale discards. Timers not yet fired are unaffected — they fetch AFTER
+// the wipe, so their data is post-mutation fresh.
 let wipeEpoch = 0
 subscribeRefresh(() => {
   wipeEpoch++
@@ -166,9 +163,11 @@ subscribeRevalidate(() => {
 // live. tabWarmScheduled gets REBOUND to a fresh Set on sign-out (unlike
 // dtoCache, only ever mutated in place), so a stale settle from a
 // pre-sign-out fetch must delete from the SAME Set instance it was scheduled
-// against — currentGeneration() is the wrong delete guard for this, since it
-// bumps on every authoritative write including a same-user resume echo,
-// which would wrongly treat a mere resume as "delete via the old instance".
+// against — a generation-keyed guard (session-store's currentGeneration(),
+// no longer imported by this file — see dtoSessionEpoch's own comment in
+// ScreenBoundary.tsx) would be wrong for this: it bumps on every
+// authoritative write including a same-user resume echo, which would
+// wrongly treat a mere resume as "delete via the old instance".
 let tabWarmScheduled = new Set<string>()
 
 function schedule(): void {
@@ -208,10 +207,12 @@ function schedule(): void {
       }
       // Captured at fetch START, mirroring ScreenBoundary/brief-cache's
       // straggler fence — a sign-out mid-flight must not let this settle
-      // write into the replacement session's cache (generation), and a
+      // write into the replacement session's cache (dtoSessionEpoch, bumped
+      // ONLY on sign-out — a same-user boot double-settle must NOT discard
+      // this write, see ScreenBoundary.tsx's sessionEpoch comment), and a
       // post-mutation cache wipe mid-flight must not be re-populated with
       // pre-mutation data (wipeEpoch — see the fence note above).
-      const myGen = currentGeneration()
+      const mySessionEpoch = dtoSessionEpoch()
       const myEpoch = wipeEpoch
       getDataPort()
         .apiFetch(path)
@@ -220,7 +221,7 @@ function schedule(): void {
           if (body === null) return
           const dto = parse(body)
           if (
-            currentGeneration() === myGen &&
+            dtoSessionEpoch() === mySessionEpoch &&
             wipeEpoch === myEpoch &&
             !dtoCache.has(path)
           )
@@ -308,13 +309,15 @@ export function warmRecordForBookings(appointmentIds: string[]): void {
       // (unlike dtoCache, which is only ever mutated in place) — a stale
       // settle from a pre-sign-out fetch must delete from the SAME Set
       // instance it was scheduled against, never from whatever Set happens
-      // to be live by the time it settles. currentGeneration() is the wrong
-      // proxy for that: it bumps on every authoritative session-store write,
-      // including a same-user resume/cold-boot echo (see `armed`'s comment
-      // above), while recordWarmScheduled only actually gets rebound on
-      // sign-out — gating the delete on currentGeneration() would strand
-      // `id` in this (still-live, unrebound) Set across a mere resume echo,
-      // the exact generation-keyed trap `armed` was already fixed for.
+      // to be live by the time it settles. A generation-keyed proxy
+      // (session-store's currentGeneration(), no longer imported by this
+      // file) would be wrong for that: it bumps on every authoritative
+      // session-store write, including a same-user resume/cold-boot echo
+      // (see `armed`'s comment above), while recordWarmScheduled only
+      // actually gets rebound on sign-out — gating the delete on generation
+      // would strand `id` in this (still-live, unrebound) Set across a mere
+      // resume echo, the exact generation-keyed trap `armed` was already
+      // fixed for.
       // Capturing the reference sidesteps that: on a same-session resume the
       // captured Set IS the live one (delete lands correctly); on a sign-out
       // the captured Set is the orphaned old one (delete is an inert no-op,
@@ -335,8 +338,9 @@ export function warmRecordForBookings(appointmentIds: string[]): void {
         return
       }
       // Same straggler fences as schedule()'s timer body above: captured at
-      // fetch START so a cross-generation or post-wipe settle can't write.
-      const myGen = currentGeneration()
+      // fetch START so a cross-user (sign-out) or post-wipe settle can't
+      // write.
+      const mySessionEpoch = dtoSessionEpoch()
       const myEpoch = wipeEpoch
       getDataPort()
         .apiFetch(path)
@@ -345,7 +349,7 @@ export function warmRecordForBookings(appointmentIds: string[]): void {
           if (body === null) return
           const dto = RecordScreenDTO.parse(body)
           if (
-            currentGeneration() === myGen &&
+            dtoSessionEpoch() === mySessionEpoch &&
             wipeEpoch === myEpoch &&
             !dtoCache.has(path)
           )
