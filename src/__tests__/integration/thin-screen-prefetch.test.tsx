@@ -41,6 +41,23 @@
  *      byte-pin test (2) alone only compares the module to a hand-copy of
  *      itself, so a screen-side path drift would silently kill that
  *      screen's prefetch with zero red test.
+ *
+ * Record-warm (perf packet 35, PR-H2), T6-T10 below.
+ *
+ * Blind-round fix (perf packet 35 fix round), T11-T18 below:
+ *  T11. in-flight dedupe: recordWarmScheduled must stay populated until the
+ *      fetch SETTLES, not until the timer merely fires — the old fire-time
+ *      delete left the in-flight RTT unguarded.
+ *  T12. recorder guard, schedule time: an active recording skips the whole
+ *      warmRecordForBookings call.
+ *  T13. recorder guard, fire time: a recording that starts inside the
+ *      stagger window is caught at fire time too.
+ *  T14. schedule-time cached skip (own test, split from the fire-time one).
+ *  T15. fire-time cached skip, with the delete-on-skip retry pin.
+ *  T16. failure path (non-OK and rejected) both allow a later retry.
+ *  T17. slice contract: the cap slice never backfills past the first 2.
+ *  T18. sign-out hygiene: a scheduled-but-not-fired warm is fully cancelled;
+ *      the next sign-in's warm for the same id is unpolluted.
  */
 
 // ---- CustomersScreen render harness (test 8) — same proven mock set as
@@ -96,13 +113,30 @@ jest.mock('@/components/dashboard/redesign/DashboardPageView', () => ({
   DashboardPageView: () => null,
 }))
 
+// screen-prefetch.ts now statically imports global-recorder.ts (blind-round
+// fix, recorder guard) — same two 'use server'/take-store seam stubs
+// thin-foreground-revalidate.test.tsx mocks, this file only ever touches
+// globalRecorder.state directly, never start()/discard().
+jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+jest.mock('@/lib/karute/take-store', () => ({
+  appendTakeSegment: jest.fn(),
+  createTake: jest.fn(),
+  deleteTake: jest.fn(),
+  stampTakeSession: jest.fn(),
+}))
+
 import type { Session } from '@supabase/supabase-js'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
+import { globalRecorder } from '@/lib/global-recorder'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { emitRefresh } from '../../../thin/ports/nav.vite'
-import { PREFETCH_PATHS } from '../../../thin/data/screen-prefetch'
+import {
+  PREFETCH_PATHS,
+  recordWarmPath,
+  warmRecordForBookings,
+} from '../../../thin/data/screen-prefetch'
 import { CustomersScreen } from '../../../thin/screens/CustomersScreen'
 import { RecordScreen } from '../../../thin/screens/RecordScreen'
 import { AppointmentsScreen } from '../../../thin/screens/AppointmentsScreen'
@@ -215,6 +249,12 @@ function mockApiFetch(apiFetch: jest.Mock): void {
   setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 }
 
+// Shared by the T5 cross-pin block and T6 below: parks a screen on its
+// loading frame forever so only the FIRST call's path argument is under test.
+function heldForeverApiFetch() {
+  return jest.fn<Promise<Response>, unknown[]>(() => new Promise<Response>(() => {}))
+}
+
 function signIn(uid = 'u1', token = 'tok'): void {
   setSessionState({
     status: 'signed-in',
@@ -257,6 +297,9 @@ afterEach(() => {
   setSessionState({ status: 'signed-out' })
   setSessionState({ status: 'recovering' })
   jest.useRealTimers()
+  // Global restore for T12/T13's direct state assignment on the singleton —
+  // a leaked non-idle state would poison every later test's recorder guard.
+  globalRecorder.state = 'idle'
 })
 
 describe('screen-prefetch — byte-pin (test 2)', () => {
@@ -317,11 +360,11 @@ describe('screen-prefetch — cached-at-fire-time skip (test 3)', () => {
     mockApiFetch(apiFetch)
 
     signIn()
-    // customers is scheduled 3rd (3000 + 2*4000 = 11000ms) — visit it (a
+    // customers is scheduled 3rd (1000 + 2*1500 = 4000ms) — visit it (a
     // real screen mount populating dtoCache) one tick before its timer fires.
-    jest.advanceTimersByTime(10_999)
+    jest.advanceTimersByTime(3_999)
     dtoCache.set(CUSTOMERS_PATH, { fromRealMount: true })
-    jest.advanceTimersByTime(1) // t=11000 — customers' timer fires
+    jest.advanceTimersByTime(1) // t=4000 — customers' timer fires
     await flushMicrotasks()
 
     expect(apiFetch).not.toHaveBeenCalledWith(CUSTOMERS_PATH)
@@ -340,7 +383,7 @@ describe('screen-prefetch — generation-fence straggler (test 4)', () => {
     mockApiFetch(apiFetch)
 
     signIn()
-    jest.advanceTimersByTime(3_000) // record is scheduled 1st — its fetch starts
+    jest.advanceTimersByTime(1_000) // record is scheduled 1st — its fetch starts
     expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
 
     setSessionState({ status: 'signed-out' }) // advances the generation
@@ -362,7 +405,7 @@ describe('screen-prefetch — clobber guard (test 5)', () => {
     mockApiFetch(apiFetch)
 
     signIn()
-    jest.advanceTimersByTime(3_000) // record's fetch starts, held pending
+    jest.advanceTimersByTime(1_000) // record's fetch starts, held pending
     expect(dtoCache.has(RECORD_PATH)).toBe(false)
 
     // The real screen mounts mid-flight and caches ITS OWN fresher fetch.
@@ -439,7 +482,7 @@ describe('screen-prefetch — wipe fence (Greptile #604 P1)', () => {
     mockApiFetch(apiFetch)
 
     signIn()
-    jest.advanceTimersByTime(3_000) // record's timer fires — fetch now in flight
+    jest.advanceTimersByTime(1_000) // record's timer fires — fetch now in flight
     expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
     jest.useRealTimers()
 
@@ -465,8 +508,8 @@ describe('screen-prefetch — end-to-end: prefetched CustomersScreen paints with
     mockApiFetch(apiFetch)
 
     signIn()
-    // customers is scheduled 3rd: 3000 + 2*4000 = 11000ms.
-    jest.advanceTimersByTime(11_000)
+    // customers is scheduled 3rd: 1000 + 2*1500 = 4000ms.
+    jest.advanceTimersByTime(4_000)
     await flushMicrotasks()
     jest.useRealTimers()
 
@@ -528,10 +571,6 @@ describe('screen-prefetch — cache keys cross-pinned against the owning screens
   // real, unmocked) must request the exact path screen-prefetch.ts uses.
   // apiFetch is held forever pending — every screen stays parked on its
   // loading frame, so only the FIRST call's path argument is under test.
-  function heldForeverApiFetch() {
-    return jest.fn<Promise<Response>, unknown[]>(() => new Promise<Response>(() => {}))
-  }
-
   it('RecordScreen (no query params) — first fetch matches PREFETCH_PATHS[0]', async () => {
     const apiFetch = heldForeverApiFetch()
     mockApiFetch(apiFetch)
@@ -562,5 +601,425 @@ describe('screen-prefetch — cache keys cross-pinned against the owning screens
     render(<DashboardScreen />)
     await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
     expect(apiFetch.mock.calls[0][0]).toBe(PREFETCH_PATHS[4])
+  })
+})
+
+describe('screen-prefetch — record-warm cross-pin WITH search params (T6, perf packet 35, the load-bearing pin)', () => {
+  it('RecordScreen at ?appointmentId=A%201 — first fetch matches recordWarmPath, the encodeURIComponent leg included', async () => {
+    // The id needs encoding (a space) so a param-order or missing-enc mutation
+    // in either RecordScreen.tsx or recordWarmPath goes red here — the plain
+    // byte-pin tests above never exercise an id that needs escaping.
+    window.history.pushState({}, '', '/sessions?appointmentId=A%201')
+    try {
+      const apiFetch = heldForeverApiFetch()
+      mockApiFetch(apiFetch)
+      render(<RecordScreen />)
+      await waitFor(() => expect(apiFetch).toHaveBeenCalledTimes(1))
+      expect(apiFetch.mock.calls[0][0]).toBe(recordWarmPath('A 1'))
+    } finally {
+      // Restore so sibling tests (which assume a bare '/') aren't polluted.
+      window.history.pushState({}, '', '/')
+    }
+  })
+})
+
+describe('screen-prefetch — record-warm cap pin (T7, perf packet 35)', () => {
+  it('warmRecordForBookings caps at the first 2 ids of the call — the rest never fetch', async () => {
+    jest.useFakeTimers()
+    // warmRecordForBookings runs independently of the signed-in batch above
+    // (AppointmentsScreen calls it directly on its own DTO settle) — no
+    // signIn() needed, which keeps this apiFetch count to exactly the
+    // record-warm calls under test.
+    const apiFetch = jest.fn(async () => jsonResponse(recordDto()))
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a', 'b', 'c', 'd', 'e'])
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('a'))
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('b'))
+  })
+})
+
+describe('screen-prefetch — AppointmentsScreen settle-effect record-warm (T8, perf packet 35)', () => {
+  // Minimal valid ReservationViewDTO fixture, local to this block (packet
+  // note) — same shape/convention as thin-appointments-brief-warm.test.tsx's
+  // `reservation` helper.
+  function reservationView(id: string, overrides: Record<string, unknown> = {}) {
+    return {
+      id,
+      staffId: 's1',
+      staffName: 'staff',
+      startTimeHm: '10:00',
+      durationMin: 60,
+      customerName: 'customer',
+      customerInitials: 'C',
+      karuteNumber: null,
+      service: 'cut',
+      displayStatus: 'booked',
+      isCancelled: false,
+      isNoShow: false,
+      statusReason: null,
+      statusSetByName: null,
+      statusSetAt: null,
+      staffColorKey: 'blue',
+      clientId: `c-${id}`,
+      karuteRecordId: null,
+      isFirstTimeVisit: false,
+      pack: null,
+      needsRenewal: false,
+      noShowCount: 0,
+      ...overrides,
+    }
+  }
+
+  // Real server shape (appointments route.ts): selectedDate.toISOString(),
+  // JST midnight of `ymd` — same helper thin-appointments-brief-warm.test.tsx uses.
+  const jstMidnightIso = (ymd: string) => new Date(`${ymd}T00:00:00+09:00`).toISOString()
+
+  beforeEach(() => {
+    // Pins "now" for the screen's ymdInJst(new Date()) side of the compare.
+    jest.useFakeTimers().setSystemTime(new Date('2026-07-23T12:00:00+09:00'))
+    window.history.replaceState({}, '', '/appointments')
+  })
+
+  afterEach(() => {
+    // T6's pushState is restored in its own finally; this block's
+    // replaceState above was leaking '/appointments' to every later
+    // describe block (blind-round hygiene fix).
+    window.history.replaceState({}, '', '/')
+  })
+
+  it('warms the earliest 2 active UNRECORDED bookings out of time order, excluding cancelled/no-show/completed/already-recorded', async () => {
+    const dto = {
+      ...appointmentsDto(),
+      selectedDateIso: jstMidnightIso('2026-07-23'),
+      reservationViews: [
+        reservationView('cancelled', { startTimeHm: '08:00', isCancelled: true }),
+        reservationView('noshow', { startTimeHm: '08:15', isNoShow: true }),
+        reservationView('completed', { startTimeHm: '07:00', displayStatus: 'completed' }),
+        // Earliest ACTIVE row of all — but its karute already exists, so its
+        // near-certain tap is カルテを見る (/karute/<id>), not 録音. It must
+        // not consume one of the 2 warm slots (Greptile #605 P1).
+        reservationView('recorded', { startTimeHm: '08:30', karuteRecordId: 'k1' }),
+        reservationView('third', { startTimeHm: '13:00' }),
+        reservationView('earliest', { startTimeHm: '09:00', displayStatus: 'in_session' }),
+        reservationView('second', { startTimeHm: '11:00', displayStatus: 'new' }),
+      ],
+    }
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === APPOINTMENTS_PATH) return jsonResponse(dto)
+      return jsonResponse(recordDto()) // any other target/brief-warm fetch
+    })
+    mockApiFetch(apiFetch)
+    // Pre-populate dtoCache (same idiom as this file's test 8 end-to-end):
+    // useScreenDto's initial useState reads a cache hit synchronously, so
+    // AppointmentsScreenInner mounts and its settle effect runs INSIDE
+    // render()'s own act() — no separate flush needed for the settle itself.
+    dtoCache.set(APPOINTMENTS_PATH, dto)
+
+    render(<AppointmentsScreen />)
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('earliest'))
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('second'))
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('third'))
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('cancelled'))
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('noshow'))
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('completed'))
+    // Discriminating both ways: 'recorded' is the earliest active row, so if
+    // the karuteRecordId clause were dropped it would take slot 1 and push
+    // 'second' out of the cap — BOTH this line and the 'second' positive
+    // assertion above would go red.
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('recorded'))
+  })
+
+  it('a non-today settle warms zero record-warm fetches', async () => {
+    const dto = {
+      ...appointmentsDto(),
+      selectedDateIso: jstMidnightIso('2026-07-24'), // "now" pinned to 7/23 JST above
+      reservationViews: [
+        reservationView('earliest', { startTimeHm: '09:00', displayStatus: 'in_session' }),
+        reservationView('second', { startTimeHm: '11:00', displayStatus: 'new' }),
+      ],
+    }
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === APPOINTMENTS_PATH) return jsonResponse(dto)
+      return jsonResponse(recordDto())
+    })
+    mockApiFetch(apiFetch)
+    dtoCache.set(APPOINTMENTS_PATH, dto) // see the sibling test's comment
+
+    render(<AppointmentsScreen />)
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('earliest'))
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('second'))
+  })
+})
+
+describe('screen-prefetch — record-warm fences on the new write (T9, perf packet 35)', () => {
+  it('(a) wipe straggler: a warm fetch that started before an emitRefresh wipe never writes its pre-mutation body', async () => {
+    jest.useFakeTimers()
+    let resolveWarm: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === recordWarmPath('a'))
+        return new Promise<Response>((r) => {
+          resolveWarm = r
+        })
+      return new Promise<Response>(() => {})
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a'])
+    jest.advanceTimersByTime(1_000) // FIRST_DELAY_MS, k=0 — the warm fetch starts
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('a'))
+    jest.useRealTimers()
+
+    // A post-mutation refresh lands while the warm fetch is in flight. It
+    // does NOT advance the auth generation — the generation fence alone
+    // would let the stale settle through; only the wipeEpoch fence stops it.
+    emitRefresh()
+
+    resolveWarm(jsonResponse(recordDto())) // pre-mutation body settles late
+    await flushMicrotasks()
+
+    expect(dtoCache.has(recordWarmPath('a'))).toBe(false) // stale settle discarded
+  })
+
+  it('(b) never-clobber: a fresher dtoCache entry written while the warm is in flight is never overwritten by the stale settle', async () => {
+    jest.useFakeTimers()
+    let resolveWarm: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === recordWarmPath('a'))
+        return new Promise<Response>((r) => {
+          resolveWarm = r
+        })
+      return new Promise<Response>(() => {})
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a'])
+    jest.advanceTimersByTime(1_000)
+    expect(dtoCache.has(recordWarmPath('a'))).toBe(false)
+
+    // The real 録音 screen mounts mid-flight and caches ITS OWN fresher fetch.
+    dtoCache.set(recordWarmPath('a'), { fromRealMount: true })
+
+    resolveWarm(jsonResponse(recordDto())) // the warm settle, now stale
+    await flushMicrotasks()
+
+    expect(dtoCache.get(recordWarmPath('a'))).toEqual({ fromRealMount: true }) // never clobbered
+  })
+})
+
+describe('screen-prefetch — record-warm dedupe (T10, perf packet 35)', () => {
+  it('calling warmRecordForBookings twice for the same id before its timer fires schedules one timer, fetches once', async () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(() => new Promise<Response>(() => {}))
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x'])
+    expect(jest.getTimerCount()).toBe(1)
+    warmRecordForBookings(['x']) // a second settle before the first timer fires
+    expect(jest.getTimerCount()).toBe(1) // unchanged — deduped
+
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('x'))
+  })
+})
+
+describe('screen-prefetch — in-flight dedupe (T11, blind-round fix) ⚑', () => {
+  it('a second warm call for the same id while its fetch is in flight is deduped; a later settle allows a fresh warm', async () => {
+    jest.useFakeTimers()
+    let resolveWarm: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === recordWarmPath('x'))
+        return new Promise<Response>((r) => {
+          resolveWarm = r
+        })
+      return new Promise<Response>(() => {})
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x'])
+    jest.advanceTimersByTime(1_000) // fires — fetch now in flight, held pending
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    // A second settle mid-flight (routine: a booking mutation's emitRefresh
+    // → appointments refetch → the same still-top-2 id re-warmed before the
+    // first fetch has landed) must be a no-op, not a duplicate fetch — the
+    // bug this fix round closes.
+    warmRecordForBookings(['x'])
+    expect(jest.getTimerCount()).toBe(0) // no new timer scheduled — deduped
+    expect(apiFetch).toHaveBeenCalledTimes(1) // still just the one fetch
+
+    resolveWarm(jsonResponse(recordDto()))
+    await flushMicrotasks()
+    emitRefresh() // a post-mutation wipe, same as T9(a)'s straggler scenario
+    // dtoCache.clear() isolates the assertion below from the cache write the
+    // settle above just made: without it, the schedule-time dtoCache.has()
+    // skip would ALSO block a re-schedule, masking whether
+    // recordWarmScheduled's delete-on-settle actually ran.
+    dtoCache.clear()
+
+    warmRecordForBookings(['x']) // the id's outcome is known — free to retry
+    expect(jest.getTimerCount()).toBe(1) // schedules fresh — id was not stuck
+  })
+})
+
+describe('screen-prefetch — recorder guard, schedule time (T12, blind-round fix) ⚑', () => {
+  it('an active recording skips the whole warmRecordForBookings call — recording and paused both', () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(() => new Promise<Response>(() => {}))
+    mockApiFetch(apiFetch)
+
+    globalRecorder.state = 'recording'
+    warmRecordForBookings(['x'])
+    expect(jest.getTimerCount()).toBe(0)
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    globalRecorder.state = 'paused'
+    warmRecordForBookings(['x'])
+    expect(jest.getTimerCount()).toBe(0)
+    expect(apiFetch).not.toHaveBeenCalled()
+    // Restored to 'idle' by this file's global afterEach — a leaked state
+    // here would poison every later test's recorder guard.
+  })
+})
+
+describe('screen-prefetch — recorder guard, fire time (T13, blind-round fix)', () => {
+  it('a recording that starts inside the stagger window is caught at fire time too; the id is not stuck once the take ends', async () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(() => new Promise<Response>(() => {}))
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x']) // scheduled while idle
+    globalRecorder.state = 'recording' // a take starts inside the 1s stagger window
+    jest.advanceTimersByTime(1_000) // fire — schedule-time check above already missed this
+    expect(apiFetch).not.toHaveBeenCalled()
+
+    globalRecorder.state = 'idle' // the take resolves
+    warmRecordForBookings(['x']) // same id — must not be stuck skipped
+    expect(jest.getTimerCount()).toBe(1)
+  })
+})
+
+describe('screen-prefetch — record-warm schedule-time cached skip (T14, blind-round fix)', () => {
+  it('a pre-cached id gets zero timers scheduled', () => {
+    jest.useFakeTimers()
+    dtoCache.set(recordWarmPath('x'), { cached: true })
+    const apiFetch = jest.fn(() => new Promise<Response>(() => {}))
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x'])
+    expect(jest.getTimerCount()).toBe(0)
+  })
+})
+
+describe('screen-prefetch — record-warm fire-time cached skip (T15, blind-round fix)', () => {
+  it('an id cached mid-stagger before its timer fires is skipped at fire time; a later warm after a wipe schedules again', () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(() => new Promise<Response>(() => {}))
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x']) // uncached at schedule time
+    dtoCache.set(recordWarmPath('x'), { fromRealMount: true }) // real visit lands mid-stagger
+    jest.advanceTimersByTime(1_000) // fire
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('x'))
+
+    dtoCache.clear() // an emitRefresh-style wipe
+    warmRecordForBookings(['x']) // must not be stuck skipped by the stale add()
+    expect(jest.getTimerCount()).toBe(1)
+  })
+})
+
+describe('screen-prefetch — record-warm failure path allows retry (T16, blind-round fix)', () => {
+  it('(a) a rejected apiFetch caches nothing, throws nothing, and allows a later retry', async () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(() => Promise.reject(new Error('network')))
+    mockApiFetch(apiFetch)
+
+    const onUnhandled = jest.fn()
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      warmRecordForBookings(['x'])
+      jest.advanceTimersByTime(1_000)
+      await flushMicrotasks()
+      expect(onUnhandled).not.toHaveBeenCalled()
+      expect(dtoCache.has(recordWarmPath('x'))).toBe(false)
+
+      warmRecordForBookings(['x']) // retry allowed — not stuck
+      expect(jest.getTimerCount()).toBe(1)
+    } finally {
+      // Always deregister, even on assertion failure — a leaked listener
+      // would corrupt every later test file's unhandledRejection reporting.
+      process.off('unhandledRejection', onUnhandled)
+    }
+  })
+
+  it('(b) a non-OK response with a working json() caches nothing and allows a later retry', async () => {
+    jest.useFakeTimers()
+    // Honest mock (T3's idiom): .json() resolves to a VALID record dto, so a
+    // missing res.ok guard would actually succeed the parse and cache it —
+    // a discriminating red, not a mock that passes either way.
+    const apiFetch = jest.fn(
+      async () => ({ ok: false, json: async () => recordDto() }) as unknown as Response,
+    )
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x'])
+    jest.advanceTimersByTime(1_000)
+    await flushMicrotasks()
+    expect(dtoCache.has(recordWarmPath('x'))).toBe(false)
+
+    warmRecordForBookings(['x']) // retry allowed — not stuck
+    expect(jest.getTimerCount()).toBe(1)
+  })
+})
+
+describe('screen-prefetch — record-warm slice contract (T17, blind-round fix)', () => {
+  it('a pre-cached first-slot id is skipped; the cap slice never backfills past the first 2', async () => {
+    jest.useFakeTimers()
+    dtoCache.set(recordWarmPath('a'), { cached: true })
+    const apiFetch = jest.fn(async () => jsonResponse(recordDto()))
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a', 'b', 'c'])
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('b'))
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('c'))
+  })
+})
+
+describe('screen-prefetch — record-warm sign-out hygiene (T18, blind-round fix)', () => {
+  it('a scheduled-but-not-fired warm is fully cancelled on sign-out; the next sign-in warms the same id unpolluted', async () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === recordWarmPath('x')) return jsonResponse(recordDto())
+      return new Promise<Response>(() => {}) // hold any batch-5 target forever — irrelevant here
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['x'])
+    setSessionState({ status: 'signed-out' }) // cancels every pending timer
+    jest.advanceTimersByTime(20_000)
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('x'))
+
+    signIn('u2') // a fresh signed-in period — also re-arms the unrelated batch-5 prefetch
+    warmRecordForBookings(['x']) // must schedule cleanly, unpolluted by the cancelled warm
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('x'))
   })
 })

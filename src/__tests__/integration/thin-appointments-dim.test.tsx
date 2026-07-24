@@ -17,6 +17,17 @@ jest.mock('next-intl', () => ({
 jest.mock('@/components/appointments/AppointmentsView', () => ({
   AppointmentsView: () => <div data-testid="appointments-view">VIEW</div>,
 }))
+// AppointmentsScreen → screen-prefetch.ts now statically imports
+// global-recorder.ts (blind-round fix, recorder guard) — same two
+// 'use server'/take-store seam stubs thin-foreground-revalidate.test.tsx
+// mocks; this file never touches globalRecorder itself.
+jest.mock('@/actions/recordings', () => ({ startRecordingSession: jest.fn() }))
+jest.mock('@/lib/karute/take-store', () => ({
+  appendTakeSegment: jest.fn(),
+  createTake: jest.fn(),
+  deleteTake: jest.fn(),
+  stampTakeSession: jest.fn(),
+}))
 
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
