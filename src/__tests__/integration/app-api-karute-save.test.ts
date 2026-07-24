@@ -11,7 +11,15 @@ jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) 
 jest.mock('@/lib/karute/memory-ingest', () => ({ ingestSessionMemory: jest.fn(async () => {}) }))
 
 const audit = jest.fn()
-jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => audit(...(a as [])) }))
+// Spread the REAL module so FACADE_AUDIT_MAP stays live inside logFacadeAudit —
+// a bare { audit } factory makes the map lookup throw-and-swallow, and the
+// exactly-once pin below could never catch a re-added 'karute.save' map row
+// double-logging (the exact regression the map's own comment warns against).
+// Only the emitter is stubbed.
+jest.mock('@/lib/audit', () => ({
+  ...jest.requireActual('@/lib/audit'),
+  audit: (...a: unknown[]) => audit(...(a as [])),
+}))
 
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'

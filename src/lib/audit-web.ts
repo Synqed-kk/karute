@@ -11,9 +11,12 @@ type WebAuditEvent = Omit<AuditEvent, 'actorId' | 'actorType' | 'businessId' | '
   Partial<Pick<AuditEvent, 'actorId' | 'businessId'>>
 
 /** Emit one audit event from a web mutation. Actor + business default to the
- *  cookie-session identity (both resolvers are request-cached, so this adds no
- *  round-trip); pass them explicitly on paths where the session doesn't exist
- *  yet (acceptInvite) or the caller already holds them. Never throws. */
+ *  cookie-session identity (getBusinessId is request-cached; resolveUserId's
+ *  fast path is a local cookie read + local JWT verify — it only hits the
+ *  network on the missing/rotated-secret fallback, so the practical cost here
+ *  is sub-millisecond, not a round-trip); pass them explicitly on paths where
+ *  the session doesn't exist yet (acceptInvite) or the caller already holds
+ *  them. Never throws. */
 export async function auditWeb(e: WebAuditEvent): Promise<void> {
   try {
     audit({

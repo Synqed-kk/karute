@@ -75,10 +75,16 @@ import { auditLines } from './helpers/audit-lines'
 import CustomerProfilePage from '@/app/[locale]/(app)/customers/[id]/page'
 import CustomersPage from '@/app/[locale]/(app)/customers/page'
 
+// Drain the fire-and-forget auditWeb chain deterministically before asserting —
+// the page deliberately does NOT await the emit (void, never blocks render), so
+// without this the pins would pass or fail by incidental microtask depth.
+const drain = () => new Promise((r) => setImmediate(r))
+
 describe('customer.view — single-record open', () => {
   it('emits exactly one customer.view targeting the opened id', async () => {
     const lines = await auditLines(async () => {
       await CustomerProfilePage({ params: Promise.resolve({ id: 'cust-1', locale: 'ja' }) })
+      await drain()
     })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
@@ -98,6 +104,7 @@ describe('customer.view — single-record open', () => {
       await expect(
         CustomerProfilePage({ params: Promise.resolve({ id: 'missing', locale: 'ja' }) }),
       ).rejects.toThrow('NEXT_NOT_FOUND')
+      await drain()
     })
     expect(lines).toHaveLength(0)
   })
@@ -107,6 +114,7 @@ describe('customer.view — negative pin: the LIST page never logs (7/17 ruling)
   it('rendering the customers list emits nothing', async () => {
     const lines = await auditLines(async () => {
       await CustomersPage({ searchParams: Promise.resolve({}) })
+      await drain()
     })
     expect(lines).toHaveLength(0)
   })

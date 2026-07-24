@@ -102,6 +102,56 @@ describe('karute.save — web saveKaruteRecord emits exactly once', () => {
   })
 })
 
+describe('karute.save — update/retry path (recording session already saved)', () => {
+  it('emits once with fresh:false and transcript_changed:true when the retry edited the transcript', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({ id: 'kar-x', transcript: 'old' } as never)
+    await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1', transcript: 'edited' })
+    expect(karuteRecords.update).toHaveBeenCalledTimes(1)
+    expect(karuteRecords.create).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'karute.save',
+        targetId: 'kar-x',
+        detail: expect.objectContaining({
+          fresh: false,
+          transcript_changed: true,
+          customer_id: 'cust-1',
+        }),
+      }),
+    )
+  })
+
+  it('emits once with transcript_changed:false on an identical resend', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({ id: 'kar-x', transcript: 'old' } as never)
+    await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1', transcript: 'old' })
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetId: 'kar-x',
+        detail: expect.objectContaining({ fresh: false, transcript_changed: false }),
+      }),
+    )
+  })
+})
+
+describe('karute.save — a FAILED write emits nothing (pins emit-after-write)', () => {
+  it('create rejection → zero emits, error shape returned', async () => {
+    karuteRecords.create.mockRejectedValueOnce(new Error('core down'))
+    const res = await saveKaruteRecord({ ...baseInput })
+    expect(res).toHaveProperty('error')
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('update rejection on the retry path → zero emits', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({ id: 'kar-x', transcript: 'old' } as never)
+    karuteRecords.update.mockRejectedValueOnce(new Error('core down'))
+    const res = await saveKaruteRecord({ ...baseInput, recordingSessionId: 'rs-1' })
+    expect(res).toHaveProperty('error')
+    expect(audit).not.toHaveBeenCalled()
+  })
+})
+
 describe('karute.save — web saveKaruteRecordInline emits exactly once', () => {
   it('emits karute.save the same shape as saveKaruteRecord', async () => {
     const res = await saveKaruteRecordInline({ ...baseInput })
