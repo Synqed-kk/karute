@@ -5,8 +5,8 @@
 // clear numbers). Apple only accepts ASCENDING build numbers within one
 // marketing version, and 1.0's train already has 1784906700 uploaded — so the
 // reset rides a MARKETING_VERSION bump to 1.1, where the counter restarts.
-// State file seeded to 12 on the build Mac so the 1.1 train continues the old
-// visible sequence: 13, 14, 15…
+// Liam ruling: the 1.1 train starts over at 1 — uploads read 1.1 (1), (2), …
+// State file reset to 0 on the build Mac accordingly.
 //
 // ponytail: read→compute→write is not atomic — two PARALLEL builds on the same
 // machine can mint the same number (duplicate, never backwards; App Store

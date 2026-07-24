@@ -3,20 +3,22 @@
 import assert from 'node:assert/strict'
 import { nextBuildNumber } from './build-number.mjs'
 
-// 1. Plain increment — the whole contract (Liam ruling 7/25: clear numbers).
-assert.equal(nextBuildNumber(12), 13, 'next after 12 is 13')
+// 1. Fresh 1.1 train starts at 1 (Liam ruling 7/25: 1.1 (1), clear numbers).
+assert.equal(nextBuildNumber(0), 1, 'fresh train starts at 1')
 
-// 2. Strictly monotonic across a burst of sequential builds.
-let last = 12
+// 2. Plain increment — the whole contract.
+assert.equal(nextBuildNumber(1), 2, 'next after 1 is 2')
+
+// 3. Strictly monotonic across a burst of sequential builds.
+let last = 1
 for (let i = 0; i < 5; i++) {
   const next = nextBuildNumber(last)
   assert.ok(next > last, `burst build ${i} must strictly increase (${next} > ${last})`)
   last = next
 }
-assert.equal(last, 17, 'five builds after 12 land on 17')
+assert.equal(last, 6, 'five builds after 1 land on 6')
 
-// 3. Lost/garbage state restarts at 1 (Apple rejects a regression loudly).
-assert.equal(nextBuildNumber(0), 1, 'seedless fallback is 1')
+// 4. Garbage state falls back to a fresh start (Apple rejects a regression loudly).
 assert.equal(nextBuildNumber('garbage'), 1, 'garbage state falls back to 1')
 
 console.log('✓ build-number increments: all assertions passed')
