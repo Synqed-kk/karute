@@ -427,4 +427,60 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.targetLabels).toEqual({})
     expect(res.events).toHaveLength(1)
   })
+
+  it('a karute row resolves its CUSTOMER label off detail.customer_id, keyed by the karute target_id (packet 30 §4)', async () => {
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
+    }))
+    getSynqedClient.mockImplementation(async () => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-kar',
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          detail: { customer_id: 'cus-1' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    // Batched into ONE customers.list call, not a second query.
+    expect(customersList).toHaveBeenCalledTimes(1)
+    expect(customersList).toHaveBeenCalledWith({ ids: ['cus-1'], include_deleted: true })
+    expect(res.targetLabels).toEqual({ 'kar-1': '鈴木 一郎' })
+  })
+
+  it('a karute row WITHOUT detail.customer_id resolves no label — id fallback stays honest, no crash', async () => {
+    getSynqedClient.mockImplementation(async () => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-kar2',
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-2',
+          detail: {},
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({})
+  })
 })

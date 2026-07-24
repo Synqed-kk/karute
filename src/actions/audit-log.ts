@@ -278,13 +278,33 @@ async function resolveTargetLabels(
     [...new Set(events.filter((e) => e.target_type === type && e.target_id).map((e) => e.target_id!))]
   const labels: Record<string, string> = {}
   const customerIds = idsOf('customer')
-  if (customerIds.length > 0) {
+  // karute rows resolve their CUSTOMER's label, not a karute-record name — the
+  // customer id rides in detail (packet 30 §4, ids-only PII rule), batched
+  // into the SAME customers.list call and keyed by the karute row's own
+  // target_id so the existing targetLabels[e.target_id] lookup below (and in
+  // AuditLogSection) needs no change.
+  const karuteCustomerIds = events
+    .filter((e) => e.target_type === 'karute')
+    .map((e) => (e.detail as { customer_id?: unknown } | null)?.customer_id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0)
+  const allCustomerIds = [...new Set([...customerIds, ...karuteCustomerIds])]
+  if (allCustomerIds.length > 0) {
     try {
       const { customers } = await synqed.customers.list({
-        ids: customerIds,
+        ids: allCustomerIds,
         include_deleted: true,
       })
-      for (const c of customers) labels[c.id] = c.name
+      const nameById = new Map(customers.map((c) => [c.id, c.name]))
+      for (const id of customerIds) {
+        const name = nameById.get(id)
+        if (name) labels[id] = name
+      }
+      for (const e of events) {
+        if (e.target_type !== 'karute' || !e.target_id) continue
+        const cid = (e.detail as { customer_id?: unknown } | null)?.customer_id
+        const name = typeof cid === 'string' ? nameById.get(cid) : undefined
+        if (name) labels[e.target_id] = name
+      }
     } catch {
       /* ids remain */
     }

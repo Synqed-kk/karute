@@ -6,6 +6,7 @@ import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+import { auditWeb } from '@/lib/audit-web'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -158,6 +159,15 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     revalidatePath('/customers')
     updateTag('customers')
 
+    // Success only, after the write settles (never on the collision return above).
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.create',
+      targetType: 'customer',
+      targetId: customer.id,
+      severity: 'info',
+    })
+
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
     // Keep the raw error in the server log so Anthony can debug; show
@@ -188,6 +198,16 @@ export async function createQuickCustomer(
 
     revalidatePath('/customers')
     updateTag('customers')
+
+    // Quick-create is the same customer.create action as the full form
+    // (packet 30 §2) — one create pathway, one action name.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.create',
+      targetType: 'customer',
+      targetId: customer.id,
+      severity: 'info',
+    })
 
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
@@ -268,6 +288,17 @@ export async function updateCustomer(
     revalidatePath('/customers')
     revalidatePath(`/customers/${id}`)
     updateTag('customers')
+    // Web-only emit: the facade PATCH pathway already logs customer.edit via
+    // FACADE_AUDIT_MAP ('customer.update' → mutation) — updateCustomerWithClient
+    // is the SHARED core both callers use, so the writer stays here, not there,
+    // to avoid double-logging the facade path.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.edit',
+      targetType: 'customer',
+      targetId: id,
+      severity: 'info',
+    })
   }
   return result
 }

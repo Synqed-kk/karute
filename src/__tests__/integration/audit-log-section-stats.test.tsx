@@ -6,8 +6,14 @@
 import { fireEvent, render, waitFor } from '@testing-library/react'
 import type { StaffMember } from '@/lib/staff'
 
+// has()/t() are identity for every key EXCEPT actions.karute.save (packet 30
+// §4) — simulating the real ja.json addition without disturbing every other
+// test in this file, which never assert on action-label text.
 jest.mock('next-intl', () => ({
-  useTranslations: () => Object.assign((k: string) => k, { has: () => false }),
+  useTranslations: () =>
+    Object.assign((k: string) => (k === 'actions.karute.save' ? 'カルテを保存' : k), {
+      has: (k: string) => k === 'actions.karute.save',
+    }),
   useLocale: () => 'ja',
 }))
 
@@ -260,5 +266,63 @@ describe('AuditLogSection — Greptile #581 round-1 pins', () => {
     const { container } = render(<AuditLogSection staffList={staffList} />)
     await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
     expect((container.querySelector('ul') as HTMLElement).textContent).toContain('Roster Name')
+  })
+})
+
+describe('AuditLogSection — karute.save labeling (packet 30 §4)', () => {
+  it('renders the ja action label + the server-resolved customer target name, not the raw action/UUID', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [
+        coreEvent({
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-1',
+          detail: { customer_id: 'cus-1' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      targetLabels: { 'kar-1': '鈴木 一郎' },
+    })
+    const { container } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const row = container.querySelector('ul') as HTMLElement
+    expect(row.textContent).toContain('カルテを保存')
+    expect(row.textContent).toContain('鈴木 一郎')
+    expect(row.textContent).not.toContain('karute.save')
+    expect(row.textContent).not.toContain('kar-1')
+  })
+
+  it('a karute.save row without a resolved label falls back to the raw target id — no crash', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [
+        coreEvent({
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-2',
+          detail: {},
+        }),
+      ],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      targetLabels: {},
+    })
+    const { container } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const row = container.querySelector('ul') as HTMLElement
+    expect(row.textContent).toContain('カルテを保存')
+    expect(row.textContent).toContain('kar-2')
   })
 })

@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 
+import { auditWeb } from '@/lib/audit-web'
 import { getCustomer } from '@/lib/customers/queries'
 import { getCustomerContact } from '@/lib/customers/customer-detail-cached'
 import { getStaffList, getBusinessId } from '@/lib/staff'
@@ -25,6 +26,17 @@ export default async function CustomerProfilePage({
   const { id, locale } = await params
   const customer = await getCustomer(id).catch(() => null)
   if (!customer) notFound()
+
+  // Single-record open = a view event (7/17 ruling: list renders never log).
+  // Fire-and-forget — never blocks or fails the render (mirrors the other
+  // web writers' best-effort contract).
+  void auditWeb({
+    category: 'customer',
+    action: 'customer.view',
+    targetType: 'customer',
+    targetId: id,
+    severity: 'info',
+  })
 
   // Both request-memoized (React cache) and already primed inside
   // getCustomer's own client init — no network hop left in either by here.

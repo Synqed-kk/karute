@@ -2094,6 +2094,9 @@
           "view": "Viewed customer record",
           "edit": "Edited customer info"
         },
+        "karute": {
+          "save": "Saved karute record"
+        },
         "staff": {
           "add": "Added staff",
           "update": "Updated staff",
