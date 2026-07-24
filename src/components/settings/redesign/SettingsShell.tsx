@@ -195,6 +195,11 @@ interface SettingsShellProps {
    *  webOnlyTabIds so a grant-holding viewer sees the card instead of the
    *  "manage on web" panel. */
   syncStatus?: SyncStatusDTO | null
+  /** 今すぐ同期 (packet 32). OPTIONAL; omitted on web (SyncStatusCard renders
+   *  zero interactive elements, same PRESENCE-gates-the-button idiom as
+   *  syncStatus above) — only the thin caller (sync.view/owner grant) passes
+   *  it, threaded straight to the card. */
+  onRunNow?: () => Promise<{ ok: boolean; message?: string }>
   /** Server-truth feature flags (design-parity packet 12 §S4a). OPTIONAL;
    *  omitted on web (StaffSection/StaffForm fall back to reading the env var
    *  directly, today's behavior, byte-for-byte) — only the thin caller
@@ -222,6 +227,7 @@ export function SettingsShell({
   pendingTabIds,
   webOnlyTabIds,
   syncStatus,
+  onRunNow,
   featureStaffInvites,
   featureMultiStore,
 }: SettingsShellProps) {
@@ -247,7 +253,7 @@ export function SettingsShell({
     // web-only intercept below, so a sync.view/owner grant renders the
     // read-only card instead of the "manage on web" panel. Web never passes
     // syncStatus (undefined) — falls straight through to that panel/section.
-    if (id === 'sync' && syncStatus) return <SyncStatusCard status={syncStatus} />
+    if (id === 'sync' && syncStatus) return <SyncStatusCard status={syncStatus} onRunNow={onRunNow} />
     // Web-only intercept (design-parity packet 20 §S5) — BEFORE pendingTabIds,
     // so a tab in both takes the web-only panel over the generic pending one.
     if (id && webOnlyTabIds?.includes(id)) return <WebOnlyTabPanel />

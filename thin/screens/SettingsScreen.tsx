@@ -9,10 +9,17 @@
 //
 // initialStores/initialEntitlement now thread the real DTO fields (packet 12
 // §B-3 S2 — the 店舗 tab going live).
+//
+// 今すぐ同期 (packet 32): onRunNow POSTs the facade run-now trigger directly
+// via the DataPort (same idiom RecordScreen's screen-local fetch uses — no
+// new client) and, on any 2xx (a real run OR the friendly not-configured
+// message — both mean the request landed), calls emitRefresh() so the
+// screen re-fetches and the card picks up the new lastRunAt/status.
 
 import { SettingsShell, type SettingsTabId } from '@/components/settings/redesign/SettingsShell'
 import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
-import { useSearchParams } from '../ports/nav.vite'
+import { getDataPort } from '@/lib/ports/data-port'
+import { emitRefresh, useSearchParams } from '../ports/nav.vite'
 import { ScreenStates, useScreenDto } from './ScreenBoundary'
 
 const parse = (raw: unknown): SettingsScreenDTOType => SettingsScreenDTO.parse(raw)
@@ -27,6 +34,26 @@ const PENDING_TAB_IDS: readonly SettingsTabId[] = []
 // thin shell (see packet 20 for the full ruling). Distinct from
 // PENDING_TAB_IDS: this isn't "not built yet", it's "never coming to app".
 const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync']
+
+/** 今すぐ同期 (packet 32). Any 2xx (a real run OR the facade's friendly
+ *  not-configured message) reads as "the request landed" — the card's own
+ *  onRunNow contract folds both into `ok: true`, differing only in whether
+ *  `message` is set. A non-2xx (403/502) surfaces the facade's error message. */
+async function runSyncNow(): Promise<{ ok: boolean; message?: string; code?: string }> {
+  try {
+    const res = await getDataPort().apiFetch('/api/app/v1/sync/run', { method: 'POST' })
+    const body = (await res.json().catch(() => null)) as
+      | { code?: string; message?: string; error?: { message?: string } }
+      | null
+    if (!res.ok) {
+      return { ok: false, message: body?.error?.message ?? `Request failed (${res.status})` }
+    }
+    emitRefresh()
+    return { ok: true, message: body?.message, code: body?.code }
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Network error' }
+  }
+}
 
 // Exported for the real-render prop-mapping smoke test (same idiom as
 // DashboardScreenInner) — this passthrough has its own coverage beyond the
@@ -53,6 +80,7 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         canInviteStaff={dto.canInviteStaff}
         canViewAudit={dto.canViewAudit}
         syncStatus={dto.syncStatus}
+        onRunNow={runSyncNow}
         initialTab={dto.initialTab}
         auditTargetId={dto.auditTargetId}
         initialStores={dto.initialStores}

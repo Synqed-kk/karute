@@ -19,7 +19,9 @@
 // (their real bodies pull server-only modules that don't run under jsdom).
 // SyncSection's mock renders a testid so the negative assertion detects the
 // real section leaking through if the webOnlyTabIds intercept ever breaks.
-import { fireEvent, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { setDataPort } from '@/lib/ports/data-port'
+import { subscribeRefresh } from '../../../thin/ports/nav.vite'
 
 jest.mock('next-intl', () => {
   const messages = jest.requireActual('../../../messages/ja.json')
@@ -130,5 +132,33 @@ describe('thin settings wiring — 同期 tab web-only carve-out (packet 20 §S5
     ).toBeGreaterThan(0)
     expect(screen.queryByTestId('section-sync')).toBeNull()
     expect(screen.queryByText('この画面は準備中です')).toBeNull()
+  })
+})
+
+describe('thin settings wiring — 今すぐ同期 (packet 32)', () => {
+  it('a sync.view grant renders the real SyncStatusCard with its button; tap fires the POST helper + emitRefresh', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue({ ok: true, json: async () => ({ success: true }) } as unknown as Response)
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+    const onRefresh = jest.fn()
+    subscribeRefresh(onRefresh)
+
+    const grantedDto: SettingsScreenDTOType = {
+      ...dto,
+      syncStatus: { enabled: true, lastRunAt: null, lastRunStatus: null, lastRunError: null },
+    }
+    render(<SettingsScreenInner dto={grantedDto} />)
+
+    fireEvent.click(screen.getAllByText('予約同期')[0])
+    const buttons = screen.getAllByRole('button', { name: '今すぐ同期' })
+    expect(buttons.length).toBeGreaterThan(0) // dual-tree render (mobile drill-in + desktop pane)
+
+    await act(async () => {
+      fireEvent.click(buttons[0])
+    })
+
+    expect(apiFetch).toHaveBeenCalledWith('/api/app/v1/sync/run', { method: 'POST' })
+    await waitFor(() => expect(onRefresh).toHaveBeenCalledTimes(1))
   })
 })

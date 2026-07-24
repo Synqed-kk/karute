@@ -6,7 +6,7 @@
 // — a call-site key typo fails HERE, not just the identity-echo mock tests),
 // and pins that NOTHING inside the card is interactive (no controls, no
 // credential paths — v2 is read-only by design).
-import { act, render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const messages = jest.requireActual('../../../messages/ja.json')
@@ -162,12 +162,135 @@ describe('SyncStatusCard — rows + footer (packet 31)', () => {
   })
 })
 
-describe('SyncStatusCard — read-only pin (packet 31)', () => {
+describe('SyncStatusCard — onRunNow ABSENT (packet 31 read-only branch, still web parity post-packet-32)', () => {
   it('renders nothing interactive — no button/input/link/select/textarea', () => {
     const { container } = render(<SyncStatusCard status={status({})} nowMs={NOW} />)
     expect(container.querySelectorAll('button, input, a, select, textarea')).toHaveLength(0)
     expect(screen.queryAllByRole('button')).toHaveLength(0)
     expect(screen.queryAllByRole('link')).toHaveLength(0)
     expect(screen.queryAllByRole('textbox')).toHaveLength(0)
+  })
+})
+
+describe('SyncStatusCard — 今すぐ同期 (packet 32, onRunNow PRESENT)', () => {
+  it('a not_configured code renders the LOCALIZED ja copy, never the facade\'s English prose (Greptile #602)', async () => {
+    const onRunNow = jest.fn(async () => ({
+      ok: true,
+      code: 'not_configured',
+      message: 'QR sync not configured — save your Quick Reserve login first.',
+    }))
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    expect(
+      screen.getByText('予約同期が未設定です。Web 版で Quick Reserve のログイン情報を保存してください。'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/QR sync not configured/)).toBeNull()
+  })
+
+  it('a REJECTING onRunNow (contract violation) still re-enables the button + shows the failure line — never stuck at 同期中…', async () => {
+    const onRunNow = jest.fn(async () => {
+      throw new Error('boom')
+    })
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    fireEvent.click(screen.getByRole('button'))
+    await waitFor(() => expect(screen.getByRole('button')).not.toBeDisabled())
+    expect(screen.getByText('同期に失敗しました')).toBeInTheDocument()
+  })
+
+  it('renders exactly ONE button when onRunNow is provided', () => {
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={async () => ({ ok: true })} />)
+    expect(screen.getAllByRole('button')).toHaveLength(1)
+    expect(screen.getByRole('button', { name: '今すぐ同期' })).toBeInTheDocument()
+  })
+
+  it('tap calls onRunNow exactly once and disables the button while pending', async () => {
+    let resolveRun: (v: { ok: boolean; message?: string }) => void = () => {}
+    const onRunNow = jest.fn(
+      () => new Promise<{ ok: boolean; message?: string }>((res) => (resolveRun = res)),
+    )
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    const button = screen.getByRole('button', { name: '今すぐ同期' })
+
+    await act(async () => {
+      fireEvent.click(button)
+    })
+    expect(onRunNow).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole('button', { name: '同期中…' })).toBeDisabled()
+
+    await act(async () => {
+      resolveRun({ ok: true })
+    })
+    expect(screen.getByRole('button', { name: '今すぐ同期' })).not.toBeDisabled()
+
+    // A second tap after settling still fires exactly one more call — no
+    // double-submit residue from the first round.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    expect(onRunNow).toHaveBeenCalledTimes(2)
+  })
+
+  it('a click while already pending does not re-invoke onRunNow (debounce-by-disabled)', async () => {
+    let resolveRun: (v: { ok: boolean }) => void = () => {}
+    const onRunNow = jest.fn(() => new Promise<{ ok: boolean }>((res) => (resolveRun = res)))
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    const button = screen.getByRole('button', { name: '今すぐ同期' })
+    await act(async () => {
+      fireEvent.click(button)
+    })
+    // The DOM button is now disabled; a stray click event handler call must
+    // still be a no-op even if fired directly (handleRunNow's own pending guard).
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '同期中…' }))
+    })
+    expect(onRunNow).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveRun({ ok: true })
+    })
+  })
+
+  it('failure renders the message as small red error text', async () => {
+    const onRunNow = jest.fn(async () => ({ ok: false, message: 'ログイン切れ' }))
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    const msg = screen.getByText('ログイン切れ')
+    expect(msg.className).toMatch(/text-red-600/)
+  })
+
+  it('an ok:false with no message falls back to the localized failure copy', async () => {
+    const onRunNow = jest.fn(async () => ({ ok: false }))
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    expect(screen.getByText('同期に失敗しました')).toBeInTheDocument()
+  })
+
+  it('a friendly not-configured message (ok:true + message) renders as muted text, not red', async () => {
+    const onRunNow = jest.fn(async () => ({
+      ok: true,
+      message: 'QR sync not configured — save your Quick Reserve login first.',
+    }))
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    const msg = screen.getByText('QR sync not configured — save your Quick Reserve login first.')
+    expect(msg.className).not.toMatch(/text-red-600/)
+    expect(msg.className).toMatch(/text-muted-foreground/)
+  })
+
+  it('a plain ok:true (no message) shows no result line at all', async () => {
+    const onRunNow = jest.fn(async () => ({ ok: true }))
+    const { container } = render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    // Only the button's own text nodes below the rows/footer — no stray <p> result line.
+    expect(container.querySelectorAll('button')).toHaveLength(1)
   })
 })

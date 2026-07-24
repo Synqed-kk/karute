@@ -1950,7 +1950,11 @@
       "running": "実行中",
       "minutesAgo": "分前に同期",
       "hoursAgo": "時間前に同期",
-      "footer": "同期設定の変更・再ログインは Web 版の設定から行えます。"
+      "footer": "同期設定の変更・再ログインは Web 版の設定から行えます。",
+      "runNow": "今すぐ同期",
+      "runNowPending": "同期中…",
+      "runFailed": "同期に失敗しました",
+      "notConfigured": "予約同期が未設定です。Web 版で Quick Reserve のログイン情報を保存してください。"
     },
     "stores": {
       "plan": {
@@ -2126,7 +2130,8 @@
           "staff_stores_change": "所属店舗を変更",
           "store_create": "店舗を追加",
           "store_update": "店舗情報を更新",
-          "sync_config_update": "予約連携設定を変更"
+          "sync_config_update": "予約連携設定を変更",
+          "sync_run_now": "今すぐ同期を実行"
         },
         "privacy": {
           "customer_export": "顧客データをエクスポート",
