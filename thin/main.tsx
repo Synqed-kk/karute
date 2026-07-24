@@ -11,6 +11,11 @@ import { ThinChromeContent, ThinChromeNav } from './chrome/Chrome'
 import { AuthGate } from './AuthGate'
 import { bootMobileAuth } from './auth/session'
 import { bindForegroundRevalidate } from './data/foreground-revalidate'
+// Perf packet 34: side-effect-only import wires the background screen-DTO
+// prefetch singleton at boot (same idiom as chrome-store.ts, loaded the same
+// way via the Chrome.tsx import below) — its module-scope subscribeSessionState
+// arms on the sign-in settle with no explicit init call needed.
+import './data/screen-prefetch'
 import { getThinEnv } from './env'
 import { viteDataPort } from './ports/data.vite'
 import { viteRecordingPort } from './ports/recording.vite'
