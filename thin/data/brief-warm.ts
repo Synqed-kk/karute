@@ -12,8 +12,8 @@
 // batch) rather than immediate so the warm traffic never competes with the
 // appointments screen's own fetch for bandwidth on first paint.
 
-import { getDataPort } from '@/lib/ports/data-port'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
+import { briefUrl, cacheHas, fetchBrief } from './brief-cache'
 
 const FIRST_DELAY_MS = 3_000
 const STAGGER_MS = 4_000
@@ -43,7 +43,20 @@ let epoch = 0
  *  calling this again on every DTO settle is free. */
 export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
   for (const { customerId, appointmentId } of bookings) {
-    if (warmed.has(appointmentId)) continue
+    // Skip only when we're confident a re-warm is pointless: the client
+    // cache still holds the brief (cacheHas), OR the 2-attempt ceiling is
+    // already spent (checked below cache — a failed fetch is deliberately
+    // NOT cached, so "warmed but uncached" must still mean "give it another
+    // shot" until the ceiling actually stops it). Plain `warmed.has` alone
+    // would let a post-mutation cache wipe (emitRefresh clears brief-cache
+    // but not `warmed`) strand the next settle on a brief the cache no
+    // longer holds.
+    const ceilingReached = (attempts.get(appointmentId) ?? 0) >= MAX_ATTEMPTS
+    if (
+      warmed.has(appointmentId) &&
+      (cacheHas(briefUrl(customerId, appointmentId, 'ja')) || ceilingReached)
+    )
+      continue
     warmed.add(appointmentId)
     const delay = FIRST_DELAY_MS + pendingTimers.length * STAGGER_MS
     const timer = window.setTimeout(() => {
@@ -64,16 +77,14 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
         // warmed — stop trying, the real page-open takes over.
         if (attempt < MAX_ATTEMPTS) warmed.delete(appointmentId)
       }
-      void getDataPort()
-        .apiFetch(
-          `/api/app/v1/customers/${encodeURIComponent(customerId)}/ai/pre-session-brief?locale=ja&appointmentId=${encodeURIComponent(appointmentId)}`,
-        )
-        // Non-OK (500/503, an auth-blip 401) means no brief actually got
-        // generated. Body deliberately unread either way.
-        .then((res) => {
-          if (!res.ok) release()
-        })
-        .catch(release)
+      // Routes through the SAME client cache the screen reads (perf packet
+      // 33) — the warm now populates it with the body it used to discard,
+      // so the first 録音 open can paint the AI card instantly. A cache
+      // miss on settle (non-OK, no-signal response, or failure) means no
+      // brief actually got cached — release so a later trigger retries.
+      void fetchBrief(briefUrl(customerId, appointmentId, 'ja')).then((brief) => {
+        if (brief === null) release()
+      })
     }, delay)
     pendingTimers.push(timer)
   }
