@@ -30,6 +30,14 @@ export type BriefWarmTarget = { customerId: string; appointmentId: string }
 // each caching under its own key.
 let warmed = new Set<string>()
 let attempts = new Map<string, number>()
+// A booking gets a `warmed` entry synchronously (at schedule time) but the
+// brief-cache entry only exists once its TIMER FIRES (3s+ later) — in that
+// window `warmed.has` is true and `cacheHas` is still false, so the
+// warmed-but-uncached skip alone can't tell "already scheduled" from
+// "worth another shot" and would schedule a SECOND timer for the same
+// appointmentId. `scheduled` closes that window: added when a timer is set,
+// deleted the instant it fires (before the async fetch leg starts).
+let scheduled = new Set<string>()
 let pendingTimers: number[] = []
 // Bumped on every sign-out reset (same idiom as chrome-store.ts's epoch): a
 // fetch that was in flight when the user signed out must not write into the
@@ -51,15 +59,18 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
     // would let a post-mutation cache wipe (emitRefresh clears brief-cache
     // but not `warmed`) strand the next settle on a brief the cache no
     // longer holds.
+    if (scheduled.has(appointmentId)) continue // a timer is already pending for it
     const ceilingReached = (attempts.get(appointmentId) ?? 0) >= MAX_ATTEMPTS
     if (
       warmed.has(appointmentId) &&
       (cacheHas(briefUrl(customerId, appointmentId, 'ja')) || ceilingReached)
     )
       continue
+    scheduled.add(appointmentId)
     warmed.add(appointmentId)
     const delay = FIRST_DELAY_MS + pendingTimers.length * STAGGER_MS
     const timer = window.setTimeout(() => {
+      scheduled.delete(appointmentId)
       pendingTimers = pendingTimers.filter((t) => t !== timer)
       // Captured at FIRE time (not schedule time) — mirrors chrome-store.ts's
       // capture-before-async pattern, right here since the async leg starts now.
@@ -100,5 +111,6 @@ subscribeSessionState(() => {
     pendingTimers = []
     warmed = new Set()
     attempts = new Map()
+    scheduled = new Set()
   }
 })

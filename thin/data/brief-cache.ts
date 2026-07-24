@@ -50,6 +50,20 @@ const cache = new Map<string, StampedPromise>()
 export const fetchedAtByUrl = new Map<string, number>()
 const revalidating = new Set<string>()
 
+// FIFO cap mirroring ScreenBoundary's dtoCache — only a NEW key can evict;
+// replacing an existing url's entry (revalidate) never grows the map.
+const CACHE_CAP = 50
+function cacheBrief(url: string, promise: StampedPromise): void {
+  if (cache.size >= CACHE_CAP && !cache.has(url)) {
+    const oldest = cache.keys().next().value as string | undefined
+    if (oldest !== undefined) {
+      cache.delete(oldest)
+      fetchedAtByUrl.delete(oldest)
+    }
+  }
+  cache.set(url, promise)
+}
+
 // Foreground staleness gate — mirrors ScreenBoundary's STALE_MS.
 const STALE_MS = 30_000
 
@@ -93,12 +107,20 @@ export function fetchBrief(url: string): StampedPromise {
         cache.delete(url)
         return null
       }
+      // Stamping status/value on the promise itself is unconditional — any
+      // in-flight consumer (use()) already holds THIS promise and needs the
+      // value regardless of what the cache map currently points at. The
+      // fetchedAtByUrl STAMP is different: it drives staleness for whatever
+      // entry the map holds for `url` right now, so it's written only if
+      // this promise is still that entry — a wipe (emitRefresh/signed-out)
+      // or a straggler superseded by a newer fetch for the same url must not
+      // leave a stamp that no longer describes the cached entry.
       promise.status = 'fulfilled'
       promise.value = brief
-      fetchedAtByUrl.set(url, Date.now())
+      if (cache.get(url) === promise) fetchedAtByUrl.set(url, Date.now())
       return brief
     })
-  cache.set(url, promise)
+  cacheBrief(url, promise)
   return promise
 }
 
@@ -115,6 +137,12 @@ export function cacheHas(url: string): boolean {
 export async function revalidateBrief(url: string): Promise<boolean> {
   if (revalidating.has(url)) return false
   revalidating.add(url)
+  // Identity snapshot at entry — the fence a settle checks against, same
+  // spirit as the generation fence but for the CACHE ENTRY itself: a wipe
+  // (emitRefresh/signed-out) or a replacement (another revalidate, a fresh
+  // fetchBrief after a delete) mid-flight must not have this straggler
+  // re-populate a cache slot it no longer recognizes.
+  const before = cache.get(url)
   try {
     const gen = currentGeneration()
     const brief = await getDataPort()
@@ -122,15 +150,15 @@ export async function revalidateBrief(url: string): Promise<boolean> {
       .then(readBrief)
       .catch(() => null)
     if (currentGeneration() !== gen || brief === null) return false
-    const prevValue = cache.get(url)?.value
-    if (JSON.stringify(brief) === JSON.stringify(prevValue)) {
+    if (cache.get(url) !== before) return false
+    if (JSON.stringify(brief) === JSON.stringify(before?.value)) {
       fetchedAtByUrl.set(url, Date.now())
       return false
     }
     const fresh: StampedPromise = Promise.resolve(brief)
     fresh.status = 'fulfilled'
     fresh.value = brief
-    cache.set(url, fresh)
+    cacheBrief(url, fresh)
     fetchedAtByUrl.set(url, Date.now())
     return true
   } finally {
@@ -153,16 +181,23 @@ export function useBrief(
   useEffect(() => {
     if (!url) return
     let alive = true
+    // ONE predicate for both triggers (mount + foreground): revalidate only
+    // a FULFILLED entry that's past STALE_MS. A pending entry on mount is a
+    // fresh in-flight fetch (no revalidate — it'll fulfill on its own), and
+    // a just-fulfilled entry (mount right after a warm, or the previous
+    // foreground revalidate) is fresh by definition — no double-fetch.
     const maybeRevalidate = () => {
+      if (
+        cache.get(url)?.status !== 'fulfilled' ||
+        Date.now() - (fetchedAtByUrl.get(url) ?? 0) <= STALE_MS
+      )
+        return
       revalidateBrief(url).then((changed) => {
         if (changed && alive) force()
       })
     }
-    // Pending entry on mount = fresh in-flight fetch → no revalidate.
-    if (cache.get(url)?.status === 'fulfilled') maybeRevalidate()
-    const unsubscribe = subscribeRevalidate(() => {
-      if (Date.now() - (fetchedAtByUrl.get(url) ?? 0) > STALE_MS) maybeRevalidate()
-    })
+    maybeRevalidate()
+    const unsubscribe = subscribeRevalidate(maybeRevalidate)
     return () => {
       alive = false
       unsubscribe()
