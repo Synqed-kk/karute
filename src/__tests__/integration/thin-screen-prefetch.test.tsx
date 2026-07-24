@@ -441,12 +441,20 @@ describe('screen-prefetch — end-to-end: prefetched CustomersScreen paints with
 
     expect(dtoCache.has(CUSTOMERS_PATH)).toBe(true) // prefetched before any mount existed
 
+    const callsBeforeMount = apiFetch.mock.calls.length
     render(<CustomersScreen />)
     // Synchronous first render reads the cache-hot dto (ScreenBoundary's
     // initial useState) — no findBy/waitFor needed, same "no loading frame"
     // pin thin-record-screen-brief-cache.test.tsx uses for its revisit case.
     expect(screen.getByTestId('header')).toBeInTheDocument()
     expect(screen.queryByText('読み込み中...')).not.toBeInTheDocument()
+
+    // Cross-pin the 5th screen (its 4 siblings get this in the T5 block):
+    // the mounted screen's OWN mount-effect fetch (the first call AFTER
+    // render — the prefetch's earlier call can't satisfy this) must hit the
+    // exact key the prefetch warmed. Screen-side path drift goes red here.
+    expect(apiFetch.mock.calls[callsBeforeMount]?.[0]).toBe(CUSTOMERS_PATH)
+    expect(PREFETCH_PATHS).toContain(CUSTOMERS_PATH)
 
     // CustomersScreen's OWN mount effect ALSO re-fetches in the background
     // (ScreenBoundary always does, cache-hit or not) — drain it here, inside
