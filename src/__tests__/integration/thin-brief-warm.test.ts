@@ -28,6 +28,14 @@ function mockApiFetch(apiFetch: jest.Mock) {
   setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 }
 
+// The warm now routes through brief-cache's fetchBrief (perf packet 33),
+// which chains a few more .then()/.catch() hops than the inline apiFetch
+// call this file was originally written against — 2 flushed ticks is no
+// longer enough to let a settle's release() run before the next assertion.
+async function flushMicrotasks(times = 10): Promise<void> {
+  for (let i = 0; i < times; i++) await Promise.resolve()
+}
+
 const target = (customerId: string, appointmentId: string): BriefWarmTarget => ({
   customerId,
   appointmentId,
@@ -100,8 +108,7 @@ it('a failed warm releases the booking so a later trigger retries, and never thr
   expect(() => warmBriefsForToday([target('c1', 'a1')])).not.toThrow()
   jest.advanceTimersByTime(3_000)
   // Let the rejected promise's .catch handler run before asserting.
-  await Promise.resolve()
-  await Promise.resolve()
+  await flushMicrotasks()
 
   warmBriefsForToday([target('c1', 'a1')]) // released on failure — retries
   jest.advanceTimersByTime(3_000)
@@ -117,8 +124,7 @@ it('a resolved non-OK response releases the booking so a later trigger retries',
 
   warmBriefsForToday([target('c1', 'a1')])
   jest.advanceTimersByTime(3_000)
-  await Promise.resolve()
-  await Promise.resolve()
+  await flushMicrotasks()
 
   warmBriefsForToday([target('c1', 'a1')]) // released on !ok — retries
   jest.advanceTimersByTime(3_000)
@@ -131,13 +137,11 @@ it('gives up after 2 failed attempts — a third call schedules nothing', async 
 
   warmBriefsForToday([target('c1', 'a1')]) // attempt 1
   jest.advanceTimersByTime(3_000)
-  await Promise.resolve()
-  await Promise.resolve()
+  await flushMicrotasks()
 
   warmBriefsForToday([target('c1', 'a1')]) // attempt 2 (ceiling)
   jest.advanceTimersByTime(3_000)
-  await Promise.resolve()
-  await Promise.resolve()
+  await flushMicrotasks()
   expect(apiFetch).toHaveBeenCalledTimes(2)
 
   warmBriefsForToday([target('c1', 'a1')]) // ceiling hit — no third schedule
@@ -147,6 +151,17 @@ it('gives up after 2 failed attempts — a third call schedules nothing', async 
 
 it('a stale in-flight release from a signed-out session cannot corrupt the new session (epoch guard)', async () => {
   let resolveFirst: (r: Response) => void = () => {}
+  const brief = {
+    isFirstTimeVisit: false,
+    lastVisitDate: 'x',
+    lastVisitAgo: 'x',
+    hooks: [],
+    concerns: [],
+    lastProduct: null,
+    recommendedFocus: null,
+    reservationMemo: null,
+    memoAnalysis: [],
+  }
   const apiFetch = jest
     .fn<Promise<Response>, unknown[]>()
     .mockImplementationOnce(
@@ -155,7 +170,10 @@ it('a stale in-flight release from a signed-out session cannot corrupt the new s
           resolveFirst = r
         }),
     )
-    .mockResolvedValue({ ok: true } as Response)
+    // u2's warm must land as a genuine SUCCESS (brief-cache now reads the
+    // body) so the epoch guard under test — u1's stale release() being a
+    // no-op — is isolated from an unrelated "warmed but uncached" retry.
+    .mockResolvedValue({ ok: true, json: async () => ({ brief }) } as unknown as Response)
   mockApiFetch(apiFetch)
 
   // u1, epoch 0: fire the warm — fetch #1 in flight, held.
@@ -177,8 +195,7 @@ it('a stale in-flight release from a signed-out session cannot corrupt the new s
   // NOW u1's stale fetch resolves non-OK. Its release() must be a no-op
   // against u2's warmed set — the whole point of the epoch guard.
   resolveFirst({ ok: false } as Response)
-  await Promise.resolve()
-  await Promise.resolve()
+  await flushMicrotasks()
 
   // A later trigger for the same booking must NOT re-schedule a redundant
   // paid warm — u2's entry was never deleted.
