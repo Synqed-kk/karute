@@ -12,8 +12,8 @@
 // batch) rather than immediate so the warm traffic never competes with the
 // appointments screen's own fetch for bandwidth on first paint.
 
-import { getDataPort } from '@/lib/ports/data-port'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
+import { briefUrl, cacheHas, fetchBrief } from './brief-cache'
 
 const FIRST_DELAY_MS = 3_000
 const STAGGER_MS = 4_000
@@ -30,6 +30,14 @@ export type BriefWarmTarget = { customerId: string; appointmentId: string }
 // each caching under its own key.
 let warmed = new Set<string>()
 let attempts = new Map<string, number>()
+// A booking gets a `warmed` entry synchronously (at schedule time) but the
+// brief-cache entry only exists once its TIMER FIRES (3s+ later) — in that
+// window `warmed.has` is true and `cacheHas` is still false, so the
+// warmed-but-uncached skip alone can't tell "already scheduled" from
+// "worth another shot" and would schedule a SECOND timer for the same
+// appointmentId. `scheduled` closes that window: added when a timer is set,
+// deleted the instant it fires (before the async fetch leg starts).
+let scheduled = new Set<string>()
 let pendingTimers: number[] = []
 // Bumped on every sign-out reset (same idiom as chrome-store.ts's epoch): a
 // fetch that was in flight when the user signed out must not write into the
@@ -43,10 +51,26 @@ let epoch = 0
  *  calling this again on every DTO settle is free. */
 export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
   for (const { customerId, appointmentId } of bookings) {
-    if (warmed.has(appointmentId)) continue
+    // Skip only when we're confident a re-warm is pointless: the client
+    // cache still holds the brief (cacheHas), OR the 2-attempt ceiling is
+    // already spent (checked below cache — a failed fetch is deliberately
+    // NOT cached, so "warmed but uncached" must still mean "give it another
+    // shot" until the ceiling actually stops it). Plain `warmed.has` alone
+    // would let a post-mutation cache wipe (emitRefresh clears brief-cache
+    // but not `warmed`) strand the next settle on a brief the cache no
+    // longer holds.
+    if (scheduled.has(appointmentId)) continue // a timer is already pending for it
+    const ceilingReached = (attempts.get(appointmentId) ?? 0) >= MAX_ATTEMPTS
+    if (
+      warmed.has(appointmentId) &&
+      (cacheHas(briefUrl(customerId, appointmentId, 'ja')) || ceilingReached)
+    )
+      continue
+    scheduled.add(appointmentId)
     warmed.add(appointmentId)
     const delay = FIRST_DELAY_MS + pendingTimers.length * STAGGER_MS
     const timer = window.setTimeout(() => {
+      scheduled.delete(appointmentId)
       pendingTimers = pendingTimers.filter((t) => t !== timer)
       // Captured at FIRE time (not schedule time) — mirrors chrome-store.ts's
       // capture-before-async pattern, right here since the async leg starts now.
@@ -64,19 +88,32 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
         // warmed — stop trying, the real page-open takes over.
         if (attempt < MAX_ATTEMPTS) warmed.delete(appointmentId)
       }
-      void getDataPort()
-        .apiFetch(
-          `/api/app/v1/customers/${encodeURIComponent(customerId)}/ai/pre-session-brief?locale=ja&appointmentId=${encodeURIComponent(appointmentId)}`,
-        )
-        // Non-OK (500/503, an auth-blip 401) means no brief actually got
-        // generated. Body deliberately unread either way.
-        .then((res) => {
-          if (!res.ok) release()
-        })
-        .catch(release)
+      // Routes through the SAME client cache the screen reads (perf packet
+      // 33) — the warm now populates it with the body it used to discard,
+      // so the first 録音 open can paint the AI card instantly. A cache
+      // miss on settle (non-OK, no-signal response, or failure) means no
+      // brief actually got cached — release so a later trigger retries.
+      void fetchBrief(briefUrl(customerId, appointmentId, 'ja')).then((brief) => {
+        if (brief === null) release()
+      })
     }, delay)
     pendingTimers.push(timer)
   }
+}
+
+/** Exported for the packet's state-corruption tests — same rationale
+ *  ScreenBoundary's dtoCache/fetchedAtByPath exports give: an apiFetch
+ *  call-count spy can't tell a correctly-guarded release() from a
+ *  silently-corrupted one when brief-cache's own url-keyed dedupe happens to
+ *  absorb the difference. A FUNCTION, not direct re-exports — warmed/
+ *  attempts/scheduled are REBOUND (new Set/Map) on every sign-out reset, so
+ *  a captured reference would go stale the moment that reset fires. */
+export function warmStateForTests(): {
+  warmed: ReadonlySet<string>
+  attempts: ReadonlyMap<string, number>
+  scheduled: ReadonlySet<string>
+} {
+  return { warmed, attempts, scheduled }
 }
 
 // Shared-device hygiene (mirrors chrome-store.ts / ScreenBoundary's dtoCache
@@ -89,5 +126,6 @@ subscribeSessionState(() => {
     pendingTimers = []
     warmed = new Set()
     attempts = new Map()
+    scheduled = new Set()
   }
 })
