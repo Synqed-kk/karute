@@ -11,7 +11,7 @@
 //
 // MEMORY ONLY — never persisted (customer data at rest ruling, 7/24).
 
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useRef } from 'react'
 import { getDataPort } from '@/lib/ports/data-port'
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
@@ -58,6 +58,11 @@ const revalidating = new Set<string>()
 // started under user A must never populate user B's cache — and only a
 // SIGN-OUT can sit between those two.
 let sessionEpoch = 0
+// Bumped on every emitRefresh (see the subscriber at the bottom): a settle
+// whose fetch STARTED before a post-mutation refresh stamps fetchedAt=0
+// (content kept, instantly stale) instead of fresh — pre-mutation content
+// may paint for one silent-revalidate round trip, never longer.
+let refreshEpoch = 0
 
 // FIFO cap mirroring ScreenBoundary's dtoCache — only a NEW key can evict;
 // replacing an existing url's entry (revalidate) never grows the map.
@@ -84,10 +89,18 @@ NULL_BRIEF.value = null
 
 type BriefBody = { brief?: PreSessionBriefResult | null } | null
 
-async function readBrief(res: Response): Promise<PreSessionBriefResult | null> {
-  if (!res.ok) return null
+// Failure is distinguished from the server's honest "no brief" (200 with
+// brief:null — plan gate, no generatable data, generator fallback): both
+// settle the card on the mechanical fallback, but a FAILURE is retried
+// silently on the next revalidate signal (fetchedAt=0 → instantly stale)
+// while a real null is fresh for STALE_MS like any other answer.
+type BriefSettle = { brief: PreSessionBriefResult | null; failed: boolean }
+
+async function readBrief(res: Response): Promise<BriefSettle> {
+  if (!res.ok) return { brief: null, failed: true }
   const body = (await res.json().catch(() => null)) as BriefBody
-  return body?.brief ?? null
+  if (body === null) return { brief: null, failed: true }
+  return { brief: body.brief ?? null, failed: false }
 }
 
 /** Returns the cached entry (pending or fulfilled) or starts ONE fetch —
@@ -98,11 +111,12 @@ export function fetchBrief(url: string): StampedPromise {
   if (existing) return existing
 
   const epoch = sessionEpoch
+  const rEpoch = refreshEpoch
   const promise: StampedPromise = getDataPort()
     .apiFetch(url)
     .then(readBrief)
-    .catch(() => null)
-    .then((brief) => {
+    .catch((): BriefSettle => ({ brief: null, failed: true }))
+    .then(({ brief, failed }) => {
       // Straggler fence: a fetch that started before a SIGN-OUT must never
       // populate the next user's cache. Sign-out epoch, deliberately not
       // currentGeneration() — see the sessionEpoch note above.
@@ -110,26 +124,33 @@ export function fetchBrief(url: string): StampedPromise {
         if (cache.get(url) === promise) cache.delete(url)
         return null
       }
-      // Failures (and no-signal responses) are NOT cached — the next
-      // mount retries naturally, today's exact semantics. Identity-checked
-      // like the generation branch above (Greptile #603 P1): a stale
-      // failure settling after a wipe-then-refetch must delete only ITS OWN
-      // entry, never a newer same-url entry that replaced it.
-      if (brief === null) {
-        if (cache.get(url) === promise) cache.delete(url)
-        return null
-      }
+      // EVERY same-session settle is kept — null included (Liam field bug
+      // 7/25 #2, the double force-reload): the old delete-on-null turned any
+      // null settle (boot-window 401, timeout, plan gate, no-data — the
+      // facade legitimately returns 200 {brief:null}) into a re-shimmer
+      // machine. fetchBrief runs during RENDER, so with the entry deleted,
+      // EVERY later re-render of the mounted screen (mount revalidate settle,
+      // post-refresh settle — deterministically two per boot) minted a fresh
+      // pending promise and re-suspended the already-painted card through
+      // BriefLoadingCard. Keeping the fulfilled-null settles the card ONCE on
+      // the mechanical fallback; recovery is the SILENT path instead:
+      // maybeRevalidate → revalidateBrief → swap + force, which never
+      // suspends. A FAILURE stamps fetchedAt=0 (instantly stale → the very
+      // next revalidate signal retries); an honest server null stamps
+      // fresh and re-asks only after STALE_MS like any other answer.
       // Stamping status/value on the promise itself is unconditional — any
       // in-flight consumer (use()) already holds THIS promise and needs the
       // value regardless of what the cache map currently points at. The
-      // fetchedAtByUrl STAMP is different: it drives staleness for whatever
-      // entry the map holds for `url` right now, so it's written only if
-      // this promise is still that entry — a wipe (emitRefresh/signed-out)
-      // or a straggler superseded by a newer fetch for the same url must not
-      // leave a stamp that no longer describes the cached entry.
+      // fetchedAtByUrl STAMP is identity-checked (Greptile #603 P1 class): a
+      // straggler superseded by a newer fetch for the same url must not
+      // leave a stamp that doesn't describe the cached entry.
       promise.status = 'fulfilled'
       promise.value = brief
-      if (cache.get(url) === promise) fetchedAtByUrl.set(url, Date.now())
+      if (cache.get(url) === promise)
+        fetchedAtByUrl.set(
+          url,
+          failed || refreshEpoch !== rEpoch ? 0 : Date.now(),
+        )
       return brief
     })
   cacheBrief(url, promise)
@@ -157,14 +178,22 @@ export async function revalidateBrief(url: string): Promise<boolean> {
   const before = cache.get(url)
   try {
     const epoch = sessionEpoch
-    const brief = await getDataPort()
+    const rEpoch = refreshEpoch
+    const { brief, failed } = await getDataPort()
       .apiFetch(url)
       .then(readBrief)
-      .catch(() => null)
+      .catch((): BriefSettle => ({ brief: null, failed: true }))
     // Sign-out epoch, not currentGeneration() — see the sessionEpoch note.
-    if (sessionEpoch !== epoch || brief === null) return false
+    if (sessionEpoch !== epoch || failed) return false
+    // A refresh landed mid-flight: this body may be pre-mutation. Keep the
+    // painted entry, leave it stale (no stamp) — the next signal re-checks.
+    if (refreshEpoch !== rEpoch) return false
     if (cache.get(url) !== before) return false
-    if (JSON.stringify(brief) === JSON.stringify(before?.value)) {
+    // An honest server null never BLANKS painted content (same-path rule),
+    // but it does re-stamp freshness — without the stamp, a fulfilled-null
+    // entry (plan gate / no data) would sit permanently stale and re-ask on
+    // every revalidate signal.
+    if (brief === null || JSON.stringify(brief) === JSON.stringify(before?.value)) {
       fetchedAtByUrl.set(url, Date.now())
       return false
     }
@@ -217,6 +246,40 @@ export function useBrief(
     }
   }, [url])
 
+  // Failed-settle recovery (Liam field bug 7/25 #2): a FAILURE-stamped entry
+  // (fetchedAt=0, see fetchBrief) retries on the very re-renders that used
+  // to re-shimmer the card — a dto settle re-renders the screen anyway, and
+  // this effect (no dep array = after every render) turns that moment into a
+  // SILENT revalidate instead of a cache-miss re-suspend. Guards make it
+  // near-free: only fires on a fulfilled entry explicitly marked failed, and
+  // revalidateBrief's single-flight set dedupes bursts. The [url] effect's
+  // mount/foreground path already covers failed entries too (age from 0 is
+  // always past STALE_MS) — this one only closes the "failed after mount, no
+  // further signal" window.
+  const mounted = useRef(true)
+  useEffect(
+    () => () => {
+      mounted.current = false
+    },
+    [],
+  )
+  useEffect(() => {
+    if (!url) return
+    if (cache.get(url)?.status !== 'fulfilled') return
+    // Retry when the entry carries NO fresh stamp: 0 = failure-marked at
+    // settle; undefined = the stamp was cleared by a post-mutation refresh
+    // (fetchedAtByUrl.clear() — the failure marker itself is erased by it,
+    // which is why this checks "not fresh" rather than "=== 0"; the
+    // device-faithful render pin went red on the narrower guard). Either
+    // way the re-check is SILENT: revalidateBrief swaps content in place
+    // and re-stamps, so this self-quiets after one round trip per entry.
+    const stamp = fetchedAtByUrl.get(url)
+    if (stamp !== undefined && stamp !== 0) return
+    void revalidateBrief(url).then((changed) => {
+      if (changed && mounted.current) force()
+    })
+  })
+
   return promise
 }
 
@@ -232,10 +295,18 @@ subscribeSessionState(() => {
 })
 
 // Post-mutation refresh (nav.vite emitRefresh): the brief may derive from
-// changed records — mirrors ScreenBoundary's dtoCache.clear() on refresh.
-// Mounted screens re-fetch via their own machinery; revisits re-fetch on
-// next mount.
+// changed records — but a HARD clear here re-suspended the painted card
+// through BriefLoadingCard on every mutation AND on every rotated-token boot
+// (armSettleRefresh routes through emitRefresh), which is half of Liam's
+// 7/25 double-flash. New posture = the dto layer's own: KEEP what's painted,
+// mark every entry stale (fetchedAtByUrl cleared → age from 0 is always past
+// STALE_MS), and let the silent revalidate machinery swap fresh content in
+// without a loading frame — mounted screens via the failed/stale render
+// effect + foreground signal, revisits via maybeRevalidate on mount. The
+// refreshEpoch guard closes the in-flight straggler: a fetch that STARTED
+// pre-mutation but settles post-mutation must not stamp itself fresh with
+// pre-mutation content — it stamps 0 and the next signal re-checks it.
 subscribeRefresh(() => {
-  cache.clear()
+  refreshEpoch++
   fetchedAtByUrl.clear()
 })

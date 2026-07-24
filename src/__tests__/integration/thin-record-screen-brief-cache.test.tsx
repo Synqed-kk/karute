@@ -93,7 +93,7 @@ import { RecordScreen } from '../../../thin/screens/RecordScreen'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
 import { warmBriefsForToday } from '../../../thin/data/brief-warm'
 import { briefUrl, cacheHas, fetchBrief, fetchedAtByUrl, useBrief } from '../../../thin/data/brief-cache'
-import { emitRevalidate } from '../../../thin/ports/nav.vite'
+import { emitRefresh, emitRevalidate } from '../../../thin/ports/nav.vite'
 
 function makeBrief(concern: string): PreSessionBriefResult {
   return {
@@ -360,5 +360,106 @@ describe('useBrief — foreground staleness gate (perf packet 33, mirrors Screen
     act(() => emitRevalidate())
     await waitFor(() => expect(screen.getByTestId('probe').textContent).toBe('v2'))
     expect(apiFetch).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('RecordScreen — a failed brief settle never re-suspends the card; recovery is silent (Liam field bug 7/25 #2, THE symptom pin)', () => {
+  it('brief fails once → card settles on the fallback WITHOUT a re-shimmer loop, then upgrades silently to the AI brief', async () => {
+    const customerId = 'flash-c'
+    const appointmentId = 'flash-a'
+    const dto = recordDto(customerId, appointmentId)
+    const briefPath = briefUrl(customerId, appointmentId, 'ja')
+    let briefCalls = 0
+    let failFirstBrief: (() => void) | null = null
+    const apiFetch = jest.fn((path: string) => {
+      if (path === RECORD_SCREEN_PATH) return Promise.resolve(jsonResponse(dto))
+      if (path === briefPath) {
+        briefCalls++
+        // DEVICE-FAITHFUL ordering (the jsdom trap that made round 1 of this
+        // pin theater): on a phone the brief's failure settles SECONDS after
+        // mount — long after the [url] effect's initial maybeRevalidate ran
+        // and skipped the then-PENDING entry. An instant-failing mock settles
+        // BEFORE effects flush, so the mount path retried and masked the
+        // no-dep retry effect entirely. Hold call 1 open across the mount.
+        if (briefCalls === 1)
+          return new Promise<Response>((resolve) => {
+            failFirstBrief = () =>
+              resolve({ ok: false, json: async () => null } as unknown as Response)
+          })
+        return Promise.resolve(jsonResponse({ brief: makeBrief('AI-RECOVERED') }))
+      }
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setApiFetch(apiFetch)
+
+    // Mount: dto settles, Inner mounts, brief fetch 1 goes PENDING and the
+    // mount-side maybeRevalidate correctly skips it. Card = loading frame.
+    await act(async () => {
+      render(<RecordScreen />)
+    })
+    expect(briefCalls).toBe(1)
+
+    // The boot failure lands (churn 401 / timeout / 5xx — readBrief
+    // collapses them all): failure-marked null, KEPT in cache, card settles
+    // on the mechanical fallback. No render has happened since, so nothing
+    // has retried yet.
+    await act(async () => {
+      failFirstBrief?.()
+    })
+    expect(briefCalls).toBe(1)
+    expect(cacheHas(briefPath)).toBe(true)
+    expect(fetchedAtByUrl.get(briefPath)).toBe(0)
+
+    // The boot's own next event — armSettleRefresh's emitRefresh → mounted
+    // dto refetch → Inner re-render — is EXACTLY when the old contract
+    // re-suspended into BriefLoadingCard (Liam's double force-reload). Now
+    // it must instead trip the failed-retry effect: ONE silent revalidate,
+    // content swaps in, never a loading frame.
+    await act(async () => {
+      emitRefresh()
+    })
+    await waitFor(() => expect(screen.getByText('AI-RECOVERED')).toBeInTheDocument())
+    expect(briefCalls).toBe(2)
+    expect(document.querySelector('[aria-busy]')).toBeNull()
+
+    // Extra settles/renders after recovery stay quiet: fresh stamp, cache hit.
+    act(() => emitRevalidate())
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(briefCalls).toBe(2)
+  })
+
+  it('a permanently-null brief (plan gate / no data — the sim tenant shape) settles ONCE on the fallback: exactly one fetch, no loop', async () => {
+    const customerId = 'null-c'
+    const appointmentId = 'null-a'
+    const dto = recordDto(customerId, appointmentId)
+    const briefPath = briefUrl(customerId, appointmentId, 'ja')
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === RECORD_SCREEN_PATH) return jsonResponse(dto)
+      if (path === briefPath) return jsonResponse({ brief: null }) // honest server null
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setApiFetch(apiFetch)
+
+    await act(async () => {
+      render(<RecordScreen />)
+    })
+    // The card settles on the mechanical fallback and STAYS there — the old
+    // contract deleted the null entry, so every later render re-fetched and
+    // re-shimmered (the sim showed this as a permanently cycling/empty card).
+    await waitFor(() =>
+      expect(apiFetch.mock.calls.filter(([p]) => p === briefPath)).toHaveLength(1),
+    )
+    expect(cacheHas(briefPath)).toBe(true)
+
+    // A fresh honest-null is NOT failure-marked: a foreground event inside
+    // STALE_MS re-fetches nothing.
+    act(() => emitRevalidate())
+    await act(async () => {
+      await Promise.resolve()
+    })
+    expect(apiFetch.mock.calls.filter(([p]) => p === briefPath)).toHaveLength(1)
+    expect(document.querySelector('[aria-busy]')).toBeNull()
   })
 })
