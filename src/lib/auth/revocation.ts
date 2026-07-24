@@ -139,6 +139,9 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // fast-path. The status GET is read-only (no write side effect) and stays
   // OFF this list, like every other unlisted facade GET.
   'recordings.job.enqueue',
+  // 今すぐ同期 manual crawl trigger (packet 32): a just-terminated staffer
+  // must not keep kicking off QuickReserve crawls on the local fast-path.
+  'sync.run',
 ])
 
 /** True when `endpoint` must re-verify revocation via a server round-trip. */

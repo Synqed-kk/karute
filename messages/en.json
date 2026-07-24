@@ -1950,7 +1950,10 @@
       "running": "Running",
       "minutesAgo": "min since sync",
       "hoursAgo": "hr since sync",
-      "footer": "Sync settings and re-login are managed from the web version's settings."
+      "footer": "Sync settings and re-login are managed from the web version's settings.",
+      "runNow": "Sync now",
+      "runNowPending": "Syncing…",
+      "runFailed": "Sync failed"
     },
     "stores": {
       "plan": {
@@ -2126,7 +2129,8 @@
           "staff_stores_change": "Changed store assignment",
           "store_create": "Store added",
           "store_update": "Store updated",
-          "sync_config_update": "Booking sync settings changed"
+          "sync_config_update": "Booking sync settings changed",
+          "sync_run_now": "Ran sync now"
         },
         "privacy": {
           "customer_export": "Exported customer data",

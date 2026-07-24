@@ -226,4 +226,9 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'staff.voice.revoke': { kind: 'skip', category: 'privacy', action: '' },
   'invite.create': { kind: 'skip', category: 'staff', action: '' },
   'invite.revoke': { kind: 'skip', category: 'staff', action: '' },
+  // 今すぐ同期 manual crawl trigger (Liam ruling 7/24, packet 32): an owner
+  // action worth a trail row, same family as settings.sync_config_update
+  // above — this endpoint only TRIGGERS core's crawl (no credentials touched
+  // here), so a row here does not double-log anything core itself emits.
+  'sync.run': { kind: 'mutation', category: 'settings', action: 'settings.sync_run_now', targetType: 'business' },
 }

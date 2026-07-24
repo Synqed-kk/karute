@@ -1,11 +1,16 @@
 'use client'
 
-// 予約同期 read-only status card (Liam ruling 7/24, packet 31): v2 replaces
+// 予約同期 status card (Liam ruling 7/24, packet 31 → packet 32): v2 replaced
 // the web-only carve-out (packet 20 §S5) with an actual read for a viewer
 // holding the sync.view grant — connected source + relative sync time +
-// health, NOTHING clickable (no credential paths; phone re-login is a
-// separate PARKED phase). Least-data: `username` never reaches this
-// component — the DTO never ships it (see settings-screen-dto.ts).
+// health. Packet 32 adds exactly ONE action on top: 今すぐ同期 (trigger an
+// immediate crawl instead of waiting for the 15-min cron) via the optional
+// `onRunNow` prop. Credential paths stay sealed (no username, no re-login) —
+// this is a trigger, not a config write. Least-data: `username` never
+// reaches this component — the DTO never ships it (see
+// settings-screen-dto.ts). `onRunNow` absent (web today) → the card renders
+// ZERO interactive elements, byte-identical to the packet-31 read-only card;
+// only the thin caller (with the sync.view grant) ever passes it.
 
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
@@ -56,6 +61,7 @@ function relativeSync(
 export function SyncStatusCard({
   status,
   nowMs,
+  onRunNow,
 }: {
   status: SyncStatusDTO
   /** Injected clock for deterministic tests; omitted in production, which
@@ -65,6 +71,15 @@ export function SyncStatusCard({
    *  `Date.now()` out of the render body (React purity rule, same idiom as
    *  SubscriptionSummaryCard.tsx's own trial-countdown clock). */
   nowMs?: number
+  /** 今すぐ同期 (packet 32). PRESENCE gates the button, same idiom as
+   *  webOnlyTabIds/syncStatus elsewhere in this shell — omitted (web today)
+   *  → zero interactive elements. Resolves to `{ ok }` on success (incl. a
+   *  friendly not-configured message, which still counts as ok — the run
+   *  attempted, nothing failed) or `{ ok: false, message }` on failure;
+   *  never expected to reject (the thin wiring catches its own network
+   *  errors), but a throw would just surface as an unhandled state, same as
+   *  any other event handler. */
+  onRunNow?: () => Promise<{ ok: boolean; message?: string }>
 }) {
   const t = useTranslations('settings.sync')
   const [clock, setClock] = useState(() => Date.now())
@@ -76,6 +91,32 @@ export function SyncStatusCard({
   const health = syncHealth(status, effectiveNow)
   const relative = relativeSync(status.lastRunAt, effectiveNow)
   const pillLabel = health === 'green' ? t('healthy') : health === 'yellow' ? t('delayed') : t('stopped')
+  const [pending, setPending] = useState(false)
+  const [runResult, setRunResult] = useState<{ text: string; isError: boolean } | null>(null)
+
+  async function handleRunNow() {
+    if (!onRunNow || pending) return
+    setPending(true)
+    setRunResult(null)
+    try {
+      const result = await onRunNow()
+      if (!result.ok) {
+        setRunResult({ text: result.message ?? t('runFailed'), isError: true })
+      } else if (result.message) {
+        // A friendly message (e.g. not-configured) rides through as ok:true —
+        // it's not an error, but it's worth telling the owner why nothing ran.
+        setRunResult({ text: result.message, isError: false })
+      } else {
+        setRunResult(null)
+      }
+    } catch {
+      // The thin wiring's contract is never-reject, but a stuck-disabled
+      // 同期中… button is too bad a failure mode to leave to a contract.
+      setRunResult({ text: t('runFailed'), isError: true })
+    } finally {
+      setPending(false)
+    }
+  }
   // 最終結果 is the run outcome, not health: OK→成功, ERROR→失敗, RUNNING→実行中
   // (a crawl in flight is neither — 失敗 here would be a lie every cycle),
   // never-ran→'—' (plain em dash, no invented state).
@@ -120,6 +161,28 @@ export function SyncStatusCard({
           detail={status.lastRunError ?? undefined}
         />
       </div>
+
+      {onRunNow && (
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={handleRunNow}
+            disabled={pending}
+            className="w-full rounded-lg border border-border py-2 text-sm text-muted-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {pending ? t('runNowPending') : t('runNow')}
+          </button>
+          {runResult && (
+            <p
+              className={`text-xs ${
+                runResult.isError ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'
+              }`}
+            >
+              {runResult.text}
+            </p>
+          )}
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground">{t('footer')}</p>
     </div>
