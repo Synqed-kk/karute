@@ -1,13 +1,17 @@
 #!/usr/bin/env node
-// Monotonic, unique native build number for CFBundleVersion (R3 #18). Today the
-// value is hard-coded `2` — the App Store REJECTS a build whose CFBundleVersion
-// isn't strictly greater than the last uploaded one, so a fixed number can ship
-// at most once. This derives a value that is BOTH monotonic and unique.
+// Monotonic, unique native build number for CFBundleVersion — plain increment,
+// human-readable (Liam ruling 7/25: App Store Connect showed 9, 10, 11, 12,
+// then the old unix-seconds floor jumped it to 1784906700 — gibberish; back to
+// clear numbers). Apple only accepts ASCENDING build numbers within one
+// marketing version, and 1.0's train already has 1784906700 uploaded — so the
+// reset rides a MARKETING_VERSION bump to 1.1, where the counter restarts.
+// Liam ruling: the 1.1 train starts over at 1 — uploads read 1.1 (1), (2), …
+// State file seeded to 0 on the build Mac accordingly.
 //
-// Strategy: max(last + 1, unix-seconds-now). Seconds-since-epoch is naturally
-// increasing and unique across normal build cadence; the `last + 1` floor
-// guarantees strict monotonicity even for two builds in the same second (CI
-// bursts, retries). Pure fn is unit-tested; the CLI persists the last value.
+// A missing or unreadable state file FAILS LOUDLY here (Greptile #610 P1):
+// minting blind on a fresh checkout/new machine would stamp a regressed
+// number that App Store Connect rejects only AFTER a full archive+upload.
+// Seed once per machine from ASC's last uploaded 1.1 build number.
 //
 // ponytail: read→compute→write is not atomic — two PARALLEL builds on the same
 // machine can mint the same number (duplicate, never backwards; App Store
@@ -21,18 +25,41 @@ import { dirname, join } from 'node:path'
 
 const STATE = join(dirname(fileURLToPath(import.meta.url)), '.last-build-number')
 
-/** Pure: strictly greater than `last`, and ≥ the current unix second. */
-export function nextBuildNumber(last, now = Date.now()) {
-  const seconds = Math.floor(now / 1000)
-  return Math.max((Number(last) || 0) + 1, seconds)
+/** Pure: strictly greater than `last` — the next plain integer. */
+export function nextBuildNumber(last) {
+  return last + 1
 }
 
-function readLast() {
-  try {
-    return Number(readFileSync(STATE, 'utf8').trim()) || 0
-  } catch {
-    return 0
+/** Pure validation: `raw` is the state file's content, or null if absent.
+ *  Throws with seed instructions rather than guessing — see header. */
+export function parseLastBuildNumber(raw) {
+  if (raw === null) {
+    throw new Error(
+      `✗ ${STATE} missing — refusing to mint a build number blind. ` +
+        `Seed it once from App Store Connect's last uploaded 1.1 build: ` +
+        `echo -n '<last build number>' > ${STATE}`,
+    )
   }
+  const n = Number(raw.trim())
+  if (!Number.isInteger(n) || n < 0) {
+    throw new Error(
+      `✗ ${STATE} unreadable (${JSON.stringify(raw.trim())}) — re-seed it ` +
+        `from App Store Connect's last uploaded 1.1 build number.`,
+    )
+  }
+  return n
+}
+
+/** Strict read of the persisted counter — the ONLY reader of the state file
+ *  (release.mjs imports this instead of rolling its own). */
+export function readLast() {
+  let raw = null
+  try {
+    raw = readFileSync(STATE, 'utf8')
+  } catch {
+    // fall through — parseLastBuildNumber(null) throws the seed message
+  }
+  return parseLastBuildNumber(raw)
 }
 
 // CLI: `node build-number.mjs` prints + persists the next number.

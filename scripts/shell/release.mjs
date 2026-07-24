@@ -17,7 +17,7 @@ import { execSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, writeFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { nextBuildNumber } from './build-number.mjs'
+import { nextBuildNumber, readLast } from './build-number.mjs'
 
 const RUN = process.argv.includes('--run')
 const ARCHIVE = process.argv.includes('--archive')
@@ -89,7 +89,9 @@ function main() {
   }
   const commit =
     process.env.VERCEL_GIT_COMMIT_SHA || cap('git rev-parse --short HEAD')
-  const last = existsSync(STATE) ? Number(readFileSync(STATE, 'utf8').trim()) || 0 : 0
+  // Strict shared reader (Greptile #610 P1): absent/garbage state THROWS here,
+  // before any archive work — never silently mints a regressed number.
+  const last = readLast()
   const buildNumber = nextBuildNumber(last)
 
   // 1. Build the thin target (web-lane config). Injects commit + build number so

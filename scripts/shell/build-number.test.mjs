@@ -1,25 +1,32 @@
 #!/usr/bin/env node
-// Runnable check (no framework): build-number monotonicity. `node build-number.test.mjs`.
+// Runnable check (no framework): build-number increments. `node build-number.test.mjs`.
 import assert from 'node:assert/strict'
-import { nextBuildNumber } from './build-number.mjs'
+import { nextBuildNumber, parseLastBuildNumber } from './build-number.mjs'
 
-// 1. Strictly greater than the last value.
-assert.ok(nextBuildNumber(100) > 100, 'must exceed last')
+// 1. Fresh 1.1 train starts at 1 (Liam ruling 7/25: 1.1 (1), clear numbers).
+assert.equal(nextBuildNumber(0), 1, 'fresh train starts at 1')
 
-// 2. Tracks wall clock when clock is ahead of last.
-const now = 1_800_000_000_000 // fixed epoch ms
-assert.equal(nextBuildNumber(0, now), Math.floor(now / 1000), 'uses unix seconds')
+// 2. Plain increment — the whole contract.
+assert.equal(nextBuildNumber(1), 2, 'next after 1 is 2')
 
-// 3. Strictly monotonic even for many builds within the SAME second (last+1 floor).
-let last = Math.floor(now / 1000)
+// 3. Strictly monotonic across a burst of sequential builds.
+let last = 1
 for (let i = 0; i < 5; i++) {
-  const next = nextBuildNumber(last, now) // same `now` → same-second burst
+  const next = nextBuildNumber(last)
   assert.ok(next > last, `burst build ${i} must strictly increase (${next} > ${last})`)
   last = next
 }
+assert.equal(last, 6, 'five builds after 1 land on 6')
 
-// 4. Never goes backwards when last is far in the future (clock skew safety).
-const future = Math.floor(now / 1000) + 10_000
-assert.ok(nextBuildNumber(future, now) > future, 'monotonic under clock skew')
+// 4. Missing state file fails LOUDLY (Greptile #610 P1) — never mint blind.
+assert.throws(() => parseLastBuildNumber(null), /missing/, 'absent state must throw')
 
-console.log('✓ build-number monotonicity: all assertions passed')
+// 5. Garbage state fails loudly too — no silent coercion to a wrong number.
+assert.throws(() => parseLastBuildNumber('garbage'), /unreadable/, 'garbage must throw')
+assert.throws(() => parseLastBuildNumber('-3'), /unreadable/, 'negative must throw')
+
+// 6. Valid state parses.
+assert.equal(parseLastBuildNumber('12\n'), 12, 'trims and parses')
+assert.equal(parseLastBuildNumber('0'), 0, 'zero seed is valid (fresh 1.1 train)')
+
+console.log('✓ build-number increments: all assertions passed')
