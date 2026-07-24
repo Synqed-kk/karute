@@ -5,7 +5,7 @@
  * thin/data/screen-prefetch.ts. While staff look at the first screen after
  * sign-in, the OTHER screens' DTOs silently pre-load in the background
  * (mirrors brief-warm.ts's stagger/one-shot idioms and ScreenBoundary's
- * generation fence), so every first tap this session paints instantly
+ * sign-out epoch fence), so every first tap this session paints instantly
  * instead of shimmering for a full facade round trip.
  *
  * Pins:
@@ -21,7 +21,7 @@
  *      literal exactly.
  *  3.  a path visited mid-stagger (before its timer fires) is skipped at
  *      fire time too — no fetch at all for it.
- *  4.  generation-fence straggler: an in-flight fetch that settles after
+ *  4.  sign-out epoch fence straggler: an in-flight fetch that settles after
  *      sign-out never writes the cache.
  *  5.  clobber guard: a path the user visits WHILE its prefetch fetch is
  *      in flight keeps the fresher visit data — the stale settle never wins.
@@ -89,6 +89,21 @@
  *      — the next foreground retries it instead of stranding it cold.
  *  R10. unconditional stamp: a fully-warm foreground still resets the 30s
  *      clock — a wipe right after stays rate-limited until the interval.
+ *
+ * Sign-out epoch fence hardening (perf packet 37): the straggler fence both
+ * timer bodies capture (myGen→mySessionEpoch) used to key on
+ * currentGeneration(), which session-store bumps on EVERY authoritative
+ * write — including a routine same-user cold-boot double-settle (boot
+ * recover + GoTrue INITIAL_SESSION, same user). That silently discarded a
+ * warm settle straddling routine boot churn, same root cause test 4 already
+ * pins for sign-out (unaffected — a sign-out still bumps the new
+ * dtoSessionEpoch() fence too, see ScreenBoundary.tsx).
+ *  E1. tab-warm batch settle straddling a same-user boot double-settle:
+ *      cacheDto lands (was silently dropped under the old fence).
+ *  E2. warmRecordForBookings settle straddling a same-user boot
+ *      double-settle: cacheDto lands, same rationale as E1.
+ *  E3. warmRecordForBookings settle straddling a SIGN-OUT: still discarded —
+ *      the fence's real job, unaffected by the rename.
  */
 
 // ---- CustomersScreen render harness (test 8) — same proven mock set as
@@ -403,7 +418,7 @@ describe('screen-prefetch — cached-at-fire-time skip (test 3)', () => {
   })
 })
 
-describe('screen-prefetch — generation-fence straggler (test 4)', () => {
+describe('screen-prefetch — sign-out epoch fence straggler (test 4)', () => {
   it('an in-flight fetch that settles after sign-out never writes the cache', async () => {
     jest.useFakeTimers()
     let resolveRecord: (r: Response) => void = () => {}
@@ -417,11 +432,84 @@ describe('screen-prefetch — generation-fence straggler (test 4)', () => {
     jest.advanceTimersByTime(1_000) // record is scheduled 1st — its fetch starts
     expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
 
-    setSessionState({ status: 'signed-out' }) // advances the generation
+    setSessionState({ status: 'signed-out' }) // bumps dtoSessionEpoch
     resolveRecord(jsonResponse(recordDto())) // the stale settle, now after sign-out
     await flushMicrotasks()
 
     expect(dtoCache.has(RECORD_PATH)).toBe(false)
+  })
+})
+
+describe('screen-prefetch — sign-out epoch fence hardening (E1-E3, perf packet 37)', () => {
+  it('E1: tab-warm batch settle straddling a same-user boot double-settle lands in the cache', async () => {
+    jest.useFakeTimers()
+    let resolveRecord: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === RECORD_PATH) return new Promise<Response>((r) => (resolveRecord = r))
+      return new Promise<Response>(() => {}) // hold every other target forever — isolate record
+    })
+    mockApiFetch(apiFetch)
+
+    signIn('u1', 'tok1')
+    jest.advanceTimersByTime(1_000) // record is scheduled 1st — its fetch starts
+    expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
+
+    // A routine same-user cold-boot double-settle (boot recover + GoTrue
+    // INITIAL_SESSION, same user) lands while the warm fetch is still in
+    // flight — NOT a sign-out, so the epoch fence must not discard the
+    // eventual cache write (this is exactly test 4's sibling case).
+    signIn('u1', 'tok2')
+    resolveRecord(jsonResponse(recordDto()))
+    await flushMicrotasks()
+
+    expect(dtoCache.has(RECORD_PATH)).toBe(true)
+  })
+
+  it('E2: warmRecordForBookings settle straddling a same-user boot double-settle lands in the cache', async () => {
+    jest.useFakeTimers()
+    let resolveWarm: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === recordWarmPath('a'))
+        return new Promise<Response>((r) => {
+          resolveWarm = r
+        })
+      return new Promise<Response>(() => {})
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a'])
+    jest.advanceTimersByTime(1_000) // FIRST_DELAY_MS, k=0 — the warm fetch starts
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('a'))
+
+    signIn('u1', 'tok1')
+    signIn('u1', 'tok2') // same-user double-settle mid-flight
+    resolveWarm(jsonResponse(recordDto()))
+    await flushMicrotasks()
+
+    expect(dtoCache.has(recordWarmPath('a'))).toBe(true)
+  })
+
+  it('E3: warmRecordForBookings settle straddling a SIGN-OUT is still discarded', async () => {
+    jest.useFakeTimers()
+    let resolveWarm: (r: Response) => void = () => {}
+    const apiFetch = jest.fn((path: string) => {
+      if (path === recordWarmPath('a'))
+        return new Promise<Response>((r) => {
+          resolveWarm = r
+        })
+      return new Promise<Response>(() => {})
+    })
+    mockApiFetch(apiFetch)
+
+    warmRecordForBookings(['a'])
+    jest.advanceTimersByTime(1_000)
+    expect(apiFetch).toHaveBeenCalledWith(recordWarmPath('a'))
+
+    setSessionState({ status: 'signed-out' }) // bumps dtoSessionEpoch
+    resolveWarm(jsonResponse(recordDto())) // the stale settle, now after sign-out
+    await flushMicrotasks()
+
+    expect(dtoCache.has(recordWarmPath('a'))).toBe(false)
   })
 })
 
