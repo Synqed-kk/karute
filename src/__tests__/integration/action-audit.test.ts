@@ -59,6 +59,9 @@ const invitesUpdateStatus = jest.fn(async () => ({}))
 const staffStoresSet = jest.fn(async () => ({}))
 const storesCreate = jest.fn(async () => ({ id: 'store-new' }))
 const storesUpdate = jest.fn(async () => ({}))
+const customersCreate = jest.fn(async () => ({ id: 'cust-new', name: 'New Person' }))
+const customersCheckDuplicate = jest.fn(async () => ({ exists: false }))
+const customersUpdate = jest.fn(async () => ({}))
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
     staff: {
@@ -72,6 +75,11 @@ jest.mock('@/lib/synqed/client', () => ({
     invites: { create: invitesCreate, updateStatus: invitesUpdateStatus },
     staffStores: { set: staffStoresSet },
     stores: { create: storesCreate, update: storesUpdate },
+    customers: {
+      create: customersCreate,
+      checkDuplicate: customersCheckDuplicate,
+      update: customersUpdate,
+    },
   })),
 }))
 
@@ -149,6 +157,7 @@ import { createInvite, revokeInvite, acceptInvite } from '@/actions/invites'
 import { setStaffPermissions } from '@/actions/permissions'
 import { setStaffPin, removeStaffPin } from '@/actions/staff-pin'
 import { setStaffStores, createStore, updateStore } from '@/actions/stores'
+import { createCustomer, createQuickCustomer, updateCustomer } from '@/actions/customers'
 import { presetCapabilities } from '@/lib/auth/permissions'
 import { auditLines } from './helpers/audit-lines'
 
@@ -385,6 +394,67 @@ describe('credential + store + profile writers (wave A part 3)', () => {
     const lines = await auditLines(async () => {
       const res = await setStaffPin('staff-9', '1234')
       expect(res.error).toBeTruthy()
+    })
+    expect(lines).toHaveLength(0)
+  })
+})
+
+describe('customer writers (wave B part 1, packet 30)', () => {
+  it('createCustomer emits customer.create targeting the created row', async () => {
+    const lines = await auditLines(async () => {
+      const res = await createCustomer({ name: 'New Person' } as never)
+      expect(res).toMatchObject({ success: true, id: 'cust-new' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'customer',
+      action: 'customer.create',
+      actor_id: 'user-1',
+      business_id: 'biz-1',
+      target_type: 'customer',
+      target_id: 'cust-new',
+      severity: 'info',
+      source: 'web',
+    })
+  })
+
+  it('createQuickCustomer (walk-in) emits the SAME customer.create action', async () => {
+    const lines = await auditLines(async () => {
+      const res = await createQuickCustomer('Walk-in')
+      expect(res).toMatchObject({ success: true, id: 'cust-new' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'customer.create', target_id: 'cust-new' })
+  })
+
+  it('updateCustomer emits customer.edit targeting the edited row', async () => {
+    const lines = await auditLines(async () => {
+      const res = await updateCustomer('cust-9', { name: 'Updated' })
+      expect(res).toEqual({ success: true, id: 'cust-9' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'customer.edit',
+      target_type: 'customer',
+      target_id: 'cust-9',
+      severity: 'info',
+    })
+  })
+
+  it('a FAILED createCustomer emits nothing (silence contract)', async () => {
+    customersCreate.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const res = await createCustomer({ name: 'New Person' } as never)
+      expect(res.success).toBe(false)
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a FAILED updateCustomer emits nothing (silence contract)', async () => {
+    customersUpdate.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const res = await updateCustomer('cust-9', { name: 'Updated' })
+      expect(res.success).toBe(false)
     })
     expect(lines).toHaveLength(0)
   })

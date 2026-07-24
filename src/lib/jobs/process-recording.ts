@@ -184,7 +184,11 @@ async function processJob(job: RecordingJob): Promise<string> {
     businessId: job.business_id,
     targetType: 'karute',
     targetId: record,
-    detail: { via: 'job_pipeline', recording_session_id: job.recording_session_id },
+    detail: {
+      via: 'job_pipeline',
+      recording_session_id: job.recording_session_id,
+      customer_id: payload.customer_id,
+    },
     source: 'system',
   })
 

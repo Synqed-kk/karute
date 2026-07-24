@@ -10,6 +10,9 @@ jest.mock('next/cache', () => ({ revalidatePath: jest.fn(), updateTag: jest.fn()
 jest.mock('next-intl/server', () => ({ getTranslations: async () => (k: string) => k, getLocale: async () => 'ja' }))
 jest.mock('@/lib/karute/memory-ingest', () => ({ ingestSessionMemory: jest.fn(async () => {}) }))
 
+const audit = jest.fn()
+jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => audit(...(a as [])) }))
+
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 process.env.AUTH_SUPABASE_JWT_SECRET ??= 'test-jwt-secret-for-hmac'
 process.env.AUTH_SUPABASE_URL ??= 'https://test-auth.supabase.co'
@@ -155,6 +158,27 @@ describe('POST /api/app/v1/karute (save)', () => {
     const res = await saveOPTIONS(new Request('https://s/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), noRoute)
     expect(res.status).toBe(204)
     expect(res.headers.get('access-control-allow-origin')).toBe('capacitor://localhost')
+  })
+})
+
+describe('POST /api/app/v1/karute (save) — karute.save choke-point audit (packet 30 §3)', () => {
+  it('emits karute.save exactly once, facade identity, source facade', async () => {
+    const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)
+    expect(res.status).toBe(200)
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'karute',
+        action: 'karute.save',
+        actorId: 'auth-user-1',
+        actorType: 'staff',
+        businessId: 'business-1',
+        targetType: 'karute',
+        targetId: 'kar-new',
+        source: 'facade',
+        detail: expect.objectContaining({ customer_id: 'cust-1' }),
+      }),
+    )
   })
 })
 

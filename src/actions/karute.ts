@@ -10,6 +10,8 @@ import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
+import { audit } from '@/lib/audit'
+import { resolveWebAuditContext } from '@/lib/audit-web'
 import type { SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
 
@@ -76,11 +78,42 @@ async function resolveKaruteStoreId(
  * retry of a transcript that was already ingested on the first save.
  * Residual race (concurrent first saves both passing the lookup) falls back
  * to core's dedupe, which is correct there: both carry identical content.
+ *
+ * Audit choke point (packet 30 §3): web saveKaruteRecord, web
+ * saveKaruteRecordInline, and the facade POST all funnel here — ONE emit
+ * covers all three. `actor` is threaded explicitly (this function has no
+ * cookie/Bearer context of its own): facade callers pass their already-
+ * resolved identity, web callers resolve it via resolveWebAuditContext()
+ * BEFORE calling in. process-recording.ts does NOT call this function (its
+ * own upsert, own pre-existing karute.save emit) — do not add it here.
  */
 export async function createOrUpdateKaruteRecord(
   synqed: SynqedClient,
   payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
+  actor: { actorId: string | null; businessId: string | null; source: 'web' | 'facade' },
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
+  const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean }) => {
+    audit({
+      category: 'karute',
+      action: 'karute.save',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'karute',
+      targetId: result.id,
+      // customer_id rides in detail (ids only, PII rule) so the audit-log
+      // viewer can resolve a name for this karute row — see AuditLogSection
+      // §4 target-label join off detail.customer_id.
+      detail: {
+        fresh: result.fresh,
+        transcript_changed: result.transcriptChanged,
+        customer_id: payload.customer_id ?? null,
+      },
+      source: actor.source,
+    })
+    return result
+  }
+
   const recordingSessionId = payload.recording_session_id
   if (recordingSessionId) {
     // ONLY a 404 means "no record yet". Any other lookup failure (timeout,
@@ -106,17 +139,17 @@ export async function createOrUpdateKaruteRecord(
         entries: payload.entries,
         appointment_id: payload.appointment_id,
       })
-      return {
+      return emitSave({
         id: existing.id,
         fresh: false,
         // The retry EDITED the transcript → there's genuinely new material
         // for memory ingest; an identical transcript is just a resend.
         transcriptChanged: existing.transcript !== payload.transcript,
-      }
+      })
     }
   }
   const record = await synqed.karuteRecords.create(payload)
-  return { id: record.id, fresh: true, transcriptChanged: true }
+  return emitSave({ id: record.id, fresh: true, transcriptChanged: true })
 }
 
 /**
@@ -217,22 +250,31 @@ export async function saveKaruteRecord(
 
     const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
 
-    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(synqed, {
-      customer_id: input.customerId,
-      store_id: storeId,
-      staff_id: staffId,
-      appointment_id: input.appointmentId ?? null,
-      recording_session_id: input.recordingSessionId ?? null,
-      transcript: input.transcript,
-      ai_summary: input.summary,
-      entries: input.entries.map((entry) => ({
-        category: entry.category.toUpperCase() as 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE' | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER',
-        content: entry.content,
-        original_quote: entry.sourceQuote ?? null,
-        confidence: entry.confidenceScore,
-        is_manual: false,
-      })),
-    })
+    // Resolve BEFORE the write so a resolver hiccup can't orphan the emit
+    // decision (packet 30 §3) — same tolerant identity seam the other web
+    // audit writers use.
+    const { actorId, businessId } = await resolveWebAuditContext()
+
+    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
+      synqed,
+      {
+        customer_id: input.customerId,
+        store_id: storeId,
+        staff_id: staffId,
+        appointment_id: input.appointmentId ?? null,
+        recording_session_id: input.recordingSessionId ?? null,
+        transcript: input.transcript,
+        ai_summary: input.summary,
+        entries: input.entries.map((entry) => ({
+          category: entry.category.toUpperCase() as 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE' | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER',
+          content: entry.content,
+          original_quote: entry.sourceQuote ?? null,
+          confidence: entry.confidenceScore,
+          is_manual: false,
+        })),
+      },
+      { actorId, businessId, source: 'web' },
+    )
     recordId = id
 
     // Best-effort: persist the session outcome (the coaching training label).
@@ -321,22 +363,29 @@ export async function saveKaruteRecordInline(
 
     const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
 
-    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(synqed, {
-      customer_id: input.customerId,
-      store_id: storeId,
-      staff_id: staffId,
-      appointment_id: input.appointmentId ?? null,
-      recording_session_id: input.recordingSessionId ?? null,
-      transcript: input.transcript,
-      ai_summary: input.summary,
-      entries: input.entries.map((entry) => ({
-        category: entry.category.toUpperCase() as 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE' | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER',
-        content: entry.content,
-        original_quote: entry.sourceQuote ?? null,
-        confidence: entry.confidenceScore,
-        is_manual: false,
-      })),
-    })
+    // Resolve BEFORE the write — same identity seam as saveKaruteRecord.
+    const { actorId, businessId } = await resolveWebAuditContext()
+
+    const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
+      synqed,
+      {
+        customer_id: input.customerId,
+        store_id: storeId,
+        staff_id: staffId,
+        appointment_id: input.appointmentId ?? null,
+        recording_session_id: input.recordingSessionId ?? null,
+        transcript: input.transcript,
+        ai_summary: input.summary,
+        entries: input.entries.map((entry) => ({
+          category: entry.category.toUpperCase() as 'SYMPTOM' | 'TREATMENT' | 'BODY_AREA' | 'PREFERENCE' | 'LIFESTYLE' | 'NEXT_VISIT' | 'PRODUCT' | 'OTHER',
+          content: entry.content,
+          original_quote: entry.sourceQuote ?? null,
+          confidence: entry.confidenceScore,
+          is_manual: false,
+        })),
+      },
+      { actorId, businessId, source: 'web' },
+    )
 
     // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.
     // Never gate the return on it; setKaruteOutcome swallows its own errors.

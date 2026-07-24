@@ -157,6 +157,11 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   // Opening ONE customer's full profile = a view event.
   'customer.read': { kind: 'view', category: 'customer', action: 'customer.view', targetType: 'customer' },
   'customer.update': { kind: 'mutation', category: 'customer', action: 'customer.edit', targetType: 'customer' },
+  // karute.save is NOT a row here (deliberately, packet 30 §3): it logs at
+  // the shared choke point createOrUpdateKaruteRecord (src/actions/karute.ts)
+  // instead — that ONE emit covers the web save actions AND this facade
+  // route. A row here would double-log every facade save. Deny-default doc
+  // rule readers: do not add 'karute.save' to this map.
   // List render ≠ a view (Liam ruling 2026-07-17) — names on a list don't log.
   'customers.list': { kind: 'skip', category: 'customer', action: '' },
   // AI相談 logs once per SESSION (wired at the session mint, not this screen GET).

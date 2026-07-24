@@ -126,6 +126,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
         is_manual: false,
       })),
     },
+    { actorId: ctx.identity.authUserId, businessId, source: 'facade' },
   )
 
   // Best-effort outcome (the coaching label) — never gate the save on it.

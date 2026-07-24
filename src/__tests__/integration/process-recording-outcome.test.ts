@@ -19,7 +19,8 @@ jest.mock('@/lib/karute/outcome', () => ({
     (setKaruteOutcomeWithClient as (...a: unknown[]) => unknown)(...a),
 }))
 
-jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
+const audit = jest.fn()
+jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => audit(...(a as [])) }))
 
 jest.mock('@/lib/ai/transcribe', () => ({
   speakerIdMode: () => 'off',
@@ -164,6 +165,25 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
 
     expect(setKaruteOutcomeWithClient).not.toHaveBeenCalled()
     expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
+  })
+
+  it('a job run emits its own karute.save exactly ONCE, with customer_id in detail (packet 30 §4) — this PR adds no second emit', async () => {
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'karute',
+        action: 'karute.save',
+        source: 'system',
+        detail: expect.objectContaining({
+          via: 'job_pipeline',
+          customer_id: 'cust-1',
+        }),
+      }),
+    )
   })
 
   it('an outcome-write failure FAILS the job (throw, not swallowed) — retry converges', async () => {
