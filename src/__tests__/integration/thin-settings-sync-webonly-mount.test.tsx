@@ -101,6 +101,18 @@ const dto: SettingsScreenDTOType = {
   featureMultiStore: false,
 }
 
+describe('thin settings wiring — page frame (Liam field report 7/24)', () => {
+  it('mounts SettingsShell inside the SettingsPageChrome container geometry — dropping the frame ships settings edge-to-edge again', () => {
+    const { container } = render(<SettingsScreenInner dto={dto} />)
+    const frame = container.firstElementChild as HTMLElement
+    // Geometry mirrors src/components/settings/SettingsPageChrome.tsx:13
+    // (p-4 is the phone gutter; max-w-5xl/space-y-6 the web rhythm).
+    for (const cls of ['mx-auto', 'max-w-5xl', 'space-y-6', 'p-4', 'md:p-6']) {
+      expect(frame.classList.contains(cls)).toBe(true)
+    }
+  })
+})
+
 describe('thin settings wiring — 同期 tab web-only carve-out (packet 20 §S5)', () => {
   it('tapping 予約同期 renders the real ja web-only copy through the wired constants, never SyncSection or 準備中', () => {
     render(<SettingsScreenInner dto={dto} />)
