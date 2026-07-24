@@ -101,6 +101,21 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
   }
 }
 
+/** Exported for the packet's state-corruption tests — same rationale
+ *  ScreenBoundary's dtoCache/fetchedAtByPath exports give: an apiFetch
+ *  call-count spy can't tell a correctly-guarded release() from a
+ *  silently-corrupted one when brief-cache's own url-keyed dedupe happens to
+ *  absorb the difference. A FUNCTION, not direct re-exports — warmed/
+ *  attempts/scheduled are REBOUND (new Set/Map) on every sign-out reset, so
+ *  a captured reference would go stale the moment that reset fires. */
+export function warmStateForTests(): {
+  warmed: ReadonlySet<string>
+  attempts: ReadonlyMap<string, number>
+  scheduled: ReadonlySet<string>
+} {
+  return { warmed, attempts, scheduled }
+}
+
 // Shared-device hygiene (mirrors chrome-store.ts / ScreenBoundary's dtoCache
 // wipe on sign-out): different staff on the same iPad warm different scopes,
 // and without a reset the Set would grow for the whole page lifetime.
