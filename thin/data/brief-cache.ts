@@ -102,9 +102,12 @@ export function fetchBrief(url: string): StampedPromise {
         return null
       }
       // Failures (and no-signal responses) are NOT cached — the next
-      // mount retries naturally, today's exact semantics.
+      // mount retries naturally, today's exact semantics. Identity-checked
+      // like the generation branch above (Greptile #603 P1): a stale
+      // failure settling after a wipe-then-refetch must delete only ITS OWN
+      // entry, never a newer same-url entry that replaced it.
       if (brief === null) {
-        cache.delete(url)
+        if (cache.get(url) === promise) cache.delete(url)
         return null
       }
       // Stamping status/value on the promise itself is unconditional — any

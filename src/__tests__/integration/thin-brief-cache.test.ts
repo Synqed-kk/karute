@@ -195,6 +195,39 @@ describe('fetchBrief', () => {
     expect(cacheHas(url)).toBe(false)
   })
 
+  it('failure-delete fence (Greptile #603 P1): a stale FAILURE settling after wipe-then-refetch never deletes the newer entry', async () => {
+    // Sequence: fetch A held pending → emitRefresh wipes A's entry → a new
+    // fetchBrief starts entry B for the SAME url → A settles as a FAILURE.
+    // A's failure branch must delete only its OWN entry (identity check,
+    // mirroring the generation branch) — an unconditional cache.delete(url)
+    // would evict B, forcing the next revisit back to the network and
+    // blinding foreground revalidation until a remount.
+    const resolvers: Array<(r: Response) => void> = []
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+      () =>
+        new Promise<Response>((r) => {
+          resolvers.push(r)
+        }),
+    )
+    mockApiFetch(apiFetch)
+    const url = briefUrl('replace-c', 'replace-a', 'ja')
+
+    const pA = fetchBrief(url)
+    emitRefresh() // wipes A's entry
+    const pB = fetchBrief(url) // fresh entry B for the same url
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    resolvers[0]({ ok: false } as Response) // A settles as a failure
+    await pA
+    expect(cacheHas(url)).toBe(true) // B's entry survives A's failure
+
+    resolvers[1](jsonResponse({ brief: makeBrief('b-wins') }))
+    const briefB = await pB
+    expect(briefB?.concerns[0]).toBe('b-wins')
+    expect(cacheHas(url)).toBe(true)
+    expect(fetchedAtByUrl.has(url)).toBe(true) // B stamps normally
+  })
+
   it('FIFO cap: the 51st distinct url evicts the oldest key from both maps', async () => {
     const apiFetch = jest
       .fn<Promise<Response>, unknown[]>()
