@@ -42,6 +42,10 @@
 	</array>
 	<key>UISupportedInterfaceOrientations</key>
 	<array>
+		<!-- Portrait-only (parity P-A): in landscape an iPhone Pro Max crosses
+		     the md breakpoint, md:hidden hides the ENTIRE chrome (MobileHeader
+		     + BottomNav) and the bundle ships no Sidebar — the F-7 no-nav class.
+		     The whole thin layout assumes portrait (see thin/shell.tsx). -->
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
 	<key>UISupportedInterfaceOrientations~ipad</key>
