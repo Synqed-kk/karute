@@ -90,18 +90,26 @@ export function SyncStatusCard({
 
   return (
     <div className="space-y-6 rounded-xl border border-border/30 bg-card/50 p-6">
-      {relative && (
-        <div>
-          <div className="text-4xl font-bold tabular-nums text-foreground">{relative.value}</div>
-          <div className="text-sm text-muted-foreground">{t(relative.unitKey)}</div>
-        </div>
-      )}
-
-      <span
-        className={`inline-flex items-center rounded-full border px-3 py-1.5 text-xs font-medium ${PILL_STYLE[health]}`}
-      >
-        {pillLabel}
-      </span>
+      {/* Mock layout (Liam-approved, field report 7/24): relative time and
+          the health pill share ONE row — number + unit baseline-aligned
+          left, pill right. Never-synced keeps the pill right-aligned. */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {relative ? (
+          <div className="flex items-baseline gap-2">
+            <span className="text-4xl font-bold tabular-nums text-foreground">
+              {relative.value}
+            </span>
+            <span className="text-sm text-muted-foreground">{t(relative.unitKey)}</span>
+          </div>
+        ) : (
+          <span />
+        )}
+        <span
+          className={`inline-flex shrink-0 items-center rounded-full border px-3 py-1.5 text-xs font-medium ${PILL_STYLE[health]}`}
+        >
+          {pillLabel}
+        </span>
+      </div>
 
       <div className="divide-y divide-black/5 dark:divide-white/5 rounded-lg border border-border/30">
         <StatusRow label={t('source')} value="Quick Reserve" />
