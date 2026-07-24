@@ -23,6 +23,7 @@ import type { Session } from '@supabase/supabase-js'
 import { setDataPort } from '@/lib/ports/data-port'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import { warmBriefsForToday, warmStateForTests, type BriefWarmTarget } from '../../../thin/data/brief-warm'
+import { briefUrl, fetchBrief } from '../../../thin/data/brief-cache'
 
 function mockApiFetch(apiFetch: jest.Mock) {
   setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
@@ -147,11 +148,21 @@ it('staggers a batch: nothing before 3s, then one every 4s', () => {
   expect(apiFetch).toHaveBeenCalledTimes(3)
 })
 
+// Honest success body (verifier find 7/25: the old `{ ok: true }` mock had
+// no .json() at all — under readBrief it silently settled as a FAILURE, so
+// the "successful retry" halves of these tests never actually exercised
+// success; they passed for the wrong reason).
+const successResponse = () =>
+  ({
+    ok: true,
+    json: async () => ({ brief: { concerns: ['warmed'], hooks: [], memoAnalysis: [] } }),
+  }) as unknown as Response
+
 it('a failed warm releases the booking so a later trigger retries, and never throws', async () => {
   const apiFetch = jest
     .fn<Promise<Response>, unknown[]>()
     .mockRejectedValueOnce(new Error('network'))
-    .mockResolvedValue({ ok: true } as Response)
+    .mockResolvedValue(successResponse())
   mockApiFetch(apiFetch)
 
   expect(() => warmBriefsForToday([target('c1', 'a1')])).not.toThrow()
@@ -161,14 +172,22 @@ it('a failed warm releases the booking so a later trigger retries, and never thr
 
   warmBriefsForToday([target('c1', 'a1')]) // released on failure — retries
   jest.advanceTimersByTime(3_000)
+  await flushMicrotasks()
+  expect(apiFetch).toHaveBeenCalledTimes(2)
+  // The retry routed through revalidateBrief (the failed entry is KEPT
+  // under the null-negative-cache contract) and genuinely SUCCEEDED: the
+  // booking stays warmed — no spurious release, no third attempt burned.
+  expect(warmStateForTests().warmed.has('a1')).toBe(true)
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(10_000)
   expect(apiFetch).toHaveBeenCalledTimes(2)
 })
 
 it('a resolved non-OK response releases the booking so a later trigger retries', async () => {
   const apiFetch = jest
     .fn<Promise<Response>, unknown[]>()
-    .mockResolvedValueOnce({ ok: false } as Response)
-    .mockResolvedValue({ ok: true } as Response)
+    .mockResolvedValueOnce({ ok: false, json: async () => null } as unknown as Response)
+    .mockResolvedValue(successResponse())
   mockApiFetch(apiFetch)
 
   warmBriefsForToday([target('c1', 'a1')])
@@ -177,7 +196,9 @@ it('a resolved non-OK response releases the booking so a later trigger retries',
 
   warmBriefsForToday([target('c1', 'a1')]) // released on !ok — retries
   jest.advanceTimersByTime(3_000)
+  await flushMicrotasks()
   expect(apiFetch).toHaveBeenCalledTimes(2)
+  expect(warmStateForTests().warmed.has('a1')).toBe(true) // real success recorded
 })
 
 it('gives up after 2 failed attempts — a third call schedules nothing', async () => {
@@ -196,6 +217,41 @@ it('gives up after 2 failed attempts — a third call schedules nothing', async 
   warmBriefsForToday([target('c1', 'a1')]) // ceiling hit — no third schedule
   jest.advanceTimersByTime(10_000)
   expect(apiFetch).toHaveBeenCalledTimes(2)
+})
+
+it('a warm firing while the MOUNT fetch is in flight never duplicates the request (pending guard, verifier find 7/25)', async () => {
+  // Simulate the mount's own fetchBrief holding the slot: first request
+  // held forever pending, so the warm's timer fires mid-flight.
+  const resolvers: Array<(r: Response) => void> = []
+  const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+    () =>
+      new Promise<Response>((r) => {
+        resolvers.push(r)
+      }),
+  )
+  mockApiFetch(apiFetch)
+
+  // The mount side: fetchBrief directly (same call RecordScreen makes).
+  const url = briefUrl('c1', 'a1', 'ja')
+  const mountPromise = fetchBrief(url)
+  expect(apiFetch).toHaveBeenCalledTimes(1)
+
+  // The warm fires for the same booking while that fetch is pending —
+  // revalidateBrief's pending guard must make this a ZERO-network no-op
+  // (the old route raced a second, independent paid gpt-4o call).
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(3_000)
+  await flushMicrotasks()
+  expect(apiFetch).toHaveBeenCalledTimes(1)
+
+  // The mount fetch settles with content; a later warm trigger sees the
+  // fresh stamp and short-circuits — still no extra request.
+  resolvers[0](successResponse())
+  await mountPromise
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(10_000)
+  await flushMicrotasks()
+  expect(apiFetch).toHaveBeenCalledTimes(1)
 })
 
 it('a stale in-flight release from a signed-out session cannot corrupt the new session (epoch guard)', async () => {

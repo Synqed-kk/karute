@@ -13,7 +13,7 @@
 // appointments screen's own fetch for bandwidth on first paint.
 
 import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
-import { briefUrl, cacheHas, fetchBrief } from './brief-cache'
+import { briefUrl, cacheHas, fetchBrief, fetchedAtByUrl, revalidateBrief } from './brief-cache'
 
 const FIRST_DELAY_MS = 3_000
 const STAGGER_MS = 4_000
@@ -52,13 +52,13 @@ let epoch = 0
 export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
   for (const { customerId, appointmentId } of bookings) {
     // Skip only when we're confident a re-warm is pointless: the client
-    // cache still holds the brief (cacheHas), OR the 2-attempt ceiling is
-    // already spent (checked below cache — a failed fetch is deliberately
-    // NOT cached, so "warmed but uncached" must still mean "give it another
-    // shot" until the ceiling actually stops it). Plain `warmed.has` alone
-    // would let a post-mutation cache wipe (emitRefresh clears brief-cache
-    // but not `warmed`) strand the next settle on a brief the cache no
-    // longer holds.
+    // cache holds the brief (cacheHas), OR the 2-attempt ceiling is spent.
+    // Retry admission rides `warmed`, not cacheHas: since the null-negative-
+    // cache fix a FAILED warm's entry stays cached (failure-marked), but
+    // release() below deletes the id from `warmed` on failure under the
+    // ceiling — so the next trigger still gets through this gate and the
+    // timer body re-checks via revalidateBrief. An entry evicted by the
+    // FIFO cap (cacheHas false with `warmed` still set) also re-warms here.
     if (scheduled.has(appointmentId)) continue // a timer is already pending for it
     const ceilingReached = (attempts.get(appointmentId) ?? 0) >= MAX_ATTEMPTS
     if (
@@ -89,12 +89,30 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
         if (attempt < MAX_ATTEMPTS) warmed.delete(appointmentId)
       }
       // Routes through the SAME client cache the screen reads (perf packet
-      // 33) — the warm now populates it with the body it used to discard,
-      // so the first 録音 open can paint the AI card instantly. A cache
-      // miss on settle (non-OK, no-signal response, or failure) means no
-      // brief actually got cached — release so a later trigger retries.
-      void fetchBrief(briefUrl(customerId, appointmentId, 'ja')).then((brief) => {
-        if (brief === null) release()
+      // 33) — the warm populates it so the first 録音 open paints the AI
+      // card instantly. Since the null-negative-cache fix (Liam field bug
+      // 7/25 #2), a FAILED settle stays in the cache (failure-marked,
+      // fetchedAt=0) instead of being deleted — so a warm RETRY must route
+      // through revalidateBrief (which replaces the stale entry in place),
+      // not fetchBrief (which would just return the cached failure).
+      // Success for release-purposes = the url ends up cached with a FRESH
+      // stamp — true for real content AND for the server's honest
+      // 200 {brief:null} (no point re-burning attempts on a customer the
+      // server says has no brief; the old contract wastefully retried those).
+      const url = briefUrl(customerId, appointmentId, 'ja')
+      // Already cached FRESH (the mount's own fetch, or a prior warm, won
+      // the race) — success, zero network. Without this, a retry attempt
+      // on a fresh entry would re-fetch content nobody asked to refresh.
+      if (cacheHas(url) && (fetchedAtByUrl.get(url) ?? 0) > 0) return
+      // A PENDING entry (mount fetch in flight right now) makes
+      // revalidateBrief return false without a network call (its pending
+      // guard — verifier find 7/25: racing it duplicated a paid gpt-4o
+      // call): that lands in the !succeeded branch below, releases, and the
+      // NEXT trigger re-checks — by then the in-flight fetch has settled
+      // and either the fresh short-circuit above or a real retry applies.
+      void (cacheHas(url) ? revalidateBrief(url) : fetchBrief(url)).then(() => {
+        const succeeded = cacheHas(url) && (fetchedAtByUrl.get(url) ?? 0) > 0
+        if (!succeeded) release()
       })
     }, delay)
     pendingTimers.push(timer)

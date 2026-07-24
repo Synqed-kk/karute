@@ -6,10 +6,15 @@
  * signed-out wipe, in-flight dedupe) for the AI brief specifically. Pins:
  * the exact URL shape both the warm and RecordScreen route through · a
  * pending fetch is in-flight-deduped (concurrent callers share ONE apiFetch)
- * · a failed/no-signal response is NOT cached (the next call retries
+ * · a failed/no-signal response IS cached as an instantly-stale fulfilled
+ *   null (silent-revalidate recovery — never a per-render refetch loop; the
+ *   old delete-on-null contract was Liam field bug 7/25 #2) · an honest
+ *   200 {brief:null} is cached fresh (the next call reuses it,
  * naturally) · a straggler that settles after a generation bump never
- * populates the cache · signed-out AND emitRefresh both wipe it (shared-iPad
- * leak guard / post-mutation staleness).
+ * populates the cache · signed-out wipes it (shared-iPad leak guard) while
+ * emitRefresh only STALE-MARKS it (post-mutation freshness re-checks ride
+ * the silent revalidate path — a hard clear re-suspended painted cards,
+ * Liam field bug 7/25 #2).
  *
  * React-mount consumption (useBrief via RecordScreen, plus the foreground
  * staleness gate) is pinned separately in
@@ -91,19 +96,67 @@ describe('fetchBrief', () => {
     await p1
   })
 
-  it('a failed fetch is NOT cached — a later call re-fetches', async () => {
+  it('a failed fetch IS cached as an instantly-stale fulfilled null — later calls reuse it, no render-loop refetch (Liam field bug 7/25 #2)', async () => {
+    // The old delete-on-null contract turned every null settle into a
+    // re-shimmer machine: fetchBrief runs during render, so a deleted entry
+    // meant every later re-render minted a fresh pending promise and
+    // re-suspended the painted card. The fix keeps the settle and marks
+    // recovery via staleness instead: fetchedAt=0 (instantly stale) so the
+    // SILENT revalidate path retries — never a visible re-suspend.
     const apiFetch = jest
       .fn<Promise<Response>, unknown[]>()
-      .mockResolvedValue({ ok: false } as Response)
+      .mockResolvedValue({ ok: false, json: async () => ({ brief: makeBrief('unreachable') }) } as unknown as Response)
     mockApiFetch(apiFetch)
     const url = briefUrl('fail-c', 'fail-a', 'ja')
 
-    const brief = await fetchBrief(url)
+    const p1 = fetchBrief(url)
+    const brief = await p1
     expect(brief).toBeNull()
-    expect(cacheHas(url)).toBe(false)
+    expect(cacheHas(url)).toBe(true) // kept — the card settles once, no loop
+    expect(p1.status).toBe('fulfilled')
+    expect(fetchedAtByUrl.get(url)).toBe(0) // failure marker: instantly stale
 
-    await fetchBrief(url)
-    expect(apiFetch).toHaveBeenCalledTimes(2)
+    const p2 = fetchBrief(url)
+    expect(p2).toBe(p1) // same entry, NO second network call from a re-render
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('an honest 200 {brief:null} is cached FRESH — the plan-gate/no-data answer never re-fetches per render', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue(jsonResponse({ brief: null }))
+    mockApiFetch(apiFetch)
+    const url = briefUrl('null-c', 'null-a', 'ja')
+
+    const p1 = fetchBrief(url)
+    expect(await p1).toBeNull()
+    expect(cacheHas(url)).toBe(true)
+    expect(fetchedAtByUrl.get(url)).toBeGreaterThan(0) // fresh, not failure-marked
+
+    expect(fetchBrief(url)).toBe(p1)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('a failure-marked entry upgrades SILENTLY via revalidateBrief — swap in place, no cache miss window', async () => {
+    let calls = 0
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(async () => {
+      calls++
+      if (calls === 1) return { ok: false, json: async () => null } as unknown as Response
+      return jsonResponse({ brief: makeBrief('recovered') })
+    })
+    mockApiFetch(apiFetch)
+    const url = briefUrl('rec-c', 'rec-a', 'ja')
+
+    const p1 = fetchBrief(url)
+    await p1 // settles as failure-marked null, kept in cache
+
+    const changed = await revalidateBrief(url)
+    expect(changed).toBe(true) // upgraded
+    const entry = fetchBrief(url) // cache hit on the swapped-in entry
+    expect(entry.status).toBe('fulfilled')
+    expect(entry.value?.concerns).toEqual(['recovered'])
+    expect(fetchedAtByUrl.get(url)).toBeGreaterThan(0) // no longer failure-marked
+    expect(cacheHas(url)).toBe(true)
   })
 
   it('same-user settle echo mid-flight does NOT drop the brief (Liam field bug 7/25: boot double-settle flashed the card twice)', async () => {
@@ -176,27 +229,29 @@ describe('fetchBrief', () => {
     expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 
-  it('emitRefresh (post-mutation) wipes the cache', async () => {
+  it('emitRefresh (post-mutation) KEEPS entries and marks them stale — painted content never re-suspends, freshness re-checks silently', async () => {
     const apiFetch = jest
       .fn<Promise<Response>, unknown[]>()
       .mockResolvedValue(jsonResponse({ brief: makeBrief('pre-refresh') }))
     mockApiFetch(apiFetch)
     const url = briefUrl('refresh-c', 'refresh-a', 'ja')
 
-    await fetchBrief(url)
+    const p1 = fetchBrief(url)
+    await p1
     expect(cacheHas(url)).toBe(true)
+    expect(fetchedAtByUrl.get(url)).toBeGreaterThan(0)
 
     emitRefresh()
-    expect(cacheHas(url)).toBe(false)
+    // Entry survives (a mounted card keeps painting it, a re-render reuses
+    // it — the hard clear here was half of Liam's 7/25 double-flash); only
+    // the freshness stamp is gone, so the silent revalidate path re-checks.
+    expect(cacheHas(url)).toBe(true)
+    expect(fetchedAtByUrl.get(url)).toBeUndefined()
+    expect(fetchBrief(url)).toBe(p1) // no render-loop refetch
+    expect(apiFetch).toHaveBeenCalledTimes(1)
   })
 
-  it('stamp fence (T3): a fetch settling after an emitRefresh wipe leaves NO fetchedAtByUrl stamp', async () => {
-    // The finalizer's fetchedAtByUrl.set is guarded by `cache.get(url) ===
-    // promise` (F3a) — this pins that specifically, distinct from the
-    // cache-repopulation checks above: even though a VALID brief resolves
-    // (so the promise's own .status/.value DO get stamped, for any in-flight
-    // use() consumer), the map-level freshness stamp must not describe a url
-    // the cache map no longer holds an entry for.
+  it('refresh-epoch fence: a fetch that STARTED pre-refresh settles KEPT but instantly stale — pre-mutation content never stamps itself fresh', async () => {
     let resolve: (r: Response) => void = () => {}
     const apiFetch = jest.fn<Promise<Response>, unknown[]>(
       () =>
@@ -208,25 +263,24 @@ describe('fetchBrief', () => {
     const url = briefUrl('stamp-c', 'stamp-a', 'ja')
 
     const promise = fetchBrief(url)
-    emitRefresh()
-    expect(cacheHas(url)).toBe(false)
+    emitRefresh() // lands while the fetch is in flight
 
-    // The straggler settles with a VALID brief (not a failure) — a naive
-    // unconditional stamp would still write fetchedAtByUrl here.
+    // The straggler settles with a VALID brief — possibly pre-mutation. It
+    // stays painted (never blank a card) but must be instantly stale so the
+    // next revalidate signal re-checks it against post-mutation truth.
     resolve(jsonResponse({ brief: makeBrief('late-valid') }))
     await promise
 
-    expect(fetchedAtByUrl.has(url)).toBe(false)
-    expect(cacheHas(url)).toBe(false)
+    expect(cacheHas(url)).toBe(true)
+    expect(fetchedAtByUrl.get(url)).toBe(0)
   })
 
-  it('failure-delete fence (Greptile #603 P1): a stale FAILURE settling after wipe-then-refetch never deletes the newer entry', async () => {
-    // Sequence: fetch A held pending → emitRefresh wipes A's entry → a new
-    // fetchBrief starts entry B for the SAME url → A settles as a FAILURE.
-    // A's failure branch must delete only its OWN entry (identity check,
-    // mirroring the generation branch) — an unconditional cache.delete(url)
-    // would evict B, forcing the next revisit back to the network and
-    // blinding foreground revalidation until a remount.
+  it('failure-delete fence (Greptile #603 P1 class): a stale failure from user A never deletes user B\'s newer entry', async () => {
+    // The wipe-then-refetch replacement is now only reachable across a
+    // SIGN-OUT (emitRefresh keeps entries). Sequence: fetch A held pending →
+    // sign-out (clears + bumps the epoch) → user B signs in and fetches the
+    // same url (entry B) → A settles. A's sign-out branch must delete only
+    // its OWN entry — an unconditional cache.delete(url) would evict B.
     const resolvers: Array<(r: Response) => void> = []
     const apiFetch = jest.fn<Promise<Response>, unknown[]>(
       () =>
@@ -238,19 +292,24 @@ describe('fetchBrief', () => {
     const url = briefUrl('replace-c', 'replace-a', 'ja')
 
     const pA = fetchBrief(url)
-    emitRefresh() // wipes A's entry
-    const pB = fetchBrief(url) // fresh entry B for the same url
+    setSessionState({ status: 'signed-out' }) // clears cache, bumps epoch
+    setSessionState({
+      status: 'signed-in',
+      session: { access_token: 't2', user: { id: 'u2' } } as Session,
+    })
+    const pB = fetchBrief(url) // user B's fresh entry for the same url
     expect(apiFetch).toHaveBeenCalledTimes(2)
 
-    resolvers[0]({ ok: false } as Response) // A settles as a failure
-    await pA
-    expect(cacheHas(url)).toBe(true) // B's entry survives A's failure
+    resolvers[0](jsonResponse({ brief: makeBrief('a-stale') })) // A settles late
+    const briefA = await pA
+    expect(briefA).toBeNull() // cross-sign-out straggler never hands over data
+    expect(cacheHas(url)).toBe(true) // B's entry survives A's settle
 
     resolvers[1](jsonResponse({ brief: makeBrief('b-wins') }))
     const briefB = await pB
     expect(briefB?.concerns[0]).toBe('b-wins')
     expect(cacheHas(url)).toBe(true)
-    expect(fetchedAtByUrl.has(url)).toBe(true) // B stamps normally
+    expect(fetchedAtByUrl.get(url)).toBeGreaterThan(0) // B stamps normally
   })
 
   it('FIFO cap: the 51st distinct url evicts the oldest key from both maps', async () => {
@@ -270,7 +329,7 @@ describe('fetchBrief', () => {
 })
 
 describe('revalidateBrief', () => {
-  it('a revalidate straggling across an emitRefresh wipe does not re-populate the cache', async () => {
+  it('cap-out honesty: refreshes landing on EVERY converge iteration make the run give up UNSTAMPED — never fresh-stamped pre-mutation content', async () => {
     const url = briefUrl('straggler-c', 'straggler-a', 'ja')
     mockApiFetch(
       jest
@@ -280,26 +339,72 @@ describe('revalidateBrief', () => {
     await fetchBrief(url)
     expect(cacheHas(url)).toBe(true)
 
-    let resolveRevalidate: (r: Response) => void = () => {}
+    // Every iteration's fetch gets a refresh bumped mid-flight — the
+    // converge loop re-fetches up to its cap, then gives up honestly.
+    const resolvers: Array<(r: Response) => void> = []
     mockApiFetch(
       jest.fn<Promise<Response>, unknown[]>(
         () =>
           new Promise<Response>((r) => {
-            resolveRevalidate = r
+            resolvers.push(r)
           }),
       ),
     )
-    const revalidatePromise = revalidateBrief(url)
+    const run = revalidateBrief(url)
+    for (let k = 0; k < 3; k++) {
+      // wait for iteration k's fetch to be issued
+      for (let f = 0; f < 10 && resolvers.length <= k; f++) await Promise.resolve()
+      emitRefresh() // lands mid-flight for THIS iteration
+      resolvers[k](jsonResponse({ brief: makeBrief(`B${k}`) }))
+      for (let f = 0; f < 10; f++) await Promise.resolve()
+    }
+    const changed = await run
+    expect(changed).toBe(false) // capped out — no swap claim
+    expect(cacheHas(url)).toBe(true) // painted entry KEPT
+    expect(fetchedAtByUrl.get(url)).toBeUndefined() // and NOT stamped fresh
+  })
+})
 
-    // A mutation elsewhere wipes the cache WHILE the revalidate is in flight.
+describe('revalidateBrief — converge-until-current (Greptile #607 r2 P1)', () => {
+  it('a refresh landing mid-revalidation makes the SAME run re-fetch — the original caller ends on post-mutation truth', async () => {
+    const url = briefUrl('conv-c', 'conv-a', 'ja')
+    // Seed a fulfilled entry (pre-mutation content).
+    mockApiFetch(
+      jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockResolvedValue(jsonResponse({ brief: makeBrief('PRE') })),
+    )
+    await fetchBrief(url)
+
+    // Revalidation starts; its FIRST fetch is held open.
+    const resolvers: Array<(r: Response) => void> = []
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+      () =>
+        new Promise<Response>((r) => {
+          resolvers.push(r)
+        }),
+    )
+    mockApiFetch(apiFetch)
+    const run = revalidateBrief(url)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    // A mutation lands mid-flight. The hook-level trigger this would fire is
+    // swallowed by the single-flight guard — the loop below is what closes it.
     emitRefresh()
-    expect(cacheHas(url)).toBe(false)
 
-    // The straggler settles with DIFFERENT content — it must not resurrect
-    // a cache slot the wipe already cleared.
-    resolveRevalidate(jsonResponse({ brief: makeBrief('B') }))
-    const changed = await revalidatePromise
-    expect(changed).toBe(false)
-    expect(cacheHas(url)).toBe(false)
+    // First fetch settles with PRE-mutation content: the run must NOT stamp
+    // or swap it — it must immediately re-fetch (call 2).
+    resolvers[0](jsonResponse({ brief: makeBrief('PRE') }))
+    for (let f = 0; f < 10 && apiFetch.mock.calls.length < 2; f++) await Promise.resolve()
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Second fetch settles with POST-mutation content → swap, changed=true,
+    // freshness stamped — the original caller's force() handle repaints.
+    resolvers[1](jsonResponse({ brief: makeBrief('POST') }))
+    const changed = await run
+    expect(changed).toBe(true)
+    const entry = fetchBrief(url)
+    expect(entry.value?.concerns).toEqual(['POST'])
+    expect(fetchedAtByUrl.get(url)).toBeGreaterThan(0)
   })
 })
