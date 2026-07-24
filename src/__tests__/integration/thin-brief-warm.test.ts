@@ -22,7 +22,7 @@
 import type { Session } from '@supabase/supabase-js'
 import { setDataPort } from '@/lib/ports/data-port'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
-import { warmBriefsForToday, type BriefWarmTarget } from '../../../thin/data/brief-warm'
+import { warmBriefsForToday, warmStateForTests, type BriefWarmTarget } from '../../../thin/data/brief-warm'
 
 function mockApiFetch(apiFetch: jest.Mock) {
   setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
@@ -94,6 +94,28 @@ it('two calls for the same booking before its timer fires schedule exactly ONE t
   warmBriefsForToday([target('c1', 'a1')]) // ceiling now truly spent — no third
   jest.advanceTimersByTime(20_000)
   expect(apiFetch).toHaveBeenCalledTimes(2)
+})
+
+it('scheduled guard (T2, state-observable): two calls before the timer fires schedule exactly ONE timer, and attempts records exactly ONE real fire', () => {
+  // A call-count spy alone doesn't discriminate this bug: apiFetch counts
+  // stay identical whether one or two timers fired, because brief-cache's
+  // own URL-keyed in-flight dedupe absorbs a second concurrent fetchBrief
+  // call for the same url. The state that actually corrupts is brief-warm's
+  // OWN `attempts` counter, which bumps once per TIMER FIRE regardless of
+  // fetchBrief's dedupe — so probe that (and the raw timer count) directly.
+  const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+    () => new Promise<Response>(() => {}), // held forever — isolates timer firing from any settle
+  )
+  mockApiFetch(apiFetch)
+
+  warmBriefsForToday([target('c1', 'a1')])
+  warmBriefsForToday([target('c1', 'a1')]) // same booking, before its timer fires
+  expect(jest.getTimerCount()).toBe(1)
+
+  // Advance well past where a second (buggy) timer would also fire — with
+  // the fetch held pending, attempts is a pure "how many timers fired" count.
+  jest.advanceTimersByTime(20_000)
+  expect(warmStateForTests().attempts.get('a1')).toBe(1)
 })
 
 it('two bookings for the same customer warm independently (keyed on appointmentId)', () => {
@@ -229,6 +251,63 @@ it('a stale in-flight release from a signed-out session cannot corrupt the new s
   warmBriefsForToday([target('c1', 'a1')])
   jest.advanceTimersByTime(10_000)
   expect(apiFetch).toHaveBeenCalledTimes(2)
+})
+
+it('epoch guard (T1, state-observable): a stale u1 release() cannot delete u2 warmed entry', async () => {
+  // The sibling "epoch guard" test above only spies on apiFetch call
+  // counts, which brief-cache's own url-keyed in-flight dedupe keeps
+  // identical whether the guard runs or not — it does not discriminate a
+  // corrupted `warmed` set from a correct one. Assert on the STATE the
+  // guard actually protects instead.
+  let resolveU1: (r: Response) => void = () => {}
+  const brief = {
+    isFirstTimeVisit: false,
+    lastVisitDate: 'x',
+    lastVisitAgo: 'x',
+    hooks: [],
+    concerns: [],
+    lastProduct: null,
+    recommendedFocus: null,
+    reservationMemo: null,
+    memoAnalysis: [],
+  }
+
+  // u1, epoch 0: fire the warm — fetch #1 in flight, held.
+  mockApiFetch(
+    jest.fn<Promise<Response>, unknown[]>(
+      () =>
+        new Promise<Response>((r) => {
+          resolveU1 = r
+        }),
+    ),
+  )
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(3_000)
+
+  // Sign-out resets warmed/attempts/scheduled and bumps the epoch; u2 signs
+  // in and re-warms the SAME appointmentId — its own fresh timer succeeds.
+  setSessionState({ status: 'signed-out' })
+  setSessionState({
+    status: 'signed-in',
+    session: { access_token: 'tok2', user: { id: 'u2' } } as Session,
+  })
+  mockApiFetch(
+    jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue({ ok: true, json: async () => ({ brief }) } as unknown as Response),
+  )
+  warmBriefsForToday([target('c1', 'a1')])
+  jest.advanceTimersByTime(3_000)
+  await flushMicrotasks()
+  expect(warmStateForTests().warmed.has('a1')).toBe(true)
+
+  // NOW u1's stale fetch resolves as a FAILURE. Its release() must be a
+  // no-op against u2's warmed entry — the epoch guard is the only thing
+  // standing between this and a corrupted delete.
+  resolveU1({ ok: false } as Response)
+  await flushMicrotasks()
+
+  expect(warmStateForTests().warmed.has('a1')).toBe(true)
 })
 
 it('signed-out clears everything and cancels pending timers — no fetch survives it', () => {

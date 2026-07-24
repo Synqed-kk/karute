@@ -165,6 +165,36 @@ describe('fetchBrief', () => {
     expect(cacheHas(url)).toBe(false)
   })
 
+  it('stamp fence (T3): a fetch settling after an emitRefresh wipe leaves NO fetchedAtByUrl stamp', async () => {
+    // The finalizer's fetchedAtByUrl.set is guarded by `cache.get(url) ===
+    // promise` (F3a) — this pins that specifically, distinct from the
+    // cache-repopulation checks above: even though a VALID brief resolves
+    // (so the promise's own .status/.value DO get stamped, for any in-flight
+    // use() consumer), the map-level freshness stamp must not describe a url
+    // the cache map no longer holds an entry for.
+    let resolve: (r: Response) => void = () => {}
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+      () =>
+        new Promise<Response>((r) => {
+          resolve = r
+        }),
+    )
+    mockApiFetch(apiFetch)
+    const url = briefUrl('stamp-c', 'stamp-a', 'ja')
+
+    const promise = fetchBrief(url)
+    emitRefresh()
+    expect(cacheHas(url)).toBe(false)
+
+    // The straggler settles with a VALID brief (not a failure) — a naive
+    // unconditional stamp would still write fetchedAtByUrl here.
+    resolve(jsonResponse({ brief: makeBrief('late-valid') }))
+    await promise
+
+    expect(fetchedAtByUrl.has(url)).toBe(false)
+    expect(cacheHas(url)).toBe(false)
+  })
+
   it('FIFO cap: the 51st distinct url evicts the oldest key from both maps', async () => {
     const apiFetch = jest
       .fn<Promise<Response>, unknown[]>()
