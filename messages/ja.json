@@ -1936,7 +1936,20 @@
     "bookingSync": "予約同期",
     "bookingSyncDescription": "Quick Reserve 等との同期",
     "sync": {
-      "webOnly": "予約同期の設定はWeb版からご利用ください"
+      "webOnly": "予約同期の設定はWeb版からご利用ください",
+      "healthy": "正常に同期中",
+      "delayed": "同期が遅れています",
+      "stopped": "同期が停止しています",
+      "source": "接続先",
+      "autoSync": "自動同期",
+      "enabled": "有効",
+      "disabled": "無効",
+      "lastResult": "最終結果",
+      "success": "成功",
+      "failure": "失敗",
+      "minutesAgo": "分前に同期",
+      "hoursAgo": "時間前に同期",
+      "footer": "同期設定の変更・再ログインは Web 版の設定から行えます。"
     },
     "stores": {
       "plan": {
@@ -2947,6 +2960,7 @@
     "cap_staff_manage": "スタッフの管理・削除",
     "cap_settings_manage": "店舗設定",
     "cap_audit_view": "監査ログ",
+    "cap_sync_view": "予約同期ステータス",
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_write": "録音・カルテ編集",

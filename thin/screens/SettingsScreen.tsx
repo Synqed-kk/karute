@@ -2,9 +2,10 @@
 // retires its 準備中 placeholder. Fetches the screen-shaped DTO through the
 // DataPort and renders the REAL SettingsShell — the same leaf component tree
 // the web page renders — with organization/theme/ai/recording/packs/coaching/
-// 店舗/staff LIVE and 同期 routed to SettingsShell's own in-shell web-only
-// panel via the webOnlyTabIds prop (packet 20 §S5 — sync stays web-only by
-// design, not "coming soon").
+// 店舗/staff LIVE. 同期 credentials/controls stay permanently web-only
+// (webOnlyTabIds, packet 20 §S5); a sync.view/owner grant now renders the
+// read-only SyncStatusCard instead (syncStatus prop, packet 31) — the
+// web-only panel is the fallback when the grant/config is absent (null).
 //
 // initialStores/initialEntitlement now thread the real DTO fields (packet 12
 // §B-3 S2 — the 店舗 tab going live).
@@ -51,6 +52,7 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         canManageStaff={dto.canManageStaff}
         canInviteStaff={dto.canInviteStaff}
         canViewAudit={dto.canViewAudit}
+        syncStatus={dto.syncStatus}
         initialTab={dto.initialTab}
         auditTargetId={dto.auditTargetId}
         initialStores={dto.initialStores}

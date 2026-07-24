@@ -18,6 +18,9 @@ export const CAPABILITIES = [
   'staff.manage',      // remove / demote / change a member's role
   'settings.manage',   // operating hours, services, multi-store, org settings
   'audit.view',        // audit log
+  'sync.view',         // 予約同期 status card (read-only) — owner-only by
+                       // default, deliberate per-staff toggle, same posture
+                       // as audit.view (Liam ruling 7/24, packet 31)
   'data.export',       // export / import customer + karute data
   'records.delete',    // delete customers / karute (destructive)
   'records.write',     // record sessions, create / edit karute
@@ -68,7 +71,8 @@ export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
       c !== 'billing.manage' &&
       c !== 'business.manage' &&
       c !== 'recordings.viewAll' &&
-      c !== 'audit.view',
+      c !== 'audit.view' &&
+      c !== 'sync.view',
   ),
   // Lead practitioner / SV (supervisor): does the work + sees whole-salon
   // analytics + exports + cross-store visibility; no settings/staff/billing.
