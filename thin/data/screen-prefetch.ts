@@ -6,9 +6,11 @@
 // singleton/stagger/one-shot idioms and ScreenBoundary's generation fence),
 // so every first tap this session paints instantly instead of shimmering.
 //
-// Recording safety: the trigger below is the boot sign-in settle — no
-// recording can be active at that point (the recorder only starts from a
-// mounted RecordScreen), so there is no runtime coupling to check.
+// Recording safety: the ONLY false→true transitions of `armed` below are
+// the first signed-in settle after boot and the first signed-in settle
+// after a sign-out→login — neither can coincide with an active recording
+// (the recorder only starts from a mounted RecordScreen, and sign-out tears
+// any take down), so there is no runtime coupling to check.
 //
 // brief-warm stays the appointments screen's job: the appointments prefetch
 // below deliberately does NOT call warmBriefsForToday on its DTO settle —
@@ -66,22 +68,30 @@ const TARGETS: Target[] = [
 // zero-benefit prefetch.
 export const PREFETCH_PATHS: readonly string[] = TARGETS.map((t) => t.path)
 
-// One-shot per sign-in generation (Liam's "don't do it repetitively" ruling):
-// the generation the batch already fired for. A token rotation or any other
-// notify that leaves the generation unchanged (session-store only advances
-// it on an authoritative setSessionState transition) schedules nothing; a
-// genuine new sign-in opens a new generation and re-arms.
-let firedForGeneration: number | null = null
+// Accepted (fleet round, not fixed): the 5 prefetched entries land as the
+// session's OLDEST dtoCache keys, so they're first in line for eviction at
+// ScreenBoundary's 50-entry FIFO cap if that ever gets approached —
+// pre-existing cap posture, not a new risk this module adds.
+
+// One-shot per CONTIGUOUS signed-in period — NOT keyed to the generation
+// (fleet-round P1 fix): session-store's setSessionState bumps the
+// generation on EVERY authoritative transition, including a routine
+// app-resume settle and a cold-boot double-settle echo (boot recover +
+// GoTrue INITIAL_SESSION both landing on the same user) — a generation-keyed
+// one-shot re-armed the WHOLE batch on either of those, up to several times
+// per boot, and could do so while a recording is active (falsifying the
+// recording-safety note above). `armed` tracks only "has this signed-in
+// period already scheduled its batch" — a resume/echo notify (still
+// signed-in, armed already true) is a no-op by construction; only a
+// signed-out clears it, so the next genuine sign-in re-arms exactly once.
+let armed = false
 let pendingTimers: number[] = []
 
 function schedule(): void {
-  const gen = currentGeneration()
-  if (firedForGeneration === gen) return
-  firedForGeneration = gen
   let i = 0
   for (const { path, parse } of TARGETS) {
-    // Skip at schedule time: already visited (or already prefetched, e.g. a
-    // straggler batch from a prior settle this generation).
+    // Skip at schedule time: already visited (or already prefetched — armed
+    // guarantees schedule() itself only ever runs once per signed-in period).
     if (dtoCache.has(path)) continue
     const delay = FIRST_DELAY_MS + i * STAGGER_MS
     i++
@@ -114,13 +124,16 @@ function schedule(): void {
 subscribeSessionState(() => {
   const state = getSessionState()
   if (state.status === 'signed-in') {
-    schedule()
+    if (!armed) {
+      armed = true
+      schedule()
+    }
   } else if (state.status === 'signed-out') {
     // Shared-device hygiene (brief-warm.ts's reset idiom): a different staff
     // member's sign-in must re-arm from a clean slate, and no stale timer
     // from the outgoing session may fire into the new one.
     pendingTimers.forEach((t) => window.clearTimeout(t))
     pendingTimers = []
-    firedForGeneration = null
+    armed = false
   }
 })
