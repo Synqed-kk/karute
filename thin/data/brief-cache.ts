@@ -169,6 +169,15 @@ export function cacheHas(url: string): boolean {
  *  same-path rule ScreenBoundary applies to dtoCache. */
 export async function revalidateBrief(url: string): Promise<boolean> {
   if (revalidating.has(url)) return false
+  // Never revalidate a PENDING entry (verifier find, 7/25): the in-flight
+  // fetch owns the slot — racing it with an independent request duplicates
+  // a paid gpt-4o call, can leave the rendered card (suspended on the OLD
+  // promise) showing different text than the cache's replacement, and the
+  // honest-null branch below would stamp freshness onto an entry that has
+  // not actually settled. Both useBrief triggers already gate on
+  // status === 'fulfilled'; this closes the door for every OTHER caller
+  // (brief-warm's retry) at the source.
+  if (cache.get(url)?.status !== 'fulfilled') return false
   revalidating.add(url)
   // Identity snapshot at entry — the fence a settle checks against, same
   // spirit as the generation fence but for the CACHE ENTRY itself: a wipe
@@ -248,9 +257,14 @@ export function useBrief(
 
   // Failed-settle recovery (Liam field bug 7/25 #2): a FAILURE-stamped entry
   // (fetchedAt=0, see fetchBrief) retries on the very re-renders that used
-  // to re-shimmer the card — a dto settle re-renders the screen anyway, and
-  // this effect (no dep array = after every render) turns that moment into a
-  // SILENT revalidate instead of a cache-miss re-suspend. Guards make it
+  // to re-shimmer the card, and this effect (no dep array = after every
+  // render) turns those moments into SILENT revalidates instead of
+  // cache-miss re-suspends. Honest bound (verifier note): a render is NOT
+  // guaranteed after every event — a SAME-path dto refetch that FAILS bails
+  // out of setState (ScreenBoundary returns the identical prev object), so
+  // closure then falls to the [url] effect's subscribeRevalidate leg (next
+  // foreground) or any later genuine re-render. Stale-not-flashing is the
+  // deliberate trade. Guards make it
   // near-free: only fires on a fulfilled entry explicitly marked failed, and
   // revalidateBrief's single-flight set dedupes bursts. The [url] effect's
   // mount/foreground path already covers failed entries too (age from 0 is
@@ -302,7 +316,9 @@ subscribeSessionState(() => {
 // mark every entry stale (fetchedAtByUrl cleared → age from 0 is always past
 // STALE_MS), and let the silent revalidate machinery swap fresh content in
 // without a loading frame — mounted screens via the failed/stale render
-// effect + foreground signal, revisits via maybeRevalidate on mount. The
+// effect (fires on the next genuine re-render; a same-path FAILED dto
+// refetch bails without one, so the foreground signal is the backstop
+// there) + the subscribeRevalidate leg, revisits via maybeRevalidate. The
 // refreshEpoch guard closes the in-flight straggler: a fetch that STARTED
 // pre-mutation but settles post-mutation must not stamp itself fresh with
 // pre-mutation content — it stamps 0 and the next signal re-checks it.

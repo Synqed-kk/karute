@@ -100,6 +100,16 @@ export function warmBriefsForToday(bookings: BriefWarmTarget[]): void {
       // 200 {brief:null} (no point re-burning attempts on a customer the
       // server says has no brief; the old contract wastefully retried those).
       const url = briefUrl(customerId, appointmentId, 'ja')
+      // Already cached FRESH (the mount's own fetch, or a prior warm, won
+      // the race) — success, zero network. Without this, a retry attempt
+      // on a fresh entry would re-fetch content nobody asked to refresh.
+      if (cacheHas(url) && (fetchedAtByUrl.get(url) ?? 0) > 0) return
+      // A PENDING entry (mount fetch in flight right now) makes
+      // revalidateBrief return false without a network call (its pending
+      // guard — verifier find 7/25: racing it duplicated a paid gpt-4o
+      // call): that lands in the !succeeded branch below, releases, and the
+      // NEXT trigger re-checks — by then the in-flight fetch has settled
+      // and either the fresh short-circuit above or a real retry applies.
       void (cacheHas(url) ? revalidateBrief(url) : fetchBrief(url)).then(() => {
         const succeeded = cacheHas(url) && (fetchedAtByUrl.get(url) ?? 0) > 0
         if (!succeeded) release()
