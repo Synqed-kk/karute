@@ -33,7 +33,7 @@ import {
   getSessionState,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
-import { subscribeRefresh } from '../ports/nav.vite'
+import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
 import { cacheDto, dtoCache } from '../screens/ScreenBoundary'
 
 // Compressed vs brief-warm.ts's 3s/4s (Liam field feedback: staff tap
@@ -112,19 +112,87 @@ subscribeRefresh(() => {
   wipeEpoch++
 })
 
+// Foreground re-warm (perf packet 36, PR-H3). On the #596 foreground event
+// (subscribeRevalidate — a NARROWER sibling of subscribeRefresh above; see
+// its own doc comment in nav.vite.tsx), re-run schedule() so any of the 5
+// targets a post-mutation emitRefresh wiped (or that fell out of dtoCache's
+// FIFO eviction cap) come back warm during all-day usage instead of staying
+// cold until the next sign-out/sign-in. schedule() itself already no-ops on
+// every already-cached path (dtoCache.has, right below), so this only ever
+// warms what's genuinely MISSING — a warm-cache foreground costs nothing.
+const FOREGROUND_REWARM_MIN_INTERVAL_MS = 30_000
+// Starts at 0 (never gates the first foreground of a session); reset to 0 in
+// the signed-out branch below — a fresh sign-in must not inherit the
+// OUTGOING session's rate-limit stamp.
+let lastForegroundRewarmAt = 0
+
+subscribeRevalidate(() => {
+  // Signed-out: AuthGate has unmounted every screen, so there is nothing to
+  // warm ahead of — and scheduling here would just spin up 5 timers with no
+  // cancellation until the NEXT authoritative transition rebinds them away.
+  if (getSessionState().status !== 'signed-in') return
+  // DEFENSE-IN-DEPTH, not redundant: the emitter (foreground-revalidate.ts)
+  // already gates emitRevalidate() itself on this exact `!== 'idle'` check —
+  // but that guard lives in a file this module doesn't own, and a future
+  // second emitRevalidate caller must not silently inherit "safe to prefetch
+  // during a recording" merely by never having read this file. Guarding on
+  // `!== 'idle'` (not just recording/paused) matches the emitter's own
+  // contract exactly — it also covers 'recorded'-unsaved, an unsaved take
+  // this module's heaviest background fetch batch must not compete with.
+  if (globalRecorder.state !== 'idle') return
+  const now = Date.now()
+  if (now - lastForegroundRewarmAt < FOREGROUND_REWARM_MIN_INTERVAL_MS) return
+  // Stamped unconditionally, before knowing whether schedule() below finds
+  // anything missing: the stamp is a rate limit on how often this module
+  // does the work of checking, not a "did we actually warm something" flag —
+  // a warm-cache foreground must still reset the clock, or a quiet session
+  // (nothing ever missing) would re-check on every single foreground.
+  lastForegroundRewarmAt = now
+  schedule()
+})
+
+// Per-path pending-timer dedupe (perf packet 36, PR-H3): once schedule() can
+// run more than once per signed-in period (the foreground subscriber above,
+// on top of the sign-in one-shot), a foreground re-warm while the sign-in
+// stagger's OWN timers are still pending would schedule a SECOND timer for
+// the same path — dtoCache.has() alone is blind to it, since nothing is
+// cached until a timer actually fires and settles. Mirrors
+// recordWarmScheduled's idiom exactly (see its declaration comment below,
+// this module's other Set-dedupe, for the fuller rationale this one shares):
+// add at schedule time, delete at settle time — success, failure, or an
+// early fire-time skip — via a Set reference CAPTURED at fire time, not read
+// live. tabWarmScheduled gets REBOUND to a fresh Set on sign-out (unlike
+// dtoCache, only ever mutated in place), so a stale settle from a
+// pre-sign-out fetch must delete from the SAME Set instance it was scheduled
+// against — currentGeneration() is the wrong delete guard for this, since it
+// bumps on every authoritative write including a same-user resume echo,
+// which would wrongly treat a mere resume as "delete via the old instance".
+let tabWarmScheduled = new Set<string>()
+
 function schedule(): void {
   let i = 0
   for (const { path, parse } of TARGETS) {
-    // Skip at schedule time: already visited (or already prefetched — armed
-    // guarantees schedule() itself only ever runs once per signed-in period).
-    if (dtoCache.has(path)) continue
+    // Skip at schedule time: already visited/cached, or already scheduled by
+    // an earlier schedule() call this signed-in period whose timer hasn't
+    // settled yet (see tabWarmScheduled's declaration comment above).
+    if (dtoCache.has(path) || tabWarmScheduled.has(path)) continue
     const delay = FIRST_DELAY_MS + i * STAGGER_MS
     i++
+    tabWarmScheduled.add(path)
     const timer = window.setTimeout(() => {
       pendingTimers = pendingTimers.filter((t) => t !== timer)
+      // Captured here, not read live below — see tabWarmScheduled's
+      // declaration comment above.
+      const myScheduled = tabWarmScheduled
       // Skip at fire time too: a user who navigated there mid-stagger
-      // already has a fresher fetch in the cache — never clobber it.
-      if (dtoCache.has(path)) return
+      // already has a fresher fetch in the cache — never clobber it. Delete
+      // now: the outcome is known, so a LATER schedule() call (e.g. after a
+      // post-mutation wipe re-clears this same path) is free to re-warm it
+      // instead of finding it falsely still-pending.
+      if (dtoCache.has(path)) {
+        myScheduled.delete(path)
+        return
+      }
       // Captured at fetch START, mirroring ScreenBoundary/brief-cache's
       // straggler fence — a sign-out mid-flight must not let this settle
       // write into the replacement session's cache (generation), and a
@@ -149,6 +217,12 @@ function schedule(): void {
         // JSON parse failure, and a zod schema-parse failure all land here
         // silently — the real tap's own fetch surfaces any genuine error.
         .catch(() => {})
+        .finally(() => {
+          // Settle-time delete — success or failure, the outcome is now
+          // known, so a later schedule() call is free to retry/re-warm this
+          // path (mirrors warmRecordForBookings' identical finally below).
+          myScheduled.delete(path)
+        })
     }, delay)
     pendingTimers.push(timer)
   }
@@ -294,5 +368,9 @@ subscribeSessionState(() => {
     pendingTimers = []
     armed = false
     recordWarmScheduled = new Set()
+    tabWarmScheduled = new Set()
+    // A fresh sign-in must not inherit the outgoing session's foreground
+    // rate-limit stamp.
+    lastForegroundRewarmAt = 0
   }
 })
