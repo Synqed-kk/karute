@@ -48,7 +48,11 @@ const CUSTOMER_ROW = {
 }
 const listPhotos = jest.fn(async () => ({ photos: [] }))
 const getConsent = jest.fn(async () => ({ consent: { policy_version: 'v0', granted_at: '2026-06-01' } }))
-const fakeClient = { customers: { get: jest.fn(async () => CUSTOMER_ROW), listPhotos, getConsent } }
+const staffListSynqed = jest.fn(async () => ({ staff: [{ id: 'sstaff-9', user_id: 'profile-9' }] }))
+const fakeClient = {
+  customers: { get: jest.fn(async () => CUSTOMER_ROW), listPhotos, getConsent },
+  staff: { list: staffListSynqed },
+}
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => fakeClient,
   getSynqedClient: async () => fakeClient,

@@ -103,6 +103,31 @@ beforeEach(() => {
   karuteList.mockResolvedValue({ karute_records: KARUTE, total: KARUTE.length })
 })
 
+describe('GET /api/app/v1/screens/sessions — record 担当 id-space translation (Liam field report 7/24)', () => {
+  it('a pipeline-written record (SYNQED staff id) resolves 担当 name + profile-space staffId; a legacy profile-id record still resolves', async () => {
+    karuteList.mockResolvedValue({
+      karute_records: [
+        // Pipeline shape: core staff_id = SYNQED staff id (sstaff-1)
+        { id: 'rec-syn', customer_id: 'cust-1', created_at: TODAY, session_date: TODAY, ai_summary: 'x', transcript: 't', staff_id: 'sstaff-1', business_id: 'business-1', entry_count: 1 },
+        // Legacy interactive-save shape: core staff_id = profile id (staff-2)
+        { id: 'rec-prof', customer_id: 'cust-2', created_at: TODAY, session_date: TODAY, ai_summary: 'y', transcript: 't', staff_id: 'staff-2', business_id: 'business-1', entry_count: 1 },
+      ],
+      total: 2,
+    })
+    const res = await GET(req({ headers: auth }), route)
+    expect(res.status).toBe(200)
+    const dto = await res.json()
+    const syn = dto.items.find((i: { id: string }) => i.id === 'rec-syn')
+    // Before the 7/24 boundary translation these rendered 担当 "Unknown" and
+    // escaped the 自分/担当 filters (staffId stayed in the synqed space).
+    expect(syn.staffName).toBe('田中 太郎')
+    expect(syn.staffId).toBe('staff-2')
+    const prof = dto.items.find((i: { id: string }) => i.id === 'rec-prof')
+    expect(prof.staffName).toBe('田中 太郎')
+    expect(prof.staffId).toBe('staff-2')
+  })
+})
+
 describe('GET /api/app/v1/screens/sessions — happy path', () => {
   it('returns the screen DTO assembled by the shared builder', async () => {
     const res = await GET(req({ headers: auth }), route)
