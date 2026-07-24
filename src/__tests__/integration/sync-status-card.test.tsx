@@ -47,6 +47,31 @@ function status(overrides: Partial<SyncStatusDTO>): SyncStatusDTO {
   }
 }
 
+describe('SyncStatusCard — RUNNING is a crawl in flight, not a failure (Fable audit fix)', () => {
+  it('RUNNING + fresh timestamp → GREEN + 実行中, never 停止/失敗 (anti-false-alarm pin: the crawler writes RUNNING every cycle)', () => {
+    render(
+      <SyncStatusCard
+        status={status({ lastRunAt: minutesAgo(5), lastRunStatus: 'RUNNING' })}
+        nowMs={NOW}
+      />,
+    )
+    expect(screen.getByText(HEALTHY)).toBeInTheDocument()
+    expect(screen.getByText('実行中')).toBeInTheDocument()
+    expect(screen.queryByText(STOPPED)).toBeNull()
+    expect(screen.queryByText('失敗')).toBeNull()
+  })
+
+  it('RUNNING + aged timestamp (90 min — crawler died mid-run) → RED via time', () => {
+    render(
+      <SyncStatusCard
+        status={status({ lastRunAt: minutesAgo(90), lastRunStatus: 'RUNNING' })}
+        nowMs={NOW}
+      />,
+    )
+    expect(screen.getByText(STOPPED)).toBeInTheDocument()
+  })
+})
+
 describe('SyncStatusCard — health states (packet 31)', () => {
   it('< 30 min since a successful run → GREEN 正常に同期中', () => {
     render(<SyncStatusCard status={status({ lastRunAt: minutesAgo(5) })} nowMs={NOW} />)

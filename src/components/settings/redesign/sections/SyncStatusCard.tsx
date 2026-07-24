@@ -25,12 +25,16 @@ const PILL_STYLE: Record<Health, string> = {
   red: 'bg-red-500/10 text-red-600 dark:text-red-400 border-red-500/20',
 }
 
-/** A reported failure beats a fresh timestamp — RED even 5 minutes after a
- *  failed run. 'OK' is the only success value SyncConfig reports
- *  (@synqed-kk/client SyncStatus); anything else truthy, or no run at all,
- *  reads as stopped. */
+/** A reported FAILURE beats a fresh timestamp — RED even 5 minutes after a
+ *  failed run. SyncStatus vocabulary is 'OK' | 'ERROR' | 'RUNNING'
+ *  (@synqed-kk/client types.d.ts:485). Only 'ERROR' is a failure: 'RUNNING'
+ *  is a crawl in flight (written every cycle) — treating it as failure would
+ *  flash the card red mid-crawl every 15 minutes on a healthy system, so it
+ *  falls through to the time-based read like 'OK'. A crawler that DIED
+ *  mid-run leaves 'RUNNING' with an aging timestamp and goes yellow→red
+ *  through time, which is the honest signal. */
 function syncHealth(status: SyncStatusDTO, nowMs: number): Health {
-  if (status.lastRunStatus && status.lastRunStatus !== 'OK') return 'red'
+  if (status.lastRunStatus === 'ERROR') return 'red'
   if (!status.lastRunAt) return 'red'
   const minutes = (nowMs - new Date(status.lastRunAt).getTime()) / 60000
   if (minutes < YELLOW_AFTER_MINUTES) return 'green'
@@ -66,7 +70,17 @@ export function SyncStatusCard({
   const health = syncHealth(status, effectiveNow)
   const relative = relativeSync(status.lastRunAt, effectiveNow)
   const pillLabel = health === 'green' ? t('healthy') : health === 'yellow' ? t('delayed') : t('stopped')
-  const resultOk = status.lastRunStatus === 'OK'
+  // 最終結果 is the run outcome, not health: OK→成功, ERROR→失敗, RUNNING→実行中
+  // (a crawl in flight is neither — 失敗 here would be a lie every cycle),
+  // never-ran→'—' (plain em dash, no invented state).
+  const resultLabel =
+    status.lastRunStatus === 'OK'
+      ? t('success')
+      : status.lastRunStatus === 'ERROR'
+        ? t('failure')
+        : status.lastRunStatus === 'RUNNING'
+          ? t('running')
+          : '—'
 
   return (
     <div className="space-y-6 rounded-xl border border-border/30 bg-card/50 p-6">
@@ -88,7 +102,7 @@ export function SyncStatusCard({
         <StatusRow label={t('autoSync')} value={status.enabled ? t('enabled') : t('disabled')} />
         <StatusRow
           label={t('lastResult')}
-          value={resultOk ? t('success') : t('failure')}
+          value={resultLabel}
           detail={status.lastRunError ?? undefined}
         />
       </div>

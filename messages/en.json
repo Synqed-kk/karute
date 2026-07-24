@@ -1947,6 +1947,7 @@
       "lastResult": "Last result",
       "success": "Success",
       "failure": "Failed",
+      "running": "Running",
       "minutesAgo": "min since sync",
       "hoursAgo": "hr since sync",
       "footer": "Sync settings and re-login are managed from the web version's settings."
