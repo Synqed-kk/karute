@@ -1,19 +1,21 @@
 #!/usr/bin/env node
-// Monotonic, unique native build number for CFBundleVersion (R3 #18). Today the
-// value is hard-coded `2` — the App Store REJECTS a build whose CFBundleVersion
-// isn't strictly greater than the last uploaded one, so a fixed number can ship
-// at most once. This derives a value that is BOTH monotonic and unique.
-//
-// Strategy: max(last + 1, unix-seconds-now). Seconds-since-epoch is naturally
-// increasing and unique across normal build cadence; the `last + 1` floor
-// guarantees strict monotonicity even for two builds in the same second (CI
-// bursts, retries). Pure fn is unit-tested; the CLI persists the last value.
+// Monotonic, unique native build number for CFBundleVersion — plain increment,
+// human-readable (Liam ruling 7/25: App Store Connect showed 9, 10, 11, 12,
+// then the old unix-seconds floor jumped it to 1784906700 — gibberish; back to
+// clear numbers). Apple only accepts ASCENDING build numbers within one
+// marketing version, and 1.0's train already has 1784906700 uploaded — so the
+// reset rides a MARKETING_VERSION bump to 1.1, where the counter restarts.
+// State file seeded to 12 on the build Mac so the 1.1 train continues the old
+// visible sequence: 13, 14, 15…
 //
 // ponytail: read→compute→write is not atomic — two PARALLEL builds on the same
 // machine can mint the same number (duplicate, never backwards; App Store
 // upload rejects the duplicate loudly). Ceiling accepted: builds are single-
 // machine sequential today. Upgrade path: a lockfile (or CI-provided run
 // number) if parallel release builds ever exist.
+// ponytail: a lost/absent state file restarts at 1 — Apple rejects the upload
+// loudly (not silently) if that regresses the train; re-seed the file from App
+// Store Connect's last build number.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -21,10 +23,9 @@ import { dirname, join } from 'node:path'
 
 const STATE = join(dirname(fileURLToPath(import.meta.url)), '.last-build-number')
 
-/** Pure: strictly greater than `last`, and ≥ the current unix second. */
-export function nextBuildNumber(last, now = Date.now()) {
-  const seconds = Math.floor(now / 1000)
-  return Math.max((Number(last) || 0) + 1, seconds)
+/** Pure: strictly greater than `last` — the next plain integer. */
+export function nextBuildNumber(last) {
+  return (Number(last) || 0) + 1
 }
 
 function readLast() {

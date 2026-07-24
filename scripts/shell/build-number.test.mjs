@@ -1,25 +1,22 @@
 #!/usr/bin/env node
-// Runnable check (no framework): build-number monotonicity. `node build-number.test.mjs`.
+// Runnable check (no framework): build-number increments. `node build-number.test.mjs`.
 import assert from 'node:assert/strict'
 import { nextBuildNumber } from './build-number.mjs'
 
-// 1. Strictly greater than the last value.
-assert.ok(nextBuildNumber(100) > 100, 'must exceed last')
+// 1. Plain increment — the whole contract (Liam ruling 7/25: clear numbers).
+assert.equal(nextBuildNumber(12), 13, 'next after 12 is 13')
 
-// 2. Tracks wall clock when clock is ahead of last.
-const now = 1_800_000_000_000 // fixed epoch ms
-assert.equal(nextBuildNumber(0, now), Math.floor(now / 1000), 'uses unix seconds')
-
-// 3. Strictly monotonic even for many builds within the SAME second (last+1 floor).
-let last = Math.floor(now / 1000)
+// 2. Strictly monotonic across a burst of sequential builds.
+let last = 12
 for (let i = 0; i < 5; i++) {
-  const next = nextBuildNumber(last, now) // same `now` → same-second burst
+  const next = nextBuildNumber(last)
   assert.ok(next > last, `burst build ${i} must strictly increase (${next} > ${last})`)
   last = next
 }
+assert.equal(last, 17, 'five builds after 12 land on 17')
 
-// 4. Never goes backwards when last is far in the future (clock skew safety).
-const future = Math.floor(now / 1000) + 10_000
-assert.ok(nextBuildNumber(future, now) > future, 'monotonic under clock skew')
+// 3. Lost/garbage state restarts at 1 (Apple rejects a regression loudly).
+assert.equal(nextBuildNumber(0), 1, 'seedless fallback is 1')
+assert.equal(nextBuildNumber('garbage'), 1, 'garbage state falls back to 1')
 
-console.log('✓ build-number monotonicity: all assertions passed')
+console.log('✓ build-number increments: all assertions passed')
