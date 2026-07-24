@@ -463,3 +463,46 @@ describe('RecordScreen — a failed brief settle never re-suspends the card; rec
     expect(document.querySelector('[aria-busy]')).toBeNull()
   })
 })
+
+describe('RecordScreen — refresh with a FAILED same-path dto refetch still silently refreshes the brief (Greptile #607 P1)', () => {
+  it('the mounted brief re-checks on emitRefresh directly — no dependency on the dto refetch producing a re-render', async () => {
+    const customerId = 'strand-c'
+    const appointmentId = 'strand-a'
+    const dto = recordDto(customerId, appointmentId)
+    const briefPath = briefUrl(customerId, appointmentId, 'ja')
+    let dtoCalls = 0
+    let briefCalls = 0
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === RECORD_SCREEN_PATH) {
+        dtoCalls++
+        // Mount fetch succeeds; the POST-REFRESH refetch fails — the exact
+        // ScreenBoundary same-path bail (setState returns identical prev, no
+        // re-render) that used to strand the stale-marked brief.
+        if (dtoCalls === 1) return jsonResponse(dto)
+        return { ok: false, json: async () => null } as unknown as Response
+      }
+      if (path === briefPath) {
+        briefCalls++
+        if (briefCalls === 1) return jsonResponse({ brief: makeBrief('PRE-MUTATION') })
+        return jsonResponse({ brief: makeBrief('POST-MUTATION') })
+      }
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setApiFetch(apiFetch)
+
+    await act(async () => {
+      render(<RecordScreen />)
+    })
+    await waitFor(() => expect(screen.getByText('PRE-MUTATION')).toBeInTheDocument())
+
+    // A mutation elsewhere refreshes; the dto refetch fails silently. The
+    // brief's own refresh subscription must still revalidate and swap the
+    // post-mutation content in — no loading frame, no foreground needed.
+    await act(async () => {
+      emitRefresh()
+    })
+    await waitFor(() => expect(screen.getByText('POST-MUTATION')).toBeInTheDocument())
+    expect(document.querySelector('[aria-busy]')).toBeNull()
+    expect(briefCalls).toBe(2)
+  })
+})

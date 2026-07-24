@@ -248,10 +248,23 @@ export function useBrief(
       })
     }
     maybeRevalidate()
-    const unsubscribe = subscribeRevalidate(maybeRevalidate)
+    const unsubscribeRevalidate = subscribeRevalidate(maybeRevalidate)
+    // Refresh subscription (Greptile #607 P1): post-mutation freshness for
+    // the MOUNTED card must not depend on the dto layer's refetch producing
+    // a re-render — a same-path dto refetch that FAILS bails out of setState
+    // and renders nothing, which stranded the stale-marked brief until the
+    // next foreground. Re-checking here directly closes that: registration
+    // order guarantees the module-level subscriber (stamp clear +
+    // refreshEpoch bump, registered at module load) runs before any
+    // hook-level subscriber, so this maybeRevalidate always sees the
+    // cleared stamps and silently revalidates. revalidateBrief's
+    // single-flight set absorbs the overlap when the dto settle ALSO
+    // triggers the render-retry effect below.
+    const unsubscribeRefresh = subscribeRefresh(maybeRevalidate)
     return () => {
       alive = false
-      unsubscribe()
+      unsubscribeRevalidate()
+      unsubscribeRefresh()
     }
   }, [url])
 
@@ -259,24 +272,25 @@ export function useBrief(
   // (fetchedAt=0, see fetchBrief) retries on the very re-renders that used
   // to re-shimmer the card, and this effect (no dep array = after every
   // render) turns those moments into SILENT revalidates instead of
-  // cache-miss re-suspends. Honest bound (verifier note): a render is NOT
-  // guaranteed after every event — a SAME-path dto refetch that FAILS bails
-  // out of setState (ScreenBoundary returns the identical prev object), so
-  // closure then falls to the [url] effect's subscribeRevalidate leg (next
-  // foreground) or any later genuine re-render. Stale-not-flashing is the
-  // deliberate trade. Guards make it
+  // cache-miss re-suspends. Renders aren't guaranteed after every event —
+  // that's why the [url] effect above ALSO listens to refresh and
+  // revalidate signals directly; between the three triggers every
+  // staleness source has a closing signal, all of them silent. Guards make it
   // near-free: only fires on a fulfilled entry explicitly marked failed, and
   // revalidateBrief's single-flight set dedupes bursts. The [url] effect's
   // mount/foreground path already covers failed entries too (age from 0 is
   // always past STALE_MS) — this one only closes the "failed after mount, no
   // further signal" window.
   const mounted = useRef(true)
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    // Setup RE-ASSERTS true (Greptile #607 P2): StrictMode replays
+    // setup→cleanup→setup — a cleanup-only effect left the ref false after
+    // the replay, silently disabling every force() in development.
+    mounted.current = true
+    return () => {
       mounted.current = false
-    },
-    [],
-  )
+    }
+  }, [])
   useEffect(() => {
     if (!url) return
     if (cache.get(url)?.status !== 'fulfilled') return
@@ -315,10 +329,12 @@ subscribeSessionState(() => {
 // 7/25 double-flash. New posture = the dto layer's own: KEEP what's painted,
 // mark every entry stale (fetchedAtByUrl cleared → age from 0 is always past
 // STALE_MS), and let the silent revalidate machinery swap fresh content in
-// without a loading frame — mounted screens via the failed/stale render
-// effect (fires on the next genuine re-render; a same-path FAILED dto
-// refetch bails without one, so the foreground signal is the backstop
-// there) + the subscribeRevalidate leg, revisits via maybeRevalidate. The
+// without a loading frame — mounted screens re-check DIRECTLY via the
+// hook's own refresh subscription (registration order: this module-level
+// handler runs first, so the hook always sees the cleared stamps —
+// Greptile #607 P1 closed the old dto-render dependency), plus the
+// foreground leg and the render-retry effect; revisits via
+// maybeRevalidate on mount. The
 // refreshEpoch guard closes the in-flight straggler: a fetch that STARTED
 // pre-mutation but settles post-mutation must not stamp itself fresh with
 // pre-mutation content — it stamps 0 and the next signal re-checks it.
