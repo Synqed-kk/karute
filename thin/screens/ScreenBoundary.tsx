@@ -204,11 +204,13 @@ export function useScreenDto<T>(path: string, parse: (raw: unknown) => T) {
       .then((dto) => {
         // Both gates, different windows (two blind lenses converged on this):
         // `alive` drops SAME-epoch stragglers — a superseded fetch (nav
-        // A→B→A, retry, refresh, a same-user boot double-settle, and
-        // critically the store-lens self-heal, none of which bump the
-        // sign-out epoch) must not overwrite the cache with older or
-        // wrong-store data. The epoch fence drops CROSS-user stragglers in
-        // the microtask window before React commits the sign-out unmount
+        // A→B→A, retry, refresh, and critically the store-lens self-heal,
+        // none of which bump the sign-out epoch) must not overwrite the
+        // cache with older or wrong-store data. A same-user boot
+        // double-settle supersedes NOTHING (no effect re-run in the
+        // same-token case) — its straddled write now lands, which is this
+        // fence's whole point. The epoch fence drops CROSS-user stragglers
+        // in the microtask window before React commits the sign-out unmount
         // (alive can still be true there).
         if (alive && sessionEpoch === epoch) cacheDto(path, dto)
         if (alive) setState({ status: 'ready', dto, path })
