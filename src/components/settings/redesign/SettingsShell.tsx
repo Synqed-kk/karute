@@ -21,6 +21,7 @@ import type { OrgSettings } from '@/actions/org-settings'
 import type { StoreRow } from '@/actions/stores'
 import type { Entitlement } from '@/lib/entitlements'
 import type { StaffMember } from '@/lib/staff'
+import type { SyncStatusDTO } from '@/lib/app-api/settings-screen-dto'
 import { visibleSettingsTabs, visibleStaffRoster } from '@/lib/auth/settings-visibility'
 import { OrganizationSection } from './sections/OrganizationSection'
 import { StoresSection } from './sections/StoresSection'
@@ -30,6 +31,7 @@ import { CoachingSection } from './sections/CoachingSection'
 import { RecordingSection } from './sections/RecordingSection'
 import { StaffSection } from './sections/StaffSection'
 import { SyncSection } from './sections/SyncSection'
+import { SyncStatusCard } from './sections/SyncStatusCard'
 import { PacksSection } from './sections/PacksSection'
 import { AuditLogSection } from './sections/AuditLogSection'
 
@@ -186,6 +188,13 @@ interface SettingsShellProps {
    *  ever passes this). Checked BEFORE pendingTabIds in renderSection, so a
    *  tab in both takes the web-only panel. */
   webOnlyTabIds?: readonly SettingsTabId[]
+  /** 予約同期 read-only status (packet 31). OPTIONAL; omitted/null on web
+   *  (the sync tab renders SyncSection exactly as today — the shell keys off
+   *  this value's PRESENCE, not a separate boolean, so undefined behaves
+   *  the same as null). Non-null → SyncStatusCard, checked before
+   *  webOnlyTabIds so a grant-holding viewer sees the card instead of the
+   *  "manage on web" panel. */
+  syncStatus?: SyncStatusDTO | null
   /** Server-truth feature flags (design-parity packet 12 §S4a). OPTIONAL;
    *  omitted on web (StaffSection/StaffForm fall back to reading the env var
    *  directly, today's behavior, byte-for-byte) — only the thin caller
@@ -212,6 +221,7 @@ export function SettingsShell({
   initialEntitlement,
   pendingTabIds,
   webOnlyTabIds,
+  syncStatus,
   featureStaffInvites,
   featureMultiStore,
 }: SettingsShellProps) {
@@ -233,6 +243,11 @@ export function SettingsShell({
     : null
 
   function renderSection(id: SettingsTabId | null): ReactNode {
+    // Sync status card intercept (Liam ruling 7/24, packet 31) — BEFORE the
+    // web-only intercept below, so a sync.view/owner grant renders the
+    // read-only card instead of the "manage on web" panel. Web never passes
+    // syncStatus (undefined) — falls straight through to that panel/section.
+    if (id === 'sync' && syncStatus) return <SyncStatusCard status={syncStatus} />
     // Web-only intercept (design-parity packet 20 §S5) — BEFORE pendingTabIds,
     // so a tab in both takes the web-only panel over the generic pending one.
     if (id && webOnlyTabIds?.includes(id)) return <WebOnlyTabPanel />

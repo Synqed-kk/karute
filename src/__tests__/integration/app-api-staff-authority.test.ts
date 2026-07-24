@@ -215,6 +215,54 @@ describe('PUT /api/app/v1/staff/[id]/permissions — authz invariants', () => {
     expect(lines).toHaveLength(0)
   })
 
+  it('sync.view grant is owner-only: a non-owner caller (holds sync.view via override) is refused, no write, no audit row (Greptile #599 twin of the audit.view gate)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'sync.view']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Manager', display_role: 'manager' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'manager', permission_role: 'manager' }, // caller's own row
+    ]
+    const lines = await auditLines(async () => {
+      const res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['sync.view'],
+        }),
+        params('staff-9'),
+      )
+      expect(res.status).toBe(200)
+      expect((await res.json()).error).toMatch(/Only the owner can grant sync-status access/i)
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('the OWNER can grant sync.view — happy path twin of the audit.view case (coverage symmetry, verify round)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['staff.manage', 'sync.view']))
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Owner', display_role: 'owner' },
+    ])
+    selectResults = [
+      nonOwnerTarget,
+      { display_role: 'owner', permission_role: 'owner' }, // caller's own row — the owner
+    ]
+    let res!: Response
+    const lines = await auditLines(async () => {
+      res = await permissionsPUT(
+        putReq('staff/staff-9/permissions', {
+          permissionRole: 'custom',
+          capabilities: ['sync.view'],
+        }),
+        params('staff-9'),
+      )
+    })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'settings.permissions_change', target_id: 'staff-9' })
+  })
+
   it('the OWNER can grant audit.view — happy path, one settings.permissions_change row, source facade', async () => {
     // Owner holds every capability (including audit.view itself) — the
     // no-escalation-by-delta check (hold what you grant) passes on that

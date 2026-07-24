@@ -97,11 +97,13 @@ const storesList = jest.fn(async () => ({ stores: [] as Record<string, unknown>[
 const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const entitlementsGet = jest.fn(async () => ({ tier: 'free', is_unlimited: false }))
+const syncGetConfig = jest.fn(async () => null as Record<string, unknown> | null)
 const fakeClient = {
   stores: { get: storesGet, list: storesList },
   staffStores: { get: staffStoresGet, counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
   entitlements: { get: entitlementsGet },
+  sync: { getConfig: syncGetConfig },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -154,6 +156,7 @@ beforeEach(() => {
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'free', is_unlimited: false })
+  syncGetConfig.mockResolvedValue(null)
   delete process.env.KARUTE_BILLING_ENFORCEMENT
 })
 
@@ -377,5 +380,78 @@ describe('GET /api/app/v1/screens/settings', () => {
     expect(res.status).toBe(200)
     const dto = await dtoOf(res)
     expect(dto.initialEntitlement).toMatchObject({ tier: 'free', degraded: true })
+  })
+})
+
+// 予約同期 status card (Liam ruling 7/24, packet 31): least-privilege read —
+// no grant → syncStatus: null AND getConfig is never called at all; a grant
+// (owner OR explicit sync.view) → the real fields; a getConfig throw →
+// syncStatus: null WITHOUT 502ing the rest of the screen (soft-fail, this
+// read is a read-only extra, not load-bearing like staff/org-settings).
+describe('GET /api/app/v1/screens/settings — sync.view (packet 31)', () => {
+  it('no grant → syncStatus: null, getConfig never called', async () => {
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.syncStatus).toBeNull()
+    expect(syncGetConfig).not.toHaveBeenCalled()
+  })
+
+  it('owner → syncStatus fields populate from the real config, even without an explicit sync.view grant', async () => {
+    staffListByBusinessOrThrow.mockResolvedValue([
+      { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner', has_pin: true, created_at: '2026-01-01' },
+    ])
+    syncGetConfig.mockResolvedValue({
+      username: 'should-never-leave-core',
+      enabled: true,
+      last_run_at: '2026-07-24T03:00:00.000Z',
+      last_run_status: 'OK',
+      last_run_error: null,
+    })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.syncStatus).toEqual({
+      enabled: true,
+      lastRunAt: '2026-07-24T03:00:00.000Z',
+      lastRunStatus: 'OK',
+      lastRunError: null,
+    })
+    // Least-data: username never rides the DTO out, even though the client mock returns it.
+    expect(JSON.stringify(dto.syncStatus)).not.toContain('should-never-leave-core')
+  })
+
+  it('explicit sync.view grant (non-owner) → syncStatus populates', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
+    syncGetConfig.mockResolvedValue({
+      enabled: false,
+      last_run_at: null,
+      last_run_status: null,
+      last_run_error: null,
+    })
+    const res = await GET(req(), route)
+    const dto = await dtoOf(res)
+    expect(dto.syncStatus).toEqual({
+      enabled: false,
+      lastRunAt: null,
+      lastRunStatus: null,
+      lastRunError: null,
+    })
+  })
+
+  it('getConfig throws → syncStatus: null, screen still 200 (soft-fail pin)', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
+    syncGetConfig.mockRejectedValueOnce(new Error('core down'))
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.syncStatus).toBeNull()
+  })
+
+  it('getConfig resolves null (no config saved yet) → syncStatus: null, screen still 200', async () => {
+    mockCapabilities.mockResolvedValue(new Set(['customers.view', 'sync.view']))
+    syncGetConfig.mockResolvedValue(null)
+    const res = await GET(req(), route)
+    expect(res.status).toBe(200)
+    const dto = await dtoOf(res)
+    expect(dto.syncStatus).toBeNull()
   })
 })

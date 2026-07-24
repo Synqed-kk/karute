@@ -151,6 +151,20 @@ export const OrgSettingsPatchDTO = OrgSettingsSchema.omit({
   voice_enrollments: true,
 }).partial()
 
+/** Mirrors the read-only fields off SyncConfig (QuickReserve) the
+ *  予約同期 status card needs (packet 31). Least-data: `username` never ships
+ *  — credentials stay server-side; the card shows a static source label
+ *  instead. `lastRunAt` stays a raw ISO instant — the client formats it in
+ *  its OWN timezone (same lambda-zone reasoning as the web proxy route,
+ *  api/sync/quickreserve/config/route.ts:30-33). */
+export const SyncStatusSchema = z.object({
+  enabled: z.boolean(),
+  lastRunAt: z.string().nullable(),
+  lastRunStatus: z.string().nullable(),
+  lastRunError: z.string().nullable(),
+})
+export type SyncStatusDTO = z.infer<typeof SyncStatusSchema>
+
 const StaffMemberSchema = z.object({
   id: z.string(),
   full_name: z.string().nullable(),
@@ -172,6 +186,11 @@ export const SettingsScreenDTO = z.object({
   canManageStaff: z.boolean(),
   canInviteStaff: z.boolean(),
   canViewAudit: z.boolean(),
+  // Owner OR an explicit sync.view grant (packet 31) — null for everyone
+  // else, same least-privilege gate shape as canViewAudit's grant. Distinct
+  // from a boolean flag: the shell keys off syncStatus's presence itself
+  // (non-null → real card; null → the existing web-only fallback panel).
+  syncStatus: SyncStatusSchema.nullable(),
   // page.tsx's own derivation only ever produces 'audit' or null (the sole
   // ?tab= value the web page recognizes) — narrower than SettingsTabId by
   // construction, mirrored here rather than widened speculatively.

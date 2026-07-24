@@ -35,7 +35,7 @@
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
-import { SettingsScreenDTO } from '@/lib/app-api/settings-screen-dto'
+import { SettingsScreenDTO, type SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
@@ -101,6 +101,29 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
     const canManageStaff = ctx.identity.capabilities.has('staff.manage')
     const canInviteStaff = ctx.identity.capabilities.has('staff.invite')
     const canViewAudit = isOwner || ctx.identity.capabilities.has('audit.view')
+    const canViewSync = isOwner || ctx.identity.capabilities.has('sync.view')
+
+    // 予約同期 status card (packet 31) — SOFT-FAIL: a throw or missing config
+    // must never 502 the whole settings screen (this is a read-only extra,
+    // not load-bearing like staff/org-settings above). Ungranted viewers
+    // never trigger the read at all (least-privilege, same posture as the
+    // stores/entitlement fan-out above).
+    let syncStatus: SettingsScreenDTOType['syncStatus'] = null
+    if (canViewSync) {
+      try {
+        const config = await synqed.sync.getConfig('QUICKRESERVE')
+        if (config) {
+          syncStatus = {
+            enabled: config.enabled,
+            lastRunAt: config.last_run_at ?? null,
+            lastRunStatus: config.last_run_status ?? null,
+            lastRunError: config.last_run_error ?? null,
+          }
+        }
+      } catch {
+        syncStatus = null
+      }
+    }
 
     const requestedTab = readRequestedTab(ctx)
     const initialTab = requestedTab === 'audit' && canViewAudit ? 'audit' : null
@@ -140,6 +163,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         canManageStaff,
         canInviteStaff,
         canViewAudit,
+        syncStatus,
         initialTab,
         auditTargetId,
         // Deliberate divergence from web (web: null-default cookie via

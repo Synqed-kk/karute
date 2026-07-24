@@ -177,9 +177,12 @@ export async function setStaffPermissionsCore(
   for (const c of added) {
     if (!deps.callerCapabilities.has(c)) return { error: 'You can only grant permissions you have yourself.' }
   }
-  // 監査ログ spreads only from the owner's hand: a granted manager passes the
-  // hold-what-you-grant check above, so gate the ADD on ownership explicitly.
-  if (added.includes('audit.view')) {
+  // 監査ログ and 予約同期 status spread only from the owner's hand: a granted
+  // manager passes the hold-what-you-grant check above, so gate the ADD on
+  // ownership explicitly (audit.view: Liam ruling 7/17; sync.view mirrors it,
+  // Liam ruling 7/24 / packet 31 — Greptile #599 caught the missing twin).
+  const ownerGrantedOnlyAdds = added.filter((c) => c === 'audit.view' || c === 'sync.view')
+  if (ownerGrantedOnlyAdds.length > 0) {
     const me = deps.callerStaffId
     const { data: caller } = me
       ? await service
@@ -192,7 +195,12 @@ export async function setStaffPermissionsCore(
     const callerIsOwner =
       (caller?.display_role ?? '').toLowerCase() === 'owner' ||
       caller?.permission_role === 'owner'
-    if (!callerIsOwner) return { error: 'Only the owner can grant audit-log access.' }
+    if (!callerIsOwner)
+      return {
+        error: ownerGrantedOnlyAdds.includes('audit.view')
+          ? 'Only the owner can grant audit-log access.'
+          : 'Only the owner can grant sync-status access.',
+      }
   }
 
   // Store null when the set matches the role preset (so the staff "follows" the

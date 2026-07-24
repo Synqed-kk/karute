@@ -47,6 +47,9 @@ jest.mock('@/components/settings/redesign/sections/StaffSection', () => ({
 jest.mock('@/components/settings/redesign/sections/SyncSection', () => ({
   SyncSection: () => <div data-testid="section-sync" />,
 }))
+jest.mock('@/components/settings/redesign/sections/SyncStatusCard', () => ({
+  SyncStatusCard: () => <div data-testid="section-sync-status-card" />,
+}))
 jest.mock('@/components/settings/redesign/sections/PacksSection', () => ({
   PacksSection: () => <div data-testid="section-packs" />,
 }))
@@ -156,5 +159,42 @@ describe('SettingsShell — webOnlyTabIds (design-parity packet 20 §S5)', () =>
     expect(screen.queryByTestId('section-sync')).toBeNull()
     expect(screen.getAllByText(WEB_ONLY_COPY).length).toBeGreaterThan(0)
     expect(screen.queryByText(PENDING_JA)).toBeNull()
+  })
+})
+
+describe('SettingsShell — syncStatus (Liam ruling 7/24, packet 31)', () => {
+  const fixtureStatus = { enabled: true, lastRunAt: null, lastRunStatus: null, lastRunError: null }
+
+  it('syncStatus provided → the card renders, WebOnlyTabPanel does NOT, even with sync in webOnlyTabIds', () => {
+    render(
+      <SettingsShell
+        {...baseProps}
+        initialTab={'sync' as SettingsTabId}
+        webOnlyTabIds={['sync']}
+        syncStatus={fixtureStatus}
+      />,
+    )
+    expect(screen.getAllByTestId('section-sync-status-card').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('section-sync')).toBeNull()
+    expect(screen.queryByText('webOnly')).toBeNull()
+  })
+
+  it('syncStatus null + sync in webOnlyTabIds → the web-only panel (today\'s fallback behavior)', () => {
+    render(
+      <SettingsShell
+        {...baseProps}
+        initialTab={'sync' as SettingsTabId}
+        webOnlyTabIds={['sync']}
+        syncStatus={null}
+      />,
+    )
+    expect(screen.queryByTestId('section-sync-status-card')).toBeNull()
+    expect(screen.getAllByText('webOnly').length).toBeGreaterThan(0)
+  })
+
+  it('web default (syncStatus prop omitted) → SyncSection renders untouched, no card', () => {
+    render(<SettingsShell {...baseProps} initialTab={'sync' as SettingsTabId} />)
+    expect(screen.getAllByTestId('section-sync').length).toBeGreaterThan(0)
+    expect(screen.queryByTestId('section-sync-status-card')).toBeNull()
   })
 })

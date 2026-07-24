@@ -90,6 +90,9 @@ const dto: SettingsScreenDTOType = {
   canManageStaff: true,
   canInviteStaff: true,
   canViewAudit: true,
+  // Web-only pin below asserts the FALLBACK panel — null keeps that path
+  // exercised regardless of what packet 31's own card tests cover.
+  syncStatus: null,
   // The server-truth DTO can only deep-link 'audit' (settings-screen-dto.ts
   // z.enum) — users reach 同期 by tapping, so this test taps like they do.
   initialTab: null,
