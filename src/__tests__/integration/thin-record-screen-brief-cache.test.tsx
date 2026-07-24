@@ -192,6 +192,38 @@ describe('RecordScreen — no-shimmer revisit (perf packet 33, THE discriminatin
   })
 })
 
+describe('RecordScreen — first mount performs exactly ONE brief fetch (perf packet 33, F1 fix)', () => {
+  it('a brand-new target never double-fetches — the mount effect only revalidates a STALE fulfilled entry', async () => {
+    const customerId = 'first-mount-c'
+    const appointmentId = 'first-mount-a'
+    const dto = recordDto(customerId, appointmentId)
+    const briefPath = briefUrl(customerId, appointmentId, 'ja')
+    let briefCalls = 0
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === RECORD_SCREEN_PATH) return jsonResponse(dto)
+      if (path === briefPath) {
+        briefCalls++
+        return jsonResponse({ brief: makeBrief('AI-BRIEF-FIRST') })
+      }
+      throw new Error(`unexpected apiFetch(${path})`)
+    })
+    setApiFetch(apiFetch)
+
+    render(<RecordScreen />)
+    await screen.findByText('AI-BRIEF-FIRST')
+    // Give a (buggy) unconditional mount-revalidate every chance to have
+    // already fired its second fetch before the final assertion — without
+    // F1's staleness gate, the mount effect sees the entry it JUST fetched
+    // as "fulfilled" and revalidates it immediately regardless of freshness.
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(briefCalls).toBe(1)
+  })
+})
+
 describe('RecordScreen — warm populates the cache (perf packet 33)', () => {
   it('warmBriefsForToday populating the cache ahead of time means the FIRST screen mount also paints instantly', async () => {
     jest.useFakeTimers()
@@ -237,10 +269,13 @@ describe('RecordScreen — silent swap on changed content (perf packet 33)', () 
     const appointmentId = 'swap-a'
     const briefPath = briefUrl(customerId, appointmentId, 'ja')
 
-    // Precondition: a fulfilled cache entry already holds the OLD brief.
+    // Precondition: a fulfilled cache entry already holds the OLD brief,
+    // stamped STALE (past STALE_MS) — the mount revalidate is now gated on
+    // exactly that (F1), so a fresh entry would legitimately stay put.
     setApiFetch(jest.fn().mockResolvedValue(jsonResponse({ brief: makeBrief('AI-BRIEF-OLD') })))
     await fetchBrief(briefPath)
     expect(cacheHas(briefPath)).toBe(true)
+    fetchedAtByUrl.set(briefPath, Date.now() - 31_000)
 
     // The server now returns something DIFFERENT — both the screen's own
     // fetch and the mount-triggered revalidate hit this new mock.
@@ -289,16 +324,13 @@ describe('useBrief — foreground staleness gate (perf packet 33, mirrors Screen
     const customerId = 'stale-c'
     const appointmentId = 'stale-a'
     const url = briefUrl(customerId, appointmentId, 'ja')
-    // Call 1: the Probe's own initial fetchBrief. Call 2: useBrief's mount
-    // effect ALSO fires an unconditional revalidate the moment the entry it
-    // just fetched is fulfilled (design bullet 4 — the mount effect only
-    // actually runs once the Suspense retry commits, by which point the
-    // entry is already fulfilled from that very fetch) — same content, so
-    // it's a no-op swap. Call 3 is the deliberate stale-triggered refetch
-    // under test, with genuinely different content.
+    // Call 1: the Probe's own initial fetchBrief. The mount effect's OWN
+    // revalidate check (F1) shares the SAME staleness gate as the
+    // foreground handler — a just-fulfilled entry is fresh by definition,
+    // so mounting right after that fetch settles fires NO second call.
+    // Call 2 is the deliberate stale-triggered refetch under test.
     const apiFetch = jest
       .fn()
-      .mockResolvedValueOnce(jsonResponse({ brief: makeBrief('v1') }))
       .mockResolvedValueOnce(jsonResponse({ brief: makeBrief('v1') }))
       .mockResolvedValueOnce(jsonResponse({ brief: makeBrief('v2') }))
     setApiFetch(apiFetch)
@@ -308,7 +340,7 @@ describe('useBrief — foreground staleness gate (perf packet 33, mirrors Screen
     // explicit act() (a bare `waitFor` after an unwrapped `render()` can
     // leave "a suspended resource finished loading... not wrapped in act"
     // permanently un-flushed). An async act around the initial mount drives
-    // the retry (and the mount-effect's own revalidate settling) properly.
+    // the retry properly.
     await act(async () => {
       renderProbe(customerId, appointmentId)
       await Promise.resolve()
@@ -317,17 +349,16 @@ describe('useBrief — foreground staleness gate (perf packet 33, mirrors Screen
       await Promise.resolve()
     })
     expect(screen.getByTestId('probe').textContent).toBe('v1')
-    expect(apiFetch).toHaveBeenCalledTimes(2) // baseline: mount fetch + its own revalidate
+    expect(apiFetch).toHaveBeenCalledTimes(1) // baseline: exactly ONE fetch, F1's fix
 
-    // Freshly stamped (the mount-effect revalidate above just re-stamped
-    // fetchedAtByUrl) — well inside STALE_MS, a foreground event is a no-op.
+    // Freshly stamped — well inside STALE_MS, a foreground event is a no-op.
     act(() => emitRevalidate())
-    expect(apiFetch).toHaveBeenCalledTimes(2)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
 
     // Push the stamp past STALE_MS (30s).
     fetchedAtByUrl.set(url, Date.now() - 31_000)
     act(() => emitRevalidate())
     await waitFor(() => expect(screen.getByTestId('probe').textContent).toBe('v2'))
-    expect(apiFetch).toHaveBeenCalledTimes(3)
+    expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 })

@@ -19,7 +19,13 @@ import type { Session } from '@supabase/supabase-js'
 import { setDataPort } from '@/lib/ports/data-port'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
-import { briefUrl, cacheHas, fetchBrief } from '../../../thin/data/brief-cache'
+import {
+  briefUrl,
+  cacheHas,
+  fetchBrief,
+  fetchedAtByUrl,
+  revalidateBrief,
+} from '../../../thin/data/brief-cache'
 import { emitRefresh } from '../../../thin/ports/nav.vite'
 
 function makeBrief(concern: string): PreSessionBriefResult {
@@ -156,6 +162,56 @@ describe('fetchBrief', () => {
     expect(cacheHas(url)).toBe(true)
 
     emitRefresh()
+    expect(cacheHas(url)).toBe(false)
+  })
+
+  it('FIFO cap: the 51st distinct url evicts the oldest key from both maps', async () => {
+    const apiFetch = jest
+      .fn<Promise<Response>, unknown[]>()
+      .mockResolvedValue(jsonResponse({ brief: makeBrief('x') }))
+    mockApiFetch(apiFetch)
+
+    const urls = Array.from({ length: 51 }, (_, i) => briefUrl('cap-c', `cap-a-${i}`, 'ja'))
+    for (const url of urls) await fetchBrief(url)
+
+    expect(cacheHas(urls[0])).toBe(false)
+    expect(fetchedAtByUrl.has(urls[0])).toBe(false)
+    expect(cacheHas(urls[1])).toBe(true)
+    expect(cacheHas(urls[50])).toBe(true)
+  })
+})
+
+describe('revalidateBrief', () => {
+  it('a revalidate straggling across an emitRefresh wipe does not re-populate the cache', async () => {
+    const url = briefUrl('straggler-c', 'straggler-a', 'ja')
+    mockApiFetch(
+      jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockResolvedValue(jsonResponse({ brief: makeBrief('A') })),
+    )
+    await fetchBrief(url)
+    expect(cacheHas(url)).toBe(true)
+
+    let resolveRevalidate: (r: Response) => void = () => {}
+    mockApiFetch(
+      jest.fn<Promise<Response>, unknown[]>(
+        () =>
+          new Promise<Response>((r) => {
+            resolveRevalidate = r
+          }),
+      ),
+    )
+    const revalidatePromise = revalidateBrief(url)
+
+    // A mutation elsewhere wipes the cache WHILE the revalidate is in flight.
+    emitRefresh()
+    expect(cacheHas(url)).toBe(false)
+
+    // The straggler settles with DIFFERENT content — it must not resurrect
+    // a cache slot the wipe already cleared.
+    resolveRevalidate(jsonResponse({ brief: makeBrief('B') }))
+    const changed = await revalidatePromise
+    expect(changed).toBe(false)
     expect(cacheHas(url)).toBe(false)
   })
 })

@@ -69,6 +69,33 @@ it('dedupes on appointmentId across calls, and requests the exact RecordScreen s
   )
 })
 
+it('two calls for the same booking before its timer fires schedule exactly ONE timer, so one real failure never double-burns the attempt ceiling', async () => {
+  // A booking gets `warmed` synchronously at schedule time, but the
+  // brief-cache entry only exists once the timer FIRES — in that window
+  // `cacheHas` is still false, so without a schedule-level guard a second
+  // trigger here would schedule a SECOND timer for the same appointmentId.
+  // Both eventually fire and each independently bumps the attempts counter,
+  // burning the 2-attempt ceiling on what is really only ONE failure.
+  const apiFetch = jest.fn<Promise<Response>, unknown[]>().mockResolvedValue({ ok: false } as Response)
+  mockApiFetch(apiFetch)
+
+  warmBriefsForToday([target('c1', 'a1')])
+  warmBriefsForToday([target('c1', 'a1')]) // same booking, timer not fired yet
+
+  jest.advanceTimersByTime(20_000)
+  await flushMicrotasks()
+  expect(apiFetch).toHaveBeenCalledTimes(1) // ONE real attempt spent, not two
+
+  warmBriefsForToday([target('c1', 'a1')]) // released — a genuine retry
+  jest.advanceTimersByTime(20_000)
+  await flushMicrotasks()
+  expect(apiFetch).toHaveBeenCalledTimes(2)
+
+  warmBriefsForToday([target('c1', 'a1')]) // ceiling now truly spent — no third
+  jest.advanceTimersByTime(20_000)
+  expect(apiFetch).toHaveBeenCalledTimes(2)
+})
+
 it('two bookings for the same customer warm independently (keyed on appointmentId)', () => {
   const apiFetch = jest.fn().mockResolvedValue({ ok: true })
   mockApiFetch(apiFetch)
