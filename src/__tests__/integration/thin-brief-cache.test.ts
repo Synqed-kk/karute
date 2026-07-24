@@ -106,7 +106,7 @@ describe('fetchBrief', () => {
     expect(apiFetch).toHaveBeenCalledTimes(2)
   })
 
-  it('cross-generation straggler: a fetch that settles after a generation bump is dropped, not cached', async () => {
+  it('same-user settle echo mid-flight does NOT drop the brief (Liam field bug 7/25: boot double-settle flashed the card twice)', async () => {
     let resolve: (r: Response) => void = () => {}
     const apiFetch = jest.fn<Promise<Response>, unknown[]>(
       () =>
@@ -115,22 +115,47 @@ describe('fetchBrief', () => {
         }),
     )
     mockApiFetch(apiFetch)
-    const url = briefUrl('gen-c', 'gen-a', 'ja')
+    const url = briefUrl('echo-c', 'echo-a', 'ja')
 
     const promise = fetchBrief(url)
     expect(cacheHas(url)).toBe(true) // pending entry present, at fetch START
 
-    // An authoritative transition bumps currentGeneration(). Deliberately
-    // NOT 'signed-out' — isolates the generation fence from the separate
-    // signed-out wipe listener pinned in its own test below.
+    // A same-user signed-in settle — the cold-boot recover + INITIAL_SESSION
+    // echo both land exactly this write, and it DOES bump currentGeneration()
+    // (screen-prefetch's `armed` comment documents the same trap). The old
+    // generation fence treated this routine echo as "different user" and
+    // discarded + deleted the in-flight brief, so a record page painted
+    // before boot churn finished flashed to fallback and re-shimmered per
+    // settle. The fence's real job is SIGN-OUT stragglers only.
     setSessionState({
       status: 'signed-in',
       session: { access_token: 't', user: { id: 'u1' } } as Session,
     })
 
-    resolve(jsonResponse({ brief: makeBrief('late') }))
+    resolve(jsonResponse({ brief: makeBrief('survives-echo') }))
     const result = await promise
-    expect(result).toBeNull()
+    expect(result).not.toBeNull() // brief survives the echo
+    expect(result?.concerns).toEqual(['survives-echo'])
+    expect(cacheHas(url)).toBe(true) // still cached — no re-shimmer on next render
+  })
+
+  it('sign-out straggler: a fetch in flight across a sign-out is dropped, not cached (shared-iPad leak guard)', async () => {
+    let resolve: (r: Response) => void = () => {}
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+      () =>
+        new Promise<Response>((r) => {
+          resolve = r
+        }),
+    )
+    mockApiFetch(apiFetch)
+    const url = briefUrl('strag-c', 'strag-a', 'ja')
+
+    const promise = fetchBrief(url)
+    setSessionState({ status: 'signed-out' }) // wipes cache AND bumps the epoch
+
+    resolve(jsonResponse({ brief: makeBrief('post-signout') }))
+    const result = await promise
+    expect(result).toBeNull() // never handed to the next user's session
     expect(cacheHas(url)).toBe(false)
   })
 

@@ -13,11 +13,7 @@
 
 import { useEffect, useReducer } from 'react'
 import { getDataPort } from '@/lib/ports/data-port'
-import {
-  currentGeneration,
-  getSessionState,
-  subscribeSessionState,
-} from '@/lib/auth/mobile/session-store'
+import { getSessionState, subscribeSessionState } from '@/lib/auth/mobile/session-store'
 import { subscribeRefresh, subscribeRevalidate } from '../ports/nav.vite'
 // type-only: erased at compile time, same rationale as RecordScreen.tsx's
 // import of this type — never triggers ai-brief.ts's server-only guard.
@@ -49,6 +45,19 @@ const cache = new Map<string, StampedPromise>()
 // fetchedAtByPath gives — probing it directly instead of waiting out 30s.
 export const fetchedAtByUrl = new Map<string, number>()
 const revalidating = new Set<string>()
+
+// Straggler fence for in-flight fetches — bumped ONLY on sign-out (brief-
+// warm.ts's epoch idiom), NOT currentGeneration(). The generation bumps on
+// EVERY authoritative session-store write, including the cold-boot recover +
+// INITIAL_SESSION echo for the SAME user (screen-prefetch's `armed` comment
+// documents the same trap) — a generation fence here discarded + deleted a
+// brief fetch straddling routine boot churn, so a record page painted before
+// the churn finished (the packet-35 1s prefetch made this the normal case)
+// flashed to fallback and re-shimmered once per settle (Liam field bug
+// 7/25, force-quit reproducible). The fence's real job is narrower: a fetch
+// started under user A must never populate user B's cache — and only a
+// SIGN-OUT can sit between those two.
+let sessionEpoch = 0
 
 // FIFO cap mirroring ScreenBoundary's dtoCache — only a NEW key can evict;
 // replacing an existing url's entry (revalidate) never grows the map.
@@ -88,16 +97,16 @@ export function fetchBrief(url: string): StampedPromise {
   const existing = cache.get(url)
   if (existing) return existing
 
-  const gen = currentGeneration()
+  const epoch = sessionEpoch
   const promise: StampedPromise = getDataPort()
     .apiFetch(url)
     .then(readBrief)
     .catch(() => null)
     .then((brief) => {
-      // Straggler fence: a fetch that started before a sign-out (or any
-      // authoritative transition) must never populate the NEXT user's
-      // cache — same fence ScreenBoundary:167 uses for dtoCache.
-      if (currentGeneration() !== gen) {
+      // Straggler fence: a fetch that started before a SIGN-OUT must never
+      // populate the next user's cache. Sign-out epoch, deliberately not
+      // currentGeneration() — see the sessionEpoch note above.
+      if (sessionEpoch !== epoch) {
         if (cache.get(url) === promise) cache.delete(url)
         return null
       }
@@ -147,12 +156,13 @@ export async function revalidateBrief(url: string): Promise<boolean> {
   // re-populate a cache slot it no longer recognizes.
   const before = cache.get(url)
   try {
-    const gen = currentGeneration()
+    const epoch = sessionEpoch
     const brief = await getDataPort()
       .apiFetch(url)
       .then(readBrief)
       .catch(() => null)
-    if (currentGeneration() !== gen || brief === null) return false
+    // Sign-out epoch, not currentGeneration() — see the sessionEpoch note.
+    if (sessionEpoch !== epoch || brief === null) return false
     if (cache.get(url) !== before) return false
     if (JSON.stringify(brief) === JSON.stringify(before?.value)) {
       fetchedAtByUrl.set(url, Date.now())
@@ -215,6 +225,7 @@ export function useBrief(
 // reads the outgoing user's cache on first paint.
 subscribeSessionState(() => {
   if (getSessionState().status === 'signed-out') {
+    sessionEpoch++ // invalidate every in-flight fetch's settle (fence above)
     cache.clear()
     fetchedAtByUrl.clear()
   }
