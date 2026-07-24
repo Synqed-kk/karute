@@ -101,6 +101,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { setDataPort } from '@/lib/ports/data-port'
 import { setSessionState } from '@/lib/auth/mobile/session-store'
 import { dtoCache } from '../../../thin/screens/ScreenBoundary'
+import { emitRefresh } from '../../../thin/ports/nav.vite'
 import { PREFETCH_PATHS } from '../../../thin/data/screen-prefetch'
 import { CustomersScreen } from '../../../thin/screens/CustomersScreen'
 import { RecordScreen } from '../../../thin/screens/RecordScreen'
@@ -421,6 +422,36 @@ describe('screen-prefetch — fail-open, no retry (test 7, T3 honest mock)', () 
     jest.advanceTimersByTime(60_000)
     expect(apiFetch).not.toHaveBeenCalledWith(RECORD_PATH)
     expect(apiFetch).not.toHaveBeenCalledWith(APPOINTMENTS_PATH)
+  })
+})
+
+describe('screen-prefetch — wipe fence (Greptile #604 P1)', () => {
+  it('a prefetch that STARTED before an emitRefresh wipe never writes its pre-mutation body', async () => {
+    jest.useFakeTimers()
+    let resolveRecord: (r: Response) => void = () => {}
+    const apiFetch = jest.fn(async (path: string) => {
+      if (path === RECORD_PATH)
+        return new Promise<Response>((r) => {
+          resolveRecord = r
+        })
+      return new Promise<Response>(() => {}) // hold every other target
+    })
+    mockApiFetch(apiFetch)
+
+    signIn()
+    jest.advanceTimersByTime(3_000) // record's timer fires — fetch now in flight
+    expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
+    jest.useRealTimers()
+
+    // A post-mutation refresh lands while the fetch is in flight. It does
+    // NOT advance the auth generation — the generation fence alone would
+    // let the stale settle through; only the wipeEpoch fence stops it.
+    emitRefresh()
+
+    resolveRecord(jsonResponse(recordDto())) // pre-mutation body settles late
+    await flushMicrotasks()
+
+    expect(dtoCache.has(RECORD_PATH)).toBe(false) // stale settle discarded
   })
 })
 

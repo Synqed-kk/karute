@@ -28,6 +28,7 @@ import {
   getSessionState,
   subscribeSessionState,
 } from '@/lib/auth/mobile/session-store'
+import { subscribeRefresh } from '../ports/nav.vite'
 import { cacheDto, dtoCache } from '../screens/ScreenBoundary'
 
 const FIRST_DELAY_MS = 3_000
@@ -87,6 +88,19 @@ export const PREFETCH_PATHS: readonly string[] = TARGETS.map((t) => t.path)
 let armed = false
 let pendingTimers: number[] = []
 
+// Wipe fence (Greptile #604 P1, same class as brief-cache's F3 fences): a
+// post-mutation emitRefresh clears dtoCache but does NOT advance the auth
+// generation, so the generation fence alone lets a prefetch that STARTED
+// pre-mutation settle after the wipe and re-populate the cleared entry with
+// pre-mutation data — the next mount would paint stale content until its own
+// revalidate swaps. Bump an epoch on every refresh wipe; a settle whose
+// captured epoch is stale discards. Timers not yet fired are unaffected —
+// they fetch AFTER the wipe, so their data is post-mutation fresh.
+let wipeEpoch = 0
+subscribeRefresh(() => {
+  wipeEpoch++
+})
+
 function schedule(): void {
   let i = 0
   for (const { path, parse } of TARGETS) {
@@ -102,15 +116,23 @@ function schedule(): void {
       if (dtoCache.has(path)) return
       // Captured at fetch START, mirroring ScreenBoundary/brief-cache's
       // straggler fence — a sign-out mid-flight must not let this settle
-      // write into the replacement session's cache.
+      // write into the replacement session's cache (generation), and a
+      // post-mutation cache wipe mid-flight must not be re-populated with
+      // pre-mutation data (wipeEpoch — see the fence note above).
       const myGen = currentGeneration()
+      const myEpoch = wipeEpoch
       getDataPort()
         .apiFetch(path)
         .then((res) => (res.ok ? res.json() : null))
         .then((body) => {
           if (body === null) return
           const dto = parse(body)
-          if (currentGeneration() === myGen && !dtoCache.has(path)) cacheDto(path, dto)
+          if (
+            currentGeneration() === myGen &&
+            wipeEpoch === myEpoch &&
+            !dtoCache.has(path)
+          )
+            cacheDto(path, dto)
         })
         // Fail-open, no retry: a non-OK response, a network rejection, a
         // JSON parse failure, and a zod schema-parse failure all land here
