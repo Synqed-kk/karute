@@ -78,6 +78,17 @@
  *  R6. dup-timer guard (mutation-proved): a foreground mid-stagger, while
  *      the sign-in batch's own timers are still pending/unsettled, must not
  *      double-schedule any target — each path fetches exactly once.
+ *  R7. fire-time recorder guard (mutation-proved, blind-round P1): a
+ *      recording that starts INSIDE the stagger window skips every pending
+ *      timer at fire time (zero fetches during the take) and releases the
+ *      paths so the next post-take foreground re-warms them.
+ *  R8. fire-time cached-skip release: a path cached by a real mid-stagger
+ *      visit is deleted from tabWarmScheduled at fire time — a later wipe +
+ *      foreground re-warms it instead of finding it falsely still-pending.
+ *  R9. failure release: a rejected warm fetch frees the path via .finally()
+ *      — the next foreground retries it instead of stranding it cold.
+ *  R10. unconditional stamp: a fully-warm foreground still resets the 30s
+ *      clock — a wipe right after stays rate-limited until the interval.
  */
 
 // ---- CustomersScreen render harness (test 8) — same proven mock set as
@@ -1079,6 +1090,143 @@ describe('screen-prefetch — foreground re-warm: recorder guard (R1, THE load-b
     emitRevalidate()
     expect(jest.getTimerCount()).toBe(0)
     expect(apiFetch).not.toHaveBeenCalled()
+
+    // 'recorded' (unsaved take) is the third non-idle state the module's own
+    // guard comment names — a narrowed check (recording/paused only) must go
+    // red here, not slip through green.
+    globalRecorder.state = 'recorded'
+    emitRevalidate()
+    expect(jest.getTimerCount()).toBe(0)
+    expect(apiFetch).not.toHaveBeenCalled()
+  })
+})
+
+describe('screen-prefetch — foreground re-warm: fire-time recorder guard (R7, mutation-proved) ⚑', () => {
+  it('a recording that starts mid-stagger skips every pending tab warm at fire time — and releases the paths for a later re-warm', async () => {
+    jest.useFakeTimers()
+    const apiFetch = allTargetsOkApiFetch()
+    mockApiFetch(apiFetch)
+
+    signIn()
+    expect(jest.getTimerCount()).toBe(5)
+
+    jest.advanceTimersByTime(1_000) // record's timer fires first — its fetch settles pre-take
+    await flushMicrotasks()
+    expect(dtoCache.size).toBe(1)
+
+    // Take starts INSIDE the stagger window — the subscriber's schedule-time
+    // check has already passed and can't see this. The 4 pending timers must
+    // skip at fire time (the sibling warmRecordForBookings contract).
+    globalRecorder.state = 'recording'
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    expect(apiFetch).toHaveBeenCalledTimes(1) // only the pre-take fetch — zero fetches during the take
+    expect(dtoCache.size).toBe(1)
+
+    // The fire-time skip deleted each path from tabWarmScheduled — after the
+    // take resolves, the next foreground re-warms the 4 still-missing ones
+    // (a stranded pending-flag here would leave them cold until sign-out).
+    globalRecorder.state = 'idle'
+    jest.advanceTimersByTime(30_000)
+    emitRevalidate()
+    expect(jest.getTimerCount()).toBe(4)
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    expect(dtoCache.size).toBe(5)
+  })
+})
+
+describe('screen-prefetch — foreground re-warm: fire-time cached-skip releases the path (R8)', () => {
+  it('a path visited mid-stagger (cached at fire time) can be re-warmed after a later wipe', async () => {
+    jest.useFakeTimers()
+    const apiFetch = allTargetsOkApiFetch()
+    mockApiFetch(apiFetch)
+
+    signIn()
+    expect(jest.getTimerCount()).toBe(5)
+    // Staff visits 録音 mid-stagger — the real mount's own fetch caches the
+    // path before this module's 1s timer fires, so that timer takes the
+    // fire-time cached-skip branch (never fetches).
+    dtoCache.set(RECORD_PATH, { fromRealMount: true })
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    expect(apiFetch.mock.calls.filter((c) => c[0] === RECORD_PATH)).toHaveLength(0)
+
+    // Post-mutation wipe → the next foreground must be able to re-warm
+    // RECORD_PATH: the fire-time skip deleted it from tabWarmScheduled.
+    // Without that delete it would sit falsely-pending for the rest of the
+    // session — wiped, cold, and never re-warmed (the exact "stays cold
+    // until sign-out" bug this packet exists to fix).
+    emitRefresh() // wipe (wipeEpoch bump) — see R1's comment
+    dtoCache.clear() // no screen mounted here to run the real dtoCache clear
+    apiFetch.mockClear()
+    jest.advanceTimersByTime(30_000)
+    emitRevalidate()
+    expect(jest.getTimerCount()).toBe(5)
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
+    expect(dtoCache.size).toBe(5)
+  })
+})
+
+describe('screen-prefetch — foreground re-warm: failed warm releases the path for retry (R9)', () => {
+  it('a rejected warm fetch does not strand the path — the next foreground re-warms it', async () => {
+    jest.useFakeTimers()
+    let failRecord = true
+    const apiFetch = allTargetsOkApiFetch({
+      [RECORD_PATH]: () =>
+        failRecord ? Promise.reject(new Error('net down')) : Promise.resolve(jsonResponse(recordDto())),
+    })
+    mockApiFetch(apiFetch)
+
+    signIn()
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    // Record's warm failed (fail-open contract); the other 4 settled.
+    expect(dtoCache.size).toBe(4)
+
+    // The .finally() release means the failure doesn't strand the path: the
+    // next foreground re-warms exactly the missing one. A success-only
+    // delete (release moved out of .finally) would leave it pending-flagged
+    // and cold for the rest of the session.
+    failRecord = false
+    apiFetch.mockClear()
+    jest.advanceTimersByTime(30_000)
+    emitRevalidate()
+    expect(jest.getTimerCount()).toBe(1)
+    jest.advanceTimersByTime(20_000)
+    await flushMicrotasks()
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+    expect(apiFetch).toHaveBeenCalledWith(RECORD_PATH)
+    expect(dtoCache.size).toBe(5)
+  })
+})
+
+describe('screen-prefetch — foreground re-warm: warm-cache foreground still stamps the clock (R10)', () => {
+  it('a no-op foreground resets the rate limit — a wipe right after is not re-warmed until the interval passes', () => {
+    jest.useFakeTimers()
+    const apiFetch = jest.fn(() => new Promise<Response>(() => {}))
+    mockApiFetch(apiFetch)
+    for (const path of PREFETCH_PATHS) dtoCache.set(path, { cached: true })
+
+    signIn()
+    expect(jest.getTimerCount()).toBe(0)
+
+    emitRevalidate() // fully-warm cache: schedules nothing, but MUST stamp
+    expect(jest.getTimerCount()).toBe(0)
+
+    emitRefresh() // wipe (wipeEpoch bump) — see R1's comment
+    dtoCache.clear()
+    jest.advanceTimersByTime(10_000) // still inside the 30s window
+    emitRevalidate()
+    // Rate-limited by the warm-cache foreground's stamp above — a
+    // conditional stamp ("only when something was scheduled") goes red here.
+    expect(jest.getTimerCount()).toBe(0)
+
+    jest.advanceTimersByTime(20_001) // crosses the 30s interval
+    emitRevalidate()
+    expect(jest.getTimerCount()).toBe(5)
   })
 })
 

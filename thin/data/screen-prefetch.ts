@@ -6,11 +6,13 @@
 // singleton/stagger/one-shot idioms and ScreenBoundary's generation fence),
 // so every first tap this session paints instantly instead of shimmering.
 //
-// Recording safety: the ONLY false→true transitions of `armed` below are
-// the first signed-in settle after boot and the first signed-in settle
-// after a sign-out→login — neither can coincide with an active recording
-// (the recorder only starts from a mounted RecordScreen, and sign-out tears
-// any take down), so there is no runtime coupling to check.
+// Recording safety: the sign-in one-shot (`armed` below) can't coincide with
+// an active recording — the recorder only starts from a mounted RecordScreen,
+// and sign-out tears any take down. The foreground re-warm path (PR-H3) CAN:
+// staff foreground the app precisely to go record, so a take routinely starts
+// inside the 1–7s stagger window. That path is guarded twice — at schedule
+// time in the subscriber, and at fire time in every timer body (blind-round
+// P1), mirroring warmRecordForBookings' two-half guard below.
 //
 // brief-warm stays the appointments screen's job: the appointments prefetch
 // below deliberately does NOT call warmBriefsForToday on its DTO settle —
@@ -190,6 +192,17 @@ function schedule(): void {
       // post-mutation wipe re-clears this same path) is free to re-warm it
       // instead of finding it falsely still-pending.
       if (dtoCache.has(path)) {
+        myScheduled.delete(path)
+        return
+      }
+      // Fire-time half of the recorder guard (blind-round P1 — two lenses
+      // independently): a recording that started inside the stagger window
+      // itself is invisible to the subscriber's schedule-time check above,
+      // and the foreground path makes that routine (staff foreground the
+      // app precisely to go record). Mirrors warmRecordForBookings'
+      // identical fire-time check below; delete so the next foreground
+      // after the take resolves is free to re-warm this path.
+      if (globalRecorder.state !== 'idle') {
         myScheduled.delete(path)
         return
       }
