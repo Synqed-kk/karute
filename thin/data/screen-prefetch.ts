@@ -31,8 +31,8 @@ import {
 import { subscribeRefresh } from '../ports/nav.vite'
 import { cacheDto, dtoCache } from '../screens/ScreenBoundary'
 
-const FIRST_DELAY_MS = 3_000
-const STAGGER_MS = 4_000
+const FIRST_DELAY_MS = 1_000
+const STAGGER_MS = 1_500
 
 type Target = { path: string; parse: (raw: unknown) => unknown }
 
@@ -143,6 +143,86 @@ function schedule(): void {
   }
 }
 
+// Record warm for upcoming bookings (perf packet 35, PR-H2). The batch above
+// only warms a BARE 録音 tab visit (no appointmentId) — the far more common
+// path, booking-tap on 予約 → 録音, requests a DIFFERENT cache key
+// (appointmentId included, ground-truth-verified against every real caller:
+// BookingActionSheetWrapper.tsx / TodoCard.tsx) that the batch never touches.
+// This warms THAT key for the next couple of upcoming bookings while staff
+// are still looking at 予約. Lives here (not its own file) for the same
+// reason brief-warm.ts gives for staying separate FROM this file: it reuses
+// this module's wipeEpoch/pendingTimers/generation-fence/cacheDto plumbing
+// rather than duplicating it.
+//
+// RecordScreen.tsx builds its fetch URL as appointmentId→customerId→locale,
+// each only if present — the booking-tap flow never sends customerId, so
+// warming it here would populate a key the real tap never requests.
+export function recordWarmPath(appointmentId: string): string {
+  return `/api/app/v1/screens/record?appointmentId=${encodeURIComponent(appointmentId)}&locale=ja`
+}
+
+const RECORD_WARM_CAP = 2
+// appointmentId -> timer pending. Same idiom as brief-warm.ts's `scheduled`
+// set: closes the window between a timer being SET (synchronous) and its
+// fetch actually landing in dtoCache (a delay later) — without it, a second
+// settle inside that window would schedule a duplicate timer for the same id.
+let recordWarmScheduled = new Set<string>()
+
+/** Fire-and-forget: warm the 録音 screen's DTO for the next few upcoming
+ *  bookings. The caller passes ids already sorted soonest-first — "the next
+ *  N" is the caller's concept (this module has no booking-time knowledge).
+ *  Deterministic by construction: this call's input is sliced to the first
+ *  RECORD_WARM_CAP ids FIRST, then skips are applied to that slice — not
+ *  "keep pulling ids until CAP get scheduled". Simpler, and the cost (an
+ *  already-cached id in the first CAP occasionally yields a smaller-than-CAP
+ *  batch) is cheap: that id needed no warm anyway. */
+export function warmRecordForBookings(appointmentIds: string[]): void {
+  let k = 0
+  for (const id of appointmentIds.slice(0, RECORD_WARM_CAP)) {
+    const path = recordWarmPath(id)
+    // Skip at schedule time: already scheduled by an earlier settle this
+    // signed-in period, or already cached (a real 録音 visit, or this same
+    // warm on a prior settle, got there first).
+    if (recordWarmScheduled.has(id) || dtoCache.has(path)) continue
+    const delay = FIRST_DELAY_MS + k * STAGGER_MS
+    k++
+    recordWarmScheduled.add(id)
+    const timer = window.setTimeout(() => {
+      pendingTimers = pendingTimers.filter((t) => t !== timer)
+      // Delete FIRST, before the fetch leg (brief-warm.ts's idiom): a warm
+      // that fails below must let a LATER settle retry the same id, not be
+      // permanently stuck believing it's still scheduled.
+      recordWarmScheduled.delete(id)
+      // Skip at fire time too: a real 録音 visit mid-stagger already has a
+      // fresher fetch in the cache — never clobber it.
+      if (dtoCache.has(path)) return
+      // Same straggler fences as schedule()'s timer body above: captured at
+      // fetch START so a cross-generation or post-wipe settle can't write.
+      const myGen = currentGeneration()
+      const myEpoch = wipeEpoch
+      getDataPort()
+        .apiFetch(path)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((body) => {
+          if (body === null) return
+          const dto = RecordScreenDTO.parse(body)
+          if (
+            currentGeneration() === myGen &&
+            wipeEpoch === myEpoch &&
+            !dtoCache.has(path)
+          )
+            cacheDto(path, dto)
+        })
+        // Fail-open, no retry, no cache.delete: identical contract to
+        // schedule()'s timer above — the failure branch here never writes
+        // and never deletes anything; the real 録音 tap's own fetch surfaces
+        // any genuine error.
+        .catch(() => {})
+    }, delay)
+    pendingTimers.push(timer)
+  }
+}
+
 subscribeSessionState(() => {
   const state = getSessionState()
   if (state.status === 'signed-in') {
@@ -157,5 +237,6 @@ subscribeSessionState(() => {
     pendingTimers.forEach((t) => window.clearTimeout(t))
     pendingTimers = []
     armed = false
+    recordWarmScheduled = new Set()
   }
 })
