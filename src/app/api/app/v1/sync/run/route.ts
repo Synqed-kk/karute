@@ -43,6 +43,10 @@ export const POST = facadeHandler('sync.run', async (ctx: FacadeContext) => {
     // login), not a failure — friendly 200 message, matching the web route.
     if (/config not found|no credentials/i.test(message)) {
       return ok(ctx, {
+        // Machine-readable code so the CLIENT localizes (Greptile #602: the
+        // ja card must not render hard-coded English); message kept for API
+        // ergonomics / non-UI consumers.
+        code: 'not_configured',
         message: 'QR sync not configured — save your Quick Reserve login first.',
       })
     }

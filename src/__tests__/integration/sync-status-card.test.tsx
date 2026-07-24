@@ -173,6 +173,22 @@ describe('SyncStatusCard — onRunNow ABSENT (packet 31 read-only branch, still 
 })
 
 describe('SyncStatusCard — 今すぐ同期 (packet 32, onRunNow PRESENT)', () => {
+  it('a not_configured code renders the LOCALIZED ja copy, never the facade\'s English prose (Greptile #602)', async () => {
+    const onRunNow = jest.fn(async () => ({
+      ok: true,
+      code: 'not_configured',
+      message: 'QR sync not configured — save your Quick Reserve login first.',
+    }))
+    render(<SyncStatusCard status={status({})} nowMs={NOW} onRunNow={onRunNow} />)
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: '今すぐ同期' }))
+    })
+    expect(
+      screen.getByText('予約同期が未設定です。Web 版で Quick Reserve のログイン情報を保存してください。'),
+    ).toBeInTheDocument()
+    expect(screen.queryByText(/QR sync not configured/)).toBeNull()
+  })
+
   it('a REJECTING onRunNow (contract violation) still re-enables the button + shows the failure line — never stuck at 同期中…', async () => {
     const onRunNow = jest.fn(async () => {
       throw new Error('boom')

@@ -39,17 +39,17 @@ const WEB_ONLY_TAB_IDS: readonly SettingsTabId[] = ['sync']
  *  not-configured message) reads as "the request landed" — the card's own
  *  onRunNow contract folds both into `ok: true`, differing only in whether
  *  `message` is set. A non-2xx (403/502) surfaces the facade's error message. */
-async function runSyncNow(): Promise<{ ok: boolean; message?: string }> {
+async function runSyncNow(): Promise<{ ok: boolean; message?: string; code?: string }> {
   try {
     const res = await getDataPort().apiFetch('/api/app/v1/sync/run', { method: 'POST' })
     const body = (await res.json().catch(() => null)) as
-      | { message?: string; error?: { message?: string } }
+      | { code?: string; message?: string; error?: { message?: string } }
       | null
     if (!res.ok) {
       return { ok: false, message: body?.error?.message ?? `Request failed (${res.status})` }
     }
     emitRefresh()
-    return { ok: true, message: body?.message }
+    return { ok: true, message: body?.message, code: body?.code }
   } catch (err) {
     return { ok: false, message: err instanceof Error ? err.message : 'Network error' }
   }

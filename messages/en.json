@@ -1953,7 +1953,8 @@
       "footer": "Sync settings and re-login are managed from the web version's settings.",
       "runNow": "Sync now",
       "runNowPending": "Syncing…",
-      "runFailed": "Sync failed"
+      "runFailed": "Sync failed",
+      "notConfigured": "Sync is not set up yet — save your Quick Reserve login in the web app first."
     },
     "stores": {
       "plan": {

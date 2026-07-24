@@ -1953,7 +1953,8 @@
       "footer": "同期設定の変更・再ログインは Web 版の設定から行えます。",
       "runNow": "今すぐ同期",
       "runNowPending": "同期中…",
-      "runFailed": "同期に失敗しました"
+      "runFailed": "同期に失敗しました",
+      "notConfigured": "予約同期が未設定です。Web 版で Quick Reserve のログイン情報を保存してください。"
     },
     "stores": {
       "plan": {

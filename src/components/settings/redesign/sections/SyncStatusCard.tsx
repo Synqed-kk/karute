@@ -79,7 +79,7 @@ export function SyncStatusCard({
    *  never expected to reject (the thin wiring catches its own network
    *  errors), but a throw would just surface as an unhandled state, same as
    *  any other event handler. */
-  onRunNow?: () => Promise<{ ok: boolean; message?: string }>
+  onRunNow?: () => Promise<{ ok: boolean; message?: string; code?: string }>
 }) {
   const t = useTranslations('settings.sync')
   const [clock, setClock] = useState(() => Date.now())
@@ -102,9 +102,13 @@ export function SyncStatusCard({
       const result = await onRunNow()
       if (!result.ok) {
         setRunResult({ text: result.message ?? t('runFailed'), isError: true })
+      } else if (result.code === 'not_configured') {
+        // Localized client-side (Greptile #602) — the facade's English prose
+        // is for API consumers, never rendered in the ja UI.
+        setRunResult({ text: t('notConfigured'), isError: false })
       } else if (result.message) {
-        // A friendly message (e.g. not-configured) rides through as ok:true —
-        // it's not an error, but it's worth telling the owner why nothing ran.
+        // Any other friendly message rides through as ok:true — worth telling
+        // the owner why nothing ran.
         setRunResult({ text: result.message, isError: false })
       } else {
         setRunResult(null)

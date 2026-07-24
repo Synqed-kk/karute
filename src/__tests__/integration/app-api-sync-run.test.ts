@@ -100,6 +100,9 @@ describe('POST /api/app/v1/sync/run', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body).toEqual({
+      // code is the machine-readable half the CLIENT localizes from
+      // (Greptile #602) — pinned so the ja card never depends on the prose.
+      code: 'not_configured',
       message: 'QR sync not configured — save your Quick Reserve login first.',
     })
   })
