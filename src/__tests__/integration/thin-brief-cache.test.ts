@@ -329,7 +329,7 @@ describe('fetchBrief', () => {
 })
 
 describe('revalidateBrief', () => {
-  it('a revalidate straggling across an emitRefresh keeps the painted entry but must NOT stamp it fresh', async () => {
+  it('cap-out honesty: refreshes landing on EVERY converge iteration make the run give up UNSTAMPED — never fresh-stamped pre-mutation content', async () => {
     const url = briefUrl('straggler-c', 'straggler-a', 'ja')
     mockApiFetch(
       jest
@@ -339,30 +339,72 @@ describe('revalidateBrief', () => {
     await fetchBrief(url)
     expect(cacheHas(url)).toBe(true)
 
-    let resolveRevalidate: (r: Response) => void = () => {}
+    // Every iteration's fetch gets a refresh bumped mid-flight — the
+    // converge loop re-fetches up to its cap, then gives up honestly.
+    const resolvers: Array<(r: Response) => void> = []
     mockApiFetch(
       jest.fn<Promise<Response>, unknown[]>(
         () =>
           new Promise<Response>((r) => {
-            resolveRevalidate = r
+            resolvers.push(r)
           }),
       ),
     )
-    const revalidatePromise = revalidateBrief(url)
+    const run = revalidateBrief(url)
+    for (let k = 0; k < 3; k++) {
+      // wait for iteration k's fetch to be issued
+      for (let f = 0; f < 10 && resolvers.length <= k; f++) await Promise.resolve()
+      emitRefresh() // lands mid-flight for THIS iteration
+      resolvers[k](jsonResponse({ brief: makeBrief(`B${k}`) }))
+      for (let f = 0; f < 10; f++) await Promise.resolve()
+    }
+    const changed = await run
+    expect(changed).toBe(false) // capped out — no swap claim
+    expect(cacheHas(url)).toBe(true) // painted entry KEPT
+    expect(fetchedAtByUrl.get(url)).toBeUndefined() // and NOT stamped fresh
+  })
+})
 
-    // A mutation elsewhere lands WHILE the revalidate is in flight — its
-    // body may be pre-mutation. Entries survive (stale-marked, no clear).
+describe('revalidateBrief — converge-until-current (Greptile #607 r2 P1)', () => {
+  it('a refresh landing mid-revalidation makes the SAME run re-fetch — the original caller ends on post-mutation truth', async () => {
+    const url = briefUrl('conv-c', 'conv-a', 'ja')
+    // Seed a fulfilled entry (pre-mutation content).
+    mockApiFetch(
+      jest
+        .fn<Promise<Response>, unknown[]>()
+        .mockResolvedValue(jsonResponse({ brief: makeBrief('PRE') })),
+    )
+    await fetchBrief(url)
+
+    // Revalidation starts; its FIRST fetch is held open.
+    const resolvers: Array<(r: Response) => void> = []
+    const apiFetch = jest.fn<Promise<Response>, unknown[]>(
+      () =>
+        new Promise<Response>((r) => {
+          resolvers.push(r)
+        }),
+    )
+    mockApiFetch(apiFetch)
+    const run = revalidateBrief(url)
+    expect(apiFetch).toHaveBeenCalledTimes(1)
+
+    // A mutation lands mid-flight. The hook-level trigger this would fire is
+    // swallowed by the single-flight guard — the loop below is what closes it.
     emitRefresh()
-    expect(cacheHas(url)).toBe(true)
-    expect(fetchedAtByUrl.get(url)).toBeUndefined()
 
-    // The straggler settles with DIFFERENT content — the entry must stay
-    // painted-but-STALE: no swap claim, no freshness stamp; the next signal
-    // re-checks against post-mutation truth.
-    resolveRevalidate(jsonResponse({ brief: makeBrief('B') }))
-    const changed = await revalidatePromise
-    expect(changed).toBe(false)
-    expect(cacheHas(url)).toBe(true)
-    expect(fetchedAtByUrl.get(url)).toBeUndefined()
+    // First fetch settles with PRE-mutation content: the run must NOT stamp
+    // or swap it — it must immediately re-fetch (call 2).
+    resolvers[0](jsonResponse({ brief: makeBrief('PRE') }))
+    for (let f = 0; f < 10 && apiFetch.mock.calls.length < 2; f++) await Promise.resolve()
+    expect(apiFetch).toHaveBeenCalledTimes(2)
+
+    // Second fetch settles with POST-mutation content → swap, changed=true,
+    // freshness stamped — the original caller's force() handle repaints.
+    resolvers[1](jsonResponse({ brief: makeBrief('POST') }))
+    const changed = await run
+    expect(changed).toBe(true)
+    const entry = fetchBrief(url)
+    expect(entry.value?.concerns).toEqual(['POST'])
+    expect(fetchedAtByUrl.get(url)).toBeGreaterThan(0)
   })
 })

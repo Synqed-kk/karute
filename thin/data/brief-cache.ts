@@ -186,35 +186,58 @@ export async function revalidateBrief(url: string): Promise<boolean> {
   // re-populate a cache slot it no longer recognizes.
   const before = cache.get(url)
   try {
-    const epoch = sessionEpoch
-    const rEpoch = refreshEpoch
-    const { brief, failed } = await getDataPort()
-      .apiFetch(url)
-      .then(readBrief)
-      .catch((): BriefSettle => ({ brief: null, failed: true }))
-    // Sign-out epoch, not currentGeneration() — see the sessionEpoch note.
-    if (sessionEpoch !== epoch || failed) return false
-    // A refresh landed mid-flight: this body may be pre-mutation. Keep the
-    // painted entry, leave it stale (no stamp) — the next signal re-checks.
-    if (refreshEpoch !== rEpoch) return false
-    if (cache.get(url) !== before) return false
-    // An honest server null never BLANKS painted content (same-path rule),
-    // but it does re-stamp freshness — without the stamp, a fulfilled-null
-    // entry (plan gate / no data) would sit permanently stale and re-ask on
-    // every revalidate signal.
-    if (brief === null || JSON.stringify(brief) === JSON.stringify(before?.value)) {
-      fetchedAtByUrl.set(url, Date.now())
-      return false
+    // Converge-until-current (Greptile #607 r2 P1): a refresh landing while
+    // THIS run is in flight is swallowed at the single-flight guard above —
+    // if this run then just discarded its (possibly pre-mutation) body,
+    // nobody re-scheduled, and the mounted card could sit on pre-mutation
+    // content until an unrelated signal. Instead the SAME run re-fetches
+    // immediately with a fresh epoch capture, so the ORIGINAL caller (which
+    // holds the force() handle) always settles on post-mutation truth.
+    // Hard-capped for paranoia: a cap-out returns false WITHOUT stamping —
+    // the entry stays stale-marked and the next signal re-checks; it is
+    // never stamped fresh with content that might predate a mutation.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const epoch = sessionEpoch
+      const rEpoch = refreshEpoch
+      const { brief, failed } = await getDataPort()
+        .apiFetch(url)
+        .then(readBrief)
+        .catch((): BriefSettle => ({ brief: null, failed: true }))
+      // Sign-out epoch, not currentGeneration() — see the sessionEpoch note.
+      if (sessionEpoch !== epoch || failed) return false
+      // Mutation landed mid-flight: this body may be pre-mutation — loop and
+      // re-fetch now (the swallowed trigger's re-check happens HERE).
+      if (refreshEpoch !== rEpoch) continue
+      return settleRevalidate(url, before, brief)
     }
-    const fresh: StampedPromise = Promise.resolve(brief)
-    fresh.status = 'fulfilled'
-    fresh.value = brief
-    cacheBrief(url, fresh)
-    fetchedAtByUrl.set(url, Date.now())
-    return true
+    return false
   } finally {
     revalidating.delete(url)
   }
+}
+
+// The compare-and-swap tail of revalidateBrief, split out so the converge
+// loop stays readable. Same semantics as before the split.
+function settleRevalidate(
+  url: string,
+  before: StampedPromise | undefined,
+  brief: PreSessionBriefResult | null,
+): boolean {
+  if (cache.get(url) !== before) return false
+  // An honest server null never BLANKS painted content (same-path rule),
+  // but it does re-stamp freshness — without the stamp, a fulfilled-null
+  // entry (plan gate / no data) would sit permanently stale and re-ask on
+  // every revalidate signal.
+  if (brief === null || JSON.stringify(brief) === JSON.stringify(before?.value)) {
+    fetchedAtByUrl.set(url, Date.now())
+    return false
+  }
+  const fresh: StampedPromise = Promise.resolve(brief)
+  fresh.status = 'fulfilled'
+  fresh.value = brief
+  cacheBrief(url, fresh)
+  fetchedAtByUrl.set(url, Date.now())
+  return true
 }
 
 /** The hook RecordScreen calls: returns a stamped promise for use(), and
