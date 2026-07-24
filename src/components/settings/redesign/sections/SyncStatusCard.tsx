@@ -7,7 +7,7 @@
 // separate PARKED phase). Least-data: `username` never reaches this
 // component — the DTO never ships it (see settings-screen-dto.ts).
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import type { SyncStatusDTO } from '@/lib/app-api/settings-screen-dto'
 
@@ -59,14 +59,20 @@ export function SyncStatusCard({
 }: {
   status: SyncStatusDTO
   /** Injected clock for deterministic tests; omitted in production, which
-   *  falls back to a lazily-initialized snapshot — keeping `Date.now()` out
-   *  of the render body itself (React purity rule, same idiom as
+   *  falls back to a minute-ticking clock (Greptile #599: a mount-time
+   *  snapshot froze health — a card left open crossed the 30/60-min
+   *  thresholds while still reporting the stale state). Lazy init keeps
+   *  `Date.now()` out of the render body (React purity rule, same idiom as
    *  SubscriptionSummaryCard.tsx's own trial-countdown clock). */
   nowMs?: number
 }) {
   const t = useTranslations('settings.sync')
-  const [mountedAt] = useState(() => Date.now())
-  const effectiveNow = nowMs ?? mountedAt
+  const [clock, setClock] = useState(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setClock(Date.now()), 60_000)
+    return () => clearInterval(id)
+  }, [])
+  const effectiveNow = nowMs ?? clock
   const health = syncHealth(status, effectiveNow)
   const relative = relativeSync(status.lastRunAt, effectiveNow)
   const pillLabel = health === 'green' ? t('healthy') : health === 'yellow' ? t('delayed') : t('stopped')

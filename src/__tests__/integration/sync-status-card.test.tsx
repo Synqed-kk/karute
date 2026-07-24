@@ -6,7 +6,7 @@
 // — a call-site key typo fails HERE, not just the identity-echo mock tests),
 // and pins that NOTHING inside the card is interactive (no controls, no
 // credential paths — v2 is read-only by design).
-import { render, screen } from '@testing-library/react'
+import { act, render, screen } from '@testing-library/react'
 
 jest.mock('next-intl', () => {
   const messages = jest.requireActual('../../../messages/ja.json')
@@ -46,6 +46,25 @@ function status(overrides: Partial<SyncStatusDTO>): SyncStatusDTO {
     ...overrides,
   }
 }
+
+describe('SyncStatusCard — live clock (Greptile #599: mount-time snapshot froze health)', () => {
+  it('a card left open re-judges health as thresholds pass — green at mount, yellow after the tick crosses 30 min', () => {
+    jest.useFakeTimers()
+    try {
+      jest.setSystemTime(NOW)
+      // No nowMs injected — the production ticking clock is the unit under test.
+      render(<SyncStatusCard status={status({ lastRunAt: minutesAgo(29) })} />)
+      expect(screen.getByText(HEALTHY)).toBeInTheDocument()
+      act(() => {
+        jest.advanceTimersByTime(2 * 60_000)
+      })
+      expect(screen.getByText(DELAYED)).toBeInTheDocument()
+      expect(screen.queryByText(HEALTHY)).toBeNull()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+})
 
 describe('SyncStatusCard — RUNNING is a crawl in flight, not a failure (Fable audit fix)', () => {
   it('RUNNING + fresh timestamp → GREEN + 実行中, never 停止/失敗 (anti-false-alarm pin: the crawler writes RUNNING every cycle)', () => {
