@@ -98,6 +98,9 @@ export interface BuildCustomerProfileScreenArgs {
   }
   allCustomersList: Awaited<ReturnType<typeof listAllCustomers>>
   synqedKaruteRows: KaruteListRow[]
+  /** synqed-core staff roster for the id-space translation below — null when
+   *  the fetch failed (graceful: names degrade exactly as before). */
+  synqedStaff: { staff: Array<{ id: string; user_id?: string | null }> } | null
   enrichment: Map<string, CustomerEnrichment>
   consentResult: {
     consent: { granted_at?: string | null; policy_version?: string | null } | null
@@ -119,6 +122,7 @@ export async function buildCustomerProfileScreen(
     locale,
     contact,
     staffList,
+    synqedStaff,
     photosResult,
     allCustomersList,
     synqedKaruteRows,
@@ -145,6 +149,16 @@ export async function buildCustomerProfileScreen(
   const karuteRecords = mergeKaruteRows<KaruteRow>([], synqedKaruteRows)
   const staffNameById = new Map(
     staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
+  )
+  // Karute rows carry core's staff_id verbatim across MIXED writer id spaces
+  // (recording pipeline = synqed staff id, interactive saves = profile id —
+  // Liam field report 7/24, 担当 "Unknown"). Same boundary translation as
+  // appointments (by-date.ts): synqed id → profile id; profile ids pass
+  // through unchanged.
+  const profileByStaffId = new Map(
+    (synqedStaff?.staff ?? [])
+      .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
+      .map((s) => [s.id, s.user_id]),
   )
 
   // ─── Customer memory (お客様メモリー card) ───────────────────────────────
@@ -315,7 +329,9 @@ export async function buildCustomerProfileScreen(
       duration: r.duration_minutes ?? 0,
       summary: r.summary ?? '—',
       staffName: r.staff_profile_id
-        ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
+        ? (staffNameById.get(
+            profileByStaffId.get(r.staff_profile_id) ?? r.staff_profile_id,
+          ) ?? 'Unknown')
         : 'Unknown',
       entryCount,
       aiSummarized: Boolean(r.summary),

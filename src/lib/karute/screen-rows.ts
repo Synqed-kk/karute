@@ -161,6 +161,17 @@ export function buildSessionsListScreen(args: {
 
   // Project records into KaruteListItem shape
   const items: KaruteListItem[] = records.map((r) => {
+    // Karute rows carry core's staff_id VERBATIM, and the writers are mixed:
+    // the recording pipeline (and the appointment-staff save fallback) stamp
+    // the SYNQED staff id, while web/facade interactive saves stamp the
+    // profile id (Liam field report 7/24: pipeline records rendered 担当
+    // "Unknown" and escaped the 自分/担当 filters). Same boundary translation
+    // as appointments (by-date.ts): synqed ids map to the profile id every
+    // name/color/filter map keys off; profile ids miss the map and pass
+    // through unchanged.
+    const recordStaffProfileId = r.staff_profile_id
+      ? (profileByStaffId.get(r.staff_profile_id) ?? r.staff_profile_id)
+      : null
     const customer = customerById.get(r.client_id)
     const customerName = customer?.name ?? '不明'
     const entryCount = Array.isArray(r.entries)
@@ -195,12 +206,12 @@ export function buildSessionsListScreen(args: {
       // duration line when unknown.
       service: r.service || '—',
       duration: r.duration_minutes ?? 0,
-      staffId: r.staff_profile_id,
-      staffColorKey: r.staff_profile_id
-        ? (staffColors.get(r.staff_profile_id)?.key ?? null)
+      staffId: recordStaffProfileId,
+      staffColorKey: recordStaffProfileId
+        ? (staffColors.get(recordStaffProfileId)?.key ?? null)
         : null,
-      staffName: r.staff_profile_id
-        ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
+      staffName: recordStaffProfileId
+        ? (staffNameById.get(recordStaffProfileId) ?? 'Unknown')
         : '—',
       summary: r.summary ?? '',
       aiStatus,

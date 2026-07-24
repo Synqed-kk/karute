@@ -97,6 +97,13 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
     // org-settings is read once (throwing per the failure contract); packs +
     // passport chain off it exactly as the page chains them off orgSettingsPromise.
     const orgSettingsPromise = orgSettingsWithClient(synqed)
+    // synqed staff roster for the karute-row staff id-space translation
+    // (profile-screen; Liam field report 7/24) — graceful null on failure.
+    // Promise.resolve().then guards the SYNC throw path too (partial client) —
+    // a roster failure must degrade names, never fail the screen.
+    const synqedStaffPromise = Promise.resolve()
+      .then(() => synqed.staff.list({ page_size: 200 }))
+      .catch(() => null)
     const [
       contact,
       staffList,
@@ -143,6 +150,7 @@ async function readCustomerProfileScreen(businessId: string, id: string, locale:
 
     const screen = await buildCustomerProfileScreen({
       customer,
+      synqedStaff: await synqedStaffPromise,
       id,
       businessId,
       locale,

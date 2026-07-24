@@ -50,6 +50,13 @@ export default async function CustomerProfilePage({
   // read that truly depends on another (回数券 ← org-settings toggle) chains
   // off the settings promise INSIDE the wave, not as a stage after it.
   const orgSettingsPromise = getOrgSettings().catch(() => null)
+  // synqed staff roster for the karute-row staff id-space translation
+  // (profile-screen; Liam field report 7/24) — graceful null on failure.
+  // Promise.resolve().then guards the SYNC throw path too (partial client) —
+  // a roster failure must degrade names, never fail the screen.
+  const synqedStaffPromise = Promise.resolve()
+    .then(() => synqed.staff.list({ page_size: 200 }))
+    .catch(() => null)
   const [
     contact,
     staffList,
@@ -110,6 +117,7 @@ export default async function CustomerProfilePage({
 
   const screen = await buildCustomerProfileScreen({
     customer,
+    synqedStaff: await synqedStaffPromise,
     id,
     businessId,
     locale,
