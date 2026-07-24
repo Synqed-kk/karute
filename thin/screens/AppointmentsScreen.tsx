@@ -48,8 +48,20 @@ function AppointmentsScreenInner({ dto }: { dto: AppointmentsScreenDTOType }) {
     // rely on server order of reservationViews (unverified) — this sort is
     // load-bearing. startTimeHm is zero-padded 24h "HH:mm" (en-GB 2-digit,
     // JST), so a plain lexicographic sort is a correct time sort.
+    // Already-recorded bookings (karuteRecordId set) don't get a slot
+    // (Greptile #605 P1): their sheet still OFFERS 録音/新規カルテ, but the
+    // near-certain tap is カルテを見る → /karute/<id>, a route this warm never
+    // covers — with only RECORD_WARM_CAP slots, an unrecorded booking is
+    // always the better bet. A mid-take in-session booking stays eligible:
+    // its karute record doesn't exist until processing completes.
     const upcoming = dto.reservationViews
-      .filter((r) => !r.isCancelled && !r.isNoShow && r.displayStatus !== 'completed')
+      .filter(
+        (r) =>
+          !r.isCancelled &&
+          !r.isNoShow &&
+          r.displayStatus !== 'completed' &&
+          r.karuteRecordId === null,
+      )
       .sort((a, b) => a.startTimeHm.localeCompare(b.startTimeHm))
       .map((r) => r.id)
     warmRecordForBookings(upcoming)

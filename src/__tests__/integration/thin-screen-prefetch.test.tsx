@@ -692,7 +692,7 @@ describe('screen-prefetch — AppointmentsScreen settle-effect record-warm (T8, 
     window.history.replaceState({}, '', '/')
   })
 
-  it('warms the earliest 2 active bookings out of time order, excluding cancelled/no-show/completed', async () => {
+  it('warms the earliest 2 active UNRECORDED bookings out of time order, excluding cancelled/no-show/completed/already-recorded', async () => {
     const dto = {
       ...appointmentsDto(),
       selectedDateIso: jstMidnightIso('2026-07-23'),
@@ -700,6 +700,10 @@ describe('screen-prefetch — AppointmentsScreen settle-effect record-warm (T8, 
         reservationView('cancelled', { startTimeHm: '08:00', isCancelled: true }),
         reservationView('noshow', { startTimeHm: '08:15', isNoShow: true }),
         reservationView('completed', { startTimeHm: '07:00', displayStatus: 'completed' }),
+        // Earliest ACTIVE row of all — but its karute already exists, so its
+        // near-certain tap is カルテを見る (/karute/<id>), not 録音. It must
+        // not consume one of the 2 warm slots (Greptile #605 P1).
+        reservationView('recorded', { startTimeHm: '08:30', karuteRecordId: 'k1' }),
         reservationView('third', { startTimeHm: '13:00' }),
         reservationView('earliest', { startTimeHm: '09:00', displayStatus: 'in_session' }),
         reservationView('second', { startTimeHm: '11:00', displayStatus: 'new' }),
@@ -726,6 +730,11 @@ describe('screen-prefetch — AppointmentsScreen settle-effect record-warm (T8, 
     expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('cancelled'))
     expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('noshow'))
     expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('completed'))
+    // Discriminating both ways: 'recorded' is the earliest active row, so if
+    // the karuteRecordId clause were dropped it would take slot 1 and push
+    // 'second' out of the cap — BOTH this line and the 'second' positive
+    // assertion above would go red.
+    expect(apiFetch).not.toHaveBeenCalledWith(recordWarmPath('recorded'))
   })
 
   it('a non-today settle warms zero record-warm fetches', async () => {
