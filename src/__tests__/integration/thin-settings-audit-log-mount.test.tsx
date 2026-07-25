@@ -72,6 +72,12 @@ const listAuditLog = jest.fn(async (_filters: Record<string, unknown>) => ({
 jest.mock('@/actions/audit-log', () => ({
   listAuditLog: (filters: Record<string, unknown>) => listAuditLog(filters),
 }))
+// AuditLogSection imports listEntryEditHistory (edit-row expansion) — mock the
+// actions module so the real 'use server' file never loads into jsdom (it
+// drags Next server internals in; failure is load-order-dependent).
+jest.mock('@/actions/karute', () => ({
+  listEntryEditHistory: jest.fn(async () => ({ edits: [], truncated: false })),
+}))
 
 import { SettingsScreenInner } from '../../../thin/screens/SettingsScreen'
 import type { SettingsScreenDTOType } from '@/lib/app-api/settings-screen-dto'
