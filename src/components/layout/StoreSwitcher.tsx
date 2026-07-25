@@ -127,32 +127,32 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   )
 }
 
-// Drop the brand prefix that RELATED store names share so labels lead with the
-// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Related = stores
-// sharing this store's first word — an unrelated name ("Test Gym") must not
-// defeat prefix-stripping for the stores that DO share a brand (that running-
-// min-across-everything was the 7/26 pill regression). Strips only whole
-// leading words common to the related set, never a store's last word — so a
-// shared location word (代官山 in 代官山一丁目 / 代官山二丁目) survives and a
-// label never renders blank. No related sibling → full name.
+// Drop the brand prefix a store shares with a SIBLING so labels lead with the
+// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Each store
+// strips its LONGEST leading-word prefix shared with at least one other store
+// — pairwise max, never a minimum over the whole set, so no single unrelated
+// name ("Test Gym", "La Belle 渋谷") can poison the group (the set-min was the
+// 7/26 pill regression, in both its original and first-fix forms). A prefix
+// must be ≥2 words to count as a brand — one coincidental shared word ("La")
+// never strips. Never strips a store's last word — a shared location word
+// (代官山 in 代官山一丁目 / 代官山二丁目) survives and a label never renders
+// blank. No qualifying sibling → full name.
 function branchLabel(name: string, allNames: string[]): string {
   const words = name.split(' ')
-  const related = allNames.filter((n) => n.split(' ')[0] === words[0])
-  if (related.length < 2) return name
-  let common = words.length
-  for (const other of related) {
+  let best = 0
+  let skippedSelf = false
+  for (const other of allNames) {
+    if (!skippedSelf && other === name) {
+      skippedSelf = true
+      continue
+    }
     const otherWords = other.split(' ')
     let i = 0
-    while (i < common && i < otherWords.length && otherWords[i] === words[i]) i++
-    common = i
+    while (i < words.length && i < otherWords.length && otherWords[i] === words[i]) i++
+    if (i > best) best = i
   }
-  // A single shared word is no proof of a shared brand ("La Estro 代官山" /
-  // "La Belle 渋谷" must not lose their "La") — only a multi-word common
-  // prefix reads as a brand worth stripping. Below that, full name.
-  if (common < 2) return name
-  // Never strip every word (would render blank); keep at least the last one.
-  common = Math.min(common, words.length - 1)
-  return words.slice(common).join(' ')
+  if (best < 2) return name
+  return words.slice(Math.min(best, words.length - 1)).join(' ')
 }
 
 function SwitcherRow({

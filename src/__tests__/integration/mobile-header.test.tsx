@@ -102,6 +102,21 @@ describe('StoreSwitcher branch label (7/26 pill regression)', () => {
     expect(screen.getByText('La Estro 代官山')).toBeInTheDocument()
     expect(screen.queryByText('Estro 代官山')).not.toBeInTheDocument()
   })
+
+  it('a same-first-word unrelated store cannot un-strip the branded pair (Greptile r2)', () => {
+    const belle = storeRow('s4', 'La Belle 渋谷')
+    render(<StoreSwitcher stores={[daikanyama, ginza, belle]} activeStoreId="s1" />)
+    // The pair still strips to 代官山 — pairwise max, not a set minimum.
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.queryByText('La Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('the outsider beside a branded pair keeps its own full name', () => {
+    const belle = storeRow('s4', 'La Belle 渋谷')
+    render(<StoreSwitcher stores={[daikanyama, ginza, belle]} activeStoreId="s4" />)
+    expect(screen.getByText('La Belle 渋谷')).toBeInTheDocument()
+    expect(screen.queryByText('Belle 渋谷')).not.toBeInTheDocument()
+  })
 })
 
 describe('MobileHeader', () => {
