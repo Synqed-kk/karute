@@ -48,12 +48,52 @@ jest.mock('@/components/notifications/NotificationsPanel', () => ({
 }))
 
 import { MobileHeader } from '@/components/layout/MobileHeader'
+import { StoreSwitcher } from '@/components/layout/StoreSwitcher'
+import type { StoreRow } from '@/actions/stores'
 
 beforeEach(() => {
   mockPathname = '/ja'
   mockUnread = 0
   mockRecState = 'idle'
   back.mockClear()
+})
+
+const storeRow = (id: string, name: string, isPrimary = false): StoreRow => ({
+  id,
+  name,
+  address: null,
+  phone: null,
+  isPrimary,
+  active: true,
+  staffCount: 0,
+  customerCount: 0,
+  businessType: null,
+})
+
+describe('StoreSwitcher branch label (7/26 pill regression)', () => {
+  const daikanyama = storeRow('s1', 'La Estro 代官山', true)
+  const ginza = storeRow('s2', 'La Estro 銀座')
+  const gym = storeRow('s3', 'Test Gym')
+
+  it('strips the shared brand prefix with two related stores', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza]} activeStoreId="s1" />)
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.queryByText('La Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('an unrelated store name must not defeat prefix-stripping for the related pair', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza, gym]} activeStoreId="s1" />)
+    // The regression: with Test Gym added, the pill fell back to the full
+    // "La Estro 代官山" (CSS-clipped to "La Estr…"). The branch label must
+    // survive unrelated additions.
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.queryByText('La Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('a store with no related sibling keeps its full name', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza, gym]} activeStoreId="s3" />)
+    expect(screen.getByText('Test Gym')).toBeInTheDocument()
+  })
 })
 
 describe('MobileHeader', () => {

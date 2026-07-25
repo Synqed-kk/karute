@@ -127,16 +127,20 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   )
 }
 
-// Drop the brand prefix that every store name shares so labels lead with the
-// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Strips only the
-// whole leading words common to ALL stores, and never a store's last word — so
-// a shared location word (代官山 in 代官山一丁目 / 代官山二丁目) survives and a
-// label never renders blank. No shared prefix (or a single store) → full name.
+// Drop the brand prefix that RELATED store names share so labels lead with the
+// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Related = stores
+// sharing this store's first word — an unrelated name ("Test Gym") must not
+// defeat prefix-stripping for the stores that DO share a brand (that running-
+// min-across-everything was the 7/26 pill regression). Strips only whole
+// leading words common to the related set, never a store's last word — so a
+// shared location word (代官山 in 代官山一丁目 / 代官山二丁目) survives and a
+// label never renders blank. No related sibling → full name.
 function branchLabel(name: string, allNames: string[]): string {
-  if (allNames.length < 2) return name
   const words = name.split(' ')
+  const related = allNames.filter((n) => n.split(' ')[0] === words[0])
+  if (related.length < 2) return name
   let common = words.length
-  for (const other of allNames) {
+  for (const other of related) {
     const otherWords = other.split(' ')
     let i = 0
     while (i < common && i < otherWords.length && otherWords[i] === words[i]) i++
