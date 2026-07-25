@@ -290,11 +290,15 @@ async function facadeRegenerateKarute(
 async function facadeUpdateKaruteEntry(
   karuteRecordId: string,
   entryId: string,
-  input: { content?: string; category?: string; expectedVersion: number },
+  input: { content?: string; category?: string; expectedVersion: number; customerId?: string | null },
 ): Promise<{ ok: true } | { conflict: true } | { error: string }> {
+  // customerId is server-derived on the facade (proof-read before the write,
+  // see the route) — the wire body must not carry it (PATCH schema .strict()).
+  const { customerId: _customerId, ...wireInput } = input
+  void _customerId
   const res = await getDataPort().apiFetch(
     `/api/app/v1/karute/${enc(karuteRecordId)}/entries/${enc(entryId)}`,
-    jsonInit('PATCH', input),
+    jsonInit('PATCH', wireInput),
   )
   if (res.status === 409) return { conflict: true }
   if (res.ok) return { ok: true }

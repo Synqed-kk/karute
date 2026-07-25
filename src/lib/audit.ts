@@ -231,8 +231,10 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   // above — this endpoint only TRIGGERS core's crawl (no credentials touched
   // here), so a row here does not double-log anything core itself emits.
   'sync.run': { kind: 'mutation', category: 'settings', action: 'settings.sync_run_now', targetType: 'business' },
-  // per-entry karute edit (edit-layer W2 PR-B): the web action emits its own
-  // karute.entry_edit directly (different process/request) — this row is
-  // ONLY reached by the facade PATCH, so neither client double-logs.
-  'karute.entry.update': { kind: 'mutation', category: 'karute', action: 'karute.entry_edit', targetType: 'karute' },
+  // karute.entry_edit is NOT a row here (deliberately, edit-layer W2 PR-B
+  // fleet round — same doctrine as karute.save above): it logs at the shared
+  // choke point updateKaruteDetailEntryWithClient (src/actions/karute.ts)
+  // instead — that ONE emit covers the web action AND this facade route
+  // ('karute.entry.update'). A row here would double-log every facade edit.
+  // Deny-default doc rule readers: do not add 'karute.entry.update' to this map.
 }

@@ -143,11 +143,36 @@ export async function regenerateKaruteEntriesWithClient(
       }
     }
 
-    // 3. Remove the prior entries — per-id resilient: one bad id never strands
+    // 3. Remove the prior entries — re-filtered against a FRESH read taken
+    //    AFTER the adds, not the pre-loop snapshot. edit-layer W2 PR-B made
+    //    this reachable: a pencil edit can flip a row AI→HUMAN_EDITED while
+    //    this add phase is running, and core's deleteEntry has no CAS/
+    //    human-row refusal — deleting off the stale snapshot would silently
+    //    kill an edit that landed in the interim. Residual: the gap between
+    //    THIS read and the delete loop right below is still unguarded; the
+    //    airtight close is core-side deleteEntry CAS (Anthony ask sent
+    //    2026-07-25) — this only narrows the window from the whole regen
+    //    run to one round-trip. Per-id resilient: one bad id never strands
     //    the rest.
+    const freshAfterAdds = (await synqed.karuteRecords.get(karuteRecordId)) as
+      | {
+          entries?: Array<{
+            id?: string | null
+            author?: EntryAuthor | null
+            is_manual?: boolean | null
+          }>
+        }
+      | null
+    const freshAiIds = new Set(
+      (freshAfterAdds?.entries ?? [])
+        .filter((e) => (e?.author != null ? e.author === 'AI' : e?.is_manual !== true))
+        .map((e) => e?.id),
+    )
+    const idsToDelete = oldIds.filter((id) => freshAiIds.has(id))
+
     let removed = 0
     let deleteFailures = 0
-    for (const id of oldIds) {
+    for (const id of idsToDelete) {
       try {
         await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
         removed += 1
@@ -157,8 +182,11 @@ export async function regenerateKaruteEntriesWithClient(
     }
 
     // Total delete outage with old entries present → roll back the adds so we
-    // don't leave (and, on retry, compound) a doubled set.
-    if (oldIds.length > 0 && removed === 0) {
+    // don't leave (and, on retry, compound) a doubled set. idsToDelete (not
+    // oldIds) is the right count here — a snapshot id that dropped out via the
+    // fresh re-filter was never going to be deleted, so its absence must not
+    // read as a failure.
+    if (idsToDelete.length > 0 && removed === 0) {
       await rollback(addedIds)
       return {
         error: 'Could not remove the old entries. No changes applied — please retry.',

@@ -1,11 +1,12 @@
 /**
  * @jest-environment jsdom
  *
- * Edit-layer W2 PR-B: the row pencil's version-missing guard (CurrentSessionCard)
- * + the entry-edit sheet's seed/save contract. (next-intl mocked to echo keys,
- * per the repo's tsx-test convention — see current-session-card.test.tsx.)
+ * Edit-layer W2 PR-B (fleet round): the row pencil's version-missing guard
+ * (CurrentSessionCard) + the entry-edit sheet's seed/save/no-op/reopen
+ * contract. (next-intl mocked to echo keys, per the repo's tsx-test
+ * convention — see current-session-card.test.tsx.)
  */
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
 
@@ -46,6 +47,20 @@ describe('CurrentSessionCard — row pencil', () => {
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
   })
+
+  it('re-clicking the same row after a save seeds the sheet with the just-saved body (T7)', async () => {
+    updateKaruteDetailEntry.mockResolvedValue({ ok: true })
+    render(<CurrentSessionCard sessionDate="d" entries={[versionedEntry]} karuteRecordId="kar-1" />)
+    fireEvent.click(screen.getByLabelText('entryEdit.editRow'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(updateKaruteDetailEntry).toHaveBeenCalled())
+    // The prop entry is still version 2 / original body (no real refetch in
+    // this test) — a correct reopen must come from the card's override, not
+    // the stale prop.
+    fireEvent.click(screen.getByLabelText('entryEdit.editRow'))
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('edited body'))
+  })
 })
 
 describe('EntryEditSheet — save', () => {
@@ -60,6 +75,15 @@ describe('EntryEditSheet — save', () => {
       content: 'edited body',
       category: undefined,
       expectedVersion: 2,
+      customerId: undefined,
     })
+  })
+
+  it('no-op save (nothing changed) closes without calling the action (T5)', () => {
+    const onOpenChange = jest.fn()
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={onOpenChange} />)
+    fireEvent.click(screen.getByText('save'))
+    expect(updateKaruteDetailEntry).not.toHaveBeenCalled()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 })
