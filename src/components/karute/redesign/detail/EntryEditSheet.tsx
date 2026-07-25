@@ -72,13 +72,23 @@ export function EntryEditSheet({
     }
     setSaving(true)
     setError(false)
-    const result = await updateKaruteDetailEntry(karuteRecordId, entry.id, {
-      content: content !== entry.body ? content : undefined,
-      category: effectiveCategory !== entry.category ? effectiveCategory : undefined,
-      expectedVersion: entry.version,
-      customerId,
-    })
-    setSaving(false)
+    // try/finally so a THROWING action (vs a returned {error}) can never
+    // strand the sheet in its saving state — belt on top of the port's own
+    // catch (Greptile P1, #615).
+    let result: Awaited<ReturnType<typeof updateKaruteDetailEntry>>
+    try {
+      result = await updateKaruteDetailEntry(karuteRecordId, entry.id, {
+        content: content !== entry.body ? content : undefined,
+        category: effectiveCategory !== entry.category ? effectiveCategory : undefined,
+        expectedVersion: entry.version,
+        customerId,
+      })
+    } catch {
+      setError(true)
+      return
+    } finally {
+      setSaving(false)
+    }
     if ('conflict' in result) {
       setConflict(true)
       return
