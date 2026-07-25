@@ -40,9 +40,6 @@ interface CurrentSessionCardProps {
   /** Enables the per-row ✎ edit affordance (edit-layer W2 PR-B) when present —
    *  the id the edit sheet writes to. Omitted → entries render inert. */
   karuteRecordId?: string
-  /** Threaded to the edit sheet's save call for the choke-point audit's
-   *  customer_id detail (ids only, never displayed). */
-  customerId?: string | null
 }
 
 const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
@@ -112,7 +109,6 @@ export function CurrentSessionCard({
   tunedFor,
   headerAction,
   karuteRecordId,
-  customerId,
 }: CurrentSessionCardProps) {
   const t = useTranslations('karuteDetail')
   const router = useRouter()
@@ -261,7 +257,6 @@ export function CurrentSessionCard({
       {karuteRecordId && (
         <EntryEditSheet
           karuteRecordId={karuteRecordId}
-          customerId={customerId}
           entry={editingEntry}
           onOpenChange={(open) => {
             if (!open) setEditingEntry(null)

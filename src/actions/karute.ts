@@ -656,7 +656,6 @@ export async function updateKaruteDetailEntry(
     content?: string
     category?: SessionCategory
     expectedVersion: number
-    customerId?: string | null
   },
 ): Promise<UpdateKaruteEntryResult> {
   try {
@@ -666,6 +665,15 @@ export async function updateKaruteDetailEntry(
     // Resolve BEFORE the write — same tolerant identity seam as
     // createOrUpdateKaruteRecord (resolveWebAuditContext never throws).
     const { actorId, businessId } = await resolveWebAuditContext()
+    // customer_id for the audit detail comes from the AUTHORITATIVE record —
+    // never from the client (Greptile #616: a crafted action call could
+    // mis-attribute the edit in the 監査ログ dispute view). Same derivation
+    // the facade route gets from its proof-read; the extra GET is cheap on
+    // this low-frequency manual path and also 404s a foreign record id
+    // before any write is attempted.
+    const record = (await synqed.karuteRecords.get(recordId, {
+      include_entries: false,
+    })) as { customer_id?: string | null } | null
     const result = await updateKaruteDetailEntryWithClient(
       synqed,
       recordId,
@@ -677,7 +685,7 @@ export async function updateKaruteDetailEntry(
         actorStaffId,
       },
       { actorId, businessId, source: 'web' },
-      input.customerId ?? null,
+      record?.customer_id ?? null,
     )
     if ('ok' in result) {
       revalidatePath('/[locale]/(app)/karute/[id]', 'page')

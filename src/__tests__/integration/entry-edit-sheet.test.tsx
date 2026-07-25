@@ -75,7 +75,6 @@ describe('EntryEditSheet — save', () => {
       content: 'edited body',
       category: undefined,
       expectedVersion: 2,
-      customerId: undefined,
     })
   })
 
@@ -106,7 +105,6 @@ describe('EntryEditSheet — save', () => {
         content: undefined,
         category: 'note',
         expectedVersion: 2,
-        customerId: undefined,
       }),
     )
   })

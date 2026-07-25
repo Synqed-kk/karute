@@ -117,15 +117,20 @@ export async function regenerateKaruteEntriesWithClient(
       .map((e) => e?.id)
       .filter((id): id is string => Boolean(id))
 
-    // Roll back partial adds so a failed run leaves the record exactly as it was.
-    const rollback = async (ids: string[]) => {
+    // Roll back partial adds so a failed run leaves the record exactly as it
+    // was. Returns the count of deletes that themselves failed — callers that
+    // claim "no changes applied" must not lie when cleanup partially failed
+    // (Greptile #616).
+    const rollback = async (ids: string[]): Promise<number> => {
+      let failures = 0
       for (const id of ids) {
         try {
           await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
         } catch {
-          /* best-effort */
+          failures += 1
         }
       }
+      return failures
     }
 
     // 2. Add the new AI entries first — the record never goes empty. Collect the
@@ -177,9 +182,12 @@ export async function regenerateKaruteEntriesWithClient(
       // edit — without it we must not delete at all. Roll the adds back so a
       // failed run leaves the record exactly as it was (the function's
       // standing invariant); best-effort like every other rollback here.
-      await rollback(addedIds)
+      const rollbackFailures = await rollback(addedIds)
       return {
-        error: 'Could not re-check the current entries. No changes applied — please retry.',
+        error:
+          rollbackFailures > 0
+            ? 'Could not re-check the current entries and some cleanup failed — re-run to finish cleanup.'
+            : 'Could not re-check the current entries. No changes applied — please retry.',
       }
     }
     const freshAiIds = new Set(

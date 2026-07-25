@@ -290,12 +290,10 @@ async function facadeRegenerateKarute(
 async function facadeUpdateKaruteEntry(
   karuteRecordId: string,
   entryId: string,
-  input: { content?: string; category?: string; expectedVersion: number; customerId?: string | null },
+  input: { content?: string; category?: string; expectedVersion: number },
 ): Promise<{ ok: true } | { conflict: true } | { error: string }> {
-  // customerId is server-derived on the facade (proof-read before the write,
-  // see the route) — the wire body must not carry it (PATCH schema .strict()).
-  const { customerId: _customerId, ...wireInput } = input
-  void _customerId
+  // customer_id is server-derived on BOTH platforms (facade proof-read / web
+  // authoritative GET) — it never rides the wire or the action input.
   // Whole body try/caught: a network-level fetch rejection must come back as
   // the declared {error} result, exactly like the web action's catch — an
   // escaped rejection would strand EntryEditSheet in its saving state
@@ -303,7 +301,7 @@ async function facadeUpdateKaruteEntry(
   try {
     const res = await getDataPort().apiFetch(
       `/api/app/v1/karute/${enc(karuteRecordId)}/entries/${enc(entryId)}`,
-      jsonInit('PATCH', wireInput),
+      jsonInit('PATCH', input),
     )
     if (res.status === 409) return { conflict: true }
     if (res.ok) return { ok: true }

@@ -10,9 +10,6 @@ import { CATEGORY_ORDER, type SessionCategory, type SessionEntry } from './Curre
 
 interface EntryEditSheetProps {
   karuteRecordId: string
-  /** Threaded through to the save call for the choke-point audit's
-   *  customer_id detail (ids only, never displayed). */
-  customerId?: string | null
   /** The entry being edited, or null when closed — Sheet's open state derives from this. */
   entry: SessionEntry | null
   onOpenChange: (open: boolean) => void
@@ -35,7 +32,6 @@ interface EntryEditSheetProps {
  *  ONLY: no delete (PR-B2) and no 「記録されます」-style notice (design §6). */
 export function EntryEditSheet({
   karuteRecordId,
-  customerId,
   entry,
   onOpenChange,
   onSaved,
@@ -81,7 +77,6 @@ export function EntryEditSheet({
         content: content !== entry.body ? content : undefined,
         category: effectiveCategory !== entry.category ? effectiveCategory : undefined,
         expectedVersion: entry.version,
-        customerId,
       })
     } catch {
       setError(true)

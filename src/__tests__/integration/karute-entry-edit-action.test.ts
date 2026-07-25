@@ -27,7 +27,13 @@ jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => auditSpy(...(a as 
 
 const updateEntry = jest.fn(async () => ({ id: 'e1' }))
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ karuteRecords: { updateEntry } })),
+  getSynqedClient: jest.fn(async () => ({
+    karuteRecords: {
+      updateEntry,
+      // the web wrapper derives customer_id from the AUTHORITATIVE record
+      get: jest.fn(async () => ({ id: 'kar-1', customer_id: 'cust-authoritative' })),
+    },
+  })),
 }))
 
 import {
@@ -143,11 +149,10 @@ describe('updateKaruteDetailEntry — web wrapper (T1 web side)', () => {
     expect(updateEntry).not.toHaveBeenCalled()
   })
 
-  it('resolves actor_staff_id + audit identity, reaches the core untouched, customerId lands in detail', async () => {
+  it('resolves actor_staff_id + audit identity, reaches the core untouched, customer_id is SERVER-derived', async () => {
     const result = await updateKaruteDetailEntry('kar-1', 'e1', {
       content: 'edited',
       expectedVersion: 3,
-      customerId: 'cust-9',
     })
     expect(result).toEqual({ ok: true })
     expect(updateEntry).toHaveBeenCalledWith('kar-1', 'e1', {
@@ -162,7 +167,8 @@ describe('updateKaruteDetailEntry — web wrapper (T1 web side)', () => {
         actorId: 'auth-user-1',
         businessId: 'biz-1',
         source: 'web',
-        detail: { entry_id: 'e1', category: null, customer_id: 'cust-9' },
+        // from the mocked authoritative get(), never from any client input
+        detail: { entry_id: 'e1', category: null, customer_id: 'cust-authoritative' },
       }),
     )
   })

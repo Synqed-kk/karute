@@ -194,4 +194,26 @@ describe('regenerateKaruteEntriesWithClient — author filter (I1)', () => {
     expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'new-1')
     expect(deleteEntry).not.toHaveBeenCalledWith('kar-1', 'ai-1')
   })
+
+  it('fresh read AND rollback both fail: the error admits cleanup failed instead of claiming no changes (Greptile #616)', async () => {
+    const get = jest
+      .fn()
+      .mockResolvedValueOnce({ entries: [{ id: 'ai-1', author: 'AI' }] })
+      .mockRejectedValueOnce(new Error('network'))
+    const synqed = {
+      karuteRecords: {
+        get,
+        addEntry: jest.fn(async () => ({ id: 'new-1' })),
+        // rollback's delete also fails — total network outage
+        deleteEntry: jest.fn(async () => {
+          throw new Error('network')
+        }),
+      },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [NEW_ENTRY])
+
+    expect(result.error).toContain('re-run to finish cleanup')
+    expect(result.error).not.toContain('No changes applied')
+  })
 })
