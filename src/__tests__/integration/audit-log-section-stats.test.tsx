@@ -7,12 +7,17 @@ import { fireEvent, render, waitFor } from '@testing-library/react'
 import type { StaffMember } from '@/lib/staff'
 
 // has()/t() are identity for every key EXCEPT actions.karute.save (packet 30
-// §4) — simulating the real ja.json addition without disturbing every other
-// test in this file, which never assert on action-label text.
+// §4) and actions.karute.entry_edit (W2 one-sheet §4) — simulating the real
+// ja.json additions without disturbing every other test in this file, which
+// never assert on action-label text.
+const KARUTE_ACTION_LABELS: Record<string, string> = {
+  'actions.karute.save': 'カルテを保存',
+  'actions.karute.entry_edit': 'カルテ項目を編集',
+}
 jest.mock('next-intl', () => ({
   useTranslations: () =>
-    Object.assign((k: string) => (k === 'actions.karute.save' ? 'カルテを保存' : k), {
-      has: (k: string) => k === 'actions.karute.save',
+    Object.assign((k: string) => KARUTE_ACTION_LABELS[k] ?? k, {
+      has: (k: string) => k in KARUTE_ACTION_LABELS,
     }),
   useLocale: () => 'ja',
 }))
@@ -324,5 +329,34 @@ describe('AuditLogSection — karute.save labeling (packet 30 §4)', () => {
     const row = container.querySelector('ul') as HTMLElement
     expect(row.textContent).toContain('カルテを保存')
     expect(row.textContent).toContain('kar-2')
+  })
+})
+
+describe('AuditLogSection — karute.entry_edit labeling (W2 one-sheet §4)', () => {
+  it('renders the ja action label, not the raw action key', async () => {
+    listAuditLog.mockResolvedValue({
+      ok: true,
+      events: [
+        coreEvent({
+          category: 'karute',
+          action: 'karute.entry_edit',
+          target_type: 'karute',
+          target_id: 'kar-3',
+          detail: { entry_id: 'e1', category: 'concern', customer_id: 'cus-1' },
+        }),
+      ],
+      total: 1,
+      page: 1,
+      hasMore: false,
+      breakGlassTotal: 0,
+      warningsTotal: 0,
+      changesTotal: 1,
+      targetLabels: {},
+    })
+    const { container } = render(<AuditLogSection staffList={[]} />)
+    await waitFor(() => expect(container.querySelector('ul')).not.toBeNull())
+    const row = container.querySelector('ul') as HTMLElement
+    expect(row.textContent).toContain('カルテ項目を編集')
+    expect(row.textContent).not.toContain('karute.entry_edit')
   })
 })

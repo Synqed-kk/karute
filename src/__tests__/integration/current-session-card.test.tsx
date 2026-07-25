@@ -76,14 +76,18 @@ describe('CurrentSessionCard', () => {
     expect(screen.queryByText('施術')).not.toBeInTheDocument()
   })
 
-  it('shows the edited chip for a HUMAN_EDITED entry', () => {
-    renderCard([{ ...e('1', 'concern', '肩の張りが続いている'), author: 'HUMAN_EDITED' }])
-    expect(screen.getByText('currentSession.chips.edited')).toBeInTheDocument()
-  })
-
   it('shows the handwritten chip for a HUMAN_CREATED entry', () => {
     renderCard([{ ...e('1', 'note', 'メモ'), author: 'HUMAN_CREATED' }])
     expect(screen.getByText('currentSession.chips.handwritten')).toBeInTheDocument()
+  })
+
+  it('never shows an edited-chip badge for any entry — the amber pencil (W2 one-sheet) is the only edited-state signal now', () => {
+    renderCard([
+      { ...e('1', 'concern', '肩の張りが続いている'), author: 'HUMAN_EDITED' },
+      { ...e('2', 'concern', 'AI行'), author: 'AI' },
+      e('3', 'concern', '著者なし行'),
+    ])
+    expect(screen.queryByText('currentSession.chips.edited')).not.toBeInTheDocument()
   })
 
   it('shows no provenance chip for an AI entry or one with no author', () => {
@@ -91,7 +95,6 @@ describe('CurrentSessionCard', () => {
       { ...e('1', 'concern', 'AI行'), author: 'AI' },
       e('2', 'concern', '著者なし行'),
     ])
-    expect(screen.queryByText('currentSession.chips.edited')).not.toBeInTheDocument()
     expect(screen.queryByText('currentSession.chips.handwritten')).not.toBeInTheDocument()
   })
 })
