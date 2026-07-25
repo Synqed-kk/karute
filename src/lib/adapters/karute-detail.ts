@@ -153,6 +153,9 @@ export function karuteEntriesToSessionEntries(
       category: string
       content: string
       created_at: string
+      author?: SessionEntry['author']
+      version?: number
+      original_ai_content?: string | null
     }>
   }
   return (k.entries ?? []).map((e) => ({
@@ -160,5 +163,8 @@ export function karuteEntriesToSessionEntries(
     category: CATEGORY_TO_SESSION_CATEGORY[e.category] ?? 'concern',
     time: timeOfDay(e.created_at),
     body: e.content,
+    author: e.author,
+    version: e.version,
+    original_ai_content: e.original_ai_content,
   }))
 }

@@ -423,6 +423,10 @@
         "next": "次回",
         "preference": "好み",
         "note": "メモ"
+      },
+      "chips": {
+        "edited": "編集済み",
+        "handwritten": "手書き"
       }
     },
     "regenerate": {
