@@ -12,8 +12,10 @@ import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
+import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 import type { SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
+import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
 /**
  * Resolve which store a karute record write should be stamped with. Reads are
@@ -550,4 +552,149 @@ export async function createManualKaruteRecord(input: {
   // (not the bare /karute/<id> which bypasses next-intl's locale routing).
   const locale = await getLocale()
   redirect(`/${locale}/karute/${recordId}`)
+}
+
+// ---------------------------------------------------------------------------
+// updateKaruteDetailEntry (edit-layer W2 PR-B — edit-save only, no delete)
+// ---------------------------------------------------------------------------
+
+export type UpdateKaruteEntryResult = { ok: true } | { conflict: true } | { error: string }
+
+/** Core-only variant, distinct from {error} — a content-validation failure
+ *  (facade maps it to 400) is not a generic upstream failure (facade maps
+ *  {error} to a fixed generic 502, never the raw message). The web wrapper
+ *  collapses this into {error} before returning — the sheet only ever sees
+ *  {ok}|{conflict}|{error}. Kept structural (no shared string constant) so
+ *  the facade route needs no extra import from this file — the
+ *  updateTag-ban scanner (facade-core-updatetag-ban.test.ts) requires every
+ *  action-module name a route imports to resolve to a function declaration. */
+type CoreUpdateEntryResult = UpdateKaruteEntryResult | { validationError: string }
+
+/** Test-facing only — not imported by the facade route (see the type-shape
+ *  note above). */
+export const ENTRY_CONTENT_INVALID_ERROR = 'Entry content must be 1–4000 characters.'
+
+type SynqedEntryClient = Pick<SynqedClient, 'karuteRecords'>
+
+/**
+ * Per-entry edit-save CORE — CAS via expected_version. NEVER call core's
+ * update({entries}): that full-replaces every entry (incl. human rows) —
+ * updateEntry is the ONLY safe per-entry write. Shared by the web wrapper
+ * below and the facade PATCH route (…/karute/[id]/entries/[entryId]). No
+ * capability/revalidate here — callers own those; the spine emit IS here
+ * (choke-point doctrine, mirrors createOrUpdateKaruteRecord's emitSave above)
+ * so both callers get exactly one emit with no FACADE_AUDIT_MAP row (see the
+ * "not a row here" comment in src/lib/audit.ts).
+ */
+export async function updateKaruteDetailEntryWithClient(
+  synqed: SynqedEntryClient,
+  recordId: string,
+  entryId: string,
+  input: {
+    content?: string
+    category?: SessionCategory
+    expectedVersion: number
+    actorStaffId: string | null
+  },
+  actor: { actorId: string | null; businessId: string | null; source: 'web' | 'facade' },
+  customerId: string | null,
+): Promise<CoreUpdateEntryResult> {
+  // Content bounds checked HERE (not just the facade's zod) so the web path
+  // is covered too — a whitespace-only edit or a >4000-char paste never
+  // reaches updateEntry.
+  if (input.content !== undefined) {
+    const trimmed = input.content.trim()
+    if (trimmed.length === 0 || input.content.length > 4000) {
+      return { validationError: ENTRY_CONTENT_INVALID_ERROR }
+    }
+  }
+  try {
+    await synqed.karuteRecords.updateEntry(recordId, entryId, {
+      ...(input.content !== undefined ? { content: input.content } : {}),
+      ...(input.category !== undefined
+        ? { category: SESSION_CATEGORY_TO_ENTRY_CATEGORY[input.category] }
+        : {}),
+      expected_version: input.expectedVersion,
+      actor_staff_id: input.actorStaffId,
+      action: 'EDIT',
+    })
+    audit({
+      category: 'karute',
+      action: 'karute.entry_edit',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'karute',
+      targetId: recordId,
+      // customer_id rides in detail (ids only, PII rule) — same viewer
+      // name-join rationale as karute.save's emitSave above.
+      detail: { entry_id: entryId, category: input.category ?? null, customer_id: customerId },
+      source: actor.source,
+    })
+    return { ok: true }
+  } catch (err) {
+    // Stale version → 409. Structural status check, not instanceof SynqedError
+    // (same convention as createOrUpdateKaruteRecord's lookup above — a
+    // partial test client can't break detection). current_version rides the
+    // body, not the typed error — callers re-fetch. NEVER retry the CAS.
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? (err as { status: unknown }).status
+        : undefined
+    if (status === 409) return { conflict: true }
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** Cookie web wrapper — records.write gate (same as saveKaruteRecord) +
+ *  business-scoped client + resolved identity, then the core (which owns the
+ *  spine emit). */
+export async function updateKaruteDetailEntry(
+  recordId: string,
+  entryId: string,
+  input: {
+    content?: string
+    category?: SessionCategory
+    expectedVersion: number
+  },
+): Promise<UpdateKaruteEntryResult> {
+  try {
+    await requireCapability('records.write')
+    const synqed = await getSynqedClient()
+    const actorStaffId = await getCurrentUserStaffId()
+    // Resolve BEFORE the write — same tolerant identity seam as
+    // createOrUpdateKaruteRecord (resolveWebAuditContext never throws).
+    const { actorId, businessId } = await resolveWebAuditContext()
+    // customer_id for the audit detail comes from the AUTHORITATIVE record —
+    // never from the client (Greptile #616: a crafted action call could
+    // mis-attribute the edit in the 監査ログ dispute view). Same derivation
+    // the facade route gets from its proof-read; the extra GET is cheap on
+    // this low-frequency manual path and also 404s a foreign record id
+    // before any write is attempted.
+    const record = (await synqed.karuteRecords.get(recordId, {
+      include_entries: false,
+    })) as { customer_id?: string | null } | null
+    const result = await updateKaruteDetailEntryWithClient(
+      synqed,
+      recordId,
+      entryId,
+      {
+        content: input.content,
+        category: input.category,
+        expectedVersion: input.expectedVersion,
+        actorStaffId,
+      },
+      { actorId, businessId, source: 'web' },
+      record?.customer_id ?? null,
+    )
+    if ('ok' in result) {
+      revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    }
+    // Collapse the core-only validationError variant — the sheet only ever
+    // sees {ok}|{conflict}|{error}.
+    if ('validationError' in result) return { error: result.validationError }
+    return result
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }

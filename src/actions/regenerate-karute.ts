@@ -69,6 +69,14 @@ export interface RegenerateResult {
  *   - Concurrency: two simultaneous runs (two tabs/devices) can each delete only
  *     their own snapshot and leave duplicates. A per-record lock / version check
  *     belongs in synqed-core.
+ *   - Edit-during-regen (edit-layer W2): a pencil edit that lands after the
+ *     delete phase's fresh re-read but before that row's own delete call can
+ *     still be deleted — deleteEntry has no CAS (Anthony ask sent 2026-07-25).
+ *     Mitigations: the fresh re-read narrows the window to the delete loop
+ *     itself; core's delete is SOFT (deletedAt + full before-content in
+ *     entry_edits), so a casualty is recoverable, never destroyed; the
+ *     regen-in-flight client lock (design §3) ships with the completion-state
+ *     PR. Airtight close = core-side deleteEntry expected_version.
  *   - Entries are written to AND read from synqed-core — getKaruteRecord is
  *     synqed-authoritative — so a successful regenerate always reflects the
  *     change on the detail page.
@@ -109,15 +117,20 @@ export async function regenerateKaruteEntriesWithClient(
       .map((e) => e?.id)
       .filter((id): id is string => Boolean(id))
 
-    // Roll back partial adds so a failed run leaves the record exactly as it was.
-    const rollback = async (ids: string[]) => {
+    // Roll back partial adds so a failed run leaves the record exactly as it
+    // was. Returns the count of deletes that themselves failed — callers that
+    // claim "no changes applied" must not lie when cleanup partially failed
+    // (Greptile #616).
+    const rollback = async (ids: string[]): Promise<number> => {
+      let failures = 0
       for (const id of ids) {
         try {
           await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
         } catch {
-          /* best-effort */
+          failures += 1
         }
       }
+      return failures
     }
 
     // 2. Add the new AI entries first — the record never goes empty. Collect the
@@ -135,19 +148,60 @@ export async function regenerateKaruteEntriesWithClient(
         if (created?.id) addedIds.push(created.id)
       }
     } catch (err) {
-      await rollback(addedIds)
+      const rollbackFailures = await rollback(addedIds)
+      const reason = err instanceof Error ? err.message : 'unknown'
       return {
-        error: `Could not save the regenerated entries (${
-          err instanceof Error ? err.message : 'unknown'
-        }). No changes applied.`,
+        error:
+          rollbackFailures > 0
+            ? `Could not save the regenerated entries (${reason}) and some cleanup failed — re-run to finish cleanup.`
+            : `Could not save the regenerated entries (${reason}). No changes applied.`,
       }
     }
 
-    // 3. Remove the prior entries — per-id resilient: one bad id never strands
-    //    the rest.
+    // 3. Remove the prior entries — re-filtered against a FRESH read taken
+    //    AFTER the adds, not the pre-loop snapshot. edit-layer W2 PR-B made
+    //    this reachable: a pencil edit can flip a row AI→HUMAN_EDITED while
+    //    this add phase is running, and core's deleteEntry has no CAS/
+    //    human-row refusal — deleting off the stale snapshot would silently
+    //    kill an edit that landed in the interim. Residual: the gap between
+    //    THIS read and each row's own delete below is still unguarded — the
+    //    loop is one sequential round-trip PER id, so the real window spans
+    //    the whole delete phase, not one call. A casualty is recoverable
+    //    (core soft-deletes + entry_edits keeps the before-content); the
+    //    airtight close is core-side deleteEntry CAS (Anthony ask sent
+    //    2026-07-25). Per-id resilient: one bad id never strands the rest.
+    let freshAfterAdds: {
+      entries?: Array<{
+        id?: string | null
+        author?: EntryAuthor | null
+        is_manual?: boolean | null
+      }>
+    } | null
+    try {
+      freshAfterAdds = (await synqed.karuteRecords.get(karuteRecordId)) as typeof freshAfterAdds
+    } catch {
+      // The fresh read is what keeps the delete phase from killing a mid-regen
+      // edit — without it we must not delete at all. Roll the adds back so a
+      // failed run leaves the record exactly as it was (the function's
+      // standing invariant); best-effort like every other rollback here.
+      const rollbackFailures = await rollback(addedIds)
+      return {
+        error:
+          rollbackFailures > 0
+            ? 'Could not re-check the current entries and some cleanup failed — re-run to finish cleanup.'
+            : 'Could not re-check the current entries. No changes applied — please retry.',
+      }
+    }
+    const freshAiIds = new Set(
+      (freshAfterAdds?.entries ?? [])
+        .filter((e) => (e?.author != null ? e.author === 'AI' : e?.is_manual !== true))
+        .map((e) => e?.id),
+    )
+    const idsToDelete = oldIds.filter((id) => freshAiIds.has(id))
+
     let removed = 0
     let deleteFailures = 0
-    for (const id of oldIds) {
+    for (const id of idsToDelete) {
       try {
         await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
         removed += 1
@@ -157,11 +211,17 @@ export async function regenerateKaruteEntriesWithClient(
     }
 
     // Total delete outage with old entries present → roll back the adds so we
-    // don't leave (and, on retry, compound) a doubled set.
-    if (oldIds.length > 0 && removed === 0) {
-      await rollback(addedIds)
+    // don't leave (and, on retry, compound) a doubled set. idsToDelete (not
+    // oldIds) is the right count here — a snapshot id that dropped out via the
+    // fresh re-filter was never going to be deleted, so its absence must not
+    // read as a failure.
+    if (idsToDelete.length > 0 && removed === 0) {
+      const rollbackFailures = await rollback(addedIds)
       return {
-        error: 'Could not remove the old entries. No changes applied — please retry.',
+        error:
+          rollbackFailures > 0
+            ? 'Could not remove the old entries and some cleanup failed — re-run to finish cleanup.'
+            : 'Could not remove the old entries. No changes applied — please retry.',
       }
     }
 

@@ -429,6 +429,14 @@
         "handwritten": "手書き"
       }
     },
+    "entryEdit": {
+      "title": "エントリーを編集",
+      "editRow": "編集",
+      "save": "保存",
+      "conflict": "他の端末で更新されました",
+      "error": "保存に失敗しました",
+      "reload": "再読み込み"
+    },
     "regenerate": {
       "label": "AIで再生成",
       "confirm": "AI項目を再生成（手動項目は保持）",

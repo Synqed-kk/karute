@@ -429,6 +429,14 @@
         "handwritten": "Handwritten"
       }
     },
+    "entryEdit": {
+      "title": "Edit entry",
+      "editRow": "Edit",
+      "save": "Save",
+      "conflict": "Updated on another device",
+      "error": "Could not save",
+      "reload": "Reload"
+    },
     "regenerate": {
       "label": "Regenerate with AI",
       "confirm": "Regenerate AI entries (manual ones kept)",

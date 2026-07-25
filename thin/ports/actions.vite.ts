@@ -283,6 +283,35 @@ async function facadeRegenerateKarute(
   }
 }
 
+// -- session detail: per-entry edit (edit-layer W2 PR-B — edit-save only, no
+// delete; that's PR-B2). Same result shape as the web action
+// (updateKaruteDetailEntry) so EntryEditSheet's success/conflict/error
+// branches behave identically on both platforms.
+async function facadeUpdateKaruteEntry(
+  karuteRecordId: string,
+  entryId: string,
+  input: { content?: string; category?: string; expectedVersion: number },
+): Promise<{ ok: true } | { conflict: true } | { error: string }> {
+  // customer_id is server-derived on BOTH platforms (facade proof-read / web
+  // authoritative GET) — it never rides the wire or the action input.
+  // Whole body try/caught: a network-level fetch rejection must come back as
+  // the declared {error} result, exactly like the web action's catch — an
+  // escaped rejection would strand EntryEditSheet in its saving state
+  // (Greptile P1, #615).
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/karute/${enc(karuteRecordId)}/entries/${enc(entryId)}`,
+      jsonInit('PATCH', input),
+    )
+    if (res.status === 409) return { conflict: true }
+    if (res.ok) return { ok: true }
+    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+    return { error: body?.error?.message ?? `Update failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network request failed' }
+  }
+}
+
 // -- recording flow: save + mint + consent + undo (packet 08 batch 5) ---------
 // The karute SAVE serves BOTH web flavors through ONE facade route. The consent
 // gate round-trips CONSENT_REQUIRED_ERROR as the error message so ReviewScreen's
@@ -1217,4 +1246,6 @@ export const scheduleCustomerDeletion = notWired('scheduleCustomerDeletion')
 export const cancelCustomerDeletion = notWired('cancelCustomerDeletion')
 export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
+// -- entry edit (edit-layer W2 PR-B — edit-save only, no delete yet)
+export const updateKaruteDetailEntry = facadeUpdateKaruteEntry
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')

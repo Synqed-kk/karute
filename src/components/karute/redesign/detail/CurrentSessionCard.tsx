@@ -1,11 +1,13 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
+import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { Target } from 'lucide-react'
+import { Target, Pencil } from 'lucide-react'
 import type { EntryAuthor } from '@synqed-kk/client'
 
 import { TREATMENT_KIND_PREFIXES } from './treatment-prefixes'
+import { EntryEditSheet } from './EntryEditSheet'
 
 export type SessionCategory =
   | 'treatment'
@@ -35,6 +37,9 @@ interface CurrentSessionCardProps {
   tunedFor?: string | null
   /** Optional action rendered in the card header (e.g. AIで再生成 button). */
   headerAction?: ReactNode
+  /** Enables the per-row ✎ edit affordance (edit-layer W2 PR-B) when present —
+   *  the id the edit sheet writes to. Omitted → entries render inert. */
+  karuteRecordId?: string
 }
 
 const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
@@ -58,7 +63,7 @@ const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
 // done → products suggested → next visit. Categories absent from the data are
 // skipped. This is intentionally NOT the entries' arrival order: staff skim by
 // type, not chronology (chronology lives in the transcript).
-const CATEGORY_ORDER: SessionCategory[] = [
+export const CATEGORY_ORDER: SessionCategory[] = [
   'concern',
   'condition',
   'lifestyle',
@@ -103,14 +108,45 @@ export function CurrentSessionCard({
   entries,
   tunedFor,
   headerAction,
+  karuteRecordId,
 }: CurrentSessionCardProps) {
   const t = useTranslations('karuteDetail')
+  const router = useRouter()
+  const [editingEntry, setEditingEntry] = useState<SessionEntry | null>(null)
+  // Post-save stale-reopen guard (edit-layer W2 PR-B fleet fix): a save bumps
+  // core's version immediately, but this render's props may still carry the
+  // pre-save entry until the next fetch lands. An override newer than the
+  // prop wins; once props catch up (entry.version >= override.version) it's
+  // inert — no timers, no active pruning needed.
+  const [overrides, setOverrides] = useState<
+    Map<string, { body: string; category: SessionCategory; version: number; author: EntryAuthor }>
+  >(new Map())
   if (entries.length === 0) return null
+
+  const withOverride = (entry: SessionEntry): SessionEntry => {
+    const o = overrides.get(entry.id)
+    return o && o.version > (entry.version ?? -1)
+      ? { ...entry, body: o.body, category: o.category, version: o.version, author: o.author }
+      : entry
+  }
+  const mergedEntries = entries.map(withOverride)
+
+  // Legacy/cached rows lack `version` (CAS-required) — refresh instead of
+  // opening a sheet with nothing to send.
+  const handleEditClick = (entry: SessionEntry) => {
+    if (entry.version === undefined) {
+      router.refresh()
+      return
+    }
+    setEditingEntry(entry)
+  }
 
   // Group entries by category so a category renders ONCE (chip + bullet list)
   // instead of repeating the chip + the placeholder created_at time per entry.
+  // Built off mergedEntries so both rendering AND a re-click's seed reflect a
+  // just-saved override.
   const byCategory = new Map<SessionCategory, SessionEntry[]>()
-  for (const e of entries) {
+  for (const e of mergedEntries) {
     const arr = byCategory.get(e.category)
     if (arr) arr.push(e)
     else byCategory.set(e.category, [e])
@@ -186,6 +222,16 @@ export function CurrentSessionCard({
                             {t('currentSession.chips.handwritten')}
                           </span>
                         )}
+                        {karuteRecordId && (
+                          <button
+                            type="button"
+                            onClick={() => handleEditClick(e)}
+                            aria-label={t('entryEdit.editRow')}
+                            className="ml-auto shrink-0 text-muted-foreground/40 transition-colors hover:text-foreground"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -206,6 +252,26 @@ export function CurrentSessionCard({
             <span>{tunedFor}</span>
           </span>
         </footer>
+      )}
+
+      {karuteRecordId && (
+        <EntryEditSheet
+          karuteRecordId={karuteRecordId}
+          entry={editingEntry}
+          onOpenChange={(open) => {
+            if (!open) setEditingEntry(null)
+          }}
+          onSaved={(saved) =>
+            setOverrides((prev) =>
+              new Map(prev).set(saved.entryId, {
+                body: saved.body,
+                category: saved.category,
+                version: saved.version,
+                author: saved.author,
+              }),
+            )
+          }
+        />
       )}
     </section>
   )
