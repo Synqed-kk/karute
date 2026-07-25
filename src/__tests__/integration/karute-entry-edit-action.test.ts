@@ -39,8 +39,8 @@ jest.mock('@/lib/synqed/client', () => ({
 import {
   updateKaruteDetailEntry,
   updateKaruteDetailEntryWithClient,
-  ENTRY_CONTENT_INVALID_ERROR,
 } from '@/actions/karute'
+import { ENTRY_CONTENT_INVALID_ERROR } from '@/types/karute'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 
 beforeEach(() => jest.clearAllMocks())

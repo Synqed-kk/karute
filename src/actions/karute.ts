@@ -13,7 +13,7 @@ import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
-import type { SaveKaruteInput } from '@/types/karute'
+import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
@@ -569,10 +569,6 @@ export type UpdateKaruteEntryResult = { ok: true } | { conflict: true } | { erro
  *  updateTag-ban scanner (facade-core-updatetag-ban.test.ts) requires every
  *  action-module name a route imports to resolve to a function declaration. */
 type CoreUpdateEntryResult = UpdateKaruteEntryResult | { validationError: string }
-
-/** Test-facing only — not imported by the facade route (see the type-shape
- *  note above). */
-export const ENTRY_CONTENT_INVALID_ERROR = 'Entry content must be 1–4000 characters.'
 
 type SynqedEntryClient = Pick<SynqedClient, 'karuteRecords'>
 
