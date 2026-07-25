@@ -10,7 +10,6 @@ import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
-import androidx.core.splashscreen.SplashScreen;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 import com.getcapacitor.BridgeActivity;
@@ -97,23 +96,6 @@ public class MainActivity extends BridgeActivity {
     // `proceed` is the second half of this protection.
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // Fix B2: Android 12+ (API 31) auto-dismisses the SYSTEM splash screen on
-    // this Activity's first drawn frame — which fires well before the WebView
-    // has painted anything — so every cold launch showed a blank white WebView
-    // for a beat instead of the splash drawable. iOS doesn't have this gap: its
-    // WKWebView shell holds its splash explicitly through viewDidLoad (see
-    // ios/App/App/AppDelegate.swift). The androidx.core.splashscreen keep-on-
-    // screen predicate installed in onCreate() reads this field on every frame
-    // until it flips; releaseSplash() is the only thing allowed to flip it, from
-    // whichever of the two release points below fires first.
-    private boolean splashReleased = false;
-
-    // Ceiling failsafe for the splash hold — mirrors iOS's 8s splash failsafe
-    // (same file, same rationale: a dropped completion must never stand
-    // between the user and a working app). See the unconditional postDelayed
-    // in onCreate() for why this has to be scheduled there and not in load().
-    private static final long SPLASH_CEILING_MS = 6000;
-
     // Fix B1: hardware/gesture back navigates the WebView's own history instead
     // of closing the app. This is a remote-shell WebView with no @capacitor/app
     // (or any other) plugin registered to handle it — verified nothing in this
@@ -125,28 +107,7 @@ public class MainActivity extends BridgeActivity {
     // the app once there's nowhere left to go back to.
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // androidx.core.splashscreen's documented contract: install BEFORE
-        // super.onCreate() so it attaches its pre-draw listener ahead of
-        // BridgeActivity's setContentView() — that listener is the actual
-        // mechanism holding the frame open past Android 12+'s default
-        // auto-dismiss. Confirmed against the vendored 1.2.0 AAR bytecode:
-        // Impl.install() (via setPostSplashScreenTheme) only calls
-        // activity.setTheme(...) when the theme declares a postSplashScreenTheme
-        // attr; ours doesn't, so this is a no-op on theming and composes cleanly
-        // with BridgeActivity's own setTheme(AppTheme_NoActionBar) call (which
-        // already runs before its setContentView) — no styles.xml change needed.
-        SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
-        splashScreen.setKeepOnScreenCondition(() -> !splashReleased);
-
         super.onCreate(savedInstanceState);
-
-        // Scheduled here, unconditionally, rather than inside load(): if
-        // setContentView(capacitor_bridge_layout_main) throws, BridgeActivity's
-        // onCreate() catch branch falls back to R.layout.no_webview and RETURNS
-        // without ever calling load() — so scheduleSplashRelease()'s WebView
-        // release point (below) would never run on that path. This ceiling is
-        // the only release point that's guaranteed to fire regardless.
-        mainHandler.postDelayed(this::releaseSplash, SPLASH_CEILING_MS);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -199,7 +160,6 @@ public class MainActivity extends BridgeActivity {
             if (!live.isEmpty() || !saved.isEmpty()) {
                 aimAtDashboard();
             }
-            scheduleSplashRelease();
             return;
         }
 
@@ -219,7 +179,6 @@ public class MainActivity extends BridgeActivity {
             captureArmed = true;
             super.load();
             aimAtDashboard();
-            scheduleSplashRelease();
         };
         // Watchdog first, so a dropped completion still resolves in bounded time.
         mainHandler.postDelayed(proceed, INJECT_WATCHDOG_MS);
@@ -284,39 +243,6 @@ public class MainActivity extends BridgeActivity {
             Log.d(TAG, "auth-recover: /login bounce with a restored session — reloading dashboard once");
             webView.loadUrl(SERVER_ORIGIN + "/dashboard");
         }
-    }
-
-    // Fix B2 release point (a): the WebView's first real content paint. Called
-    // from BOTH load() branches, after super.load() and after aimAtDashboard()
-    // has had a chance to run — arming this any earlier would let the splash
-    // drop on the wrong URL's first frame (the transient root/marketing load
-    // that aimAtDashboard() immediately supersedes, rather than the actual
-    // destination).
-    private void scheduleSplashRelease() {
-        WebView webView = getBridge() == null ? null : getBridge().getWebView();
-        if (webView == null) return; // SPLASH_CEILING_MS in onCreate() covers this
-        webView.postVisualStateCallback(0, new WebView.VisualStateCallback() {
-            @Override
-            public void onComplete(long requestId) {
-                // android.webkit.WebView's public contract for
-                // postVisualStateCallback only guarantees the POSTING call runs on
-                // the WebView's origin thread (checkThread() enforces that on the
-                // way in); it does not document which thread onComplete lands on.
-                // Route through mainHandler unconditionally so releaseSplash() —
-                // which flips the field the keep-on-screen predicate reads — only
-                // ever runs on the main thread, whichever thread actually delivers
-                // this callback.
-                mainHandler.post(MainActivity.this::releaseSplash);
-            }
-        });
-    }
-
-    // Idempotent — whichever of the two release points (the WebView paint
-    // above, or SPLASH_CEILING_MS in onCreate()) fires first is the one that
-    // matters; setKeepOnScreenCondition just re-reads this field on every
-    // frame until it flips.
-    private void releaseSplash() {
-        splashReleased = true;
     }
 
     // Reliable capture points. iOS captures on didEnterBackground /
