@@ -123,10 +123,11 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
         content: entry.content,
         original_quote: entry.sourceQuote ?? null,
         confidence: entry.confidenceScore,
-        is_manual: false,
+        is_manual: entry.isManual ?? false,
       })),
     },
     { actorId: ctx.identity.authUserId, businessId, source: 'facade' },
+    input.entriesMode,
   )
 
   // Best-effort outcome (the coaching label) — never gate the save on it.

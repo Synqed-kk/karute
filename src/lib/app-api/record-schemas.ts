@@ -105,6 +105,11 @@ const SaveEntrySchema = z.object({
   content: z.string().max(MAX_ENTRY_CONTENT_CHARS),
   sourceQuote: z.string().max(MAX_QUOTE_CHARS).nullish(),
   confidenceScore: z.number(),
+  // Provenance (edit-layer Wave 1 fix round): true for a staff-edited or
+  // hand-added entry — forwarded to createOrUpdateKaruteRecord's is_manual
+  // mapping. Undefined/false keeps an entry AI, same as before this field
+  // existed.
+  isManual: z.boolean().optional(),
 })
 
 export const SaveKaruteSchema = z
@@ -115,6 +120,14 @@ export const SaveKaruteSchema = z
     transcript: z.string().max(MAX_STORED_TRANSCRIPT_CHARS),
     summary: z.string().max(MAX_SUMMARY_CHARS),
     entries: z.array(SaveEntrySchema).max(500),
+    // Explicit collision-entries intent for createOrUpdateKaruteRecord
+    // (edit-layer Wave 1 fix round) — 'replace' always sends entries on a
+    // recording_session_id collision (the converge-on-staff contract);
+    // 'fill-if-empty' omits them when the existing record already has some
+    // (an automatic resend with nothing newer to say). DEFAULT 'replace':
+    // old thin clients in the field send no flag, and 'replace' is the
+    // pre-existing, known-safe behavior.
+    entriesMode: z.enum(['replace', 'fill-if-empty']).default('replace'),
     outcome: z
       .object({
         status: z.enum(['success', 'no_deal', 'pending']),

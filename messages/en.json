@@ -427,7 +427,7 @@
     },
     "regenerate": {
       "label": "Regenerate with AI",
-      "confirm": "Replace & regenerate",
+      "confirm": "Regenerate AI entries (manual ones kept)",
       "cancel": "Cancel",
       "running": "Regenerating…",
       "error": "Regeneration failed",

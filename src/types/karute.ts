@@ -52,6 +52,13 @@ export type SaveKaruteInput = {
     content: string
     sourceQuote?: string
     confidenceScore: number
+    /** Provenance (edit-layer Wave 1): true for a staff-edited or hand-added
+     *  entry — core maps this to HUMAN_CREATED/HUMAN_EDITED (the CREATE path
+     *  writes no entry_edits row for it — just the author stamp; the log
+     *  trail starts with a later edit). Undefined/false for an untouched AI
+     *  entry. Only ReviewScreen's save computes this per-entry; other callers
+     *  (autosave) omit it and keep today's always-AI behavior. */
+    isManual?: boolean
   }>
   duration?: number
   appointmentId?: string

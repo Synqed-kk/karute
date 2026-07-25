@@ -307,7 +307,15 @@ async function facadeSaveKarute(input: SaveKaruteInput): Promise<{ error: string
 async function facadeSaveKaruteInline(
   input: SaveKaruteInput,
 ): Promise<{ id: string } | { error: string }> {
-  const res = await getDataPort().apiFetch('/api/app/v1/karute', idemPost(input))
+  // 'fill-if-empty' (edit-layer Wave 1 fix round): autosave has nothing newer
+  // to say than what's already on the record, so the facade omits `entries`
+  // on a collision rather than replacing them — see SaveKaruteSchema's
+  // entriesMode + createOrUpdateKaruteRecord. facadeSaveKarute (above) sends
+  // no flag, taking the schema's 'replace' default (the staff-intent path).
+  const res = await getDataPort().apiFetch(
+    '/api/app/v1/karute',
+    idemPost({ ...input, entriesMode: 'fill-if-empty' as const }),
+  )
   const body = (await res.json().catch(() => null)) as
     | { id?: string; error?: { message?: string } }
     | null

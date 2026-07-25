@@ -238,10 +238,39 @@ async function upsertKaruteRecord(
       throw err
     })
   if (existing) {
+    // Carry-forward merge (packet PR-2c). Unlike actions/karute.ts's retry
+    // branch, a reprocess CAN legitimately produce a genuinely new AI
+    // extraction (re-run on a corrected transcript) — so this path can't just
+    // omit `entries`. It must instead keep whatever staff already edited/added
+    // in review: read the existing entries, keep the human-authored ones
+    // (author !== 'AI'; is_manual fallback for legacy pre-migration rows —
+    // same belt-and-braces rule as the regen-guard filter, regenerate-karute.ts),
+    // and re-send them as is_manual: true alongside the fresh AI set. New AI
+    // entries first, carried human rows after.
+    //
+    // Documented limitation (not fixed here — no cleaner core route exists):
+    // core re-mints every sent row from scratch, so a carried HUMAN_EDITED row
+    // comes back HUMAN_CREATED and its original_ai_content is lost on this
+    // rare path. Still logged in karute_entry_edits either way. A by-id carry
+    // (vs re-mint) would need a core API this app doesn't have — flag for
+    // Anthony, don't invent one here.
+    // Ceiling: the carry only copies category/content/original_quote/
+    // confidence — tags and sort_order (if present on the existing row) are
+    // dropped. Silent, not a bug: no UI reads or writes either field on a
+    // karute entry today. Revisit if a future surface starts using them.
+    const carriedHumanEntries = (existing.entries ?? [])
+      .filter((e) => (e.author != null ? e.author !== 'AI' : e.is_manual === true))
+      .map((e) => ({
+        category: e.category,
+        content: e.content,
+        original_quote: e.original_quote,
+        confidence: e.confidence,
+        is_manual: true,
+      }))
     await synqed.karuteRecords.update(existing.id, {
       transcript: result.transcript,
       ai_summary: result.summary,
-      entries,
+      entries: [...entries, ...carriedHumanEntries],
       appointment_id: payload.appointment_id ?? null,
     })
     return existing.id
