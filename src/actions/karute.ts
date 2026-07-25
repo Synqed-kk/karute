@@ -133,11 +133,22 @@ export async function createOrUpdateKaruteRecord(
         throw err
       })
     if (existing) {
+      // Retry idempotency (packet PR-2b): this branch's payload is the SAME
+      // content by construction — but a full `entries` replace is a core
+      // full-replace (UpdateKaruteRecordInput.entries "atomically replaces ALL
+      // entries"). If the existing record already has entries — including any
+      // staff edits/hand-adds made after the first save — a resend would blow
+      // them away for no reason (the retry never carries provenance). Omit
+      // `entries` entirely so core leaves them untouched; transcript/summary
+      // still rewrite. An existing record with zero entries has nothing to
+      // lose, so entries still go through (keeps a genuinely-first upsert able
+      // to land its extracted set).
+      const existingHasEntries = Array.isArray(existing.entries) && existing.entries.length > 0
       await synqed.karuteRecords.update(existing.id, {
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
-        entries: payload.entries,
         appointment_id: payload.appointment_id,
+        ...(existingHasEntries ? {} : { entries: payload.entries }),
       })
       return emitSave({
         id: existing.id,
@@ -270,7 +281,10 @@ export async function saveKaruteRecord(
           content: entry.content,
           original_quote: entry.sourceQuote ?? null,
           confidence: entry.confidenceScore,
-          is_manual: false,
+          // Provenance (edit-layer Wave 1): ReviewScreen computes this per
+          // entry (staff-edited/hand-added → true); other callers (autosave)
+          // never set it, which keeps their entries AI as before.
+          is_manual: entry.isManual ?? false,
         })),
       },
       { actorId, businessId, source: 'web' },
@@ -381,7 +395,10 @@ export async function saveKaruteRecordInline(
           content: entry.content,
           original_quote: entry.sourceQuote ?? null,
           confidence: entry.confidenceScore,
-          is_manual: false,
+          // Provenance (edit-layer Wave 1): ReviewScreen computes this per
+          // entry (staff-edited/hand-added → true); other callers (autosave)
+          // never set it, which keeps their entries AI as before.
+          is_manual: entry.isManual ?? false,
         })),
       },
       { actorId, businessId, source: 'web' },

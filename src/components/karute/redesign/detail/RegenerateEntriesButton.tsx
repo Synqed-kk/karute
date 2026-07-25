@@ -13,7 +13,8 @@ interface RegenerateEntriesButtonProps {
 /**
  * Re-runs the (business-aware, consolidation-tightened) extraction + summary on a
  * saved karute's stored transcript and replaces its entries. Two-click confirm —
- * this overwrites the current entries.
+ * regenerates the AI-authored entries only (I1); any staff-edited or hand-added
+ * entry is kept, never deleted. The confirm-step copy says so.
  *
  * The whole extract → summarize → apply flow now runs SERVER-side in a single
  * action (packet 07 Decision 2): the client sends only the id, the server reads

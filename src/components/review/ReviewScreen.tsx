@@ -3,7 +3,7 @@
 import { getDataPort } from '@/lib/ports/data-port'
 import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useTranslations } from 'next-intl'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -136,6 +136,40 @@ export function ReviewScreen({
     name: 'entries',
   })
 
+  // Provenance snapshot (edit-layer Wave 1, packet PR-2a): each AI entry's
+  // ORIGINAL values, keyed by the field array's stable `field.id` — never by
+  // array index. RHF field arrays keep a field's id fixed across add/remove
+  // (only the position shifts), so a remove-then-add can't mis-promote an
+  // untouched neighbor into "edited" just because it slid into a different
+  // slot — the trap the old Codex review flagged. Captured once, before any
+  // staff edit (guarded ref, not state — this never triggers a re-render).
+  const originalEntriesRef = useRef<Map<string, Entry> | null>(null)
+  if (originalEntriesRef.current === null) {
+    const snapshot = new Map<string, Entry>()
+    fields.forEach((f, i) => {
+      if (entries[i]) snapshot.set(f.id, entries[i])
+    })
+    originalEntriesRef.current = snapshot
+  }
+
+  /** True when a submitted entry is staff-edited or hand-added — saves
+   *  is_manual: true so core marks it HUMAN_CREATED/HUMAN_EDITED and logs the
+   *  edit row. Identity-keyed on the CURRENT field's own id (not `formIndex`
+   *  against the original array) — see the snapshot above. No match in the
+   *  original snapshot = appended by staff. A match whose editable fields
+   *  (category/title/source_quote) differ = edited; confidence_score has no
+   *  input in EntryCard, so it's never staff-set and isn't compared. */
+  function entryIsManual(formIndex: number, value: ReviewFormValues['entries'][number]): boolean {
+    const fieldId = fields[formIndex]?.id
+    const original = fieldId ? originalEntriesRef.current?.get(fieldId) : undefined
+    if (!original) return true
+    return (
+      original.category !== value.category ||
+      original.title !== value.title ||
+      original.source_quote !== value.source_quote
+    )
+  }
+
   function handleAddEntry() {
     append({
       category: ENTRY_CATEGORIES[0],
@@ -198,11 +232,12 @@ export function ReviewScreen({
         customerId,
         transcript,
         summary: data.summary,
-        entries: data.entries.map((e) => ({
+        entries: data.entries.map((e, i) => ({
           category: e.category as import('@/lib/karute/categories').EntryCategory,
           content: e.title,
           sourceQuote: e.source_quote,
           confidenceScore: e.confidence_score,
+          isManual: entryIsManual(i, e),
         })),
         duration,
         appointmentId,

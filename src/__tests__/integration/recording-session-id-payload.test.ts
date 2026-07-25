@@ -87,9 +87,15 @@ const karuteRecords = {
   // Default: nothing saved yet → the create path.
   // Rejection carries status:404 — the upsert only treats a REAL not-found as
   // "no record yet"; any other lookup failure fails the save (retry-safe).
-  getByRecordingSession: jest.fn(async (): Promise<{ id: string; transcript?: string }> => {
-    throw Object.assign(new Error('not found'), { status: 404 })
-  }),
+  getByRecordingSession: jest.fn(
+    async (): Promise<{
+      id: string
+      transcript?: string
+      entries?: Array<{ id: string; content: string; author?: string }>
+    }> => {
+      throw Object.assign(new Error('not found'), { status: 404 })
+    },
+  ),
 }
 const appointments = { get: jest.fn() }
 // Save-gate consent check (src/actions/karute.ts) — current-version consent by
@@ -216,5 +222,39 @@ describe('upsert by recording session — a retry must never lose staff edits', 
     expect(karuteRecords.create).not.toHaveBeenCalled()
     expect(karuteRecords.update).not.toHaveBeenCalled()
     expect(res).toEqual({ error: expect.any(String) })
+  })
+
+  it('collision with an existing record that already has entries omits `entries` from the update — never re-replaces staff edits', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kr-existing',
+      entries: [{ id: 'e1', content: 'kept', author: 'HUMAN_EDITED' }],
+    })
+    await saveKaruteRecordInline({
+      ...baseInput,
+      recordingSessionId: 'rs-1',
+    })
+    const [, updatePayload] = karuteRecords.update.mock.calls[0] as [string, Record<string, unknown>]
+    expect(updatePayload).not.toHaveProperty('entries')
+    expect(updatePayload).toEqual(
+      expect.objectContaining({ transcript: 't', ai_summary: 's' }),
+    )
+  })
+
+  it('collision with an existing record that has zero entries still sends entries', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kr-existing',
+      entries: [],
+    })
+    await saveKaruteRecordInline({
+      ...baseInput,
+      entries: [{ category: 'symptom', content: 'fresh', confidenceScore: 1 }],
+      recordingSessionId: 'rs-1',
+    })
+    expect(karuteRecords.update).toHaveBeenCalledWith(
+      'kr-existing',
+      expect.objectContaining({
+        entries: [expect.objectContaining({ content: 'fresh' })],
+      }),
+    )
   })
 })

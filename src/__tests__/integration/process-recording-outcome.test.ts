@@ -56,9 +56,22 @@ const getConsent = jest.fn(async () => ({
 }))
 const orgSettingsGet = jest.fn(async () => ({ settings: {} }))
 const customersGet = jest.fn(async () => ({ name: 'customer' }))
-const getByRecordingSession = jest.fn(async () => {
-  throw Object.assign(new Error('nf'), { status: 404 })
-})
+const getByRecordingSession = jest.fn(
+  async (): Promise<{
+    id: string
+    entries?: Array<{
+      id: string
+      category: string
+      content: string
+      original_quote: string | null
+      confidence: number
+      author?: string
+      is_manual?: boolean
+    }>
+  }> => {
+    throw Object.assign(new Error('nf'), { status: 404 })
+  },
+)
 const karuteRecordsCreate = jest.fn(async () => ({ id: 'record-1' }))
 const karuteRecordsUpdate = jest.fn(async () => ({ id: 'record-1' }))
 const claim = jest.fn()
@@ -80,6 +93,10 @@ jest.mock('@synqed-kk/client', () => ({
 }))
 
 import { processRecordingJobs } from '@/lib/jobs/process-recording'
+// Reprocess-merge tests (below) override this per-test to return a non-empty
+// AI set, so the mocked fn needs to be reachable — the outcome tests above
+// never care about extraction content, hence the shared static default.
+import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 
 const baseJob = {
   id: 'job-1',
@@ -199,5 +216,73 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
 
     expect(complete).not.toHaveBeenCalled()
     expect(fail).toHaveBeenCalledWith('job-1', expect.stringContaining('outcome write failed'))
+  })
+})
+
+/**
+ * Reprocess carry-forward merge (edit-layer Wave 1, packet PR-2c). A
+ * reprocessed job's fresh AI extraction must never drop entries a staff
+ * member already edited/hand-added: existing human-authored rows
+ * (author !== 'AI'; is_manual fallback for legacy rows — same
+ * belt-and-braces rule as the regen-guard filter, regenerate-karute.ts) are
+ * re-sent alongside the new AI set as is_manual: true. AI-authored rows are
+ * NOT carried — the fresh extraction replaces them, same as before this PR.
+ */
+describe('process-recording worker — reprocess carry-forward merge (I1)', () => {
+  it('carries human-authored rows forward as is_manual: true; the stale AI row is replaced, not carried', async () => {
+    ;(runKaruteExtraction as jest.Mock).mockResolvedValueOnce({
+      result: { entries: [{ category: 'symptom', title: 'fresh AI finding', source_quote: 'q', confidence_score: 0.9 }] },
+    })
+    getByRecordingSession.mockResolvedValueOnce({
+      id: 'record-existing',
+      entries: [
+        { id: 'old-ai', category: 'PRODUCT', content: 'stale AI row', original_quote: 'x', confidence: 0.5, author: 'AI', is_manual: false },
+        { id: 'edited', category: 'SYMPTOM', content: 'staff-edited row', original_quote: 'y', confidence: 0.6, author: 'HUMAN_EDITED', is_manual: true },
+      ],
+    })
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(karuteRecordsUpdate).toHaveBeenCalledWith(
+      'record-existing',
+      expect.objectContaining({
+        entries: [
+          expect.objectContaining({ content: 'fresh AI finding', is_manual: false }),
+          expect.objectContaining({ content: 'staff-edited row', category: 'SYMPTOM', is_manual: true }),
+        ],
+      }),
+    )
+    const payload = (karuteRecordsUpdate.mock.calls[0] as unknown as [
+      string,
+      { entries: Array<{ content: string }> },
+    ])[1]
+    expect(payload.entries.map((e) => e.content)).not.toContain('stale AI row')
+  })
+
+  it('legacy rows with no author fall back to is_manual for the carry-forward filter', async () => {
+    ;(runKaruteExtraction as jest.Mock).mockResolvedValueOnce({
+      result: { entries: [{ category: 'symptom', title: 'fresh', source_quote: '', confidence_score: 0.9 }] },
+    })
+    getByRecordingSession.mockResolvedValueOnce({
+      id: 'record-existing',
+      entries: [
+        { id: 'legacy-ai', category: 'PRODUCT', content: 'legacy AI row', original_quote: null, confidence: 0.4, is_manual: false },
+        { id: 'legacy-human', category: 'SYMPTOM', content: 'legacy human row', original_quote: null, confidence: 0, is_manual: true },
+      ],
+    })
+    karuteRecordsUpdate.mockResolvedValueOnce({ id: 'record-existing' })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    const payload = (karuteRecordsUpdate.mock.calls[0] as unknown as [
+      string,
+      { entries: Array<{ content: string }> },
+    ])[1]
+    const contents = payload.entries.map((e) => e.content)
+    expect(contents).toContain('legacy human row')
+    expect(contents).not.toContain('legacy AI row')
   })
 })

@@ -427,7 +427,7 @@
     },
     "regenerate": {
       "label": "AIで再生成",
-      "confirm": "上書きして再生成",
+      "confirm": "AI項目を再生成（手動項目は保持）",
       "cancel": "キャンセル",
       "running": "再生成中…",
       "error": "再生成に失敗しました",
