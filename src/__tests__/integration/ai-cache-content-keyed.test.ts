@@ -97,9 +97,12 @@ describe('insights route cache — content-keyed', () => {
     expect(src).toContain('n: r.customerName,')
     expect(src).toContain('d: r.createdAt,')
     expect(src).toContain("bt: orgSettings?.business_type ?? null,")
-    // Greptile P1 on #613: a transient settings failure must degrade to an
-    // UNCACHED generic-persona response — never pin bt:null insights for a day.
+    // Greptile P1 rounds on #613: a transient settings failure must degrade
+    // to a generic-persona response that touches the cache in NEITHER
+    // direction — no read (could serve a stale bt:null entry) and no write
+    // (would pin one for a day).
     expect(src).toContain('settingsFailed = true')
+    expect(src).toContain("settingsFailed ? null : await getCachedAI('insights', cacheInput)")
     expect(src).toContain('if (!settingsFailed) {')
   })
 })

@@ -77,7 +77,11 @@ export async function POST(request: Request) {
       bt: orgSettings?.business_type ?? null,
       locale,
     }
-    const cached = await getCachedAI('insights', cacheInput)
+    // A settings-failure request bypasses the cache in BOTH directions
+    // (Greptile round 2 on #613): reading under the degraded bt:null key
+    // could serve a previously-cached generic-persona response just as
+    // wrongly as writing one would pin it.
+    const cached = settingsFailed ? null : await getCachedAI('insights', cacheInput)
     if (cached) {
       return NextResponse.json(cached)
     }
