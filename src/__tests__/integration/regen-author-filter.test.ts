@@ -168,4 +168,30 @@ describe('regenerateKaruteEntriesWithClient — author filter (I1)', () => {
     // ... and the old (pre-existing) entry is never touched.
     expect(deleteEntry).not.toHaveBeenCalledWith('kar-1', 'ai-1')
   })
+
+  it('fresh pre-delete read fails: rolls back the adds, deletes nothing old (record exactly as it was)', async () => {
+    const deleteEntry = jest.fn(async () => undefined)
+    const get = jest
+      .fn()
+      // Step-1 snapshot succeeds ...
+      .mockResolvedValueOnce({ entries: [{ id: 'ai-1', author: 'AI' }] })
+      // ... the post-add fresh read (the mid-regen-edit guard) does not.
+      .mockRejectedValueOnce(new Error('network'))
+    const synqed = {
+      karuteRecords: {
+        get,
+        addEntry: jest.fn(async () => ({ id: 'new-1' })),
+        deleteEntry,
+      },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [NEW_ENTRY])
+
+    expect(result.error).toContain('No changes applied')
+    // Rollback removes the added row; the old AI row is never deleted blind
+    // off the stale snapshot.
+    expect(deleteEntry).toHaveBeenCalledTimes(1)
+    expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'new-1')
+    expect(deleteEntry).not.toHaveBeenCalledWith('kar-1', 'ai-1')
+  })
 })
