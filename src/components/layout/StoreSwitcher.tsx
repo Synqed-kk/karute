@@ -146,6 +146,10 @@ function branchLabel(name: string, allNames: string[]): string {
     while (i < common && i < otherWords.length && otherWords[i] === words[i]) i++
     common = i
   }
+  // A single shared word is no proof of a shared brand ("La Estro 代官山" /
+  // "La Belle 渋谷" must not lose their "La") — only a multi-word common
+  // prefix reads as a brand worth stripping. Below that, full name.
+  if (common < 2) return name
   // Never strip every word (would render blank); keep at least the last one.
   common = Math.min(common, words.length - 1)
   return words.slice(common).join(' ')

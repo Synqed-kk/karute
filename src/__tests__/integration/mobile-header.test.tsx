@@ -94,6 +94,14 @@ describe('StoreSwitcher branch label (7/26 pill regression)', () => {
     render(<StoreSwitcher stores={[daikanyama, ginza, gym]} activeStoreId="s3" />)
     expect(screen.getByText('Test Gym')).toBeInTheDocument()
   })
+
+  it('one coincidental shared word is not a brand — nothing strips (Greptile r1 P1)', () => {
+    const belle = storeRow('s4', 'La Belle 渋谷')
+    render(<StoreSwitcher stores={[daikanyama, belle]} activeStoreId="s1" />)
+    // Shared "La" alone must not turn the labels into "Estro 代官山"/"Belle 渋谷".
+    expect(screen.getByText('La Estro 代官山')).toBeInTheDocument()
+    expect(screen.queryByText('Estro 代官山')).not.toBeInTheDocument()
+  })
 })
 
 describe('MobileHeader', () => {
