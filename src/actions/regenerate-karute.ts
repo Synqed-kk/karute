@@ -15,6 +15,7 @@ import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 import { runKaruteSummary } from '@/lib/ai/karute-summarize'
 import { orgSettingsWithClient } from '@/actions/org-settings'
 import type { Entry } from '@/types/ai'
+import type { EntryAuthor } from '@synqed-kk/client'
 
 type SynqedRecordsClient = Pick<
   Awaited<ReturnType<typeof getSynqedClient>>,
@@ -52,7 +53,8 @@ export interface RegenerateResult {
  *
  * INTEGRITY MODEL (the synqed API only exposes single addEntry/deleteEntry — no
  * atomic replace), hardened after an adversarial review:
- *   1. snapshot the existing entry ids,
+ *   1. snapshot the existing AI-authored entry ids (human rows are filtered
+ *      out here — I1: regen never deletes a human-authored entry),
  *   2. add ALL the new entries (collecting their ids),
  *   3. delete the snapshotted old ids — per-id, resilient: a single stale/404 id
  *      can't abort the loop and strand the rest.
@@ -89,11 +91,21 @@ export async function regenerateKaruteEntriesWithClient(
 
   try {
     // 1. Snapshot existing entry ids BEFORE mutating (authoritative server read,
-    //    not trusting any client-passed ids).
+    //    not trusting any client-passed ids) — AI-authored only (I1: regen never
+    //    deletes a human row). Primary signal is the author enum; legacy rows
+    //    backfilled without one fall back to is_manual (belt-and-braces per the
+    //    packet — the migration backfills author, so this should rarely fire).
     const before = (await synqed.karuteRecords.get(karuteRecordId)) as
-      | { entries?: Array<{ id?: string | null }> }
+      | {
+          entries?: Array<{
+            id?: string | null
+            author?: EntryAuthor | null
+            is_manual?: boolean | null
+          }>
+        }
       | null
     const oldIds: string[] = (before?.entries ?? [])
+      .filter((e) => (e?.author != null ? e.author === 'AI' : e?.is_manual !== true))
       .map((e) => e?.id)
       .filter((id): id is string => Boolean(id))
 
