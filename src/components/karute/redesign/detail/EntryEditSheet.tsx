@@ -89,6 +89,7 @@ export function EntryEditSheet({
   // open must not fold anything, since it has no history block to fold.
   const [isTyping, setIsTyping] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const historyBlockRef = useRef<HTMLDivElement>(null)
 
   // Reseed only when a NEW entry opens — a re-render mid-edit must not clobber it.
   useEffect(() => {
@@ -254,16 +255,22 @@ export function EntryEditSheet({
             <span className="text-[11px] font-medium text-muted-foreground">{tHist('title')}</span>
             {folded ? (
               // Collapsed bar: latest row's text ONLY — no name, no
-              // timestamp (Liam ruling). Tap blurs the textarea (drops the
-              // keyboard) AND sets isTyping directly — belt-and-suspenders
-              // rather than relying solely on the blur event's own
-              // cascade back to isTyping, which some WebView/event-timing
-              // combinations can drop.
+              // timestamp (Liam ruling). The two unfold paths are
+              // platform-exclusive, not redundant: on Android a tap's
+              // mousedown blurs the textarea natively (onBlur unfolds,
+              // this button may unmount before its click), on iOS buttons
+              // never steal focus so this onClick does the work.
+              // The rAF re-anchors keyboard/AT focus onto the restored
+              // block — activating this button unmounts it, which would
+              // otherwise drop focus to document.body. Focusing the
+              // textarea instead is NOT an option: its onFocus would
+              // immediately re-fold.
               <button
                 type="button"
                 onClick={() => {
                   textareaRef.current?.blur()
                   setIsTyping(false)
+                  requestAnimationFrame(() => historyBlockRef.current?.focus())
                 }}
                 aria-label={tHist('expand')}
                 className="flex items-start gap-2 rounded-xl border border-border p-3 text-left"
@@ -293,7 +300,14 @@ export function EntryEditSheet({
                 </span>
               </button>
             ) : (
-              <div className="max-h-32 overflow-y-auto rounded-xl border border-border p-3">
+              <div
+                ref={historyBlockRef}
+                // Focus target for the ▾ unfold (rAF above); the default
+                // focus-visible ring stays — keyboard users need to see
+                // where focus landed.
+                tabIndex={-1}
+                className="max-h-32 overflow-y-auto rounded-xl border border-border p-3"
+              >
                 {!v && <p className="text-[13px] text-muted-foreground">{tc('loading')}</p>}
                 {v?.status === 'error' && <p className="text-[13px] text-red-500">{tHist('error')}</p>}
                 {v?.status === 'ok' && v.rows.length === 0 && (

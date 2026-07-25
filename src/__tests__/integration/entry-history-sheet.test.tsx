@@ -510,4 +510,31 @@ describe('EntryEditSheet — keyboard fold (W2 one-sheet, 2026-07-26 packet)', (
     expect(fireEvent.mouseDown(screen.getByText('save'))).toBe(false)
     expect(fireEvent.mouseDown(screen.getByText('concern'))).toBe(false)
   })
+
+  it('keyboard activation of the ▾ bar re-anchors focus onto the restored history block (never document.body)', async () => {
+    listEntryEditHistory.mockResolvedValue({
+      edits: [
+        {
+          id: 'ed-1',
+          entryIdOld: null,
+          entryIdNew: 'e1',
+          action: 'EDIT',
+          actorName: '田中',
+          contentBefore: 'old text',
+          contentAfter: 'latest text',
+          createdAt: '2026-07-20T00:00:00.000Z',
+        },
+      ],
+      truncated: false,
+    })
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={editedEntry} onOpenChange={jest.fn()} />)
+    await waitFor(() => expect(screen.getByText('latest text')).toBeInTheDocument())
+    fireEvent.focus(screen.getByRole('textbox'))
+
+    // Keyboard activation = click with no preceding mousedown. The bar
+    // unmounts on unfold; the rAF must land focus on the block (tabIndex=-1).
+    fireEvent.click(screen.getByLabelText('expand'))
+
+    await waitFor(() => expect(screen.getByRole('list').parentElement).toHaveFocus())
+  })
 })
