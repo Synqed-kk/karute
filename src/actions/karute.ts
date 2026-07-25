@@ -3,7 +3,7 @@
 import { revalidatePath, updateTag } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { getLocale } from 'next-intl/server'
-import { getCurrentUserStaffId } from '@/lib/staff'
+import { getCurrentUserStaffId, getBusinessId, staffListByBusinessOrThrow, type StaffMember } from '@/lib/staff'
 import { can, requireCapability } from '@/lib/auth/require-permission'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
@@ -14,7 +14,7 @@ import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
-import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
+import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction, KaruteEntryEdit } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
 /**
@@ -690,6 +690,124 @@ export async function updateKaruteDetailEntry(
     // sees {ok}|{conflict}|{error}.
     if ('validationError' in result) return { error: result.validationError }
     return result
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// listEntryEditHistory (edit-layer W2 history sheet — 編集済み chip → the
+// per-entry attribution panel; PR-B's trail read out loud)
+// ---------------------------------------------------------------------------
+
+export interface EntryEditHistoryRow {
+  id: string
+  entryIdOld: string | null
+  entryIdNew: string | null
+  // Nullable — this table family has legacy-null enum precedent (pre-taxonomy
+  // rows). Never rendered with action-specific UI (uniform row rendering).
+  action: EntryEditAction | null
+  actorName: string | null
+  contentBefore: string | null
+  contentAfter: string | null
+  createdAt: string
+}
+
+type SynqedEntryEditReadClient = Pick<SynqedClient, 'karuteRecords'>
+
+const ENTRY_EDIT_HISTORY_PAGE_SIZE = 100
+// Hard ceiling on the pagination loop below — regen passes write ~2
+// rows/entry, so a heavily-regenerated record can cross the old
+// single-page-of-100 ceiling this replaces. 10 pages at the size above;
+// `truncated` tells the sheet when a record's REAL trail exceeds it.
+// ponytail: hard-capped at 1000 rows, move to a "load more" UI if a record's
+// trail ever needs more.
+const ENTRY_EDIT_HISTORY_HARD_CAP = 1000
+
+/**
+ * Per-entry edit trail CORE — read-only, shared by the web wrapper below and
+ * the facade GET route (…/karute/[id]/entry-edits). Paginates (page_size
+ * 100) until the whole trail is fetched or the hard cap above, newest first.
+ *
+ * Name resolution is SERVER-side (denormalized-label idiom, audit-route
+ * precedent — staffListByBusinessOrThrow's roster join): a roster failure
+ * degrades every actorName to null, it NEVER throws — a staff-directory
+ * hiccup must not take the whole history sheet down.
+ */
+export async function listEntryEditHistoryWithClient(
+  synqed: SynqedEntryEditReadClient,
+  businessId: string,
+  karuteRecordId: string,
+): Promise<{ edits: EntryEditHistoryRow[]; truncated: boolean }> {
+  const raw: KaruteEntryEdit[] = []
+  let page = 1
+  let total = 0
+  do {
+    const res = await synqed.karuteRecords.listEntryEdits({
+      karute_record_id: karuteRecordId,
+      page,
+      page_size: ENTRY_EDIT_HISTORY_PAGE_SIZE,
+    })
+    raw.push(...res.entry_edits)
+    total = res.total
+    page += 1
+    // A short/empty page ends the loop even if `total` disagrees — never
+    // spin forever chasing a count the server isn't actually delivering.
+    if (res.entry_edits.length === 0) break
+  } while (raw.length < total && raw.length < ENTRY_EDIT_HISTORY_HARD_CAP)
+
+  // De-dup by id (fix round 2, delta-verify with core-source evidence): core
+  // orders `created_at desc` with NO id tiebreak and plain offset paging — a
+  // regen batch writes many rows with an IDENTICAL created_at, so a tie
+  // straddling a page boundary can land on BOTH of two sequential fetches
+  // (and a concurrent insert between fetches can shift the offset too, live
+  // multi-staff app). `truncated` below is computed off this DEDUPED count,
+  // not the raw fetch count, so a page's worth of loss from the same drift
+  // shows up as `total > uniqueCount` — the sheet's honest partial note,
+  // never a silent gap. Offset drift can still SKIP a row mid-flight; that
+  // self-heals on reopen. Durable fix is core-side cursor pagination + an id
+  // tiebreak (Anthony's side — not touched here).
+  const seen = new Set<string>()
+  const deduped = raw.filter((e) => {
+    if (seen.has(e.id)) return false
+    seen.add(e.id)
+    return true
+  })
+
+  const roster = await staffListByBusinessOrThrow(businessId).catch(() => [] as StaffMember[])
+  const nameById = new Map(roster.map((s) => [s.id, s.full_name]))
+  const edits = deduped
+    // Defensive sort — core already returns newest first, but nothing here
+    // depends on that holding forever. Id tiebreak makes a tied created_at
+    // (the regen-batch case above) render in a STABLE order across renders.
+    .slice()
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
+    .map((e) => ({
+      id: e.id,
+      entryIdOld: e.entry_id_old ?? null,
+      entryIdNew: e.entry_id_new ?? null,
+      action: e.action ?? null,
+      actorName: (e.actor_staff_id ? nameById.get(e.actor_staff_id) : null) ?? null,
+      contentBefore: e.content_before,
+      contentAfter: e.content_after,
+      createdAt: e.created_at,
+    }))
+  return { edits, truncated: total > edits.length }
+}
+
+/** Cookie web wrapper — customers.view gate (same class gate as the detail
+ *  screen read, screens/karute/[id]/route.ts:51). businessId scopes a REAL
+ *  read (the roster join) here, not just the audit line, so it's resolved
+ *  directly via getBusinessId() — a failure fails the whole read, same as
+ *  resolveWebBusinessId's own doc comment prescribes for that case. */
+export async function listEntryEditHistory(
+  recordId: string,
+): Promise<{ edits: EntryEditHistoryRow[]; truncated: boolean } | { error: string }> {
+  try {
+    await requireCapability('customers.view')
+    const synqed = await getSynqedClient()
+    const businessId = await getBusinessId()
+    return await listEntryEditHistoryWithClient(synqed, businessId, recordId)
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

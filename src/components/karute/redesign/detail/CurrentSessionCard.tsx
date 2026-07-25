@@ -8,6 +8,7 @@ import type { EntryAuthor } from '@synqed-kk/client'
 
 import { TREATMENT_KIND_PREFIXES } from './treatment-prefixes'
 import { EntryEditSheet } from './EntryEditSheet'
+import { EntryHistorySheet } from './EntryHistorySheet'
 
 export type SessionCategory =
   | 'treatment'
@@ -113,6 +114,10 @@ export function CurrentSessionCard({
   const t = useTranslations('karuteDetail')
   const router = useRouter()
   const [editingEntry, setEditingEntry] = useState<SessionEntry | null>(null)
+  // History-sheet target (edit-layer W2 history-sheet packet) — the 編集済み
+  // chip's tap opens this entry's trail. Separate from editingEntry: the
+  // pencil and the chip open different sheets.
+  const [historyEntry, setHistoryEntry] = useState<SessionEntry | null>(null)
   // Post-save stale-reopen guard (edit-layer W2 PR-B fleet fix): a save bumps
   // core's version immediately, but this render's props may still carry the
   // pre-save entry until the next fetch lands. An override newer than the
@@ -138,6 +143,8 @@ export function CurrentSessionCard({
       router.refresh()
       return
     }
+    // Mutual exclusion (fix round, defensive): never both sheets open.
+    setHistoryEntry(null)
     setEditingEntry(entry)
   }
 
@@ -212,11 +219,29 @@ export function CurrentSessionCard({
                           style={{ background: tone.text }}
                         />
                         <span className="min-w-0">{e.display}</span>
-                        {e.author === 'HUMAN_EDITED' && (
-                          <span className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground">
-                            {t('currentSession.chips.edited')}
-                          </span>
-                        )}
+                        {e.author === 'HUMAN_EDITED' &&
+                          // Tappable → the history sheet only when a
+                          // karuteRecordId is present to read against — inert
+                          // otherwise, same rule as the pencil below. Visual
+                          // stays identical (quiet), 手書き is untouched (the
+                          // ruling covers 編集済み only).
+                          (karuteRecordId ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                // Mutual exclusion (fix round, defensive): never both sheets open.
+                                setEditingEntry(null)
+                                setHistoryEntry(e)
+                              }}
+                              className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground"
+                            >
+                              {t('currentSession.chips.edited')}
+                            </button>
+                          ) : (
+                            <span className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground">
+                              {t('currentSession.chips.edited')}
+                            </span>
+                          ))}
                         {e.author === 'HUMAN_CREATED' && (
                           <span className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground">
                             {t('currentSession.chips.handwritten')}
@@ -255,23 +280,32 @@ export function CurrentSessionCard({
       )}
 
       {karuteRecordId && (
-        <EntryEditSheet
-          karuteRecordId={karuteRecordId}
-          entry={editingEntry}
-          onOpenChange={(open) => {
-            if (!open) setEditingEntry(null)
-          }}
-          onSaved={(saved) =>
-            setOverrides((prev) =>
-              new Map(prev).set(saved.entryId, {
-                body: saved.body,
-                category: saved.category,
-                version: saved.version,
-                author: saved.author,
-              }),
-            )
-          }
-        />
+        <>
+          <EntryEditSheet
+            karuteRecordId={karuteRecordId}
+            entry={editingEntry}
+            onOpenChange={(open) => {
+              if (!open) setEditingEntry(null)
+            }}
+            onSaved={(saved) =>
+              setOverrides((prev) =>
+                new Map(prev).set(saved.entryId, {
+                  body: saved.body,
+                  category: saved.category,
+                  version: saved.version,
+                  author: saved.author,
+                }),
+              )
+            }
+          />
+          <EntryHistorySheet
+            karuteRecordId={karuteRecordId}
+            entry={historyEntry}
+            onOpenChange={(open) => {
+              if (!open) setHistoryEntry(null)
+            }}
+          />
+        </>
       )}
     </section>
   )
