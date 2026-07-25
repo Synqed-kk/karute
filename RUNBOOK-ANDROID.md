@@ -81,6 +81,26 @@ PATH="$JAVA_HOME/bin:$PATH" \
 
 Expect `Signer #1 certificate DN: CN=SYNQED K.K., ...`.
 
+## 5. Verify on device
+
+```
+adb install -r android/app/build/outputs/apk/release/app-release.apk
+adb logcat -s CookiePersist
+```
+
+With logcat running: log in, force-quit the app, relaunch.
+
+Acceptance: relaunch must land on the **dashboard** — not the marketing
+landing page, not `/login`.
+
+## Known tail
+
+Restore covers cold launches within the access-token TTL. A relaunch after
+being idle for more than ~1 hour may still show one re-login — this is a
+documented tail, same as iOS (see the header comment in
+`ios/App/App/AppDelegate.swift`). Testers should not file that as a
+regression.
+
 ## Version bump rule
 
 Every native-side change (fix, feature, dependency change) bumps

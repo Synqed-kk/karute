@@ -2,10 +2,12 @@ package jp.synqed.karute;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.webkit.CookieManager;
+import android.webkit.WebView;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 import com.getcapacitor.BridgeActivity;
@@ -72,6 +74,25 @@ public class MainActivity extends BridgeActivity {
     // completion race (same role as iOS's didLoadOnce).
     private boolean didLoadOnce = false;
 
+    // Audit F2: capture only starts doing anything once the restore path has
+    // settled (load() has reached super.load()). Mirrors iOS registering its
+    // capture observers only inside `proceed` — a background event firing
+    // during the async restore window must never snapshot a half-injected
+    // jar over the only good backup; that wipe recreates the exact forced
+    // re-login this file exists to fix.
+    private boolean captureArmed = false;
+
+    // Audit F4: one-shot guard for the /login-bounce recovery retry — port
+    // of iOS's didRetryAuth. A genuinely dead session must bounce to /login
+    // and STAY there, not loop.
+    private boolean didRetryAuth = false;
+
+    // Audit F3: promoted from a load()-local variable to a field so
+    // onDestroy() can cancel anything still pending (watchdog, a late
+    // setCookie completion, bounce checks) — none of that may run against a
+    // destroyed Activity.
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
     // Extension point BridgeActivity exposes specifically for this: onCreate()
     // does its own setup (theme, plugin loading, contentView) then calls
     // this.load() last, and load() is where the Bridge — and its WebView, and
@@ -81,24 +102,45 @@ public class MainActivity extends BridgeActivity {
     // CookieVC.viewDidLoad() delays super.viewDidLoad() on iOS.
     @Override
     protected void load() {
-        Map<String, String> saved = SessionCookieStore.load(this);
-        if (saved.isEmpty()) {
-            Log.d(TAG, "restore: nothing saved (first launch / logged out) — loading normally");
-            super.load();
-            return;
-        }
-
-        Log.d(TAG, "restore: re-injecting " + saved.size() + " sb-* cookies before first navigation");
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
 
-        Handler mainHandler = new Handler(Looper.getMainLooper());
+        Map<String, String> saved = SessionCookieStore.load(this);
+        Map<String, String> live = parseSessionCookies(cookieManager.getCookie(SERVER_ORIGIN));
+
+        // Audit F1: jar-first — the saved snapshot is disaster recovery, not
+        // the authority. Android's native CookieManager jar normally
+        // persists across launches on its own; injecting a possibly-stale
+        // snapshot over a jar that's already healthy can clobber a rotated
+        // refresh token (and mix stale/live cookie chunks, since the live
+        // jar may hold a newer sb-* value than the snapshot for the same
+        // name). Only re-inject when the jar came back genuinely empty AND
+        // a snapshot exists to recover from. This also keeps the common
+        // launch path fully synchronous again — no deferred-bridge window.
+        if (!live.isEmpty() || saved.isEmpty()) {
+            if (!live.isEmpty()) {
+                Log.d(TAG, "restore: live jar already has " + live.size() + " sb-* cookies — loading normally, snapshot not used");
+            } else {
+                Log.d(TAG, "restore: nothing saved (first launch / logged out) — loading normally");
+            }
+            captureArmed = true;
+            super.load();
+            if (!live.isEmpty() || !saved.isEmpty()) {
+                aimAtDashboard();
+            }
+            return;
+        }
+
+        Log.d(TAG, "restore: jar empty, re-injecting " + saved.size() + " sb-* cookies before first navigation");
+
         Runnable proceed = () -> {
             if (didLoadOnce) return;
             didLoadOnce = true;
             cookieManager.flush();
             Log.d(TAG, "restore: cookies flushed — loading web");
+            captureArmed = true;
             super.load();
+            aimAtDashboard();
         };
         // Watchdog first, so a dropped completion still resolves in bounded time.
         mainHandler.postDelayed(proceed, INJECT_WATCHDOG_MS);
@@ -124,6 +166,47 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    // Audit F4: port of iOS handleLaunchNavigation, simplified. SERVER_ORIGIN's
+    // root is the public marketing page — it never forwards an authenticated
+    // visitor to the dashboard (verified in src/proxy.ts, which only refreshes
+    // the auth cookie and never redirects, and src/app/[locale]/page.tsx,
+    // which renders unconditionally; iOS learned this the hard way on-device,
+    // commit 85a4d56c). So a session that survived restore would otherwise sit
+    // unused on the marketing page — supersede the just-started root load with
+    // the dashboard, which actually consumes it. /dashboard carries no locale
+    // prefix on purpose — next-intl resolves it, same as iOS's dashboardURL.
+    private void aimAtDashboard() {
+        WebView webView = getBridge() == null ? null : getBridge().getWebView();
+        if (webView == null) return;
+        webView.loadUrl(SERVER_ORIGIN + "/dashboard");
+
+        // One-shot bounce recovery — port of iOS's auth-redirect recovery
+        // (commit 36d4e365). iOS empirically hit a first-gated-load bounce to
+        // /login because setCookie's completion only proves the cookie reached
+        // WKWebView's UI-process store, not that the network process has it
+        // yet for the first request. Android's CookieManager is a single
+        // process-wide native store shared directly with the WebView about to
+        // load, so that specific lag shouldn't apply here — but it's unproven
+        // on-device, and one bounded, one-shot retry is cheap: a genuinely
+        // dead session just lands back on /login and stays (didRetryAuth
+        // blocks a second attempt, so no loop).
+        mainHandler.postDelayed(() -> checkLoginBounce(webView), 2500);
+        mainHandler.postDelayed(() -> checkLoginBounce(webView), 5000);
+    }
+
+    // Checked at +2500ms and +5000ms after aimAtDashboard(). Path-suffix match
+    // (not full-URL) so a locale-prefixed bounce (/ja/login) still matches.
+    private void checkLoginBounce(WebView webView) {
+        if (didRetryAuth) return;
+        String url = webView.getUrl();
+        String path = url == null ? null : Uri.parse(url).getPath();
+        if (path != null && path.endsWith("/login")) {
+            didRetryAuth = true;
+            Log.d(TAG, "auth-recover: /login bounce with a restored session — reloading dashboard once");
+            webView.loadUrl(SERVER_ORIGIN + "/dashboard");
+        }
+    }
+
     // Reliable capture points. iOS captures on didEnterBackground /
     // willResignActive because those always precede a cold-launch kill and a
     // WKHTTPCookieStoreObserver alone isn't enough (JS-written cookies don't
@@ -143,6 +226,15 @@ public class MainActivity extends BridgeActivity {
         captureSessionCookies("onStop");
     }
 
+    // Audit F3: a Back-press/teardown during the inject window must not let
+    // the watchdog or a late setCookie completion run super.load() (Bridge +
+    // WebView construction) against a destroyed Activity.
+    @Override
+    public void onDestroy() {
+        super.onDestroy();
+        mainHandler.removeCallbacksAndMessages(null);
+    }
+
     // Snapshot the sb-* cookies to EncryptedSharedPreferences; clear on
     // logout — same behavior as iOS's capture(): an empty session clears the
     // store rather than leaving a stale entry behind. ALSO flushes
@@ -151,6 +243,10 @@ public class MainActivity extends BridgeActivity {
     // own, independent of whether our own snapshot exists — so this hook
     // fixes both the batching bug and feeds the belt-and-braces backup.
     private void captureSessionCookies(String reason) {
+        if (!captureArmed) {
+            Log.d(TAG, "capture(" + reason + "): skipped — restore not settled");
+            return;
+        }
         CookieManager cookieManager = CookieManager.getInstance();
         String all = cookieManager.getCookie(SERVER_ORIGIN);
         Map<String, String> session = parseSessionCookies(all);
