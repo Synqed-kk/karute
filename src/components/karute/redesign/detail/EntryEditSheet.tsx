@@ -21,7 +21,13 @@ interface EntryEditSheetProps {
    *  fields fall back to the seeded values). Lets the card apply an optimistic
    *  override so a re-click before the next fetch lands re-seeds the sheet
    *  with the just-saved content instead of the stale prop. */
-  onSaved?: (saved: { entryId: string; body: string; category: SessionCategory; version: number }) => void
+  onSaved?: (saved: {
+    entryId: string
+    body: string
+    category: SessionCategory
+    version: number
+    author: NonNullable<SessionEntry['author']>
+  }) => void
 }
 
 /** The pencil's bottom sheet (edit-layer W2 PR-B, mock frame 1) — seeded
@@ -41,7 +47,9 @@ export function EntryEditSheet({
   const [category, setCategory] = useState<SessionCategory | null>(null)
   const [saving, setSaving] = useState(false)
   const [conflict, setConflict] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  // Boolean on purpose — the raw server string must never render (sibling
+  // convention: RegenerateEntriesButton captures raw but renders t('error')).
+  const [error, setError] = useState(false)
 
   // Reseed only when a NEW entry opens — a re-render mid-edit must not clobber it.
   useEffect(() => {
@@ -49,7 +57,7 @@ export function EntryEditSheet({
       setContent(entry.body)
       setCategory(entry.category)
       setConflict(false)
-      setError(null)
+      setError(false)
     }
   }, [entry])
 
@@ -63,7 +71,7 @@ export function EntryEditSheet({
       return
     }
     setSaving(true)
-    setError(null)
+    setError(false)
     const result = await updateKaruteDetailEntry(karuteRecordId, entry.id, {
       content: content !== entry.body ? content : undefined,
       category: effectiveCategory !== entry.category ? effectiveCategory : undefined,
@@ -76,10 +84,19 @@ export function EntryEditSheet({
       return
     }
     if ('error' in result) {
-      setError(result.error)
+      setError(true)
       return
     }
-    onSaved?.({ entryId: entry.id, body: content, category: effectiveCategory, version: entry.version + 1 })
+    onSaved?.({
+      entryId: entry.id,
+      body: content,
+      category: effectiveCategory,
+      version: entry.version + 1,
+      // Mirror core's author rule (updateEntry: substantive edit flips AI →
+      // HUMAN_EDITED, human authors keep theirs) so the 編集済み chip shows
+      // the moment the save lands, not a refresh later.
+      author: entry.author === 'AI' || entry.author === undefined ? 'HUMAN_EDITED' : entry.author,
+    })
     router.refresh()
     onOpenChange(false)
   }
@@ -132,13 +149,20 @@ export function EntryEditSheet({
             </button>
           </div>
         )}
-        {error && <p className="text-[13px] text-red-500">{error}</p>}
+        {error && <p className="text-[13px] text-red-500">{t('error')}</p>}
 
         <div className="flex items-center justify-end pt-1">
           <button
             type="button"
             onClick={save}
-            disabled={saving || conflict || content.trim() === ''}
+            disabled={
+              saving ||
+              conflict ||
+              // Only an ACTIVE emptying blocks — an unchanged empty body is
+              // never sent, so a category-only fix on an already-empty row
+              // (other write paths don't bound content) stays possible.
+              (entry !== null && content !== entry.body && content.trim() === '')
+            }
             className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
           >
             {t('save')}

@@ -123,14 +123,14 @@ export function CurrentSessionCard({
   // prop wins; once props catch up (entry.version >= override.version) it's
   // inert — no timers, no active pruning needed.
   const [overrides, setOverrides] = useState<
-    Map<string, { body: string; category: SessionCategory; version: number }>
+    Map<string, { body: string; category: SessionCategory; version: number; author: EntryAuthor }>
   >(new Map())
   if (entries.length === 0) return null
 
   const withOverride = (entry: SessionEntry): SessionEntry => {
     const o = overrides.get(entry.id)
     return o && o.version > (entry.version ?? -1)
-      ? { ...entry, body: o.body, category: o.category, version: o.version }
+      ? { ...entry, body: o.body, category: o.category, version: o.version, author: o.author }
       : entry
   }
   const mergedEntries = entries.map(withOverride)
@@ -272,6 +272,7 @@ export function CurrentSessionCard({
                 body: saved.body,
                 category: saved.category,
                 version: saved.version,
+                author: saved.author,
               }),
             )
           }

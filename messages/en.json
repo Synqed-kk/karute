@@ -434,6 +434,7 @@
       "editRow": "Edit",
       "save": "Save",
       "conflict": "Updated on another device",
+      "error": "Could not save",
       "reload": "Reload"
     },
     "regenerate": {

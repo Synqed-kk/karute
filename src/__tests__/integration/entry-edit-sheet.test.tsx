@@ -86,4 +86,83 @@ describe('EntryEditSheet — save', () => {
     expect(updateKaruteDetailEntry).not.toHaveBeenCalled()
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('category-only fix on an already-empty row stays possible (verify round 2)', async () => {
+    // Other write paths don't bound content, so empty-body rows exist. An
+    // unchanged empty body is never sent — only an ACTIVE emptying blocks save.
+    updateKaruteDetailEntry.mockResolvedValue({ ok: true })
+    render(
+      <EntryEditSheet
+        karuteRecordId="kar-1"
+        entry={{ ...versionedEntry, body: '' }}
+        onOpenChange={jest.fn()}
+      />,
+    )
+    expect(screen.getByText('save')).not.toBeDisabled()
+    fireEvent.click(screen.getByText('note'))
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() =>
+      expect(updateKaruteDetailEntry).toHaveBeenCalledWith('kar-1', 'e1', {
+        content: undefined,
+        category: 'note',
+        expectedVersion: 2,
+        customerId: undefined,
+      }),
+    )
+  })
+
+  it('actively emptying the content disables save', () => {
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } })
+    expect(screen.getByText('save')).toBeDisabled()
+  })
+
+  it('a failed save renders the fixed localized error, never the raw server string (verify round 2)', async () => {
+    updateKaruteDetailEntry.mockResolvedValue({ error: 'RAW UPSTREAM TEXT' })
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('error')).toBeInTheDocument())
+    expect(screen.queryByText('RAW UPSTREAM TEXT')).not.toBeInTheDocument()
+  })
+
+  it('onSaved carries the AI→HUMAN_EDITED author flip so the chip is immediate (verify round 2)', async () => {
+    updateKaruteDetailEntry.mockResolvedValue({ ok: true })
+    const onSaved = jest.fn()
+    render(
+      <EntryEditSheet
+        karuteRecordId="kar-1"
+        entry={{ ...versionedEntry, author: 'AI' }}
+        onOpenChange={jest.fn()}
+        onSaved={onSaved}
+      />,
+    )
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith(
+        expect.objectContaining({ author: 'HUMAN_EDITED', version: 3 }),
+      ),
+    )
+  })
+
+  it('a HUMAN_CREATED entry keeps its author through onSaved (no false flip)', async () => {
+    updateKaruteDetailEntry.mockResolvedValue({ ok: true })
+    const onSaved = jest.fn()
+    render(
+      <EntryEditSheet
+        karuteRecordId="kar-1"
+        entry={{ ...versionedEntry, author: 'HUMAN_CREATED' }}
+        onOpenChange={jest.fn()}
+        onSaved={onSaved}
+      />,
+    )
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() =>
+      expect(onSaved).toHaveBeenCalledWith(
+        expect.objectContaining({ author: 'HUMAN_CREATED' }),
+      ),
+    )
+  })
 })
