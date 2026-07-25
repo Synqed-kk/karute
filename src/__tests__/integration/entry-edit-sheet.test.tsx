@@ -8,17 +8,24 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-// useLocale added alongside useTranslations: CurrentSessionCard now always
-// mounts EntryHistorySheet (edit-layer W2 history-sheet packet) beside this
-// sheet, and that component calls useLocale() for its date formatter.
+// useLocale added alongside useTranslations: EntryEditSheet now folds in the
+// 編集履歴 block (W2 one-sheet consolidation) and calls useLocale() for its
+// date formatter.
 jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key, useLocale: () => 'ja' }))
 
 const refresh = jest.fn()
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
 
 const updateKaruteDetailEntry = jest.fn()
+// listEntryEditHistory: the one-sheet's history block fetches through this
+// for a human-touched entry (HUMAN_EDITED/HUMAN_CREATED) — several tests
+// below use author: 'HUMAN_CREATED', so this must resolve even though those
+// tests don't assert on history content.
+const listEntryEditHistory = jest.fn()
+listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
 jest.mock('@/actions/karute', () => ({
   updateKaruteDetailEntry: (...args: unknown[]) => updateKaruteDetailEntry(...args),
+  listEntryEditHistory: (...args: unknown[]) => listEntryEditHistory(...args),
 }))
 
 import {
