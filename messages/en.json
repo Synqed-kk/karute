@@ -441,7 +441,8 @@
       "unknownStaff": "Unknown",
       "error": "Could not load the history",
       "empty": "No edit history",
-      "partial": "Older history isn't shown"
+      "partial": "Older history isn't shown",
+      "expand": "Show history"
     },
     "regenerate": {
       "label": "Regenerate with AI",
