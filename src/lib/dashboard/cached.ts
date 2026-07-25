@@ -4,6 +4,7 @@ import { getBusinessId } from '@/lib/staff'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { ymdInJst, JST_OFFSET } from '@/lib/date/jst'
 import { isTerminalStatus } from '@/lib/appointments/status'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 /** YYYY-MM-DD arithmetic that can't drift across timezones. */
 function addDaysYmd(ymd: string, days: number): string {
@@ -182,7 +183,7 @@ const dashboardByDay = unstable_cache(
     ).map((r) => ({
       id: r.id,
       client_id: r.customer_id ?? null,
-      summary: r.ai_summary,
+      summary: effectiveSummary(r),
       created_at: r.created_at,
       session_date: r.created_at,
       staff_profile_id: profileByStaffId.get(r.staff_id) ?? r.staff_id,

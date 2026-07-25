@@ -15,6 +15,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { getSuggestedFollowUpWithClient } from '@/lib/karute/ai-outreach'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 export const runtime = 'nodejs'
 
@@ -35,7 +36,7 @@ export const GET = facadeHandler<Params>('karute.ai.suggestedMessage', async (ct
   const record = await readKaruteRaw(synqed, id)
 
   // Prompt anchors are DERIVED server-side from the record — never client-supplied.
-  const summary = (record.ai_summary as string | null) ?? null
+  const summary = effectiveSummary(record)
   const clientId = (record.customer_id as string | null) ?? null
   const customerName = clientId
     ? await synqed.customers.get(clientId).then((c) => c.name ?? '').catch(() => '')

@@ -5,8 +5,11 @@
 // records on the business-scoped client, and runs the SAME generator core as web
 // with identity-threaded org-settings. Returns { prediction: BodyPrediction|null }
 // — a null payload is the CONTRACTUAL best-effort miss (web parity: generators are
-// null-on-failure by design), NOT a 502. No extra rate limit (the ai_cache is the
-// cost guard, exactly as web's streamed slot).
+// null-on-failure by design), NOT a 502. No extra rate limit — the ai_cache
+// bounds cost, but note it is CONTENT-keyed (edit-layer Wave 1): an edit or
+// regen busts it immediately, so the bound is one recompute per content
+// change, not per day. Budget wiring for edit-triggered rebuilds is the
+// Wave-2 item (EDIT-LAYER-DESIGN §6).
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'

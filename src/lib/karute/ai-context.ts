@@ -4,6 +4,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { getCachedCustomerList, type CachedCustomerOption } from '@/lib/customers/cached'
 import { isTerminalStatus } from '@/lib/appointments/status'
 import { JST_OFFSET, jstWallTimeToDate, ymdInJst } from '@/lib/date/jst'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 /** Explicit-client deps for the Bearer/facade path (design-parity F-9b): a
  *  business-scoped client + a businessId-explicit customer-list getter, so no
@@ -35,7 +36,7 @@ function mapKaruteRows(
         ? (nameById.get(r.customer_id) ?? 'Unknown')
         : 'Unknown',
       createdAt: r.created_at,
-      summary: r.ai_summary ?? null,
+      summary: effectiveSummary(r),
       entries: (r.entries ?? []).map((e) => ({
         category: String(e.category),
         content: e.content,

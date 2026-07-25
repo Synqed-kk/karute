@@ -5,6 +5,8 @@
 // filename/export names are retained to avoid churning the ~6 import sites; the
 // implementation no longer touches Supabase.
 
+import { effectiveSummary } from '@/lib/karute/effective-summary'
+
 /** A karute record with its related customer + entries — the shape consumed by
  *  the detail page, the PDF/text exporters, and the karute-detail adapters.
  *  Column names mirror the legacy Supabase read shape callers were built against:
@@ -56,6 +58,8 @@ export function mapSynqedKaruteRecord(
     id: string
     created_at: string
     ai_summary?: string | null
+    /** Human overlay (the pencil) — effectiveSummary prefers this over ai_summary. */
+    edited_summary?: string | null
     transcript?: string | null
     business_id?: string | null
     customer_id?: string | null
@@ -77,7 +81,7 @@ export function mapSynqedKaruteRecord(
     created_at: rec.created_at,
     // synqed-core has no session_date; the header falls back to created_at.
     session_date: null,
-    summary: rec.ai_summary ?? null,
+    summary: effectiveSummary(rec),
     transcript: rec.transcript ?? null,
     // Supabase column semantics: customer_id = tenant, client_id = the client.
     customer_id: rec.business_id ?? null,
