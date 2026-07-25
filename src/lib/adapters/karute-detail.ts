@@ -1,4 +1,5 @@
 import type { SessionEntryRowData, SessionEntryTone } from '@synqed-kk/ui'
+import type { EntryCategory } from '@synqed-kk/client'
 import type { KaruteWithRelations } from '@/lib/supabase/karute'
 import type { SessionEntry, SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
@@ -142,6 +143,22 @@ const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
   // other = facts that fit no drawer; an honest メモ chip instead of silently
   // masquerading as a 気になる点.
   other: 'note',
+}
+
+/** Reverse of CATEGORY_TO_SESSION_CATEGORY (edit-layer W2 PR-B) — the DB enum a
+ *  category-chip choice writes back as. The forward map collapses two DB values
+ *  onto one display category (symptom+concern → concern; next_visit+next →
+ *  next); this picks ONE canonical DB value per display chip so an edit-sheet
+ *  category change has a single, deterministic write target. */
+export const SESSION_CATEGORY_TO_ENTRY_CATEGORY: Record<SessionCategory, EntryCategory> = {
+  concern: 'SYMPTOM',
+  condition: 'BODY_AREA',
+  lifestyle: 'LIFESTYLE',
+  treatment: 'TREATMENT',
+  preference: 'PREFERENCE',
+  product: 'PRODUCT',
+  next: 'NEXT_VISIT',
+  note: 'OTHER',
 }
 
 export function karuteEntriesToSessionEntries(
