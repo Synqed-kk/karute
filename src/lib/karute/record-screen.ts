@@ -476,7 +476,11 @@ export function buildPreSessionBriefFor(
   // tiebreak would reverse importance within a batch (rows are written
   // seconds apart, most important first).
   const entries = [...(last.entries ?? [])].sort((a, b) => {
-    const rank = (e: KaruteEntry) => (e.author === 'AI' ? 1 : 0)
+    // Same author-absent fallback as the regen guard (regenerate-karute.ts):
+    // author is NOT NULL by core contract, but a legacy row without one must
+    // rank by is_manual, not default into the human-first zone.
+    const rank = (e: KaruteEntry) =>
+      e.author != null ? (e.author === 'AI' ? 1 : 0) : e.is_manual === true ? 0 : 1
     return rank(a) - rank(b)
   })
 

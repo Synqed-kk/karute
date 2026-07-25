@@ -97,5 +97,9 @@ describe('insights route cache — content-keyed', () => {
     expect(src).toContain('n: r.customerName,')
     expect(src).toContain('d: r.createdAt,')
     expect(src).toContain("bt: orgSettings?.business_type ?? null,")
+    // Greptile P1 on #613: a transient settings failure must degrade to an
+    // UNCACHED generic-persona response — never pin bt:null insights for a day.
+    expect(src).toContain('settingsFailed = true')
+    expect(src).toContain('if (!settingsFailed) {')
   })
 })

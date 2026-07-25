@@ -48,9 +48,16 @@ export async function POST(request: Request) {
     // synqed-core org settings — fetched BEFORE the cache check because the
     // system prompt's persona is built from business_type, so it belongs in
     // the cache key (fleet round 7/25: a vertical switch must not serve
-    // yesterday's persona for a day). Null-on-failure like every other
-    // caller: a settings hiccup must not take down cached insights.
-    const orgSettings = await getOrgSettings().catch(() => null)
+    // yesterday's persona for a day). A transient settings failure degrades
+    // to the generic persona for THIS response only — served uncached (see
+    // the settingsFailed guard below), so a hiccup can neither take down
+    // insights nor poison the cache with a wrong-persona result for a day
+    // (Greptile P1 on #613).
+    let settingsFailed = false
+    const orgSettings = await getOrgSettings().catch(() => {
+      settingsFailed = true
+      return null
+    })
 
     // Content-keyed (EDIT-LAYER-DESIGN §4, the ai-outreach.ts pattern):
     // everything the prompt reads per record — effectiveSummary, name, date,
@@ -116,7 +123,12 @@ export async function POST(request: Request) {
     const insights = Array.isArray(parsed) ? parsed : parsed.insights ?? []
     const result = { insights }
 
-    await setCachedAI('insights', cacheInput, result, 1) // 1 day TTL for insights
+    // A settings-failure response was built with the generic persona — serve
+    // it, never cache it (the bt:null key would pin wrong-persona insights
+    // for a day).
+    if (!settingsFailed) {
+      await setCachedAI('insights', cacheInput, result, 1) // 1 day TTL for insights
+    }
 
     return NextResponse.json(result)
   } catch (error) {

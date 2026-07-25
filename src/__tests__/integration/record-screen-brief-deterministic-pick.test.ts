@@ -124,6 +124,24 @@ describe('buildPreSessionBriefFor — fleet S4 deterministic pick', () => {
     }
   })
 
+  it('a legacy row without author ranks by is_manual — never defaults into the human-first zone', () => {
+    // Greptile P1 on #613: author is NOT NULL by core contract, but the
+    // comparator must mirror the regen guard's fallback anyway.
+    const legacyAi = {
+      ...karuteEntry({ id: 'legacy-ai', category: 'PRODUCT', content: 'Legacy AI', is_manual: false }),
+      author: undefined,
+    } as unknown as KaruteEntry
+    const legacyManual = {
+      ...karuteEntry({ id: 'legacy-manual', category: 'PRODUCT', content: 'Legacy manual', is_manual: true }),
+      author: undefined,
+    } as unknown as KaruteEntry
+    // Legacy-AI first in core order, then the staff row: is_manual fallback
+    // must still rank the staff row into the human-first zone ahead of it.
+    const rec = karuteRecord([legacyAi, legacyManual])
+    const brief = buildPreSessionBriefFor([rec], null, NOW, 'en', true)
+    expect(brief?.lastProduct?.name).toBe('Legacy manual')
+  })
+
   it('recommendedFocus (NEXT_VISIT) takes the staff row over an AI sibling — the loop-closing pick', () => {
     const nextAi = karuteEntry({
       id: 'nv-ai',
