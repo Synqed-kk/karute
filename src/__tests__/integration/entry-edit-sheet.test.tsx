@@ -117,6 +117,17 @@ describe('EntryEditSheet — save', () => {
     expect(screen.getByText('save')).toBeDisabled()
   })
 
+  it('a THROWING action (transport rejection) clears saving and shows the error — never strands the sheet (Greptile P1)', async () => {
+    updateKaruteDetailEntry.mockRejectedValue(new Error('network down'))
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('error')).toBeInTheDocument())
+    // saving cleared → the button is enabled again for a retry.
+    expect(screen.getByText('save')).not.toBeDisabled()
+    expect(screen.queryByText('network down')).not.toBeInTheDocument()
+  })
+
   it('a failed save renders the fixed localized error, never the raw server string (verify round 2)', async () => {
     updateKaruteDetailEntry.mockResolvedValue({ error: 'RAW UPSTREAM TEXT' })
     render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)

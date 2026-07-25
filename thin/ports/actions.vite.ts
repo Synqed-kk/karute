@@ -296,14 +296,22 @@ async function facadeUpdateKaruteEntry(
   // see the route) — the wire body must not carry it (PATCH schema .strict()).
   const { customerId: _customerId, ...wireInput } = input
   void _customerId
-  const res = await getDataPort().apiFetch(
-    `/api/app/v1/karute/${enc(karuteRecordId)}/entries/${enc(entryId)}`,
-    jsonInit('PATCH', wireInput),
-  )
-  if (res.status === 409) return { conflict: true }
-  if (res.ok) return { ok: true }
-  const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
-  return { error: body?.error?.message ?? `Update failed (${res.status})` }
+  // Whole body try/caught: a network-level fetch rejection must come back as
+  // the declared {error} result, exactly like the web action's catch — an
+  // escaped rejection would strand EntryEditSheet in its saving state
+  // (Greptile P1, #615).
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/karute/${enc(karuteRecordId)}/entries/${enc(entryId)}`,
+      jsonInit('PATCH', wireInput),
+    )
+    if (res.status === 409) return { conflict: true }
+    if (res.ok) return { ok: true }
+    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+    return { error: body?.error?.message ?? `Update failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network request failed' }
+  }
 }
 
 // -- recording flow: save + mint + consent + undo (packet 08 batch 5) ---------
