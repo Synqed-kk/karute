@@ -215,6 +215,36 @@ describe('listEntryEditHistoryWithClient — core', () => {
     expect(edits).toHaveLength(1000)
     expect(truncated).toBe(true)
   })
+
+  it('a duplicated row id straddling a page boundary is de-duped; truncated is computed on the unique count (fix round 2 defect)', async () => {
+    // Core orders created_at desc with NO id tiebreak + plain offset paging —
+    // a tie (or a concurrent insert) can hand the SAME row back on page 2.
+    // page 1: rows 0..99. page 2: row 99 again (the duplicate) + fresh 100..148.
+    const p1 = page(100, 0)
+    const p2 = [p1[99], ...page(49, 100)]
+    listEntryEdits
+      .mockResolvedValueOnce({ entry_edits: p1, total: 149, page: 1, page_size: 100 })
+      .mockResolvedValueOnce({ entry_edits: p2, total: 149, page: 2, page_size: 100 })
+    const { edits, truncated } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    expect(edits).toHaveLength(149)
+    expect(edits.filter((e) => e.id === p1[99].id)).toHaveLength(1)
+    // 150 raw rows were fetched (100 + 50) but only 149 are unique — had
+    // truncated been computed off the RAW count, 150 > 149 would have
+    // wrongly flagged truncated:true. It must read off the deduped count.
+    expect(truncated).toBe(false)
+  })
+
+  it('tied created_at rows render in a deterministic order via the id tiebreak (fix round 2 defect)', async () => {
+    const tied = '2026-07-20T00:00:00.000Z'
+    listEntryEdits.mockResolvedValueOnce({
+      entry_edits: [row({ id: 'b', created_at: tied }), row({ id: 'a', created_at: tied }), row({ id: 'c', created_at: tied })],
+      total: 3,
+      page: 1,
+      page_size: 100,
+    })
+    const { edits } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    expect(edits.map((e) => e.id)).toEqual(['c', 'b', 'a'])
+  })
 })
 
 describe('listEntryEditHistory — web wrapper', () => {

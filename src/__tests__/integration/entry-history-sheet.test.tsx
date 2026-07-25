@@ -224,4 +224,75 @@ describe('EntryHistorySheet', () => {
     resolveB({ edits: [], truncated: false })
     await waitFor(() => expect(screen.getByText('empty')).toBeInTheDocument())
   })
+
+  it('reopening the SAME entry after a close shows loading, not the cached rows (fix round 2, small close 1)', async () => {
+    let resolve1: (v: unknown) => void = () => {}
+    let resolve2: (v: unknown) => void = () => {}
+    listEntryEditHistory
+      .mockImplementationOnce(() => new Promise((resolve) => (resolve1 = resolve)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolve2 = resolve)))
+
+    const { rerender } = render(
+      <EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />,
+    )
+    resolve1({
+      edits: [
+        {
+          id: 'ed-1',
+          entryIdOld: null,
+          entryIdNew: 'e1',
+          action: 'CREATE',
+          actorName: '田中',
+          contentBefore: null,
+          contentAfter: 'first content',
+          createdAt: '2026-07-20T00:00:00.000Z',
+        },
+      ],
+      truncated: false,
+    })
+    await waitFor(() => expect(screen.getByText('first content')).toBeInTheDocument())
+
+    // Close, then reopen the SAME entry — a fresh fetch for it is pending.
+    rerender(<EntryHistorySheet karuteRecordId="kar-1" entry={null} onOpenChange={jest.fn()} />)
+    rerender(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
+
+    expect(screen.queryByText('first content')).not.toBeInTheDocument()
+    expect(screen.getByText('loading')).toBeInTheDocument()
+
+    resolve2({ edits: [], truncated: false })
+    await waitFor(() => expect(screen.getByText('empty')).toBeInTheDocument())
+  })
+})
+
+describe('CurrentSessionCard — sheet mutual exclusion (fix round 2, small close 2)', () => {
+  it('pencil-open then chip-tap → only the history sheet stays open', async () => {
+    listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
+    render(<CurrentSessionCard sessionDate="d" entries={[editedEntry]} karuteRecordId="kar-1" />)
+
+    fireEvent.click(screen.getByLabelText('entryEdit.editRow'))
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByText('currentSession.chips.edited'))
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    await waitFor(() => expect(listEntryEditHistory).toHaveBeenCalledWith('kar-1'))
+  })
+
+  it('chip-open then pencil-tap → only the edit sheet stays open', async () => {
+    let resolveHistory: (v: unknown) => void = () => {}
+    listEntryEditHistory.mockImplementationOnce(() => new Promise((resolve) => (resolveHistory = resolve)))
+    render(<CurrentSessionCard sessionDate="d" entries={[editedEntry]} karuteRecordId="kar-1" />)
+
+    fireEvent.click(screen.getByText('currentSession.chips.edited'))
+    await waitFor(() => expect(listEntryEditHistory).toHaveBeenCalledWith('kar-1'))
+    expect(screen.getByText('loading')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('entryEdit.editRow'))
+    expect(screen.getByRole('textbox')).toBeInTheDocument()
+    // The history sheet closed — its pending fetch's effect was cancelled,
+    // so its loading text is gone (not swapped for empty/error).
+    expect(screen.queryByText('loading')).not.toBeInTheDocument()
+
+    resolveHistory({ edits: [], truncated: false })
+  })
 })

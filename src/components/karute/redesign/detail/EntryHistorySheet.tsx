@@ -52,6 +52,13 @@ export function EntryHistorySheet({ karuteRecordId, entry, onOpenChange }: Entry
   const entryId = entry?.id ?? null
   useEffect(() => {
     if (!entryId) return
+    // Clear a SAME-id cached view synchronously, before the fetch below —
+    // the keyed-view check already blocks a stale DIFFERENT entry's rows
+    // from painting, but a reopen of the same entry matches it trivially and
+    // would otherwise flash last time's rows for a frame (fix round 2,
+    // delta-verify). One pre-effect-commit frame of the entry's own
+    // previous rows, before this clear lands, is accepted as benign.
+    setView((prev) => (prev?.entryId === entryId ? null : prev))
     let cancelled = false
     const run = async () => {
       // try/catch belt: a throwing server-action RPC (transport rejection)

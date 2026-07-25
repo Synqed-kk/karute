@@ -756,13 +756,32 @@ export async function listEntryEditHistoryWithClient(
     if (res.entry_edits.length === 0) break
   } while (raw.length < total && raw.length < ENTRY_EDIT_HISTORY_HARD_CAP)
 
+  // De-dup by id (fix round 2, delta-verify with core-source evidence): core
+  // orders `created_at desc` with NO id tiebreak and plain offset paging — a
+  // regen batch writes many rows with an IDENTICAL created_at, so a tie
+  // straddling a page boundary can land on BOTH of two sequential fetches
+  // (and a concurrent insert between fetches can shift the offset too, live
+  // multi-staff app). `truncated` below is computed off this DEDUPED count,
+  // not the raw fetch count, so a page's worth of loss from the same drift
+  // shows up as `total > uniqueCount` — the sheet's honest partial note,
+  // never a silent gap. Offset drift can still SKIP a row mid-flight; that
+  // self-heals on reopen. Durable fix is core-side cursor pagination + an id
+  // tiebreak (Anthony's side — not touched here).
+  const seen = new Set<string>()
+  const deduped = raw.filter((e) => {
+    if (seen.has(e.id)) return false
+    seen.add(e.id)
+    return true
+  })
+
   const roster = await staffListByBusinessOrThrow(businessId).catch(() => [] as StaffMember[])
   const nameById = new Map(roster.map((s) => [s.id, s.full_name]))
-  const edits = raw
+  const edits = deduped
     // Defensive sort — core already returns newest first, but nothing here
-    // depends on that holding forever.
+    // depends on that holding forever. Id tiebreak makes a tied created_at
+    // (the regen-batch case above) render in a STABLE order across renders.
     .slice()
-    .sort((a, b) => b.created_at.localeCompare(a.created_at))
+    .sort((a, b) => b.created_at.localeCompare(a.created_at) || b.id.localeCompare(a.id))
     .map((e) => ({
       id: e.id,
       entryIdOld: e.entry_id_old ?? null,
