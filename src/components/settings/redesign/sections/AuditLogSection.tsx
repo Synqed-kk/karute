@@ -596,6 +596,17 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                     </div>
                     {isOpen && (
                       <div className="ml-11 mt-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+                        {/* Greptile P1: true per-event pairing is impossible with
+                            today's data — the audit emit carries entry_id but not
+                            the entry_edit row id (core ask, durable fix is
+                            core-side). Until then this panel truthfully labels
+                            what it shows: the ENTRY's whole trail, not just this
+                            audit row's own change. */}
+                        {trail?.status === 'ok' && (
+                          <p className="mb-2 text-[11px] text-muted-foreground">
+                            {t('entryEditTrailTitle', { count: trail.rows.length })}
+                          </p>
+                        )}
                         {(!trail || trail.status === 'loading') && (
                           <p className="text-xs text-muted-foreground">{tc('loading')}</p>
                         )}

@@ -8,11 +8,15 @@ import { act, fireEvent, render, waitFor } from '@testing-library/react'
 
 // has()/t() are identity for every key EXCEPT actions.karute.entry_edit —
 // same simulate-the-real-json-addition idiom as audit-log-section-stats.test.tsx.
+// A call WITH params (entryEditTrailTitle's {count}) echoes `key:{...json}` —
+// same convention as agenda-noshow-chip.test.tsx — so the count is assertable.
 jest.mock('next-intl', () => ({
   useTranslations: () =>
-    Object.assign((k: string) => (k === 'actions.karute.entry_edit' ? 'カルテ項目を編集' : k), {
-      has: (k: string) => k === 'actions.karute.entry_edit',
-    }),
+    Object.assign(
+      (k: string, vals?: Record<string, unknown>) =>
+        k === 'actions.karute.entry_edit' ? 'カルテ項目を編集' : vals ? `${k}:${JSON.stringify(vals)}` : k,
+      { has: (k: string) => k === 'actions.karute.entry_edit' },
+    ),
   useLocale: () => 'ja',
 }))
 
@@ -100,6 +104,8 @@ describe('AuditLogSection — karute.entry_edit row expansion (§11)', () => {
       expect(container.textContent).toContain('the right entry')
     })
     expect(container.textContent).not.toContain('a different entry')
+    // Header count is the FILTERED count (1), not the raw fetch (2 edits).
+    expect(container.textContent).toContain('entryEditTrailTitle:{"count":1}')
   })
 
   it('second expand reuses the cache — the action is called exactly once', async () => {
@@ -118,7 +124,7 @@ describe('AuditLogSection — karute.entry_edit row expansion (§11)', () => {
     expect(listEntryEditHistory).toHaveBeenCalledTimes(1)
   })
 
-  it('empty trail renders the deleted-record line, not a generic empty state', async () => {
+  it('an empty, non-truncated trail renders the non-committal "no history found" line', async () => {
     listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
     const container = await renderWithEvent()
 

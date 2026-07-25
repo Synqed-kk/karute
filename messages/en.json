@@ -2171,6 +2171,7 @@
       "eventsCount": "{count, plural, one {# event} other {# events}}",
       "storesCount": "{count, plural, one {# store} other {# stores}}",
       "entryEditToggle": "Show edit details",
+      "entryEditTrailTitle": "Full edit history for this entry ({count})",
       "entryEditError": "Couldn't load the edit details.",
       "entryEditDeleted": "No edit history found (a deleted karute's history is deleted with it)",
       "entryEditPartial": "Older history isn't shown"
