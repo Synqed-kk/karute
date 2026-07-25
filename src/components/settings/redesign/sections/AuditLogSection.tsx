@@ -138,6 +138,11 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // filter click can't send a duplicate.
   const openLogged = useRef(false)
   const openLogPending = useRef(false)
+  // Same-tick double-tap guard for the entry-edit trail fetch below:
+  // editTrails read in toggleEntryEditTrail is a stale closure until React
+  // commits the 'loading' write, so two synchronous clicks would both pass
+  // the cache check and double-fetch. A ref is written synchronously.
+  const inFlightEditFetches = useRef<Set<string>>(new Set())
 
   const load = useCallback(
     async (nextPage: number, append: boolean) => {
@@ -307,7 +312,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       return
     }
     setExpandedEditId(e.id)
-    if (editTrails[e.id]) return
+    if (editTrails[e.id] || inFlightEditFetches.current.has(e.id)) return
     const detail = (e.detail ?? {}) as Record<string, unknown>
     const entryId = typeof detail.entry_id === 'string' ? detail.entry_id : null
     const recordId = e.target_id
@@ -315,30 +320,35 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
       return
     }
+    inFlightEditFetches.current.add(e.id)
     setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'loading' } }))
     void (async () => {
-      let result: Awaited<ReturnType<typeof listEntryEditHistory>>
       try {
-        result = await listEntryEditHistory(recordId)
-      } catch {
-        setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
-        return
+        let result: Awaited<ReturnType<typeof listEntryEditHistory>>
+        try {
+          result = await listEntryEditHistory(recordId)
+        } catch {
+          setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
+          return
+        }
+        if ('error' in result) {
+          setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
+          return
+        }
+        setEditTrails((prev) => ({
+          ...prev,
+          [e.id]: {
+            status: 'ok',
+            // Per-ENTRY scope, same join as EntryHistorySheet.tsx: the record's
+            // full trail, filtered to rows that touch this row's entry_id on
+            // either side of a REGEN_REPLACE-style swap.
+            rows: result.edits.filter((r) => r.entryIdNew === entryId || r.entryIdOld === entryId),
+            truncated: result.truncated,
+          },
+        }))
+      } finally {
+        inFlightEditFetches.current.delete(e.id)
       }
-      if ('error' in result) {
-        setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
-        return
-      }
-      setEditTrails((prev) => ({
-        ...prev,
-        [e.id]: {
-          status: 'ok',
-          // Per-ENTRY scope, same join as EntryHistorySheet.tsx: the record's
-          // full trail, filtered to rows that touch this row's entry_id on
-          // either side of a REGEN_REPLACE-style swap.
-          rows: result.edits.filter((r) => r.entryIdNew === entryId || r.entryIdOld === entryId),
-          truncated: result.truncated,
-        },
-      }))
     })()
   }
 
@@ -595,7 +605,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                         {trail?.status === 'ok' && trail.rows.length === 0 && (
                           <p className="text-xs text-muted-foreground">
                             {/* Truncated + zero-match means rows may sit past
-                                the cap — never claim the record was deleted. */}
+                                the cap — never claim the record was deleted.
+                                Non-truncated zero-match: entryEditDeleted's
+                                copy states the RULE (a deleted karute's
+                                history dies with it) without asserting THIS
+                                is that case — the read has a documented
+                                offset-drift gap (listEntryEditHistoryWithClient,
+                                src/actions/karute.ts) that can also return
+                                empty for an intact record, and this is a
+                                dispute-investigation surface. */}
                             {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}
                           </p>
                         )}

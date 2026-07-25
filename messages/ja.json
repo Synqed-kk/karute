@@ -2172,7 +2172,7 @@
       "storesCount": "{count}店舗",
       "entryEditToggle": "編集内容を表示",
       "entryEditError": "編集内容を読み込めませんでした。",
-      "entryEditDeleted": "内容は削除済みのため表示できません",
+      "entryEditDeleted": "編集履歴が見つかりません（カルテが削除された場合、履歴も一緒に削除されます）",
       "entryEditPartial": "これより古い履歴は表示されません"
     },
     "comingSoon": "近日公開",
