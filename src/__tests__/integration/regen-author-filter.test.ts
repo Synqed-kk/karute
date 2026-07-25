@@ -216,4 +216,27 @@ describe('regenerateKaruteEntriesWithClient — author filter (I1)', () => {
     expect(result.error).toContain('re-run to finish cleanup')
     expect(result.error).not.toContain('No changes applied')
   })
+
+  it('add fails AND rollback fails: same honesty on the add-failure branch (Greptile #616 r2)', async () => {
+    const synqed = {
+      karuteRecords: {
+        get: jest.fn(async () => ({ entries: [{ id: 'ai-1', author: 'AI' }] })),
+        addEntry: jest
+          .fn()
+          .mockResolvedValueOnce({ id: 'new-1' })
+          .mockRejectedValueOnce(new Error('add died')),
+        deleteEntry: jest.fn(async () => {
+          throw new Error('network')
+        }),
+      },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [
+      NEW_ENTRY,
+      NEW_ENTRY,
+    ])
+
+    expect(result.error).toContain('re-run to finish cleanup')
+    expect(result.error).not.toContain('No changes applied')
+  })
 })

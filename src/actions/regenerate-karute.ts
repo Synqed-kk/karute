@@ -148,11 +148,13 @@ export async function regenerateKaruteEntriesWithClient(
         if (created?.id) addedIds.push(created.id)
       }
     } catch (err) {
-      await rollback(addedIds)
+      const rollbackFailures = await rollback(addedIds)
+      const reason = err instanceof Error ? err.message : 'unknown'
       return {
-        error: `Could not save the regenerated entries (${
-          err instanceof Error ? err.message : 'unknown'
-        }). No changes applied.`,
+        error:
+          rollbackFailures > 0
+            ? `Could not save the regenerated entries (${reason}) and some cleanup failed — re-run to finish cleanup.`
+            : `Could not save the regenerated entries (${reason}). No changes applied.`,
       }
     }
 
@@ -214,9 +216,12 @@ export async function regenerateKaruteEntriesWithClient(
     // fresh re-filter was never going to be deleted, so its absence must not
     // read as a failure.
     if (idsToDelete.length > 0 && removed === 0) {
-      await rollback(addedIds)
+      const rollbackFailures = await rollback(addedIds)
       return {
-        error: 'Could not remove the old entries. No changes applied — please retry.',
+        error:
+          rollbackFailures > 0
+            ? 'Could not remove the old entries and some cleanup failed — re-run to finish cleanup.'
+            : 'Could not remove the old entries. No changes applied — please retry.',
       }
     }
 
