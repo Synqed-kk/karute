@@ -154,15 +154,25 @@ export async function regenerateKaruteEntriesWithClient(
     //    2026-07-25) — this only narrows the window from the whole regen
     //    run to one round-trip. Per-id resilient: one bad id never strands
     //    the rest.
-    const freshAfterAdds = (await synqed.karuteRecords.get(karuteRecordId)) as
-      | {
-          entries?: Array<{
-            id?: string | null
-            author?: EntryAuthor | null
-            is_manual?: boolean | null
-          }>
-        }
-      | null
+    let freshAfterAdds: {
+      entries?: Array<{
+        id?: string | null
+        author?: EntryAuthor | null
+        is_manual?: boolean | null
+      }>
+    } | null
+    try {
+      freshAfterAdds = (await synqed.karuteRecords.get(karuteRecordId)) as typeof freshAfterAdds
+    } catch {
+      // The fresh read is what keeps the delete phase from killing a mid-regen
+      // edit — without it we must not delete at all. Roll the adds back so a
+      // failed run leaves the record exactly as it was (the function's
+      // standing invariant); best-effort like every other rollback here.
+      await rollback(addedIds)
+      return {
+        error: 'Could not re-check the current entries. No changes applied — please retry.',
+      }
+    }
     const freshAiIds = new Set(
       (freshAfterAdds?.entries ?? [])
         .filter((e) => (e?.author != null ? e.author === 'AI' : e?.is_manual !== true))
