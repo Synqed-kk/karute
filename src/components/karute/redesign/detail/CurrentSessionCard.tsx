@@ -143,6 +143,8 @@ export function CurrentSessionCard({
       router.refresh()
       return
     }
+    // Mutual exclusion (fix round, defensive): never both sheets open.
+    setHistoryEntry(null)
     setEditingEntry(entry)
   }
 
@@ -226,7 +228,11 @@ export function CurrentSessionCard({
                           (karuteRecordId ? (
                             <button
                               type="button"
-                              onClick={() => setHistoryEntry(e)}
+                              onClick={() => {
+                                // Mutual exclusion (fix round, defensive): never both sheets open.
+                                setEditingEntry(null)
+                                setHistoryEntry(e)
+                              }}
                               className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground"
                             >
                               {t('currentSession.chips.edited')}

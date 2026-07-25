@@ -4,6 +4,10 @@
  * Edit-layer W2 history-sheet packet: the 編集済み chip → EntryHistorySheet
  * contract. (next-intl mocked to echo keys, per the repo's tsx-test
  * convention — see entry-edit-sheet.test.tsx.)
+ *
+ * Fix round (blind 4-lens review): the keyed-view fix (no stale-entry flash,
+ * no empty-before-loading flash), the rejection belt (#615 precedent), and
+ * the truncated/partial-copy contract.
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
@@ -47,7 +51,7 @@ describe('CurrentSessionCard — 編集済み chip', () => {
   })
 
   it('tapping the chip opens the history sheet and fetches this karute\'s trail', async () => {
-    listEntryEditHistory.mockResolvedValue({ edits: [] })
+    listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
     render(<CurrentSessionCard sessionDate="d" entries={[editedEntry]} karuteRecordId="kar-1" />)
     const chip = screen.getByText('currentSession.chips.edited')
     expect(chip.tagName).toBe('BUTTON')
@@ -85,6 +89,7 @@ describe('EntryHistorySheet', () => {
           createdAt: '2026-07-21T00:00:00.000Z',
         },
       ],
+      truncated: false,
     })
     render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
     await waitFor(() => expect(screen.getByText('kept content')).toBeInTheDocument())
@@ -105,6 +110,7 @@ describe('EntryHistorySheet', () => {
           createdAt: '2026-07-20T00:00:00.000Z',
         },
       ],
+      truncated: false,
     })
     render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
     await waitFor(() => expect(screen.getByText('unknownStaff')).toBeInTheDocument())
@@ -117,9 +123,105 @@ describe('EntryHistorySheet', () => {
     expect(screen.queryByText('RAW UPSTREAM TEXT')).not.toBeInTheDocument()
   })
 
-  it('empty state renders t(empty) when the filtered set is empty', async () => {
-    listEntryEditHistory.mockResolvedValue({ edits: [] })
+  it('empty state renders t(empty) when the filtered set is empty and not truncated', async () => {
+    listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
     render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
+    await waitFor(() => expect(screen.getByText('empty')).toBeInTheDocument())
+  })
+
+  it('a null action (legacy-null row) renders fine — action has no dedicated UI', async () => {
+    listEntryEditHistory.mockResolvedValue({
+      edits: [
+        {
+          id: 'ed-1',
+          entryIdOld: null,
+          entryIdNew: 'e1',
+          action: null,
+          actorName: '田中',
+          contentBefore: null,
+          contentAfter: 'legacy row',
+          createdAt: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      truncated: false,
+    })
+    render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
+    await waitFor(() => expect(screen.getByText('legacy row')).toBeInTheDocument())
+  })
+
+  it('a rejecting action promise resolves to the error state — never strands loading (fix round #2)', async () => {
+    listEntryEditHistory.mockRejectedValue(new Error('network down'))
+    render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
+    await waitFor(() => expect(screen.getByText('error')).toBeInTheDocument())
+    expect(screen.queryByText('loading')).not.toBeInTheDocument()
+  })
+
+  it('truncated + a filtered-empty result renders partial, never claims "no history" (fix round #3)', async () => {
+    listEntryEditHistory.mockResolvedValue({ edits: [], truncated: true })
+    render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
+    await waitFor(() => expect(screen.getByText('partial')).toBeInTheDocument())
+    expect(screen.queryByText('empty')).not.toBeInTheDocument()
+  })
+
+  it('truncated + rows renders the partial line as a footer under the list (fix round #3)', async () => {
+    listEntryEditHistory.mockResolvedValue({
+      edits: [
+        {
+          id: 'ed-1',
+          entryIdOld: null,
+          entryIdNew: 'e1',
+          action: 'CREATE',
+          actorName: '田中',
+          contentBefore: null,
+          contentAfter: 'a',
+          createdAt: '2026-07-20T00:00:00.000Z',
+        },
+      ],
+      truncated: true,
+    })
+    render(<EntryHistorySheet karuteRecordId="kar-1" entry={entry} onOpenChange={jest.fn()} />)
+    await waitFor(() => expect(screen.getByText('a')).toBeInTheDocument())
+    expect(screen.getByText('partial')).toBeInTheDocument()
+  })
+
+  it('open A → close → open B shows loading, never paints A\'s stale rows (fix round #1)', async () => {
+    let resolveA: (v: unknown) => void = () => {}
+    let resolveB: (v: unknown) => void = () => {}
+    listEntryEditHistory
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveA = resolve)))
+      .mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)))
+
+    const entryA: SessionEntry = { id: 'A', category: 'concern', time: '12:00', body: 'a' }
+    const entryB: SessionEntry = { id: 'B', category: 'concern', time: '12:00', body: 'b' }
+
+    const { rerender } = render(
+      <EntryHistorySheet karuteRecordId="kar-1" entry={entryA} onOpenChange={jest.fn()} />,
+    )
+    resolveA({
+      edits: [
+        {
+          id: 'ed-a',
+          entryIdOld: null,
+          entryIdNew: 'A',
+          action: 'CREATE',
+          actorName: '田中',
+          contentBefore: null,
+          contentAfter: 'A content',
+          createdAt: '2026-07-20T00:00:00.000Z',
+        },
+      ],
+      truncated: false,
+    })
+    await waitFor(() => expect(screen.getByText('A content')).toBeInTheDocument())
+
+    // Close, then open a DIFFERENT entry — the second fetch is still pending.
+    rerender(<EntryHistorySheet karuteRecordId="kar-1" entry={null} onOpenChange={jest.fn()} />)
+    rerender(<EntryHistorySheet karuteRecordId="kar-1" entry={entryB} onOpenChange={jest.fn()} />)
+
+    expect(screen.queryByText('A content')).not.toBeInTheDocument()
+    expect(screen.getByText('loading')).toBeInTheDocument()
+
+    resolveB({ edits: [], truncated: false })
     await waitFor(() => expect(screen.getByText('empty')).toBeInTheDocument())
   })
 })

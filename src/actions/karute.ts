@@ -14,7 +14,7 @@ import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
-import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction } from '@synqed-kk/client'
+import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction, KaruteEntryEdit } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
 /**
@@ -704,7 +704,9 @@ export interface EntryEditHistoryRow {
   id: string
   entryIdOld: string | null
   entryIdNew: string | null
-  action: EntryEditAction
+  // Nullable — this table family has legacy-null enum precedent (pre-taxonomy
+  // rows). Never rendered with action-specific UI (uniform row rendering).
+  action: EntryEditAction | null
   actorName: string | null
   contentBefore: string | null
   contentAfter: string | null
@@ -713,11 +715,19 @@ export interface EntryEditHistoryRow {
 
 type SynqedEntryEditReadClient = Pick<SynqedClient, 'karuteRecords'>
 
+const ENTRY_EDIT_HISTORY_PAGE_SIZE = 100
+// Hard ceiling on the pagination loop below — regen passes write ~2
+// rows/entry, so a heavily-regenerated record can cross the old
+// single-page-of-100 ceiling this replaces. 10 pages at the size above;
+// `truncated` tells the sheet when a record's REAL trail exceeds it.
+// ponytail: hard-capped at 1000 rows, move to a "load more" UI if a record's
+// trail ever needs more.
+const ENTRY_EDIT_HISTORY_HARD_CAP = 1000
+
 /**
  * Per-entry edit trail CORE — read-only, shared by the web wrapper below and
- * the facade GET route (…/karute/[id]/entry-edits). Single page, newest
- * first — no pagination UI.
- * // ponytail: first 100 rows only; paginate if a record's trail outgrows it
+ * the facade GET route (…/karute/[id]/entry-edits). Paginates (page_size
+ * 100) until the whole trail is fetched or the hard cap above, newest first.
  *
  * Name resolution is SERVER-side (denormalized-label idiom, audit-route
  * precedent — staffListByBusinessOrThrow's roster join): a roster failure
@@ -728,29 +738,42 @@ export async function listEntryEditHistoryWithClient(
   synqed: SynqedEntryEditReadClient,
   businessId: string,
   karuteRecordId: string,
-): Promise<{ edits: EntryEditHistoryRow[] }> {
-  const { entry_edits } = await synqed.karuteRecords.listEntryEdits({
-    karute_record_id: karuteRecordId,
-    page_size: 100,
-  })
+): Promise<{ edits: EntryEditHistoryRow[]; truncated: boolean }> {
+  const raw: KaruteEntryEdit[] = []
+  let page = 1
+  let total = 0
+  do {
+    const res = await synqed.karuteRecords.listEntryEdits({
+      karute_record_id: karuteRecordId,
+      page,
+      page_size: ENTRY_EDIT_HISTORY_PAGE_SIZE,
+    })
+    raw.push(...res.entry_edits)
+    total = res.total
+    page += 1
+    // A short/empty page ends the loop even if `total` disagrees — never
+    // spin forever chasing a count the server isn't actually delivering.
+    if (res.entry_edits.length === 0) break
+  } while (raw.length < total && raw.length < ENTRY_EDIT_HISTORY_HARD_CAP)
+
   const roster = await staffListByBusinessOrThrow(businessId).catch(() => [] as StaffMember[])
   const nameById = new Map(roster.map((s) => [s.id, s.full_name]))
-  const edits = entry_edits
+  const edits = raw
     // Defensive sort — core already returns newest first, but nothing here
     // depends on that holding forever.
     .slice()
     .sort((a, b) => b.created_at.localeCompare(a.created_at))
     .map((e) => ({
       id: e.id,
-      entryIdOld: e.entry_id_old,
-      entryIdNew: e.entry_id_new,
-      action: e.action,
+      entryIdOld: e.entry_id_old ?? null,
+      entryIdNew: e.entry_id_new ?? null,
+      action: e.action ?? null,
       actorName: (e.actor_staff_id ? nameById.get(e.actor_staff_id) : null) ?? null,
       contentBefore: e.content_before,
       contentAfter: e.content_after,
       createdAt: e.created_at,
     }))
-  return { edits }
+  return { edits, truncated: total > edits.length }
 }
 
 /** Cookie web wrapper — customers.view gate (same class gate as the detail
@@ -760,7 +783,7 @@ export async function listEntryEditHistoryWithClient(
  *  resolveWebBusinessId's own doc comment prescribes for that case. */
 export async function listEntryEditHistory(
   recordId: string,
-): Promise<{ edits: EntryEditHistoryRow[] } | { error: string }> {
+): Promise<{ edits: EntryEditHistoryRow[]; truncated: boolean } | { error: string }> {
   try {
     await requireCapability('customers.view')
     const synqed = await getSynqedClient()

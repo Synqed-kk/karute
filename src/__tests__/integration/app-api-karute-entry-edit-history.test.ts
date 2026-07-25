@@ -47,7 +47,36 @@ const get = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
   return { id: 'kar-1', customer_id: 'cust-1' }
 })
-const listEntryEdits = jest.fn(async () => ({
+// Shape of a raw synqed entry_edit row for mock data — mirrors
+// KaruteEntryEdit (node_modules/@synqed-kk/client/dist/types.d.ts:650),
+// loosened to allow `action`/`actor_staff_id`/`category`/`author_*: null`
+// (legacy-null enum precedent, fix round) so mockResolvedValueOnce below can
+// send a legacy-shaped row without fighting the inferred literal type.
+interface MockEntryEditRow {
+  id: string
+  business_id: string
+  customer_id: string | null
+  karute_record_id: string
+  entry_id_old: string | null
+  entry_id_new: string | null
+  actor_staff_id: string | null
+  action: string | null
+  category: string | null
+  content_before: string | null
+  content_after: string | null
+  author_before: string | null
+  author_after: string | null
+  batch_id: string | null
+  prompt_version: string | null
+  model: string | null
+  created_at: string
+}
+const listEntryEdits = jest.fn(async (): Promise<{
+  entry_edits: MockEntryEditRow[]
+  total: number
+  page: number
+  page_size: number
+}> => ({
   entry_edits: [
     {
       id: 'ed-1',
@@ -132,11 +161,12 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
     expect(listEntryEdits).not.toHaveBeenCalled()
   })
 
-  it('happy path → 200, names resolved off the roster, newest first', async () => {
+  it('happy path → 200, names resolved off the roster, newest first, truncated:false', async () => {
     const res = await GET(getReq(), routeFor('kar-1'))
     expect(res.status).toBe(200)
-    expect(listEntryEdits).toHaveBeenCalledWith({ karute_record_id: 'kar-1', page_size: 100 })
-    const body = (await res.json()) as { edits: unknown[] }
+    expect(listEntryEdits).toHaveBeenCalledWith({ karute_record_id: 'kar-1', page: 1, page_size: 100 })
+    const body = (await res.json()) as { edits: unknown[]; truncated: boolean }
+    expect(body.truncated).toBe(false)
     expect(body.edits).toEqual([
       expect.objectContaining({
         id: 'ed-2',
@@ -159,5 +189,38 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
         createdAt: '2026-07-20T00:00:00.000Z',
       }),
     ])
+  })
+
+  it('a null action (legacy-null enum row) passes the DTO and renders in the body', async () => {
+    listEntryEdits.mockResolvedValueOnce({
+      entry_edits: [
+        {
+          id: 'ed-legacy',
+          business_id: 'business-1',
+          customer_id: 'cust-1',
+          karute_record_id: 'kar-1',
+          entry_id_old: null,
+          entry_id_new: 'e1',
+          actor_staff_id: null,
+          action: null,
+          category: null,
+          content_before: null,
+          content_after: 'legacy content',
+          author_before: null,
+          author_after: null,
+          batch_id: null,
+          prompt_version: null,
+          model: null,
+          created_at: '2026-06-01T00:00:00.000Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    })
+    const res = await GET(getReq(), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    const body = (await res.json()) as { edits: Array<{ action: string | null }> }
+    expect(body.edits).toEqual([expect.objectContaining({ id: 'ed-legacy', action: null })])
   })
 })

@@ -1,6 +1,10 @@
 // Edit-layer W2 history-sheet packet: the per-entry edit-history CORE (name
 // resolution off the roster, roster-failure degrade, defensive newest-first
-// sort) + the cookie web wrapper (customers.view gate, error collapse).
+// sort, pagination-until-cap, truncated flag) + the cookie web wrapper
+// (customers.view gate, error collapse). No tenancy proof-read added here —
+// fix-round finding refuted with core-source evidence: core's
+// listEntryEdits carries an unconditional `where = { businessId }`, so a
+// cross-tenant read is already impossible at the core layer.
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
@@ -69,6 +73,15 @@ function row(overrides: Partial<Record<string, unknown>> = {}) {
   }
 }
 
+// A page of `n` rows for the pagination tests below, newest-first by
+// created_at, distinct ids so a call count / total can be checked precisely.
+function page(n: number, startIndex: number) {
+  return Array.from({ length: n }, (_, i) => {
+    const idx = startIndex + i
+    return row({ id: `ed-${idx}`, created_at: `2026-01-01T00:${String(idx % 60).padStart(2, '0')}:00.000Z` })
+  })
+}
+
 describe('listEntryEditHistoryWithClient — core', () => {
   it('resolves actor names off the roster; a roster miss degrades to null', async () => {
     listEntryEdits.mockResolvedValueOnce({
@@ -106,6 +119,7 @@ describe('listEntryEditHistoryWithClient — core', () => {
     })
     await expect(listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')).resolves.toEqual({
       edits: [expect.objectContaining({ actorName: null })],
+      truncated: false,
     })
   })
 
@@ -124,20 +138,20 @@ describe('listEntryEditHistoryWithClient — core', () => {
     expect(edits.map((e) => e.id)).toEqual(['newest', 'middle', 'older'])
   })
 
-  it('page_size 100, filtered to the record — no pagination param sent', async () => {
+  it('page_size 100, page 1, filtered to the record on the first call', async () => {
     listEntryEdits.mockResolvedValueOnce({ entry_edits: [], total: 0, page: 1, page_size: 100 })
     await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
-    expect(listEntryEdits).toHaveBeenCalledWith({ karute_record_id: 'kar-1', page_size: 100 })
+    expect(listEntryEdits).toHaveBeenCalledWith({ karute_record_id: 'kar-1', page: 1, page_size: 100 })
   })
 
-  it('maps every field to the camelCase row shape (id/entryIdOld/entryIdNew/action/contentBefore/contentAfter/createdAt)', async () => {
+  it('maps every field to the camelCase row shape + truncated:false when the whole trail fit', async () => {
     listEntryEdits.mockResolvedValueOnce({
       entry_edits: [row({ entry_id_old: 'e-old', entry_id_new: 'e-new' })],
       total: 1,
       page: 1,
       page_size: 100,
     })
-    const { edits } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    const { edits, truncated } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
     const expected: EntryEditHistoryRow = {
       id: 'ed-1',
       entryIdOld: 'e-old',
@@ -149,6 +163,57 @@ describe('listEntryEditHistoryWithClient — core', () => {
       createdAt: '2026-07-20T00:00:00.000Z',
     }
     expect(edits).toEqual([expected])
+    expect(truncated).toBe(false)
+  })
+
+  it('a null entry_id_old/entry_id_new (undefined on the wire) coalesces to null, never undefined', async () => {
+    listEntryEdits.mockResolvedValueOnce({
+      entry_edits: [row({ entry_id_old: undefined, entry_id_new: undefined })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    })
+    const { edits } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    expect(edits[0].entryIdOld).toBeNull()
+    expect(edits[0].entryIdNew).toBeNull()
+  })
+
+  it('a null action (legacy-null enum row) maps through, never dropped or defaulted', async () => {
+    listEntryEdits.mockResolvedValueOnce({
+      entry_edits: [row({ action: null })],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    })
+    const { edits } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    expect(edits[0].action).toBeNull()
+  })
+
+  it('pagination: total 150 → page 1 then page 2, all 150 rows returned, truncated:false', async () => {
+    listEntryEdits
+      .mockResolvedValueOnce({ entry_edits: page(100, 0), total: 150, page: 1, page_size: 100 })
+      .mockResolvedValueOnce({ entry_edits: page(50, 100), total: 150, page: 2, page_size: 100 })
+    const { edits, truncated } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    expect(listEntryEdits).toHaveBeenCalledTimes(2)
+    expect(listEntryEdits).toHaveBeenNthCalledWith(1, { karute_record_id: 'kar-1', page: 1, page_size: 100 })
+    expect(listEntryEdits).toHaveBeenNthCalledWith(2, { karute_record_id: 'kar-1', page: 2, page_size: 100 })
+    expect(edits).toHaveLength(150)
+    expect(truncated).toBe(false)
+  })
+
+  it('pagination: total 1200 stops at the 1000-row hard cap, truncated:true', async () => {
+    for (let p = 1; p <= 10; p++) {
+      listEntryEdits.mockResolvedValueOnce({
+        entry_edits: page(100, (p - 1) * 100),
+        total: 1200,
+        page: p,
+        page_size: 100,
+      })
+    }
+    const { edits, truncated } = await listEntryEditHistoryWithClient(fakeClient, 'biz-1', 'kar-1')
+    expect(listEntryEdits).toHaveBeenCalledTimes(10)
+    expect(edits).toHaveLength(1000)
+    expect(truncated).toBe(true)
   })
 })
 
@@ -159,7 +224,7 @@ describe('listEntryEditHistory — web wrapper', () => {
     expect(requireCapability).toHaveBeenCalledWith('customers.view')
   })
 
-  it('delegates to the core with the resolved businessId', async () => {
+  it('delegates to the core with the resolved businessId, truncated threaded through', async () => {
     listEntryEdits.mockResolvedValueOnce({
       entry_edits: [row({ actor_staff_id: 'staff-1' })],
       total: 1,
@@ -167,7 +232,10 @@ describe('listEntryEditHistory — web wrapper', () => {
       page_size: 100,
     })
     const result = await listEntryEditHistory('kar-1')
-    expect(result).toEqual({ edits: [expect.objectContaining({ actorName: '田中' })] })
+    expect(result).toEqual({
+      edits: [expect.objectContaining({ actorName: '田中' })],
+      truncated: false,
+    })
   })
 
   it('a failed gate collapses to {error}, never throws across the action boundary', async () => {

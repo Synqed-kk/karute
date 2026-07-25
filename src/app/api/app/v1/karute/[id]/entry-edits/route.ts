@@ -35,13 +35,14 @@ const EntryEditRowSchema = z.object({
   id: z.string(),
   entryIdOld: z.string().nullable(),
   entryIdNew: z.string().nullable(),
-  action: z.string(),
+  // Nullable — legacy-null enum precedent on this table family.
+  action: z.string().nullable(),
   actorName: z.string().nullable(),
   contentBefore: z.string().nullable(),
   contentAfter: z.string().nullable(),
   createdAt: z.string(),
 })
-const EntryEditHistoryDTO = z.object({ edits: z.array(EntryEditRowSchema) })
+const EntryEditHistoryDTO = z.object({ edits: z.array(EntryEditRowSchema), truncated: z.boolean() })
 
 export const GET = facadeHandler<Params>('karute.entryEdits.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'customers.view')

@@ -322,7 +322,8 @@ type EntryEditHistoryRow = {
   id: string
   entryIdOld: string | null
   entryIdNew: string | null
-  action: string
+  // Nullable — legacy-null enum precedent on this table family.
+  action: string | null
   actorName: string | null
   contentBefore: string | null
   contentAfter: string | null
@@ -331,7 +332,7 @@ type EntryEditHistoryRow = {
 
 async function facadeListEntryEditHistory(
   karuteRecordId: string,
-): Promise<{ edits: EntryEditHistoryRow[] } | { error: string }> {
+): Promise<{ edits: EntryEditHistoryRow[]; truncated: boolean } | { error: string }> {
   // Whole body try/caught: a network-level fetch rejection must come back as
   // the declared {error} result, exactly like the web action's catch — same
   // transport-rejection parity as facadeUpdateKaruteEntry above (Greptile P1,
@@ -339,9 +340,9 @@ async function facadeListEntryEditHistory(
   try {
     const res = await getDataPort().apiFetch(`/api/app/v1/karute/${enc(karuteRecordId)}/entry-edits`)
     const body = (await res.json().catch(() => null)) as
-      | { edits?: EntryEditHistoryRow[]; error?: { message?: string } }
+      | { edits?: EntryEditHistoryRow[]; truncated?: boolean; error?: { message?: string } }
       | null
-    if (res.ok && body) return { edits: body.edits ?? [] }
+    if (res.ok && body) return { edits: body.edits ?? [], truncated: body.truncated ?? false }
     return { error: body?.error?.message ?? `Request failed (${res.status})` }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Network request failed' }
