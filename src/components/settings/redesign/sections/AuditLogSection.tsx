@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import type { StaffMember } from '@/lib/staff'
 import { listAuditLog, type AuditLogEvent } from '@/actions/audit-log'
+import { listEntryEditHistory, type EntryEditHistoryRow } from '@/actions/karute'
 
 const CATEGORIES = [
   'auth',
@@ -68,6 +69,24 @@ function isViewEvent(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
 
+// karute.entry_edit rows expand in place to show what changed (Liam ruling
+// 2026-07-26, AUDIT-LOG-DESIGN.md §11) — list rows stay ids-only, content is
+// pulled live from the entry-edits trail on tap. Cache keyed by the audit
+// row's own id (not entry_id): a re-expand of the SAME row never refetches;
+// two different rows on the same entry each fetch once, which is fine.
+type EntryEditTrailState =
+  | { status: 'loading' }
+  | { status: 'ok'; rows: EntryEditHistoryRow[]; truncated: boolean }
+  | { status: 'error' }
+
+// new Date + Intl.format throws on an invalid string — same guard idiom as
+// EntryHistorySheet.tsx's formatCreatedAt (the one-sheet history block this
+// accordion's rendering is copied from).
+function formatEditTrailTimestamp(iso: string, fmt: Intl.DateTimeFormat): string | null {
+  const d = new Date(iso)
+  return Number.isNaN(d.getTime()) ? null : fmt.format(d)
+}
+
 interface AuditLogSectionProps {
   staffList: StaffMember[]
   /** Customer id from the privacy-tab deep-link (?tab=audit&target=…). */
@@ -77,6 +96,7 @@ interface AuditLogSectionProps {
 export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionProps) {
   const t = useTranslations('settings.auditLog')
   const tRole = useTranslations('settings.permissions')
+  const tc = useTranslations('common')
   const locale = useLocale()
 
   const [category, setCategory] = useState<string | null>(null)
@@ -89,6 +109,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // Display-side lens from tapping the 警告 stat (core has no severity filter
   // yet — Anthony ask; until then this narrows the loaded window client-side).
   const [warnOnly, setWarnOnly] = useState(false)
+  // karute.entry_edit expansion — one row open at a time (§11 accordion).
+  const [expandedEditId, setExpandedEditId] = useState<string | null>(null)
+  const [editTrails, setEditTrails] = useState<Record<string, EntryEditTrailState>>({})
 
   const [events, setEvents] = useState<AuditLogEvent[]>([])
   const [breakGlassTotal, setBreakGlassTotal] = useState<number | null>(null)
@@ -191,6 +214,18 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     () => new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }),
     [locale],
   )
+  // Combined date+time for the entry-edit trail's rows (they can span many
+  // days) — same shape as EntryHistorySheet.tsx's dateFmt.
+  const editTrailDateFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat(locale, {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    [locale],
+  )
 
   // Summary strip. 緊急アクセス is server-exact for the whole filter window;
   // 変更/警告 now prefer the server-exact totals (packet 18 T1 — severity/
@@ -262,6 +297,49 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       return targetName ? `${targetName} · ${stores}` : stores
     }
     return targetName
+  }
+
+  // Tap a karute.entry_edit row: toggle it open/closed, fetching its trail
+  // once (cached by row id thereafter — no refetch on re-expand).
+  function toggleEntryEditTrail(e: AuditLogEvent) {
+    if (expandedEditId === e.id) {
+      setExpandedEditId(null)
+      return
+    }
+    setExpandedEditId(e.id)
+    if (editTrails[e.id]) return
+    const detail = (e.detail ?? {}) as Record<string, unknown>
+    const entryId = typeof detail.entry_id === 'string' ? detail.entry_id : null
+    const recordId = e.target_id
+    if (!entryId || !recordId) {
+      setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
+      return
+    }
+    setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'loading' } }))
+    void (async () => {
+      let result: Awaited<ReturnType<typeof listEntryEditHistory>>
+      try {
+        result = await listEntryEditHistory(recordId)
+      } catch {
+        setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
+        return
+      }
+      if ('error' in result) {
+        setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
+        return
+      }
+      setEditTrails((prev) => ({
+        ...prev,
+        [e.id]: {
+          status: 'ok',
+          // Per-ENTRY scope, same join as EntryHistorySheet.tsx: the record's
+          // full trail, filtered to rows that touch this row's entry_id on
+          // either side of a REGEN_REPLACE-style swap.
+          rows: result.edits.filter((r) => r.entryIdNew === entryId || r.entryIdOld === entryId),
+          truncated: result.truncated,
+        },
+      }))
+    })()
   }
 
   return (
@@ -436,55 +514,130 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                     ? t('systemActor')
                     : e.actor_label ||
                       ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
+                const isEntryEdit = e.action === 'karute.entry_edit'
+                const isOpen = isEntryEdit && expandedEditId === e.id
+                const trail = isEntryEdit ? editTrails[e.id] : undefined
                 return (
-                  <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                    <span
-                      className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
-                        e.severity === 'critical'
-                          ? 'bg-red-500/10 text-red-600 dark:text-red-400'
-                          : e.severity === 'warn'
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-                            : 'bg-muted text-muted-foreground'
-                      }`}
-                      aria-hidden
-                    >
-                      <Icon className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                        <span className="text-sm font-medium text-foreground">
-                          {actionLabel(e.action)}
-                        </span>
-                        {e.break_glass && (
-                          <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
-                            <ShieldAlert className="size-3" />
-                            {t('breakGlassChip')}
+                  <li key={e.id} className="flex flex-col px-4 py-2.5">
+                    <div className="flex items-center gap-3">
+                      <span
+                        className={`flex size-8 shrink-0 items-center justify-center rounded-full ${
+                          e.severity === 'critical'
+                            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+                            : e.severity === 'warn'
+                              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                              : 'bg-muted text-muted-foreground'
+                        }`}
+                        aria-hidden
+                      >
+                        <Icon className="size-4" />
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span className="text-sm font-medium text-foreground">
+                            {actionLabel(e.action)}
                           </span>
-                        )}
+                          {e.break_glass && (
+                            <span className="inline-flex items-center gap-0.5 rounded-full bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">
+                              <ShieldAlert className="size-3" />
+                              {t('breakGlassChip')}
+                            </span>
+                          )}
+                        </div>
+                        {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
                       </div>
-                      {sub && <p className="truncate text-xs text-muted-foreground">{sub}</p>}
-                    </div>
-                    <div className="shrink-0 text-right">
-                      {e.actor_type === 'system' || !e.actor_id ? (
-                        <div className="text-xs text-foreground">{actorName}</div>
-                      ) : (
-                        // §10 cause-based investigation: an actor name is a
-                        // one-tap person filter. Raw events only — never stats.
+                      <div className="shrink-0 text-right">
+                        {e.actor_type === 'system' || !e.actor_id ? (
+                          <div className="text-xs text-foreground">{actorName}</div>
+                        ) : (
+                          // §10 cause-based investigation: an actor name is a
+                          // one-tap person filter. Raw events only — never stats.
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setActorId(e.actor_id)
+                              setWarnOnly(false)
+                            }}
+                            className="border-b border-dotted border-muted-foreground/50 text-xs text-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                          >
+                            {actorName}
+                          </button>
+                        )}
+                        <div className="text-[11px] text-muted-foreground tabular-nums">
+                          {timeFmt.format(new Date(e.at))}
+                        </div>
+                      </div>
+                      {isEntryEdit && (
+                        // §11 expand: what was edited, not just that an edit
+                        // happened. Same onClick idiom as the actor-name
+                        // button above — a dedicated control, not the whole
+                        // row (the actor button already lives inside it).
                         <button
                           type="button"
-                          onClick={() => {
-                            setActorId(e.actor_id)
-                            setWarnOnly(false)
-                          }}
-                          className="border-b border-dotted border-muted-foreground/50 text-xs text-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                          onClick={() => toggleEntryEditTrail(e)}
+                          aria-label={t('entryEditToggle')}
+                          className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted"
                         >
-                          {actorName}
+                          <ChevronDown
+                            className={`size-4 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+                          />
                         </button>
                       )}
-                      <div className="text-[11px] text-muted-foreground tabular-nums">
-                        {timeFmt.format(new Date(e.at))}
-                      </div>
                     </div>
+                    {isOpen && (
+                      <div className="ml-11 mt-2 rounded-lg border border-border/60 bg-muted/30 p-3">
+                        {(!trail || trail.status === 'loading') && (
+                          <p className="text-xs text-muted-foreground">{tc('loading')}</p>
+                        )}
+                        {trail?.status === 'error' && (
+                          <p className="text-xs text-red-500">{t('entryEditError')}</p>
+                        )}
+                        {trail?.status === 'ok' && trail.rows.length === 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {/* Truncated + zero-match means rows may sit past
+                                the cap — never claim the record was deleted. */}
+                            {trail.truncated ? t('entryEditPartial') : t('entryEditDeleted')}
+                          </p>
+                        )}
+                        {trail?.status === 'ok' && trail.rows.length > 0 && (
+                          <>
+                            <ul className="flex flex-col gap-2">
+                              {trail.rows.map((row) => {
+                                const ts = formatEditTrailTimestamp(row.createdAt, editTrailDateFmt)
+                                return (
+                                  <li
+                                    key={row.id}
+                                    className="flex flex-col gap-1 rounded-md border border-border/60 bg-background p-2.5"
+                                  >
+                                    <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                                      <span className="font-medium text-foreground">
+                                        {row.actorName ?? t('unknownActor')}
+                                      </span>
+                                      {ts && <span className="tabular-nums">{ts}</span>}
+                                    </div>
+                                    {row.contentBefore !== null && (
+                                      <p className="text-xs leading-relaxed text-muted-foreground line-through">
+                                        {row.contentBefore}
+                                      </p>
+                                    )}
+                                    {row.contentAfter !== null && (
+                                      <p className="text-xs leading-relaxed text-foreground">
+                                        {row.contentAfter}
+                                      </p>
+                                    )}
+                                  </li>
+                                )
+                              })}
+                            </ul>
+                            {trail.truncated && (
+                              <p className="mt-2 text-[11px] text-muted-foreground">
+                                {t('entryEditPartial')}
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </li>
                 )
               })}

@@ -2169,7 +2169,11 @@
       "statsWarnings": "警告",
       "statsBreakGlass": "緊急アクセス",
       "eventsCount": "{count}件",
-      "storesCount": "{count}店舗"
+      "storesCount": "{count}店舗",
+      "entryEditToggle": "編集内容を表示",
+      "entryEditError": "編集内容を読み込めませんでした。",
+      "entryEditDeleted": "内容は削除済みのため表示できません",
+      "entryEditPartial": "これより古い履歴は表示されません"
     },
     "comingSoon": "近日公開",
     "loginId": "ログインID",
