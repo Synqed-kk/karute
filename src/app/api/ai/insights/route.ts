@@ -45,9 +45,29 @@ export async function POST(request: Request) {
       return NextResponse.json({ insights: [] })
     }
 
-    // Cache key based on record IDs + locale
+    // synqed-core org settings — fetched BEFORE the cache check because the
+    // system prompt's persona is built from business_type, so it belongs in
+    // the cache key (fleet round 7/25: a vertical switch must not serve
+    // yesterday's persona for a day). Null-on-failure like every other
+    // caller: a settings hiccup must not take down cached insights.
+    const orgSettings = await getOrgSettings().catch(() => null)
+
+    // Content-keyed (EDIT-LAYER-DESIGN §4, the ai-outreach.ts pattern):
+    // everything the prompt reads per record — effectiveSummary, name, date,
+    // entries — plus the persona's business_type. An edited or regenerated
+    // summary must bust this cache immediately instead of surviving up to the
+    // 1-day TTL below. (`e` is inert today — list() never returns entries,
+    // so it's always [] — kept so the key is already correct if that ever
+    // changes.)
     const cacheInput = {
-      ids: records.map((r) => r.id),
+      rows: records.map((r) => ({
+        id: r.id,
+        n: r.customerName,
+        d: r.createdAt,
+        s: r.summary,
+        e: r.entries.map((entry) => `${entry.category}:${entry.content}`),
+      })),
+      bt: orgSettings?.business_type ?? null,
       locale,
     }
     const cached = await getCachedAI('insights', cacheInput)
@@ -68,9 +88,7 @@ export async function POST(request: Request) {
       ? 'Respond entirely in Japanese.'
       : 'Respond entirely in English.'
 
-    // synqed-core org settings (the previous `from('organization_settings')`
-    // hit a Supabase table that doesn't exist — it silently 500'd to the default).
-    const orgSettings = await getOrgSettings()
+    // (orgSettings fetched above, pre-cache-check — business_type is in the key.)
     const businessProfile = orgSettings?.business_type
       ? getBusinessProfile(orgSettings.business_type)
       : null

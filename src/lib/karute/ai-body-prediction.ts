@@ -14,6 +14,17 @@ import {
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 import { KARUTE_PROMPT_VERSION } from '@/lib/karute/prompt-fragments'
 import type { BodyPrediction } from '@/components/karute/redesign/detail/AIBodyPredictionCard'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
+
+/** The content each cached prediction is keyed on — id + effectiveSummary per
+ *  dated session, not just the latest id + count. An edit/regen must bust this
+ *  cache immediately (EDIT-LAYER-DESIGN §4) instead of surviving the 1-day TTL.
+ *  Exported so tests can prove an edit changes the key without mocking OpenAI. */
+export function predictionCacheSessions(
+  dated: KaruteRecord[],
+): Array<{ id: string; s: string | null }> {
+  return dated.map((r) => ({ id: r.id, s: effectiveSummary(r) }))
+}
 
 const PredictionSchema = z.object({
   headline: z
@@ -95,8 +106,7 @@ async function computeBodyPrediction(
     const cacheInput = {
       v: KARUTE_PROMPT_VERSION,
       c: customerId,
-      latest: dated[0]?.id ?? null,
-      n: dated.length,
+      sessions: predictionCacheSessions(dated),
       bt: orgSettings?.business_type ?? null,
       locale,
     }
@@ -112,7 +122,7 @@ async function computeBodyPrediction(
     // of full transcripts. Dates matter: the model derives the visit rhythm.
     const history = [...dated]
       .reverse()
-      .map((r) => `Session ${r.created_at?.slice(0, 10)}: ${r.ai_summary ?? '(no summary)'}`)
+      .map((r) => `Session ${r.created_at?.slice(0, 10)}: ${effectiveSummary(r) ?? '(no summary)'}`)
       .join('\n\n')
 
     const ja = locale === 'ja'

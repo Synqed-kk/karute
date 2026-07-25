@@ -1,4 +1,5 @@
 import type { SynqedClient } from '@synqed-kk/client'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 /**
  * A karute row normalized to the Supabase `karute_records` read shape that the
@@ -79,7 +80,7 @@ export async function listSynqedKaruteRowsOrThrow(
       id: r.id,
       session_date: extra.session_date ?? null,
       created_at: r.created_at,
-      summary: r.ai_summary ?? null,
+      summary: effectiveSummary(r),
       transcript: r.transcript ?? null,
       staff_profile_id: r.staff_id ?? null,
       customer_id: r.business_id ?? null,

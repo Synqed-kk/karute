@@ -32,7 +32,8 @@ import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { memoContent } from '@/lib/sync/qr-notes'
 import type { OrgSettings, PackPreset } from '@/actions/org-settings'
 import type { AppointmentRow } from '@/actions/appointments'
-import type { KaruteRecord } from '@synqed-kk/client'
+import type { KaruteRecord, KaruteEntry } from '@synqed-kk/client'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import type { RecordTargetBooking } from '@/components/karute/redesign/record/RecordingTargetCard'
 import type { RecentRecording } from '@/components/karute/redesign/record/RecentRecordingsCard'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
@@ -331,7 +332,7 @@ export async function buildRecordScreen(input: {
       }),
       startTime: hhmm(dt),
       durationLabel: '—',
-      karuteLinked: !!r.ai_summary,
+      karuteLinked: !!effectiveSummary(r),
       entryCount: (r.entries?.length || r.entry_count) ?? 0,
       karuteId: r.id,
     }
@@ -437,7 +438,7 @@ export async function buildRecordScreen(input: {
 // sessions page). Returning customer → recap brief with concerns/product/focus
 // extracted from entries by category; brand-new → first-visit framing.
 // ─────────────────────────────────────────────────────────────
-function buildPreSessionBriefFor(
+export function buildPreSessionBriefFor(
   records: KaruteRecord[],
   reservationMemo: string | null,
   now: Date,
@@ -461,7 +462,23 @@ function buildPreSessionBriefFor(
   }
 
   // RETURNING-VISIT FRAMING — derive from the most recent karute.
-  const entries = last.entries ?? []
+  // Fleet S4: core reads entries by sort_order asc, and a regen APPENDS its
+  // fresh AI batch after human rows (addEntry = max+1) — so mixed-authorship
+  // order needs pinning for the picks below (hooks/concerns/lastProduct/
+  // recommendedFocus) to be deterministic. Rank HUMAN rows first: the human
+  // layer is the authoritative record (EDIT-LAYER-DESIGN §1/§3 — corrections
+  // pin on top; a staff edit/hand-add made at review must win the next
+  // session's pick over an AI sibling). Staleness across sessions is
+  // impossible — entries live on one record and `last` is the newest one.
+  // The sort is stable, so WITHIN each rank core order is preserved — for
+  // the AI batch that is the extractor's importance-first (safety-first)
+  // ordering the leading slices rely on. No recency key: a timestamp
+  // tiebreak would reverse importance within a batch (rows are written
+  // seconds apart, most important first).
+  const entries = [...(last.entries ?? [])].sort((a, b) => {
+    const rank = (e: KaruteEntry) => (e.author === 'AI' ? 1 : 0)
+    return rank(a) - rank(b)
+  })
 
   const hooks = entries
     .filter((e) => e.category === 'PREFERENCE' || e.category === 'LIFESTYLE')
@@ -483,7 +500,7 @@ function buildPreSessionBriefFor(
 
   const nextEntry = entries.find((e) => e.category === 'NEXT_VISIT')
   const recommendedFocus =
-    nextEntry?.content ?? (last.ai_summary?.split(/\r?\n/)[0]?.trim() || null)
+    nextEntry?.content ?? (effectiveSummary(last)?.split(/\r?\n/)[0]?.trim() || null)
 
   const lastDt = new Date(last.created_at)
   const lastVisitDate = lastDt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {

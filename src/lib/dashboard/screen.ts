@@ -48,6 +48,7 @@ import {
   type RebookRow,
 } from './attention'
 import { getDailyAttentionLines } from './daily-attention-ai'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 import type { HeroSlideView, TomorrowFirstView } from '@/components/dashboard/redesign/NextCustomerHero'
 import type { AttentionCardView } from '@/components/dashboard/redesign/AttentionCards'
 import type {
@@ -234,7 +235,7 @@ export async function buildDashboardScreen(
         )
         const map = emptyKaruteMap()
         results.forEach((rec, i) => {
-          const text = summaryLine(rec?.ai_summary ?? null)
+          const text = summaryLine(rec ? effectiveSummary(rec) : null)
           if (rec && text) {
             map.set(slides[i].appointment.client_id, {
               text,
@@ -353,7 +354,7 @@ export async function buildDashboardScreen(
           ),
         )
         recs.forEach((rec, idx) => {
-          const text = summaryLine(rec?.ai_summary ?? null)
+          const text = summaryLine(rec ? effectiveSummary(rec) : null)
           if (text) extra.set(missing[idx].clientId, text)
         })
       } catch {

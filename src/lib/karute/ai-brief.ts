@@ -16,6 +16,7 @@ import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
 import { MEMORY_CATEGORIES, type MemoryItem } from '@/lib/karute/memory-types'
 import { defensivePreamble, wrapUntrustedContent, MAX_HISTORY_CHARS } from '@/lib/ai-safety'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 // The AI generates these fields; the dates / memo / first-visit flag are computed
 // mechanically and merged in. zodResponseFormat enforces the shape on the model.
@@ -85,8 +86,10 @@ function formatLastVisit(iso: string, locale: string, now: Date): { date: string
 }
 
 // Build the karute context the model reads — most-recent record's entries (the
-// only one fetched with include_entries) + summaries of the rest.
-function buildContext(records: KaruteRecord[]): string {
+// only one fetched with include_entries) + summaries of the rest. Exported so
+// the content-keyed cache (below) and its tests can prove that an edit/regen
+// changes this exact block, which is what the cache key hashes.
+export function buildContext(records: KaruteRecord[]): string {
   // Oldest → newest so the model reads the timeline chronologically and the
   // "direction" instruction can't invert. Entries attach to whichever record
   // carries them (getCustomerKaruteRecords fetches entries for the most recent).
@@ -94,7 +97,7 @@ function buildContext(records: KaruteRecord[]): string {
     .reverse()
     .map((r) => {
       const when = r.created_at?.slice(0, 10) ?? ''
-      const summary = r.ai_summary ?? '(no summary)'
+      const summary = effectiveSummary(r) ?? '(no summary)'
       const entries = r.entries?.length
         ? '\n' + r.entries.map((e) => `  [${String(e.category)}] ${e.content}`).join('\n')
         : ''
@@ -288,6 +291,13 @@ async function computeAiPreSessionBrief(
     // earlier would let passport rows sneak back in on the bootstrap path.
     memory = memory.filter((m) => (m.category as string) !== PASSPORT_CATEGORY)
 
+    // Content-keyed (EDIT-LAYER-DESIGN §4, the ai-outreach.ts pattern): the
+    // EXACT block the model reads (entries + effectiveSummary per record),
+    // not just record ids — an edited/regenerated summary must bust this
+    // cache immediately instead of surviving up to the 1-day TTL. Computed
+    // once and reused by generate() below.
+    const historyBlock = buildContext(records)
+
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
       // invalidated immediately instead of serving the old wording. v8: layer
@@ -307,8 +317,13 @@ async function computeAiPreSessionBrief(
       // rendered inside 注意（施術前に必ず） next to real safety facts).
       v: 14,
       c: customerId,
+      // The prompt's opening line reads both (fleet round 7/25): a corrected
+      // name or an incremented visit count (walk-ins bump it with no new
+      // karute) must not serve yesterday's cached brief.
+      name: customerName,
+      visits: visitCount,
       memo,
-      ids: records.map((r) => r.id),
+      history: historyBlock,
       // Pin state joins the key: pinning re-ranks the block + adds /PINNED —
       // a cached brief must not survive a pin flip for up to a day.
       mem: memory.map((m) => `${m.id}${m.pinned ? '!' : ''}`),
@@ -395,7 +410,7 @@ ${defensivePreamble(locale)}`
           ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body' items inform concerns AND cautions; 'preference' items inform concerns/recommendedFocus ONLY — a preference is never a caution unless the item itself states an avoid-instruction or an adverse reaction; a safety-relevant item (metal, surgery, allergy, an avoid-this-area instruction) belongs in cautions only; /PINNED marks facts staff explicitly locked — never drop those from consideration; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory), MAX_HISTORY_CHARS)}`
           : 'Durable memory: (none yet)',
         records.length > 0
-          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records), MAX_HISTORY_CHARS)}`
+          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', historyBlock, MAX_HISTORY_CHARS)}`
           : 'Past karute: (none recorded in the system yet)',
       ]
 
