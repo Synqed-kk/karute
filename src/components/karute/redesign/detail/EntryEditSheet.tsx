@@ -10,15 +10,30 @@ import { CATEGORY_ORDER, type SessionCategory, type SessionEntry } from './Curre
 
 interface EntryEditSheetProps {
   karuteRecordId: string
+  /** Threaded through to the save call for the choke-point audit's
+   *  customer_id detail (ids only, never displayed). */
+  customerId?: string | null
   /** The entry being edited, or null when closed — Sheet's open state derives from this. */
   entry: SessionEntry | null
   onOpenChange: (open: boolean) => void
+  /** Fired on a successful save (edit-layer W2 PR-B fleet fix) — version is
+   *  expectedVersion + 1, body/category are what was actually sent (unchanged
+   *  fields fall back to the seeded values). Lets the card apply an optimistic
+   *  override so a re-click before the next fetch lands re-seeds the sheet
+   *  with the just-saved content instead of the stale prop. */
+  onSaved?: (saved: { entryId: string; body: string; category: SessionCategory; version: number }) => void
 }
 
 /** The pencil's bottom sheet (edit-layer W2 PR-B, mock frame 1) — seeded
  *  textarea + category chips + save, CAS-guarded via entry.version. EDIT-SAVE
  *  ONLY: no delete (PR-B2) and no 「記録されます」-style notice (design §6). */
-export function EntryEditSheet({ karuteRecordId, entry, onOpenChange }: EntryEditSheetProps) {
+export function EntryEditSheet({
+  karuteRecordId,
+  customerId,
+  entry,
+  onOpenChange,
+  onSaved,
+}: EntryEditSheetProps) {
   const t = useTranslations('karuteDetail.entryEdit')
   const tCat = useTranslations('karuteDetail.currentSession.categories')
   const router = useRouter()
@@ -40,12 +55,20 @@ export function EntryEditSheet({ karuteRecordId, entry, onOpenChange }: EntryEdi
 
   const save = async () => {
     if (!entry || entry.version === undefined) return
+    const effectiveCategory = category ?? entry.category
+    // No-op guard — nothing changed → close, no call, no version bump, no
+    // spine noise (entry is already the merged/post-save view from the card).
+    if (content === entry.body && effectiveCategory === entry.category) {
+      onOpenChange(false)
+      return
+    }
     setSaving(true)
     setError(null)
     const result = await updateKaruteDetailEntry(karuteRecordId, entry.id, {
       content: content !== entry.body ? content : undefined,
-      category: category !== entry.category ? (category ?? undefined) : undefined,
+      category: effectiveCategory !== entry.category ? effectiveCategory : undefined,
       expectedVersion: entry.version,
+      customerId,
     })
     setSaving(false)
     if ('conflict' in result) {
@@ -56,6 +79,7 @@ export function EntryEditSheet({ karuteRecordId, entry, onOpenChange }: EntryEdi
       setError(result.error)
       return
     }
+    onSaved?.({ entryId: entry.id, body: content, category: effectiveCategory, version: entry.version + 1 })
     router.refresh()
     onOpenChange(false)
   }
@@ -96,6 +120,7 @@ export function EntryEditSheet({ karuteRecordId, entry, onOpenChange }: EntryEdi
           value={content}
           onChange={(evt) => setContent(evt.target.value)}
           rows={4}
+          maxLength={4000}
           className="w-full resize-none rounded-2xl border border-foreground/70 p-3 text-sm leading-relaxed text-foreground focus:outline-none"
         />
 
@@ -113,7 +138,7 @@ export function EntryEditSheet({ karuteRecordId, entry, onOpenChange }: EntryEdi
           <button
             type="button"
             onClick={save}
-            disabled={saving}
+            disabled={saving || conflict || content.trim() === ''}
             className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
           >
             {t('save')}

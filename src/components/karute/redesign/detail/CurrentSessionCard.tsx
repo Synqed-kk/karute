@@ -40,6 +40,9 @@ interface CurrentSessionCardProps {
   /** Enables the per-row ✎ edit affordance (edit-layer W2 PR-B) when present —
    *  the id the edit sheet writes to. Omitted → entries render inert. */
   karuteRecordId?: string
+  /** Threaded to the edit sheet's save call for the choke-point audit's
+   *  customer_id detail (ids only, never displayed). */
+  customerId?: string | null
 }
 
 const CATEGORY_TONE: Record<SessionCategory, { bg: string; text: string }> = {
@@ -109,11 +112,28 @@ export function CurrentSessionCard({
   tunedFor,
   headerAction,
   karuteRecordId,
+  customerId,
 }: CurrentSessionCardProps) {
   const t = useTranslations('karuteDetail')
   const router = useRouter()
   const [editingEntry, setEditingEntry] = useState<SessionEntry | null>(null)
+  // Post-save stale-reopen guard (edit-layer W2 PR-B fleet fix): a save bumps
+  // core's version immediately, but this render's props may still carry the
+  // pre-save entry until the next fetch lands. An override newer than the
+  // prop wins; once props catch up (entry.version >= override.version) it's
+  // inert — no timers, no active pruning needed.
+  const [overrides, setOverrides] = useState<
+    Map<string, { body: string; category: SessionCategory; version: number }>
+  >(new Map())
   if (entries.length === 0) return null
+
+  const withOverride = (entry: SessionEntry): SessionEntry => {
+    const o = overrides.get(entry.id)
+    return o && o.version > (entry.version ?? -1)
+      ? { ...entry, body: o.body, category: o.category, version: o.version }
+      : entry
+  }
+  const mergedEntries = entries.map(withOverride)
 
   // Legacy/cached rows lack `version` (CAS-required) — refresh instead of
   // opening a sheet with nothing to send.
@@ -127,8 +147,10 @@ export function CurrentSessionCard({
 
   // Group entries by category so a category renders ONCE (chip + bullet list)
   // instead of repeating the chip + the placeholder created_at time per entry.
+  // Built off mergedEntries so both rendering AND a re-click's seed reflect a
+  // just-saved override.
   const byCategory = new Map<SessionCategory, SessionEntry[]>()
-  for (const e of entries) {
+  for (const e of mergedEntries) {
     const arr = byCategory.get(e.category)
     if (arr) arr.push(e)
     else byCategory.set(e.category, [e])
@@ -239,10 +261,20 @@ export function CurrentSessionCard({
       {karuteRecordId && (
         <EntryEditSheet
           karuteRecordId={karuteRecordId}
+          customerId={customerId}
           entry={editingEntry}
           onOpenChange={(open) => {
             if (!open) setEditingEntry(null)
           }}
+          onSaved={(saved) =>
+            setOverrides((prev) =>
+              new Map(prev).set(saved.entryId, {
+                body: saved.body,
+                category: saved.category,
+                version: saved.version,
+              }),
+            )
+          }
         />
       )}
     </section>

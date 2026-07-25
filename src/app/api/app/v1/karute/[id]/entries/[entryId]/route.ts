@@ -9,6 +9,7 @@ import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveSelfStaffId } from '@/lib/app-api/customer-facade'
+import { readKaruteRaw } from '@/lib/app-api/karute-facade'
 import { updateKaruteDetailEntryWithClient } from '@/actions/karute'
 
 export const runtime = 'nodejs'
@@ -19,11 +20,11 @@ type Params = { id: string; entryId: string }
 // — the core translates it to the DB enum (SESSION_CATEGORY_TO_ENTRY_CATEGORY).
 const PatchEntrySchema = z
   .object({
-    content: z.string().min(1).optional(),
+    content: z.string().min(1).max(4000).optional(),
     category: z
       .enum(['treatment', 'concern', 'condition', 'preference', 'lifestyle', 'product', 'next', 'note'])
       .optional(),
-    expectedVersion: z.number().int(),
+    expectedVersion: z.number().int().positive(),
   })
   .strict()
 
@@ -44,18 +45,37 @@ export const PATCH = facadeHandler<Params>('karute.entry.update', async (ctx) =>
   }
 
   const synqed = newSynqedClient(ctx.identity.businessId)
+  // Proof-read BEFORE the mutation (sibling outcome-route pattern) — a
+  // cross-tenant/missing id 404s here via classifyGetError; also supplies
+  // customer_id for the core's choke-point audit detail.
+  const record = await readKaruteRaw(synqed, id)
+  const customerId = (record.customer_id as string | null) ?? null
+
   const actorStaffId = await resolveSelfStaffId(ctx.identity.businessId, ctx.identity.authUserId)
-  const result = await updateKaruteDetailEntryWithClient(synqed, id, entryId, {
-    content: parsed.data.content,
-    category: parsed.data.category,
-    expectedVersion: parsed.data.expectedVersion,
-    actorStaffId,
-  })
+  const result = await updateKaruteDetailEntryWithClient(
+    synqed,
+    id,
+    entryId,
+    {
+      content: parsed.data.content,
+      category: parsed.data.category,
+      expectedVersion: parsed.data.expectedVersion,
+      actorStaffId,
+    },
+    { actorId: ctx.identity.authUserId, businessId: ctx.identity.businessId, source: 'facade' },
+    customerId,
+  )
   if ('conflict' in result) {
     throw new AppApiError('conflict', 'entry was updated elsewhere')
   }
+  // A content-validation failure is a genuine client-input problem → 400;
+  // anything else in {error} is a real upstream failure → fixed generic
+  // string, never result.error raw (no-internals-leak rule).
+  if ('validationError' in result) {
+    throw new AppApiError('validation', result.validationError)
+  }
   if ('error' in result) {
-    throw new AppApiError('upstream_unavailable', result.error)
+    throw new AppApiError('upstream_unavailable', 'entry update failed')
   }
   return ok(ctx, { ok: true })
 })

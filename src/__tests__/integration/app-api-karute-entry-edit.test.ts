@@ -1,8 +1,12 @@
-// Facade PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B). Pins:
-// expectedVersion round-trips to the shared CAS core, a core 409 maps to an
-// HTTP 409 with the stable 'conflict' code (no retry), and the endpoint is
-// registered in FACADE_AUDIT_MAP (so thin's spine event fires via the
-// facadeHandler success hook — src/lib/audit.ts).
+// Facade PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B, fleet
+// round). Pins: expectedVersion round-trips to the shared CAS core; a core
+// 409 maps to HTTP 409 with the 'conflict' code (no retry); the proof-read
+// 404s a foreign/missing record BEFORE any write (T6); missing capability is
+// 403 before any read/write (T3); trim-empty content is a 400, not a 502
+// (T4); the choke-point audit fires exactly once with source:'facade' and
+// customer_id from the proof-read (T1 facade side) — there is deliberately NO
+// FACADE_AUDIT_MAP row for this endpoint (see src/lib/audit.ts's doctrine
+// comment), so this is the ONLY place the facade's emit is pinned.
 import { createHmac } from 'node:crypto'
 
 // The facade route imports updateKaruteDetailEntryWithClient from the SAME
@@ -34,16 +38,25 @@ jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
   staffListByBusinessOrThrow: jest.fn(async () => [{ id: 'auth-user-1', full_name: '田中' }]),
 }))
+const capabilities = { current: new Set<string>(['records.write']) }
 jest.mock('@/lib/auth/require-permission', () => ({
-  capabilitiesForUser: jest.fn(async () => new Set(['records.write'])),
+  capabilitiesForUser: jest.fn(async () => capabilities.current),
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
+const auditSpy = jest.fn()
+jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => auditSpy(...(a as [])), FACADE_AUDIT_MAP: {} }))
+
+const get = jest.fn(async (id: string) => {
+  if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
+  return { id: 'kar-1', customer_id: 'cust-1' }
+})
 const updateEntry = jest.fn(async () => ({ id: 'e1' }))
-jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: () => ({ karuteRecords: { updateEntry } }) }))
+jest.mock('@/lib/synqed/client', () => ({
+  newSynqedClient: () => ({ karuteRecords: { get: (id: string) => get(id), updateEntry } }),
+}))
 
 import { PATCH } from '@/app/api/app/v1/karute/[id]/entries/[entryId]/route'
-import { FACADE_AUDIT_MAP } from '@/lib/audit'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -63,10 +76,13 @@ const patchReq = (body: unknown) =>
     body: JSON.stringify(body),
   })
 
-beforeEach(() => jest.clearAllMocks())
+beforeEach(() => {
+  jest.clearAllMocks()
+  capabilities.current = new Set(['records.write'])
+})
 
 describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
-  it('round-trips expectedVersion to the shared CAS core → 200', async () => {
+  it('round-trips expectedVersion to the shared CAS core → 200, emits the choke-point audit once (T1 facade side)', async () => {
     const res = await PATCH(patchReq({ content: 'edited', expectedVersion: 4 }), routeFor('kar-1', 'e1'))
     expect(res.status).toBe(200)
     expect(updateEntry).toHaveBeenCalledWith('kar-1', 'e1', {
@@ -76,21 +92,46 @@ describe('PATCH /karute/[id]/entries/[entryId] (edit-layer W2 PR-B)', () => {
       actor_staff_id: 'auth-user-1',
       action: 'EDIT',
     })
+    expect(auditSpy).toHaveBeenCalledTimes(1)
+    expect(auditSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'karute.entry_edit',
+        actorId: 'auth-user-1',
+        businessId: 'business-1',
+        source: 'facade',
+        targetId: 'kar-1',
+        detail: { entry_id: 'e1', category: null, customer_id: 'cust-1' },
+      }),
+    )
   })
 
-  it('a core 409 maps to HTTP 409 with the conflict code', async () => {
+  it('a core 409 maps to HTTP 409 with the conflict code, no audit', async () => {
     updateEntry.mockRejectedValueOnce(Object.assign(new Error('stale'), { status: 409 }))
     const res = await PATCH(patchReq({ expectedVersion: 1 }), routeFor('kar-1', 'e1'))
     expect(res.status).toBe(409)
     expect((await res.json()).error.code).toBe('conflict')
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 
-  it('is in FACADE_AUDIT_MAP so thin fires karute.entry_edit via the success hook', () => {
-    expect(FACADE_AUDIT_MAP['karute.entry.update']).toMatchObject({
-      kind: 'mutation',
-      category: 'karute',
-      action: 'karute.entry_edit',
-      targetType: 'karute',
-    })
+  it('trim-empty content → 400, not a generic 502 (T4 facade side)', async () => {
+    const res = await PATCH(patchReq({ content: '   ', expectedVersion: 1 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(400)
+    expect(updateEntry).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('foreign/missing record id → 404 before any write (T6)', async () => {
+    const res = await PATCH(patchReq({ expectedVersion: 1 }), routeFor('kar-OTHER', 'e1'))
+    expect(res.status).toBe(404)
+    expect(updateEntry).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('missing capability → 403, no read, no write (T3)', async () => {
+    capabilities.current = new Set()
+    const res = await PATCH(patchReq({ expectedVersion: 1 }), routeFor('kar-1', 'e1'))
+    expect(res.status).toBe(403)
+    expect(get).not.toHaveBeenCalled()
+    expect(updateEntry).not.toHaveBeenCalled()
   })
 })

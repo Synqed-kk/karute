@@ -11,7 +11,7 @@ import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
-import { resolveWebAuditContext, auditWeb } from '@/lib/audit-web'
+import { resolveWebAuditContext } from '@/lib/audit-web'
 import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 import type { SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
@@ -560,6 +560,20 @@ export async function createManualKaruteRecord(input: {
 
 export type UpdateKaruteEntryResult = { ok: true } | { conflict: true } | { error: string }
 
+/** Core-only variant, distinct from {error} — a content-validation failure
+ *  (facade maps it to 400) is not a generic upstream failure (facade maps
+ *  {error} to a fixed generic 502, never the raw message). The web wrapper
+ *  collapses this into {error} before returning — the sheet only ever sees
+ *  {ok}|{conflict}|{error}. Kept structural (no shared string constant) so
+ *  the facade route needs no extra import from this file — the
+ *  updateTag-ban scanner (facade-core-updatetag-ban.test.ts) requires every
+ *  action-module name a route imports to resolve to a function declaration. */
+type CoreUpdateEntryResult = UpdateKaruteEntryResult | { validationError: string }
+
+/** Test-facing only — not imported by the facade route (see the type-shape
+ *  note above). */
+export const ENTRY_CONTENT_INVALID_ERROR = 'Entry content must be 1–4000 characters.'
+
 type SynqedEntryClient = Pick<SynqedClient, 'karuteRecords'>
 
 /**
@@ -567,7 +581,10 @@ type SynqedEntryClient = Pick<SynqedClient, 'karuteRecords'>
  * update({entries}): that full-replaces every entry (incl. human rows) —
  * updateEntry is the ONLY safe per-entry write. Shared by the web wrapper
  * below and the facade PATCH route (…/karute/[id]/entries/[entryId]). No
- * capability/revalidate/audit here — callers own those.
+ * capability/revalidate here — callers own those; the spine emit IS here
+ * (choke-point doctrine, mirrors createOrUpdateKaruteRecord's emitSave above)
+ * so both callers get exactly one emit with no FACADE_AUDIT_MAP row (see the
+ * "not a row here" comment in src/lib/audit.ts).
  */
 export async function updateKaruteDetailEntryWithClient(
   synqed: SynqedEntryClient,
@@ -579,7 +596,18 @@ export async function updateKaruteDetailEntryWithClient(
     expectedVersion: number
     actorStaffId: string | null
   },
-): Promise<UpdateKaruteEntryResult> {
+  actor: { actorId: string | null; businessId: string | null; source: 'web' | 'facade' },
+  customerId: string | null,
+): Promise<CoreUpdateEntryResult> {
+  // Content bounds checked HERE (not just the facade's zod) so the web path
+  // is covered too — a whitespace-only edit or a >4000-char paste never
+  // reaches updateEntry.
+  if (input.content !== undefined) {
+    const trimmed = input.content.trim()
+    if (trimmed.length === 0 || input.content.length > 4000) {
+      return { validationError: ENTRY_CONTENT_INVALID_ERROR }
+    }
+  }
   try {
     await synqed.karuteRecords.updateEntry(recordId, entryId, {
       ...(input.content !== undefined ? { content: input.content } : {}),
@@ -589,6 +617,19 @@ export async function updateKaruteDetailEntryWithClient(
       expected_version: input.expectedVersion,
       actor_staff_id: input.actorStaffId,
       action: 'EDIT',
+    })
+    audit({
+      category: 'karute',
+      action: 'karute.entry_edit',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'karute',
+      targetId: recordId,
+      // customer_id rides in detail (ids only, PII rule) — same viewer
+      // name-join rationale as karute.save's emitSave above.
+      detail: { entry_id: entryId, category: input.category ?? null, customer_id: customerId },
+      source: actor.source,
     })
     return { ok: true }
   } catch (err) {
@@ -606,33 +647,44 @@ export async function updateKaruteDetailEntryWithClient(
 }
 
 /** Cookie web wrapper — records.write gate (same as saveKaruteRecord) +
- *  business-scoped client + revalidate + the ONE spine emit, then the core. */
+ *  business-scoped client + resolved identity, then the core (which owns the
+ *  spine emit). */
 export async function updateKaruteDetailEntry(
   recordId: string,
   entryId: string,
-  input: { content?: string; category?: SessionCategory; expectedVersion: number },
+  input: {
+    content?: string
+    category?: SessionCategory
+    expectedVersion: number
+    customerId?: string | null
+  },
 ): Promise<UpdateKaruteEntryResult> {
   try {
     await requireCapability('records.write')
     const synqed = await getSynqedClient()
     const actorStaffId = await getCurrentUserStaffId()
-    const result = await updateKaruteDetailEntryWithClient(synqed, recordId, entryId, {
-      ...input,
-      actorStaffId,
-    })
+    // Resolve BEFORE the write — same tolerant identity seam as
+    // createOrUpdateKaruteRecord (resolveWebAuditContext never throws).
+    const { actorId, businessId } = await resolveWebAuditContext()
+    const result = await updateKaruteDetailEntryWithClient(
+      synqed,
+      recordId,
+      entryId,
+      {
+        content: input.content,
+        category: input.category,
+        expectedVersion: input.expectedVersion,
+        actorStaffId,
+      },
+      { actorId, businessId, source: 'web' },
+      input.customerId ?? null,
+    )
     if ('ok' in result) {
       revalidatePath('/[locale]/(app)/karute/[id]', 'page')
-      // Best-effort spine event — a failed write must never fail the edit
-      // (core's entry_edits row is the authoritative trail). auditWeb's own
-      // try/catch is the guard (AUDIT-LOG-DESIGN.md §4).
-      await auditWeb({
-        category: 'karute',
-        action: 'karute.entry_edit',
-        targetType: 'karute',
-        targetId: recordId,
-        detail: { entry_id: entryId, category: input.category ?? null },
-      })
     }
+    // Collapse the core-only validationError variant — the sheet only ever
+    // sees {ok}|{conflict}|{error}.
+    if ('validationError' in result) return { error: result.validationError }
     return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }

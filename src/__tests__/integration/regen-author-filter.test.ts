@@ -105,6 +105,41 @@ describe('regenerateKaruteEntriesWithClient — author filter (I1)', () => {
     expect(deleteEntry).not.toHaveBeenCalled()
   })
 
+  it('delete-phase re-filter (T8, edit-layer W2 PR-B fleet fix): a snapshot id whose FRESH author is HUMAN_EDITED survives', async () => {
+    const deleteEntry = jest.fn(async () => undefined)
+    const get = jest
+      .fn()
+      // pre-loop snapshot: both entries are AI
+      .mockResolvedValueOnce({
+        entries: [
+          { id: 'ai-1', author: 'AI' },
+          { id: 'ai-2', author: 'AI' },
+        ],
+      })
+      // fresh read after the adds: a mid-regen pencil edit flipped ai-1 to
+      // HUMAN_EDITED — the delete phase must not kill it off the stale snapshot.
+      .mockResolvedValueOnce({
+        entries: [
+          { id: 'ai-1', author: 'HUMAN_EDITED' },
+          { id: 'ai-2', author: 'AI' },
+        ],
+      })
+    const synqed = {
+      karuteRecords: {
+        get,
+        addEntry: jest.fn(async () => ({ id: 'new-1' })),
+        deleteEntry,
+      },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [NEW_ENTRY])
+
+    expect(result).toEqual({ added: 1, removed: 1 })
+    expect(deleteEntry).toHaveBeenCalledTimes(1)
+    expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'ai-2')
+    expect(deleteEntry).not.toHaveBeenCalledWith('kar-1', 'ai-1')
+  })
+
   it('rollback path still intact when addEntry throws: rolls back the partial adds, never touches old rows', async () => {
     const deleteEntry = jest.fn(async () => undefined)
     const addEntry = jest
