@@ -125,20 +125,24 @@ public class MainActivity extends BridgeActivity {
     // the app once there's nowhere left to go back to.
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // androidx.core.splashscreen's documented contract: install BEFORE
-        // super.onCreate() so it attaches its pre-draw listener ahead of
-        // BridgeActivity's setContentView() — that listener is the actual
-        // mechanism holding the frame open past Android 12+'s default
-        // auto-dismiss. Confirmed against the vendored 1.2.0 AAR bytecode:
-        // Impl.install() (via setPostSplashScreenTheme) only calls
-        // activity.setTheme(...) when the theme declares a postSplashScreenTheme
-        // attr; ours doesn't, so this is a no-op on theming and composes cleanly
-        // with BridgeActivity's own setTheme(AppTheme_NoActionBar) call (which
-        // already runs before its setContentView) — no styles.xml change needed.
+        // Google's documented order, and the order MATTERS on both sides:
+        // installSplashScreen() must run BEFORE super.onCreate() (it hooks the
+        // splash before the first frame), but setKeepOnScreenCondition() must
+        // run AFTER it. The keep-condition call does
+        // findViewById(android.R.id.content), which on an AppCompat activity
+        // forces the sub-decor to build — and at this point the theme is still
+        // Theme.SplashScreen (BridgeActivity only swaps to AppTheme.NoActionBar
+        // inside super.onCreate()), so calling it early throws the fatal
+        // "You need to use a Theme.AppCompat theme" IllegalStateException.
+        // Build 3 shipped with the two calls adjacent, pre-super.onCreate —
+        // crashed every launch on-device; reproduced in the emulator
+        // (SplashScreen$Impl31.setKeepOnScreenCondition → AppCompatDelegateImpl
+        // .createSubDecor) and fixed by this split.
         SplashScreen splashScreen = SplashScreen.installSplashScreen(this);
-        splashScreen.setKeepOnScreenCondition(() -> !splashReleased);
 
         super.onCreate(savedInstanceState);
+
+        splashScreen.setKeepOnScreenCondition(() -> !splashReleased);
 
         // Scheduled here, unconditionally, rather than inside load(): if
         // setContentView(capacitor_bridge_layout_main) throws, BridgeActivity's
