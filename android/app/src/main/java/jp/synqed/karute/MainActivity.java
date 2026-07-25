@@ -3,11 +3,13 @@ package jp.synqed.karute;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 import android.webkit.CookieManager;
 import android.webkit.WebView;
+import androidx.activity.OnBackPressedCallback;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 import com.getcapacitor.BridgeActivity;
@@ -93,6 +95,35 @@ public class MainActivity extends BridgeActivity {
     // fresh past that purge — the isFinishing/isDestroyed guard inside
     // `proceed` is the second half of this protection.
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    // Fix B1: hardware/gesture back navigates the WebView's own history instead
+    // of closing the app. This is a remote-shell WebView with no @capacitor/app
+    // (or any other) plugin registered to handle it — verified nothing in this
+    // app or in the vendored Capacitor BridgeActivity touches onBackPressed /
+    // OnBackPressedCallback / KEYCODE_BACK — so without this, the platform
+    // default finishes the Activity from ANY navigation depth, on the very
+    // first back-press. Registering here makes back behave like every
+    // browser-based Android app: walk the WebView history first, only leave
+    // the app once there's nowhere left to go back to.
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                WebView webView = getBridge() == null ? null : getBridge().getWebView();
+                if (webView != null && webView.canGoBack()) {
+                    webView.goBack();
+                    return;
+                }
+                // Background instead of finishing — keeps the Bridge, WebView, and
+                // this file's restored session cookies warm in memory so the next
+                // launch (recents tap) is instant instead of a fresh cold start.
+                moveTaskToBack(true);
+            }
+        });
+    }
 
     // Extension point BridgeActivity exposes specifically for this: onCreate()
     // does its own setup (theme, plugin loading, contentView) then calls
