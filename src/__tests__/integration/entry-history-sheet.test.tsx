@@ -499,16 +499,34 @@ describe('EntryEditSheet — keyboard fold (W2 one-sheet, 2026-07-26 packet)', (
     expect(bar).toHaveClass('line-clamp-2', '[@media(max-height:360px)]:line-clamp-1')
   })
 
-  it('save button and category chips prevent default on mousedown — the mid-tap fold-release guard', async () => {
+  it('save button and category chips prevent default on mousedown — and the guarded tap still activates on click', async () => {
     listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
+    updateKaruteDetailEntry.mockResolvedValue({ ok: true })
     render(<EntryEditSheet karuteRecordId="kar-1" entry={editedEntry} onOpenChange={jest.fn()} />)
     await waitFor(() => expect(listEntryEditHistory).toHaveBeenCalled())
     fireEvent.focus(screen.getByRole('textbox'))
 
     // fireEvent returns false when preventDefault was called — a blur-driven
     // unfold must never relayout the page mid-tap under these buttons.
-    expect(fireEvent.mouseDown(screen.getByText('save'))).toBe(false)
-    expect(fireEvent.mouseDown(screen.getByText('concern'))).toBe(false)
+    // Then the SAME tap sequence continues to its click: the guard must
+    // cancel only the focus steal, never the activation itself.
+    const chip = screen.getByText('condition')
+    expect(fireEvent.mouseDown(chip)).toBe(false)
+    fireEvent.click(chip)
+
+    const save = screen.getByText('save')
+    expect(fireEvent.mouseDown(save)).toBe(false)
+    fireEvent.click(save)
+
+    // The click after the guarded mousedown completed both activations:
+    // the save fired, carrying the category the chip click selected.
+    await waitFor(() =>
+      expect(updateKaruteDetailEntry).toHaveBeenCalledWith(
+        'kar-1',
+        'e1',
+        expect.objectContaining({ category: 'condition' }),
+      ),
+    )
   })
 
   it('keyboard activation of the ▾ bar re-anchors focus onto the restored history block (never document.body)', async () => {
