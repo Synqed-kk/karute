@@ -88,10 +88,19 @@ adb install -r android/app/build/outputs/apk/release/app-release.apk
 adb logcat -s CookiePersist
 ```
 
-With logcat running: log in, force-quit the app, relaunch.
+With logcat running: log in, force-quit the app **by swiping it away from
+the recents screen**, relaunch.
 
 Acceptance: relaunch must land on the **dashboard** — not the marketing
 landing page, not `/login`.
+
+Repro method matters: swipe-from-recents fires `onPause`/`onStop` (the
+capture hooks) before the process dies — that is the flow this fix covers,
+and it is also what every normal backgrounding does. Settings → 強制停止
+(Force Stop) is an abnormal kill that skips all lifecycle callbacks; in
+practice the snapshot still exists because leaving the app to reach
+Settings already fired a capture, but don't use Force Stop as the primary
+repro — a failure there does not necessarily mean the fix is broken.
 
 ## Known tail
 

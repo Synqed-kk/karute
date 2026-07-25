@@ -88,9 +88,10 @@ public class MainActivity extends BridgeActivity {
     private boolean didRetryAuth = false;
 
     // Audit F3: promoted from a load()-local variable to a field so
-    // onDestroy() can cancel anything still pending (watchdog, a late
-    // setCookie completion, bounce checks) — none of that may run against a
-    // destroyed Activity.
+    // onDestroy() can cancel everything already queued (watchdog, bounce
+    // checks). A setCookie completion that fires AFTER onDestroy re-posts
+    // fresh past that purge — the isFinishing/isDestroyed guard inside
+    // `proceed` is the second half of this protection.
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     // Extension point BridgeActivity exposes specifically for this: onCreate()
@@ -134,7 +135,13 @@ public class MainActivity extends BridgeActivity {
         Log.d(TAG, "restore: jar empty, re-injecting " + saved.size() + " sb-* cookies before first navigation");
 
         Runnable proceed = () -> {
-            if (didLoadOnce) return;
+            // isFinishing/isDestroyed: onDestroy()'s removeCallbacksAndMessages
+            // only purges what is ALREADY queued — a setCookie ValueCallback
+            // lives in CookieManager's native layer and can post this Runnable
+            // fresh AFTER teardown. Without this guard that late post would
+            // build a zombie Bridge+WebView on the dead Activity and navigate
+            // it with the session cookie.
+            if (didLoadOnce || isFinishing() || isDestroyed()) return;
             didLoadOnce = true;
             cookieManager.flush();
             Log.d(TAG, "restore: cookies flushed — loading web");
@@ -228,7 +235,9 @@ public class MainActivity extends BridgeActivity {
 
     // Audit F3: a Back-press/teardown during the inject window must not let
     // the watchdog or a late setCookie completion run super.load() (Bridge +
-    // WebView construction) against a destroyed Activity.
+    // WebView construction) against a destroyed Activity. This purge covers
+    // the already-queued half; `proceed`'s isFinishing/isDestroyed guard
+    // covers a native callback that posts after this ran.
     @Override
     public void onDestroy() {
         super.onDestroy();
