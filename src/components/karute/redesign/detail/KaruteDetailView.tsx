@@ -102,6 +102,7 @@ export function KaruteDetailView({
           <CurrentSessionCard
             sessionDate={sessionDateLong}
             entries={entries}
+            karuteRecordId={karuteId}
             headerAction={
               transcript ? (
                 <RegenerateEntriesButton karuteRecordId={karuteId} />

@@ -11,9 +11,11 @@ import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
-import { resolveWebAuditContext } from '@/lib/audit-web'
+import { resolveWebAuditContext, auditWeb } from '@/lib/audit-web'
+import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
 import type { SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment } from '@synqed-kk/client'
+import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
 /**
  * Resolve which store a karute record write should be stamped with. Reads are
@@ -550,4 +552,89 @@ export async function createManualKaruteRecord(input: {
   // (not the bare /karute/<id> which bypasses next-intl's locale routing).
   const locale = await getLocale()
   redirect(`/${locale}/karute/${recordId}`)
+}
+
+// ---------------------------------------------------------------------------
+// updateKaruteDetailEntry (edit-layer W2 PR-B — edit-save only, no delete)
+// ---------------------------------------------------------------------------
+
+export type UpdateKaruteEntryResult = { ok: true } | { conflict: true } | { error: string }
+
+type SynqedEntryClient = Pick<SynqedClient, 'karuteRecords'>
+
+/**
+ * Per-entry edit-save CORE — CAS via expected_version. NEVER call core's
+ * update({entries}): that full-replaces every entry (incl. human rows) —
+ * updateEntry is the ONLY safe per-entry write. Shared by the web wrapper
+ * below and the facade PATCH route (…/karute/[id]/entries/[entryId]). No
+ * capability/revalidate/audit here — callers own those.
+ */
+export async function updateKaruteDetailEntryWithClient(
+  synqed: SynqedEntryClient,
+  recordId: string,
+  entryId: string,
+  input: {
+    content?: string
+    category?: SessionCategory
+    expectedVersion: number
+    actorStaffId: string | null
+  },
+): Promise<UpdateKaruteEntryResult> {
+  try {
+    await synqed.karuteRecords.updateEntry(recordId, entryId, {
+      ...(input.content !== undefined ? { content: input.content } : {}),
+      ...(input.category !== undefined
+        ? { category: SESSION_CATEGORY_TO_ENTRY_CATEGORY[input.category] }
+        : {}),
+      expected_version: input.expectedVersion,
+      actor_staff_id: input.actorStaffId,
+      action: 'EDIT',
+    })
+    return { ok: true }
+  } catch (err) {
+    // Stale version → 409. Structural status check, not instanceof SynqedError
+    // (same convention as createOrUpdateKaruteRecord's lookup above — a
+    // partial test client can't break detection). current_version rides the
+    // body, not the typed error — callers re-fetch. NEVER retry the CAS.
+    const status =
+      err && typeof err === 'object' && 'status' in err
+        ? (err as { status: unknown }).status
+        : undefined
+    if (status === 409) return { conflict: true }
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** Cookie web wrapper — records.write gate (same as saveKaruteRecord) +
+ *  business-scoped client + revalidate + the ONE spine emit, then the core. */
+export async function updateKaruteDetailEntry(
+  recordId: string,
+  entryId: string,
+  input: { content?: string; category?: SessionCategory; expectedVersion: number },
+): Promise<UpdateKaruteEntryResult> {
+  try {
+    await requireCapability('records.write')
+    const synqed = await getSynqedClient()
+    const actorStaffId = await getCurrentUserStaffId()
+    const result = await updateKaruteDetailEntryWithClient(synqed, recordId, entryId, {
+      ...input,
+      actorStaffId,
+    })
+    if ('ok' in result) {
+      revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+      // Best-effort spine event — a failed write must never fail the edit
+      // (core's entry_edits row is the authoritative trail). auditWeb's own
+      // try/catch is the guard (AUDIT-LOG-DESIGN.md §4).
+      await auditWeb({
+        category: 'karute',
+        action: 'karute.entry_edit',
+        targetType: 'karute',
+        targetId: recordId,
+        detail: { entry_id: entryId, category: input.category ?? null },
+      })
+    }
+    return result
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
 }

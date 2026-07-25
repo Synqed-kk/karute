@@ -15,6 +15,11 @@ import { render, screen } from '@testing-library/react'
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
+// CurrentSessionCard now renders EntryEditSheet (edit-layer W2 PR-B), which
+// imports the real server action module — mocked here so this display-only
+// suite doesn't pay for that whole graph (next/cache, next-intl/server, …).
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) }))
+jest.mock('@/actions/karute', () => ({ updateKaruteDetailEntry: jest.fn() }))
 
 import {
   CurrentSessionCard,
