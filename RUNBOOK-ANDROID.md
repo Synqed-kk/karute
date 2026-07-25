@@ -110,6 +110,12 @@ documented tail, same as iOS (see the header comment in
 `ios/App/App/AppDelegate.swift`). Testers should not file that as a
 regression.
 
+## Known launch behavior
+
+Cold launch now holds the splash screen until the WebView's first real paint
+(see the Fix B2 comments in `MainActivity.java`), with a 6s ceiling failsafe
+so a launch can never get stranded on the splash.
+
 ## Version bump rule
 
 Every native-side change (fix, feature, dependency change) bumps
