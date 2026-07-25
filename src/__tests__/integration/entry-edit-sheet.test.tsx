@@ -8,7 +8,10 @@
  */
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
-jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key }))
+// useLocale added alongside useTranslations: CurrentSessionCard now always
+// mounts EntryHistorySheet (edit-layer W2 history-sheet packet) beside this
+// sheet, and that component calls useLocale() for its date formatter.
+jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key, useLocale: () => 'ja' }))
 
 const refresh = jest.fn()
 jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))

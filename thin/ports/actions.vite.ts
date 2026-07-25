@@ -312,6 +312,42 @@ async function facadeUpdateKaruteEntry(
   }
 }
 
+// -- session detail: per-entry edit history (edit-layer W2 history-sheet
+// packet). Local redeclaration of EntryEditHistoryRow (src/actions/karute.ts)
+// — same "redeclare the shape" convention as AuditLogEvent/StoreRow below.
+// Same result shape as the web action (listEntryEditHistory) so
+// EntryHistorySheet's rows/error branches behave identically on both
+// platforms.
+type EntryEditHistoryRow = {
+  id: string
+  entryIdOld: string | null
+  entryIdNew: string | null
+  action: string
+  actorName: string | null
+  contentBefore: string | null
+  contentAfter: string | null
+  createdAt: string
+}
+
+async function facadeListEntryEditHistory(
+  karuteRecordId: string,
+): Promise<{ edits: EntryEditHistoryRow[] } | { error: string }> {
+  // Whole body try/caught: a network-level fetch rejection must come back as
+  // the declared {error} result, exactly like the web action's catch — same
+  // transport-rejection parity as facadeUpdateKaruteEntry above (Greptile P1,
+  // #615).
+  try {
+    const res = await getDataPort().apiFetch(`/api/app/v1/karute/${enc(karuteRecordId)}/entry-edits`)
+    const body = (await res.json().catch(() => null)) as
+      | { edits?: EntryEditHistoryRow[]; error?: { message?: string } }
+      | null
+    if (res.ok && body) return { edits: body.edits ?? [] }
+    return { error: body?.error?.message ?? `Request failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network request failed' }
+  }
+}
+
 // -- recording flow: save + mint + consent + undo (packet 08 batch 5) ---------
 // The karute SAVE serves BOTH web flavors through ONE facade route. The consent
 // gate round-trips CONSENT_REQUIRED_ERROR as the error message so ReviewScreen's
@@ -1248,4 +1284,6 @@ export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
 // -- entry edit (edit-layer W2 PR-B — edit-save only, no delete yet)
 export const updateKaruteDetailEntry = facadeUpdateKaruteEntry
+// -- entry edit history (edit-layer W2 history-sheet packet)
+export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')

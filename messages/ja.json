@@ -437,6 +437,12 @@
       "error": "保存に失敗しました",
       "reload": "再読み込み"
     },
+    "entryHistory": {
+      "title": "編集履歴",
+      "unknownStaff": "不明",
+      "error": "履歴を読み込めませんでした",
+      "empty": "編集履歴はありません"
+    },
     "regenerate": {
       "label": "AIで再生成",
       "confirm": "AI項目を再生成（手動項目は保持）",

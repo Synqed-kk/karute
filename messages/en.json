@@ -437,6 +437,12 @@
       "error": "Could not save",
       "reload": "Reload"
     },
+    "entryHistory": {
+      "title": "Edit history",
+      "unknownStaff": "Unknown",
+      "error": "Could not load the history",
+      "empty": "No edit history"
+    },
     "regenerate": {
       "label": "Regenerate with AI",
       "confirm": "Regenerate AI entries (manual ones kept)",
