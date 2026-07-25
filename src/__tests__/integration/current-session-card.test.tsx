@@ -70,4 +70,23 @@ describe('CurrentSessionCard', () => {
     expect(screen.getByText('肩を回すと軽くなる')).toBeInTheDocument()
     expect(screen.queryByText('施術')).not.toBeInTheDocument()
   })
+
+  it('shows the edited chip for a HUMAN_EDITED entry', () => {
+    renderCard([{ ...e('1', 'concern', '肩の張りが続いている'), author: 'HUMAN_EDITED' }])
+    expect(screen.getByText('currentSession.chips.edited')).toBeInTheDocument()
+  })
+
+  it('shows the handwritten chip for a HUMAN_CREATED entry', () => {
+    renderCard([{ ...e('1', 'note', 'メモ'), author: 'HUMAN_CREATED' }])
+    expect(screen.getByText('currentSession.chips.handwritten')).toBeInTheDocument()
+  })
+
+  it('shows no provenance chip for an AI entry or one with no author', () => {
+    renderCard([
+      { ...e('1', 'concern', 'AI行'), author: 'AI' },
+      e('2', 'concern', '著者なし行'),
+    ])
+    expect(screen.queryByText('currentSession.chips.edited')).not.toBeInTheDocument()
+    expect(screen.queryByText('currentSession.chips.handwritten')).not.toBeInTheDocument()
+  })
 })

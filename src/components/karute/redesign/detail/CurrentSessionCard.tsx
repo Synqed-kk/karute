@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import { useTranslations } from 'next-intl'
 import { Target } from 'lucide-react'
+import type { EntryAuthor } from '@synqed-kk/client'
 
 import { TREATMENT_KIND_PREFIXES } from './treatment-prefixes'
 
@@ -21,6 +22,11 @@ export interface SessionEntry {
   category: SessionCategory
   time: string
   body: string
+  /** Provenance (edit-layer Wave 2) — undefined on legacy/cached rows, treated
+   *  the same as 'AI' (no chip). */
+  author?: EntryAuthor
+  version?: number
+  original_ai_content?: string | null
 }
 
 interface CurrentSessionCardProps {
@@ -170,6 +176,16 @@ export function CurrentSessionCard({
                           style={{ background: tone.text }}
                         />
                         <span className="min-w-0">{e.display}</span>
+                        {e.author === 'HUMAN_EDITED' && (
+                          <span className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground">
+                            {t('currentSession.chips.edited')}
+                          </span>
+                        )}
+                        {e.author === 'HUMAN_CREATED' && (
+                          <span className="inline-flex h-[19px] shrink-0 items-center rounded-full border border-border bg-muted px-2 text-[10.5px] font-medium text-muted-foreground">
+                            {t('currentSession.chips.handwritten')}
+                          </span>
+                        )}
                       </li>
                     ))}
                   </ul>

@@ -13,7 +13,10 @@
 
 import { z } from 'zod'
 
-const SessionEntrySchema = z.object({
+// author/version/original_ai_content are .optional() (edit-layer Wave 2,
+// PR-A) so a cached facade payload minted before this field existed still
+// parses — an absent author renders no provenance chip, same as 'AI'.
+export const SessionEntrySchema = z.object({
   id: z.string(),
   category: z.enum([
     'treatment',
@@ -27,6 +30,9 @@ const SessionEntrySchema = z.object({
   ]),
   time: z.string(),
   body: z.string(),
+  author: z.enum(['AI', 'HUMAN_EDITED', 'HUMAN_CREATED']).optional(),
+  version: z.number().optional(),
+  original_ai_content: z.string().nullable().optional(),
 })
 
 const HeaderSchema = z.object({

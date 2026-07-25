@@ -5,6 +5,7 @@
 // filename/export names are retained to avoid churning the ~6 import sites; the
 // implementation no longer touches Supabase.
 
+import type { EntryAuthor } from '@synqed-kk/client'
 import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 /** A karute record with its related customer + entries — the shape consumed by
@@ -32,6 +33,10 @@ export interface KaruteWithRelations {
     confidence_score: number | null
     is_manual: boolean
     created_at: string
+    /** Provenance (edit-layer Wave 2). Optional — legacy/cached rows may lack it. */
+    author?: EntryAuthor
+    version?: number
+    original_ai_content?: string | null
   }>
 }
 
@@ -72,6 +77,10 @@ export function mapSynqedKaruteRecord(
       confidence?: number | null
       is_manual?: boolean | null
       created_at: string
+      /** Provenance (edit-layer Wave 2) — absent on legacy/cached rows. */
+      author?: EntryAuthor
+      version?: number
+      original_ai_content?: string | null
     }> | null
   },
   customerName: string | null,
@@ -101,6 +110,9 @@ export function mapSynqedKaruteRecord(
       confidence_score: e.confidence ?? null,
       is_manual: e.is_manual ?? false,
       created_at: e.created_at,
+      author: e.author,
+      version: e.version,
+      original_ai_content: e.original_ai_content ?? null,
     })),
   }
 }
