@@ -441,7 +441,8 @@
       "unknownStaff": "不明",
       "error": "履歴を読み込めませんでした",
       "empty": "編集履歴はありません",
-      "partial": "これより古い履歴は表示されません"
+      "partial": "これより古い履歴は表示されません",
+      "expand": "履歴を開く"
     },
     "regenerate": {
       "label": "AIで再生成",

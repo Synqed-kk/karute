@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { updateKaruteDetailEntry, listEntryEditHistory } from '@/actions/karute'
@@ -83,6 +83,12 @@ export function EntryEditSheet({
   // convention: RegenerateEntriesButton captures raw but renders t('error')).
   const [error, setError] = useState(false)
   const [view, setView] = useState<HistoryView>(null)
+  // Keyboard-fold (W2 one-sheet consolidation, 2026-07-26 mock): drives the
+  // history block's folded-bar layout while the textarea has focus. Only
+  // read behind `humanTouched` below — an AI entry's autoFocus firing on
+  // open must not fold anything, since it has no history block to fold.
+  const [isTyping, setIsTyping] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   // Reseed only when a NEW entry opens — a re-render mid-edit must not clobber it.
   useEffect(() => {
@@ -91,11 +97,16 @@ export function EntryEditSheet({
       setCategory(entry.category)
       setConflict(false)
       setError(false)
+      setIsTyping(false)
     }
   }, [entry])
 
   const entryId = entry?.id ?? null
   const humanTouched = entry?.author === 'HUMAN_EDITED' || entry?.author === 'HUMAN_CREATED'
+  // Folded layout only ever applies to a human-touched entry's own block —
+  // an AI entry has no history block to fold, so its (autoFocus-driven)
+  // isTyping=true is simply never read.
+  const folded = humanTouched && isTyping
   // History fetch — keyed-view + cancelled + try/catch idioms carried over
   // UNCHANGED from the deleted EntryHistorySheet. Gate on humanTouched (a
   // primitive, not the `entry` object) so a parent re-render that hands down
@@ -142,6 +153,22 @@ export function EntryEditSheet({
 
   // Only a view fetched FOR the entry that's open right now may render.
   const v = view?.entryId === entryId ? view : null
+
+  // Folded-bar text: mirrors the full block's own loading/error/empty
+  // branches below so the bar can never show stale rows or the entry's
+  // live body as a stand-in (same honesty rule, condensed to one line).
+  // rows[0] is the latest edit — the trail view is newest-first.
+  const latestRow = v?.status === 'ok' ? v.rows[0] : undefined
+  const latestText = !v
+    ? tc('loading')
+    : v.status === 'error'
+      ? tHist('error')
+      : latestRow
+        ? (latestRow.contentAfter ?? latestRow.contentBefore ?? '')
+        : v.truncated
+          ? tHist('partial')
+          : tHist('empty')
+  const latestTone = !v || (v.status === 'ok' && !latestRow) ? 'muted' : v.status === 'error' ? 'error' : 'content'
 
   const dateFmt = useMemo(
     () =>
@@ -225,64 +252,126 @@ export function EntryEditSheet({
         {humanTouched && (
           <div className="flex flex-col gap-1.5">
             <span className="text-[11px] font-medium text-muted-foreground">{tHist('title')}</span>
-            <div className="max-h-32 overflow-y-auto rounded-xl border border-border p-3">
-              {!v && <p className="text-[13px] text-muted-foreground">{tc('loading')}</p>}
-              {v?.status === 'error' && <p className="text-[13px] text-red-500">{tHist('error')}</p>}
-              {v?.status === 'ok' && v.rows.length === 0 && (
-                <p className="text-[13px] text-muted-foreground">
-                  {v.truncated ? tHist('partial') : tHist('empty')}
-                </p>
-              )}
-              {v?.status === 'ok' && v.rows.length > 0 && (
-                <>
-                  <ul className="flex flex-col gap-3">
-                    {v.rows.map((row) => {
-                      const ts = formatCreatedAt(row.createdAt)
-                      return (
-                        <li key={row.id} className="flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between text-[11.5px] text-muted-foreground">
-                            <span className="font-medium text-foreground">
-                              {row.actorName ?? tHist('unknownStaff')}
-                            </span>
-                            {ts && <span className="tabular-nums">{ts}</span>}
-                          </div>
-                          {row.contentBefore !== null && (
-                            <p className="text-[13px] leading-relaxed text-muted-foreground line-through">
-                              {row.contentBefore}
-                            </p>
-                          )}
-                          {row.contentAfter !== null && (
-                            <p className="text-[13px] leading-relaxed text-foreground">{row.contentAfter}</p>
-                          )}
-                        </li>
-                      )
-                    })}
-                  </ul>
-                  {v.truncated && (
-                    <p className="mt-2 text-[11.5px] text-muted-foreground">{tHist('partial')}</p>
+            {folded ? (
+              // Collapsed bar: latest row's text ONLY — no name, no
+              // timestamp (Liam ruling). Tap blurs the textarea (drops the
+              // keyboard) AND sets isTyping directly — belt-and-suspenders
+              // rather than relying solely on the blur event's own
+              // cascade back to isTyping, which some WebView/event-timing
+              // combinations can drop.
+              <button
+                type="button"
+                onClick={() => {
+                  textareaRef.current?.blur()
+                  setIsTyping(false)
+                }}
+                aria-label={tHist('expand')}
+                className="flex items-start gap-2 rounded-xl border border-border p-3 text-left"
+              >
+                <span
+                  className={cn(
+                    // Clamp budget for the 2-line default: SheetContent
+                    // p-5 (40px) + gap-3 × 4 gaps between its 5 children
+                    // (48px) + SheetHeader title (~28px) + history label
+                    // (~16px) + this bar at 2 lines incl. border/padding
+                    // (~60px) + folded chip row (~26px) + textarea
+                    // min-h-24/96px + save row (~44px) ≈ 358px of required
+                    // content height. Degrade to line-clamp-1 (saves one
+                    // ~21px line) once the post-keyboard viewport drops to
+                    // 360px or under — matches the packet's own ~360
+                    // budget figure, ~2px of slack above the 358px need.
+                    'line-clamp-2 [@media(max-height:360px)]:line-clamp-1 flex-1 text-[13px] leading-relaxed',
+                    latestTone === 'error' && 'text-red-500',
+                    latestTone === 'content' && 'text-foreground',
+                    latestTone === 'muted' && 'text-muted-foreground',
                   )}
-                </>
-              )}
-            </div>
+                >
+                  {latestText}
+                </span>
+                <span aria-hidden className="shrink-0 text-muted-foreground">
+                  ▾
+                </span>
+              </button>
+            ) : (
+              <div className="max-h-32 overflow-y-auto rounded-xl border border-border p-3">
+                {!v && <p className="text-[13px] text-muted-foreground">{tc('loading')}</p>}
+                {v?.status === 'error' && <p className="text-[13px] text-red-500">{tHist('error')}</p>}
+                {v?.status === 'ok' && v.rows.length === 0 && (
+                  <p className="text-[13px] text-muted-foreground">
+                    {v.truncated ? tHist('partial') : tHist('empty')}
+                  </p>
+                )}
+                {v?.status === 'ok' && v.rows.length > 0 && (
+                  <>
+                    <ul className="flex flex-col gap-3">
+                      {v.rows.map((row) => {
+                        const ts = formatCreatedAt(row.createdAt)
+                        return (
+                          <li key={row.id} className="flex flex-col gap-1.5">
+                            <div className="flex items-center justify-between text-[11.5px] text-muted-foreground">
+                              <span className="font-medium text-foreground">
+                                {row.actorName ?? tHist('unknownStaff')}
+                              </span>
+                              {ts && <span className="tabular-nums">{ts}</span>}
+                            </div>
+                            {row.contentBefore !== null && (
+                              <p className="text-[13px] leading-relaxed text-muted-foreground line-through">
+                                {row.contentBefore}
+                              </p>
+                            )}
+                            {row.contentAfter !== null && (
+                              <p className="text-[13px] leading-relaxed text-foreground">{row.contentAfter}</p>
+                            )}
+                          </li>
+                        )
+                      })}
+                    </ul>
+                    {v.truncated && (
+                      <p className="mt-2 text-[11.5px] text-muted-foreground">{tHist('partial')}</p>
+                    )}
+                  </>
+                )}
+              </div>
+            )}
           </div>
         )}
 
-        <div className="flex flex-wrap gap-1.5">
-          {CATEGORY_ORDER.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => setCategory(c)}
-              className={cn(
-                'h-[26px] rounded-full border px-3 text-[11.5px] font-semibold transition-colors',
-                category === c
-                  ? 'border-foreground/30 bg-foreground/10 text-foreground'
-                  : 'border-border bg-muted text-muted-foreground',
-              )}
-            >
-              {tCat(c)}
-            </button>
-          ))}
+        <div className="relative">
+          <div
+            className={cn(
+              'flex gap-1.5',
+              // Categories collapse to one horizontal scroll row while
+              // typing; wrap is restored the instant the textarea blurs.
+              folded ? 'flex-nowrap overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden' : 'flex-wrap',
+            )}
+          >
+            {CATEGORY_ORDER.map((c) => (
+              <button
+                key={c}
+                type="button"
+                // While folded, a mousedown here would blur the textarea and
+                // release the fold MID-TAP — the synchronous relayout moves
+                // this chip before the synthesized click lands, so the first
+                // tap dies (classic focused-input two-tap bug). Prevent the
+                // focus steal: the keyboard stays up, the layout stays put,
+                // and the category still sets on click.
+                onMouseDown={(evt) => evt.preventDefault()}
+                onClick={() => setCategory(c)}
+                className={cn(
+                  'rounded-full border px-3 text-[11.5px] font-semibold transition-colors',
+                  folded ? 'h-6 shrink-0' : 'h-[26px]',
+                  category === c
+                    ? 'border-foreground/30 bg-foreground/10 text-foreground'
+                    : 'border-border bg-muted text-muted-foreground',
+                )}
+              >
+                {tCat(c)}
+              </button>
+            ))}
+          </div>
+          {folded && (
+            <div className="pointer-events-none absolute inset-y-0 right-0 w-6 bg-gradient-to-r from-transparent to-background" />
+          )}
         </div>
 
         <textarea
@@ -293,17 +382,28 @@ export function EntryEditSheet({
           // entry). A plain AI entry has no block, so the keyboard-on-tap
           // behavior is unchanged there.
           autoFocus={!humanTouched}
+          ref={textareaRef}
           value={content}
           onChange={(evt) => setContent(evt.target.value)}
+          onFocus={() => setIsTyping(true)}
+          onBlur={() => setIsTyping(false)}
           rows={4}
           maxLength={4000}
-          className="w-full resize-none rounded-2xl border border-foreground/70 p-3 text-sm leading-relaxed text-foreground focus:outline-none"
+          // min-h-24 (96px) holds in both states — the sheet scrolls
+          // before the textarea ever shrinks.
+          className="w-full min-h-24 resize-none rounded-2xl border border-foreground/70 p-3 text-sm leading-relaxed text-foreground focus:outline-none"
         />
 
         {conflict && (
           <div className="flex items-center justify-between rounded-xl bg-amber-500/10 p-3 text-[13px] text-amber-700 dark:text-amber-400">
             <span>{t('conflict')}</span>
-            <button type="button" onClick={reload} className="font-semibold underline">
+            <button
+              type="button"
+              // Same mid-tap fold-release guard as the chips/save button.
+              onMouseDown={(evt) => evt.preventDefault()}
+              onClick={reload}
+              className="font-semibold underline"
+            >
               {t('reload')}
             </button>
           </div>
@@ -313,6 +413,11 @@ export function EntryEditSheet({
         <div className="flex items-center justify-end pt-1">
           <button
             type="button"
+            // Guard against the mid-tap fold release (see the chip-row
+            // comment): a save tap while typing must land on a stable
+            // layout — the sheet closes on save anyway, so keeping the
+            // textarea focused through the tap changes nothing else.
+            onMouseDown={(evt) => evt.preventDefault()}
             onClick={save}
             disabled={
               saving ||
