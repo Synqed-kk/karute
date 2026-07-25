@@ -286,7 +286,13 @@ export function EntryEditSheet({
         </div>
 
         <textarea
-          autoFocus
+          // Fix round: only autofocus when there's no history block above it
+          // — the native focus-scroll on open can push a variable-height
+          // block out of view on a short viewport, defeating the design
+          // intent (history visible above the editor for a human-touched
+          // entry). A plain AI entry has no block, so the keyboard-on-tap
+          // behavior is unchanged there.
+          autoFocus={!humanTouched}
           value={content}
           onChange={(evt) => setContent(evt.target.value)}
           rows={4}

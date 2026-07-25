@@ -91,6 +91,55 @@ describe('CurrentSessionCard — pencil (W2 one-sheet)', () => {
     render(<CurrentSessionCard sessionDate="d" entries={[editedEntry]} karuteRecordId="kar-1" />)
     expect(screen.queryByText('currentSession.chips.edited')).not.toBeInTheDocument()
   })
+
+  it('permanent regression: save→reopen→history — an AI entry gets no fetch, saving flips it to HUMAN_EDITED, reopening the SAME entry fetches + renders its history (fix round)', async () => {
+    const aiEntry: SessionEntry = {
+      id: 'e1',
+      category: 'concern',
+      time: '12:00',
+      body: 'original body',
+      version: 2,
+      author: 'AI',
+    }
+    updateKaruteDetailEntry.mockResolvedValue({ ok: true })
+
+    render(<CurrentSessionCard sessionDate="d" entries={[aiEntry]} karuteRecordId="kar-1" />)
+
+    // Open on the AI entry — no history fetch (its trail is pipeline noise).
+    fireEvent.click(screen.getByLabelText('entryEdit.editRow'))
+    expect(screen.getByRole('textbox')).toHaveValue('original body')
+    expect(listEntryEditHistory).not.toHaveBeenCalled()
+
+    // Edit + save — the onSaved override flips AI → HUMAN_EDITED, sheet closes.
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'edited body' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(updateKaruteDetailEntry).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByRole('textbox')).not.toBeInTheDocument())
+
+    // Reopen the SAME entry — now human-touched, so the history block fetches
+    // this record's trail and renders the returned row.
+    listEntryEditHistory.mockResolvedValue({
+      edits: [
+        {
+          id: 'ed-1',
+          entryIdOld: null,
+          entryIdNew: 'e1',
+          action: 'EDIT',
+          actorName: '田中',
+          contentBefore: 'original body',
+          contentAfter: 'edited body',
+          createdAt: '2026-07-20T00:00:00.000Z',
+        },
+      ],
+      truncated: false,
+    })
+    fireEvent.click(screen.getByLabelText('entryEdit.editRow'))
+    expect(screen.getByRole('textbox')).toHaveValue('edited body')
+    await waitFor(() => expect(listEntryEditHistory).toHaveBeenCalledWith('kar-1'))
+    // The history row's "after" text (a <p>) is distinct from the card's own
+    // bullet (a <span>), which now shows the same saved body — scope by tag.
+    await waitFor(() => expect(screen.getByText('edited body', { selector: 'p' })).toBeInTheDocument())
+  })
 })
 
 describe('EntryEditSheet — 編集履歴 block', () => {
@@ -320,5 +369,23 @@ describe('EntryEditSheet — 編集履歴 block', () => {
 
     resolve2({ edits: [], truncated: false })
     await waitFor(() => expect(screen.getByText('empty')).toBeInTheDocument())
+  })
+
+  it('autoFocus is OFF for a human-touched entry — the history block sits above the textarea and must stay in view on open (fix round)', () => {
+    listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={editedEntry} onOpenChange={jest.fn()} />)
+    expect(screen.getByRole('textbox')).not.toHaveFocus()
+  })
+
+  it('autoFocus stays ON for a plain AI entry — no history block, keyboard-on-tap unchanged (fix round)', () => {
+    render(
+      <EntryEditSheet
+        karuteRecordId="kar-1"
+        entry={{ ...editedEntry, author: 'AI' }}
+        onOpenChange={jest.fn()}
+      />,
+    )
+    expect(screen.getByRole('textbox')).toHaveFocus()
+    expect(listEntryEditHistory).not.toHaveBeenCalled()
   })
 })
