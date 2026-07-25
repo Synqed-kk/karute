@@ -224,7 +224,11 @@ describe('upsert by recording session — a retry must never lose staff edits', 
     expect(res).toEqual({ error: expect.any(String) })
   })
 
-  it('collision with an existing record that already has entries omits `entries` from the update — never re-replaces staff edits', async () => {
+  // entriesMode matrix (edit-layer Wave 1 fix round — explicit intent, not
+  // inference): saveKaruteRecordInline (autosave) always passes
+  // 'fill-if-empty'; saveKaruteRecord (staff intent via ReviewScreen) always
+  // passes 'replace'. See createOrUpdateKaruteRecord's own header.
+  it('fill-if-empty (autosave/inline): collision with an existing record that already has entries omits `entries` from the update — never re-replaces staff edits', async () => {
     karuteRecords.getByRecordingSession.mockResolvedValueOnce({
       id: 'kr-existing',
       entries: [{ id: 'e1', content: 'kept', author: 'HUMAN_EDITED' }],
@@ -240,7 +244,7 @@ describe('upsert by recording session — a retry must never lose staff edits', 
     )
   })
 
-  it('collision with an existing record that has zero entries still sends entries', async () => {
+  it('fill-if-empty (autosave/inline): collision with an existing record that has zero entries still sends entries', async () => {
     karuteRecords.getByRecordingSession.mockResolvedValueOnce({
       id: 'kr-existing',
       entries: [],
@@ -250,6 +254,41 @@ describe('upsert by recording session — a retry must never lose staff edits', 
       entries: [{ category: 'symptom', content: 'fresh', confidenceScore: 1 }],
       recordingSessionId: 'rs-1',
     })
+    expect(karuteRecords.update).toHaveBeenCalledWith(
+      'kr-existing',
+      expect.objectContaining({
+        entries: [expect.objectContaining({ content: 'fresh' })],
+      }),
+    )
+  })
+
+  it('replace (saveKaruteRecord — staff intent): collision with an existing record that already has entries STILL sends entries, is_manual preserved — the converge-on-staff-edits contract, e.g. a landed autosave the staff then edited in review', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kr-existing',
+      entries: [{ id: 'e1', content: 'old ai row', author: 'AI' }],
+    })
+    await saveKaruteRecord({
+      ...baseInput,
+      entries: [{ category: 'symptom', content: 'staff edited', confidenceScore: 1, isManual: true }],
+      recordingSessionId: 'rs-1',
+    }).catch(() => {})
+    const [, updatePayload] = karuteRecords.update.mock.calls[0] as [string, Record<string, unknown>]
+    expect(updatePayload).toHaveProperty('entries')
+    expect(updatePayload.entries).toEqual([
+      expect.objectContaining({ content: 'staff edited', is_manual: true }),
+    ])
+  })
+
+  it('replace (saveKaruteRecord — staff intent): collision with an existing record that has zero entries still sends entries', async () => {
+    karuteRecords.getByRecordingSession.mockResolvedValueOnce({
+      id: 'kr-existing',
+      entries: [],
+    })
+    await saveKaruteRecord({
+      ...baseInput,
+      entries: [{ category: 'symptom', content: 'fresh', confidenceScore: 1 }],
+      recordingSessionId: 'rs-1',
+    }).catch(() => {})
     expect(karuteRecords.update).toHaveBeenCalledWith(
       'kr-existing',
       expect.objectContaining({

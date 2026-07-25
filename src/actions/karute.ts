@@ -74,6 +74,15 @@ async function resolveKaruteStoreId(
  * recording session makes the record converge on what the staff last saw
  * (core's update does a FULL entries replace — verified in karute.service).
  *
+ * `entriesMode` makes the entries decision on that collision EXPLICIT per
+ * caller, not inferred: 'replace' always sends entries — the converge-on-
+ * staff contract above, so staff edits/hand-adds (with their is_manual flags)
+ * always land. 'fill-if-empty' omits entries when the existing record already
+ * has some — for a caller with nothing newer to say (autosave resending the
+ * same extraction), so it can't clobber edits made in between. Either mode
+ * still sends entries when the existing record has none (a genuinely-first
+ * upsert can always land its set).
+ *
  * `fresh` tells the caller whether memory ingest should run — an update is a
  * retry of a transcript that was already ingested on the first save.
  * Residual race (concurrent first saves both passing the lookup) falls back
@@ -91,6 +100,7 @@ export async function createOrUpdateKaruteRecord(
   synqed: SynqedClient,
   payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
   actor: { actorId: string | null; businessId: string | null; source: 'web' | 'facade' },
+  entriesMode: 'replace' | 'fill-if-empty',
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
   const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean }) => {
     audit({
@@ -133,22 +143,26 @@ export async function createOrUpdateKaruteRecord(
         throw err
       })
     if (existing) {
-      // Retry idempotency (packet PR-2b): this branch's payload is the SAME
-      // content by construction — but a full `entries` replace is a core
-      // full-replace (UpdateKaruteRecordInput.entries "atomically replaces ALL
-      // entries"). If the existing record already has entries — including any
-      // staff edits/hand-adds made after the first save — a resend would blow
-      // them away for no reason (the retry never carries provenance). Omit
-      // `entries` entirely so core leaves them untouched; transcript/summary
-      // still rewrite. An existing record with zero entries has nothing to
-      // lose, so entries still go through (keeps a genuinely-first upsert able
-      // to land its extracted set).
+      // Collision on recording_session_id (fix round — the prior "this
+      // branch's payload is the SAME content by construction" premise was
+      // wrong: this branch is also reached by ReviewScreen's saveKaruteRecord
+      // when an autosave landed server-side first, so the collision payload
+      // can legitimately carry staff edits the existing record doesn't have
+      // yet). entriesMode makes the decision explicit instead: a core
+      // `entries` replace is a full replace (UpdateKaruteRecordInput.entries
+      // "atomically replaces ALL entries"), so 'fill-if-empty' omits it when
+      // the existing record already has entries — nothing to add for a caller
+      // with nothing newer to say. 'replace' always sends entries — the
+      // converge-on-staff contract this function's header describes. Either
+      // way, an existing record with zero entries has nothing to lose, so
+      // entries still go through.
       const existingHasEntries = Array.isArray(existing.entries) && existing.entries.length > 0
+      const omitEntries = entriesMode === 'fill-if-empty' && existingHasEntries
       await synqed.karuteRecords.update(existing.id, {
         transcript: payload.transcript,
         ai_summary: payload.ai_summary,
         appointment_id: payload.appointment_id,
-        ...(existingHasEntries ? {} : { entries: payload.entries }),
+        ...(omitEntries ? {} : { entries: payload.entries }),
       })
       return emitSave({
         id: existing.id,
@@ -288,6 +302,7 @@ export async function saveKaruteRecord(
         })),
       },
       { actorId, businessId, source: 'web' },
+      'replace',
     )
     recordId = id
 
@@ -402,6 +417,7 @@ export async function saveKaruteRecordInline(
         })),
       },
       { actorId, businessId, source: 'web' },
+      'fill-if-empty',
     )
 
     // Best-effort outcome write (the coaching label) — same as saveKaruteRecord.

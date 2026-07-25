@@ -254,6 +254,10 @@ async function upsertKaruteRecord(
     // rare path. Still logged in karute_entry_edits either way. A by-id carry
     // (vs re-mint) would need a core API this app doesn't have — flag for
     // Anthony, don't invent one here.
+    // Ceiling: the carry only copies category/content/original_quote/
+    // confidence — tags and sort_order (if present on the existing row) are
+    // dropped. Silent, not a bug: no UI reads or writes either field on a
+    // karute entry today. Revisit if a future surface starts using them.
     const carriedHumanEntries = (existing.entries ?? [])
       .filter((e) => (e.author != null ? e.author !== 'AI' : e.is_manual === true))
       .map((e) => ({

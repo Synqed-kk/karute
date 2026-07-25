@@ -153,8 +153,10 @@ export function ReviewScreen({
   }
 
   /** True when a submitted entry is staff-edited or hand-added — saves
-   *  is_manual: true so core marks it HUMAN_CREATED/HUMAN_EDITED and logs the
-   *  edit row. Identity-keyed on the CURRENT field's own id (not `formIndex`
+   *  is_manual: true so core marks it HUMAN_CREATED/HUMAN_EDITED. Core's
+   *  CREATE path writes no karute_entry_edits row for this — only the author
+   *  stamp; the edit-log trail starts with a LATER edit to an already-existing
+   *  entry. Identity-keyed on the CURRENT field's own id (not `formIndex`
    *  against the original array) — see the snapshot above. No match in the
    *  original snapshot = appended by staff. A match whose editable fields
    *  (category/title/source_quote) differ = edited; confidence_score has no
