@@ -434,6 +434,7 @@
       "editRow": "編集",
       "save": "保存",
       "conflict": "他の端末で更新されました",
+      "error": "保存に失敗しました",
       "reload": "再読み込み"
     },
     "regenerate": {
