@@ -78,6 +78,8 @@ const claim = jest.fn()
 const complete = jest.fn(async () => ({}))
 const fail = jest.fn(async () => ({}))
 
+const staffGet = jest.fn(async () => ({ id: 'staff-1', user_id: 'auth-user-9' }))
+
 const fakeClient = {
   customers: { getConsent, get: customersGet },
   orgSettings: { get: orgSettingsGet },
@@ -87,6 +89,7 @@ const fakeClient = {
     update: karuteRecordsUpdate,
   },
   recordingJobs: { claim, complete, fail },
+  staff: { get: staffGet },
 }
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn(() => fakeClient),
@@ -195,12 +198,45 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
         category: 'karute',
         action: 'karute.save',
         source: 'system',
+        // actorId = the recorder's AUTH uid, translated from the payload's
+        // synqed staff id via the roster (the payload id-space violates the
+        // audit contract; the synqed id rides in detail instead).
+        actorId: 'auth-user-9',
         detail: expect.objectContaining({
           via: 'job_pipeline',
           customer_id: 'cust-1',
+          staff_id: 'staff-1',
         }),
       }),
     )
+    expect(staffGet).toHaveBeenCalledWith('staff-1')
+  })
+
+  it('an UNWIRED recorder (card has no login) → actorId null, emit and job still complete', async () => {
+    staffGet.mockResolvedValueOnce({ id: 'staff-1', user_id: null as unknown as string })
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'karute.save', actorId: null }),
+    )
+    expect(complete).toHaveBeenCalled()
+  })
+
+  it('a roster-lookup failure degrades to actorId null — never fails the job, never emits the synqed id', async () => {
+    staffGet.mockRejectedValueOnce(new Error('core down'))
+    claim.mockResolvedValueOnce(baseJob).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'karute.save', actorId: null }),
+    )
+    expect(complete).toHaveBeenCalled()
+    expect(fail).not.toHaveBeenCalled()
   })
 
   it('an outcome-write failure FAILS the job (throw, not swallowed) — retry converges', async () => {

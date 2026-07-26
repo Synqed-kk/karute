@@ -176,10 +176,18 @@ async function processJob(job: RecordingJob): Promise<string> {
   }
 
   // Audit: the save is a completed action (server-side actor = the recorder).
+  // The payload carries the SYNQED staff id (the appointments id-space);
+  // actorId's contract is the auth uid, so translate via the roster. An
+  // unwired recorder degrades to null (viewer renders 不明) — never emit the
+  // wrong id-space; the synqed id stays in detail for forensics.
+  const actorUserId = await synqed.staff
+    .get(payload.staff_id)
+    .then((s) => (s as { user_id?: string | null }).user_id ?? null)
+    .catch(() => null)
   audit({
     category: 'karute',
     action: 'karute.save',
-    actorId: payload.staff_id,
+    actorId: actorUserId,
     actorType: 'staff',
     businessId: job.business_id,
     targetType: 'karute',
@@ -188,6 +196,7 @@ async function processJob(job: RecordingJob): Promise<string> {
       via: 'job_pipeline',
       recording_session_id: job.recording_session_id,
       customer_id: payload.customer_id,
+      staff_id: payload.staff_id,
     },
     source: 'system',
   })
