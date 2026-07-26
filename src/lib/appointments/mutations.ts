@@ -138,6 +138,15 @@ export async function createAppointmentCore(
   }
 }
 
+/** Anchor for the burn-dedup window: a day before the EARLIER of starts_at
+ *  and created_at (see executeGuardedBurn's doc comment for why) — shared by
+ *  the burn guard and deleteAppointmentCore's pre-delete redemption check so
+ *  the two windows can never drift apart. */
+function burnWindowSince(appt: { starts_at: string; created_at: string }): string {
+  const anchor = Math.min(new Date(appt.starts_at).getTime(), new Date(appt.created_at).getTime())
+  return ymdInJst(new Date(anchor - 86_400_000))
+}
+
 /**
  * The ONE guarded ticket burn — shared by the no-show and the
  * same-day-cancel paths so the money rules can never diverge:
@@ -167,8 +176,7 @@ async function executeGuardedBurn(
   // Ceiling (out of accident scope, council item): a booking BACKDATED before
   // its own creation date and then cycled could still evade this check —
   // adversarial-staff territory, not a bug in the normal reschedule flow.
-  const anchor = Math.min(new Date(appt.starts_at).getTime(), new Date(appt.created_at).getTime())
-  const since = ymdInJst(new Date(anchor - 86_400_000))
+  const since = burnWindowSince(appt)
   const alreadyBurned: boolean | 'unknown' = await synqed.packs
     .listRecentRedemptions(since)
     .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
@@ -533,12 +541,32 @@ export async function deleteAppointmentCore(
     const appt = await synqed.appointments.get(appointmentId)
     if (!appt) return { error: 'Booking not found.' }
 
+    // Burn-dedup guard (FIX 8, Fable fix-round finding, 2026-07-27): the burn
+    // history keys on appointment_id, so a delete-then-recreate would mint a
+    // NEW id and sidestep it entirely — orphaning the burned redemption's
+    // evidence and letting the recreated booking burn a second ticket. Same
+    // tri-state fail-CLOSED rule as executeGuardedBurn: an errored read must
+    // never be silently treated as "never burned" here either. Nothing has
+    // mutated yet, so both refusals below carry no audit row. (A deliberate
+    // relax of this — e.g. an explicit "delete anyway" override — is a
+    // council decision, not made here.)
+    const burned: boolean | 'unknown' = await synqed.packs
+      .listRecentRedemptions(burnWindowSince(appt))
+      .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
+      .catch(() => 'unknown' as const)
+    if (burned === 'unknown') {
+      return { error: "Could not verify this booking's ticket history — try again." }
+    }
+    if (burned) {
+      return { error: 'This booking consumed a ticket — cancel or restore it instead of deleting.' }
+    }
+
     await synqed.appointments.delete(appointmentId)
 
-    // Severity 'notice' — the one deliberate exception to "routine booking
-    // writes are 'info'": a hard delete erases the booking row itself, so
-    // this audit row becomes the only remaining evidence, which is why it
-    // lands on the viewer's notice strip.
+    // Severity 'notice' — a deliberate exception to routine-info bookings: a
+    // hard delete erases the booking row itself, so this audit row becomes
+    // the only remaining evidence, which is why it lands on the viewer's
+    // notice strip.
     audit({
       category: 'booking',
       action: 'booking.delete',

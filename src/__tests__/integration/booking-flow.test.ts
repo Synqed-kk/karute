@@ -103,8 +103,19 @@ const appointments = {
   get: jest.fn(),
   delete: jest.fn(),
 }
+// deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
+// delete — mirrors cancel-appointment.test.ts's packs mock. Signature must
+// accept the arg the wrapper below forwards (same eslint-disable pattern as
+// this file's requireCapability mock above — keeps the lint delta net-zero).
+const listRecentRedemptions = jest.fn(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async (_since: string): Promise<Array<{ appointment_id: string | null }>> => [],
+)
 jest.mock('@/lib/synqed/client', () => ({
-  getSynqedClient: jest.fn(async () => ({ appointments })),
+  getSynqedClient: jest.fn(async () => ({
+    appointments,
+    packs: { listRecentRedemptions: (since: string) => listRecentRedemptions(since) },
+  })),
 }))
 
 import { createAppointment, deleteAppointment, updateAppointment } from '@/actions/appointments'
@@ -442,12 +453,15 @@ describe('deleteAppointment — audit', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     requireCapability.mockImplementation(async () => {})
+    listRecentRedemptions.mockImplementation(async () => [])
   })
 
   it('emits exactly one booking.delete row at severity notice, ids-only detail', async () => {
     appointments.get.mockResolvedValue({
       customer_id: 'cust-9',
       store_id: 'store-1',
+      starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
       title: 'DECOY — must never reach detail',
       notes: 'DECOY — must never reach detail',
     })
@@ -486,7 +500,12 @@ describe('deleteAppointment — audit', () => {
   })
 
   it('a rejected SDK delete emits no audit row', async () => {
-    appointments.get.mockResolvedValue({ customer_id: 'cust-9', store_id: 'store-1' })
+    appointments.get.mockResolvedValue({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+    })
     appointments.delete.mockRejectedValueOnce(new Error('core down'))
     const lines = await auditLines(async () => {
       const result = await deleteAppointment('appt-1')
@@ -502,6 +521,47 @@ describe('deleteAppointment — audit', () => {
       expect(result).toEqual({ error: 'nope' })
     })
     expect(appointments.get).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  // FIX 8 (Fable final mini-round, 2026-07-27): the burn-dedup history keys
+  // on appointment_id — delete-then-recreate would mint a new id and
+  // sidestep it, orphaning the burned redemption's evidence. Refuse instead.
+  it('a burned booking refuses the delete — nothing mutated, zero audit rows', async () => {
+    appointments.get.mockResolvedValue({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+    })
+    listRecentRedemptions.mockResolvedValueOnce([{ appointment_id: 'appt-1' }])
+    const lines = await auditLines(async () => {
+      const result = await deleteAppointment('appt-1')
+      expect(result).toEqual({
+        error: 'This booking consumed a ticket — cancel or restore it instead of deleting.',
+      })
+    })
+    expect(appointments.delete).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  // Same tri-state fail-CLOSED rule executeGuardedBurn has: an errored
+  // redemption-history read must never be read as "never burned".
+  it('an errored redemption-history read refuses the delete (fail closed) — zero audit rows', async () => {
+    appointments.get.mockResolvedValue({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+    })
+    listRecentRedemptions.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const result = await deleteAppointment('appt-1')
+      expect(result).toEqual({
+        error: "Could not verify this booking's ticket history — try again.",
+      })
+    })
+    expect(appointments.delete).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
   })
 })

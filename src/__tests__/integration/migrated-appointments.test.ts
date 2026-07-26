@@ -74,6 +74,14 @@ const karuteRecords = {
 const staff = {
   list: jest.fn(),
 }
+// deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
+// delete — mirrors cancel-appointment.test.ts's packs mock. Signature must
+// accept the arg the wrapper below forwards (kept net-zero on the lint delta).
+const listRecentRedemptions = jest.fn(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async (_since: string): Promise<Array<{ appointment_id: string | null }>> => [],
+)
+const packs = { listRecentRedemptions: (since: string) => listRecentRedemptions(since) }
 
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
@@ -81,6 +89,7 @@ jest.mock('@/lib/synqed/client', () => ({
     appointments,
     karuteRecords,
     staff,
+    packs,
   })),
 }))
 
@@ -330,8 +339,15 @@ describe('Migrated appointment actions', () => {
     it('forwards to client', async () => {
       // deleteAppointmentCore reads the row FIRST (delete() itself returns
       // void) so the audit detail has a customer_id/store_id to point at.
-      appointments.get.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
+      // starts_at/created_at feed the burn-dedup guard's window (FIX 8).
+      appointments.get.mockResolvedValue({
+        customer_id: 'cust-1',
+        store_id: 'store-1',
+        starts_at: '2026-07-06T03:00:00.000Z',
+        created_at: '2026-07-06T03:00:00.000Z',
+      })
       appointments.delete.mockResolvedValue(undefined)
+      listRecentRedemptions.mockResolvedValue([])
 
       const result = await deleteAppointment('appt-1')
 
