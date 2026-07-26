@@ -132,7 +132,9 @@ export async function listStoresWithClient(
       .catch(() => new Map<string, number>()),
   ])
 
-  // Lazily create the 本店 primary store so every business always has one.
+  // Lazily create the 本店 primary store so every business ends up with one —
+  // EVENTUALLY, not synchronously: a core outage skips this render (failure
+  // contract below) and a later zero-store render provisions instead.
   // Only hit on a brand-new business (no stores yet) — its counts are empty
   // anyway, so the parallel fetch above isn't wasted. Re-lists (not a second
   // full twin call) so the count maps from the first pass — both correctly
