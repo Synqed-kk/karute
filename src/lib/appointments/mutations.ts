@@ -255,6 +255,11 @@ export async function cancelAppointmentCore(
       burnError = await executeGuardedBurn(synqed, burnAppt, appointmentId, burnTarget)
     }
 
+    // Compliance surface (Fable audit finding, 2026-07-27): burn_pack alone is
+    // the staff's CHOICE, not the outcome — burn_error completes it. false+null
+    // = no attempt; true+null = ticket consumed; true+<code> = chosen but NOT
+    // consumed. Without it a failed/already-done burn would log burn_pack:true
+    // and imply a ticket was consumed when it wasn't.
     audit({
       category: 'booking',
       action: 'booking.cancel',
@@ -270,6 +275,7 @@ export async function cancelAppointmentCore(
         store_id: updated.store_id,
         reason: input?.reason ?? null,
         burn_pack: burnPack,
+        burn_error: burnError,
       },
       source: actor.source,
     })
@@ -386,6 +392,7 @@ export async function markNoShowAppointmentCore(
 
     const burnError = target ? await executeGuardedBurn(synqed, appt, appointmentId, target) : null
 
+    // burn_pack/burn_error contract — see cancelAppointmentCore.
     audit({
       category: 'booking',
       action: 'booking.no_show',
@@ -400,11 +407,122 @@ export async function markNoShowAppointmentCore(
         customer_id: appt.customer_id,
         store_id: appt.store_id,
         burn_pack: input.burnPack,
+        burn_error: burnError,
       },
       source: actor.source,
     })
 
     return burnError ? { success: true, burnError } : { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Reschedules and/or reassigns a booking (patch-style: only provided fields
+ * change; no other appointment field is ever touched). `patch.staffId` is
+ * already in CORE's staff.id space — the caller (the web action) does the
+ * profiles.id → staff.id translation via resolveSynqedStaffId before calling
+ * in, the same contract createAppointmentCore's deps.synqedStaffId has.
+ *
+ * NOTE (2026-07-27): updateAppointment/deleteAppointment (src/actions/
+ * appointments.ts) have no caller anywhere yet — armed deliberately (Liam
+ * ruling 2026-07-26: everything gets logged) so a future booking-edit
+ * feature that picks them up is audited by default from day one.
+ */
+export async function updateAppointmentCore(
+  synqed: MutationClient,
+  appointmentId: string,
+  patch: { staffId?: string; startsAt?: string; endsAt?: string; durationMinutes?: number },
+  actor: BookingActor,
+): Promise<{ success: true } | { error: string }> {
+  try {
+    const sdkPatch: {
+      staff_id?: string
+      starts_at?: string
+      ends_at?: string
+      duration_minutes?: number
+    } = {}
+    if (patch.staffId !== undefined) sdkPatch.staff_id = patch.staffId
+    if (patch.startsAt !== undefined) sdkPatch.starts_at = patch.startsAt
+    if (patch.endsAt !== undefined) sdkPatch.ends_at = patch.endsAt
+    if (patch.durationMinutes !== undefined) sdkPatch.duration_minutes = patch.durationMinutes
+
+    // update()'s return rides the FULL Appointment row — customer_id/store_id
+    // are always present regardless of which fields were patched (verified at
+    // synqed-core's appointment.service.ts toPublic()) — so the audit target
+    // reads off it directly, no extra fetch (same reasoning as
+    // cancelAppointmentCore's `updated`).
+    const updated = await synqed.appointments.update(appointmentId, sdkPatch)
+
+    // ids/codes only, never old/new values — same PII rule as every other
+    // booking detail.
+    const changed: Array<'staff' | 'time' | 'duration'> = []
+    if (patch.staffId !== undefined) changed.push('staff')
+    if (patch.startsAt !== undefined || patch.endsAt !== undefined) changed.push('time')
+    if (patch.durationMinutes !== undefined) changed.push('duration')
+
+    audit({
+      category: 'booking',
+      action: 'booking.update',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'customer',
+      targetId: updated.customer_id,
+      detail: {
+        appointment_id: appointmentId,
+        customer_id: updated.customer_id,
+        store_id: updated.store_id,
+        // House convention for a list value in a flat detail record
+        // (settings.staff_stores_change, src/actions/stores.ts) — AuditEvent's
+        // detail values are scalar-only, so a multi-value field joins here.
+        changed: changed.join(','),
+      },
+      source: actor.source,
+    })
+
+    return { success: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/**
+ * Hard-deletes a booking. synqed.appointments.delete() returns void and core
+ * throws on a missing id, so the row is read FIRST — the only way to have
+ * customer_id/store_id in hand for the audit detail once the delete has
+ * actually removed the row. Mirrors restoreAppointmentCore's read-check.
+ */
+export async function deleteAppointmentCore(
+  synqed: MutationClient,
+  appointmentId: string,
+  actor: BookingActor,
+): Promise<{ success: true } | { error: string }> {
+  try {
+    const appt = await synqed.appointments.get(appointmentId)
+    if (!appt) return { error: 'Booking not found.' }
+
+    await synqed.appointments.delete(appointmentId)
+
+    // Severity 'notice' — the one deliberate exception to "routine booking
+    // writes are 'info'": a hard delete erases the booking row itself, so
+    // this audit row becomes the only remaining evidence, which is why it
+    // lands on the viewer's notice strip.
+    audit({
+      category: 'booking',
+      action: 'booking.delete',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'customer',
+      targetId: appt.customer_id,
+      severity: 'notice',
+      detail: { appointment_id: appointmentId, customer_id: appt.customer_id, store_id: appt.store_id },
+      source: actor.source,
+    })
+
+    return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

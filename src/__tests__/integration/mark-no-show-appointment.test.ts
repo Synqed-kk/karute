@@ -260,22 +260,50 @@ describe('markNoShowAppointment — audit', () => {
       target_id: 'cust-1',
       severity: 'notice',
       source: 'web',
-      detail: {
-        appointment_id: 'appt-1',
-        customer_id: 'cust-1',
-        store_id: 'store-1',
-        burn_pack: false,
-      },
+    })
+    // Exact equality (not toMatchObject/objectContaining) — a future key
+    // leaking a customer name or memo text into detail must fail this test.
+    expect(lines[0].detail).toEqual({
+      appointment_id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      burn_pack: false,
+      burn_error: null,
     })
   })
 
-  it('burn_pack:true rides the detail flag on the burn path', async () => {
+  it('burn_pack:true rides the detail flag on the burn path, burn_error:null when the ticket really was consumed', async () => {
     listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
     const lines = await auditLines(async () => {
       await markNoShowAppointment('appt-1', { burnPack: true })
     })
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatchObject({ detail: expect.objectContaining({ burn_pack: true }) })
+    expect(lines[0].detail).toEqual({
+      appointment_id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      burn_pack: true,
+      burn_error: null,
+    })
+  })
+
+  // Fable audit finding (2026-07-27): burn_pack alone is the staff's CHOICE,
+  // not the outcome — a failed burn must not read as "ticket consumed".
+  it('records burn_pack:true with burn_error set when the redemption fails — the ticket was NOT consumed', async () => {
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    addRedemption.mockResolvedValueOnce({ ok: false, error: 'burn_failed' })
+    const lines = await auditLines(async () => {
+      const res = await markNoShowAppointment('appt-1', { burnPack: true })
+      expect(res).toEqual({ success: true, burnError: 'burn_failed' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).toEqual({
+      appointment_id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      burn_pack: true,
+      burn_error: 'burn_failed',
+    })
   })
 
   it('a denied mark emits no audit row', async () => {

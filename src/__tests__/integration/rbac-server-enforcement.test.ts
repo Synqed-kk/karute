@@ -330,6 +330,10 @@ describe('RBAC — bookings.manage actions', () => {
   })
 
   it('deleteAppointment with bookings.manage deletes', async () => {
+    // deleteAppointmentCore reads the row first (the module default above
+    // returns null, matching the "booking not found" shape most of this
+    // suite doesn't care about) — give it a real row so the delete is reached.
+    appointments.get.mockResolvedValueOnce({ customer_id: 'cust-1', store_id: 'store-1' })
     const result = await deleteAppointment('appt-1')
     expect(result).toEqual({ success: true })
     expect(appointments.delete).toHaveBeenCalledWith('appt-1')

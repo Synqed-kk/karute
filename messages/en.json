@@ -2169,7 +2169,9 @@
           "create": "Booking created",
           "cancel": "Booking cancelled",
           "no_show": "No-show recorded",
-          "restore": "Booking restored"
+          "restore": "Booking restored",
+          "update": "Booking updated",
+          "delete": "Booking deleted"
         }
       },
       "categoryLabel": "Category",

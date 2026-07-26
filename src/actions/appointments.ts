@@ -21,8 +21,10 @@ import {
 import {
   cancelAppointmentCore,
   createAppointmentCore,
+  deleteAppointmentCore,
   markNoShowAppointmentCore,
   restoreAppointmentCore,
+  updateAppointmentCore,
 } from '@/lib/appointments/mutations'
 
 export { validateAppointmentTime, type AppointmentInput }
@@ -271,22 +273,38 @@ export async function getAppointmentsInRange(
   }
 }
 
+// NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no
+// dynamic import — verified by exhaustive grep). Armed deliberately (Liam
+// ruling 2026-07-26: everything gets logged) so a future booking-edit
+// feature that picks this up is audited by default from day one.
 export async function deleteAppointment(appointmentId: string) {
   try {
     // Cancelling / deleting a booking = bookings.manage. Thrown here → caught
     // below → house { error } shape the caller already toasts.
     await requireCapability('bookings.manage')
 
-    const synqed = await getSynqedClient()
-    await synqed.appointments.delete(appointmentId)
-    revalidatePath('/dashboard')
-    updateTag('dashboard')
-    return { success: true }
+    const [synqed, auditActor] = await Promise.all([
+      getSynqedClient(),
+      resolveWebAuditContext(),
+    ])
+    const result = await deleteAppointmentCore(synqed, appointmentId, {
+      ...auditActor,
+      source: 'web',
+    })
+    if ('success' in result) {
+      revalidatePath('/dashboard')
+      updateTag('dashboard')
+    }
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
 }
 
+// NOTE (2026-07-27): no caller anywhere yet (no UI, no facade twin, no
+// dynamic import — verified by exhaustive grep). Armed deliberately (Liam
+// ruling 2026-07-26: everything gets logged) so a future booking-edit
+// feature that picks this up is audited by default from day one.
 export async function updateAppointment(
   appointmentId: string,
   updates: { staffProfileId?: string; startTime?: string; durationMinutes?: number },
@@ -296,30 +314,38 @@ export async function updateAppointment(
     // caught below → house { error } shape the caller already toasts.
     await requireCapability('bookings.manage')
 
-    const synqed = await getSynqedClient()
+    const [synqed, auditActor] = await Promise.all([
+      getSynqedClient(),
+      resolveWebAuditContext(),
+    ])
     const patch: {
-      staff_id?: string
-      starts_at?: string
-      ends_at?: string
-      duration_minutes?: number
+      staffId?: string
+      startsAt?: string
+      endsAt?: string
+      durationMinutes?: number
     } = {}
 
     if (updates.staffProfileId) {
-      patch.staff_id = await resolveSynqedStaffId(updates.staffProfileId)
+      patch.staffId = await resolveSynqedStaffId(updates.staffProfileId)
     }
-    if (updates.startTime) patch.starts_at = updates.startTime
-    if (updates.durationMinutes) patch.duration_minutes = updates.durationMinutes
+    if (updates.startTime) patch.startsAt = updates.startTime
+    if (updates.durationMinutes) patch.durationMinutes = updates.durationMinutes
 
     // If start + duration change, server needs both starts_at and ends_at
     if (updates.startTime && updates.durationMinutes) {
       const start = new Date(updates.startTime)
-      patch.ends_at = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
+      patch.endsAt = new Date(start.getTime() + updates.durationMinutes * 60000).toISOString()
     }
 
-    await synqed.appointments.update(appointmentId, patch)
-    revalidatePath('/appointments')
-    updateTag('dashboard')
-    return { success: true }
+    const result = await updateAppointmentCore(synqed, appointmentId, patch, {
+      ...auditActor,
+      source: 'web',
+    })
+    if ('success' in result) {
+      revalidatePath('/appointments')
+      updateTag('dashboard')
+    }
+    return result
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

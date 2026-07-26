@@ -347,13 +347,16 @@ describe('cancelAppointment — audit', () => {
       target_id: 'cust-1',
       severity: 'info',
       source: 'web',
-      detail: {
-        appointment_id: 'appt-1',
-        customer_id: 'cust-1',
-        store_id: 'store-1',
-        reason: null,
-        burn_pack: false,
-      },
+    })
+    // Exact equality (not toMatchObject/objectContaining) — a future key
+    // leaking a customer name or memo text into detail must fail this test.
+    expect(lines[0].detail).toEqual({
+      appointment_id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      reason: null,
+      burn_pack: false,
+      burn_error: null,
     })
   })
 
@@ -393,6 +396,27 @@ describe('cancelAppointment — audit', () => {
     })
     expect(lines).toHaveLength(0)
   })
+
+  // Fable audit finding (2026-07-27): burn_pack alone is the staff's CHOICE,
+  // not the outcome — a failed burn must not read as "ticket consumed".
+  it('records burn_pack:true with burn_error set when the redemption fails — the ticket was NOT consumed', async () => {
+    liveBooking()
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    addRedemption.mockResolvedValueOnce({ ok: false, error: 'burn_failed' })
+    const lines = await auditLines(async () => {
+      const res = await cancelAppointment('appt-1', { reason: 'cancel-same-day-contact', burnPack: true })
+      expect(res).toEqual({ success: true, burnError: 'burn_failed' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).toEqual({
+      appointment_id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      reason: 'cancel-same-day-contact',
+      burn_pack: true,
+      burn_error: 'burn_failed',
+    })
+  })
 })
 
 describe('restoreAppointment — audit', () => {
@@ -410,8 +434,8 @@ describe('restoreAppointment — audit', () => {
       target_id: 'cust-1',
       severity: 'info',
       source: 'web',
-      detail: { appointment_id: 'appt-1', customer_id: 'cust-1', store_id: 'store-1' },
     })
+    expect(lines[0].detail).toEqual({ appointment_id: 'appt-1', customer_id: 'cust-1', store_id: 'store-1' })
   })
 
   it('a denied restore emits no audit row', async () => {

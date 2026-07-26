@@ -2169,7 +2169,9 @@
           "create": "予約の作成",
           "cancel": "予約のキャンセル",
           "no_show": "無断キャンセル",
-          "restore": "予約の復元"
+          "restore": "予約の復元",
+          "update": "予約の変更",
+          "delete": "予約の削除"
         }
       },
       "categoryLabel": "カテゴリ",

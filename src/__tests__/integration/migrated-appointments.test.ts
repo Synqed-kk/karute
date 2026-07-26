@@ -3,7 +3,8 @@
  *   - createAppointment maps UI camelCase → API snake_case and computes ends_at
  *   - Overlap (SynqedError 409) surfaces as a friendly user message
  *   - getAppointmentsByDate merges customer names + matches karute_record_id
- *   - deleteAppointment / updateAppointment thin pass-through
+ *   - deleteAppointment / updateAppointment field-shape pass-through (audit
+ *     behavior for both is pinned separately in booking-flow.test.ts)
  */
 
 jest.mock('next/cache', () => ({
@@ -62,6 +63,10 @@ const appointments = {
   list: jest.fn(),
   delete: jest.fn(),
   update: jest.fn(),
+  // updateAppointmentCore/deleteAppointmentCore (booking mutations now audit,
+  // Liam ruling 2026-07-26) read this: update()'s return for the audit
+  // target, delete's precondition read before the SDK delete call.
+  get: jest.fn(),
 }
 const karuteRecords = {
   list: jest.fn(),
@@ -289,7 +294,10 @@ describe('Migrated appointment actions', () => {
 
   describe('updateAppointment', () => {
     it('computes ends_at when both startTime and durationMinutes change', async () => {
-      appointments.update.mockResolvedValue(undefined)
+      // update()'s return rides the full Appointment row (verified fact: core
+      // always returns customer_id/store_id) — updateAppointmentCore reads
+      // the audit target off it directly.
+      appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', {
         startTime: '2026-05-10T14:00:00.000Z',
@@ -304,7 +312,7 @@ describe('Migrated appointment actions', () => {
     })
 
     it('partial update omits ends_at if only duration changes', async () => {
-      appointments.update.mockResolvedValue(undefined)
+      appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', { durationMinutes: 45 })
 
@@ -316,6 +324,9 @@ describe('Migrated appointment actions', () => {
 
   describe('deleteAppointment', () => {
     it('forwards to client', async () => {
+      // deleteAppointmentCore reads the row FIRST (delete() itself returns
+      // void) so the audit detail has a customer_id/store_id to point at.
+      appointments.get.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
       appointments.delete.mockResolvedValue(undefined)
 
       const result = await deleteAppointment('appt-1')
