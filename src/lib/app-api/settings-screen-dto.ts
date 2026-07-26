@@ -175,6 +175,10 @@ const StaffMemberSchema = z.object({
   avatar_url: z.string().nullable().optional(),
   has_pin: z.boolean(),
   created_at: z.string(),
+  // Core-only roster card, no login attached (lib/staff.ts). Without this
+  // key zod would strip the flag and the shell would fall back to the
+  // fetch-and-fail path this flag exists to prevent.
+  unlinked: z.boolean().optional(),
 })
 
 export const SettingsScreenDTO = z.object({

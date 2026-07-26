@@ -106,3 +106,31 @@ describe('StaffForm — businessType prop drives 役職 options (no getOrgSettin
     expect(screen.getByRole('option', { name: 'スタッフ' })).toBeTruthy()
   })
 })
+
+describe('StaffForm — unlinked staff (no login attached) honest authority state', () => {
+  const { getStaffPermissions } = jest.requireMock('@/actions/permissions') as {
+    getStaffPermissions: jest.Mock
+  }
+  beforeEach(() => getStaffPermissions.mockClear())
+
+  it('unlinked → renders the honest state and never fetches permissions', () => {
+    render(
+      <StaffForm
+        mode="edit"
+        staff={{ id: 'synqed-only-1', name: '原田', unlinked: true }}
+        onClose={() => {}}
+      />,
+    )
+    expect(screen.getByText('unlinked')).toBeTruthy()
+    expect(getStaffPermissions).not.toHaveBeenCalled()
+  })
+
+  it('linked (flag absent) → fetches permissions exactly as before', async () => {
+    render(<StaffForm mode="edit" staff={{ id: 'auth-uid-1', name: '鶴窪' }} onClose={() => {}} />)
+    expect(getStaffPermissions).toHaveBeenCalledWith('auth-uid-1')
+    // Mocked load returns {error} → the (honest, transient-flavored) error
+    // state renders — proving the unlinked branch didn't swallow it.
+    expect(await screen.findByText('loadFailed')).toBeTruthy()
+    expect(screen.queryByText('unlinked')).toBeNull()
+  })
+})

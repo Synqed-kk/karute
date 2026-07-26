@@ -15,6 +15,10 @@ export interface StaffMember {
   avatar_url?: string | null
   has_pin: boolean
   created_at: string
+  /** True for a roster card with NO login attached (synqed-only row — its id
+   *  is a core staff id, not an auth uid). Permissions/PIN don't exist for it
+   *  yet; surfaces render the honest unlinked state instead of fetching. */
+  unlinked?: boolean
 }
 
 export interface StaffMemberBasic {
@@ -161,6 +165,7 @@ async function synqedStaffWithoutProfile(
         avatar_url: s.avatar_url,
         has_pin: false,
         created_at: s.created_at,
+        unlinked: true,
       })) as StaffMember[]
   } catch (err) {
     if (orThrow) throw err
