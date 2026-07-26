@@ -43,11 +43,16 @@ jest.mock('@/lib/staff', () => ({
 
 // email-exists lookup used by createInviteCore.
 let existingMember: { id: string } | null = null
+// Rows memberEmailsForBusiness's awaited select resolves to (the linked-badge
+// lookup awaits the chain directly, no maybeSingle — hence the thenable).
+let memberEmailRows: { email: string | null }[] = []
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'ilike', 'eq']) builder[m] = () => builder
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: existingMember })
+    ;(builder as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
+      resolve({ data: memberEmailRows })
     return { from: () => builder }
   },
 }))
@@ -102,6 +107,7 @@ beforeEach(() => {
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'owner' },
   ])
   existingMember = null
+  memberEmailRows = []
   invitesCreate.mockResolvedValue({ id: 'inv-new' })
   invitesList.mockResolvedValue({
     invites: [
@@ -124,8 +130,15 @@ describe('GET /api/app/v1/invites', () => {
     expect(res.status).toBe(200)
     const body = await res.json()
     expect(body.invites).toEqual([
-      { id: 'inv-1', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08' },
+      { id: 'inv-1', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08', linked: false },
     ])
+  })
+
+  it('a pending invite whose email is already a member login → linked: true (ghost invite shows 接続済み, not eternal 保留中)', async () => {
+    memberEmailRows = [{ email: 'A@test.com' }] // case-insensitive match
+    const res = await GET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-1', linked: true })
   })
 
   it('a read failure degrades to [] (web-exact tolerance)', async () => {

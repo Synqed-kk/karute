@@ -2141,6 +2141,8 @@
           "remove": "スタッフを削除",
           "invite_create": "招待を作成",
           "invite_revoke": "招待を取り消し",
+          "link_failed": "スタッフ接続に失敗（要確認）",
+          "invite_mark_failed": "招待ステータスの更新に失敗",
           "pin_set": "PINを設定",
           "pin_removed": "PINを削除",
           "avatar_update": "プロフィール画像を更新"
@@ -2969,6 +2971,7 @@
     "copy": "コピー",
     "copied": "コピーしました",
     "pendingInvites": "保留中の招待",
+    "linkedBadge": "接続済み",
     "revoke": "取り消す",
     "inviteExistingLabel": "既存スタッフにログインを招待（任意）",
     "inviteExistingNone": "新しいスタッフ（メールのみ）",

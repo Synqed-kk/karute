@@ -2141,6 +2141,8 @@
           "remove": "Removed staff",
           "invite_create": "Created invite",
           "invite_revoke": "Revoked invite",
+          "link_failed": "Staff link failed (needs attention)",
+          "invite_mark_failed": "Invite status update failed",
           "pin_set": "PIN set",
           "pin_removed": "PIN removed",
           "avatar_update": "Profile photo updated"
@@ -2969,6 +2971,7 @@
     "copy": "Copy",
     "copied": "Copied",
     "pendingInvites": "Pending invites",
+    "linkedBadge": "Connected",
     "revoke": "Revoke",
     "inviteExistingLabel": "Invite an existing team member (optional)",
     "inviteExistingNone": "New hire (email only)",

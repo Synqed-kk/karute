@@ -269,6 +269,69 @@ describe('invite writers', () => {
     })
     expect(JSON.stringify(lines[0])).not.toContain('joiner@example.com')
   })
+
+  it('acceptInvite: a failed staff link is LOUD — staff.link_failed at warning lands in the log (the silent version hid a half-joined staff for 11 days)', async () => {
+    publicGetByToken.mockResolvedValue({
+      id: 'inv-2',
+      status: 'pending',
+      email: 'joiner2@example.com',
+      role: 'STYLIST',
+      business_id: 'biz-join',
+      invited_staff_id: null,
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    })
+    linkedStaffList.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      await expect(acceptInvite('tok-abcdef1234567890', 'password123', 'Joiner', 'ja')).resolves.toBeUndefined()
+    })
+    const failLine = lines.find((l) => (l as { action?: string }).action === 'staff.link_failed')
+    expect(failLine).toMatchObject({
+      severity: 'warning',
+      actor_id: 'user-new',
+      business_id: 'biz-join',
+      detail: { via: 'invite', invite_id: 'inv-2', role: 'STYLIST' },
+    })
+    // The join itself still emitted staff.add — the person got in.
+    expect(lines.some((l) => (l as { action?: string }).action === 'staff.add')).toBe(true)
+  })
+
+  it('acceptInvite: a failed mark-accepted is LOUD — staff.invite_mark_failed at warning (ghost invites no longer silent)', async () => {
+    publicGetByToken.mockResolvedValue({
+      id: 'inv-3',
+      status: 'pending',
+      email: 'joiner3@example.com',
+      role: 'STYLIST',
+      business_id: 'biz-join',
+      invited_staff_id: null,
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    })
+    linkedInvitesUpdateStatus.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      await expect(acceptInvite('tok-abcdef1234567890', 'password123', 'Joiner', 'ja')).resolves.toBeUndefined()
+    })
+    expect(
+      lines.find((l) => (l as { action?: string }).action === 'staff.invite_mark_failed'),
+    ).toMatchObject({ severity: 'warning', actor_id: 'user-new', business_id: 'biz-join' })
+  })
+
+  it('acceptInvite: existing-account error never claims sign-in accepts (no such flow exists)', async () => {
+    publicGetByToken.mockResolvedValue({
+      id: 'inv-4',
+      status: 'pending',
+      email: 'existing@example.com',
+      role: 'STYLIST',
+      business_id: 'biz-join',
+      invited_staff_id: null,
+      expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+    })
+    adminCreateUser.mockResolvedValueOnce({
+      data: { user: null as never },
+      error: { message: 'User already registered' } as never,
+    })
+    const res = await acceptInvite('tok-abcdef1234567890', 'password123', 'Joiner', 'ja')
+    expect(res && 'error' in res && res.error).toContain('cannot accept an invite')
+    expect(res && 'error' in res && res.error).not.toContain('sign in to accept')
+  })
 })
 
 describe('authority writers', () => {

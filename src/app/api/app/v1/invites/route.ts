@@ -38,7 +38,7 @@ import { ensureCapability } from '@/lib/auth/require-permission'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/customer-facade'
 import { staffListByBusinessOrThrow } from '@/lib/staff'
-import { createInviteCore, listInvitesWithClient } from '@/actions/invites'
+import { createInviteCore, listInvitesWithClient, memberEmailsForBusiness } from '@/actions/invites'
 import { inviteSchema } from '@/lib/validations/invite'
 import { staffAddAllowedWithClient } from '@/lib/subscription/feature-gate'
 
@@ -47,7 +47,10 @@ export const runtime = 'nodejs'
 export const GET = facadeHandler('invite.list', async (ctx) => {
   ensureCapability(ctx.identity.capabilities, 'staff.invite')
   const synqed = newSynqedClient(ctx.identity.businessId)
-  const invites = await listInvitesWithClient(synqed)
+  const invites = await listInvitesWithClient(
+    synqed,
+    await memberEmailsForBusiness(ctx.identity.businessId),
+  )
   return ok(ctx, { invites })
 })
 

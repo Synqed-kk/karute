@@ -55,6 +55,10 @@ export interface InviteRow {
   status: 'pending' | 'accepted' | 'revoked'
   created_at: string
   expires_at: string
+  /** A login with this email is ALREADY a member of the business — the
+   *  invite is a ghost (its person got in some other way, or mark-accepted
+   *  failed). The UI shows 接続済み instead of an eternal 保留中. */
+  linked?: boolean
 }
 
 /** Gate invite management on the `staff.invite` capability (owner + manager by
@@ -180,7 +184,10 @@ export async function createInvite(
 /** Client-threaded core of listInvites (facade Bearer path, design-parity
  *  packet 12 §S4b). Never throws — degrades to [] the same way the web
  *  action's own catch does. */
-export async function listInvitesWithClient(synqed: InviteClient): Promise<InviteRow[]> {
+export async function listInvitesWithClient(
+  synqed: InviteClient,
+  memberEmails?: Set<string>,
+): Promise<InviteRow[]> {
   try {
     const { invites } = await synqed.invites.list()
     // Core returns all statuses (createdAt desc); the UI only wants pending.
@@ -193,9 +200,28 @@ export async function listInvitesWithClient(synqed: InviteClient): Promise<Invit
         status: i.status as InviteRow['status'],
         created_at: i.created_at,
         expires_at: i.expires_at ?? '',
+        linked: memberEmails?.has(i.email.toLowerCase()) ?? false,
       }))
   } catch {
     return []
+  }
+}
+
+/** Login emails already attached to this business — a pending invite matching
+ *  one is a ghost (best-effort: an empty set just means no 接続済み badges).
+ *  Exported for the facade GET (same truth on the shell). */
+export async function memberEmailsForBusiness(businessId: string): Promise<Set<string>> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const service = createServiceClient() as any
+    const { data } = await service.from('profiles').select('email').eq('customer_id', businessId)
+    return new Set(
+      ((data ?? []) as { email: string | null }[])
+        .map((r) => r.email?.toLowerCase())
+        .filter((e): e is string => !!e),
+    )
+  } catch {
+    return new Set()
   }
 }
 
@@ -207,8 +233,9 @@ export async function listInvites(): Promise<InviteRow[]> {
     return []
   }
   try {
+    const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
-    return await listInvitesWithClient(synqed)
+    return await listInvitesWithClient(synqed, await memberEmailsForBusiness(businessId))
   } catch {
     return []
   }
@@ -352,8 +379,12 @@ export async function acceptInvite(
   if (createErr || !created?.user) {
     const already = (createErr?.message ?? '').toLowerCase().includes('already')
     return {
+      // Honest copy: NO code path accepts an invite by signing in (only this
+      // create-password flow calls acceptInvite) — the old "sign in to
+      // accept" promised a flow that doesn't exist and stranded people on
+      // unconnected accounts.
       error: already
-        ? 'This email already has an account — sign in to accept, or ask the owner to resend.'
+        ? 'This email already has an account, and signing in cannot accept an invite. Ask the owner to connect your existing account instead.'
         : createErr?.message || 'Could not create the account.',
     }
   }
@@ -410,18 +441,42 @@ export async function acceptInvite(
       await synqed.staff.create({ name, email, user_id: userId, role })
     }
   } catch (err) {
-    // Non-fatal: the profile is already attached; staff-map.ts self-heals the
-    // synqed link on first use.
+    // Non-fatal for the JOIN (the profile is attached; the person is in) —
+    // but never silent again: an unwired card breaks permissions, recording
+    // attribution, and audit identity until someone re-links it, so the
+    // failure lands in 監査ログ where the owner actually looks. (This exact
+    // silent failure hid a half-joined staff member for 11 days.)
     console.error('[acceptInvite] synqed staff link failed:', err)
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.link_failed',
+      severity: 'warning',
+      actorId: userId,
+      businessId: invite.business_id as string,
+      targetType: 'staff',
+      targetId: userId,
+      detail: { via: 'invite', invite_id: invite.id as string, role },
+    })
   }
 
   // 5. Mark the invite used (in core; business scope = the invite's business).
   try {
     await synqed.invites.updateStatus(invite.id, 'accepted')
   } catch (err) {
-    // Non-fatal: the account is already created + attached. Worst case the invite
-    // still reads 'pending' but its token now resolves to an existing account.
+    // Non-fatal: the account is already created + attached. But a pending-
+    // forever ghost invite misleads the owner (and re-invites mint NEW rows,
+    // never reconciling) — so the miss lands in 監査ログ too.
     console.error('[acceptInvite] mark-accepted failed:', err)
+    await auditWeb({
+      category: 'staff',
+      action: 'staff.invite_mark_failed',
+      severity: 'warning',
+      actorId: userId,
+      businessId: invite.business_id as string,
+      targetType: 'staff',
+      targetId: userId,
+      detail: { via: 'invite', invite_id: invite.id as string },
+    })
   }
   updateTag('staff-list')
   updateTag('staff-invites')
