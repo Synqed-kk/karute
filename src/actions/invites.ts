@@ -7,7 +7,8 @@ import { SynqedClient } from '@synqed-kk/client'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
-import { getSynqedClient } from '@/lib/synqed/client'
+import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
+import { orgSettingsWithClient } from '@/actions/org-settings'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
@@ -333,20 +334,20 @@ export async function getInviteByToken(
     return { valid: false, reason: 'expired' }
   }
 
-  // Salon name = the owner's profile full_name (set to the salon name at signup);
-  // the owner is the first profile created in the business. (profiles still live
-  // in Supabase until the auth cutover.)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { data: owner } = await service
-    .from('profiles')
-    .select('full_name')
-    .eq('customer_id', invite.business_id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  // Salon name = org truth (settings 事業所名 via core orgSettings), scoped to
+  // the invite's business. NOT the owner's profile full_name — that is a
+  // person's name, and editing it (e.g. the 7/26 owner-name fix) silently
+  // renamed the join screen. Fallback 'Karute' (unconfigured salon or core
+  // read failure) — the pre-auth join page must still render.
+  let salonName = 'Karute'
+  try {
+    const settings = await orgSettingsWithClient(newSynqedClient(invite.business_id))
+    if (settings?.salon_name) salonName = settings.salon_name
+  } catch {
+    /* degrade to fallback — name is chrome here, never blocks joining */
+  }
 
-  return { valid: true, email: invite.email as string, salonName: owner?.full_name ?? 'Karute' }
+  return { valid: true, email: invite.email as string, salonName }
 }
 
 /** Public (unauthenticated) — accept an invite: create the account, attach it to
