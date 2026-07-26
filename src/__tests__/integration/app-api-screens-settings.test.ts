@@ -73,7 +73,7 @@ const fullOrgSettings = () => ({
 
 const staffListByBusinessOrThrow = jest.fn(async (..._a: unknown[]) => [
   { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'stylist', has_pin: true, created_at: '2026-01-01' },
-  { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+  { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01', unlinked: true },
 ])
 jest.mock('@/lib/staff', () => ({
   businessIdForUser: jest.fn(async () => 'business-1'),
@@ -147,7 +147,7 @@ beforeEach(() => {
   mockCapabilities.mockResolvedValue(new Set(['customers.view']))
   staffListByBusinessOrThrow.mockResolvedValue([
     { id: 'auth-user-1', full_name: 'Mika Tanaka', display_role: 'stylist', has_pin: true, created_at: '2026-01-01' },
-    { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01' },
+    { id: 'staff-2', full_name: 'Someone Else', display_role: 'stylist', has_pin: false, created_at: '2026-01-01', unlinked: true },
   ])
   orgSettingsWithClient.mockResolvedValue(fullOrgSettings())
   staffStoresGet.mockResolvedValue({ store_ids: [] })
@@ -197,6 +197,10 @@ describe('GET /api/app/v1/screens/settings', () => {
     // Roster-gated: auth-user-1 IS present in the default roster (beforeEach).
     expect(dto.activeStaffId).toBe('auth-user-1')
     expect(dto.staffList).toHaveLength(2)
+    // The unlinked flag survives DTO validation (zod strips unknown keys —
+    // a schema omission here silently reverts the shell to fetch-and-fail).
+    expect(dto.staffList.find((s: { id: string }) => s.id === 'staff-2')?.unlinked).toBe(true)
+    expect(dto.staffList.find((s: { id: string }) => s.id === 'auth-user-1')?.unlinked).toBeUndefined()
     expect(dto.orgSettings?.salon_name).toBe('テストサロン')
   })
 

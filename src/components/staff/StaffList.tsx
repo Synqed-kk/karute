@@ -54,6 +54,10 @@ interface StaffMember {
   avatar_url?: string | null
   has_pin?: boolean
   created_at: string
+  /** Roster card with no login attached (lib/staff.ts StaffMember.unlinked)
+   *  — threaded to StaffForm so the authority section renders its honest
+   *  state instead of fetching permissions that can't exist. */
+  unlinked?: boolean
   /** ANTHONY: optional fields the spike tracks but karute schema hasn't
    *  added yet. Voice indicator + consent badge render only when these
    *  exist. */
@@ -314,6 +318,7 @@ export function StaffList({
             email: editingStaff.email ?? '',
             phone: editingStaff.phone ?? '',
             avatarUrl: editingStaff.avatar_url ?? undefined,
+            unlinked: editingStaff.unlinked,
           }}
           businessType={businessType}
           stores={stores}

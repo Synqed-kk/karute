@@ -53,6 +53,10 @@ interface StaffFormProps {
     email?: string
     phone?: string
     avatarUrl?: string
+    /** Roster card with no login attached (StaffMember.unlinked) — the
+     *  authority section renders its honest state instead of fetching
+     *  permissions that deterministically don't exist. */
+    unlinked?: boolean
   }
   onClose: () => void
   /** business_type + the business's stores — threaded from the caller's own
@@ -91,9 +95,12 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   })
 
   // Authority state — 'off' (create mode), 'loading', 'owner' (read-only),
-  // 'ready' (editable role + toggles), or 'error' (load failed — shown, not hidden).
-  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready' | 'error'>(
-    mode === 'edit' ? 'loading' : 'off',
+  // 'ready' (editable role + toggles), 'error' (load failed — shown, not
+  // hidden), or 'unlinked' (no login attached — permissions don't exist yet,
+  // so we say that instead of fetching a deterministic 404 and telling the
+  // user to retry it).
+  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready' | 'error' | 'unlinked'>(
+    mode === 'edit' ? (staff?.unlinked ? 'unlinked' : 'loading') : 'off',
   )
   const [role, setRole] = useState<PermissionRole>('practitioner')
   const [caps, setCaps] = useState<Set<Capability>>(new Set())
@@ -112,7 +119,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   const staffId = staff?.id
 
   useEffect(() => {
-    if (!(mode === 'edit' && staffId)) return
+    if (!(mode === 'edit' && staffId) || staff?.unlinked) return
     let cancelled = false
     getStaffPermissions(staffId).then((res) => {
       if (cancelled) return
@@ -133,7 +140,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
     return () => {
       cancelled = true
     }
-  }, [mode, staffId])
+  }, [mode, staffId, staff?.unlinked])
 
   useEffect(() => {
     if (!(storesEnabled && mode === 'edit' && staffId)) return
@@ -297,6 +304,12 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
 
               {permsState === 'error' && (
                 <p className="text-xs text-red-600 dark:text-red-400">{tp('loadFailed')}</p>
+              )}
+
+              {permsState === 'unlinked' && (
+                <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  {tp('unlinked')}
+                </div>
               )}
 
               {permsState === 'owner' && (
