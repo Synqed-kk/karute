@@ -3,8 +3,9 @@
 // tighter than web's ungated listStores() action) · list+counts merge
 // parity via the SAME listStoresWithClient twin the web action delegates to
 // · the GET route shares web's lazy 本店-create (byte-parity, 810e4b6d): an
-// empty list provisions the primary store exactly once (name resolved from
-// profiles), a race-lost create is swallowed, a non-empty list never
+// empty list provisions the primary store exactly once (name = the
+// business-name truth chain: org settings 事業所名 → signup-captured profile
+// name → 'Main store'), a race-lost create is swallowed, a non-empty list never
 // creates · POST/PATCH require the owner role (roster + resolved Bearer
 // identity) with a standard facade 403 on denial, NOT a soft 200 { error } ·
 // Idempotency-Key required on create, not on update · STORE_LIMIT_REACHED
@@ -36,15 +37,18 @@ jest.mock('@/lib/customers/queries', () => ({
   getCustomerWithClient: jest.fn(async () => ({ id: 'unused' })),
 }))
 
-// The lazy 本店-create's name resolver (primaryStoreName) reads the oldest
-// profile row via createServiceClient — same chainable-builder mock shape as
-// action-audit.test.ts's profileRow.
-let profileRow: { full_name: string | null } | null = { full_name: 'テストサロン' }
+// The lazy 本店-create's name comes from the business-name truth chain:
+// org settings 事業所名 first, the signup-captured profile full_name second
+// (the P1 scenario: a fresh signup provisions its store BEFORE /welcome
+// writes org settings), 'Main store' last. `signupName` is tier 2.
+let signupName: string | null = 'サインアップ店名'
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'order', 'limit']) builder[m] = () => builder
-    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
+    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
+      data: signupName === null ? null : { full_name: signupName },
+    })
     return { from: () => builder }
   },
 }))
@@ -72,11 +76,21 @@ const storesUpdate = jest.fn(async () => ({}))
 const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const entitlementsGet = jest.fn(async () => ({ tier: 'professional', is_unlimited: false }))
+// Raw core orgSettings payload — orgSettingsWithClient normalizes it; the
+// top-level `name` column is the 事業所名 primaryStoreName provisions with.
+const orgSettingsGet = jest.fn(
+  async (): Promise<{ business_id: string; name: string; settings: object } | null> => ({
+    business_id: 'business-1',
+    name: 'テストサロン',
+    settings: {},
+  }),
+)
 const fakeClient = {
   stores: { list: storesList, create: storesCreate, update: storesUpdate },
   staffStores: { counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
   entitlements: { get: entitlementsGet },
+  orgSettings: { get: orgSettingsGet },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -131,7 +145,8 @@ beforeEach(() => {
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'professional', is_unlimited: false })
-  profileRow = { full_name: 'テストサロン' }
+  orgSettingsGet.mockResolvedValue({ business_id: 'business-1', name: 'テストサロン', settings: {} })
+  signupName = 'サインアップ店名'
 })
 
 describe('GET /api/app/v1/stores', () => {
@@ -175,7 +190,7 @@ describe('GET /api/app/v1/stores', () => {
     ])
   })
 
-  it('an empty list creates the 本店 primary exactly once, name resolved from profiles, then returns the re-listed rows', async () => {
+  it('an empty list creates the 本店 primary exactly once, name resolved from org settings (never the owner profile), then returns the re-listed rows', async () => {
     storesList
       .mockResolvedValueOnce({ stores: [] })
       .mockResolvedValueOnce({
@@ -200,6 +215,51 @@ describe('GET /api/app/v1/stores', () => {
         businessType: null,
       },
     ])
+  })
+
+  it('fresh signup (org settings not yet configured): the store gets the SIGNUP-captured name, never Main store', async () => {
+    // The P1 scenario: /welcome has not run, orgSettings.get() resolves to
+    // nothing, but bootstrap already wrote the entered salon name into the
+    // owner profile. That name — not the English default — must be baked
+    // into the permanent store row.
+    orgSettingsGet.mockResolvedValueOnce(null)
+    storesList
+      .mockResolvedValueOnce({ stores: [] })
+      .mockResolvedValueOnce({
+        stores: [
+          { id: 'store-primary', name: 'サインアップ店名', address: null, phone: null, is_primary: true, active: true },
+        ],
+      })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storesCreate).toHaveBeenCalledWith({ name: 'サインアップ店名', is_primary: true })
+  })
+
+  it('core down: provisioning is SKIPPED this render — a permanent name is never written off a failed read', async () => {
+    // Failure contract: the store name is a permanent write; the lazy create
+    // retries on every zero-store render, so an outage defers provisioning
+    // instead of baking in a wrong name.
+    orgSettingsGet.mockRejectedValueOnce(new Error('core down'))
+    storesList.mockResolvedValueOnce({ stores: [] })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storesCreate).not.toHaveBeenCalled()
+    expect((await res.json()).stores).toEqual([])
+  })
+
+  it('unconfigured org + no profile row: provisions with the Main store default', async () => {
+    orgSettingsGet.mockResolvedValueOnce(null)
+    signupName = null
+    storesList
+      .mockResolvedValueOnce({ stores: [] })
+      .mockResolvedValueOnce({
+        stores: [
+          { id: 'store-primary', name: 'Main store', address: null, phone: null, is_primary: true, active: true },
+        ],
+      })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storesCreate).toHaveBeenCalledWith({ name: 'Main store', is_primary: true })
   })
 
   it('a create rejection (race lost to another request) still returns the re-listed rows, no error', async () => {

@@ -7,7 +7,8 @@ import { SynqedClient } from '@synqed-kk/client'
 
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
-import { getSynqedClient } from '@/lib/synqed/client'
+import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
+import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
@@ -333,20 +334,24 @@ export async function getInviteByToken(
     return { valid: false, reason: 'expired' }
   }
 
-  // Salon name = the owner's profile full_name (set to the salon name at signup);
-  // the owner is the first profile created in the business. (profiles still live
-  // in Supabase until the auth cutover.)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const service = createServiceClient() as any
-  const { data: owner } = await service
-    .from('profiles')
-    .select('full_name')
-    .eq('customer_id', invite.business_id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
+  // Salon name = the shared truth chain (business-name.ts): configured org
+  // 事業所名 first — NOT the owner's editable profile name (the 7/26 rename
+  // silently retitled this screen) — then the signup-captured name for
+  // pre-onboarding tenants, then 'Karute'. Outage posture: a core failure
+  // degrades to 'Karute' (never the personal profile name, never blocks
+  // joining — the chain's failure contract).
+  let salonName = 'Karute'
+  try {
+    salonName = await businessDisplayName(
+      newSynqedClient(invite.business_id),
+      invite.business_id,
+      'Karute',
+    )
+  } catch {
+    /* core unreachable — the default renders; next load self-corrects */
+  }
 
-  return { valid: true, email: invite.email as string, salonName: owner?.full_name ?? 'Karute' }
+  return { valid: true, email: invite.email as string, salonName }
 }
 
 /** Public (unauthenticated) — accept an invite: create the account, attach it to

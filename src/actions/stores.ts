@@ -5,8 +5,8 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import type { SynqedClient } from '@synqed-kk/client'
 
-import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -17,7 +17,7 @@ import { audit } from '@/lib/audit'
 // every twin below takes this instead of resolving getSynqedClient() from the
 // cookie session, so the facade (Bearer path, business resolved from the
 // verified token) and the web actions run the IDENTICAL write/read logic.
-type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements'>
+type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings'>
 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
@@ -83,22 +83,11 @@ function coreBusinessType(row: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
-/** Name for the auto-created primary store — the salon name from the owner's
- *  profile (set at signup), i.e. the first profile in the business. */
-async function primaryStoreName(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  service: any,
-  businessId: string,
-): Promise<string> {
-  const { data } = await service
-    .from('profiles')
-    .select('full_name')
-    .eq('customer_id', businessId)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-  return data?.full_name || 'Main store'
-}
+// Primary-store name = the shared truth chain (business-name.ts). This write
+// is PERMANENT (the provisioned 本店 keeps it, nothing re-syncs it later) and
+// fires on the FIRST authenticated render — usually BEFORE /welcome writes
+// org settings — so the signup-captured tier is the one most new tenants
+// actually hit. 'Main store' only when both sources are empty.
 
 /** Client-threaded core of listStores (facade Bearer path, design-parity
  *  packet 12 §B-3 S2 — same WithClient split as orgSettingsWithClient).
@@ -143,22 +132,33 @@ export async function listStoresWithClient(
       .catch(() => new Map<string, number>()),
   ])
 
-  // Lazily create the 本店 primary store so every business always has one.
+  // Lazily create the 本店 primary store so every business ends up with one —
+  // EVENTUALLY, not synchronously: a core outage skips this render (failure
+  // contract below) and a later zero-store render provisions instead.
   // Only hit on a brand-new business (no stores yet) — its counts are empty
   // anyway, so the parallel fetch above isn't wasted. Re-lists (not a second
   // full twin call) so the count maps from the first pass — both correctly
   // empty for a business that had zero stores — merge with the fresh row.
   let stores = storesRes.stores
   if (opts.ensurePrimary && stores.length === 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = createServiceClient() as any
-    const name = await primaryStoreName(service, businessId)
+    // Outage posture (the chain's failure contract): if core can't answer the
+    // name question, SKIP provisioning this render — the store name is a
+    // permanent write, and the lazy create retries on every zero-store
+    // render, so deferring costs one render and can never bake a wrong name.
+    let name: string | null = null
     try {
-      await synqed.stores.create({ name, is_primary: true })
+      name = await businessDisplayName(synqed, businessId, 'Main store')
     } catch {
-      /* race: another request created the primary — ignore */
+      /* core unreachable — no permanent write off a failed read */
     }
-    stores = (await synqed.stores.list()).stores
+    if (name !== null) {
+      try {
+        await synqed.stores.create({ name, is_primary: true })
+      } catch {
+        /* race: another request created the primary — ignore */
+      }
+      stores = (await synqed.stores.list()).stores
+    }
   }
 
   return stores.map((s) => ({
