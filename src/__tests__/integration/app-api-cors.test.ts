@@ -51,29 +51,66 @@ describe('facade CORS', () => {
   // A facade route exporting a method the CORS allow-list omits fails ONLY at
   // runtime, from the shell, as an opaque "Load failed" (preflight 204s, the
   // browser then refuses the real request — how the staff/[id]/permissions PUT
-  // shipped broken). Walk the real route files so the list can never drift
-  // behind the routes again.
-  it('ALLOWED_METHODS covers every method exported by a facade route', () => {
+  // shipped broken). Walk the real route files so the list can't drift behind
+  // the routes. Catches `export const M =`, `export async function M(`, and
+  // `export { M }` styles; a style none of these match would show up as the
+  // known-fixture self-check failing, not as a silent pass.
+  describe('CORS allow-list ↔ facade route methods', () => {
+    const METHOD = /(?:export\s+(?:const|async\s+function)\s+(GET|POST|PUT|PATCH|DELETE)\b)|(?:export\s*\{[^}]*?\b(GET|POST|PUT|PATCH|DELETE)\b[^}]*?\})/g
     const root = join(process.cwd(), 'src/app/api/app/v1')
     const routeFiles: string[] = []
     const walk = (dir: string) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, entry.name)
         if (entry.isDirectory()) walk(p)
-        else if (entry.name === 'route.ts') routeFiles.push(p)
+        else if (/^route\.(ts|tsx|js|mjs)$/.test(entry.name)) routeFiles.push(p)
       }
     }
     walk(root)
-    expect(routeFiles.length).toBeGreaterThan(0)
+    const methodsByFile = new Map(
+      routeFiles.map((f) => {
+        const src = readFileSync(f, 'utf8')
+        const methods = new Set(
+          [...src.matchAll(METHOD)].map(([, a, b]) => a ?? b).filter((m): m is string => !!m),
+        )
+        return [relative(root, f), { methods, hasOptions: /export\s+const\s+OPTIONS\b/.test(src) }] as const
+      }),
+    )
     const allowMethods =
       preflightResponse('capacitor://localhost', ENV).headers.get('Access-Control-Allow-Methods') ?? ''
-    for (const file of routeFiles) {
-      const src = readFileSync(file, 'utf8')
-      for (const [, method] of src.matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\b/g)) {
-        expect(`${relative(root, file)} needs ${allowMethods.includes(method) ? method : 'MISSING ' + method}`).toBe(
-          `${relative(root, file)} needs ${method}`,
-        )
+
+    it('scanner self-check: sees PUT on the route that shipped broken', () => {
+      // If the extraction regex rots, this known fixture fails loudly instead
+      // of every file silently contributing zero assertions (the sibling
+      // revocation-coverage test pins its scanner the same way).
+      expect([...(methodsByFile.get('staff/[id]/permissions/route.ts')?.methods ?? [])]).toEqual(
+        expect.arrayContaining(['GET', 'PUT']),
+      )
+      expect(methodsByFile.size).toBeGreaterThan(0)
+    })
+
+    it('every exported route method is in ALLOWED_METHODS', () => {
+      for (const [file, { methods }] of methodsByFile) {
+        for (const method of methods) {
+          expect(`${file} needs ${allowMethods.includes(method) ? method : 'MISSING ' + method}`).toBe(
+            `${file} needs ${method}`,
+          )
+        }
       }
-    }
+    })
+
+    it('every facade route exports OPTIONS (a missing preflight handler 405s = the same opaque shell failure)', () => {
+      for (const [file, { hasOptions }] of methodsByFile) {
+        expect(`${file} ${hasOptions ? 'has OPTIONS' : 'MISSING OPTIONS'}`).toBe(`${file} has OPTIONS`)
+      }
+    })
+
+    it('ALLOWED_METHODS carries no method no route uses (two-way ratchet)', () => {
+      const used = new Set<string>(['OPTIONS']) // preflight itself, exported as an alias
+      for (const { methods } of methodsByFile.values()) for (const m of methods) used.add(m)
+      for (const listed of allowMethods.split(',').map((s) => s.trim()).filter(Boolean)) {
+        expect(`${listed} ${used.has(listed) ? 'used' : 'UNUSED in routes'}`).toBe(`${listed} used`)
+      }
+    })
   })
 })
