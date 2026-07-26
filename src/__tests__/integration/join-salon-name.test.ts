@@ -71,10 +71,14 @@ describe('getInviteByToken salon name', () => {
     expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: 'エストロ表参道' })
   })
 
-  it('core down: degrades to the signup-captured name — join still renders', async () => {
+  it('core down: degrades to Karute — NEVER the personal profile name, join still renders', async () => {
+    // Failure contract: a transient core failure must not expose the
+    // (personally editable) profile name — only a definitive "unconfigured"
+    // answer unlocks that tier.
     orgSettingsWithClient.mockRejectedValue(new Error('core down'))
     const r = await getInviteByToken('tok-32-chars')
-    expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: 'エストロ表参道' })
+    expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: 'Karute' })
+    expect(createServiceClient).not.toHaveBeenCalled()
   })
 
   it('both sources empty: falls back to Karute', async () => {

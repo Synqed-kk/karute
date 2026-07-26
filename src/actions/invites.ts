@@ -337,12 +337,19 @@ export async function getInviteByToken(
   // Salon name = the shared truth chain (business-name.ts): configured org
   // 事業所名 first — NOT the owner's editable profile name (the 7/26 rename
   // silently retitled this screen) — then the signup-captured name for
-  // pre-onboarding tenants, then 'Karute'. Never blocks joining.
-  const salonName = await businessDisplayName(
-    newSynqedClient(invite.business_id),
-    invite.business_id,
-    'Karute',
-  )
+  // pre-onboarding tenants, then 'Karute'. Outage posture: a core failure
+  // degrades to 'Karute' (never the personal profile name, never blocks
+  // joining — the chain's failure contract).
+  let salonName = 'Karute'
+  try {
+    salonName = await businessDisplayName(
+      newSynqedClient(invite.business_id),
+      invite.business_id,
+      'Karute',
+    )
+  } catch {
+    /* core unreachable — the default renders; next load self-corrects */
+  }
 
   return { valid: true, email: invite.email as string, salonName }
 }

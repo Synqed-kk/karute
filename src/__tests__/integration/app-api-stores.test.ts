@@ -235,8 +235,20 @@ describe('GET /api/app/v1/stores', () => {
     expect(storesCreate).toHaveBeenCalledWith({ name: 'サインアップ店名', is_primary: true })
   })
 
-  it('both name sources empty (core down + no profile): degrades to Main store — never blocks the list', async () => {
+  it('core down: provisioning is SKIPPED this render — a permanent name is never written off a failed read', async () => {
+    // Failure contract: the store name is a permanent write; the lazy create
+    // retries on every zero-store render, so an outage defers provisioning
+    // instead of baking in a wrong name.
     orgSettingsGet.mockRejectedValueOnce(new Error('core down'))
+    storesList.mockResolvedValueOnce({ stores: [] })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storesCreate).not.toHaveBeenCalled()
+    expect((await res.json()).stores).toEqual([])
+  })
+
+  it('unconfigured org + no profile row: provisions with the Main store default', async () => {
+    orgSettingsGet.mockResolvedValueOnce(null)
     signupName = null
     storesList
       .mockResolvedValueOnce({ stores: [] })

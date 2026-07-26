@@ -139,13 +139,24 @@ export async function listStoresWithClient(
   // empty for a business that had zero stores — merge with the fresh row.
   let stores = storesRes.stores
   if (opts.ensurePrimary && stores.length === 0) {
-    const name = await businessDisplayName(synqed, businessId, 'Main store')
+    // Outage posture (the chain's failure contract): if core can't answer the
+    // name question, SKIP provisioning this render — the store name is a
+    // permanent write, and the lazy create retries on every zero-store
+    // render, so deferring costs one render and can never bake a wrong name.
+    let name: string | null = null
     try {
-      await synqed.stores.create({ name, is_primary: true })
+      name = await businessDisplayName(synqed, businessId, 'Main store')
     } catch {
-      /* race: another request created the primary — ignore */
+      /* core unreachable — no permanent write off a failed read */
     }
-    stores = (await synqed.stores.list()).stores
+    if (name !== null) {
+      try {
+        await synqed.stores.create({ name, is_primary: true })
+      } catch {
+        /* race: another request created the primary — ignore */
+      }
+      stores = (await synqed.stores.list()).stores
+    }
   }
 
   return stores.map((s) => ({
