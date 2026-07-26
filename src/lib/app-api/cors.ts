@@ -30,7 +30,7 @@ const ALLOWED_HEADERS = [
   'request-id',
 ].join(', ')
 
-const ALLOWED_METHODS = 'GET, POST, PATCH, DELETE, OPTIONS'
+const ALLOWED_METHODS = 'GET, POST, PUT, PATCH, DELETE, OPTIONS'
 const MAX_AGE = '600' // bounded preflight cache (10 min)
 
 /** Site origins that may use CREDENTIALED (cookie) CORS. From config, never
