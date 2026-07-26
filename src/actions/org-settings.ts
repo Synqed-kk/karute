@@ -1,8 +1,11 @@
 'use server'
 
 import { revalidatePath, updateTag, unstable_cache } from 'next/cache'
-import { SynqedClient } from '@synqed-kk/client'
-import { getSynqedClient } from '@/lib/synqed/client'
+// type-only — a value import would pull the ESM-only SDK into every jest
+// graph that reaches this module while mocking only the '@/lib/synqed/client'
+// seam (the house convention); construction goes through that seam below.
+import type { SynqedClient } from '@synqed-kk/client'
+import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
 import { getBusinessId } from '@/lib/staff'
 import {
   type OperatingHours,
@@ -179,10 +182,8 @@ export async function orgSettingsWithClient(
 
 const orgSettingsByBusiness = unstable_cache(
   async (businessId: string): Promise<OrgSettings | null> => {
-    const baseUrl = process.env.SYNQED_CORE_URL
-    const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) return null
-    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    if (!process.env.SYNQED_CORE_URL || !process.env.SYNQED_CORE_API_KEY) return null
+    const client = newSynqedClient(businessId)
     try {
       return normalizeOrgSettings(await client.orgSettings.get())
     } catch {

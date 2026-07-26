@@ -4,7 +4,8 @@
 // parity via the SAME listStoresWithClient twin the web action delegates to
 // · the GET route shares web's lazy 本店-create (byte-parity, 810e4b6d): an
 // empty list provisions the primary store exactly once (name resolved from
-// profiles), a race-lost create is swallowed, a non-empty list never
+// org settings 事業所名, degrade 'Main store' — never the owner's profile
+// name), a race-lost create is swallowed, a non-empty list never
 // creates · POST/PATCH require the owner role (roster + resolved Bearer
 // identity) with a standard facade 403 on denial, NOT a soft 200 { error } ·
 // Idempotency-Key required on create, not on update · STORE_LIMIT_REACHED
@@ -36,15 +37,18 @@ jest.mock('@/lib/customers/queries', () => ({
   getCustomerWithClient: jest.fn(async () => ({ id: 'unused' })),
 }))
 
-// The lazy 本店-create's name resolver (primaryStoreName) reads the oldest
-// profile row via createServiceClient — same chainable-builder mock shape as
-// action-audit.test.ts's profileRow.
-let profileRow: { full_name: string | null } | null = { full_name: 'テストサロン' }
+// The lazy 本店-create's name resolver (primaryStoreName) reads org truth
+// (orgSettings 事業所名) — NEVER the owner's profile. The service-client mock
+// below keeps the OLD path's query satisfiable with a DISTINCTIVE personal
+// name: if the profiles read ever comes back, the created store would be
+// named 'オーナー個人名' and the name assertions fail.
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'order', 'limit']) builder[m] = () => builder
-    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({ data: profileRow })
+    ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
+      data: { full_name: 'オーナー個人名' },
+    })
     return { from: () => builder }
   },
 }))
@@ -72,11 +76,19 @@ const storesUpdate = jest.fn(async () => ({}))
 const staffStoresCounts = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<string, number> }))
 const entitlementsGet = jest.fn(async () => ({ tier: 'professional', is_unlimited: false }))
+// Raw core orgSettings payload — orgSettingsWithClient normalizes it; the
+// top-level `name` column is the 事業所名 primaryStoreName provisions with.
+const orgSettingsGet = jest.fn(async () => ({
+  business_id: 'business-1',
+  name: 'テストサロン',
+  settings: {},
+}))
 const fakeClient = {
   stores: { list: storesList, create: storesCreate, update: storesUpdate },
   staffStores: { counts: staffStoresCounts },
   customers: { countsByStore: customersCountsByStore },
   entitlements: { get: entitlementsGet },
+  orgSettings: { get: orgSettingsGet },
 }
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
@@ -131,7 +143,7 @@ beforeEach(() => {
   staffStoresCounts.mockResolvedValue({ counts: {} })
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'professional', is_unlimited: false })
-  profileRow = { full_name: 'テストサロン' }
+  orgSettingsGet.mockResolvedValue({ business_id: 'business-1', name: 'テストサロン', settings: {} })
 })
 
 describe('GET /api/app/v1/stores', () => {
@@ -175,7 +187,7 @@ describe('GET /api/app/v1/stores', () => {
     ])
   })
 
-  it('an empty list creates the 本店 primary exactly once, name resolved from profiles, then returns the re-listed rows', async () => {
+  it('an empty list creates the 本店 primary exactly once, name resolved from org settings (never the owner profile), then returns the re-listed rows', async () => {
     storesList
       .mockResolvedValueOnce({ stores: [] })
       .mockResolvedValueOnce({
@@ -200,6 +212,20 @@ describe('GET /api/app/v1/stores', () => {
         businessType: null,
       },
     ])
+  })
+
+  it('an org-settings read failure degrades the provisioned name to Main store — never blocks the list', async () => {
+    orgSettingsGet.mockRejectedValueOnce(new Error('core down'))
+    storesList
+      .mockResolvedValueOnce({ stores: [] })
+      .mockResolvedValueOnce({
+        stores: [
+          { id: 'store-primary', name: 'Main store', address: null, phone: null, is_primary: true, active: true },
+        ],
+      })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storesCreate).toHaveBeenCalledWith({ name: 'Main store', is_primary: true })
   })
 
   it('a create rejection (race lost to another request) still returns the re-listed rows, no error', async () => {

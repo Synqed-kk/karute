@@ -5,8 +5,8 @@ import { revalidatePath, updateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import type { SynqedClient } from '@synqed-kk/client'
 
-import { createServiceClient } from '@/lib/supabase/service'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { orgSettingsWithClient } from '@/actions/org-settings'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -17,7 +17,7 @@ import { audit } from '@/lib/audit'
 // every twin below takes this instead of resolving getSynqedClient() from the
 // cookie session, so the facade (Bearer path, business resolved from the
 // verified token) and the web actions run the IDENTICAL write/read logic.
-type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements'>
+type StoresClient = Pick<SynqedClient, 'stores' | 'staffStores' | 'customers' | 'entitlements' | 'orgSettings'>
 
 /** Roster row shape the owner gate needs — a subset of StaffMember so the
  *  twin doesn't import the whole staff module's type surface. */
@@ -83,21 +83,19 @@ function coreBusinessType(row: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
-/** Name for the auto-created primary store — the salon name from the owner's
- *  profile (set at signup), i.e. the first profile in the business. */
-async function primaryStoreName(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  service: any,
-  businessId: string,
-): Promise<string> {
-  const { data } = await service
-    .from('profiles')
-    .select('full_name')
-    .eq('customer_id', businessId)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle()
-  return data?.full_name || 'Main store'
+/** Name for the auto-created primary store — org truth (settings 事業所名),
+ *  NOT the owner's profile full_name: that is a person's name, and this write
+ *  is permanent (the provisioned 本店 keeps it). Same seam and fallback rule
+ *  as getInviteByToken's salon name; degrade keeps the pre-existing
+ *  'Main store' default so provisioning never blocks on a core hiccup. */
+async function primaryStoreName(synqed: Pick<SynqedClient, 'orgSettings'>): Promise<string> {
+  try {
+    const settings = await orgSettingsWithClient(synqed)
+    if (settings?.salon_name) return settings.salon_name
+  } catch {
+    /* degrade to fallback — the lazy 本店-create must not fail the list */
+  }
+  return 'Main store'
 }
 
 /** Client-threaded core of listStores (facade Bearer path, design-parity
@@ -150,9 +148,7 @@ export async function listStoresWithClient(
   // empty for a business that had zero stores — merge with the fresh row.
   let stores = storesRes.stores
   if (opts.ensurePrimary && stores.length === 0) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const service = createServiceClient() as any
-    const name = await primaryStoreName(service, businessId)
+    const name = await primaryStoreName(synqed)
     try {
       await synqed.stores.create({ name, is_primary: true })
     } catch {
