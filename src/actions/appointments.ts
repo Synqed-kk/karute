@@ -8,6 +8,7 @@ import { getActiveStoreId } from '@/actions/stores'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { resolveSynqedStaffId } from '@/lib/synqed/staff-map'
 import { getCurrentUserStaffId } from '@/lib/staff'
+import { resolveWebAuditContext } from '@/lib/audit-web'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { getOrgSettings } from '@/actions/org-settings'
 import { isTerminalStatus, type AppStatus } from '@/lib/appointments/status'
@@ -79,16 +80,17 @@ export async function createAppointment(input: AppointmentInput) {
   if (hoursError) return { error: hoursError }
 
   try {
-    // All three are independent → resolve in parallel (resolveSynqedStaffId may
+    // All four are independent → resolve in parallel (resolveSynqedStaffId may
     // hit the DB; getActiveStoreId is a cookie read). The active-store cookie is
     // an ISOLATION input, not just a view label: it is clamped below against
     // the viewer's RBAC scope so a stale / out-of-scope cookie can't stamp a
     // booking into another branch. Business scope (x-business-id) is still applied
     // by core regardless; this clamp is additive.
-    const [synqed, synqedStaffId, activeStore] = await Promise.all([
+    const [synqed, synqedStaffId, activeStore, auditActor] = await Promise.all([
       getSynqedClient(),
       resolveSynqedStaffId(input.staffProfileId),
       getActiveStoreId(),
+      resolveWebAuditContext(),
     ])
     // Clamp the cookie. Honor it ONLY when the viewer may act in that store
     // (viewAll → allowedStoreIds null, or it's one of their assigned stores —
@@ -110,6 +112,7 @@ export async function createAppointment(input: AppointmentInput) {
       synqedStaffId,
       preferredStoreId: cookieStore,
       operatingHours: orgSettings?.operating_hours,
+      actor: { ...auditActor, source: 'web' },
     })
     if ('id' in result) {
       revalidatePath('/dashboard')
@@ -360,8 +363,14 @@ export async function cancelAppointment(
     const synqed = await getSynqedClient()
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
-    const actingStaffId = await resolveActingStaffId()
-    const result = await cancelAppointmentCore(synqed, appointmentId, input, actingStaffId)
+    const [actingStaffId, auditActor] = await Promise.all([
+      resolveActingStaffId(),
+      resolveWebAuditContext(),
+    ])
+    const result = await cancelAppointmentCore(synqed, appointmentId, input, actingStaffId, {
+      ...auditActor,
+      source: 'web',
+    })
     if ('success' in result) {
       revalidatePath('/appointments')
       revalidatePath('/dashboard')
@@ -394,8 +403,14 @@ export async function restoreAppointment(
     const synqed = await getSynqedClient()
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId). Omitted when unresolvable rather than blocking.
-    const actingStaffId = await resolveActingStaffId()
-    const result = await restoreAppointmentCore(synqed, appointmentId, actingStaffId)
+    const [actingStaffId, auditActor] = await Promise.all([
+      resolveActingStaffId(),
+      resolveWebAuditContext(),
+    ])
+    const result = await restoreAppointmentCore(synqed, appointmentId, actingStaffId, {
+      ...auditActor,
+      source: 'web',
+    })
     if ('success' in result) {
       revalidatePath('/appointments')
       revalidatePath('/dashboard')
@@ -431,8 +446,14 @@ export async function markNoShowAppointment(
     // Best-effort audit stamp in core's staff-id space (see
     // resolveActingStaffId — fixes the profile-id-space stamp this action
     // originally shipped with). Omitted when unresolvable, never blocking.
-    const actingStaffId = await resolveActingStaffId()
-    const result = await markNoShowAppointmentCore(synqed, appointmentId, input, actingStaffId)
+    const [actingStaffId, auditActor] = await Promise.all([
+      resolveActingStaffId(),
+      resolveWebAuditContext(),
+    ])
+    const result = await markNoShowAppointmentCore(synqed, appointmentId, input, actingStaffId, {
+      ...auditActor,
+      source: 'web',
+    })
     if ('success' in result) {
       revalidatePath('/appointments')
       revalidatePath('/dashboard')

@@ -30,6 +30,24 @@ import {
 } from '@/lib/packs/store'
 import { pickRedemptionTarget } from '@/lib/packs/resolve'
 import { ymdInJst } from '@/lib/date/jst'
+import { audit, type AuditSeverity } from '@/lib/audit'
+
+/** Liam ruling 2026-07-26: every booking mutation writes exactly ONE audit
+ *  row, emitted from HERE so the web actions and the facade twins can never
+ *  double-log. `actor` has no cookie/Bearer context of its own — same
+ *  threading contract as createOrUpdateKaruteRecord (src/actions/karute.ts):
+ *  facade callers pass their already-resolved identity, web callers resolve
+ *  it via resolveWebAuditContext() before calling in. */
+type BookingActor = { actorId: string | null; businessId: string | null; source: 'web' | 'facade' }
+
+/** A no-show or a same-day-contact cancel is the one shape where a ticket may
+ *  burn or a booked slot silently went unused — both land 'notice' (→ CORE
+ *  'warn', the viewer's 警告 strip). Every other booking write is routine
+ *  'info'. */
+function bookingAuditSeverity(kind: 'no_show' | 'cancel', reason?: string): AuditSeverity {
+  if (kind === 'no_show') return 'notice'
+  return reason === CANCEL_REASON_SAME_DAY_CONTACT ? 'notice' : 'info'
+}
 
 type MutationClient = Pick<
   SynqedClient,
@@ -78,6 +96,7 @@ export async function createAppointmentCore(
     synqedStaffId: string
     preferredStoreId: string | null
     operatingHours: unknown
+    actor: BookingActor
   },
 ): Promise<{ id: string } | { error: string }> {
   const hoursError = await validateAppointmentTime(input, deps.operatingHours)
@@ -98,6 +117,17 @@ export async function createAppointmentCore(
       title: input.title ?? null,
       notes: input.notes ?? null,
       store_id: storeId ?? undefined,
+    })
+    audit({
+      category: 'booking',
+      action: 'booking.create',
+      actorId: deps.actor.actorId,
+      actorType: 'staff',
+      businessId: deps.actor.businessId,
+      targetType: 'customer',
+      targetId: appt.customer_id,
+      detail: { appointment_id: appt.id, customer_id: appt.customer_id, store_id: appt.store_id },
+      source: deps.actor.source,
     })
     return { id: appt.id }
   } catch (err) {
@@ -160,6 +190,7 @@ export async function cancelAppointmentCore(
   appointmentId: string,
   input: { reason?: string; burnPack?: boolean } | undefined,
   actingStaffId: string | null,
+  actor: BookingActor,
 ): Promise<MarkNoShowResult> {
   try {
     // Optional reason chip (taxonomy fix 2026-07-10): a cancel implies the
@@ -211,19 +242,39 @@ export async function cancelAppointmentCore(
     // SDK-skew cast: @synqed-kk/client 1.11.0's update() types don't declare
     // acting_staff_id yet (synqed-core #39) — the client JSON-stringifies the
     // input verbatim, so the field flows through at runtime.
-    await synqed.appointments.update(
+    const updated = await synqed.appointments.update(
       appointmentId,
       patch as unknown as Parameters<typeof synqed.appointments.update>[1],
     )
 
+    let burnError: 'below_zero' | 'burn_failed' | 'already_burned' | null = null
     if (burnPack && burnAppt && burnTarget) {
       // Same ordering contract as the no-show burn: status FIRST, burn LAST —
       // a failed burn can never strand a spent ticket, and the partial
       // outcome (cancel recorded, ticket not consumed) reaches the staff.
-      const burnError = await executeGuardedBurn(synqed, burnAppt, appointmentId, burnTarget)
-      if (burnError) return { success: true, burnError }
+      burnError = await executeGuardedBurn(synqed, burnAppt, appointmentId, burnTarget)
     }
-    return { success: true }
+
+    audit({
+      category: 'booking',
+      action: 'booking.cancel',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'customer',
+      targetId: updated.customer_id,
+      severity: bookingAuditSeverity('cancel', input?.reason),
+      detail: {
+        appointment_id: appointmentId,
+        customer_id: updated.customer_id,
+        store_id: updated.store_id,
+        reason: input?.reason ?? null,
+        burn_pack: burnPack,
+      },
+      source: actor.source,
+    })
+
+    return burnError ? { success: true, burnError } : { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }
@@ -242,6 +293,7 @@ export async function restoreAppointmentCore(
   synqed: MutationClient,
   appointmentId: string,
   actingStaffId: string | null,
+  actor: BookingActor,
 ): Promise<{ success: true } | { error: string }> {
   try {
     // Precondition: only a terminal booking can be restored. Without this, a
@@ -263,6 +315,19 @@ export async function restoreAppointmentCore(
       appointmentId,
       patch as unknown as Parameters<typeof synqed.appointments.update>[1],
     )
+
+    audit({
+      category: 'booking',
+      action: 'booking.restore',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'customer',
+      targetId: appt.customer_id,
+      detail: { appointment_id: appointmentId, customer_id: appt.customer_id, store_id: appt.store_id },
+      source: actor.source,
+    })
+
     return { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
@@ -285,6 +350,7 @@ export async function markNoShowAppointmentCore(
   appointmentId: string,
   input: { burnPack: boolean },
   actingStaffId: string | null,
+  actor: BookingActor,
 ): Promise<MarkNoShowResult> {
   try {
     const appt = await synqed.appointments.get(appointmentId)
@@ -318,11 +384,27 @@ export async function markNoShowAppointmentCore(
       patch as unknown as Parameters<typeof synqed.appointments.update>[1],
     )
 
-    if (target) {
-      const burnError = await executeGuardedBurn(synqed, appt, appointmentId, target)
-      if (burnError) return { success: true, burnError }
-    }
-    return { success: true }
+    const burnError = target ? await executeGuardedBurn(synqed, appt, appointmentId, target) : null
+
+    audit({
+      category: 'booking',
+      action: 'booking.no_show',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'customer',
+      targetId: appt.customer_id,
+      severity: bookingAuditSeverity('no_show'),
+      detail: {
+        appointment_id: appointmentId,
+        customer_id: appt.customer_id,
+        store_id: appt.store_id,
+        burn_pack: input.burnPack,
+      },
+      source: actor.source,
+    })
+
+    return burnError ? { success: true, burnError } : { success: true }
   } catch (err) {
     return { error: err instanceof Error ? err.message : 'Unknown error' }
   }

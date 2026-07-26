@@ -38,12 +38,19 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
-jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: () => getCurrentUserStaffId() }))
+jest.mock('@/lib/staff', () => ({
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  // Audit identity seam (resolveWebAuditContext, @/lib/audit-web) — booking
+  // mutations now emit through the shared cores.
+  getBusinessId: jest.fn(async () => 'biz-1'),
+  resolveUserId: jest.fn(async () => 'auth-user-1'),
+}))
 
 const apptUpdate = jest.fn(async () => ({}))
 const apptGet = jest.fn(async () => ({
   id: 'appt-1',
   customer_id: 'cust-1',
+  store_id: 'store-1',
   status: 'SCHEDULED',
   starts_at: '2026-07-06T03:00:00.000Z',
 }))
@@ -74,6 +81,7 @@ jest.mock('@/lib/packs/store', () => ({
 }))
 
 import { markNoShowAppointment, getBurnablePackSummary } from '@/actions/appointments'
+import { auditLines } from './helpers/audit-lines'
 
 const BURNABLE_PACK = {
   id: 'pack-1',
@@ -91,6 +99,7 @@ beforeEach(() => {
   apptGet.mockImplementation(async () => ({
     id: 'appt-1',
     customer_id: 'cust-1',
+    store_id: 'store-1',
     status: 'SCHEDULED',
     starts_at: '2026-07-06T03:00:00.000Z',
   }))
@@ -178,6 +187,7 @@ describe('markNoShowAppointment — burn path', () => {
     apptGet.mockResolvedValueOnce({
       id: 'appt-1',
       customer_id: 'cust-1',
+      store_id: 'store-1',
       status: 'NO_SHOW',
       starts_at: '2026-07-06T03:00:00.000Z',
     })
@@ -228,5 +238,74 @@ describe('getBurnablePackSummary', () => {
     expect(await getBurnablePackSummary('cust-1')).toBeNull()
     expect(requireCapability).toHaveBeenCalledWith('bookings.manage')
     expect(listCustomerPacks).not.toHaveBeenCalled()
+  })
+})
+
+// Booking mutations now audit (Liam ruling 2026-07-26): exactly one row per
+// mutation, ids-only detail, targeting the customer. Line-shape assertions
+// (evt/at/actor_type/break_glass) are pinned once in facade-audit.test.ts;
+// this pins the no-show-specific category, action, severity, and detail.
+describe('markNoShowAppointment — audit', () => {
+  it('emits exactly one booking.no_show row at severity notice, ids-only detail', async () => {
+    const lines = await auditLines(async () => {
+      await markNoShowAppointment('appt-1', { burnPack: false })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.no_show',
+      actor_id: 'auth-user-1',
+      business_id: 'biz-1',
+      target_type: 'customer',
+      target_id: 'cust-1',
+      severity: 'notice',
+      source: 'web',
+      detail: {
+        appointment_id: 'appt-1',
+        customer_id: 'cust-1',
+        store_id: 'store-1',
+        burn_pack: false,
+      },
+    })
+  })
+
+  it('burn_pack:true rides the detail flag on the burn path', async () => {
+    listCustomerPacks.mockResolvedValueOnce([BURNABLE_PACK])
+    const lines = await auditLines(async () => {
+      await markNoShowAppointment('appt-1', { burnPack: true })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ detail: expect.objectContaining({ burn_pack: true }) })
+  })
+
+  it('a denied mark emits no audit row', async () => {
+    requireCapability.mockRejectedValueOnce(new Error('nope'))
+    const lines = await auditLines(async () => {
+      await markNoShowAppointment('appt-1', { burnPack: false })
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('an already-terminal booking emits no audit row', async () => {
+    apptGet.mockResolvedValueOnce({
+      id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      status: 'NO_SHOW',
+      starts_at: '2026-07-06T03:00:00.000Z',
+    })
+    const lines = await auditLines(async () => {
+      await markNoShowAppointment('appt-1', { burnPack: false })
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a failed write emits no audit row', async () => {
+    apptUpdate.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const res = await markNoShowAppointment('appt-1', { burnPack: false })
+      expect(res).toEqual({ error: 'core down' })
+    })
+    expect(lines).toHaveLength(0)
   })
 })

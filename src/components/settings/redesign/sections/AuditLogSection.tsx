@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   Activity,
+  Calendar,
   ChevronDown,
   CreditCard,
   Eye,
@@ -42,6 +43,7 @@ const CATEGORIES = [
   'settings',
   'staff',
   'billing',
+  'booking',
 ] as const
 
 const CATEGORY_ICONS: Record<string, typeof Activity> = {
@@ -54,6 +56,7 @@ const CATEGORY_ICONS: Record<string, typeof Activity> = {
   settings: Settings2,
   staff: Users,
   billing: CreditCard,
+  booking: Calendar,
 }
 
 const RANGE_PRESETS = ['7d', '30d', '90d', 'all'] as const

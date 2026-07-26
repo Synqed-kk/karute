@@ -2107,7 +2107,8 @@
         "privacy": "Privacy",
         "settings": "Settings",
         "staff": "Staff",
-        "billing": "Billing"
+        "billing": "Billing",
+        "booking": "Booking"
       },
       "range": {
         "7d": "7 days",
@@ -2163,6 +2164,12 @@
           "customer_delete_executed": "Permanently deleted customer data",
           "voice_enroll": "Voice enrolled",
           "voice_revoke": "Voice removed"
+        },
+        "booking": {
+          "create": "Booking created",
+          "cancel": "Booking cancelled",
+          "no_show": "No-show recorded",
+          "restore": "Booking restored"
         }
       },
       "categoryLabel": "Category",

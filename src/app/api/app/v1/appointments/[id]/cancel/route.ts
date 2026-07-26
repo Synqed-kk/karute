@@ -61,7 +61,11 @@ export const POST = facadeHandler<Params>('appointment.cancel', async (ctx) => {
     businessId,
   ).catch(() => null)
 
-  const result = await cancelAppointmentCore(synqed, id, parsed.data, actingStaffId)
+  const result = await cancelAppointmentCore(synqed, id, parsed.data, actingStaffId, {
+    actorId: ctx.identity.authUserId,
+    businessId,
+    source: 'facade',
+  })
   return ok(ctx, result)
 })
 

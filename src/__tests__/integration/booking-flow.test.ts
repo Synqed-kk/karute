@@ -26,6 +26,9 @@ jest.mock('next/headers', () => ({
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
   getCurrentUserStaffId: jest.fn(async () => 'staff-1'),
+  // Audit identity seam (resolveWebAuditContext, @/lib/audit-web) — booking
+  // mutations now emit through the shared cores.
+  resolveUserId: jest.fn(async () => 'auth-user-1'),
 }))
 
 // Restrictive operating hours for the operating-hours rejection test below.
@@ -79,6 +82,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { createAppointment } from '@/actions/appointments'
+import { auditLines } from './helpers/audit-lines'
 
 describe('Booking creation flow', () => {
   beforeEach(() => {
@@ -166,5 +170,75 @@ describe('Booking creation flow', () => {
 
     const call = appointments.create.mock.calls[0][0]
     expect(call.title).toBeNull()
+  })
+})
+
+// Booking mutations now audit (Liam ruling 2026-07-26): exactly one row per
+// mutation, ids-only detail, targeting the customer. Line-shape assertions
+// (evt/at/actor_type/break_glass) are pinned once in facade-audit.test.ts;
+// this pins the create-specific category, action, and detail contract.
+describe('Booking creation flow — audit', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    activeHours = PERMISSIVE_HOURS
+  })
+
+  it('emits exactly one booking.create row targeting the customer, ids-only detail', async () => {
+    appointments.create.mockResolvedValue({ id: 'appt-1', customer_id: 'cust-9', store_id: 'store-1' })
+
+    const startIso = new Date('2026-05-20T13:30:00').toISOString()
+    let result: unknown
+    const lines = await auditLines(async () => {
+      result = await createAppointment({
+        staffProfileId: 'staff-1',
+        clientId: 'cust-9',
+        startTime: startIso,
+        durationMinutes: 45,
+      })
+    })
+
+    expect(result).toEqual({ id: 'appt-1' })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.create',
+      actor_id: 'auth-user-1',
+      business_id: '00000000-0000-0000-0000-000000000001',
+      target_type: 'customer',
+      target_id: 'cust-9',
+      severity: 'info',
+      source: 'web',
+      detail: { appointment_id: 'appt-1', customer_id: 'cust-9', store_id: 'store-1' },
+    })
+  })
+
+  it('a rejected (out-of-hours) booking emits no audit row', async () => {
+    activeHours = NINE_TO_SIX
+    appointments.create.mockResolvedValue({ id: 'should-not-fire' })
+    const lines = await auditLines(async () => {
+      const result = await createAppointment({
+        staffProfileId: 'staff-1',
+        clientId: 'cust-9',
+        startTime: '2026-05-19T21:00:00.000Z',
+        durationMinutes: 60,
+        tzOffsetMinutes: -540,
+      })
+      expect('error' in result).toBe(true)
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a failed write emits no audit row', async () => {
+    appointments.create.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const result = await createAppointment({
+        staffProfileId: 'staff-1',
+        clientId: 'cust-9',
+        startTime: new Date('2026-05-20T11:00:00').toISOString(),
+        durationMinutes: 60,
+      })
+      expect(result).toEqual({ error: 'core down' })
+    })
+    expect(lines).toHaveLength(0)
   })
 })

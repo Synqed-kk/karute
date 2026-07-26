@@ -40,14 +40,24 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 const getCurrentUserStaffId = jest.fn(async (): Promise<string | null> => 'staff-1')
-jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: () => getCurrentUserStaffId() }))
+jest.mock('@/lib/staff', () => ({
+  getCurrentUserStaffId: () => getCurrentUserStaffId(),
+  // Audit identity seam (resolveWebAuditContext, @/lib/audit-web) — booking
+  // mutations now emit through the shared cores.
+  getBusinessId: jest.fn(async () => 'biz-1'),
+  resolveUserId: jest.fn(async () => 'auth-user-1'),
+}))
 
-const apptUpdate = jest.fn(async () => ({}))
+// update()'s return rides the Appointment shape (customer_id/store_id) —
+// the shared core reads the audit row's target off it directly rather than
+// re-fetching the booking.
+const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
 // restoreAppointment reads the booking first: only a terminal row restores
 // (a stale tombstone sheet must not clobber a re-activated booking).
 const apptGet = jest.fn(async () => ({
   id: 'appt-1',
   customer_id: 'cust-1',
+  store_id: 'store-1',
   status: 'CANCELLED',
   starts_at: '2026-07-06T03:00:00.000Z',
 }))
@@ -78,15 +88,17 @@ jest.mock('@/lib/packs/store', () => ({
 }))
 
 import { cancelAppointment, restoreAppointment } from '@/actions/appointments'
+import { auditLines } from './helpers/audit-lines'
 
 beforeEach(() => {
   jest.clearAllMocks()
   requireCapability.mockImplementation(async () => {})
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
-  apptUpdate.mockImplementation(async () => ({}))
+  apptUpdate.mockImplementation(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
   apptGet.mockImplementation(async () => ({
     id: 'appt-1',
     customer_id: 'cust-1',
+    store_id: 'store-1',
     status: 'CANCELLED',
     starts_at: '2026-07-06T03:00:00.000Z',
   }))
@@ -109,6 +121,7 @@ const liveBooking = () =>
   apptGet.mockImplementation(async () => ({
     id: 'appt-1',
     customer_id: 'cust-1',
+    store_id: 'store-1',
     status: 'SCHEDULED',
     starts_at: '2026-07-06T03:00:00.000Z',
   }))
@@ -304,11 +317,108 @@ describe('restoreAppointment (undo)', () => {
     apptGet.mockResolvedValueOnce({
       id: 'appt-1',
       customer_id: 'cust-1',
+      store_id: 'store-1',
       status: 'IN_PROGRESS',
       starts_at: '2026-07-06T03:00:00.000Z',
     })
     const res = await restoreAppointment('appt-1')
     expect(apptUpdate).not.toHaveBeenCalled()
     expect(res).toEqual({ error: expect.any(String) })
+  })
+})
+
+// Booking mutations now audit (Liam ruling 2026-07-26): exactly one row per
+// mutation, emitted from the shared core, ids-only detail, targeting the
+// customer. Line-shape assertions (evt/at/actor_type/break_glass) are pinned
+// once in facade-audit.test.ts; these pin the booking-specific category,
+// action, severity, and detail contract.
+describe('cancelAppointment — audit', () => {
+  it('emits exactly one booking.cancel row targeting the customer, ids-only detail, severity info for a plain cancel', async () => {
+    const lines = await auditLines(async () => {
+      await cancelAppointment('appt-1')
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.cancel',
+      actor_id: 'auth-user-1',
+      business_id: 'biz-1',
+      target_type: 'customer',
+      target_id: 'cust-1',
+      severity: 'info',
+      source: 'web',
+      detail: {
+        appointment_id: 'appt-1',
+        customer_id: 'cust-1',
+        store_id: 'store-1',
+        reason: null,
+        burn_pack: false,
+      },
+    })
+  })
+
+  it('carries the cancel reason code in detail and bumps severity to notice on a same-day-contact cancel', async () => {
+    const lines = await auditLines(async () => {
+      await cancelAppointment('appt-1', { reason: 'cancel-same-day-contact' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      severity: 'notice',
+      detail: expect.objectContaining({ reason: 'cancel-same-day-contact', burn_pack: false }),
+    })
+  })
+
+  it('stays info for the other fixed reason codes (only same-day-contact is consequential)', async () => {
+    for (const reason of ['cancel-advance-contact', 'cancel-salon-initiated']) {
+      const lines = await auditLines(async () => {
+        await cancelAppointment('appt-1', { reason })
+      })
+      expect(lines[0]).toMatchObject({ severity: 'info', detail: expect.objectContaining({ reason }) })
+    }
+  })
+
+  it('a denied cancel emits no audit row', async () => {
+    requireCapability.mockRejectedValueOnce(new Error('nope'))
+    const lines = await auditLines(async () => {
+      await cancelAppointment('appt-1')
+    })
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a failed write emits no audit row', async () => {
+    apptUpdate.mockRejectedValueOnce(new Error('core down'))
+    const lines = await auditLines(async () => {
+      const res = await cancelAppointment('appt-1')
+      expect(res).toEqual({ error: 'core down' })
+    })
+    expect(lines).toHaveLength(0)
+  })
+})
+
+describe('restoreAppointment — audit', () => {
+  it('emits exactly one booking.restore row targeting the customer, ids-only detail', async () => {
+    const lines = await auditLines(async () => {
+      await restoreAppointment('appt-1')
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.restore',
+      actor_id: 'auth-user-1',
+      business_id: 'biz-1',
+      target_type: 'customer',
+      target_id: 'cust-1',
+      severity: 'info',
+      source: 'web',
+      detail: { appointment_id: 'appt-1', customer_id: 'cust-1', store_id: 'store-1' },
+    })
+  })
+
+  it('a denied restore emits no audit row', async () => {
+    requireCapability.mockRejectedValueOnce(new Error('nope'))
+    const lines = await auditLines(async () => {
+      await restoreAppointment('appt-1')
+    })
+    expect(lines).toHaveLength(0)
   })
 })

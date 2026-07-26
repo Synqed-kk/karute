@@ -2107,7 +2107,8 @@
         "privacy": "プライバシー",
         "settings": "設定",
         "staff": "スタッフ",
-        "billing": "請求"
+        "billing": "請求",
+        "booking": "予約"
       },
       "range": {
         "7d": "7日間",
@@ -2163,6 +2164,12 @@
           "customer_delete_executed": "顧客データを完全削除",
           "voice_enroll": "音声を登録",
           "voice_revoke": "音声を削除"
+        },
+        "booking": {
+          "create": "予約の作成",
+          "cancel": "予約のキャンセル",
+          "no_show": "無断キャンセル",
+          "restore": "予約の復元"
         }
       },
       "categoryLabel": "カテゴリ",
