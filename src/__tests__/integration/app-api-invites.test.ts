@@ -58,13 +58,26 @@ jest.mock('@/lib/supabase/service', () => ({
 }))
 
 const invitesCreate = jest.fn(async () => ({ id: 'inv-new' }))
+type FakeInvite = {
+  id: string
+  email: string
+  role: string
+  status: string
+  created_at: string
+  expires_at: string
+  invited_staff_id?: string
+}
 const invitesList = jest.fn(async () => ({
   invites: [
     { id: 'inv-1', email: 'a@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08' },
-  ],
+  ] as FakeInvite[],
 }))
 const invitesUpdateStatus = jest.fn(async () => ({}))
-const fakeClient = { invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus } }
+const staffList = jest.fn(async () => ({ staff: [] as { id: string; user_id?: string | null }[] }))
+const fakeClient = {
+  invites: { create: invitesCreate, list: invitesList, updateStatus: invitesUpdateStatus },
+  staff: { list: staffList },
+}
 const newSynqedClient = jest.fn((_businessId: string) => fakeClient)
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: (businessId: string) => newSynqedClient(businessId),
@@ -139,6 +152,29 @@ describe('GET /api/app/v1/invites', () => {
     const res = await GET(getReq(), noParams)
     expect(res.status).toBe(200)
     expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-1', linked: true })
+  })
+
+  it('no email match but the invite-origin card is already WIRED → linked: true (Greptile #626 P1: a profile with no email value must not hide the connection)', async () => {
+    memberEmailRows = [{ email: null }] // the member's profile carries no email
+    invitesList.mockResolvedValue({
+      invites: [
+        { id: 'inv-2', email: 'b@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08', invited_staff_id: 'card-7' },
+      ],
+    })
+    staffList.mockResolvedValue({ staff: [{ id: 'card-7', user_id: 'auth-uid-7' }] })
+    const res = await GET(getReq(), noParams)
+    expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-2', linked: true })
+  })
+
+  it('invite-origin card exists but is UNWIRED → linked stays false (a truly pending invite never badges)', async () => {
+    invitesList.mockResolvedValue({
+      invites: [
+        { id: 'inv-3', email: 'c@test.com', role: 'STYLIST', status: 'pending', created_at: '2026-01-01', expires_at: '2026-01-08', invited_staff_id: 'card-8' },
+      ],
+    })
+    staffList.mockResolvedValue({ staff: [{ id: 'card-8', user_id: null }] })
+    const res = await GET(getReq(), noParams)
+    expect((await res.json()).invites[0]).toMatchObject({ id: 'inv-3', linked: false })
   })
 
   it('a read failure degrades to [] (web-exact tolerance)', async () => {
