@@ -127,24 +127,32 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
   )
 }
 
-// Drop the brand prefix that every store name shares so labels lead with the
-// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Strips only the
-// whole leading words common to ALL stores, and never a store's last word — so
-// a shared location word (代官山 in 代官山一丁目 / 代官山二丁目) survives and a
-// label never renders blank. No shared prefix (or a single store) → full name.
+// Drop the brand prefix a store shares with a SIBLING so labels lead with the
+// BRANCH (代官山) not the redundant company ("La Estro 代官山"). Each store
+// strips its LONGEST leading-word prefix shared with at least one other store
+// — pairwise max, never a minimum over the whole set, so no single unrelated
+// name ("Test Gym", "La Belle 渋谷") can poison the group (the set-min was the
+// 7/26 pill regression, in both its original and first-fix forms). A prefix
+// must be ≥2 words to count as a brand — one coincidental shared word ("La")
+// never strips. Never strips a store's last word — a shared location word
+// (代官山 in 代官山一丁目 / 代官山二丁目) survives and a label never renders
+// blank. No qualifying sibling → full name.
 function branchLabel(name: string, allNames: string[]): string {
-  if (allNames.length < 2) return name
   const words = name.split(' ')
-  let common = words.length
+  let best = 0
+  let skippedSelf = false
   for (const other of allNames) {
+    if (!skippedSelf && other === name) {
+      skippedSelf = true
+      continue
+    }
     const otherWords = other.split(' ')
     let i = 0
-    while (i < common && i < otherWords.length && otherWords[i] === words[i]) i++
-    common = i
+    while (i < words.length && i < otherWords.length && otherWords[i] === words[i]) i++
+    if (i > best) best = i
   }
-  // Never strip every word (would render blank); keep at least the last one.
-  common = Math.min(common, words.length - 1)
-  return words.slice(common).join(' ')
+  if (best < 2) return name
+  return words.slice(Math.min(best, words.length - 1)).join(' ')
 }
 
 function SwitcherRow({
