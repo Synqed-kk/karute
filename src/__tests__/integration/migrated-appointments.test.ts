@@ -294,6 +294,9 @@ describe('Migrated appointment actions', () => {
 
   describe('updateAppointment', () => {
     it('computes ends_at when both startTime and durationMinutes change', async () => {
+      // updateAppointmentCore now reads the booking first (Fable fix-round
+      // FIX 2 terminal guard) — give it a live row so the update is reached.
+      appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
       // update()'s return rides the full Appointment row (verified fact: core
       // always returns customer_id/store_id) — updateAppointmentCore reads
       // the audit target off it directly.
@@ -312,6 +315,7 @@ describe('Migrated appointment actions', () => {
     })
 
     it('partial update omits ends_at if only duration changes', async () => {
+      appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
       appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', { durationMinutes: 45 })

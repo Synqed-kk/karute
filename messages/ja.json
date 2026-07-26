@@ -2174,6 +2174,16 @@
           "delete": "予約の削除"
         }
       },
+      "burnError": {
+        "burn_failed": "チケット消化に失敗（未消化）",
+        "already_burned": "消化済みのため未消化",
+        "below_zero": "残数不足のため未消化"
+      },
+      "changed": {
+        "staff": "担当",
+        "time": "時間",
+        "duration": "所要時間"
+      },
       "categoryLabel": "カテゴリ",
       "staffLabel": "スタッフ",
       "staffAll": "全員",

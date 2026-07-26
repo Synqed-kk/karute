@@ -2174,6 +2174,16 @@
           "delete": "Booking deleted"
         }
       },
+      "burnError": {
+        "burn_failed": "Ticket burn failed (not consumed)",
+        "already_burned": "Already consumed — not burned again",
+        "below_zero": "No sessions left — not consumed"
+      },
+      "changed": {
+        "staff": "Staff",
+        "time": "Time",
+        "duration": "Duration"
+      },
       "categoryLabel": "Category",
       "staffLabel": "Staff",
       "staffAll": "Everyone",

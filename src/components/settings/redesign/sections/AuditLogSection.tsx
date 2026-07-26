@@ -304,6 +304,23 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
       const stores = t('storesCount', { count: detail.count })
       return targetName ? `${targetName} · ${stores}` : stores
     }
+    // Booking burn outcome (cancel/no-show): burn_pack alone is the staff's
+    // CHOICE, burn_error is what actually happened to it — surface it so a
+    // failed/already-consumed burn doesn't read as a clean success.
+    if (typeof detail.burn_error === 'string' && detail.burn_error) {
+      const label = t.has(`burnError.${detail.burn_error}`)
+        ? t(`burnError.${detail.burn_error}`)
+        : detail.burn_error
+      return targetName ? `${targetName} · ${label}` : label
+    }
+    // booking.update: what changed, in owner vocabulary.
+    if (e.action === 'booking.update' && typeof detail.changed === 'string' && detail.changed) {
+      const label = detail.changed
+        .split(',')
+        .map((c) => (t.has(`changed.${c}`) ? t(`changed.${c}`) : c))
+        .join('・')
+      return targetName ? `${targetName} · ${label}` : label
+    }
     return targetName
   }
 

@@ -112,7 +112,9 @@ jest.mock('@/lib/synqed/client', () => {
   }
   const appointments = {
     create: jest.fn(async () => ({ id: 'appt-1' })),
-    update: jest.fn(async () => ({})),
+    // Realistic { customer_id, store_id } return (FIX 7e): prevents a future
+    // undefined-target trap if this file ever exercises a granted update.
+    update: jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' })),
     delete: jest.fn(async () => ({})),
     get: jest.fn(async () => null),
   }

@@ -47,12 +47,20 @@ jest.mock('@/lib/staff', () => ({
 }))
 
 const apptUpdate = jest.fn(async () => ({}))
+// created_at (Fable fix-round FIX 1): the burn dedup window now anchors to
+// min(starts_at, created_at) — set equal to starts_at here so every existing
+// burn-window computation is unchanged. title/notes are PII-bait decoys
+// (FIX 7b): the audit describe block's exact-toEqual detail assertions must
+// fail the moment either leaks into detail.
 const apptGet = jest.fn(async () => ({
   id: 'appt-1',
   customer_id: 'cust-1',
   store_id: 'store-1',
   status: 'SCHEDULED',
   starts_at: '2026-07-06T03:00:00.000Z',
+  created_at: '2026-07-06T03:00:00.000Z',
+  title: 'DECOY — must never reach detail',
+  notes: 'DECOY — must never reach detail',
 }))
 const listRecentRedemptions = jest.fn(
   async (_since: string): Promise<Array<{ customer_id: string; appointment_id: string | null; redeemed_on: string }>> => [],
@@ -102,6 +110,9 @@ beforeEach(() => {
     store_id: 'store-1',
     status: 'SCHEDULED',
     starts_at: '2026-07-06T03:00:00.000Z',
+    created_at: '2026-07-06T03:00:00.000Z',
+    title: 'DECOY — must never reach detail',
+    notes: 'DECOY — must never reach detail',
   }))
   listCustomerPacks.mockImplementation(async () => [])
   addRedemption.mockImplementation(async () => ({ ok: true, id: 'redemption-1' }))
@@ -190,6 +201,9 @@ describe('markNoShowAppointment — burn path', () => {
       store_id: 'store-1',
       status: 'NO_SHOW',
       starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
     })
     const res = await markNoShowAppointment('appt-1', { burnPack: true })
     expect(res).toEqual({ error: expect.any(String), code: 'already_terminal' })
@@ -321,6 +335,9 @@ describe('markNoShowAppointment — audit', () => {
       store_id: 'store-1',
       status: 'NO_SHOW',
       starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
     })
     const lines = await auditLines(async () => {
       await markNoShowAppointment('appt-1', { burnPack: false })

@@ -108,6 +108,7 @@ jest.mock('@/lib/synqed/client', () => ({
 }))
 
 import { createAppointment, deleteAppointment, updateAppointment } from '@/actions/appointments'
+import { SynqedError } from '@synqed-kk/client'
 import { auditLines } from './helpers/audit-lines'
 
 describe('Booking creation flow', () => {
@@ -212,7 +213,13 @@ describe('Booking creation flow — audit', () => {
   })
 
   it('emits exactly one booking.create row targeting the customer, ids-only detail', async () => {
-    appointments.create.mockResolvedValue({ id: 'appt-1', customer_id: 'cust-9', store_id: 'store-1' })
+    appointments.create.mockResolvedValue({
+      id: 'appt-1',
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
+    })
 
     const startIso = new Date('2026-05-20T13:30:00').toISOString()
     let result: unknown
@@ -271,6 +278,22 @@ describe('Booking creation flow — audit', () => {
     })
     expect(lines).toHaveLength(0)
   })
+
+  // FIX 7f (test armor): the 409-overlap path maps to a friendlier message
+  // (see migrated-appointments.test.ts) but must still emit zero audit rows.
+  it('a 409 overlap conflict emits no audit row', async () => {
+    appointments.create.mockRejectedValueOnce(new SynqedError(409, 'overlap'))
+    const lines = await auditLines(async () => {
+      const result = await createAppointment({
+        staffProfileId: 'staff-1',
+        clientId: 'cust-9',
+        startTime: new Date('2026-05-20T11:00:00').toISOString(),
+        durationMinutes: 60,
+      })
+      expect(result).toEqual({ error: 'This time slot overlaps with an existing booking.' })
+    })
+    expect(lines).toHaveLength(0)
+  })
 })
 
 // updateAppointment/deleteAppointment (src/actions/appointments.ts) now audit
@@ -282,10 +305,20 @@ describe('updateAppointment — audit', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     requireCapability.mockImplementation(async () => {})
+    // FIX 2 (Fable fix-round, 2026-07-27): updateAppointmentCore now reads
+    // the booking first (terminal guard, same as every sibling core) — a
+    // live default so tests scoped to the patch/detail contract don't have
+    // to know about it; the terminal/not-found tests below override it.
+    appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
   })
 
   it('emits exactly one booking.update row, ids-only detail, changed:"staff" for a staff-only reassign', async () => {
-    appointments.update.mockResolvedValue({ customer_id: 'cust-9', store_id: 'store-1' })
+    appointments.update.mockResolvedValue({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
+    })
 
     let result: unknown
     const lines = await auditLines(async () => {
@@ -311,7 +344,12 @@ describe('updateAppointment — audit', () => {
   })
 
   it('changed:"time,duration" when both startTime and durationMinutes are patched together', async () => {
-    appointments.update.mockResolvedValue({ customer_id: 'cust-9', store_id: 'store-1' })
+    appointments.update.mockResolvedValue({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
+    })
     const startIso = new Date('2026-05-20T13:30:00').toISOString()
 
     const lines = await auditLines(async () => {
@@ -362,6 +400,42 @@ describe('updateAppointment — audit', () => {
     expect(appointments.update).not.toHaveBeenCalled()
     expect(lines).toHaveLength(0)
   })
+
+  // FIX 2 (Fable fix-round, 2026-07-27): updateAppointmentCore had NO
+  // terminal-status guard while every sibling core does — a stale sheet
+  // could silently reschedule/reassign an already-cancelled or no-show
+  // booking. Mirrors restoreAppointmentCore's read-check.
+  it('refuses to edit an already-terminal (cancelled/no-show) booking — zero rows', async () => {
+    appointments.get.mockResolvedValue({ status: 'CANCELLED' })
+    const lines = await auditLines(async () => {
+      const result = await updateAppointment('appt-1', { durationMinutes: 30 })
+      expect(result).toEqual({ error: 'A cancelled or no-show booking cannot be edited.' })
+    })
+    expect(appointments.update).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('a missing booking returns { error: "Booking not found." } — zero rows', async () => {
+    appointments.get.mockResolvedValueOnce(null)
+    const lines = await auditLines(async () => {
+      const result = await updateAppointment('appt-1', { durationMinutes: 30 })
+      expect(result).toEqual({ error: 'Booking not found.' })
+    })
+    expect(appointments.update).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  // FIX 4 (Fable fix-round, 2026-07-27): an update call with no provided
+  // fields used to still call update({}) and log a "something changed" row
+  // — a no-op write must not mutate or audit anything.
+  it('an empty patch succeeds without calling update() or writing an audit row', async () => {
+    const lines = await auditLines(async () => {
+      const result = await updateAppointment('appt-1', {})
+      expect(result).toEqual({ success: true })
+    })
+    expect(appointments.update).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
 })
 
 describe('deleteAppointment — audit', () => {
@@ -371,7 +445,12 @@ describe('deleteAppointment — audit', () => {
   })
 
   it('emits exactly one booking.delete row at severity notice, ids-only detail', async () => {
-    appointments.get.mockResolvedValue({ customer_id: 'cust-9', store_id: 'store-1' })
+    appointments.get.mockResolvedValue({
+      customer_id: 'cust-9',
+      store_id: 'store-1',
+      title: 'DECOY — must never reach detail',
+      notes: 'DECOY — must never reach detail',
+    })
     appointments.delete.mockResolvedValue(undefined)
 
     let result: unknown

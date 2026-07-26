@@ -75,12 +75,17 @@ const apptCreate = jest.fn(async (input: { customer_id: string; store_id?: strin
   customer_id: input.customer_id,
   store_id: input.store_id ?? null,
 }))
+// created_at (Fable fix-round FIX 1): the burn dedup window now anchors to
+// min(starts_at, created_at) — set equal to starts_at here so every existing
+// burn-window computation (the same-day cancel/no-show burn tests below) is
+// unchanged.
 const apptGet = jest.fn(async () => ({
   id: 'appt-1',
   customer_id: 'cust-1',
   store_id: 'store-1',
   status: 'SCHEDULED',
   starts_at: '2026-07-20T02:00:00.000Z',
+  created_at: '2026-07-20T02:00:00.000Z',
 }))
 const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
@@ -165,6 +170,7 @@ beforeEach(() => {
     store_id: 'store-1',
     status: 'SCHEDULED',
     starts_at: '2026-07-20T02:00:00.000Z',
+    created_at: '2026-07-20T02:00:00.000Z',
   })
 })
 
@@ -356,6 +362,7 @@ describe('POST /api/app/v1/appointments/[id]/restore', () => {
       store_id: 'store-1',
       status: 'CANCELLED',
       starts_at: '2026-07-20T02:00:00.000Z',
+      created_at: '2026-07-20T02:00:00.000Z',
     })
     const res = await restorePOST(post(URL_, undefined), params('appt-1'))
     expect(await res.json()).toEqual({ success: true })
@@ -422,6 +429,7 @@ describe('booking mutation facade routes — audit (single-write, no double-log)
     expect(lines[0]).toMatchObject({
       category: 'booking',
       action: 'booking.cancel',
+      actor_id: 'auth-user-1',
       business_id: 'business-1',
       target_id: 'cust-1',
       source: 'facade',
@@ -440,6 +448,7 @@ describe('booking mutation facade routes — audit (single-write, no double-log)
     expect(lines[0]).toMatchObject({
       category: 'booking',
       action: 'booking.no_show',
+      actor_id: 'auth-user-1',
       business_id: 'business-1',
       target_id: 'cust-1',
       source: 'facade',
@@ -453,6 +462,7 @@ describe('booking mutation facade routes — audit (single-write, no double-log)
       store_id: 'store-1',
       status: 'CANCELLED',
       starts_at: '2026-07-20T02:00:00.000Z',
+      created_at: '2026-07-20T02:00:00.000Z',
     })
     const lines = await auditLines(async () => {
       const res = await restorePOST(post('https://s/api/app/v1/appointments/appt-1/restore', undefined), params('appt-1'))
@@ -462,6 +472,7 @@ describe('booking mutation facade routes — audit (single-write, no double-log)
     expect(lines[0]).toMatchObject({
       category: 'booking',
       action: 'booking.restore',
+      actor_id: 'auth-user-1',
       business_id: 'business-1',
       target_id: 'cust-1',
       source: 'facade',

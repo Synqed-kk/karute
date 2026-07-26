@@ -153,13 +153,22 @@ export async function createAppointmentCore(
  */
 async function executeGuardedBurn(
   synqed: MutationClient,
-  appt: { customer_id: string; starts_at: string },
+  appt: { customer_id: string; starts_at: string; created_at: string },
   appointmentId: string,
   target: { id: string },
 ): Promise<'below_zero' | 'burn_failed' | 'already_burned' | null> {
-  // The window starts a day before the booking so an earlier burn (stamped
-  // with the booking's JST date) is always inside it.
-  const since = ymdInJst(new Date(new Date(appt.starts_at).getTime() - 86_400_000))
+  // The window starts a day before the EARLIER of starts_at and created_at —
+  // not starts_at alone (Fable fix-round finding, 2026-07-27). starts_at is
+  // mutable: burn → restore → reschedule-forward → re-burn would push the
+  // window past an earlier real redemption and double-burn. created_at never
+  // changes, so anchoring to it whenever it's earlier can only WIDEN the
+  // window — the match below is exact on appointment_id, so a wider window
+  // catches MORE true burns, never a false positive.
+  // Ceiling (out of accident scope, council item): a booking BACKDATED before
+  // its own creation date and then cycled could still evade this check —
+  // adversarial-staff territory, not a bug in the normal reschedule flow.
+  const anchor = Math.min(new Date(appt.starts_at).getTime(), new Date(appt.created_at).getTime())
+  const since = ymdInJst(new Date(anchor - 86_400_000))
   const alreadyBurned: boolean | 'unknown' = await synqed.packs
     .listRecentRedemptions(since)
     .then((rows) => rows.some((r) => r.appointment_id === appointmentId))
@@ -184,6 +193,14 @@ async function executeGuardedBurn(
  * pairing so the audit trail can never show a burned 事前連絡 cancel.
  * `actingStaffId` is the best-effort audit stamp in CORE's staff-id space
  * (null = omitted, never blocking).
+ *
+ * CONTRACT CHANGE (Fable fix-round ruling, 2026-07-27): the booking is now
+ * read and terminal-checked on EVERY path, not just the burn path. A plain
+ * double-tap cancel used to write a second booking.cancel row for a no-op
+ * write, and — worse — could silently overwrite an existing NO_SHOW back to
+ * CANCELLED with no error. An audit row must mean a state change actually
+ * happened; this matches the double-tap contract markNoShowAppointmentCore
+ * already has (refuse an already-terminal row with `already_terminal`).
  */
 export async function cancelAppointmentCore(
   synqed: MutationClient,
@@ -197,6 +214,7 @@ export async function cancelAppointmentCore(
     // customer/salon COMMUNICATED — the chips record how (advance contact /
     // same-day contact / salon-initiated). Fixed vocabulary only; the audit
     // trail is not a free-text field (same rule the no-show path has).
+    // Pure input checks stay before any read — fail fast, no I/O yet.
     if (input?.reason && !(CANCEL_REASONS as readonly string[]).includes(input.reason)) {
       return { error: 'Invalid cancel reason.' }
     }
@@ -207,17 +225,16 @@ export async function cancelAppointmentCore(
       return { error: 'A ticket can only be consumed on a same-day-contact cancel.' }
     }
 
-    // The burn path needs the appointment row + the money guards the no-show
-    // burn has always had. The PLAIN path stays get-free and idempotent
-    // (re-cancelling a cancelled row is harmless; a second burn is not).
-    let burnAppt: { customer_id: string; starts_at: string } | null = null
+    // ONE read, reused by the burn path below (no second get()) — see the
+    // contract-change note above.
+    const appt = await synqed.appointments.get(appointmentId)
+    if (!appt) return { error: 'Booking not found.' }
+    if (isTerminalStatus(appt.status)) {
+      return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
+    }
+
     let burnTarget: { id: string } | null = null
     if (burnPack) {
-      const appt = await synqed.appointments.get(appointmentId)
-      if (!appt) return { error: 'Booking not found.' }
-      if (isTerminalStatus(appt.status)) {
-        return { error: 'This booking is already cancelled or marked as a no-show.', code: 'already_terminal' }
-      }
       // catch→[] mirrors the web listCustomerPacks wrapper (Greptile P1 on
       // #566): a failed pack read reads as "no burnable pack" — the sheet
       // gets its documented `code` discriminator, the cancel is blocked, and
@@ -230,7 +247,6 @@ export async function cancelAppointmentCore(
       if (!target) {
         return { error: 'This customer has no burnable pack.', code: 'no_burnable_pack' }
       }
-      burnAppt = appt
       burnTarget = target
     }
 
@@ -248,11 +264,11 @@ export async function cancelAppointmentCore(
     )
 
     let burnError: 'below_zero' | 'burn_failed' | 'already_burned' | null = null
-    if (burnPack && burnAppt && burnTarget) {
+    if (burnPack && burnTarget) {
       // Same ordering contract as the no-show burn: status FIRST, burn LAST —
       // a failed burn can never strand a spent ticket, and the partial
       // outcome (cancel recorded, ticket not consumed) reaches the staff.
-      burnError = await executeGuardedBurn(synqed, burnAppt, appointmentId, burnTarget)
+      burnError = await executeGuardedBurn(synqed, appt, appointmentId, burnTarget)
     }
 
     // Compliance surface (Fable audit finding, 2026-07-27): burn_pack alone is
@@ -437,6 +453,16 @@ export async function updateAppointmentCore(
   actor: BookingActor,
 ): Promise<{ success: true } | { error: string }> {
   try {
+    // Terminal guard (Fable fix-round finding, 2026-07-27 — this core had NO
+    // read-check while every sibling core does): mirrors
+    // restoreAppointmentCore's read-check so a stale sheet can't silently
+    // reschedule/reassign a booking that's already cancelled or no-show.
+    const appt = await synqed.appointments.get(appointmentId)
+    if (!appt) return { error: 'Booking not found.' }
+    if (isTerminalStatus(appt.status)) {
+      return { error: 'A cancelled or no-show booking cannot be edited.' }
+    }
+
     const sdkPatch: {
       staff_id?: string
       starts_at?: string
@@ -447,6 +473,10 @@ export async function updateAppointmentCore(
     if (patch.startsAt !== undefined) sdkPatch.starts_at = patch.startsAt
     if (patch.endsAt !== undefined) sdkPatch.ends_at = patch.endsAt
     if (patch.durationMinutes !== undefined) sdkPatch.duration_minutes = patch.durationMinutes
+
+    // No provided fields → no mutation → no audit row: calling update({})
+    // would be a no-op write that still logged a "something changed" row.
+    if (Object.keys(sdkPatch).length === 0) return { success: true }
 
     // update()'s return rides the FULL Appointment row — customer_id/store_id
     // are always present regardless of which fields were patched (verified at
