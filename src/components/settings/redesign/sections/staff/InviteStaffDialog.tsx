@@ -201,6 +201,11 @@ export function InviteStaffDialog({ staff = [] }: InviteStaffDialogProps) {
                   <span className="min-w-0 truncate">
                     {inv.email}
                     <span className="ml-1.5 text-muted-foreground">· {t(`role_${inv.role}`)}</span>
+                    {inv.linked && (
+                      <span className="ml-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                        {t('linkedBadge')}
+                      </span>
+                    )}
                   </span>
                   <button
                     type="button"
