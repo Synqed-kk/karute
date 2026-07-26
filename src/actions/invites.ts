@@ -8,7 +8,7 @@ import { SynqedClient } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
 import { createClient } from '@/lib/supabase/server'
 import { getSynqedClient, newSynqedClient } from '@/lib/synqed/client'
-import { orgSettingsWithClient } from '@/actions/org-settings'
+import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { chooseStaffToLink } from '@/lib/invites/link'
 import { requireCapability } from '@/lib/auth/require-permission'
@@ -334,18 +334,15 @@ export async function getInviteByToken(
     return { valid: false, reason: 'expired' }
   }
 
-  // Salon name = org truth (settings 事業所名 via core orgSettings), scoped to
-  // the invite's business. NOT the owner's profile full_name — that is a
-  // person's name, and editing it (e.g. the 7/26 owner-name fix) silently
-  // renamed the join screen. Fallback 'Karute' (unconfigured salon or core
-  // read failure) — the pre-auth join page must still render.
-  let salonName = 'Karute'
-  try {
-    const settings = await orgSettingsWithClient(newSynqedClient(invite.business_id))
-    if (settings?.salon_name) salonName = settings.salon_name
-  } catch {
-    /* degrade to fallback — name is chrome here, never blocks joining */
-  }
+  // Salon name = the shared truth chain (business-name.ts): configured org
+  // 事業所名 first — NOT the owner's editable profile name (the 7/26 rename
+  // silently retitled this screen) — then the signup-captured name for
+  // pre-onboarding tenants, then 'Karute'. Never blocks joining.
+  const salonName = await businessDisplayName(
+    newSynqedClient(invite.business_id),
+    invite.business_id,
+    'Karute',
+  )
 
   return { valid: true, email: invite.email as string, salonName }
 }

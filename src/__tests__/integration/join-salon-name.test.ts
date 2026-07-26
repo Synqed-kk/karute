@@ -1,11 +1,9 @@
-// /join salon name = org truth (store-scope design §6). Pins: the name comes
-// from core orgSettings (settings 事業所名), read through a client scoped to
-// the INVITE's business — never the owner's profile full_name (renaming the
-// owner renamed the join screen); an orgSettings failure or unconfigured
-// salon degrades to 'Karute' and never blocks the pre-auth join page.
-// Every case also pins "the old profiles path is DEAD": createServiceClient
-// is never called by getInviteByToken, and if it were, the distinctive fake
-// owner name would leak into salonName and fail the assertion.
+// /join salon name = the shared business-name truth chain (business-name.ts):
+// configured org 事業所名 first (NEVER the owner's editable profile name —
+// renaming the owner retitled the join screen), the signup-captured profile
+// name second (pre-onboarding tenants: bootstrap sets full_name TO the
+// entered salon name and nothing else holds it until /welcome), 'Karute'
+// last. A failed org read degrades and never blocks the pre-auth join page.
 process.env.SYNQED_CORE_URL ??= 'https://core.test'
 process.env.SYNQED_CORE_API_KEY ??= 'test-core-key'
 process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
@@ -34,15 +32,14 @@ jest.mock('@/actions/org-settings', () => ({
   orgSettingsWithClient: (...a: unknown[]) => orgSettingsWithClient(...a),
 }))
 
-// The OLD implementation read the owner's profile full_name through
-// createServiceClient. Mock it with a distinctive name that would satisfy
-// the old code's query — if the profiles path ever comes back, salonName
-// becomes 'オーナー個人名' and every case below fails on both assertions.
+// Tier 2: the signup-captured owner-profile name (bootstrap wrote the entered
+// salon name into full_name). Reached ONLY when org settings has no name.
+let signupName: string | null = 'エストロ表参道'
 const createServiceClient = jest.fn(() => {
   const builder: Record<string, unknown> = {}
   for (const m of ['select', 'eq', 'order', 'limit']) builder[m] = () => builder
   ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
-    data: { full_name: 'オーナー個人名' },
+    data: signupName === null ? null : { full_name: signupName },
   })
   return { from: () => builder }
 })
@@ -56,9 +53,10 @@ describe('getInviteByToken salon name', () => {
   beforeEach(() => {
     orgSettingsWithClient.mockReset()
     createServiceClient.mockClear()
+    signupName = 'エストロ表参道'
   })
 
-  it('returns the org settings salon_name via a client scoped to the invite business', async () => {
+  it('configured business: org settings 事業所名 wins and the profile is never consulted', async () => {
     orgSettingsWithClient.mockResolvedValue({ salon_name: '銀座サロン' })
     const r = await getInviteByToken('tok-32-chars')
     expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: '銀座サロン' })
@@ -67,18 +65,21 @@ describe('getInviteByToken salon name', () => {
     expect(createServiceClient).not.toHaveBeenCalled()
   })
 
-  it('falls back to Karute when the org read fails — join still renders', async () => {
-    orgSettingsWithClient.mockRejectedValue(new Error('core down'))
+  it('pre-onboarding business (org settings null): the signup-captured name shows, not Karute', async () => {
+    orgSettingsWithClient.mockResolvedValue(null)
     const r = await getInviteByToken('tok-32-chars')
-    expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: 'Karute' })
-    expect(createServiceClient).not.toHaveBeenCalled()
+    expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: 'エストロ表参道' })
   })
 
-  it('falls back to Karute for an unconfigured salon (null settings / empty name)', async () => {
-    orgSettingsWithClient.mockResolvedValue(null)
-    expect(await getInviteByToken('tok-32-chars')).toMatchObject({ salonName: 'Karute' })
+  it('core down: degrades to the signup-captured name — join still renders', async () => {
+    orgSettingsWithClient.mockRejectedValue(new Error('core down'))
+    const r = await getInviteByToken('tok-32-chars')
+    expect(r).toEqual({ valid: true, email: 'staff@example.com', salonName: 'エストロ表参道' })
+  })
+
+  it('both sources empty: falls back to Karute', async () => {
     orgSettingsWithClient.mockResolvedValue({ salon_name: '' })
+    signupName = null
     expect(await getInviteByToken('tok-32-chars')).toMatchObject({ salonName: 'Karute' })
-    expect(createServiceClient).not.toHaveBeenCalled()
   })
 })

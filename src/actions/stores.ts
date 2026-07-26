@@ -6,7 +6,7 @@ import { cookies } from 'next/headers'
 import type { SynqedClient } from '@synqed-kk/client'
 
 import { getSynqedClient } from '@/lib/synqed/client'
-import { orgSettingsWithClient } from '@/actions/org-settings'
+import { businessDisplayName } from '@/lib/business-name'
 import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
@@ -83,20 +83,11 @@ function coreBusinessType(row: unknown): string | null {
   return typeof v === 'string' && v.length > 0 ? v : null
 }
 
-/** Name for the auto-created primary store — org truth (settings 事業所名),
- *  NOT the owner's profile full_name: that is a person's name, and this write
- *  is permanent (the provisioned 本店 keeps it). Same seam and fallback rule
- *  as getInviteByToken's salon name; degrade keeps the pre-existing
- *  'Main store' default so provisioning never blocks on a core hiccup. */
-async function primaryStoreName(synqed: Pick<SynqedClient, 'orgSettings'>): Promise<string> {
-  try {
-    const settings = await orgSettingsWithClient(synqed)
-    if (settings?.salon_name) return settings.salon_name
-  } catch {
-    /* degrade to fallback — the lazy 本店-create must not fail the list */
-  }
-  return 'Main store'
-}
+// Primary-store name = the shared truth chain (business-name.ts). This write
+// is PERMANENT (the provisioned 本店 keeps it, nothing re-syncs it later) and
+// fires on the FIRST authenticated render — usually BEFORE /welcome writes
+// org settings — so the signup-captured tier is the one most new tenants
+// actually hit. 'Main store' only when both sources are empty.
 
 /** Client-threaded core of listStores (facade Bearer path, design-parity
  *  packet 12 §B-3 S2 — same WithClient split as orgSettingsWithClient).
@@ -148,7 +139,7 @@ export async function listStoresWithClient(
   // empty for a business that had zero stores — merge with the fresh row.
   let stores = storesRes.stores
   if (opts.ensurePrimary && stores.length === 0) {
-    const name = await primaryStoreName(synqed)
+    const name = await businessDisplayName(synqed, businessId, 'Main store')
     try {
       await synqed.stores.create({ name, is_primary: true })
     } catch {

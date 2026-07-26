@@ -3,9 +3,9 @@
 // tighter than web's ungated listStores() action) · list+counts merge
 // parity via the SAME listStoresWithClient twin the web action delegates to
 // · the GET route shares web's lazy 本店-create (byte-parity, 810e4b6d): an
-// empty list provisions the primary store exactly once (name resolved from
-// org settings 事業所名, degrade 'Main store' — never the owner's profile
-// name), a race-lost create is swallowed, a non-empty list never
+// empty list provisions the primary store exactly once (name = the
+// business-name truth chain: org settings 事業所名 → signup-captured profile
+// name → 'Main store'), a race-lost create is swallowed, a non-empty list never
 // creates · POST/PATCH require the owner role (roster + resolved Bearer
 // identity) with a standard facade 403 on denial, NOT a soft 200 { error } ·
 // Idempotency-Key required on create, not on update · STORE_LIMIT_REACHED
@@ -37,17 +37,17 @@ jest.mock('@/lib/customers/queries', () => ({
   getCustomerWithClient: jest.fn(async () => ({ id: 'unused' })),
 }))
 
-// The lazy 本店-create's name resolver (primaryStoreName) reads org truth
-// (orgSettings 事業所名) — NEVER the owner's profile. The service-client mock
-// below keeps the OLD path's query satisfiable with a DISTINCTIVE personal
-// name: if the profiles read ever comes back, the created store would be
-// named 'オーナー個人名' and the name assertions fail.
+// The lazy 本店-create's name comes from the business-name truth chain:
+// org settings 事業所名 first, the signup-captured profile full_name second
+// (the P1 scenario: a fresh signup provisions its store BEFORE /welcome
+// writes org settings), 'Main store' last. `signupName` is tier 2.
+let signupName: string | null = 'サインアップ店名'
 jest.mock('@/lib/supabase/service', () => ({
   createServiceClient: () => {
     const builder: Record<string, unknown> = {}
     for (const m of ['select', 'eq', 'order', 'limit']) builder[m] = () => builder
     ;(builder as { maybeSingle: unknown }).maybeSingle = async () => ({
-      data: { full_name: 'オーナー個人名' },
+      data: signupName === null ? null : { full_name: signupName },
     })
     return { from: () => builder }
   },
@@ -78,11 +78,13 @@ const customersCountsByStore = jest.fn(async () => ({ counts: {} as Record<strin
 const entitlementsGet = jest.fn(async () => ({ tier: 'professional', is_unlimited: false }))
 // Raw core orgSettings payload — orgSettingsWithClient normalizes it; the
 // top-level `name` column is the 事業所名 primaryStoreName provisions with.
-const orgSettingsGet = jest.fn(async () => ({
-  business_id: 'business-1',
-  name: 'テストサロン',
-  settings: {},
-}))
+const orgSettingsGet = jest.fn(
+  async (): Promise<{ business_id: string; name: string; settings: object } | null> => ({
+    business_id: 'business-1',
+    name: 'テストサロン',
+    settings: {},
+  }),
+)
 const fakeClient = {
   stores: { list: storesList, create: storesCreate, update: storesUpdate },
   staffStores: { counts: staffStoresCounts },
@@ -144,6 +146,7 @@ beforeEach(() => {
   customersCountsByStore.mockResolvedValue({ counts: {} })
   entitlementsGet.mockResolvedValue({ tier: 'professional', is_unlimited: false })
   orgSettingsGet.mockResolvedValue({ business_id: 'business-1', name: 'テストサロン', settings: {} })
+  signupName = 'サインアップ店名'
 })
 
 describe('GET /api/app/v1/stores', () => {
@@ -214,8 +217,27 @@ describe('GET /api/app/v1/stores', () => {
     ])
   })
 
-  it('an org-settings read failure degrades the provisioned name to Main store — never blocks the list', async () => {
+  it('fresh signup (org settings not yet configured): the store gets the SIGNUP-captured name, never Main store', async () => {
+    // The P1 scenario: /welcome has not run, orgSettings.get() resolves to
+    // nothing, but bootstrap already wrote the entered salon name into the
+    // owner profile. That name — not the English default — must be baked
+    // into the permanent store row.
+    orgSettingsGet.mockResolvedValueOnce(null)
+    storesList
+      .mockResolvedValueOnce({ stores: [] })
+      .mockResolvedValueOnce({
+        stores: [
+          { id: 'store-primary', name: 'サインアップ店名', address: null, phone: null, is_primary: true, active: true },
+        ],
+      })
+    const res = await listGET(getReq(), noParams)
+    expect(res.status).toBe(200)
+    expect(storesCreate).toHaveBeenCalledWith({ name: 'サインアップ店名', is_primary: true })
+  })
+
+  it('both name sources empty (core down + no profile): degrades to Main store — never blocks the list', async () => {
     orgSettingsGet.mockRejectedValueOnce(new Error('core down'))
+    signupName = null
     storesList
       .mockResolvedValueOnce({ stores: [] })
       .mockResolvedValueOnce({
