@@ -8,5 +8,6 @@
 /scripts/audit/ @alee046
 /src/__tests__/integration/audit-*.test.ts @alee046
 /src/__tests__/integration/facade-audit-*.test.ts @alee046
+/src/__tests__/integration/helpers/ @alee046
 /docs/audit-weakening-ledger.md @alee046
 /.github/workflows/ci.yml @alee046
