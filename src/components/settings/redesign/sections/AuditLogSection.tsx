@@ -135,12 +135,6 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   // newest request may write state, or page-2 of an OLD filter set would
   // append onto a different filter's page-1.
   const generation = useRef(0)
-  // One privacy.audit_log_view row per section open — not per filter click.
-  // Two refs close both race directions: logged-after-success means a failed
-  // first fetch retries the row; pending-while-in-flight means an overlapping
-  // filter click can't send a duplicate.
-  const openLogged = useRef(false)
-  const openLogPending = useRef(false)
   // Same-tick double-tap guard for the entry-edit trail fetch below:
   // editTrails read in toggleEntryEditTrail is a stale closure until React
   // commits the 'loading' write, so two synchronous clicks would both pass
@@ -151,8 +145,6 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     async (nextPage: number, append: boolean) => {
       const myGeneration = ++generation.current
       setLoading(true)
-      const logOpen = !openLogged.current && !openLogPending.current
-      if (logOpen) openLogPending.current = true
       let res: Awaited<ReturnType<typeof listAuditLog>>
       try {
         res = await listAuditLog({
@@ -163,24 +155,15 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           includeViews,
           breakGlass: breakGlass || undefined,
           page: nextPage,
-          logOpen,
         })
       } catch {
-        // Network-level rejection (offline, mid-deploy): release the pending
-        // flag so the retry re-sends logOpen, and surface the error state
-        // instead of an unhandled rejection.
-        if (logOpen) openLogPending.current = false
+        // Network-level rejection (offline, mid-deploy): surface the error
+        // state instead of an unhandled rejection.
         if (myGeneration === generation.current) {
           setError('failed')
           setLoading(false)
         }
         return
-      }
-      // Settle the open-log state BEFORE the stale-response return: even a
-      // superseded request wrote the row server-side iff it succeeded.
-      if (logOpen) {
-        openLogPending.current = false
-        if (res.ok) openLogged.current = true
       }
       if (myGeneration !== generation.current) return
       if (!res.ok) {

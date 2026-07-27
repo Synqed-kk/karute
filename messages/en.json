@@ -2163,7 +2163,10 @@
           "customer_delete_canceled": "Canceled customer deletion",
           "customer_delete_executed": "Permanently deleted customer data",
           "voice_enroll": "Voice enrolled",
-          "voice_revoke": "Voice removed"
+          "voice_revoke": "Voice removed",
+          "audit_log": {
+            "view": "Viewed audit log"
+          }
         },
         "booking": {
           "create": "Booking created",
