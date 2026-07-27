@@ -1,22 +1,24 @@
 // CP3 (+ CP3b + CP3c) — SDK, raw-Supabase & auth/storage write-site coverage
-// (contract §8, round-2 amendment A/C). Every write call the installed SDK
-// exposes, every raw Supabase table-write chain, and every Supabase
-// auth-admin/storage mutation found in src (non-test) must be lexically
-// INSIDE one of its file's AUDITED_CORES `symbols` spans (symbol-level, not
-// file-level — a write sitting in a different, unregistered function of an
-// otherwise-audited file still needs its own entry) or carry an explicit
-// allowlist entry (src/lib/audit-policy.ts) — the deny-default posture: an
+// (contract §8). Every write call the installed SDK exposes, every raw
+// Supabase table-write chain, and every Supabase auth-admin/storage mutation
+// found in src (non-test) must be lexically INSIDE one of its file's
+// AUDITED_CORES `symbols` spans, OR inside a symbol listed in the matching
+// allowlist entry's `symbols` (symbol-scoped allowlisting, fix round 1 #7 —
+// a bare (file, call) match used to grant file-wide amnesty, contradicting
+// the file's own symbol-level doctrine) — the deny-default posture: an
 // unknown write site fails loud with a template naming the exact fix.
-import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import ts from 'typescript'
 import { AUDITED_CORES, SDK_WRITE_ALLOWLIST, RAW_SUPABASE_WRITE_ALLOWLIST } from '@/lib/audit-policy'
 import { findSymbol } from './helpers/audit-emission'
 import { deriveSdkClasses, deriveWriteMethods, type WritePair } from './helpers/sdk-write-methods'
+import { srcFiles } from './helpers/src-files'
+import { staticAccessName, calleeObject, isComputedAccess, rootIdentifierName, accessChain } from './helpers/ast-access'
 
 const ROOT = process.cwd()
-const WRITE_VERBS = new Set(['POST', 'PUT', 'PATCH', 'DELETE'])
 const STORAGE_WRITE_METHODS = new Set(['upload', 'remove', 'update', 'move', 'copy'])
+const SUPABASE_WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
 
 // The three infrastructure emitters — their own plumbing writes (audit.ts's
 // synqed.audit.log(...) durable-forward call) aren't "a silent business
@@ -26,40 +28,86 @@ const INFRA_EXEMPT = new Set(['src/lib/audit.ts', 'src/lib/audit-web.ts', 'src/l
 const FIX_HINT =
   "if this site predates the PR, check whether @synqed-kk/client was bumped; fix surface = src/lib/audit-policy.ts"
 
-function srcFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (entry === '__tests__' || entry === 'node_modules') continue
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) srcFiles(full, out)
-    else if (/\.(ts|tsx)$/.test(entry) && !/\.test\.(ts|tsx)$/.test(entry)) out.push(full)
-  }
-  return out
-}
-
 interface Site {
+  pos: number
   line: number
   call: string
 }
 
-/** Registered symbol spans for `rel` (file path relative to ROOT), from
- *  AUDITED_CORES — a call site is "legal by registration" only if it falls
- *  lexically inside one of these. */
-function symbolSpans(rel: string, source: string): [number, number][] {
+// ── Named symbol spans (for BOTH AUDITED_CORES containment and the new
+// symbol-scoped allowlist containment) ──────────────────────────────────
+
+interface NamedSpan {
+  name: string
+  start: number
+  end: number
+}
+
+/** Every named function-like declaration in `sf` with its full span —
+ *  function declarations, const-arrow/function-expression declarations
+ *  (at ANY nesting depth — a private helper like process-recording.ts's
+ *  upsertKaruteRecord or regenerate-karute.ts's nested `rollback` is exactly
+ *  as real a symbol as an exported one, same philosophy as findSymbol/CP7's
+ *  processJob precedent), and method-shorthand declarations (both class
+ *  methods AND object-literal methods, e.g. `export const webRecordingPort =
+ *  { async prepareTranscription(blob) {...} }` — MethodDeclaration covers
+ *  both node shapes identically). Export status is irrelevant — an allowlist
+ *  entry can legally name a non-exported wrapper. */
+function namedSymbolSpans(sf: ts.SourceFile): NamedSpan[] {
+  const out: NamedSpan[] = []
+  function visit(node: ts.Node): void {
+    if (ts.isFunctionDeclaration(node) && node.name && node.body) {
+      out.push({ name: node.name.text, start: node.getStart(), end: node.getEnd() })
+    }
+    if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.body) {
+      out.push({ name: node.name.text, start: node.getStart(), end: node.getEnd() })
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      let init: ts.Expression = node.initializer
+      if (ts.isCallExpression(init)) {
+        const arrowArg = init.arguments.find((a) => ts.isArrowFunction(a) || ts.isFunctionExpression(a))
+        if (arrowArg) init = arrowArg
+      }
+      if (ts.isArrowFunction(init) || ts.isFunctionExpression(init)) {
+        out.push({ name: node.name.text, start: node.getStart(), end: node.getEnd() })
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sf)
+  return out
+}
+
+function symbolAt(pos: number, spans: NamedSpan[]): string | undefined {
+  // Smallest enclosing span wins (an inner exported const inside an outer
+  // one doesn't occur in this codebase, but narrowest-first is the honest
+  // choice if it ever does).
+  const enclosing = spans.filter((s) => pos >= s.start && pos <= s.end)
+  enclosing.sort((a, b) => a.end - a.start - (b.end - b.start))
+  return enclosing[0]?.name
+}
+
+/** Registered AUDITED_CORES symbol spans for `rel`, by findSymbol (only the
+ *  file's own registered names — narrower than namedSymbolSpans, and the
+ *  authority for "is this write covered by the registry"). */
+function auditedCoresSpans(rel: string, source: string): NamedSpan[] {
   const entry = AUDITED_CORES.find((e) => e.file === rel)
   if (!entry) return []
   return entry.symbols
-    .map((name) => findSymbol(source, name))
-    .filter((n): n is NonNullable<typeof n> => !!n)
-    .map((n) => [n.getStart(), n.getEnd()] as const)
+    .map((name) => {
+      const n = findSymbol(source, name)
+      return n ? { name, start: n.getStart(), end: n.getEnd() } : null
+    })
+    .filter((s): s is NamedSpan => !!s)
 }
 
-function withinAnySpan(pos: number, spans: [number, number][]): boolean {
-  return spans.some(([s, e]) => pos >= s && pos <= e)
+function withinAnySpan(pos: number, spans: NamedSpan[]): boolean {
+  return spans.some((s) => pos >= s.start && pos <= s.end)
 }
 
-// ── SynqedClient-aliasing detection (round-2 amendment C: bare-identifier
-// receivers only count when destructured/assigned from a SynqedClient value
-// in the same file — an unrelated same-named local must not false-positive) ──
+// ── SynqedClient-aliasing detection: bare-identifier receivers only count
+// when destructured/assigned from a SynqedClient value in the same file —
+// an unrelated same-named local must not false-positive. ──────────────────
 
 function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
   const clientLikeVars = new Set<string>()
@@ -74,9 +122,6 @@ function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
     return !!type && /SynqedClient/.test(type.getText())
   }
 
-  // Pass 1: find identifiers holding a SynqedClient-typed/constructed value
-  // (params typed `SynqedClient`/`Pick<SynqedClient,...>`, or `const x =
-  // getSynqedClient()`/`new SynqedClient(...)`).
   function visitClientVars(node: ts.Node): void {
     if (ts.isParameter(node) && ts.isIdentifier(node.name) && hasClientTypeAnnotation(node.type)) {
       clientLikeVars.add(node.name.text)
@@ -90,7 +135,6 @@ function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
   }
   visitClientVars(sf)
 
-  // Pass 2: `const { prop } = clientVar` / `const prop = clientVar.prop`.
   function visitAliases(node: ts.Node): void {
     if (ts.isVariableDeclaration(node) && node.initializer) {
       if (
@@ -117,34 +161,29 @@ function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
   return aliases
 }
 
-/** The ROOT identifier of a property-access chain (`a.b.c` → `a`), for
- *  matching a computed-call receiver against "also appears as the receiver
- *  of a recognized write chain elsewhere in this file". */
-function rootIdentifier(expr: ts.Expression): string | undefined {
-  let cur: ts.Expression = expr
-  while (ts.isPropertyAccessExpression(cur) || ts.isCallExpression(cur)) {
-    cur = ts.isPropertyAccessExpression(cur) ? cur.expression : cur.expression
-  }
-  return ts.isIdentifier(cur) ? cur.text : undefined
-}
+// ── Write-chain fingerprinting (for the dispatch ban) ───────────────────
+
+const SDK_PROP_SURFACE = new Set(deriveWriteMethods().map((p) => p.prop))
+const SURFACE_NAMES = new Set([...SDK_PROP_SURFACE, 'from', 'auth', 'admin', 'storage'])
 
 /** Root identifiers that appear as the receiver of a recognized SDK/
- *  raw-supabase/auth-admin/storage write chain ANYWHERE in `sf` — used to
- *  decide whether a one-level computed call `x[a](` is "SDK-client-adjacent"
- *  (round-2/v2: pattern-based, NOT import-based — several real writer files
- *  never mention the SynqedClient type name at all, structural typing). */
+ *  raw-supabase/auth-admin/storage write chain ANYWHERE in `sf` — pattern-
+ *  based, NOT import-based (several real writer files never mention the
+ *  SynqedClient type name at all — structural typing). Precise: the call's
+ *  own access chain must contain a genuine SURFACE_NAMES member (an actual
+ *  SDK client prop, or from/auth/admin/storage) — NOT "any 2+-level method
+ *  chain" (that shape-only heuristic false-positived on ordinary code like
+ *  `SCOPES[key].columns.filter(...)`, unrelated to any SDK client). */
 function writeChainReceiverRoots(sf: ts.SourceFile): Set<string> {
   const roots = new Set<string>()
   function visit(node: ts.Node): void {
-    if (
-      ts.isCallExpression(node) &&
-      ts.isPropertyAccessExpression(node.expression) &&
-      (sdkWriteCallMatchLoose(node) ||
-        rawSupabaseWriteMatchLoose(node) ||
-        authAdminOrStorageWriteMatchLoose(node))
-    ) {
-      const root = rootIdentifier(node.expression.expression)
-      if (root) roots.add(root)
+    if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
+      const chain = accessChain(node.expression)
+      const names = chain.map(staticAccessName).filter((n): n is string => n !== undefined)
+      if (names.some((n) => SURFACE_NAMES.has(n))) {
+        const root = rootIdentifierName(node.expression)
+        if (root) roots.add(root)
+      }
     }
     ts.forEachChild(node, visit)
   }
@@ -152,52 +191,37 @@ function writeChainReceiverRoots(sf: ts.SourceFile): Set<string> {
   return roots
 }
 
-// Loose shape checks (verb-name only, no derived-write-pair lookup needed —
-// this is receiver-fingerprinting, not the legality scan) reused by
-// writeChainReceiverRoots.
-function sdkWriteCallMatchLoose(node: ts.CallExpression): boolean {
-  return ts.isPropertyAccessExpression(node.expression) && ts.isPropertyAccessExpression(node.expression.expression)
-}
-function rawSupabaseWriteMatchLoose(node: ts.CallExpression): boolean {
-  if (!ts.isPropertyAccessExpression(node.expression)) return false
-  const receiver = node.expression.expression
-  return (
-    SUPABASE_WRITE_VERBS.has(node.expression.name.text) &&
-    ts.isCallExpression(receiver) &&
-    ts.isPropertyAccessExpression(receiver.expression) &&
-    receiver.expression.name.text === 'from'
-  )
-}
-function authAdminOrStorageWriteMatchLoose(node: ts.CallExpression): boolean {
-  if (!ts.isPropertyAccessExpression(node.expression)) return false
-  const receiver = node.expression.expression
-  if (ts.isPropertyAccessExpression(receiver) && receiver.name.text === 'admin') return true
-  return (
-    STORAGE_WRITE_METHODS.has(node.expression.name.text) &&
-    ts.isCallExpression(receiver) &&
-    ts.isPropertyAccessExpression(receiver.expression) &&
-    receiver.expression.name.text === 'from'
-  )
-}
-
-/** Computed-member dispatch ban (contract §8 v2 Deliverable 4 — pattern-
- *  based, NOT import-based): a two-level computed call `x[a][b](...)` fails
- *  unconditionally anywhere in non-test src; a one-level computed call
- *  `x[a](...)` fails only when `x` ALSO appears in the same file as the
- *  receiver of a recognized SDK/raw-supabase/auth-admin/storage write chain
- *  (dynamic dispatch on a value this scan otherwise proved writes). */
+/** Computed-member dispatch ban (contract §8, hardened fix round 1 #2): a
+ *  chain containing a NON-LITERAL element access is banned when it is
+ *  write-surface-adjacent —
+ *   - two access links back-to-back are BOTH ElementAccess (x[a][b](...)),
+ *   - the chain's root identifier is a known write-chain receiver elsewhere
+ *     in the file (x[a](...) after x.customers.update(...) appears too), or
+ *   - any STATIC (literal) link in the chain names a known SDK client prop /
+ *     `from` / `auth` / `admin` / `storage` — this fires even in ISOLATION,
+ *     no root history needed (`client.customers[m](...)` — `customers`
+ *     alone marks it, exactly as bracket-vs-dot parity requires).
+ *  A fully-literal chain (`x['a']['b'](`) is never flagged — it reads
+ *  exactly as `x.a.b(` and is scanned normally as a property write. */
 function findComputedDispatch(sf: ts.SourceFile): number[] {
   const lines: number[] = []
   const writeRoots = writeChainReceiverRoots(sf)
   function visit(node: ts.Node): void {
-    if (ts.isCallExpression(node) && ts.isElementAccessExpression(node.expression)) {
-      const outer = node.expression
-      const isTwoLevel = ts.isElementAccessExpression(outer.expression)
-      const root = isTwoLevel ? rootIdentifier(outer.expression) : rootIdentifier(outer.expression)
-      const flagged = isTwoLevel || (root !== undefined && writeRoots.has(root))
-      if (flagged) {
-        const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
-        lines.push(line + 1)
+    if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
+      const chain = accessChain(node.expression)
+      const hasNonLiteral = chain.some(isComputedAccess)
+      if (hasNonLiteral) {
+        const twoAdjacentElementAccess = chain.some(
+          (n, i) => ts.isElementAccessExpression(n) && i + 1 < chain.length && ts.isElementAccessExpression(chain[i + 1]),
+        )
+        const names = chain.map(staticAccessName).filter((n): n is string => n !== undefined)
+        const root = rootIdentifierName(node.expression)
+        const knownRoot = root !== undefined && writeRoots.has(root)
+        const knownSurface = names.some((n) => SURFACE_NAMES.has(n))
+        if (twoAdjacentElementAccess || knownRoot || knownSurface) {
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
+          lines.push(line + 1)
+        }
       }
     }
     ts.forEachChild(node, visit)
@@ -205,6 +229,9 @@ function findComputedDispatch(sf: ts.SourceFile): number[] {
   visit(sf)
   return lines
 }
+
+// ── Write-site scanners (element-access parity: `x['prop']` reads exactly
+// like `x.prop` everywhere, per staticAccessName/calleeObject) ───────────
 
 function scanSdkWriteCalls(sf: ts.SourceFile, writePairs: WritePair[], aliasNames: Set<string>): Site[] {
   const propToMethods = new Map<string, Set<string>>()
@@ -214,18 +241,16 @@ function scanSdkWriteCalls(sf: ts.SourceFile, writePairs: WritePair[], aliasName
   }
   const out: Site[] = []
   function visit(node: ts.Node): void {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      const callee = node.expression
-      const method = callee.name.text
-      let prop: string | null = null
-      if (ts.isPropertyAccessExpression(callee.expression)) {
-        prop = callee.expression.name.text // x.prop.method(
-      } else if (ts.isIdentifier(callee.expression) && aliasNames.has(callee.expression.text)) {
-        prop = callee.expression.text // prop.method( — only when proven SynqedClient-aliased
-      }
-      if (prop && propToMethods.get(prop)?.has(method)) {
-        const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
-        out.push({ line: line + 1, call: `${prop}.${method}` })
+    if (ts.isCallExpression(node)) {
+      const method = staticAccessName(node.expression)
+      const receiver = calleeObject(node.expression)
+      if (method && receiver) {
+        let prop = staticAccessName(receiver)
+        if (!prop && ts.isIdentifier(receiver) && aliasNames.has(receiver.text)) prop = receiver.text
+        if (prop && propToMethods.get(prop)?.has(method)) {
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
+          out.push({ pos: node.getStart(), line: line + 1, call: `${prop}.${method}` })
+        }
       }
     }
     ts.forEachChild(node, visit)
@@ -233,8 +258,6 @@ function scanSdkWriteCalls(sf: ts.SourceFile, writePairs: WritePair[], aliasName
   visit(sf)
   return out
 }
-
-const SUPABASE_WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
 
 function tableConstNames(sf: ts.SourceFile): Map<string, string> {
   const out = new Map<string, string>()
@@ -257,14 +280,15 @@ function scanRawSupabaseWrites(sf: ts.SourceFile): Site[] {
   const consts = tableConstNames(sf)
   const out: Site[] = []
   function visit(node: ts.Node): void {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      const verb = node.expression.name.text
-      const receiver = node.expression.expression
+    if (ts.isCallExpression(node)) {
+      const verb = staticAccessName(node.expression)
+      const receiver = calleeObject(node.expression)
       if (
+        verb &&
+        receiver &&
         SUPABASE_WRITE_VERBS.has(verb) &&
         ts.isCallExpression(receiver) &&
-        ts.isPropertyAccessExpression(receiver.expression) &&
-        receiver.expression.name.text === 'from' &&
+        staticAccessName(receiver.expression) === 'from' &&
         receiver.arguments.length > 0
       ) {
         const arg = receiver.arguments[0]
@@ -273,7 +297,7 @@ function scanRawSupabaseWrites(sf: ts.SourceFile): Site[] {
         else if (ts.isIdentifier(arg)) table = consts.get(arg.text) ?? arg.text
         if (table) {
           const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
-          out.push({ line: line + 1, call: `${table}.${verb}` })
+          out.push({ pos: node.getStart(), line: line + 1, call: `${table}.${verb}` })
         }
       }
     }
@@ -289,38 +313,25 @@ function scanRawSupabaseWrites(sf: ts.SourceFile): Site[] {
 function scanAuthAdminAndStorageWrites(sf: ts.SourceFile): Site[] {
   const out: Site[] = []
   function visit(node: ts.Node): void {
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      const method = node.expression.name.text
-      const receiver = node.expression.expression
-      // .auth.admin.<method>( — excludes obvious reads (getUserById,
-      // listUsers, ...); the Supabase Admin API's write surface is
-      // createUser/deleteUser/updateUserById/inviteUserByEmail/generateLink.
-      if (
-        ts.isPropertyAccessExpression(receiver) &&
-        receiver.name.text === 'admin' &&
-        ts.isPropertyAccessExpression(receiver.expression) &&
-        receiver.expression.name.text === 'auth' &&
-        !/^(get|list|verify)/i.test(method)
-      ) {
-        const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
-        out.push({ line: line + 1, call: `auth.admin.${method}` })
-      }
-      // .storage.from(bucket).<upload|remove|update|move|copy>(
-      if (
-        STORAGE_WRITE_METHODS.has(method) &&
-        ts.isCallExpression(receiver) &&
-        ts.isPropertyAccessExpression(receiver.expression) &&
-        receiver.expression.name.text === 'from' &&
-        ts.isPropertyAccessExpression(receiver.expression.expression) &&
-        receiver.expression.expression.name.text === 'storage'
-      ) {
-        const bucketArg = receiver.arguments[0]
-        const bucket =
-          bucketArg && (ts.isStringLiteral(bucketArg) || ts.isNoSubstitutionTemplateLiteral(bucketArg))
-            ? bucketArg.text
-            : '?'
-        const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
-        out.push({ line: line + 1, call: `storage.${bucket}.${method}` })
+    if (ts.isCallExpression(node)) {
+      const method = staticAccessName(node.expression)
+      const receiver = calleeObject(node.expression)
+      if (method && receiver) {
+        const receiverObj = calleeObject(receiver)
+        if (staticAccessName(receiver) === 'admin' && receiverObj && staticAccessName(receiverObj) === 'auth' && !/^(get|list|verify)/i.test(method)) {
+          const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
+          out.push({ pos: node.getStart(), line: line + 1, call: `auth.admin.${method}` })
+        }
+        if (STORAGE_WRITE_METHODS.has(method) && ts.isCallExpression(receiver)) {
+          const storageReceiver = calleeObject(receiver.expression)
+          if (staticAccessName(receiver.expression) === 'from' && storageReceiver && staticAccessName(storageReceiver) === 'storage') {
+            const bucketArg = receiver.arguments[0]
+            const bucket =
+              bucketArg && (ts.isStringLiteral(bucketArg) || ts.isNoSubstitutionTemplateLiteral(bucketArg)) ? bucketArg.text : '?'
+            const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
+            out.push({ pos: node.getStart(), line: line + 1, call: `storage.${bucket}.${method}` })
+          }
+        }
       }
     }
     ts.forEachChild(node, visit)
@@ -357,11 +368,12 @@ describe('CP3 — every SDK/raw-Supabase/auth-admin/storage write call site is c
     if (INFRA_EXEMPT.has(rel)) continue
     const source = readFileSync(file, 'utf8')
     const sf = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-    const spans = symbolSpans(rel, source)
+    const coreSpans = auditedCoresSpans(rel, source)
+    const exportedSpans = namedSymbolSpans(sf)
 
     for (const line of findComputedDispatch(sf)) {
       computedDispatchOffenders.push(
-        `${rel}:${line}: computed member call on an SDK-client-adjacent value (client[x][y](...)) — banned outright, dynamic dispatch is unscannable.`,
+        `${rel}:${line}: computed member call on an SDK-client-adjacent value — banned outright, dynamic dispatch is unscannable.`,
       )
     }
 
@@ -373,22 +385,19 @@ describe('CP3 — every SDK/raw-Supabase/auth-admin/storage write call site is c
     ]
 
     for (const { site, kind } of allSites) {
-      // Re-resolve the node's position for span containment (line-based here
-      // is fine since we only need file:line for the message; containment
-      // uses the node position captured during the scan via re-scan below).
+      if (withinAnySpan(site.pos, coreSpans)) continue // covered by AUDITED_CORES
       const allowlist = kind === 'sdk' ? SDK_WRITE_ALLOWLIST : RAW_SUPABASE_WRITE_ALLOWLIST
-      const allowed = allowlist.some((e) => e.file === rel && e.call === site.call)
-      if (allowed) continue
-      // Symbol-span containment: re-find the exact node position for this
-      // line+call (cheap re-derivation, avoids threading raw ts.Node through
-      // the site record).
-      const covered = spans.length > 0 && isLineWithinAnySpan(sf, site.line, spans)
+      const enclosingSymbol = symbolAt(site.pos, exportedSpans)
+      const covered = allowlist.some(
+        (e) => e.file === rel && e.call === site.call && enclosingSymbol !== undefined && e.symbols.includes(enclosingSymbol),
+      )
       if (!covered) {
         const listName = kind === 'sdk' ? 'SDK_WRITE_ALLOWLIST' : 'RAW_SUPABASE_WRITE_ALLOWLIST'
+        const symbolNote = enclosingSymbol ? `enclosing exported symbol '${enclosingSymbol}'` : 'no enclosing exported symbol found'
         offenders.push(
-          `${rel}:${site.line}: '${site.call}' is not inside a registered AUDITED_CORES symbol span and has no ${listName} entry. ${FIX_HINT}\n` +
+          `${rel}:${site.line}: '${site.call}' (${symbolNote}) is not inside a registered AUDITED_CORES symbol span and has no matching ${listName} entry. ${FIX_HINT}\n` +
             `  Add to src/lib/audit-policy.ts ${listName}:\n` +
-            `  { file: '${rel}', call: '${site.call}', justification: '<honest reason>', dated: '<ISO date>' }`,
+            `  { file: '${rel}', call: '${site.call}', symbols: ['${enclosingSymbol ?? '<enclosing exported symbol>'}'], justification: '<honest reason>', dated: '<ISO date>' }`,
         )
       }
     }
@@ -403,29 +412,8 @@ describe('CP3 — every SDK/raw-Supabase/auth-admin/storage write call site is c
   })
 })
 
-/** Line-based span containment: true if ANY node at `line` (searched via a
- *  fresh small AST walk bounded to that line's statements) falls inside one
- *  of `spans`. Simpler and just as correct as threading node references
- *  through the scan functions, since our spans are per-file and lines are
- *  unambiguous here. */
-function isLineWithinAnySpan(sf: ts.SourceFile, line: number, spans: [number, number][]): boolean {
-  let found = false
-  function visit(node: ts.Node): void {
-    if (found) return
-    const start = node.getStart()
-    const { line: nodeLine } = sf.getLineAndCharacterOfPosition(start)
-    if (nodeLine + 1 === line && withinAnySpan(start, spans)) {
-      found = true
-      return
-    }
-    ts.forEachChild(node, visit)
-  }
-  visit(sf)
-  return found
-}
-
 describe('CP3/CP3b/CP3c dead-entry rule — every allowlist entry must still be real', () => {
-  it('every SDK_WRITE_ALLOWLIST entry file exists and still contains the named call', () => {
+  it('every SDK_WRITE_ALLOWLIST entry file exists, still contains the named call, and every listed symbol still contains it', () => {
     const offenders: string[] = []
     for (const entry of SDK_WRITE_ALLOWLIST) {
       const abs = join(ROOT, entry.file)
@@ -436,18 +424,26 @@ describe('CP3/CP3b/CP3c dead-entry rule — every allowlist entry must still be 
       const source = readFileSync(abs, 'utf8')
       const sf = ts.createSourceFile(abs, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
       const aliasNames = synqedClientAliasNames(sf)
-      const sites = [
-        ...scanSdkWriteCalls(sf, writePairs, aliasNames),
-        ...scanAuthAdminAndStorageWrites(sf),
-      ]
-      if (!sites.some((s) => s.call === entry.call)) {
+      const sites = [...scanSdkWriteCalls(sf, writePairs, aliasNames), ...scanAuthAdminAndStorageWrites(sf)].filter(
+        (s) => s.call === entry.call,
+      )
+      if (sites.length === 0) {
         offenders.push(`${entry.file}: '${entry.call}' no longer appears — prune this SDK_WRITE_ALLOWLIST entry. ${FIX_HINT}`)
+        continue
+      }
+      const exportedSpans = namedSymbolSpans(sf)
+      for (const symbolName of entry.symbols) {
+        const span = exportedSpans.find((s) => s.name === symbolName)
+        const stillThere = span && sites.some((s) => s.pos >= span.start && s.pos <= span.end)
+        if (!stillThere) {
+          offenders.push(`${entry.file}#${symbolName}: no longer contains '${entry.call}' — prune this symbol from the entry`)
+        }
       }
     }
     expect(offenders).toEqual([])
   })
 
-  it('every RAW_SUPABASE_WRITE_ALLOWLIST entry file exists and still contains the named call', () => {
+  it('every RAW_SUPABASE_WRITE_ALLOWLIST entry file exists, still contains the named call, and every listed symbol still contains it', () => {
     const offenders: string[] = []
     for (const entry of RAW_SUPABASE_WRITE_ALLOWLIST) {
       const abs = join(ROOT, entry.file)
@@ -457,17 +453,27 @@ describe('CP3/CP3b/CP3c dead-entry rule — every allowlist entry must still be 
       }
       const source = readFileSync(abs, 'utf8')
       const sf = ts.createSourceFile(abs, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
-      const sites = scanRawSupabaseWrites(sf)
-      if (!sites.some((s) => s.call === entry.call)) {
+      const sites = scanRawSupabaseWrites(sf).filter((s) => s.call === entry.call)
+      if (sites.length === 0) {
         offenders.push(`${entry.file}: '${entry.call}' no longer appears — prune this RAW_SUPABASE_WRITE_ALLOWLIST entry`)
+        continue
+      }
+      const exportedSpans = namedSymbolSpans(sf)
+      for (const symbolName of entry.symbols) {
+        const span = exportedSpans.find((s) => s.name === symbolName)
+        const stillThere = span && sites.some((s) => s.pos >= span.start && s.pos <= span.end)
+        if (!stillThere) {
+          offenders.push(`${entry.file}#${symbolName}: no longer contains '${entry.call}' — prune this symbol from the entry`)
+        }
       }
     }
     expect(offenders).toEqual([])
   })
 
-  it('dirname sanity: every allowlisted file path is under src/', () => {
+  it('dirname sanity + non-empty symbols: every allowlisted entry is under src/ and names >= 1 symbol', () => {
     for (const entry of [...SDK_WRITE_ALLOWLIST, ...RAW_SUPABASE_WRITE_ALLOWLIST]) {
       expect(dirname(entry.file).startsWith('src/')).toBe(true)
+      expect(entry.symbols.length).toBeGreaterThan(0)
     }
   })
 })
@@ -503,7 +509,19 @@ describe('CP3 self-check — an unallowlisted seeded write FAILS', () => {
     expect(scanRawSupabaseWrites(sf)).toEqual([])
   })
 
-  it('matches a bare-identifier receiver ONLY when destructured/assigned from a proven SynqedClient value (round-2 narrowing)', () => {
+  it('treats a string-literal ElementAccess exactly as PropertyAccess (fix round 1 #2)', () => {
+    const fakeSrc = `
+      export async function evil(client: any) {
+        await client['customers'].update('1', {})
+      }
+    `
+    const sf = ts.createSourceFile('fake.ts', fakeSrc, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    expect(scanSdkWriteCalls(sf, writePairs, new Set()).some((s) => s.call === 'customers.update')).toBe(true)
+    // Not a dispatch-ban case — it's a literal key, scanned as a normal write site.
+    expect(findComputedDispatch(sf)).toEqual([])
+  })
+
+  it('matches a bare-identifier receiver ONLY when destructured/assigned from a proven SynqedClient value', () => {
     const realSrc = `
       export async function evil(client: SynqedClient) {
         const { customers } = client
@@ -525,7 +543,7 @@ describe('CP3 self-check — an unallowlisted seeded write FAILS', () => {
     expect(unrelatedAliases.size).toBe(0)
   })
 
-  it('flags a two-level computed call unconditionally — no SynqedClient import/type needed (round-2/v2: pattern-based, not import-based)', () => {
+  it('flags a two-level computed call unconditionally — no SynqedClient import/type needed', () => {
     const fakeSrc = `
       export async function evil(client: any, a: string, b: string) {
         await client[a][b]('x')
@@ -535,7 +553,17 @@ describe('CP3 self-check — an unallowlisted seeded write FAILS', () => {
     expect(findComputedDispatch(sf).length).toBeGreaterThan(0)
   })
 
-  it('flags a one-level computed call only when the receiver also appears as a write-chain root in the same file', () => {
+  it('does NOT flag a fully-literal two-level bracket chain — reads exactly as dotted access', () => {
+    const fakeSrc = `
+      export async function fine(client: any) {
+        await client['customers']['update']('1', {})
+      }
+    `
+    const sf = ts.createSourceFile('fake.ts', fakeSrc, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    expect(findComputedDispatch(sf)).toEqual([])
+  })
+
+  it('flags a one-level computed call when the receiver also appears as a write-chain root in the same file', () => {
     const flaggedSrc = `
       export async function evil(client: any, a: string) {
         await client.customers.update('1', {})
@@ -554,6 +582,16 @@ describe('CP3 self-check — an unallowlisted seeded write FAILS', () => {
     expect(findComputedDispatch(unrelatedSf)).toEqual([])
   })
 
+  it('flags a computed METHOD on a receiver whose last static property is a known SDK client prop, even isolated in its own file', () => {
+    const fakeSrc = `
+      export async function evil(client: any, m: string) {
+        await client.customers[m]('1', {})
+      }
+    `
+    const sf = ts.createSourceFile('fake.ts', fakeSrc, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    expect(findComputedDispatch(sf).length).toBeGreaterThan(0)
+  })
+
   it('flags auth.admin.createUser and storage.<bucket>.remove', () => {
     const fakeSrc = `
       export async function evil(service: any) {
@@ -565,5 +603,25 @@ describe('CP3 self-check — an unallowlisted seeded write FAILS', () => {
     const sites = scanAuthAdminAndStorageWrites(sf)
     expect(sites.some((s) => s.call === 'auth.admin.createUser')).toBe(true)
     expect(sites.some((s) => s.call === 'storage.recordings.remove')).toBe(true)
+  })
+
+  it('flags a new write site under an existing (file, call) pair but a DIFFERENT, unlisted symbol', () => {
+    const fakeSrc = `
+      export async function registeredWriter(client: any) {
+        await client.customers.delete('1')
+      }
+      export async function newUnlistedWriter(client: any) {
+        await client.customers.delete('2')
+      }
+    `
+    const sf = ts.createSourceFile('fake.ts', fakeSrc, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    const sites = scanSdkWriteCalls(sf, writePairs, new Set())
+    const spans = namedSymbolSpans(sf)
+    const fakeAllowlist = [{ file: 'fake.ts', call: 'customers.delete', symbols: ['registeredWriter'] }]
+    const uncovered = sites.filter((s) => s.call === 'customers.delete').filter((s) => {
+      const symbol = symbolAt(s.pos, spans)
+      return !fakeAllowlist.some((e) => e.call === s.call && symbol !== undefined && e.symbols.includes(symbol))
+    })
+    expect(uncovered.length).toBe(1) // newUnlistedWriter's site is NOT covered
   })
 })
