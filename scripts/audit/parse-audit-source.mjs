@@ -67,15 +67,25 @@ function parseOrNull(fn) {
   }
 }
 
+// The six fields CP8 diffs row-to-row. Anything else on a row (a decision
+// row's free-text `justification`/`dated`) is not compared and not parsed.
+const COMPARED_FIELDS = ['kind', 'category', 'action', 'targetType', 'pendingWave', 'coveredBy']
+
 function extractFacadeRule(objLit) {
   const rule = {}
   for (const { key, valueNode } of objectLiteralProps(objLit)) {
-    if (key === 'kind') rule.kind = literalString(valueNode)
-    if (key === 'category') rule.category = literalString(valueNode)
-    if (key === 'action') rule.action = literalString(valueNode) ?? ''
-    if (key === 'targetType') rule.targetType = literalString(valueNode)
-    if (key === 'pendingWave') rule.pendingWave = literalString(valueNode)
-    if (key === 'coveredBy') rule.coveredBy = literalString(valueNode)
+    if (!COMPARED_FIELDS.includes(key)) continue
+    // Fresh-eyes fix (Fable direct audit, 2026-07-28): a compared field that
+    // is PRESENT but not a string literal (an identifier referencing a const,
+    // a call, a template with substitutions) used to parse as `undefined`.
+    // That is silent evasion, not a parse: CP8's recategorization check only
+    // fires when BOTH sides are truthy, so an undefined head-side `category`
+    // skipped it and a live row could be recategorized unflagged. Same
+    // non-conforming-shape class as a spread — fail the WHOLE parse loudly.
+    // (A literal empty action, `action: ''`, is a real value and still parses.)
+    const value = literalString(valueNode)
+    if (value === undefined) throw new AuditParseFailure()
+    rule[key] = value
   }
   return rule
 }

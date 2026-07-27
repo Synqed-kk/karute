@@ -8,8 +8,9 @@
 //     RECATEGORIZATION (category changed while staying live);
 //   - a non-live row's pendingWave VALUE changing (date pushed out, wave
 //     letter changed) — not a hard-fail on a past date, just ledger-tracked;
-//   - a pendingWave row DELETED or demoted to skip (a dropped commitment —
-//     fresh-eyes fix, 2026-07-28; plain skip rows may come and go freely);
+//   - a pendingWave row DELETED, or left as a skip carrying no pendingWave (a
+//     dropped commitment — fresh-eyes fix, 2026-07-28; plain skip rows that
+//     never carried a commitment may come and go freely);
 //   - a live row's action or targetType swapped (still emits, wrong thing);
 //   - an AUDIT_ACTIONS member removed;
 //   - an AUDITED_CORES entry/symbol removed — including renames (rename
@@ -188,7 +189,16 @@ function findRowWeakenings(mainV, headV) {
         // transitively, but only when no other source emits the action.
         if (!headRow) {
           weakenings.push({ key, note: `${kind} row '${key}' deleted (was pendingWave '${mainRow.pendingWave}')` })
-        } else if (headRow.kind === 'skip' && mainRow.kind !== 'skip') {
+        } else if (headRow.kind === 'skip' && !headRow.pendingWave) {
+          // Keyed on the HEAD row having no commitment left, not on main's
+          // kind changing (Fable direct audit, 2026-07-28): the old
+          // `mainRow.kind !== 'skip'` form could never fire for a row parked
+          // AS skip (`{ kind: 'skip', pendingWave: '...' }` — both fields are
+          // legal on both row types), so dropping that row's pendingWave
+          // while it stayed skip silently retired the promise. A head row
+          // that is skip AND carries no pendingWave has dropped the
+          // commitment however it got there; a still-parked skip row falls
+          // through to the content checks below.
           weakenings.push({
             key,
             note: `${kind} row '${key}' pendingWave '${mainRow.pendingWave}' → skip (promised writer dropped)`,

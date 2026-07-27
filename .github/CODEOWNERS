@@ -5,6 +5,12 @@
 /src/lib/audit.ts @alee046
 /src/lib/audit-web.ts @alee046
 /src/lib/audit-policy.ts @alee046
+# The facade emit primitive itself (Fable direct audit, 2026-07-28):
+# handler.ts owns logFacadeAudit — it reads FACADE_AUDIT_MAP and is the code
+# that actually emits for every facade route. Same class as the three files
+# above; protecting the map while leaving the emitter open gates the policy
+# and not the behaviour.
+/src/lib/app-api/handler.ts @alee046
 /scripts/audit/ @alee046
 /src/__tests__/integration/audit-*.test.ts @alee046
 /src/__tests__/integration/facade-audit*.test.ts @alee046
@@ -17,6 +23,13 @@
 # and owner-gating them would bottleneck the lane; accepted residual.)
 /jest.config.ts @alee046
 /src/__tests__/integration/setup/ @alee046
+# tsconfig.json is the tsc equivalent of jest.config.ts (Fable direct audit,
+# 2026-07-28): `npx tsc --noEmit` is what enforces FacadeEndpointKey totality,
+# and CP8 leans on that totality to let plain skip rows come and go without a
+# ledger line. An `exclude` entry covering src/lib/audit.ts would retire that
+# gate silently, so it belongs with the other plumbing the gates execute
+# through.
+/tsconfig.json @alee046
 /docs/audit-weakening-ledger.md @alee046
 # Whole workflows dir, not just ci.yml (fresh-eyes fix round 2): a new
 # workflow file could impersonate the CI check name for the future
