@@ -142,4 +142,79 @@ describe('CP2 self-checks (walker convention)', () => {
     const result = emitsOnEveryNonErrorPath(symbol!)
     expect(result.ok).toBe(false)
   })
+
+  // Fix round 1 #5: CaseClause/DefaultClause are chain boundaries — an emit
+  // in one case must not dominate a return in a SIBLING case. Before the fix
+  // both cases' nearest ts.isBlock ancestor was the same function body Block
+  // (a CaseClause's statements aren't wrapped in their own Block node), so
+  // this read as a false PASS.
+  it('FAILS a switch where case 1 emits but sibling case 2 returns without its own emit (fix round 1 #5)', () => {
+    const src = `
+      export async function switchWriter(x: number) {
+        switch (x) {
+          case 1:
+            audit({ action: 'x' })
+            return { data: 1 }
+          case 2:
+            return { data: 2 }
+        }
+        return { data: 0 }
+      }
+    `
+    const symbol = findSymbol(src, 'switchWriter')
+    expect(symbol).not.toBeNull()
+    const result = emitsOnEveryNonErrorPath(symbol!)
+    expect(result.ok).toBe(false)
+  })
+
+  // Fix round 1 #6: the exemption is now a real AST PropertyAssignment named
+  // `status`, not a getText() regex — the regex used to match this string
+  // literal's TEXT even though there is no `status` field on the object at
+  // all.
+  it('does NOT exempt a return whose MESSAGE STRING merely contains "status: 404" text (fix round 1 #6)', () => {
+    const src = `
+      export async function stringStatusReturn(x: number) {
+        if (x < 0) return { message: 'status: 404 not found' }
+        await doWrite()
+        audit({ action: 'x' })
+        return { ok: true }
+      }
+    `
+    const symbol = findSymbol(src, 'stringStatusReturn')
+    const result = emitsOnEveryNonErrorPath(symbol!)
+    expect(result.ok).toBe(false)
+  })
+
+  it('exempts a return with a REAL status PropertyAssignment in the 4xx/5xx range (fix round 1 #6)', () => {
+    const src = `
+      export async function realStatusReturn(x: number) {
+        if (x < 0) return { status: 404 }
+        await doWrite()
+        audit({ action: 'x' })
+        return { ok: true }
+      }
+    `
+    const symbol = findSymbol(src, 'realStatusReturn')
+    const result = emitsOnEveryNonErrorPath(symbol!)
+    expect(result.ok).toBe(true)
+  })
+
+  // Fix round 1 #9: findSymbol must skip a bodyless overload SIGNATURE and
+  // keep scanning for the real implementation sharing that name — resolving
+  // to the signature would give the walker zero returns and zero emits,
+  // which reads as a vacuous pass.
+  it('findSymbol skips a bodyless overload signature and resolves the real implementation (fix round 1 #9)', () => {
+    const src = `
+      export function overloaded(x: string): void;
+      export function overloaded(x: number): void;
+      export function overloaded(x: string | number): void {
+        audit({ action: 'x' })
+      }
+    `
+    const symbol = findSymbol(src, 'overloaded')
+    expect(symbol).not.toBeNull()
+    expect(symbol!.body).toBeDefined()
+    const result = emitsOnEveryNonErrorPath(symbol!)
+    expect(result.ok).toBe(true)
+  })
 })

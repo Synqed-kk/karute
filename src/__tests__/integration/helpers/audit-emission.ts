@@ -29,6 +29,7 @@
 // than silently recursing further.
 import ts from 'typescript'
 import { deriveWriteMethods, type WritePair } from './sdk-write-methods'
+import { staticAccessName, calleeObject } from './ast-access'
 
 const EMIT_NAMES = new Set(['audit', 'auditWeb', 'logFacadeAudit'])
 const SUPABASE_WRITE_VERBS = new Set(['insert', 'update', 'upsert', 'delete'])
@@ -65,17 +66,22 @@ function unwrapFnLike(expr: ts.Expression | undefined): FnLike | null {
  *  const GET = facadeHandler('key', async (ctx) => {...})` — unwraps to the
  *  last function-typed argument), or a class MethodDeclaration — regardless
  *  of the `export` modifier (a private choke-point helper is exactly as real
- *  a writer as an exported one). */
+ *  a writer as an exported one). Skips a BODYLESS declaration (a TS overload
+ *  SIGNATURE — `export function foo(x: string): void` with no `{...}`) and
+ *  keeps scanning for the real implementation sharing that name (contract §8
+ *  fix round 1 #9) — resolving to a signature would give the walker zero
+ *  returns and zero emits, which reads as a vacuous PASS, not the loud
+ *  failure a body-less symbol should be. */
 export function findSymbol(sourceText: string, symbolName: string): FnLike | null {
   const sf = ts.createSourceFile('__scan__.tsx', sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
   let found: FnLike | null = null
   function visit(node: ts.Node): void {
     if (found) return
-    if (ts.isFunctionDeclaration(node) && node.name?.text === symbolName) {
+    if (ts.isFunctionDeclaration(node) && node.name?.text === symbolName && node.body) {
       found = node
       return
     }
-    if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === symbolName) {
+    if (ts.isMethodDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === symbolName && node.body) {
       found = node
       return
     }
@@ -154,26 +160,31 @@ function writePairs(): WritePair[] {
   return _writePairs
 }
 
+// Element-access parity (contract §8 fix round 1 #2): every matcher below
+// reads a string-literal ElementAccess (`x['customers']`) IDENTICALLY to
+// PropertyAccess (`x.customers`) via staticAccessName/calleeObject — a
+// computed (non-literal) key never matches here (it falls through to "not a
+// write", which is correct: an unscannable write site is the dispatch ban's
+// job — see audit-sdk-write-sites.test.ts's findComputedDispatch — not a
+// silent miss here).
+
 function sdkWriteCallMatch(node: ts.CallExpression): boolean {
-  if (!ts.isPropertyAccessExpression(node.expression)) return false
-  const method = node.expression.name.text
-  const receiver = node.expression.expression
-  let prop: string | null = null
-  if (ts.isPropertyAccessExpression(receiver)) prop = receiver.name.text
-  else if (ts.isIdentifier(receiver)) prop = receiver.text
+  const method = staticAccessName(node.expression)
+  const receiver = calleeObject(node.expression)
+  if (!method || !receiver) return false
+  const prop = staticAccessName(receiver) ?? (ts.isIdentifier(receiver) ? receiver.text : undefined)
   if (!prop) return false
   return writePairs().some((p) => p.prop === prop && p.method === method)
 }
 
 function rawSupabaseWriteMatch(node: ts.CallExpression): boolean {
-  if (!ts.isPropertyAccessExpression(node.expression)) return false
-  const verb = node.expression.name.text
-  const receiver = node.expression.expression
+  const verb = staticAccessName(node.expression)
+  const receiver = calleeObject(node.expression)
+  if (!verb || !receiver) return false
   return (
     SUPABASE_WRITE_VERBS.has(verb) &&
     ts.isCallExpression(receiver) &&
-    ts.isPropertyAccessExpression(receiver.expression) &&
-    receiver.expression.name.text === 'from' &&
+    staticAccessName(receiver.expression) === 'from' &&
     receiver.arguments.length > 0
   )
 }
@@ -183,26 +194,16 @@ const STORAGE_WRITE_METHODS = new Set(['upload', 'remove', 'update', 'move', 'co
 /** CP3c third surface: `.auth.admin.<method>(` (excluding obvious reads) and
  *  `.storage.from(bucket).<upload|remove|update|move|copy>(`. */
 function authAdminOrStorageWriteMatch(node: ts.CallExpression): boolean {
-  if (!ts.isPropertyAccessExpression(node.expression)) return false
-  const method = node.expression.name.text
-  const receiver = node.expression.expression
-  if (
-    ts.isPropertyAccessExpression(receiver) &&
-    receiver.name.text === 'admin' &&
-    ts.isPropertyAccessExpression(receiver.expression) &&
-    receiver.expression.name.text === 'auth' &&
-    !/^(get|list|verify)/i.test(method)
-  ) {
+  const method = staticAccessName(node.expression)
+  const receiver = calleeObject(node.expression)
+  if (!method || !receiver) return false
+  const receiverObj = calleeObject(receiver)
+  if (staticAccessName(receiver) === 'admin' && receiverObj && staticAccessName(receiverObj) === 'auth' && !/^(get|list|verify)/i.test(method)) {
     return true
   }
-  return (
-    STORAGE_WRITE_METHODS.has(method) &&
-    ts.isCallExpression(receiver) &&
-    ts.isPropertyAccessExpression(receiver.expression) &&
-    receiver.expression.name.text === 'from' &&
-    ts.isPropertyAccessExpression(receiver.expression.expression) &&
-    receiver.expression.expression.name.text === 'storage'
-  )
+  if (!STORAGE_WRITE_METHODS.has(method) || !ts.isCallExpression(receiver)) return false
+  const storageReceiver = calleeObject(receiver.expression)
+  return staticAccessName(receiver.expression) === 'from' && !!storageReceiver && staticAccessName(storageReceiver) === 'storage'
 }
 
 /** The object literal a return statement's value resolves to, for shape
@@ -258,7 +259,12 @@ function blockChain(node: ts.Node, root: ts.Node): ts.Node[] {
   const chain: ts.Node[] = []
   let cur: ts.Node | undefined = node
   while (cur && cur !== root) {
-    if (ts.isBlock(cur)) chain.unshift(cur)
+    // CaseClause/DefaultClause are chain boundaries too (contract §8 fix
+    // round 1 #5) — an emit in `case 1:` must not dominate a return in
+    // `case 2:`; without this, both cases share the enclosing SwitchStatement
+    // as their nearest ts.isBlock ancestor and falsely looked like the same
+    // block.
+    if (ts.isBlock(cur) || ts.isCaseClause(cur) || ts.isDefaultClause(cur)) chain.unshift(cur)
     cur = cur.parent
   }
   chain.unshift(root)
@@ -304,10 +310,46 @@ interface WalkResult {
   emitsUnconditionally: boolean
 }
 
-const STATUS_4XX_5XX = /status:\s*[45]\d\d/
+/** AST-based status exemption (contract §8 fix round 1 #6 — replaces a
+ *  getText() regex, which matched inside STRING LITERALS too, e.g. a
+ *  `{ message: "status: 404 ..." }` return with no real status field at
+ *  all): a PropertyAssignment literally named `status` anywhere in the
+ *  return expression's subtree whose initializer is or contains a numeric
+ *  literal in the 4xx/5xx range. */
+function hasStatusProperty4xx5xx(expr: ts.Expression): boolean {
+  function containsNumericCode(n: ts.Node): boolean {
+    if (ts.isNumericLiteral(n)) {
+      const v = Number(n.text)
+      if (v >= 400 && v < 600) return true
+    }
+    let hit = false
+    ts.forEachChild(n, (c) => {
+      if (!hit && containsNumericCode(c)) hit = true
+    })
+    return hit
+  }
+  let found = false
+  function visit(node: ts.Node): void {
+    if (found) return
+    if (ts.isPropertyAssignment(node)) {
+      const name = ts.isIdentifier(node.name) ? node.name.text : ts.isStringLiteral(node.name) ? node.name.text : null
+      if (name === 'status' && containsNumericCode(node.initializer)) found = true
+    }
+    if (!found) ts.forEachChild(node, visit)
+  }
+  visit(expr)
+  return found
+}
 
 function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
   const sf = fn.getSourceFile()
+  // Defense in depth (contract §8 fix round 1 #9): findSymbol already skips
+  // bodyless declarations, so this should be unreachable — but a body-less
+  // resolved symbol must fail LOUD, never silently vacuous-pass (zero
+  // returns + zero emits both read as "ok" by the checks below).
+  if (!fnBody(fn)) {
+    return { ok: false, offenders: ['bodyless symbol (no function body found — an overload signature?)'], emitsUnconditionally: false }
+  }
   const helpers = sameFileDeclarations(sf)
   const emits = ownEmitCalls(fn)
   const returns = ownReturns(fn)
@@ -385,7 +427,7 @@ function walk(fn: FnLike, seen: Set<FnLike>, depth = 0): WalkResult {
     if (isBareNullish(ret.expression)) continue
     if (anchorPos !== null && ret.getStart() < anchorPos) continue // before-anchor: exempt, any shape
     if (shapeExempt(ret.expression)) continue
-    if (ret.expression && STATUS_4XX_5XX.test(ret.expression.getText())) continue
+    if (ret.expression && hasStatusProperty4xx5xx(ret.expression)) continue
     const { line } = sf.getLineAndCharacterOfPosition(ret.getStart())
     const nestedHint =
       depth === 0 && callThroughTarget(ret)
