@@ -2139,14 +2139,18 @@
           "pack_redeem": "Redeemed pack",
           "pack_undo": "Undid pack redemption",
           "passport_update": "Corrected customer info",
-          "photo_add": "Added customer photo"
+          "photo_add": "Added customer photo",
+          "brief_view": "Viewed pre-session brief",
+          "ai_prediction_view": "Viewed AI body prediction"
         },
         "audit": {
           "unmapped_endpoint": "Unmapped operation detected (needs attention)"
         },
         "karute": {
           "save": "Saved karute record",
-          "entry_edit": "Edited karute entry"
+          "entry_edit": "Edited karute entry",
+          "view": "Viewed karute record",
+          "entry_edits_view": "Viewed karute edit history"
         },
         "staff": {
           "add": "Added staff",

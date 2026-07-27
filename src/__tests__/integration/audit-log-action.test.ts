@@ -310,25 +310,41 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     expect(shown.warningsTotal).toBe(8 + 4)
   })
 
-  it('変更 stays null (client approx + "+" remains): exact math is blocked on core widening exclude_views to the _view suffix', async () => {
+  it('変更 exact (Wave V restore): nvAll − nvWarn − nvCrit, identical in both view-toggle states — views are never 変更', async () => {
     mockProbes()
-    const res = await listAuditLog({})
-    if (!res.ok) throw new Error('expected ok')
-    expect(res.changesTotal).toBeNull()
-    // The nvAll probe was dropped with it — 4 strip probes + break-glass, and
-    // never a bare exclude_views-only page_size:1 call.
+    const hidden = await listAuditLog({})
+    if (!hidden.ok) throw new Error('expected ok')
+    expect(hidden.changesTotal).toBe(20 - 3 - 2)
+    // The bare exclude_views probe (no severity) is back — 5 strip probes +
+    // break-glass = 6 page_size:1 calls.
     const probeCalls = list.mock.calls.filter(
       ([opts]) => (opts as { page_size?: number }).page_size === 1,
     )
-    expect(probeCalls).toHaveLength(5)
-    expect(
-      probeCalls.some(
-        ([opts]) =>
-          (opts as { exclude_views?: boolean; severity?: string; break_glass?: boolean })
-            .exclude_views &&
-          !(opts as { severity?: string }).severity,
-      ),
-    ).toBe(false)
+    expect(probeCalls).toHaveLength(6)
+
+    mockProbes()
+    const shown = await listAuditLog({ includeViews: true })
+    if (!shown.ok) throw new Error('expected ok')
+    expect(shown.changesTotal).toBe(20 - 3 - 2)
+  })
+
+  it('変更 clamps at 0 — the three probes are independent reads, a row landing between them must not render a negative count', async () => {
+    list.mockImplementation(async (opts: {
+      page_size?: number
+      break_glass?: boolean
+      severity?: string
+      exclude_views?: boolean
+    }) => {
+      if (opts.page_size === 100) return { events: [coreEvent()], total: 999, page: 1, page_size: 100 }
+      if (opts.break_glass) return { events: [], total: 0, page: 1, page_size: 1 }
+      if (opts.exclude_views && opts.severity === 'warn') return { events: [], total: 3, page: 1, page_size: 1 }
+      if (opts.exclude_views && opts.severity === 'critical') return { events: [], total: 2, page: 1, page_size: 1 }
+      if (opts.exclude_views) return { events: [], total: 4, page: 1, page_size: 1 } // nvAll < nvWarn + nvCrit
+      return { events: [], total: 0, page: 1, page_size: 1 }
+    })
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.changesTotal).toBe(0)
   })
 
   it('BELT: a HISTORICAL privacy.audit_log_view row (pre-respell spelling core cannot exclude) is still hidden from the default feed', async () => {

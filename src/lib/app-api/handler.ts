@@ -28,6 +28,12 @@ export interface FacadeContext<P = Record<string, string>> {
   route: RouteContext<P>
   /** Observability metadata carried by every facade request. */
   meta: { requestId: string; appVersion: string | null; platform: string | null }
+  /** Extra detail a route hands to the success-hook emit (Wave V:
+   *  karute.read's `transcript_shown`). ADDITIVE ONLY — a route can enrich
+   *  its map row's emit, never suppress or replace it; the reserved
+   *  `client_request_id` key stays hook-owned (merged after this, so a
+   *  route value can never shadow the real correlation hint). */
+  auditDetail?: Record<string, string | number | boolean | null>
 }
 
 type FacadeFn<P> = (ctx: FacadeContext<P>) => Promise<Response>
@@ -84,8 +90,9 @@ export function facadeHandler<P = Record<string, string>>(
 
     try {
       const identity = await resolveBearerIdentity(req, endpoint, deps)
-      const res = await fn({ req, identity, origin, route, meta })
-      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId)
+      const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
+      const res = await fn(ctx)
+      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId, ctx.auditDetail)
       return res
     } catch (err) {
       const apiErr = toAppApiError(err)
@@ -111,6 +118,7 @@ async function logFacadeAudit(
   route: { params: Promise<unknown> },
   meta: FacadeContext['meta'],
   clientRequestId: string | null,
+  routeDetail?: FacadeContext['auditDetail'],
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -133,6 +141,13 @@ async function logFacadeAudit(
     // makes the emit below type-check, not just documentation.
     if (!rule.action) return
     const params = (await route.params) as Record<string, string> | undefined
+    // Route-supplied detail first, hook-owned client_request_id LAST — the
+    // spread order is the enforcement of auditDetail's "additive only"
+    // contract (a route key named client_request_id loses to the real one).
+    const detail = {
+      ...(routeDetail ?? {}),
+      ...(clientRequestId ? { client_request_id: clientRequestId.slice(0, 128) } : {}),
+    }
     audit({
       category: rule.category,
       action: rule.action,
@@ -147,9 +162,7 @@ async function logFacadeAudit(
       // (Greptile #634 r1): it's untrusted input, and unbounded it could
       // balloon detail past core's ~2KB cap, whose truncation would eat
       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
-      detail: clientRequestId
-        ? { client_request_id: clientRequestId.slice(0, 128) }
-        : undefined,
+      detail: Object.keys(detail).length > 0 ? detail : undefined,
       source: 'facade',
     })
   } catch (err) {

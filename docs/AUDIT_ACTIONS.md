@@ -19,8 +19,8 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `booking.no_show` | booking | live | `settings.auditLog.actions.booking.no_show` |
 | `booking.restore` | booking | live | `settings.auditLog.actions.booking.restore` |
 | `booking.update` | booking | live | `settings.auditLog.actions.booking.update` |
-| `customer.ai_prediction_view` | customer | pending | `settings.auditLog.actions.customer.ai_prediction_view` |
-| `customer.brief_view` | customer | pending | `settings.auditLog.actions.customer.brief_view` |
+| `customer.ai_prediction_view` | customer | live | `settings.auditLog.actions.customer.ai_prediction_view` |
+| `customer.brief_view` | customer | live | `settings.auditLog.actions.customer.brief_view` |
 | `customer.consent_grant` | customer | pending | `settings.auditLog.actions.customer.consent_grant` |
 | `customer.consent_revoke` | customer | pending | `settings.auditLog.actions.customer.consent_revoke` |
 | `customer.create` | customer | live | `settings.auditLog.actions.customer.create` |
@@ -38,10 +38,10 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `customer.view` | customer | live | `settings.auditLog.actions.customer.view` |
 | `karute.entries_regenerate` | karute | pending | `settings.auditLog.actions.karute.entries_regenerate` |
 | `karute.entry_edit` | karute | live | `settings.auditLog.actions.karute.entry_edit` |
-| `karute.entry_edits_view` | karute | pending | `settings.auditLog.actions.karute.entry_edits_view` |
+| `karute.entry_edits_view` | karute | live | `settings.auditLog.actions.karute.entry_edits_view` |
 | `karute.outcome_set` | karute | pending | `settings.auditLog.actions.karute.outcome_set` |
 | `karute.save` | karute | live | `settings.auditLog.actions.karute.save` |
-| `karute.view` | karute | pending | `settings.auditLog.actions.karute.view` |
+| `karute.view` | karute | live | `settings.auditLog.actions.karute.view` |
 | `privacy.audit_log.view` | privacy | live | `settings.auditLog.actions.privacy.audit_log.view` |
 | `privacy.customer_delete_canceled` | privacy | live | `settings.auditLog.actions.privacy.customer_delete_canceled` |
 | `privacy.customer_delete_scheduled` | privacy | live | `settings.auditLog.actions.privacy.customer_delete_scheduled` |

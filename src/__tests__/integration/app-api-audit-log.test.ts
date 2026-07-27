@@ -258,7 +258,7 @@ describe('GET /api/app/v1/audit-log', () => {
   // twin's count probes must survive the DTO boundary as numbers — this is
   // the assertion that goes null-and-red if a probe ever loses its receiver
   // again, independent of audit-log-action.test.ts's pins on the twin.
-  it('exact strip totals ride the DTO: 警告 = severity-pair sum, 緊急 = break-glass total, 変更 held null', async () => {
+  it('exact strip totals ride the DTO: 警告 = severity-pair sum, 緊急 = break-glass total, 変更 = nvAll − nvWarn − nvCrit (Wave V restore)', async () => {
     // exclude_views-sensitive totals so the assertion also proves the twin
     // picked the HIDDEN-state pair (nv 3+2=5), not the shown pair (8+4=12).
     auditList.mockImplementation(async (opts: Record<string, unknown>) => {
@@ -286,6 +286,7 @@ describe('GET /api/app/v1/audit-log', () => {
     }
     expect(body.warningsTotal).toBe(3 + 2)
     expect(body.breakGlassTotal).toBe(4)
-    expect(body.changesTotal).toBeNull()
+    // nvAll (exclude_views, no severity → the mock's 9) minus the nv pair.
+    expect(body.changesTotal).toBe(9 - 3 - 2)
   })
 })

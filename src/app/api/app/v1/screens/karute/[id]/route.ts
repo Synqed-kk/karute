@@ -118,6 +118,12 @@ export const GET = facadeHandler<Params>('karute.read', async (ctx) => {
     }))
 
     const dto = KaruteDetailScreenDTO.parse({ ...built, photos, viewerRole })
+    // karute.view audit detail (Wave V, canon's transcriptShown mandate): the
+    // hook's emit carries whether the raw transcript actually shipped in THIS
+    // response — false covers both "none exists" and "ACL-withheld to null".
+    // The emit itself stays logFacadeAudit's (see the karute.read row comment
+    // in audit.ts); this route only enriches it.
+    ctx.auditDetail = { transcript_shown: dto.transcript !== null }
     return ok(ctx, dto)
   } catch (err) {
     if (err instanceof AppApiError) throw err

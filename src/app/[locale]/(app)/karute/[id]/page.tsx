@@ -26,6 +26,7 @@ import { can } from '@/lib/auth/require-permission'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
 import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import { auditWeb } from '@/lib/audit-web'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -80,6 +81,22 @@ export default async function KaruteDetailPage({
     consentResult,
     customer,
     locale,
+  })
+
+  // Single-record open = a view event (Wave V, web twin of the facade hook's
+  // karute.view — the karute.read row comment in audit.ts is the contract).
+  // Fired AFTER the existence check (a 404 open is not a view — same 7/17
+  // ruling as customer.view) and after assembly so transcript_shown reflects
+  // what THIS render actually ships: false covers both "none exists" and
+  // "ACL-withheld to null". Fire-and-forget, never blocks the render (same
+  // web writers' best-effort contract as customers/[id]/page.tsx).
+  void auditWeb({
+    category: 'karute',
+    action: 'karute.view',
+    targetType: 'karute',
+    targetId: id,
+    severity: 'info',
+    detail: { transcript_shown: built.transcript !== null },
   })
 
   return (
