@@ -62,15 +62,28 @@ describe('facadeHandler', () => {
     expect((await res.json()).error.code).toBe('jwks_unavailable')
   })
 
-  it('echoes request-id and applies CORS on a success response', async () => {
+  it('mints its OWN request-id and applies CORS on a success response — a client-supplied header is never echoed back (contract §7 / PR-M5 piece ③)', async () => {
     const handler = facadeHandler('customer.read', async (ctx) => ok(ctx, { hi: 1 }), { config: HS_CONFIG })
     const res = await handler(
       new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}`, origin: 'capacitor://localhost', 'request-id': 'req-abc' } }),
       route,
     )
     expect(res.status).toBe(200)
-    expect(res.headers.get('request-id')).toBe('req-abc')
+    // Never the (possibly forged) client value...
+    expect(res.headers.get('request-id')).not.toBe('req-abc')
+    // ...but a real minted id (UUID by default on this runtime).
+    expect(res.headers.get('request-id')).toMatch(/^[0-9a-f-]{36}$/)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')
+  })
+
+  it('with NO client request-id header, still mints its own (unchanged behavior)', async () => {
+    const handler = facadeHandler('customer.read', async (ctx) => ok(ctx, { hi: 1 }), { config: HS_CONFIG })
+    const res = await handler(
+      new Request('https://s/api/app/v1/x', { headers: { authorization: `Bearer ${hs256Token(SECRET)}` } }),
+      route,
+    )
+    expect(res.status).toBe(200)
+    expect(res.headers.get('request-id')).toMatch(/^[0-9a-f-]{36}$/)
   })
 
   it('maps a capability rejection in the handler body → 403', async () => {

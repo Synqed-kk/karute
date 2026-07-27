@@ -83,7 +83,7 @@ export const POST = facadeHandler('invite.create', async (ctx) => {
   const result = await createInviteCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade' },
+    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     invitedBy,
     parsed.data,
   )

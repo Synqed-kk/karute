@@ -62,7 +62,12 @@ export const PATCH = facadeHandler<Params>('karute.entry.update', async (ctx) =>
       expectedVersion: parsed.data.expectedVersion,
       actorStaffId,
     },
-    { actorId: ctx.identity.authUserId, businessId: ctx.identity.businessId, source: 'facade' },
+    {
+      actorId: ctx.identity.authUserId,
+      businessId: ctx.identity.businessId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+    },
     customerId,
   )
   if ('conflict' in result) {

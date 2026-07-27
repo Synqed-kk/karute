@@ -198,6 +198,9 @@ async function processJob(job: RecordingJob): Promise<string> {
       customer_id: payload.customer_id,
       staff_id: payload.staff_id,
     },
+    // PR-M5 piece ④: job/system paths use the job id as requestId (no HTTP
+    // request scope exists here — the job id is the correlating identifier).
+    requestId: job.id,
     source: 'system',
   })
 

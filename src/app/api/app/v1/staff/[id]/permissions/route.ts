@@ -75,6 +75,7 @@ export const PUT = facadeHandler<Params>('permissions.update', async (ctx) => {
       callerCapabilities: ctx.identity.capabilities,
       actorId: ctx.identity.authUserId,
       source: 'facade',
+      requestId: ctx.meta.requestId,
     },
     id,
     parsed.data.permissionRole,

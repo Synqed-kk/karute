@@ -65,7 +65,15 @@ export function facadeHandler<P = Record<string, string>>(
 ) {
   return async (req: Request, route: RouteContext<P>): Promise<Response> => {
     const origin = req.headers.get('origin')
-    const requestId = req.headers.get('request-id') ?? cryptoRandomId()
+    // Contract §7 / PR-M5 piece ③: the server ALWAYS mints the canonical id —
+    // an untrusted client header can no longer become the row's requestId.
+    // The client's own value (when sent) is kept only as a correlation hint
+    // on the audit row's detail.client_request_id (logFacadeAudit below); the
+    // response 'request-id' header echoes the SERVER mint, same as before for
+    // a request with no client header, but now ALSO for one that sent a
+    // (possibly forged) value.
+    const requestId = cryptoRandomId()
+    const clientRequestId = req.headers.get('request-id')
     const meta = {
       requestId,
       appVersion: req.headers.get('app-version'),
@@ -77,7 +85,7 @@ export function facadeHandler<P = Record<string, string>>(
     try {
       const identity = await resolveBearerIdentity(req, endpoint, deps)
       const res = await fn({ req, identity, origin, route, meta })
-      await logFacadeAudit(endpoint, res, identity, route, meta)
+      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId)
       return res
     } catch (err) {
       const apiErr = toAppApiError(err)
@@ -102,6 +110,7 @@ async function logFacadeAudit(
   identity: RequestIdentity,
   route: { params: Promise<unknown> },
   meta: FacadeContext['meta'],
+  clientRequestId: string | null,
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -113,7 +122,7 @@ async function logFacadeAudit(
     // or a future refactor). That is exactly CP6's belt.
     const rule = FACADE_AUDIT_MAP[endpoint]
     if (!rule) {
-      reportUnmappedEndpoint(endpoint, identity)
+      reportUnmappedEndpoint(endpoint, identity, meta)
       return
     }
     if (rule.kind === 'skip' || rule.pendingWave !== undefined) return
@@ -127,6 +136,9 @@ async function logFacadeAudit(
       targetType: rule.targetType,
       targetId: rule.targetType && params?.id ? params.id : undefined,
       requestId: meta.requestId,
+      // Contract §7 / PR-M5 piece ③: the (possibly forged) client header is
+      // never the row's requestId — kept only as a correlation hint.
+      detail: clientRequestId ? { client_request_id: clientRequestId } : undefined,
       source: 'facade',
     })
   } catch (err) {
@@ -136,8 +148,27 @@ async function logFacadeAudit(
     // post-handler audit failure fails the request in dev/test; production
     // never breaks the response (this rethrow is skipped there — same
     // best-effort contract as forwardToCore's own catch in audit.ts).
-    if (process.env.NODE_ENV !== 'production') throw err
+    if (process.env.NODE_ENV !== 'production') {
+      throw err
+    }
+    // Contract §5 (failure is never silent): production used to swallow this
+    // catch entirely — now it gets the same structured-line + drop-counter
+    // treatment as audit.ts's forwardToCore catch (PR-M5 piece ⑤).
+    facadeAuditDropCount += 1
+    console.warn(JSON.stringify({ evt: 'facade_audit_error', endpoint, err: String(err) }))
   }
+}
+
+// Drop counter for logFacadeAudit's outer catch — the twin of audit.ts's
+// coreForwardDropCount (PR-M5 piece ⑤). ponytail: a `let` + getter, same as
+// the audit.ts counter — no shared metrics layer for two counters.
+let facadeAuditDropCount = 0
+export function getFacadeAuditDropCount(): number {
+  return facadeAuditDropCount
+}
+/** Test seam — reset between cases. */
+export function _resetFacadeAuditDropCount(): void {
+  facadeAuditDropCount = 0
 }
 
 /** Rate-limits the durable `audit.unmapped_endpoint` warning row: one per key
@@ -155,7 +186,11 @@ const UNMAPPED_ENDPOINT_WARN_WINDOW_MS = 5 * 60 * 1000
  *  every environment — an outage-time record even if the durable write
  *  below never lands); production then rate-limits a durable warning row;
  *  dev/test throws instead, so the gap is impossible to miss while building. */
-function reportUnmappedEndpoint(endpoint: string, identity: RequestIdentity): void {
+function reportUnmappedEndpoint(
+  endpoint: string,
+  identity: RequestIdentity,
+  meta: FacadeContext['meta'],
+): void {
   console.warn(JSON.stringify({ evt: 'audit_unmapped_endpoint', endpoint, at: new Date().toISOString() }))
 
   if (process.env.NODE_ENV !== 'production') {
@@ -174,6 +209,7 @@ function reportUnmappedEndpoint(endpoint: string, identity: RequestIdentity): vo
     businessId: identity.businessId,
     severity: 'warning',
     detail: { endpoint },
+    requestId: meta.requestId,
     source: 'facade',
   })
 }

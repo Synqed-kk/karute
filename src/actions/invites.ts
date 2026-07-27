@@ -32,6 +32,9 @@ type InviteClient = Pick<SynqedClient, 'invites'>
 type InviteWriteDeps = {
   actorId: string | null
   source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
 }
 
 // ───────────────────────────────────────────────────────────────────────────
@@ -135,6 +138,7 @@ export async function createInviteCore(
     targetType: staffId ? 'staff' : undefined,
     targetId: staffId ?? undefined,
     detail: { invite_id: created.id ?? null, role, reinvite: !!staffId },
+    requestId: deps.requestId,
     source: deps.source,
   })
 
@@ -177,7 +181,13 @@ export async function createInvite(
   }
   const invitedBy = await getCurrentUserStaffId().catch(() => null)
   const actorId = await resolveWebActorId()
-  const result = await createInviteCore(synqed, businessId, { actorId, source: 'web' }, invitedBy, parsed.data)
+  const result = await createInviteCore(
+    synqed,
+    businessId,
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    invitedBy,
+    parsed.data,
+  )
   if ('token' in result) updateTag('staff-invites')
   return result
 }
@@ -285,6 +295,7 @@ export async function revokeInviteCore(
     actorType: 'staff',
     businessId,
     detail: { invite_id: id },
+    requestId: deps.requestId,
     source: deps.source,
   })
   return { ok: true }
@@ -305,7 +316,12 @@ export async function revokeInvite(id: string): Promise<{ ok: true } | { error: 
     return { error: e instanceof Error ? e.message : 'Unknown error' }
   }
   const { actorId, businessId } = await resolveWebAuditContext()
-  const result = await revokeInviteCore(synqed, businessId, { actorId, source: 'web' }, id)
+  const result = await revokeInviteCore(
+    synqed,
+    businessId,
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    id,
+  )
   if ('ok' in result) updateTag('staff-invites')
   return result
 }
@@ -368,6 +384,9 @@ export async function acceptInvite(
   }
   const name = fullName.trim()
   if (!name) return { error: 'Your name is required.' }
+  // One id for every audit row this single accept-invite call can produce
+  // (the happy path plus its two best-effort failure branches below).
+  const requestId = crypto.randomUUID()
 
   const baseUrl = process.env.SYNQED_CORE_URL
   const apiKey = process.env.SYNQED_CORE_API_KEY
@@ -449,6 +468,7 @@ export async function acceptInvite(
     targetType: 'staff',
     targetId: userId,
     detail: { via: 'invite', invite_id: invite.id as string, role },
+    requestId,
   })
 
   // 4. Link the synqed-core staff record under the business. Prefer the staff row
@@ -481,6 +501,7 @@ export async function acceptInvite(
       targetType: 'staff',
       targetId: userId,
       detail: { via: 'invite', invite_id: invite.id as string, role },
+      requestId,
     })
   }
 
@@ -501,6 +522,7 @@ export async function acceptInvite(
       targetType: 'staff',
       targetId: userId,
       detail: { via: 'invite', invite_id: invite.id as string },
+      requestId,
     })
   }
   updateTag('staff-list')

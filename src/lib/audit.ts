@@ -40,6 +40,11 @@ export interface AuditEvent {
   actorId: string | null
   actorType: 'staff' | 'system'
   businessId: string | null
+  /** Store scope for this event, when the action has a natural store context
+   *  (core's logSchema already accepts it — synqed-kk/client's
+   *  AuditEventInput.store_id). Wave-M threading only; no back-filling
+   *  lookups (contract §7 / PR-M5 piece ②). */
+  storeId?: string
   targetType?: 'customer' | 'karute' | 'staff' | 'recording' | 'business' | 'store'
   targetId?: string
   /** Default 'info'. 'notice' = privileged/consequential, 'warning' = security. */
@@ -86,6 +91,7 @@ export function audit(e: AuditEvent): void {
       break_glass: e.breakGlass ?? false,
       detail: e.detail ?? null,
       request_id: e.requestId ?? null,
+      store_id: e.storeId ?? null,
       source: e.source,
     }),
   )
@@ -113,6 +119,33 @@ const CORE_SEVERITY: Record<AuditSeverity, 'info' | 'warn' | 'critical'> = {
   warning: 'critical',
 }
 
+// Contract §7 / PR-M5 piece ①: core's AuditEventInput has no request_id
+// column yet (ask A4, sent/undelivered) — until it lands, a short id rides in
+// `detail.request_id` (detail is capped ~2KB server-side, so this always
+// fits). Never overwrite a caller-supplied detail.request_id.
+function detailWithRequestId(
+  detail: AuditEvent['detail'],
+  requestId: string | undefined,
+): AuditEvent['detail'] | undefined {
+  if (!requestId) return detail ?? undefined
+  if (detail && Object.prototype.hasOwnProperty.call(detail, 'request_id')) return detail
+  return { ...(detail ?? {}), request_id: requestId }
+}
+
+// Drop counter — every swallowed forwardToCore failure increments this (PR-M5
+// piece ⑤ / contract §5's "failure is never silent"). The console line above
+// (audit_sink_error) is the primary alert net; this is a cheap in-process
+// count a health-check/test can read. ponytail: a `let` + getter, no metrics
+// library — durable alerting (>1% rule) is its own Wave-M build item.
+let coreForwardDropCount = 0
+export function getCoreForwardDropCount(): number {
+  return coreForwardDropCount
+}
+/** Test seam — reset between cases. */
+export function _resetCoreForwardDropCount(): void {
+  coreForwardDropCount = 0
+}
+
 /** The durable sink. Builds a business-scoped core client directly (the audit
  *  emitter can run outside a request's auth scope — cron, throttle callbacks —
  *  so it must not depend on getSynqedClient's session lookup). Never throws. */
@@ -130,13 +163,15 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
       action: e.action,
       target_type: e.targetType ?? null,
       target_id: e.targetId ?? null,
-      detail: e.detail ?? undefined,
+      detail: detailWithRequestId(e.detail, e.requestId),
+      store_id: e.storeId ?? null,
       break_glass: e.breakGlass ?? false,
       severity: CORE_SEVERITY[e.severity ?? 'info'],
     })
   } catch (err) {
     // Never let auditing break (or slow) the calling path — the console line
     // above already recorded the event for the drain.
+    coreForwardDropCount += 1
     console.warn(JSON.stringify({ evt: 'audit_sink_error', action: e.action, err: String(err) }))
   }
 }

@@ -55,7 +55,7 @@ export const PUT = facadeHandler<Params>('staff.setPin', async (ctx) => {
   const result = await setStaffPinCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade' },
+    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     id,
     parsed.data.pin,
     actingStaffId,
@@ -74,7 +74,7 @@ export const DELETE = facadeHandler<Params>('staff.removePin', async (ctx) => {
   const result = await removeStaffPinCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade' },
+    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     id,
     actingStaffId,
   )

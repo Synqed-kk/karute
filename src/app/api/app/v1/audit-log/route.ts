@@ -63,13 +63,15 @@ export const GET = facadeHandler('audit.list', async (ctx) => {
 
   // Every call resolves the caller's staff row now (web parity:
   // getCurrentUserStaffId().catch(() => null)) — the roster round-trip is
-  // paid on every invocation, per contract §3.1.
+  // paid on every invocation, per contract §3.1. requestId = the server mint
+  // from facadeHandler's meta (PR-M5), one id per HTTP request.
   const actor = {
     staffId:
       (await staffListByBusinessOrThrow(businessId).catch(() => []))
         .find((s) => s.id === ctx.identity.authUserId)?.id ?? null,
     businessId,
     source: 'facade' as const,
+    requestId: ctx.meta.requestId,
   }
 
   return ok(ctx, AuditLogListResultDTO.parse(await listAuditLogWithClient(synqed, actor, filters)))

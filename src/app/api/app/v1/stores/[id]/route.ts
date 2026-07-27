@@ -47,7 +47,7 @@ export const PATCH = facadeHandler<Params>('stores.update', async (ctx) => {
   const result = await updateStoreCore(
     synqed,
     businessId,
-    { staffList, selfUserId: ctx.identity.authUserId, source: 'facade' },
+    { staffList, selfUserId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     id,
     body as StoreInput,
   )

@@ -38,7 +38,15 @@ import { audit, type AuditSeverity } from '@/lib/audit'
  *  threading contract as createOrUpdateKaruteRecord (src/actions/karute.ts):
  *  facade callers pass their already-resolved identity, web callers resolve
  *  it via resolveWebAuditContext() before calling in. */
-type BookingActor = { actorId: string | null; businessId: string | null; source: 'web' | 'facade' }
+type BookingActor = {
+  actorId: string | null
+  businessId: string | null
+  source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. Optional only because a couple of tests construct a
+   *  BookingActor without it — every real caller threads it. */
+  requestId?: string
+}
 
 /** A no-show or a same-day-contact cancel is the one shape where a ticket may
  *  burn or a booked slot silently went unused — both land 'notice' (→ CORE
@@ -126,7 +134,9 @@ export async function createAppointmentCore(
       businessId: deps.actor.businessId,
       targetType: 'customer',
       targetId: appt.customer_id,
+      storeId: appt.store_id ?? undefined,
       detail: { appointment_id: appt.id, customer_id: appt.customer_id, store_id: appt.store_id },
+      requestId: deps.actor.requestId,
       source: deps.actor.source,
     })
     return { id: appt.id }
@@ -292,6 +302,7 @@ export async function cancelAppointmentCore(
       businessId: actor.businessId,
       targetType: 'customer',
       targetId: updated.customer_id,
+      storeId: updated.store_id ?? undefined,
       severity: bookingAuditSeverity('cancel', input?.reason),
       detail: {
         appointment_id: appointmentId,
@@ -301,6 +312,7 @@ export async function cancelAppointmentCore(
         burn_pack: burnPack,
         burn_error: burnError,
       },
+      requestId: actor.requestId,
       source: actor.source,
     })
 
@@ -354,7 +366,9 @@ export async function restoreAppointmentCore(
       businessId: actor.businessId,
       targetType: 'customer',
       targetId: appt.customer_id,
+      storeId: appt.store_id ?? undefined,
       detail: { appointment_id: appointmentId, customer_id: appt.customer_id, store_id: appt.store_id },
+      requestId: actor.requestId,
       source: actor.source,
     })
 
@@ -425,6 +439,7 @@ export async function markNoShowAppointmentCore(
       businessId: actor.businessId,
       targetType: 'customer',
       targetId: appt.customer_id,
+      storeId: appt.store_id ?? undefined,
       severity: bookingAuditSeverity('no_show'),
       detail: {
         appointment_id: appointmentId,
@@ -433,6 +448,7 @@ export async function markNoShowAppointmentCore(
         burn_pack: input.burnPack,
         burn_error: burnError,
       },
+      requestId: actor.requestId,
       source: actor.source,
     })
 
@@ -508,6 +524,7 @@ export async function updateAppointmentCore(
       businessId: actor.businessId,
       targetType: 'customer',
       targetId: updated.customer_id,
+      storeId: updated.store_id ?? undefined,
       detail: {
         appointment_id: appointmentId,
         customer_id: updated.customer_id,
@@ -517,6 +534,7 @@ export async function updateAppointmentCore(
         // detail values are scalar-only, so a multi-value field joins here.
         changed: changed.join(','),
       },
+      requestId: actor.requestId,
       source: actor.source,
     })
 
@@ -575,8 +593,10 @@ export async function deleteAppointmentCore(
       businessId: actor.businessId,
       targetType: 'customer',
       targetId: appt.customer_id,
+      storeId: appt.store_id ?? undefined,
       severity: 'notice',
       detail: { appointment_id: appointmentId, customer_id: appt.customer_id, store_id: appt.store_id },
+      requestId: actor.requestId,
       source: actor.source,
     })
 

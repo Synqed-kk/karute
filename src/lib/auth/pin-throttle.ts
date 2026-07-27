@@ -35,6 +35,8 @@ export function _resetPinThrottle(): void {
 /** Audit hook — now routed through the shared audit emitter (no PIN, no
  *  secrets; ids + lock level only). Design: AUDIT-LOG-DESIGN.md §3 auth. */
 function auditLockout(actor: string, target: string, lockLevel: number): void {
+  // no-request-scope: pre-auth PIN verify carries no request id upstream —
+  // the caller is unauthenticated at this point (PR-M5 piece ④).
   audit({
     category: 'auth',
     action: 'auth.pin_lockout',

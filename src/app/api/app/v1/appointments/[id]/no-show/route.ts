@@ -48,6 +48,7 @@ export const POST = facadeHandler<Params>('appointment.noShow', async (ctx) => {
     actorId: ctx.identity.authUserId,
     businessId,
     source: 'facade',
+    requestId: ctx.meta.requestId,
   })
   return ok(ctx, result)
 })

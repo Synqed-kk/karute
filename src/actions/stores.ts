@@ -41,6 +41,9 @@ type StoreWriteDeps = {
   staffList: RosterRow[]
   selfUserId: string | null
   source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
 }
 
 // Active-store view filter — which location the viewer is looking at. A cookie,
@@ -335,6 +338,7 @@ export async function createStoreCore(
       businessId,
       targetType: 'store',
       targetId: store.id,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return { id: store.id }
@@ -366,7 +370,7 @@ export async function createStore(
   const result = await createStoreCore(
     synqed,
     businessId,
-    { staffList, selfUserId, source: 'web' },
+    { staffList, selfUserId, source: 'web', requestId: crypto.randomUUID() },
     input,
   )
   if ('id' in result) revalidatePath('/settings')
@@ -409,6 +413,7 @@ export async function updateStoreCore(
       businessId,
       targetType: 'store',
       targetId: id,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return { ok: true }
@@ -438,7 +443,7 @@ export async function updateStore(
   const result = await updateStoreCore(
     synqed,
     businessId,
-    { staffList, selfUserId, source: 'web' },
+    { staffList, selfUserId, source: 'web', requestId: crypto.randomUUID() },
     id,
     input,
   )
@@ -501,6 +506,7 @@ export async function setStaffStoresCore(
       targetType: 'staff',
       targetId: staffId,
       detail: { store_ids: storeIds.join(','), count: storeIds.length },
+      requestId: deps.requestId,
       source: deps.source,
     })
     return { ok: true }
@@ -531,7 +537,7 @@ export async function setStaffStores(
   const result = await setStaffStoresCore(
     synqed,
     businessId,
-    { staffList, selfUserId, source: 'web' },
+    { staffList, selfUserId, source: 'web', requestId: crypto.randomUUID() },
     staffId,
     storeIds,
   )

@@ -116,8 +116,10 @@ export const GET = facadeHandler('export', async (ctx) => {
       actorId: ctx.identity.authUserId,
       actorType: 'staff',
       businessId: ctx.identity.businessId,
+      storeId: storeId ?? undefined,
       severity: 'notice',
       source: 'facade',
+      requestId: ctx.meta.requestId,
       detail: {
         scope,
         format,
