@@ -9,5 +9,16 @@
 /src/__tests__/integration/audit-*.test.ts @alee046
 /src/__tests__/integration/facade-audit-*.test.ts @alee046
 /src/__tests__/integration/helpers/ @alee046
+# jest plumbing the protected suites execute through (fresh-eyes fix round
+# 2): jest.config.ts picks which suites run at all; setup/ runs before every
+# suite and could globally mock the emitters. Both change rarely — low ping
+# cost. (Deliberately NOT widened to every *audit*-named test: the audit-log
+# UI suites are routine feature-work surface — Wave V edits them constantly —
+# and owner-gating them would bottleneck the lane; accepted residual.)
+/jest.config.ts @alee046
+/src/__tests__/integration/setup/ @alee046
 /docs/audit-weakening-ledger.md @alee046
-/.github/workflows/ci.yml @alee046
+# Whole workflows dir, not just ci.yml (fresh-eyes fix round 2): a new
+# workflow file could impersonate the CI check name for the future
+# required-status-check gate.
+/.github/workflows/ @alee046

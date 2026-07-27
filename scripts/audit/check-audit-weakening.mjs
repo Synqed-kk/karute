@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 // CP8 — audit-weakening gate (contract §8, round-2 amendment D). Compares
 // HEAD's audit taxonomy (src/lib/audit.ts + src/lib/audit-policy.ts, read
-// from DISK — catches uncommitted local edits too) against origin/main's
-// committed version. A WEAKENING —
+// from DISK — catches uncommitted local edits on a BRANCH checkout; on main
+// itself the HEAD==main early exit below skips the diff, so a dirty tree on
+// main is out of scope by design) against origin/main's committed version. A WEAKENING —
 //   - a map/decision row: live→skip, live→pendingWave, deleted, or a quiet
 //     RECATEGORIZATION (category changed while staying live);
 //   - a non-live row's pendingWave VALUE changing (date pushed out, wave
@@ -150,16 +151,29 @@ function findRowWeakenings(mainV, headV) {
         // silent — same "still emits, but now the WRONG thing" class as a
         // recategorization, and it's exactly what the deleted
         // facade-audit-totality.test.ts hardcoded pin used to catch.
-        if (headRow.action !== mainRow.action) {
+        // `mainRow.<field> !== undefined` guard (fix round 2): a field ADDED
+        // where main had none is enrichment (e.g. giving a decision row its
+        // structured action) — only a swap or a drop of a prior value is a
+        // weakening.
+        if (mainRow.action !== undefined && headRow.action !== mainRow.action) {
           weakenings.push({
             key,
             note: `${kind} row '${key}' action changed '${mainRow.action}' → '${headRow.action}' (still live)`,
           })
         }
-        if (headRow.targetType !== mainRow.targetType) {
+        if (mainRow.targetType !== undefined && headRow.targetType !== mainRow.targetType) {
           weakenings.push({
             key,
             note: `${kind} row '${key}' targetType changed '${mainRow.targetType}' → '${headRow.targetType}' (still live)`,
+          })
+        }
+        // Fix round 2 (verifier find): view↔mutation (or log↔mutation on a
+        // decision row) changes WHEN the hook emits — same silent class as
+        // the action/targetType swaps above. 'skip' already returned above.
+        if (headRow.kind !== mainRow.kind) {
+          weakenings.push({
+            key,
+            note: `${kind} row '${key}' kind changed '${mainRow.kind}' → '${headRow.kind}' (still live)`,
           })
         }
       } else if (mainRow.pendingWave) {
@@ -167,8 +181,9 @@ function findRowWeakenings(mainV, headV) {
         // 2026-07-28): the contract's "deleted" clause is unqualified —
         // dropping a promised row (deleted outright, or demoted to skip) is
         // the same dropped-commitment class as a pendingWave value change.
-        // Only a plain skip row may come and go freely (its route's deletion
-        // is already tsc-enforced via FacadeEndpointKey totality). The
+        // Only a plain skip row may come and go freely (map-row deletion is
+        // tsc-enforced via FacadeEndpointKey totality; decision skip rows
+        // are guarded by facade-audit-totality's route walker). The
         // CP4-orphan → action-member-removal interlock catches SOME of these
         // transitively, but only when no other source emits the action.
         if (!headRow) {
@@ -178,13 +193,50 @@ function findRowWeakenings(mainV, headV) {
             key,
             note: `${kind} row '${key}' pendingWave '${mainRow.pendingWave}' → skip (promised writer dropped)`,
           })
-        } else if (headRow.pendingWave && headRow.pendingWave !== mainRow.pendingWave) {
-          // pendingWave VALUE moved (date pushed out / wave letter changed)
-          // — ledger-tracked, never a hard-fail on a past date by itself.
-          weakenings.push({
-            key,
-            note: `${kind} row '${key}' pendingWave changed '${mainRow.pendingWave}' → '${headRow.pendingWave}'`,
-          })
+        } else {
+          // Content swap while parked (fix round 2, verifier find): a
+          // pendingWave row pins the FUTURE truth — its action/category/
+          // targetType/kind changing while non-live (or in the same PR that
+          // promotes it) would launder a wrong row into a free promotion,
+          // since the live-branch checks above only fire when the MAIN row
+          // is live. A clean promotion (content identical, pendingWave
+          // removed) stays a free strengthening, and a field ADDED where
+          // main had none is enrichment (same guard as the live branch —
+          // the proof-suite PR itself adds structured actions to parked
+          // decision rows).
+          if (mainRow.action !== undefined && headRow.action !== mainRow.action) {
+            weakenings.push({
+              key,
+              note: `${kind} row '${key}' action changed '${mainRow.action}' → '${headRow.action}' (pendingWave row)`,
+            })
+          }
+          if (headRow.category && mainRow.category && headRow.category !== mainRow.category) {
+            weakenings.push({
+              key,
+              note: `${kind} row '${key}' recategorized ${mainRow.category} → ${headRow.category} (pendingWave row)`,
+            })
+          }
+          if (mainRow.targetType !== undefined && headRow.targetType !== mainRow.targetType) {
+            weakenings.push({
+              key,
+              note: `${kind} row '${key}' targetType changed '${mainRow.targetType}' → '${headRow.targetType}' (pendingWave row)`,
+            })
+          }
+          if (headRow.kind !== mainRow.kind) {
+            weakenings.push({
+              key,
+              note: `${kind} row '${key}' kind changed '${mainRow.kind}' → '${headRow.kind}' (pendingWave row)`,
+            })
+          }
+          if (headRow.pendingWave && headRow.pendingWave !== mainRow.pendingWave) {
+            // pendingWave VALUE moved (date pushed out / wave letter
+            // changed) — ledger-tracked, never a hard-fail on a past date
+            // by itself.
+            weakenings.push({
+              key,
+              note: `${kind} row '${key}' pendingWave changed '${mainRow.pendingWave}' → '${headRow.pendingWave}'`,
+            })
+          }
         }
       }
     }
@@ -363,13 +415,24 @@ function main() {
     process.exit(0)
   }
 
-  const unledgered = weakenings.filter((w) => !addedLines.some((line) => line.includes(w.key)))
+  // Fix round 2 (verifier find): substring matching let one added line
+  // ledger unlimited keys, and a key that is a substring of another
+  // ('karute.entry_edit' ⊂ 'karute.entry_edits_view') was ledgered by the
+  // OTHER key's legitimate line. An added line ledgers EXACTLY the key in
+  // its own key field — `- YYYY-MM-DD · <key> · <why> · <who ruled>` — which
+  // also machine-enforces the entry format and the 1:1 rule the header
+  // mandates (one entry line carries one key field).
+  const LEDGER_ENTRY_RE = /^- \d{4}-\d{2}-\d{2} · (.+?) · /
+  const ledgeredKeys = new Set(
+    addedLines.map((line) => LEDGER_ENTRY_RE.exec(line)?.[1]).filter((k) => k !== undefined),
+  )
+  const unledgered = weakenings.filter((w) => !ledgeredKeys.has(w.key))
 
   if (unledgered.length > 0) {
     console.error(`[check-audit-weakening] ${unledgered.length} unledgered weakening(s) vs main:`)
     for (const w of unledgered) console.error(`  - ${w.note}`)
     console.error(
-      `\nEach one needs its own ADDED line in ${LEDGER_PATH} containing the key shown above, format:\n` +
+      `\nEach one needs its own ADDED entry line in ${LEDGER_PATH} whose key field is EXACTLY the key shown above:\n` +
         `  - YYYY-MM-DD · <key> · <why> · <who ruled>`,
     )
     process.exit(1)
