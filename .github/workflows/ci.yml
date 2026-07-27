@@ -21,11 +21,14 @@ jobs:
       packages: read
 
     steps:
+      # SHA-pinned actions (Greptile #635): a mutable tag can be repointed
+      # upstream — pin the exact commits so the execution environment can't
+      # change under us. Same pins in both jobs.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -104,13 +107,20 @@ jobs:
 
     permissions:
       contents: read
+      # Read PR reviews: the weakening gate verifies code-owner approval on
+      # the exact head commit whenever ledgered weakenings exist (contract
+      # §8 second-reviewer rule, enforced in-gate until branch protection
+      # takes over).
+      pull-requests: read
 
     steps:
+      # SHA-pinned (Greptile #635): this job's isolation claim starts at the
+      # checkout — a repointed upstream tag must not be able to alter it.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
 
@@ -139,6 +149,15 @@ jobs:
           npm install --prefix "$RUNNER_TEMP/audit-deps" --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.3
           ln -s "$RUNNER_TEMP/audit-deps/node_modules" node_modules
 
+      - name: Audit gate selftest (parser boundaries + weakening matrix)
+        # In-repo, in-TIER regression tests (Greptile #635): the red-run
+        # proof artifacts live in the lane's fleet log outside the repo —
+        # this pins the same boundaries (decoy/spread/non-literal
+        # rejections, ledger-key namespacing, cited-skip deletion,
+        # owner-approval verdicts) on every PR, inside the pinned-typescript
+        # chain instead of the jest tier.
+        run: node scripts/audit/parse-audit-source.selftest.mjs
+
       - name: Audit actions doc is up to date
         # `git status --porcelain --ignored`, not `git diff --quiet`: diff
         # ignores UNTRACKED files, so a PR that deleted the doc would go
@@ -160,6 +179,9 @@ jobs:
         # ref, and if main advances mid-job a depth-1 fetch can't verify
         # fast-forward and rejects the update — force the tracking-ref
         # update; it's a mirror of the remote, not local history.
+        env:
+          # For the second-reviewer check (reviews API) — read-only.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           git fetch origin +main:refs/remotes/origin/main --depth=1
           node scripts/audit/check-audit-weakening.mjs

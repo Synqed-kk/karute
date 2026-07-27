@@ -139,7 +139,7 @@ function isLive(row) {
   return row.kind !== 'skip' && !row.pendingWave
 }
 
-function findRowWeakenings(mainV, headV) {
+export function findRowWeakenings(mainV, headV) {
   const weakenings = []
   const allRowSources = [
     ['map', mainV.mapRows, headV.mapRows],
@@ -318,7 +318,7 @@ function findRowWeakenings(mainV, headV) {
   return weakenings
 }
 
-function findActionWeakenings(mainV, headV) {
+export function findActionWeakenings(mainV, headV) {
   const headActions = new Set(headV.actions)
   return mainV.actions
     .filter((a) => !headActions.has(a))
@@ -353,7 +353,7 @@ export function findAuditedCoresWeakenings(mainV, headV) {
   return weakenings
 }
 
-function findAllowlistWeakenings(mainV, headV, bootstrapping) {
+export function findAllowlistWeakenings(mainV, headV, bootstrapping) {
   if (bootstrapping) {
     console.log(
       '[check-audit-weakening] BOOTSTRAP: docs/audit-weakening-ledger.md does not exist on main yet — allowlist ' +
@@ -402,6 +402,71 @@ function findAllowlistWeakenings(mainV, headV, bootstrapping) {
   return weakenings
 }
 
+// ── Second-reviewer enforcement (contract §8; Greptile #635 P1) ──────────
+// A ledger line proves a weakening was DECLARED, not that anyone else
+// approved it — the ledger would otherwise self-authorize while branch
+// protection is off. Whenever ledgered weakenings exist in a PR CI run,
+// the gate itself requires an APPROVED review from the code owner on the
+// PR's EXACT head commit. Local runs and push-to-main runs skip it (same
+// documented local-caveat class as the FETCH_HEAD fallback — CI on the PR
+// is the enforcement point). Fail-closed: an API failure fails the gate.
+// Branch protection, once Anthony flips it, makes this redundant belt.
+const CODE_OWNER_LOGIN = 'alee046' // keep in sync with .github/CODEOWNERS
+
+/** Pure verdict (selftest-covered without the network): the owner's LATEST
+ *  non-comment review must be APPROVED and pinned to the exact head SHA —
+ *  an approval of an older commit must never authorize commits pushed
+ *  after it. */
+export function ownerApprovalVerdict(reviews, headSha, ownerLogin = CODE_OWNER_LOGIN) {
+  const ownerReviews = (reviews ?? []).filter(
+    (r) => r?.user?.login === ownerLogin && r?.state !== 'COMMENTED',
+  )
+  const last = ownerReviews[ownerReviews.length - 1]
+  if (!last) return { ok: false, why: `no review from @${ownerLogin}` }
+  if (last.state !== 'APPROVED') return { ok: false, why: `latest review from @${ownerLogin} is ${last.state}` }
+  if (last.commit_id !== headSha) {
+    return {
+      ok: false,
+      why:
+        `@${ownerLogin}'s approval is for ${String(last.commit_id).slice(0, 7)}, not the current head ` +
+        `${String(headSha).slice(0, 7)} — the exact head commit must be re-approved`,
+    }
+  }
+  return { ok: true, why: 'approved at head' }
+}
+
+async function enforceOwnerApproval(weakeningCount) {
+  const eventPath = process.env.GITHUB_EVENT_PATH
+  if (!process.env.GITHUB_ACTIONS || !eventPath) {
+    console.log(
+      '[check-audit-weakening] owner-approval check skipped (not a CI run) — the PR CI run is the enforcement point.',
+    )
+    return
+  }
+  const event = JSON.parse(readFileSync(eventPath, 'utf8'))
+  const pr = event.pull_request
+  if (!pr) {
+    console.log('[check-audit-weakening] owner-approval check skipped (not a pull_request event).')
+    return
+  }
+  const token = process.env.GITHUB_TOKEN
+  if (!token) fail('GITHUB_TOKEN missing — cannot verify code-owner approval for ledgered weakenings.')
+  const api = process.env.GITHUB_API_URL ?? 'https://api.github.com'
+  const url = `${api}/repos/${event.repository.full_name}/pulls/${pr.number}/reviews?per_page=100`
+  const res = await fetch(url, {
+    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
+  })
+  if (!res.ok) fail(`could not list PR reviews (HTTP ${res.status}) — failing closed; ledgered weakenings need verified owner approval.`)
+  const verdict = ownerApprovalVerdict(await res.json(), pr.head.sha)
+  if (!verdict.ok) {
+    fail(
+      `${weakeningCount} ledgered weakening(s) need a SECOND REVIEWER (contract §8): ${verdict.why}. ` +
+        `@${CODE_OWNER_LOGIN} must APPROVE the exact head commit, then re-run this job.`,
+    )
+  }
+  console.log(`[check-audit-weakening] owner approval verified (@${CODE_OWNER_LOGIN}, ${verdict.why}).`)
+}
+
 function ledgerDiffLines(mainRef) {
   if (!existsSync(join(ROOT, LEDGER_PATH))) return { added: [], removed: [] }
   const diff = tryGit(['diff', mainRef, '--', LEDGER_PATH])
@@ -413,7 +478,7 @@ function ledgerDiffLines(mainRef) {
   }
 }
 
-function main() {
+async function main() {
   const headAuditText = readFileSync(join(ROOT, 'src/lib/audit.ts'), 'utf8')
   const headPolicyPath = join(ROOT, 'src/lib/audit-policy.ts')
   const headPolicyText = existsSync(headPolicyPath) ? readFileSync(headPolicyPath, 'utf8') : null
@@ -520,6 +585,8 @@ function main() {
     process.exit(1)
   }
 
+  await enforceOwnerApproval(weakenings.length)
+
   console.log(`[check-audit-weakening] ${weakenings.length} weakening(s), all ledgered (1:1, append-only). EXIT=0`)
   process.exit(0)
 }
@@ -528,5 +595,8 @@ function main() {
 // functions are imported by test harnesses, and an import must never
 // execute the gate (it would exit the importing process).
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main()
+  main().catch((err) => {
+    console.error(`[check-audit-weakening] unexpected failure: ${err?.stack ?? err}`)
+    process.exit(2)
+  })
 }
