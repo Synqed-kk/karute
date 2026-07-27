@@ -7,14 +7,16 @@
 //     RECATEGORIZATION (category changed while staying live);
 //   - a non-live row's pendingWave VALUE changing (date pushed out, wave
 //     letter changed) — not a hard-fail on a past date, just ledger-tracked;
+//   - a live row's action or targetType swapped (still emits, wrong thing);
 //   - an AUDIT_ACTIONS member removed;
-//   - an AUDITED_CORES entry/symbol removed — UNLESS every one of that
-//     entry's symbols reappears under an entry ADDED in the same diff (a
-//     file rename, not a coverage loss);
-//   - ANY allowlist ADDITION (a newly-legalized silent write) — exempt ONCE
-//     when audit-policy.ts doesn't exist on main yet (this PR's own
-//     bootstrap: without this exemption the proof suite's first PR fails its
-//     own gate on its ~45 seed allowlist entries) —
+//   - an AUDITED_CORES entry/symbol removed — including renames (rename
+//     tolerance was removed, fix round 1 #8: symbol-set matching is unsound
+//     with generic route symbol lists; a genuine rename takes a ledger line);
+//   - ANY allowlist ADDITION (a newly-legalized silent write), including a
+//     symbol added to an existing entry — exempt ONCE while the LEDGER
+//     doesn't exist on main yet (this PR's own bootstrap; keyed on the
+//     ledger, not audit-policy.ts, because the ledger is undeletable once
+//     merged — append-only — so the window provably never reopens) —
 // passes ONLY if docs/audit-weakening-ledger.md has an ADDED line (vs main)
 // naming the affected key, AND the ledger's diff has NO removed lines
 // (append-only — an edited/deleted old entry breaks the audit trail; each
