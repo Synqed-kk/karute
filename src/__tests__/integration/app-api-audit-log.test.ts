@@ -3,9 +3,10 @@
 // (listAuditLogWithClient, src/actions/audit-log.ts) · gate is 'audit.view'
 // (checked BEFORE any read) · the client is scoped to the Bearer identity's
 // businessId · query filters reach synqed.audit.list with the web action's
-// exact mapping · logOpen=1 fires exactly one privacy.audit_log_view row
+// exact mapping · every call fires exactly one privacy.audit_log_view row
 // (source:'facade', actorId = roster self-row id, target stamped only when
-// present) and pays the roster read ONLY on that path · a Bearer user absent
+// present) and pays the roster read on every invocation (contract §3.1,
+// PR-M1 — no more client-gated skip) · a Bearer user absent
 // from the roster degrades to actorId:null, never a throw · a core failure
 // rides a 2xx { ok:false, error:'failed' } — never a throw.
 import { createHmac } from 'node:crypto'
@@ -167,9 +168,9 @@ describe('GET /api/app/v1/audit-log', () => {
     )
   })
 
-  it('logOpen=1 fires exactly one privacy.audit_log_view row: source facade, actorId = roster self-row id, businessId threaded', async () => {
+  it('every call fires exactly one privacy.audit_log_view row: source facade, actorId = roster self-row id, businessId threaded', async () => {
     const lines = await auditLines(async () => {
-      const res = await GET(getReq({ logOpen: '1' }), noParams)
+      const res = await GET(getReq(), noParams)
       expect(res.status).toBe(200)
     })
     expect(lines).toHaveLength(1)
@@ -183,29 +184,29 @@ describe('GET /api/app/v1/audit-log', () => {
     expect(lines[0].target_id).toBeNull()
   })
 
-  it('logOpen=1 + targetId stamps the target on the open row', async () => {
+  it('targetId stamps the target on the row', async () => {
     const lines = await auditLines(async () => {
-      await GET(getReq({ logOpen: '1', targetId: 'cus-9' }), noParams)
+      await GET(getReq({ targetId: 'cus-9' }), noParams)
     })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ target_type: 'customer', target_id: 'cus-9' })
   })
 
-  it('no logOpen: zero audit() calls AND the roster is never read', async () => {
+  it('a paging call also reads the roster and fires its own row — per-invocation, not per-open (contract §3.1)', async () => {
     const lines = await auditLines(async () => {
-      const res = await GET(getReq(), noParams)
+      const res = await GET(getReq({ page: '2' }), noParams)
       expect(res.status).toBe(200)
     })
-    expect(lines).toHaveLength(0)
-    expect(staffListByBusinessOrThrow).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(1)
+    expect(staffListByBusinessOrThrow).toHaveBeenCalled()
   })
 
-  it('a Bearer user absent from the roster + logOpen=1 → actorId:null, not a throw', async () => {
+  it('a Bearer user absent from the roster → actorId:null, not a throw', async () => {
     staffListByBusinessOrThrow.mockResolvedValue([
       { id: 'someone-else', full_name: 'X', display_role: 'stylist' },
     ])
     const lines = await auditLines(async () => {
-      const res = await GET(getReq({ logOpen: '1' }), noParams)
+      const res = await GET(getReq(), noParams)
       expect(res.status).toBe(200)
     })
     expect(lines).toHaveLength(1)

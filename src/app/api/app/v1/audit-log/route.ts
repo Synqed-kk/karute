@@ -13,21 +13,22 @@
 // default (matching web's own optional-filter tolerance) rather than
 // rejecting the request.
 //
-// Actor / logOpen: `filters.logOpen` gates BOTH the roster read below and
-// the twin's own privacy.audit_log_view write — a filter/page fetch (no
-// logOpen) never pays the roster round-trip. `source: 'facade'` is a Fable
+// Actor: resolved on EVERY call now (contract §3.1, PR-M1) — the twin writes
+// its own privacy.audit_log_view row unconditionally, per invocation, so
+// every call pays the roster round-trip; a client-supplied flag can no
+// longer decide whether a read gets disclosed. `source: 'facade'` is a Fable
 // ruling (audit rows carry truthful provenance, createStoreCore precedent);
 // the row is otherwise byte-identical to web's. A Bearer user absent from
 // the roster degrades to a null actorId (matching web's own
 // getCurrentUserStaffId().catch(() => null)), never a throw.
 //
 // audit: 'audit.list' must NOT enter FACADE_AUDIT_MAP (src/lib/audit.ts) —
-// its row is the twin's own logOpen write; a map entry would double-log
-// opens, same reasoning as the stores.create/update 'skip' rows.
+// the row is the twin's own unconditional write; a map entry would
+// double-log, same reasoning as the stores.create/update 'skip' rows.
 //
-// revocation: 'audit.list' is a GET whose handler can write (the logOpen
-// open row) — see REVOCATION_SENSITIVE_ENDPOINTS (src/lib/auth/revocation.ts)
-// and GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS
+// revocation: 'audit.list' is a GET whose handler writes (the
+// privacy.audit_log_view row) — see REVOCATION_SENSITIVE_ENDPOINTS
+// (src/lib/auth/revocation.ts) and GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS
 // (app-api-revocation-coverage.test.ts), same registry stores.list closes.
 
 import { facadeHandler, ok, type FacadeContext } from '@/lib/app-api/handler'
@@ -50,7 +51,6 @@ function parseFilters(ctx: FacadeContext): AuditLogFilters {
     targetId: q.get('targetId') ?? undefined,
     includeViews: q.get('includeViews') === '1',
     breakGlass: q.get('breakGlass') === '1',
-    logOpen: q.get('logOpen') === '1',
     page: rawPage > 0 ? rawPage : 1,
   }
 }
@@ -61,17 +61,16 @@ export const GET = facadeHandler('audit.list', async (ctx) => {
   const synqed = newSynqedClient(businessId)
   const filters = parseFilters(ctx)
 
-  // No roster tax on filter/page fetches — only a logOpen fetch resolves the
-  // caller's staff row (web parity: getCurrentUserStaffId().catch(() => null)).
-  const actor = filters.logOpen
-    ? {
-        staffId:
-          (await staffListByBusinessOrThrow(businessId).catch(() => []))
-            .find((s) => s.id === ctx.identity.authUserId)?.id ?? null,
-        businessId,
-        source: 'facade' as const,
-      }
-    : null
+  // Every call resolves the caller's staff row now (web parity:
+  // getCurrentUserStaffId().catch(() => null)) — the roster round-trip is
+  // paid on every invocation, per contract §3.1.
+  const actor = {
+    staffId:
+      (await staffListByBusinessOrThrow(businessId).catch(() => []))
+        .find((s) => s.id === ctx.identity.authUserId)?.id ?? null,
+    businessId,
+    source: 'facade' as const,
+  }
 
   return ok(ctx, AuditLogListResultDTO.parse(await listAuditLogWithClient(synqed, actor, filters)))
 })

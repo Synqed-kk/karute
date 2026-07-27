@@ -44,10 +44,6 @@ export interface AuditLogFilters {
   includeViews?: boolean
   breakGlass?: boolean
   page?: number
-  /** Set by the section on its FIRST fetch only — one privacy.audit_log_view
-   *  row per open, not per filter click. Best-effort UI semantics: the caller
-   *  is already audit.view-gated above, so this flag only shapes volume. */
-  logOpen?: boolean
 }
 
 const PAGE_SIZE = 100
@@ -88,13 +84,15 @@ type ListAuditLogResult =
 
 /** Client-threaded core of listAuditLog (facade Bearer path, design-parity
  *  packet 17 §S3 — the 監査ログ tab going live). Carries the post-gate read
- *  AND the logOpen write so web and facade can never diverge; `actor` is the
- *  ONLY thing that differs between callers (cookie-resolved staff/business
- *  for web, Bearer-resolved for the facade) — null when this fetch isn't
- *  opening the log (filter clicks and paging never write the row). */
+ *  AND the privacy.audit_log_view write so web and facade can never diverge;
+ *  `actor` is the ONLY thing that differs between callers (cookie-resolved
+ *  staff/business for web, Bearer-resolved for the facade) — always resolved
+ *  by the caller now (contract §3.1, PR-M1): a client-supplied flag can no
+ *  longer decide whether a read gets disclosed, so every invocation of this
+ *  read — page 1, paging, filtered — writes its own row on success. */
 export async function listAuditLogWithClient(
   synqed: Awaited<ReturnType<typeof getSynqedClient>>,
-  actor: { staffId: string | null; businessId: string | null; source: 'web' | 'facade' } | null,
+  actor: { staffId: string | null; businessId: string | null; source: 'web' | 'facade' },
   filters: AuditLogFilters,
 ): Promise<ListAuditLogResult> {
   try {
@@ -172,23 +170,22 @@ export async function listAuditLogWithClient(
             }).catch(() => null),
       ])
 
-    // Opening the 監査ログ is itself a privileged read — one row per open
-    // (the section sends logOpen on its first fetch only; filter clicks and
-    // paging are the same open). Its _view suffix keeps it out of the
-    // default feed like every other view event.
-    if (filters.logOpen) {
-      audit({
-        category: 'privacy',
-        action: 'privacy.audit_log_view',
-        actorId: actor?.staffId ?? null,
-        actorType: 'staff',
-        businessId: actor?.businessId ?? null,
-        ...(filters.targetId
-          ? { targetType: 'customer' as const, targetId: filters.targetId }
-          : {}),
-        source: actor?.source ?? 'web',
-      })
-    }
+    // Reading the 監査ログ is itself a privileged read — ONE row per
+    // invocation of this read (contract §3.1, PR-M1): page 1, paging, and
+    // filter clicks each write their own row now — no client-supplied flag
+    // gates it. Its _view suffix keeps it out of the default feed like every
+    // other view event.
+    audit({
+      category: 'privacy',
+      action: 'privacy.audit_log_view',
+      actorId: actor.staffId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      ...(filters.targetId
+        ? { targetType: 'customer' as const, targetId: filters.targetId }
+        : {}),
+      source: actor.source,
+    })
 
     // BELT on top of server exclude_views (packet-18 fix round): core's
     // exclusion matches endsWith '.view' | ='view' but NOT the '_view' suffix
@@ -238,9 +235,9 @@ export async function listAuditLogWithClient(
   }
 }
 
-/** Thin wrapper — resolves the cookie session into `actor` ONLY when opening
- *  the log (the cookie reads stay gated exactly as before: filters.logOpen
- *  decides whether they run at all), then delegates to the twin. */
+/** Thin wrapper — always resolves the cookie session into `actor` (contract
+ *  §3.1, PR-M1: every invocation writes its own row, so every invocation
+ *  needs the actor), then delegates to the twin. */
 export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditLogResult> {
   try {
     ensureCapability(await getMyCapabilities(), 'audit.view')
@@ -256,13 +253,11 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
   } catch {
     return { ok: false, error: 'failed' }
   }
-  const actor = filters.logOpen
-    ? {
-        staffId: await getCurrentUserStaffId().catch(() => null),
-        businessId: await getBusinessId().catch(() => null),
-        source: 'web' as const,
-      }
-    : null
+  const actor = {
+    staffId: await getCurrentUserStaffId().catch(() => null),
+    businessId: await getBusinessId().catch(() => null),
+    source: 'web' as const,
+  }
   return listAuditLogWithClient(synqed, actor, filters)
 }
 

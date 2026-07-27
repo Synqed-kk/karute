@@ -837,7 +837,6 @@ type AuditLogFilters = {
   includeViews?: boolean
   breakGlass?: boolean
   page?: number
-  logOpen?: boolean
 }
 type AuditLogListResult =
   | {
@@ -868,7 +867,6 @@ async function facadeListAuditLog(filters: AuditLogFilters): Promise<AuditLogLis
   if (filters.targetId) q.set('targetId', filters.targetId)
   if (filters.includeViews) q.set('includeViews', '1')
   if (filters.breakGlass) q.set('breakGlass', '1')
-  if (filters.logOpen) q.set('logOpen', '1')
   q.set('page', String(filters.page ?? 1))
 
   try {

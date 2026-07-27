@@ -6,7 +6,10 @@
  *    reduction) — denial returns {ok:false,'forbidden'} and never hits core.
  *  - Default feed hides view-kind events (.view / _view suffix); the
  *    includeViews toggle opts them in.
- *  - Opening the log writes its own privacy.audit_log_view row — page 1 only.
+ *  - Every invocation writes its own privacy.audit_log_view row — page 1,
+ *    paging, and filtered calls alike (contract §3.1, PR-M1: per-invocation,
+ *    not per-open — logOpen is gone, the server no longer trusts a client
+ *    flag to decide whether a read gets disclosed).
  *  - The per-customer deep-link scopes the query to that customer.
  */
 
@@ -33,7 +36,7 @@ jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => 'biz-1'),
 }))
 
-import { listAuditLog } from '@/actions/audit-log'
+import { listAuditLog, listAuditLogWithClient } from '@/actions/audit-log'
 import { getMyCapabilities as getMyCapabilitiesImport } from '@/lib/auth/require-permission'
 import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
 import { audit as auditImport } from '@/lib/audit'
@@ -167,9 +170,9 @@ describe('listAuditLog — feed', () => {
   })
 })
 
-describe('listAuditLog — the log logs its own opens', () => {
-  it('logOpen writes privacy.audit_log_view once; filter/page fetches do not', async () => {
-    await listAuditLog({ logOpen: true })
+describe('listAuditLog — every invocation logs its own privacy.audit_log_view row (contract §3.1)', () => {
+  it('a plain call writes exactly one row', async () => {
+    await listAuditLog({})
     expect(audit).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -180,18 +183,19 @@ describe('listAuditLog — the log logs its own opens', () => {
         source: 'web',
       }),
     )
+  })
 
+  it('a filter click and a paging call each write their OWN row too — per-invocation, not per-open', async () => {
     audit.mockClear()
-    // The section clears logOpen after its first fetch — same open, no row.
     await listAuditLog({ category: 'staff' })
     await listAuditLog({ page: 2 })
-    expect(audit).not.toHaveBeenCalled()
+    expect(audit).toHaveBeenCalledTimes(2)
   })
 })
 
 describe('listAuditLog — per-customer deep-link', () => {
   it('scopes the core query to the customer and stamps the open row', async () => {
-    await listAuditLog({ targetId: 'cus-9', includeViews: true, logOpen: true })
+    await listAuditLog({ targetId: 'cus-9', includeViews: true })
     expect(list).toHaveBeenCalledWith(
       expect.objectContaining({ target_type: 'customer', target_id: 'cus-9' }),
     )
@@ -365,13 +369,10 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     }
   })
 
-  it('probes never carry logOpen — only the main call writes the open row', async () => {
+  it('the write path fires once regardless of how many strip probes ran', async () => {
     mockProbes()
-    await listAuditLog({ logOpen: true })
-    expect(audit).toHaveBeenCalledTimes(1) // the write path, unrelated to probe params
-    for (const [opts] of list.mock.calls) {
-      expect(opts).not.toHaveProperty('logOpen')
-    }
+    await listAuditLog({})
+    expect(audit).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -482,5 +483,47 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(res.targetLabels).toEqual({})
+  })
+})
+
+describe('listAuditLogWithClient — per-invocation privacy.audit_log_view (contract §3.1, PR-M1)', () => {
+  // Direct calls against the twin — a minimal synqed client (audit only, same
+  // ThisSensitiveAuditClient fidelity as every test above) and a manual actor,
+  // bypassing the wrapper's cookie/roster resolution entirely.
+  const actor = { staffId: 'staff-9', businessId: 'biz-9', source: 'web' as const }
+  const fakeSynqed = () => ({ audit: mockAudit() }) as any // eslint-disable-line @typescript-eslint/no-explicit-any -- minimal test double, same idiom as the file under test's own `synqed as any`
+
+  it('① a call with no special flag writes exactly one privacy.audit_log_view row', async () => {
+    const res = await listAuditLogWithClient(fakeSynqed(), actor, {})
+    expect(res.ok).toBe(true)
+    expect(audit).toHaveBeenCalledTimes(1)
+    expect(audit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'privacy',
+        action: 'privacy.audit_log_view',
+        actorId: 'staff-9',
+        actorType: 'staff',
+        businessId: 'biz-9',
+        source: 'web',
+      }),
+    )
+  })
+
+  it('② a paging call (page 2) and a filtered call EACH write their own row', async () => {
+    await listAuditLogWithClient(fakeSynqed(), actor, { page: 2 })
+    expect(audit).toHaveBeenCalledTimes(1)
+
+    audit.mockClear()
+    await listAuditLogWithClient(fakeSynqed(), actor, { category: 'staff' })
+    expect(audit).toHaveBeenCalledTimes(1)
+  })
+
+  it('③ a failed core read writes NO row and returns the failed envelope', async () => {
+    list.mockImplementation(async () => {
+      throw new Error('core down')
+    })
+    const res = await listAuditLogWithClient(fakeSynqed(), actor, {})
+    expect(res).toEqual({ ok: false, error: 'failed' })
+    expect(audit).not.toHaveBeenCalled()
   })
 })
