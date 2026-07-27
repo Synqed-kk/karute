@@ -17,7 +17,7 @@ import { join } from 'node:path'
 import { REVOCATION_SENSITIVE_ENDPOINTS, requiresRevocationCheck } from '@/lib/auth/revocation'
 
 // 'audit.list' joins at packet 17 §S3: its GET fires the twin's
-// privacy.audit_log_view write on every fetch (src/actions/audit-log.ts).
+// privacy.audit_log.view write on every fetch (src/actions/audit-log.ts).
 const GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS = ['stores.list', 'audit.list']
 
 const ROOT = join(process.cwd(), 'src/app/api/app/v1')

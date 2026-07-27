@@ -3,7 +3,7 @@
 // (listAuditLogWithClient, src/actions/audit-log.ts) · gate is 'audit.view'
 // (checked BEFORE any read) · the client is scoped to the Bearer identity's
 // businessId · query filters reach synqed.audit.list with the web action's
-// exact mapping · every call fires exactly one privacy.audit_log_view row
+// exact mapping · every call fires exactly one privacy.audit_log.view row
 // (source:'facade', actorId = roster self-row id, target stamped only when
 // present) and pays the roster read on every invocation (contract §3.1,
 // PR-M1 — no more client-gated skip) · a Bearer user absent
@@ -168,7 +168,7 @@ describe('GET /api/app/v1/audit-log', () => {
     )
   })
 
-  it('every call fires exactly one privacy.audit_log_view row: source facade, actorId = roster self-row id, businessId threaded', async () => {
+  it('every call fires exactly one privacy.audit_log.view row: source facade, actorId = roster self-row id, businessId threaded', async () => {
     const lines = await auditLines(async () => {
       const res = await GET(getReq(), noParams)
       expect(res.status).toBe(200)
@@ -176,7 +176,7 @@ describe('GET /api/app/v1/audit-log', () => {
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({
       category: 'privacy',
-      action: 'privacy.audit_log_view',
+      action: 'privacy.audit_log.view',
       actor_id: 'auth-user-1',
       business_id: 'business-1',
       source: 'facade',

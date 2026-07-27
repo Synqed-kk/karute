@@ -12,7 +12,7 @@
 // documents this ("both the mobile drill-in view and the desktop tab panel
 // render the SAME activeTab simultaneously in jsdom, no CSS media-query
 // collapse"). Post-PR-M1 (contract §3.1): the client-gated logOpen flag is
-// gone — every listAuditLog call now writes its own privacy.audit_log_view
+// gone — every listAuditLog call now writes its own privacy.audit_log.view
 // row unconditionally, so each independently-mounted AuditLogSection's first
 // fetch still means two rows per open, matching the sim drive's 4-for-2 (2
 // mounts today; a load-more would add MORE rows now, not zero — the

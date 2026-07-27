@@ -14,7 +14,7 @@
 // rejecting the request.
 //
 // Actor: resolved on EVERY call now (contract §3.1, PR-M1) — the twin writes
-// its own privacy.audit_log_view row unconditionally, per invocation, so
+// its own privacy.audit_log.view row unconditionally, per invocation, so
 // every call pays the roster round-trip; a client-supplied flag can no
 // longer decide whether a read gets disclosed. `source: 'facade'` is a Fable
 // ruling (audit rows carry truthful provenance, createStoreCore precedent);
@@ -27,7 +27,7 @@
 // double-log, same reasoning as the stores.create/update 'skip' rows.
 //
 // revocation: 'audit.list' is a GET whose handler writes (the
-// privacy.audit_log_view row) — see REVOCATION_SENSITIVE_ENDPOINTS
+// privacy.audit_log.view row) — see REVOCATION_SENSITIVE_ENDPOINTS
 // (src/lib/auth/revocation.ts) and GET_ENDPOINTS_WITH_WRITE_SIDE_EFFECTS
 // (app-api-revocation-coverage.test.ts), same registry stores.list closes.
 

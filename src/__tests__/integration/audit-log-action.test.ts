@@ -6,7 +6,7 @@
  *    reduction) — denial returns {ok:false,'forbidden'} and never hits core.
  *  - Default feed hides view-kind events (.view / _view suffix); the
  *    includeViews toggle opts them in.
- *  - Every invocation writes its own privacy.audit_log_view row — page 1,
+ *  - Every invocation writes its own privacy.audit_log.view row — page 1,
  *    paging, and filtered calls alike (contract §3.1, PR-M1: per-invocation,
  *    not per-open — logOpen is gone, the server no longer trusts a client
  *    flag to decide whether a read gets disclosed).
@@ -23,12 +23,12 @@ jest.mock('@/lib/synqed/client', () => ({
   // Placeholder only — jest hoists this factory above the
   // ThisSensitiveAuditClient class declared further down this file, so it
   // can't build a real this-sensitive mock here. Every test overrides this
-  // via the top-level beforeEach's getSynqedClient.mockImplementation(...)
+  // via the top-level beforeEach's newSynqedClient.mockImplementation(...)
   // before it's ever read, so this initial value is never actually
   // exercised; kept as an inert empty object rather than a `{ list }`
   // literal so it can't be mistaken for the forbidden shape the class
   // comment below warns against.
-  getSynqedClient: jest.fn(async () => ({})),
+  newSynqedClient: jest.fn(() => ({})),
 }))
 jest.mock('@/lib/audit', () => ({ audit: jest.fn() }))
 jest.mock('@/lib/staff', () => ({
@@ -38,11 +38,13 @@ jest.mock('@/lib/staff', () => ({
 
 import { listAuditLog, listAuditLogWithClient } from '@/actions/audit-log'
 import { getMyCapabilities as getMyCapabilitiesImport } from '@/lib/auth/require-permission'
-import { getSynqedClient as getSynqedClientImport } from '@/lib/synqed/client'
+import { newSynqedClient as newSynqedClientImport } from '@/lib/synqed/client'
 import { audit as auditImport } from '@/lib/audit'
+import { getBusinessId as getBusinessIdImport } from '@/lib/staff'
 
 const getMyCapabilities = getMyCapabilitiesImport as jest.Mock
-const getSynqedClient = getSynqedClientImport as unknown as jest.Mock
+const newSynqedClient = newSynqedClientImport as unknown as jest.Mock
+const getBusinessId = getBusinessIdImport as unknown as jest.Mock
 const audit = auditImport as jest.Mock
 
 const list = jest.fn()
@@ -83,7 +85,7 @@ function coreEvent(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   jest.clearAllMocks()
   getMyCapabilities.mockImplementation(async () => new Set(['audit.view']))
-  getSynqedClient.mockImplementation(async () => ({ audit: mockAudit() }))
+  newSynqedClient.mockImplementation(() => ({ audit: mockAudit() }))
   list.mockImplementation(async () => ({
     events: [coreEvent()],
     total: 1,
@@ -163,21 +165,34 @@ describe('listAuditLog — feed', () => {
   // twin extraction hoisted client construction out of the read's try; this
   // pins that a failed construction still resolves the 'failed' envelope.
   it('client-construction failure returns the same safe error, never throws', async () => {
-    getSynqedClient.mockImplementation(async () => {
+    newSynqedClient.mockImplementation(() => {
       throw new Error('no session')
     })
     await expect(listAuditLog({})).resolves.toEqual({ ok: false, error: 'failed' })
   })
+
+  // Blind-round security find (M1 ledger #8): businessId is resolved ONCE and
+  // feeds both the client and the audit row — a resolve failure must fail the
+  // whole read CLOSED (no client built, no core read, no row), never proceed
+  // to a read whose durable row would silently skip on a null businessId.
+  it('getBusinessId failure fails closed: failed envelope, no core read, no audit row', async () => {
+    getBusinessId.mockImplementationOnce(async () => {
+      throw new Error('session gone')
+    })
+    await expect(listAuditLog({})).resolves.toEqual({ ok: false, error: 'failed' })
+    expect(newSynqedClient).not.toHaveBeenCalled()
+    expect(audit).not.toHaveBeenCalled()
+  })
 })
 
-describe('listAuditLog — every invocation logs its own privacy.audit_log_view row (contract §3.1)', () => {
+describe('listAuditLog — every invocation logs its own privacy.audit_log.view row (contract §3.1)', () => {
   it('a plain call writes exactly one row', async () => {
     await listAuditLog({})
     expect(audit).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         category: 'privacy',
-        action: 'privacy.audit_log_view',
+        action: 'privacy.audit_log.view',
         actorId: 'staff-1',
         businessId: 'biz-1',
         source: 'web',
@@ -316,7 +331,7 @@ describe('listAuditLog — T1 exact strip-count probes (severity/exclude_views)'
     ).toBe(false)
   })
 
-  it('BELT: a privacy.audit_log_view row the server fails to exclude (the _view gap) is still hidden from the default feed', async () => {
+  it('BELT: a HISTORICAL privacy.audit_log_view row (pre-respell spelling core cannot exclude) is still hidden from the default feed', async () => {
     list.mockImplementation(async (opts: { page_size?: number }) => {
       if (opts.page_size === 100)
         return {
@@ -407,7 +422,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const customersList = jest.fn(async () => ({
       customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
     }))
-    getSynqedClient.mockImplementation(async () => ({
+    newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: customersList },
     }))
@@ -419,7 +434,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   })
 
   it('a failed lookup degrades to empty labels — the feed never fails', async () => {
-    getSynqedClient.mockImplementation(async () => ({
+    newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: jest.fn(async () => { throw new Error('core down') }) },
     }))
@@ -433,7 +448,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const customersList = jest.fn(async () => ({
       customers: [{ id: 'cus-1', name: '鈴木 一郎' }],
     }))
-    getSynqedClient.mockImplementation(async () => ({
+    newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: customersList },
     }))
@@ -461,7 +476,7 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   })
 
   it('a karute row WITHOUT detail.customer_id resolves no label — id fallback stays honest, no crash', async () => {
-    getSynqedClient.mockImplementation(async () => ({
+    newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: jest.fn(async () => ({ customers: [] })) },
     }))
@@ -486,21 +501,21 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
   })
 })
 
-describe('listAuditLogWithClient — per-invocation privacy.audit_log_view (contract §3.1, PR-M1)', () => {
+describe('listAuditLogWithClient — per-invocation privacy.audit_log.view (contract §3.1, PR-M1)', () => {
   // Direct calls against the twin — a minimal synqed client (audit only, same
   // ThisSensitiveAuditClient fidelity as every test above) and a manual actor,
   // bypassing the wrapper's cookie/roster resolution entirely.
   const actor = { staffId: 'staff-9', businessId: 'biz-9', source: 'web' as const }
   const fakeSynqed = () => ({ audit: mockAudit() }) as any // eslint-disable-line @typescript-eslint/no-explicit-any -- minimal test double, same idiom as the file under test's own `synqed as any`
 
-  it('① a call with no special flag writes exactly one privacy.audit_log_view row', async () => {
+  it('① a call with no special flag writes exactly one privacy.audit_log.view row', async () => {
     const res = await listAuditLogWithClient(fakeSynqed(), actor, {})
     expect(res.ok).toBe(true)
     expect(audit).toHaveBeenCalledTimes(1)
     expect(audit).toHaveBeenCalledWith(
       expect.objectContaining({
         category: 'privacy',
-        action: 'privacy.audit_log_view',
+        action: 'privacy.audit_log.view',
         actorId: 'staff-9',
         actorType: 'staff',
         businessId: 'biz-9',
