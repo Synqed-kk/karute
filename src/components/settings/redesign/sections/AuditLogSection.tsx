@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   Activity,
+  Calendar,
   ChevronDown,
   CreditCard,
   Eye,
@@ -42,6 +43,7 @@ const CATEGORIES = [
   'settings',
   'staff',
   'billing',
+  'booking',
 ] as const
 
 const CATEGORY_ICONS: Record<string, typeof Activity> = {
@@ -54,6 +56,7 @@ const CATEGORY_ICONS: Record<string, typeof Activity> = {
   settings: Settings2,
   staff: Users,
   billing: CreditCard,
+  booking: Calendar,
 }
 
 const RANGE_PRESETS = ['7d', '30d', '90d', 'all'] as const
@@ -300,6 +303,23 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     if (e.action === 'settings.staff_stores_change' && typeof detail.count === 'number') {
       const stores = t('storesCount', { count: detail.count })
       return targetName ? `${targetName} · ${stores}` : stores
+    }
+    // Booking burn outcome (cancel/no-show): burn_pack alone is the staff's
+    // CHOICE, burn_error is what actually happened to it — surface it so a
+    // failed/already-consumed burn doesn't read as a clean success.
+    if (typeof detail.burn_error === 'string' && detail.burn_error) {
+      const label = t.has(`burnError.${detail.burn_error}`)
+        ? t(`burnError.${detail.burn_error}`)
+        : detail.burn_error
+      return targetName ? `${targetName} · ${label}` : label
+    }
+    // booking.update: what changed, in owner vocabulary.
+    if (e.action === 'booking.update' && typeof detail.changed === 'string' && detail.changed) {
+      const label = detail.changed
+        .split(',')
+        .map((c) => (t.has(`changed.${c}`) ? t(`changed.${c}`) : c))
+        .join('・')
+      return targetName ? `${targetName} · ${label}` : label
     }
     return targetName
   }

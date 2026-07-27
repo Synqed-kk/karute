@@ -44,7 +44,11 @@ export const POST = facadeHandler<Params>('appointment.noShow', async (ctx) => {
     businessId,
   ).catch(() => null)
 
-  const result = await markNoShowAppointmentCore(synqed, id, parsed.data, actingStaffId)
+  const result = await markNoShowAppointmentCore(synqed, id, parsed.data, actingStaffId, {
+    actorId: ctx.identity.authUserId,
+    businessId,
+    source: 'facade',
+  })
   return ok(ctx, result)
 })
 

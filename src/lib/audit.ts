@@ -26,6 +26,7 @@ export const AUDIT_CATEGORIES = [
   'settings',
   'staff',
   'billing',
+  'booking',
 ] as const
 export type AuditCategory = (typeof AUDIT_CATEGORIES)[number]
 
@@ -168,12 +169,13 @@ export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
   'askAi.read': { kind: 'skip', category: 'ai', action: '' },
   // Same ruling for the chat send itself — per-message turns don't re-log.
   'ai.chat': { kind: 'skip', category: 'ai', action: '' },
-  // Booking status writes (P-B 2/2): the audit trail lives in CORE — every
-  // mutation stamps acting_staff_id / status_set_by / status_set_at on the
-  // appointment row itself, and the web actions emit no app-side audit either.
-  // A facade row here would double-log the binary relative to web. (Category
-  // is decorative on 'skip' rows — nothing emits; there is no booking
-  // category and skip rows are no reason to grow the core-coupled enum.)
+  // Booking mutations (Liam ruling 2026-07-26: everything gets logged,
+  // including bookings): the ONE booking.create/cancel/no_show/restore emit
+  // lives in the shared cores (createAppointmentCore / cancelAppointmentCore /
+  // markNoShowAppointmentCore / restoreAppointmentCore, src/lib/appointments/
+  // mutations.ts) — the ONE function both the web action and this facade
+  // route call. A row here would double-log every facade write. (Category is
+  // decorative on 'skip' rows — nothing emits.)
   'appointment.create': { kind: 'skip', category: 'customer', action: '' },
   'appointment.cancel': { kind: 'skip', category: 'customer', action: '' },
   'appointment.noShow': { kind: 'skip', category: 'customer', action: '' },

@@ -3,7 +3,8 @@
  *   - createAppointment maps UI camelCase → API snake_case and computes ends_at
  *   - Overlap (SynqedError 409) surfaces as a friendly user message
  *   - getAppointmentsByDate merges customer names + matches karute_record_id
- *   - deleteAppointment / updateAppointment thin pass-through
+ *   - deleteAppointment / updateAppointment field-shape pass-through (audit
+ *     behavior for both is pinned separately in booking-flow.test.ts)
  */
 
 jest.mock('next/cache', () => ({
@@ -62,6 +63,10 @@ const appointments = {
   list: jest.fn(),
   delete: jest.fn(),
   update: jest.fn(),
+  // updateAppointmentCore/deleteAppointmentCore (booking mutations now audit,
+  // Liam ruling 2026-07-26) read this: update()'s return for the audit
+  // target, delete's precondition read before the SDK delete call.
+  get: jest.fn(),
 }
 const karuteRecords = {
   list: jest.fn(),
@@ -69,6 +74,14 @@ const karuteRecords = {
 const staff = {
   list: jest.fn(),
 }
+// deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
+// delete — mirrors cancel-appointment.test.ts's packs mock. Signature must
+// accept the arg the wrapper below forwards (kept net-zero on the lint delta).
+const listRecentRedemptions = jest.fn(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async (_since: string): Promise<Array<{ appointment_id: string | null }>> => [],
+)
+const packs = { listRecentRedemptions: (since: string) => listRecentRedemptions(since) }
 
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
@@ -76,6 +89,7 @@ jest.mock('@/lib/synqed/client', () => ({
     appointments,
     karuteRecords,
     staff,
+    packs,
   })),
 }))
 
@@ -289,7 +303,13 @@ describe('Migrated appointment actions', () => {
 
   describe('updateAppointment', () => {
     it('computes ends_at when both startTime and durationMinutes change', async () => {
-      appointments.update.mockResolvedValue(undefined)
+      // updateAppointmentCore now reads the booking first (Fable fix-round
+      // FIX 2 terminal guard) — give it a live row so the update is reached.
+      appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
+      // update()'s return rides the full Appointment row (verified fact: core
+      // always returns customer_id/store_id) — updateAppointmentCore reads
+      // the audit target off it directly.
+      appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', {
         startTime: '2026-05-10T14:00:00.000Z',
@@ -304,7 +324,8 @@ describe('Migrated appointment actions', () => {
     })
 
     it('partial update omits ends_at if only duration changes', async () => {
-      appointments.update.mockResolvedValue(undefined)
+      appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
+      appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', { durationMinutes: 45 })
 
@@ -316,7 +337,17 @@ describe('Migrated appointment actions', () => {
 
   describe('deleteAppointment', () => {
     it('forwards to client', async () => {
+      // deleteAppointmentCore reads the row FIRST (delete() itself returns
+      // void) so the audit detail has a customer_id/store_id to point at.
+      // starts_at/created_at feed the burn-dedup guard's window (FIX 8).
+      appointments.get.mockResolvedValue({
+        customer_id: 'cust-1',
+        store_id: 'store-1',
+        starts_at: '2026-07-06T03:00:00.000Z',
+        created_at: '2026-07-06T03:00:00.000Z',
+      })
       appointments.delete.mockResolvedValue(undefined)
+      listRecentRedemptions.mockResolvedValue([])
 
       const result = await deleteAppointment('appt-1')
 

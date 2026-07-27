@@ -112,12 +112,17 @@ jest.mock('@/lib/synqed/client', () => {
   }
   const appointments = {
     create: jest.fn(async () => ({ id: 'appt-1' })),
-    update: jest.fn(async () => ({})),
+    // Realistic { customer_id, store_id } return (FIX 7e): prevents a future
+    // undefined-target trap if this file ever exercises a granted update.
+    update: jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' })),
     delete: jest.fn(async () => ({})),
     get: jest.fn(async () => null),
   }
   const staffStores = { get: jest.fn(async () => ({ store_ids: [] })) }
   const stores = { list: jest.fn(async () => ({ stores: [] })) }
+  // deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
+  // delete — this suite never exercises a burned booking, so [] every time.
+  const packs = { listRecentRedemptions: jest.fn(async () => []) }
   // Save-gate consent check (src/actions/karute.ts) — current-version consent
   // by default so this suite's RBAC assertions reach create() untouched.
   const customers = {
@@ -125,7 +130,7 @@ jest.mock('@/lib/synqed/client', () => {
       consent: { policy_version: RECORDING_CONSENT_POLICY_VERSION, granted_at: '2026-07-01T00:00:00Z' },
     })),
   }
-  const client = { karuteRecords, appointments, staffStores, stores, customers }
+  const client = { karuteRecords, appointments, staffStores, stores, customers, packs }
   return { getSynqedClient: jest.fn(async () => client) }
 })
 
@@ -330,6 +335,16 @@ describe('RBAC — bookings.manage actions', () => {
   })
 
   it('deleteAppointment with bookings.manage deletes', async () => {
+    // deleteAppointmentCore reads the row first (the module default above
+    // returns null, matching the "booking not found" shape most of this
+    // suite doesn't care about) — give it a real row so the delete is reached.
+    // starts_at/created_at feed the burn-dedup guard's window (FIX 8).
+    appointments.get.mockResolvedValueOnce({
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      starts_at: '2026-07-06T03:00:00.000Z',
+      created_at: '2026-07-06T03:00:00.000Z',
+    })
     const result = await deleteAppointment('appt-1')
     expect(result).toEqual({ success: true })
     expect(appointments.delete).toHaveBeenCalledWith('appt-1')

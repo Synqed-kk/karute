@@ -68,14 +68,26 @@ jest.mock('@/lib/packs/store', () => ({
   addRedemptionWithClient: (_synqed: unknown, input: unknown) => addRedemption(input as never),
 }))
 
-const apptCreate = jest.fn(async () => ({ id: 'appt-new' }))
+// customer_id/store_id echo the create input — createAppointmentCore reads
+// its audit row's target off the create() return, same as the real client.
+const apptCreate = jest.fn(async (input: { customer_id: string; store_id?: string | null }) => ({
+  id: 'appt-new',
+  customer_id: input.customer_id,
+  store_id: input.store_id ?? null,
+}))
+// created_at (Fable fix-round FIX 1): the burn dedup window now anchors to
+// min(starts_at, created_at) — set equal to starts_at here so every existing
+// burn-window computation (the same-day cancel/no-show burn tests below) is
+// unchanged.
 const apptGet = jest.fn(async () => ({
   id: 'appt-1',
   customer_id: 'cust-1',
+  store_id: 'store-1',
   status: 'SCHEDULED',
   starts_at: '2026-07-20T02:00:00.000Z',
+  created_at: '2026-07-20T02:00:00.000Z',
 }))
-const apptUpdate = jest.fn(async () => ({}))
+const apptUpdate = jest.fn(async () => ({ customer_id: 'cust-1', store_id: 'store-1' }))
 const staffStoresGet = jest.fn(async () => ({ store_ids: [] as string[] }))
 const fakeClient = {
   appointments: { create: apptCreate, get: apptGet, update: apptUpdate },
@@ -99,6 +111,7 @@ import { POST as cancelPOST } from '@/app/api/app/v1/appointments/[id]/cancel/ro
 import { POST as noShowPOST } from '@/app/api/app/v1/appointments/[id]/no-show/route'
 import { POST as restorePOST } from '@/app/api/app/v1/appointments/[id]/restore/route'
 import { GET as burnableGET } from '@/app/api/app/v1/customers/[id]/packs/burnable/route'
+import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -154,8 +167,10 @@ beforeEach(() => {
   apptGet.mockResolvedValue({
     id: 'appt-1',
     customer_id: 'cust-1',
+    store_id: 'store-1',
     status: 'SCHEDULED',
     starts_at: '2026-07-20T02:00:00.000Z',
+    created_at: '2026-07-20T02:00:00.000Z',
   })
 })
 
@@ -344,8 +359,10 @@ describe('POST /api/app/v1/appointments/[id]/restore', () => {
     apptGet.mockResolvedValue({
       id: 'appt-1',
       customer_id: 'cust-1',
+      store_id: 'store-1',
       status: 'CANCELLED',
       starts_at: '2026-07-20T02:00:00.000Z',
+      created_at: '2026-07-20T02:00:00.000Z',
     })
     const res = await restorePOST(post(URL_, undefined), params('appt-1'))
     expect(await res.json()).toEqual({ success: true })
@@ -376,5 +393,89 @@ describe('GET /api/app/v1/customers/[id]/packs/burnable', () => {
     listPacks.mockResolvedValue([])
     const res2 = await burnableGET(get(), params('cust-1'))
     expect(await res2.json()).toEqual({ summary: null })
+  })
+})
+
+// Booking mutations now audit from the shared cores (Liam ruling
+// 2026-07-26). These pin the facade-specific half of the single-write
+// contract: source:'facade', identity off ctx.identity (not a re-lookup),
+// and — the point of routing the emit through the core instead of
+// FACADE_AUDIT_MAP — EXACTLY ONE row per request (a second row here would
+// mean the map's 'skip' rows regressed and the write is double-logging).
+describe('booking mutation facade routes — audit (single-write, no double-log)', () => {
+  it('create → exactly one booking.create row, source facade', async () => {
+    const lines = await auditLines(async () => {
+      const res = await createPOST(post(CREATE_URL, CREATE_BODY), noParams)
+      expect(res.status).toBe(201)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.create',
+      actor_id: 'auth-user-1',
+      business_id: 'business-1',
+      target_type: 'customer',
+      target_id: 'cust-1',
+      source: 'facade',
+    })
+  })
+
+  it('cancel → exactly one booking.cancel row, source facade', async () => {
+    const lines = await auditLines(async () => {
+      const res = await cancelPOST(post('https://s/api/app/v1/appointments/appt-1/cancel', {}), params('appt-1'))
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.cancel',
+      actor_id: 'auth-user-1',
+      business_id: 'business-1',
+      target_id: 'cust-1',
+      source: 'facade',
+    })
+  })
+
+  it('no-show → exactly one booking.no_show row, source facade', async () => {
+    const lines = await auditLines(async () => {
+      const res = await noShowPOST(
+        post('https://s/api/app/v1/appointments/appt-1/no-show', { burnPack: false }),
+        params('appt-1'),
+      )
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.no_show',
+      actor_id: 'auth-user-1',
+      business_id: 'business-1',
+      target_id: 'cust-1',
+      source: 'facade',
+    })
+  })
+
+  it('restore → exactly one booking.restore row, source facade', async () => {
+    apptGet.mockResolvedValue({
+      id: 'appt-1',
+      customer_id: 'cust-1',
+      store_id: 'store-1',
+      status: 'CANCELLED',
+      starts_at: '2026-07-20T02:00:00.000Z',
+      created_at: '2026-07-20T02:00:00.000Z',
+    })
+    const lines = await auditLines(async () => {
+      const res = await restorePOST(post('https://s/api/app/v1/appointments/appt-1/restore', undefined), params('appt-1'))
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'booking',
+      action: 'booking.restore',
+      actor_id: 'auth-user-1',
+      business_id: 'business-1',
+      target_id: 'cust-1',
+      source: 'facade',
+    })
   })
 })

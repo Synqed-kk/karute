@@ -29,7 +29,11 @@ export const POST = facadeHandler<Params>('appointment.restore', async (ctx) => 
     businessId,
   ).catch(() => null)
 
-  const result = await restoreAppointmentCore(synqed, id, actingStaffId)
+  const result = await restoreAppointmentCore(synqed, id, actingStaffId, {
+    actorId: ctx.identity.authUserId,
+    businessId,
+    source: 'facade',
+  })
   return ok(ctx, result)
 })
 

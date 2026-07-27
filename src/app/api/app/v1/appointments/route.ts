@@ -105,6 +105,7 @@ export const POST = facadeHandler('appointment.create', async (ctx) => {
     synqedStaffId,
     preferredStoreId: clamp.storeId,
     operatingHours: orgSettings?.operating_hours,
+    actor: { actorId: ctx.identity.authUserId, businessId, source: 'facade' },
   })
   return ok(ctx, result, 'id' in result ? 201 : 200)
 })

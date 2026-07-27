@@ -41,7 +41,12 @@ const DIST = 'thin/dist/assets'
 // 1642.9 KB raw against the prior 1611.3 KB ceiling. Genuine new-screen
 // volume (icons + column/filter metadata for a whole export config UI), not
 // bloat — same class as every prior raise on this line.
-const BUDGET_BYTES = 1_710_000
+// Raised 2026-07-27 at the booking-audit PR (#628) — 監査ログ viewer gains
+// booking burn-outcome/changed-code sub-lines + the booking.* ja/en action
+// labels, measured at 1670.5 KB raw against the prior 1669.9 KB ceiling
+// (over by 0.6 KB). Genuine feature strings, not bloat — same class as
+// every prior raise; the purchase-marker scan below stays the real gate.
+const BUDGET_BYTES = 1_720_000
 
 let dir
 try {

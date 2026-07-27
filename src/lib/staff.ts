@@ -251,8 +251,14 @@ export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
  * Used to scope inserts so RLS allows them. Reads the legacy
  * `profiles.customer_id` column — the legacy schema still names
  * the business column `customer_id` until the legacy-strip lands.
+ *
+ * Wrapped in React cache() (Fable fix-round finding, 2026-07-27): called
+ * twice per request wherever both getBusinessId() and resolveWebAuditContext()
+ * run (e.g. every booking mutation) — without memoization a transient failure
+ * on the SECOND call silently wrote actor_id:null for a fully-known actor.
+ * Same wrapper as getCurrentUserStaffId/getBusinessId in this file.
  */
-export async function resolveUserId(): Promise<string> {
+export const resolveUserId = cache(async (): Promise<string> => {
   const supabase = await createClient()
   const jwtSecret = process.env.SUPABASE_JWT_SECRET
 
@@ -276,7 +282,7 @@ export async function resolveUserId(): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
   return user.id
-}
+})
 
 // Memoized for the lifetime of a single request via React cache(). Called from
 // many places per page (every Supabase scope check, every synqed client init)
