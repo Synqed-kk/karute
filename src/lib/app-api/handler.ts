@@ -88,13 +88,16 @@ export function facadeHandler<P = Record<string, string>>(
 }
 
 /** Audit hook — every facade success flows through here (AUDIT-LOG-DESIGN.md).
- *  Classification is table-driven (FACADE_AUDIT_MAP, deny-default): mutations +
- *  single-record opens emit one event; list endpoints are deliberately exempt.
- *  Best-effort by design: an audit emit failure must never break the response
- *  (the interim sink is a console line; the evidentiary rule is "the log proves
- *  presence, never absence"). */
+ *  Classification is table-driven (FACADE_AUDIT_MAP, TOTAL as of PR-M4):
+ *  mutations + single-record opens emit one event; list endpoints and
+ *  `pendingWave` rows (dated tracked-TODO, contract C2/F6) are deliberately
+ *  exempt. Best-effort by design: an audit emit failure must never break the
+ *  response in production (the interim sink is a console line; the
+ *  evidentiary rule is "the log proves presence, never absence") — dev/test
+ *  is the one exception (CP6, below): loud failures while building beat a
+ *  silently-broken audit trail in prod. */
 async function logFacadeAudit(
-  endpoint: string,
+  endpoint: FacadeEndpointKey,
   res: Response,
   identity: RequestIdentity,
   route: { params: Promise<unknown> },
@@ -104,8 +107,16 @@ async function logFacadeAudit(
     // 2xx only — a redirect or other non-success must not read as a completed
     // action (Greptile round: redirects counted as actions under `< 400`).
     if (res.status < 200 || res.status >= 300) return
+    // FACADE_AUDIT_MAP is a TOTAL Record<FacadeEndpointKey,...> — `rule` can
+    // only be undefined here if a bogus key reached this function past the
+    // compile-time union (a JS-boundary caller, e.g. `as FacadeEndpointKey`,
+    // or a future refactor). That is exactly CP6's belt.
     const rule = FACADE_AUDIT_MAP[endpoint]
-    if (!rule || rule.kind === 'skip') return
+    if (!rule) {
+      reportUnmappedEndpoint(endpoint, identity)
+      return
+    }
+    if (rule.kind === 'skip' || rule.pendingWave) return
     const params = (await route.params) as Record<string, string> | undefined
     audit({
       category: rule.category,
@@ -118,9 +129,52 @@ async function logFacadeAudit(
       requestId: meta.requestId,
       source: 'facade',
     })
-  } catch {
-    // Never let auditing break the request path.
+  } catch (err) {
+    // CP6 loud floor (contract §8): in dev/test, reportUnmappedEndpoint's
+    // throw (below) escapes here on purpose — an unmapped key must be
+    // impossible to miss while building, not just alerted on in prod. Every
+    // OTHER failure (and this one, in production) stays best-effort: never
+    // let auditing break the request path for a real caller.
+    if (process.env.NODE_ENV !== 'production') throw err
   }
+}
+
+/** Rate-limits the durable `audit.unmapped_endpoint` warning row: one per key
+ *  per instance per window — flood-safe if a bad deploy hammers the same
+ *  bogus key repeatedly. In-memory, best-effort (module-scoped, resets on
+ *  cold start; ponytail: a shared/durable limiter is unwarranted for a
+ *  belt-and-braces net the console line already covers primarily). */
+const unmappedEndpointLastWarned = new Map<string, number>()
+const UNMAPPED_ENDPOINT_WARN_WINDOW_MS = 5 * 60 * 1000
+
+/** CP6 loud floor (contract §2.1/§8): fires when a key reaches this function
+ *  that isn't in FACADE_AUDIT_MAP — the compile-time union can't be escaped
+ *  from a route.ts call site, but a JS-boundary caller or a future refactor
+ *  still can. The console line is the PRIMARY alert net (always, first,
+ *  every environment — an outage-time record even if the durable write
+ *  below never lands); production then rate-limits a durable warning row;
+ *  dev/test throws instead, so the gap is impossible to miss while building. */
+function reportUnmappedEndpoint(endpoint: string, identity: RequestIdentity): void {
+  console.warn(JSON.stringify({ evt: 'audit_unmapped_endpoint', endpoint, at: new Date().toISOString() }))
+
+  if (process.env.NODE_ENV !== 'production') {
+    throw new Error(`unmapped facade endpoint: '${endpoint}' is not in FACADE_AUDIT_MAP`)
+  }
+
+  const now = Date.now()
+  const last = unmappedEndpointLastWarned.get(endpoint) ?? 0
+  if (now - last < UNMAPPED_ENDPOINT_WARN_WINDOW_MS) return
+  unmappedEndpointLastWarned.set(endpoint, now)
+  audit({
+    category: 'privacy',
+    action: 'audit.unmapped_endpoint',
+    actorId: identity.authUserId,
+    actorType: 'staff',
+    businessId: identity.businessId,
+    severity: 'warning',
+    detail: { endpoint },
+    source: 'facade',
+  })
 }
 
 /** Structured error line — the seam metrics/alerts attach to (packet point 10).

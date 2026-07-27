@@ -4,9 +4,10 @@
 // 404s a foreign/missing record BEFORE any write (T6); missing capability is
 // 403 before any read/write (T3); trim-empty content is a 400, not a 502
 // (T4); the choke-point audit fires exactly once with source:'facade' and
-// customer_id from the proof-read (T1 facade side) — there is deliberately NO
-// FACADE_AUDIT_MAP row for this endpoint (see src/lib/audit.ts's doctrine
-// comment), so this is the ONLY place the facade's emit is pinned.
+// customer_id from the proof-read (T1 facade side) — 'karute.entry.update'
+// is a deliberate `skip` row in FACADE_AUDIT_MAP (see src/lib/audit.ts's
+// doctrine comment: it logs at the shared choke point instead, to avoid
+// double-logging), so this is the ONLY place the facade's emit is pinned.
 import { createHmac } from 'node:crypto'
 
 // The facade route imports updateKaruteDetailEntryWithClient from the SAME
@@ -45,7 +46,14 @@ jest.mock('@/lib/auth/require-permission', () => ({
 }))
 
 const auditSpy = jest.fn()
-jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => auditSpy(...(a as [])), FACADE_AUDIT_MAP: {} }))
+// Spread the REAL module so FACADE_AUDIT_MAP stays live inside logFacadeAudit
+// — an empty stub makes the map lookup miss ('karute.entry.update' reads as
+// UNMAPPED, not skip), tripping CP6's loud floor in test mode (contract §8:
+// dev/test throws on a genuinely unmapped key). Only the emitter is stubbed.
+jest.mock('@/lib/audit', () => ({
+  ...jest.requireActual('@/lib/audit'),
+  audit: (...a: unknown[]) => auditSpy(...(a as [])),
+}))
 
 const get = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })

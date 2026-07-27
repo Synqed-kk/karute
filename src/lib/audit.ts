@@ -263,10 +263,17 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // rule readers: do not add 'karute.save' to this map.
   // List render ≠ a view (Liam ruling 2026-07-17) — names on a list don't log.
   'customers.list': { kind: 'skip', category: 'customer', action: '' },
-  // AI相談 logs once per SESSION (wired at the session mint, not this screen GET).
-  'askAi.read': { kind: 'skip', category: 'ai', action: '' },
-  // Same ruling for the chat send itself — per-message turns don't re-log.
-  'ai.chat': { kind: 'skip', category: 'ai', action: '' },
+  // AI相談 (contract §3.1, "replace FALSE skip" — council finding): the
+  // comment this replaces claimed the row was "wired at the session mint,
+  // not this screen GET" — no such writer exists anywhere. Honest state:
+  // ai.consult_session, ONE row per session, is DECIDED but not built —
+  // dated tracked-TODO (C2/F6), never a silent skip claiming coverage that
+  // doesn't exist (the false AI相談-row lesson). Which of these two keys
+  // actually mints the row (session open vs first send) is a Wave W design
+  // question — both carry the marker so neither can re-acquire a false
+  // "covered elsewhere" claim in the interim.
+  'askAi.read': { kind: 'mutation', category: 'ai', action: 'ai.consult_session', pendingWave: 'Wave W — 2026-07-27' },
+  'ai.chat': { kind: 'mutation', category: 'ai', action: 'ai.consult_session', pendingWave: 'Wave W — 2026-07-27' },
   // Booking mutations (Liam ruling 2026-07-26: everything gets logged,
   // including bookings): the ONE booking.create/cancel/no_show/restore emit
   // lives in the shared cores (createAppointmentCore / cancelAppointmentCore /
@@ -337,4 +344,250 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // instead — that ONE emit covers the web action AND this facade route
   // ('karute.entry.update'). A row here would double-log every facade edit.
   // Deny-default doc rule readers: do not add 'karute.entry.update' to this map.
+
+  // ── PR-M4 map totality (contract §3.1, remaining 47 keys) ──────────────
+
+  // Wayfinding/metadata skips (§3.1 row 1: "lists and chrome never log",
+  // canon §5) — screens.* chrome, plus every plain list/metadata GET.
+  'screens.chrome': { kind: 'skip', category: 'staff', action: '' },
+  'screens.profile': { kind: 'skip', category: 'staff', action: '' },
+  'screens.settings': { kind: 'skip', category: 'settings', action: '' },
+  'screens.welcome': { kind: 'skip', category: 'staff', action: '' },
+  'screens.record': { kind: 'skip', category: 'recording', action: '' },
+  'screens.appointments': { kind: 'skip', category: 'customer', action: '' },
+  'screens.dataExport': { kind: 'skip', category: 'privacy', action: '' },
+  'sessions.list': { kind: 'skip', category: 'recording', action: '' },
+  'stores.list': { kind: 'skip', category: 'settings', action: '' },
+  'invite.list': { kind: 'skip', category: 'staff', action: '' },
+  'staffStores.get': { kind: 'skip', category: 'settings', action: '' },
+  'permissions.get': { kind: 'skip', category: 'settings', action: '' },
+  'entitlement.read': { kind: 'skip', category: 'billing', action: '' },
+  'customer.pack.burnable': { kind: 'skip', category: 'customer', action: '' },
+  'customer.consent.read': { kind: 'skip', category: 'customer', action: '' },
+  'recordings.job.status': { kind: 'skip', category: 'recording', action: '' },
+
+  // screens.dashboard (§3.1 D4, Liam-confirmed): the attention cards render a
+  // one-line per-customer memo preview (attention.ts:142-144) and AI-generated
+  // lines from summaries — same shape as the karute-list 80-char preview canon
+  // deliberately exempts. Skip under that precedent; fields named here so a
+  // future dispute has something concrete to revisit: memo preview text,
+  // AI-generated attention line text.
+  'screens.dashboard': { kind: 'skip', category: 'customer', action: '' },
+
+  // View-class rows (§3.1): action decided, DELIBERATELY not emitting yet —
+  // the viewer front-end + these writers are Wave V per contract §11. Kind/
+  // category/action carry the FUTURE truth so Wave V doesn't have to
+  // re-derive it; pendingWave keeps logFacadeAudit silent until then.
+  'karute.read': { kind: 'view', category: 'karute', action: 'karute.view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
+  'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
+  'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
+  'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
+  // 監査ログ list (§3.1): server-side-unconditional privacy.audit_log_view is
+  // listed under contract §11's Wave V (viewer front-end), same as the other
+  // view-class rows above — NOT the same lane as PR-M1's web-action fix
+  // (src/actions/audit-log.ts), which removes the client-gated logOpen flag
+  // on the WEB emit now. This facade key has never emitted anything; going
+  // live here is a Wave V decision, not a live-fix.
+  'audit.list': { kind: 'view', category: 'privacy', action: 'privacy.audit_log_view', pendingWave: 'Wave V — 2026-07-27' },
+
+  // export (§3.1 row 8): self-covered, NOT a row worth double-logging — this
+  // route calls audit() directly with a custom `detail` payload (scope/
+  // format/privacy/columns/store_id, AUDIT-LOG-DESIGN §7) that the generic
+  // hook cannot reproduce (see src/app/api/app/v1/export/route.ts's own
+  // header comment — verified at source, it already emits
+  // privacy.customer_export on every successful export).
+  'export': { kind: 'skip', category: 'privacy', action: '' },
+
+  // ai.* baseline (§3.1: "log →" rows) + karute.ai.suggestedMessage — the
+  // canon Wave-2 baseline never built; action decided, writer is Wave W
+  // (contract §11). Same twins as the out-of-facade legacy /api/ai/* routes
+  // (API_ROUTE_DECISIONS below) — both get the same action per key.
+  'ai.extract': { kind: 'mutation', category: 'ai', action: 'ai.memory_extract', pendingWave: 'Wave W — 2026-07-27' },
+  'ai.summarize': { kind: 'mutation', category: 'ai', action: 'ai.summary_generate', pendingWave: 'Wave W — 2026-07-27' },
+  // Verify this route is still reachable post-server-pipeline before Wave W
+  // wires the emit (§3.1: "if dead, delete instead of map").
+  'ai.transcribe': { kind: 'mutation', category: 'recording', action: 'recording.transcribe', pendingWave: 'Wave W — 2026-07-27' },
+  'ai.suggestions': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', pendingWave: 'Wave W — 2026-07-27' },
+  // Weakest-held row (D2) — hidden from default feed is a Wave W viewer
+  // concern, not a facade-map field; nothing to add here beyond the marker.
+  'karute.ai.suggestedMessage': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
+
+  // customer.memory.* (§3.1: "Worst attribution cluster") — live now: the
+  // facade's own hook is the first thing that has ever emitted these:
+  // W3.2's web-silent-hole list (customer-memory.ts ×11) is the SEPARATE
+  // web-action gap, tracked for Wave W independently of this map.
+  'customer.memory.add': { kind: 'mutation', category: 'customer', action: 'customer.memory_add', targetType: 'customer' },
+  'customer.memory.update': { kind: 'mutation', category: 'customer', action: 'customer.memory_update', targetType: 'customer' },
+  'customer.memory.delete': { kind: 'mutation', category: 'customer', action: 'customer.memory_delete', targetType: 'customer' },
+  // Relearn logs rolled-back attempts (canon §12).
+  'customer.memory.relearn': { kind: 'mutation', category: 'customer', action: 'customer.memory_relearn', targetType: 'customer' },
+
+  // customer.pack.* mutations (§3.1 canon §0 hole 3; race class R2 §6).
+  'customer.pack.create': { kind: 'mutation', category: 'customer', action: 'customer.pack_create', targetType: 'customer' },
+  'customer.pack.redeem': { kind: 'mutation', category: 'customer', action: 'customer.pack_redeem', targetType: 'customer' },
+  'customer.pack.undoRedemption': { kind: 'mutation', category: 'customer', action: 'customer.pack_undo', targetType: 'customer' },
+
+  // consent/lifecycle/outcome mutation MIRRORS (§3.1 D1: today these are
+  // row-stamped only — stamps stay as defense-in-depth, this is the NEW
+  // audit_log mirror the viewer actually reads). The table gives these rows
+  // no explicit action string; named here per the repo's existing
+  // category.snake_verb convention (customer.pack_redeem, customer.photo_add
+  // etc., a few lines below) — flagged for the director's check, not a
+  // verbatim table transcription like the other rows.
+  'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer' },
+  'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer' },
+  'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer' },
+  'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute' },
+
+  // Photos are the customer (§3.1).
+  'customer.passport.upsert': { kind: 'mutation', category: 'customer', action: 'customer.passport_update', targetType: 'customer' },
+  'customer.photo.upload': { kind: 'mutation', category: 'customer', action: 'customer.photo_add', targetType: 'customer' },
+
+  // karute.regenerate (§3.1: "mutation → karute.entries_regenerate /
+  // karute.summary_regenerate", canon Wave 2, batch rules canon §4.2): the
+  // table gives TWO possible actions for this ONE static endpoint key — which
+  // one fires depends on the regenerate mode in the request body, and
+  // FacadeAuditRule's action is a fixed string per key, so neither can be
+  // picked correctly from this map alone. Marked pendingWave rather than
+  // guess-and-possibly-mislabel a security-sensitive row; flagged for the
+  // director — resolving this needs either two endpoint keys or a
+  // request-body-driven action, both outside a map-totality PR's scope.
+  'karute.regenerate': { kind: 'mutation', category: 'karute', action: 'karute.entries_regenerate', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
+
+  // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest") —
+  // all three skip, coveredBy the SAME choke point as karute.save/
+  // karute.entry.update above: the pipeline's ONE eventual karute.save call
+  // is what logs, not the enqueue/mint/upload-url steps that stage it.
+  'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '' },
+  'recordings.session.mint': { kind: 'skip', category: 'recording', action: '' },
+  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '' },
+
+  // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
+  // with machine-readable coveredBy" — C2 formalizes what the comments above
+  // already document). Total-map requirement pulls these two INTO the map
+  // for the first time; same doctrine as the standing comments earlier in
+  // this file (do not remove those comments — this is the map row they were
+  // always describing).
+  'karute.save': { kind: 'skip', category: 'karute', action: '' },
+  'karute.entry.update': { kind: 'skip', category: 'karute', action: '' },
+}
+
+// ── Out-of-facade route decisions (contract §2.3/§2.5, PR-M4) ───────────
+// The fifth door: every route.ts under src/app/api/** OUTSIDE the facade
+// subtree (src/app/api/app/v1/**) also needs an explicit decision — a
+// bulk-mutation route (今すぐ同期) and unauthed legacy AI routes were both
+// invisible to every v1 mechanism precisely because nothing walked this
+// tree. Keyed by the route's path relative to src/app/api (no leading
+// slash, no trailing /route.ts, e.g. 'sync/quickreserve/config') — CP1's
+// totality test (facade-audit-totality.test.ts) derives the same key and
+// fails loud for any route.ts file with neither a facade-map row nor an
+// entry here.
+export interface ApiRouteDecision {
+  /** 'log' mirrors the table's own verb for the ai.* actions (§3.1) — a
+   *  content-generation/consult event, distinct from a CRUD 'mutation'. */
+  kind: 'mutation' | 'view' | 'skip' | 'log'
+  /** Cites the covering file#symbol for a skip/already-emits row, or the
+   *  reason nothing emits. Free text — CP2 (a follow-up PR, not this one)
+   *  is what machine-resolves these. */
+  justification: string
+  /** ISO date this decision was made/last reviewed. */
+  dated: string
+  /** Same dated tracked-TODO device as FacadeAuditRule.pendingWave — the
+   *  action is decided, the writer isn't built yet. */
+  pendingWave?: string
+}
+
+export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<string, ApiRouteDecision>> = {
+  // Legacy /api/ai/* — 5 of 7 stay live (advice/insights were deleted, #629,
+  // D5). §3.1: decision rows on BOTH twins (this route + its facade twin
+  // above) using the SAME ai.* action; all pendingWave — the writers land
+  // Wave W, same as the facade twins. Auth: `chat` already has the explicit
+  // getUser() 401 guard; extract/summarize/suggestions/transcribe get the
+  // same guard in PR-M3 (a sibling Wave-M PR, not built here).
+  'ai/chat': {
+    kind: 'log',
+    justification:
+      'ai.consult_session (§3.1 askAi.read+ai.chat row) — writer not built (false session-mint claim, the AI相談 lesson); auth guard already present (getUser 401).',
+    dated: '2026-07-27',
+    pendingWave: 'Wave W — 2026-07-27',
+  },
+  'ai/extract': {
+    kind: 'log',
+    justification: 'ai.memory_extract (§3.1) — auth guard lands in PR-M3.',
+    dated: '2026-07-27',
+    pendingWave: 'Wave W — 2026-07-27',
+  },
+  'ai/summarize': {
+    kind: 'log',
+    justification: 'ai.summary_generate (§3.1) — auth guard lands in PR-M3.',
+    dated: '2026-07-27',
+    pendingWave: 'Wave W — 2026-07-27',
+  },
+  'ai/suggestions': {
+    kind: 'log',
+    justification: 'ai.suggested_message (§3.1) — auth guard lands in PR-M3.',
+    dated: '2026-07-27',
+    pendingWave: 'Wave W — 2026-07-27',
+  },
+  'ai/transcribe': {
+    kind: 'log',
+    justification:
+      'recording.transcribe (§3.1) — auth guard lands in PR-M3; verify still reachable post-server-pipeline before Wave W wires the emit (§3.1: "if dead, delete instead of map").',
+    dated: '2026-07-27',
+    pendingWave: 'Wave W — 2026-07-27',
+  },
+
+  // 今すぐ同期 (§3.1): mutation, maps to the same sync.run classification as
+  // the facade twin. ⚠ As of this tip the cited emit is PR-M2's work (a
+  // sibling Wave-M PR, not built here) — this decision row describes the
+  // state ONCE PR-M2 lands, not necessarily today; flagged in the PR-M4
+  // build report.
+  'sync/quickreserve': {
+    kind: 'mutation',
+    justification:
+      'settings.sync_run_now — coveredBy this route\'s own auditWeb call (src/app/api/sync/quickreserve/route.ts), added by PR-M2 alongside the sync.view capability gate.',
+    dated: '2026-07-27',
+  },
+  // Split by method: the config GET is a metadata read (sync.view-gated
+  // since PR-M2, credentials never leave core — synqed.sync.getConfig omits
+  // the password); the config POST already emits today (verified at
+  // source: settings.sync_config_update via auditWeb, pre-existing).
+  'sync/quickreserve/config': {
+    GET: {
+      kind: 'skip',
+      justification: 'sync-settings metadata read; sync.view-gated since PR-M2; credentials never leave core.',
+      dated: '2026-07-27',
+    },
+    POST: {
+      kind: 'mutation',
+      justification:
+        "coveredBy this route's own settings.sync_config_update auditWeb emit (pre-existing, verified at source).",
+      dated: '2026-07-27',
+    },
+  },
+  'sync/quickreserve-deep': {
+    kind: 'skip',
+    justification: 'retired stub, always 501, no action performed.',
+    dated: '2026-07-27',
+  },
+
+  // privacy.customer_export — verified at source: this route already calls
+  // auditWeb() with the query scope persisted, after the export body builds
+  // successfully (same shape as the facade twin's direct audit() call).
+  export: {
+    kind: 'mutation',
+    justification: "coveredBy this route's own privacy.customer_export auditWeb emit (verified at source, pre-existing).",
+    dated: '2026-07-27',
+  },
+
+  cleanup: {
+    kind: 'skip',
+    justification: 'CRON_SECRET-gated system janitor: orphaned-recording + expired-cache deletion; no user-attributable action.',
+    dated: '2026-07-27',
+  },
+  'jobs/process': {
+    kind: 'skip',
+    justification: 'CRON_SECRET/worker-key-gated pipeline tick; recording pipeline audits at its own choke points.',
+    dated: '2026-07-27',
+  },
 }
