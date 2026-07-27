@@ -118,7 +118,14 @@ function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
  *  (`const table = client.customers`) — for the dispatch ban's root check.
  *  Without this, `const table = client.customers; table[op](...)` had no
  *  literal surface name anywhere in its own chain and no prior literal call
- *  to fingerprint the root, so the ban never fired. */
+ *  to fingerprint the root, so the ban never fired.
+ *  KNOWN RESIDUAL (verifier-confirmed, accepted 7/27): a client received as
+ *  an UNTYPED/any param (no SynqedClient annotation, no construction in
+ *  file) then prop-extracted and computed-dispatched still evades — an
+ *  instance of the contract's documented variable-aliasing ceiling. Zero
+ *  live occurrences (the codebase types clients explicitly or structurally
+ *  via Pick<...getSynqedClient>); widening to untyped receivers would
+ *  false-positive on ordinary collection handling. */
 function clientDerivedRootNames(sf: ts.SourceFile): Set<string> {
   const { clientLikeVars, aliases } = clientAliasing(sf)
   return new Set([...clientLikeVars, ...aliases])
