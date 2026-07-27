@@ -13,7 +13,7 @@
 import { corsHeaders, preflightResponse } from './cors'
 import { AppApiError, toAppApiError, errorBody } from './errors'
 import { resolveBearerIdentity, type RequestIdentity } from './identity'
-import { audit, FACADE_AUDIT_MAP } from '@/lib/audit'
+import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import type { GetUserFn } from '@/lib/auth/revocation'
 
@@ -59,7 +59,7 @@ export function ok(ctx: FacadeContext, data: unknown, status = 200): Response {
  * constant) AND the observability label.
  */
 export function facadeHandler<P = Record<string, string>>(
-  endpoint: string,
+  endpoint: FacadeEndpointKey,
   fn: FacadeFn<P>,
   deps: FacadeDeps = {},
 ) {

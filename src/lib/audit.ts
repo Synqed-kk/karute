@@ -141,20 +141,118 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
   }
 }
 
-// ── Facade endpoint → audit classification ──────────────────────────────
-// Deny-default: an endpoint with no row here emits nothing — add the row when
-// adding the route. 'skip' documents a DELIBERATE exemption (lists never log;
-// per-fetch screen reads that aren't a person-record open don't either).
-// Routes in the parked phase-2 stack inherit this hook on merge — their rows
-// get added in the same PR that reconciles the stack (fix-plan P3).
+// ── Facade endpoint totality (contract §2.1 / PR-M4) ────────────────────
+// The single set of legal facade endpoint keys. `facadeHandler`'s `endpoint`
+// param (src/lib/app-api/handler.ts) AND FACADE_AUDIT_MAP's key type both
+// bind to this union — an unmapped or typo'd key is then a `tsc` error,
+// enforced by the compiler instead of a scan. Both call forms
+// (`facadeHandler('key', fn)` and `facadeHandler<Params>('key', fn)`) bind
+// to it identically; CP1's fixture test (src/lib/app-api/__typetests__/
+// facade-endpoint-key.ts) pins that both forms stay covered. Census: 75 keys
+// across 31 plain + 44 generic call sites, re-derived from source by the
+// totality test (facade-audit.test.ts) — that test fails loud if this union
+// drifts from src/app/api/**.
+export type FacadeEndpointKey =
+  | 'ai.chat'
+  | 'ai.extract'
+  | 'ai.suggestions'
+  | 'ai.summarize'
+  | 'ai.transcribe'
+  | 'appointment.cancel'
+  | 'appointment.create'
+  | 'appointment.noShow'
+  | 'appointment.restore'
+  | 'askAi.read'
+  | 'audit.list'
+  | 'customer.ai.bodyPrediction'
+  | 'customer.ai.preSessionBrief'
+  | 'customer.consent.grant'
+  | 'customer.consent.read'
+  | 'customer.consent.revoke'
+  | 'customer.lifecycle.set'
+  | 'customer.memory.add'
+  | 'customer.memory.delete'
+  | 'customer.memory.relearn'
+  | 'customer.memory.update'
+  | 'customer.pack.alert.dismiss'
+  | 'customer.pack.burnable'
+  | 'customer.pack.contact.log'
+  | 'customer.pack.create'
+  | 'customer.pack.reconcile.dismiss'
+  | 'customer.pack.redeem'
+  | 'customer.pack.undoRedemption'
+  | 'customer.passport.upsert'
+  | 'customer.photo.upload'
+  | 'customer.read'
+  | 'customer.update'
+  | 'customers.list'
+  | 'entitlement.read'
+  | 'export'
+  | 'invite.create'
+  | 'invite.list'
+  | 'invite.revoke'
+  | 'karute.ai.suggestedMessage'
+  | 'karute.entry.update'
+  | 'karute.entryEdits.list'
+  | 'karute.outcome.set'
+  | 'karute.read'
+  | 'karute.regenerate'
+  | 'karute.save'
+  | 'orgSettings.update'
+  | 'permissions.get'
+  | 'permissions.update'
+  | 'recordings.job.enqueue'
+  | 'recordings.job.status'
+  | 'recordings.session.mint'
+  | 'recordings.uploadUrl'
+  | 'screens.appointments'
+  | 'screens.chrome'
+  | 'screens.dashboard'
+  | 'screens.dataExport'
+  | 'screens.profile'
+  | 'screens.record'
+  | 'screens.settings'
+  | 'screens.welcome'
+  | 'sessions.list'
+  | 'staff.create'
+  | 'staff.delete'
+  | 'staff.removePin'
+  | 'staff.setPin'
+  | 'staff.update'
+  | 'staff.uploadAvatar'
+  | 'staff.voice.enroll'
+  | 'staff.voice.revoke'
+  | 'staffStores.get'
+  | 'staffStores.set'
+  | 'stores.create'
+  | 'stores.list'
+  | 'stores.update'
+  | 'sync.run'
+
 export interface FacadeAuditRule {
   kind: 'view' | 'mutation' | 'skip'
   category: AuditCategory
   action: string
   targetType?: AuditEvent['targetType']
+  /** Dated tracked-TODO (e.g. 'Wave V — 2026-07-27'): the row's classification
+   *  is decided but its writer isn't built yet. logFacadeAudit no-ops for any
+   *  rule carrying this — set kind/category/action to the FUTURE truth, never
+   *  leave the row silently claiming coverage it doesn't have (contract C2). */
+  pendingWave?: string
 }
 
-export const FACADE_AUDIT_MAP: Record<string, FacadeAuditRule> = {
+// ── Facade endpoint → audit classification ──────────────────────────────
+// TOTAL map (contract §2.1/§3.1): every FacadeEndpointKey has an explicit
+// row — the Record<FacadeEndpointKey,...> type makes a missing key a tsc
+// error, not a silent gap. 'skip' documents a DELIBERATE exemption (lists
+// never log; per-fetch screen reads that aren't a person-record open don't
+// either; some skips point at a choke point elsewhere via a coveredBy
+// comment — C2's justification idiom). `pendingWave` marks a row whose
+// action is decided but whose writer isn't built yet (dated tracked-TODO,
+// C2/F6): logFacadeAudit treats it as no-emit until the wave lands — never
+// a silent claim of coverage that doesn't exist (the false AI相談-row
+// lesson, contract §11/D5).
+export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // Opening ONE customer's full profile = a view event.
   'customer.read': { kind: 'view', category: 'customer', action: 'customer.view', targetType: 'customer' },
   'customer.update': { kind: 'mutation', category: 'customer', action: 'customer.edit', targetType: 'customer' },
