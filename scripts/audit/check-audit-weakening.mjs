@@ -299,6 +299,16 @@ function findRowWeakenings(mainV, headV) {
           key,
           note: `${kind} row '${key}' coveredBy changed '${mainRow.coveredBy}' → '${headRow.coveredBy}' (skip row)`,
         })
+      } else if (!headRow && mainRow.coveredBy !== undefined) {
+        // A skip row CARRYING a citation may not vanish silently (verify
+        // round, 2026-07-28): a flat→method-keyed restructure of a decision
+        // row changes its KEY, so a repoint could otherwise ride through as
+        // delete+add — and deleting a covered surface outright is worth one
+        // ledger line anyway. Uncited plain-skip rows still come and go free.
+        weakenings.push({
+          key,
+          note: `${kind} row '${key}' deleted (skip row carrying coveredBy '${mainRow.coveredBy}')`,
+        })
       }
     }
   }
