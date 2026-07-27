@@ -220,6 +220,36 @@ describe('PATCH/DELETE memory/[itemId]', () => {
     expect(res.status).toBe(200)
     expect(setMemoryItemPinned).toHaveBeenCalledWith('item-1', true)
   })
+  // Param-binding pin (Greptile #633 r1 refutation): on this nested route the
+  // audit hook stamps params.id — the OUTER [id] segment, i.e. the CUSTOMER —
+  // never params.itemId. The Params type ({ id, itemId }) is validated against
+  // the real segment names by next build's route-type check, so this test plus
+  // that gate closes the claim that the item id could land as the target.
+  it('audit row targets the CUSTOMER id from [id], never the memory item id', async () => {
+    const logSpy = jest.spyOn(console, 'log').mockImplementation(() => {})
+    try {
+      const res = await memoryPatch(jsonReq({ pinned: true }), route({ id: 'cus-77', itemId: 'item-1' }))
+      expect(res.status).toBe(200)
+      const rows = logSpy.mock.calls
+        .map(([l]) => {
+          try {
+            return JSON.parse(String(l))
+          } catch {
+            return null
+          }
+        })
+        .filter((o): o is Record<string, unknown> => !!o && o.evt === 'audit')
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        action: 'customer.memory_update',
+        target_type: 'customer',
+        target_id: 'cus-77',
+      })
+      expect(rows[0].target_id).not.toBe('item-1')
+    } finally {
+      logSpy.mockRestore()
+    }
+  })
   it('update label+detail → 200', async () => {
     const res = await memoryPatch(jsonReq({ label: 'L', detail: 'D' }), route({ id: '-', itemId: 'item-1' }))
     expect(res.status).toBe(200)
