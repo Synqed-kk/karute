@@ -110,6 +110,21 @@ function withinAnySpan(pos: number, spans: NamedSpan[]): boolean {
 // an unrelated same-named local must not false-positive. ──────────────────
 
 function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
+  return clientAliasing(sf).aliases
+}
+
+/** Delta-verify fix (7/27): every identifier DERIVED from a SynqedClient —
+ *  the client-typed/constructed vars themselves AND props extracted off them
+ *  (`const table = client.customers`) — for the dispatch ban's root check.
+ *  Without this, `const table = client.customers; table[op](...)` had no
+ *  literal surface name anywhere in its own chain and no prior literal call
+ *  to fingerprint the root, so the ban never fired. */
+function clientDerivedRootNames(sf: ts.SourceFile): Set<string> {
+  const { clientLikeVars, aliases } = clientAliasing(sf)
+  return new Set([...clientLikeVars, ...aliases])
+}
+
+function clientAliasing(sf: ts.SourceFile): { clientLikeVars: Set<string>; aliases: Set<string> } {
   const clientLikeVars = new Set<string>()
   const aliases = new Set<string>()
 
@@ -158,7 +173,7 @@ function synqedClientAliasNames(sf: ts.SourceFile): Set<string> {
     ts.forEachChild(node, visitAliases)
   }
   visitAliases(sf)
-  return aliases
+  return { clientLikeVars, aliases }
 }
 
 // ── Write-chain fingerprinting (for the dispatch ban) ───────────────────
@@ -197,6 +212,9 @@ function writeChainReceiverRoots(sf: ts.SourceFile): Set<string> {
  *   - two access links back-to-back are BOTH ElementAccess (x[a][b](...)),
  *   - the chain's root identifier is a known write-chain receiver elsewhere
  *     in the file (x[a](...) after x.customers.update(...) appears too), or
+ *     is itself SynqedClient-derived — a client-typed/constructed var or a
+ *     prop extracted off one (`const table = client.customers; table[op](`)
+ *     — even with no literal surface name anywhere (delta-verify fix), or
  *   - any STATIC (literal) link in the chain names a known SDK client prop /
  *     `from` / `auth` / `admin` / `storage` — this fires even in ISOLATION,
  *     no root history needed (`client.customers[m](...)` — `customers`
@@ -206,6 +224,7 @@ function writeChainReceiverRoots(sf: ts.SourceFile): Set<string> {
 function findComputedDispatch(sf: ts.SourceFile): number[] {
   const lines: number[] = []
   const writeRoots = writeChainReceiverRoots(sf)
+  const clientRoots = clientDerivedRootNames(sf)
   function visit(node: ts.Node): void {
     if (ts.isCallExpression(node) && (ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression))) {
       const chain = accessChain(node.expression)
@@ -216,7 +235,7 @@ function findComputedDispatch(sf: ts.SourceFile): number[] {
         )
         const names = chain.map(staticAccessName).filter((n): n is string => n !== undefined)
         const root = rootIdentifierName(node.expression)
-        const knownRoot = root !== undefined && writeRoots.has(root)
+        const knownRoot = root !== undefined && (writeRoots.has(root) || clientRoots.has(root))
         const knownSurface = names.some((n) => SURFACE_NAMES.has(n))
         if (twoAdjacentElementAccess || knownRoot || knownSurface) {
           const { line } = sf.getLineAndCharacterOfPosition(node.getStart())
@@ -519,6 +538,29 @@ describe('CP3 self-check — an unallowlisted seeded write FAILS', () => {
     expect(scanSdkWriteCalls(sf, writePairs, new Set()).some((s) => s.call === 'customers.update')).toBe(true)
     // Not a dispatch-ban case — it's a literal key, scanned as a normal write site.
     expect(findComputedDispatch(sf)).toEqual([])
+  })
+
+  it('bans computed dispatch on a SynqedClient-DERIVED alias even with no literal surface name (delta-verify fix)', () => {
+    const fakeSrc = `
+      export async function evil(cond: boolean) {
+        const client = getSynqedClient()
+        const table = client.customers
+        const op = cond ? 'delete' : 'update'
+        await table[op]('123', {})
+      }
+    `
+    const sf = ts.createSourceFile('fake.ts', fakeSrc, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    expect(findComputedDispatch(sf).length).toBeGreaterThan(0)
+    // Control: the same computed-call shape on a NON-client local stays legal.
+    const benignSrc = `
+      function fine(cond: boolean) {
+        const handlers = { a: () => 1, b: () => 2 }
+        const k = cond ? 'a' : 'b'
+        return handlers[k]()
+      }
+    `
+    const benignSf = ts.createSourceFile('fake.ts', benignSrc, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+    expect(findComputedDispatch(benignSf)).toEqual([])
   })
 
   it('matches a bare-identifier receiver ONLY when destructured/assigned from a proven SynqedClient value', () => {

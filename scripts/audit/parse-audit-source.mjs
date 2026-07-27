@@ -41,12 +41,16 @@ function findTopLevelDeclaration(sf, name) {
 }
 
 function objectLiteralProps(objLit) {
+  // Non-object input (an identifier referencing a shared const, a call
+  // result) would yield a hollow {} — same laundering risk as a spread.
+  if (!objLit || !ts.isObjectLiteralExpression(objLit)) throw new AuditParseFailure()
   const out = []
-  if (!objLit || !ts.isObjectLiteralExpression(objLit)) return out
   for (const prop of objLit.properties) {
-    if (ts.isSpreadAssignment(prop)) throw new AuditParseFailure()
-    if (!ts.isPropertyAssignment(prop)) continue
+    // Anything but a plain `key: value` (spread, shorthand, method, getter)
+    // fails the whole parse — silent drops are the exact hole this guards.
+    if (!ts.isPropertyAssignment(prop)) throw new AuditParseFailure()
     const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
+    if (key === undefined) throw new AuditParseFailure()
     out.push({ key, valueNode: prop.initializer })
   }
   return out
@@ -88,10 +92,9 @@ export function parseFacadeAuditMap(sourceText) {
   return parseOrNull(() => {
     const rows = {}
     for (const prop of objLit.properties) {
-      if (ts.isSpreadAssignment(prop)) throw new AuditParseFailure()
-      if (!ts.isPropertyAssignment(prop)) continue
+      if (!ts.isPropertyAssignment(prop)) throw new AuditParseFailure()
       const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
-      if (!key) continue
+      if (!key) throw new AuditParseFailure()
       rows[key] = extractFacadeRule(prop.initializer)
     }
     return rows
@@ -109,23 +112,22 @@ export function parseApiRouteDecisions(sourceText) {
   return parseOrNull(() => {
     const rows = {}
     for (const prop of objLit.properties) {
-      if (ts.isSpreadAssignment(prop)) throw new AuditParseFailure()
-      if (!ts.isPropertyAssignment(prop)) continue
+      if (!ts.isPropertyAssignment(prop)) throw new AuditParseFailure()
       const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
-      if (!key) continue
+      if (!key) throw new AuditParseFailure()
       const val = prop.initializer
-      if (ts.isObjectLiteralExpression(val)) {
-        const props = objectLiteralProps(val)
-        const isFlat = props.some((p) => p.key === 'kind')
-        if (isFlat) {
-          rows[key] = extractFacadeRule(val)
-        } else {
-          // method-keyed: { GET: {...}, POST: {...} }
-          for (const { key: method, valueNode } of props) {
-            if (ts.isObjectLiteralExpression(valueNode)) {
-              rows[`${key}.${method}`] = extractFacadeRule(valueNode)
-            }
-          }
+      // A row value that isn't an inline object literal (an identifier
+      // reference, a call) would hide its decision — fail loud.
+      if (!ts.isObjectLiteralExpression(val)) throw new AuditParseFailure()
+      const props = objectLiteralProps(val)
+      const isFlat = props.some((p) => p.key === 'kind')
+      if (isFlat) {
+        rows[key] = extractFacadeRule(val)
+      } else {
+        // method-keyed: { GET: {...}, POST: {...} }
+        for (const { key: method, valueNode } of props) {
+          if (!ts.isObjectLiteralExpression(valueNode)) throw new AuditParseFailure()
+          rows[`${key}.${method}`] = extractFacadeRule(valueNode)
         }
       }
     }
@@ -179,7 +181,8 @@ export function parseAuditedCores(policySourceText) {
           })
         }
       }
-      if (file) out.push({ file, symbols })
+      if (!file) throw new AuditParseFailure()
+      out.push({ file, symbols })
     }
     return out
   })
@@ -212,7 +215,8 @@ export function parseAllowlist(policySourceText, exportName) {
           })
         }
       }
-      if (file && call) out.push({ file, call, symbols })
+      if (!file || !call) throw new AuditParseFailure()
+      out.push({ file, call, symbols })
     }
     return out
   })
