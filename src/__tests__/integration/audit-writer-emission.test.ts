@@ -12,11 +12,12 @@
 // audit()/auditWeb() CallExpression (AST-verified, not a comment — the
 // org-settings/route.ts false positive this replaces); every one must be
 // listed in that file's AUDITED_CORES `symbols`.
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
 import { AUDITED_CORES } from '@/lib/audit-policy'
 import { findSymbol, emitsOnEveryNonErrorPath } from './helpers/audit-emission'
+import { srcFiles } from './helpers/src-files'
 
 const ROOT = process.cwd()
 
@@ -27,16 +28,6 @@ const INFRA_EXEMPT = new Set([
   'src/lib/audit-web.ts',
   'src/lib/app-api/handler.ts',
 ])
-
-function srcFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (entry === '__tests__' || entry === 'node_modules') continue
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) srcFiles(full, out)
-    else if (/\.(ts|tsx)$/.test(entry) && !/\.test\.(ts|tsx)$/.test(entry)) out.push(full)
-  }
-  return out
-}
 
 function isFnLike(n: ts.Node): n is ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression {
   return ts.isFunctionDeclaration(n) || ts.isArrowFunction(n) || ts.isFunctionExpression(n)

@@ -7,23 +7,14 @@
 // an orphan AUDIT_ACTIONS member (nobody maps or emits it) or a missing one
 // (something emits a string this list doesn't have) — either is a tsc-enforced
 // drift the moment audit.ts's AuditEvent['action'] typing rejects it too.
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import ts from 'typescript'
 import { AUDIT_ACTIONS } from '@/lib/audit-policy'
 import { FACADE_AUDIT_MAP, API_ROUTE_DECISIONS, type ApiRouteDecision } from '@/lib/audit'
+import { srcFiles } from './helpers/src-files'
 
 const ROOT = process.cwd()
-
-function srcFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of readdirSync(dir)) {
-    if (entry === '__tests__' || entry === 'node_modules') continue
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) srcFiles(full, out)
-    else if (/\.(ts|tsx)$/.test(entry) && !/\.test\.(ts|tsx)$/.test(entry)) out.push(full)
-  }
-  return out
-}
 
 function isMethodKeyed(
   entry: ApiRouteDecision | Record<string, ApiRouteDecision>,
