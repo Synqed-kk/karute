@@ -190,6 +190,11 @@ export const SettingsScreenDTO = z.object({
   canManageStaff: z.boolean(),
   canInviteStaff: z.boolean(),
   canViewAudit: z.boolean(),
+  // Owner OR an explicit sync.view grant — gates the 予約同期 TAB itself
+  // (PR-M2 fix round), same shape as canViewAudit. Distinct from syncStatus
+  // below: this flag controls whether the tab renders at all; syncStatus
+  // controls which CONTENT it shows once visible.
+  canViewSync: z.boolean(),
   // Owner OR an explicit sync.view grant (packet 31) — null for everyone
   // else, same least-privilege gate shape as canViewAudit's grant. Distinct
   // from a boolean flag: the shell keys off syncStatus's presence itself

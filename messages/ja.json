@@ -3014,7 +3014,7 @@
     "cap_staff_manage": "スタッフの管理・削除",
     "cap_settings_manage": "店舗設定",
     "cap_audit_view": "監査ログ",
-    "cap_sync_view": "予約同期ステータス",
+    "cap_sync_view": "予約同期",
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_write": "録音・カルテ編集",
