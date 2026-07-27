@@ -7,7 +7,7 @@ import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 
 type SyncResponse = {
-  error?: string
+  error?: string | { code?: string; message?: string }
   message?: string
   created?: number
   updated?: number
@@ -32,7 +32,13 @@ async function readSyncResponse(
     /* non-JSON body (e.g. Vercel's plain "Internal Server Error" on a crash) */
   }
   if (!res.ok || data?.error) {
-    const detail = data?.error ?? (raw ? raw.slice(0, 160) : res.statusText)
+    // The 403 body nests the message ({error:{code,message}}); older/other
+    // failures still send error as a plain string — prefer the object's
+    // message when present.
+    const err = data?.error
+    const detail =
+      (typeof err === 'object' && err !== null ? err.message : err) ??
+      (raw ? raw.slice(0, 160) : res.statusText)
     return { ok: false, message: `Error (${res.status}): ${detail}` }
   }
   return { ok: true, data: data ?? {} }

@@ -3014,7 +3014,7 @@
     "cap_staff_manage": "Manage & remove staff",
     "cap_settings_manage": "Salon settings",
     "cap_audit_view": "Audit log",
-    "cap_sync_view": "Sync status",
+    "cap_sync_view": "Booking sync",
     "cap_data_export": "Export / import data",
     "cap_records_delete": "Delete records",
     "cap_records_write": "Record sessions & edit karute",
