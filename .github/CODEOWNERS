@@ -1,0 +1,12 @@
+# Audit enforcement surface — second reviewer required (contract §8).
+# NOTE: merge-blocking needs the branch-protection "require review from
+# Code Owners" toggle — Anthony's repo setting, not ours to flip.
+/.github/CODEOWNERS @alee046
+/src/lib/audit.ts @alee046
+/src/lib/audit-web.ts @alee046
+/src/lib/audit-policy.ts @alee046
+/scripts/audit/ @alee046
+/src/__tests__/integration/audit-*.test.ts @alee046
+/src/__tests__/integration/facade-audit-*.test.ts @alee046
+/docs/audit-weakening-ledger.md @alee046
+/.github/workflows/ci.yml @alee046
