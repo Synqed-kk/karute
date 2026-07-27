@@ -58,6 +58,23 @@ describe('facade requestId — server mints, client value survives as a correlat
     })
   })
 
+  it('an oversized client header is BOUNDED to 128 chars — untrusted input cannot balloon detail past the core cap (Greptile #634 r1)', async () => {
+    const handler = facadeHandler('customer.read', async (ctx) => ok(ctx, { hi: 1 }), { config: HS_CONFIG })
+    const huge = 'x'.repeat(8_000)
+    const lines = await auditLines(async () => {
+      await handler(
+        new Request('https://s/api/app/v1/x', {
+          headers: { authorization: `Bearer ${hs256Token(SECRET)}`, 'request-id': huge },
+        }),
+        route({ id: 'c-9' }),
+      )
+    })
+    expect(lines).toHaveLength(1)
+    const hint = (lines[0].detail as { client_request_id: string }).client_request_id
+    expect(hint).toHaveLength(128)
+    expect(hint).toBe(huge.slice(0, 128))
+  })
+
   it('with no client header, the row carries the server-minted id and no client_request_id in detail', async () => {
     const handler = facadeHandler('customer.read', async (ctx) => ok(ctx, { hi: 1 }), { config: HS_CONFIG })
     let res!: Response

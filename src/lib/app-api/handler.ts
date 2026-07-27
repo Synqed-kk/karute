@@ -137,8 +137,13 @@ async function logFacadeAudit(
       targetId: rule.targetType && params?.id ? params.id : undefined,
       requestId: meta.requestId,
       // Contract §7 / PR-M5 piece ③: the (possibly forged) client header is
-      // never the row's requestId — kept only as a correlation hint.
-      detail: clientRequestId ? { client_request_id: clientRequestId } : undefined,
+      // never the row's requestId — kept only as a correlation hint, BOUNDED
+      // (Greptile #634 r1): it's untrusted input, and unbounded it could
+      // balloon detail past core's ~2KB cap, whose truncation would eat
+      // sibling fields. 128 chars fits any legitimate id (UUID = 36).
+      detail: clientRequestId
+        ? { client_request_id: clientRequestId.slice(0, 128) }
+        : undefined,
       source: 'facade',
     })
   } catch (err) {
