@@ -188,8 +188,8 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
 // to it identically; CP1's fixture test (src/lib/app-api/__typetests__/
 // facade-endpoint-key.ts) pins that both forms stay covered. Census: 75 keys
 // across 31 plain + 44 generic call sites, re-derived from source by the
-// totality test (facade-audit.test.ts) — that test fails loud if this union
-// drifts from src/app/api/**.
+// totality test (facade-audit-totality.test.ts) — that test fails loud if
+// this union drifts from src/app/api/**.
 export type FacadeEndpointKey =
   | 'ai.chat'
   | 'ai.extract'
@@ -567,8 +567,9 @@ export interface ApiRouteDecision {
    *  content-generation/consult event, distinct from a CRUD 'mutation'. */
   kind: 'mutation' | 'view' | 'skip' | 'log'
   /** Cites the covering file#symbol for a skip/already-emits row, or the
-   *  reason nothing emits. Free text — CP2 (a follow-up PR, not this one)
-   *  is what machine-resolves these. */
+   *  reason nothing emits. Free text — CP2 (audit-coveredby.test.ts, in this
+   *  PR) machine-resolves the structured `coveredBy` field below, never this
+   *  prose. */
   justification: string
   /** ISO date this decision was made/last reviewed. */
   dated: string

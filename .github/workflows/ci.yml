@@ -46,10 +46,16 @@ jobs:
       # npx silently FETCHES a missing package from the registry and runs
       # latest — so a dep removed from package.json would swap a lockfile-
       # pinned tool for an unpinned one without failing. `--no` makes that
-      # loud. ACCEPTED RESIDUAL (documented, not closable at this tier): the
-      # jest/tsc/eslint binaries themselves are lockfile-resolved by
-      # `npm ci` — a whole toolchain can't be workflow-pinned the way the
-      # audit-gates job pins its single dep.
+      # loud. ACCEPTED RESIDUAL (documented, not closable at this tier):
+      # this job executes UNPROTECTED code before and inside the suites —
+      # npm ci lifecycle scripts, next.config.ts loaded by next/jest, the
+      # lockfile-resolved toolchain binaries, and the suites' own src
+      # imports — so any jest-hosted checkpoint (CP2/CP3/CP7) can be
+      # neutered by a PR that never touches an owned path. The machine-diff
+      # gates (CP4/CP8) live in the isolated audit-gates job precisely
+      # because they CAN run without that surface; porting CP3's write-site
+      # scan to that tier is queued follow-up work. Moot while branch
+      # protection is off.
       - name: Lint
         run: npx --no -- eslint src
         # NOTE: next lint was removed in Next.js 16 — "eslint src" directly
@@ -149,7 +155,11 @@ jobs:
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
         # default shallow clone has no refs/remotes/origin/main until this
         # fetches it — check-audit-weakening.mjs falls back to FETCH_HEAD if
-        # the ref is still absent for any reason.
+        # the ref is still absent for any reason. `+` (blind round,
+        # 2026-07-28): on push-to-main runs checkout@v4 already created the
+        # ref, and if main advances mid-job a depth-1 fetch can't verify
+        # fast-forward and rejects the update — force the tracking-ref
+        # update; it's a mirror of the remote, not local history.
         run: |
-          git fetch origin main:refs/remotes/origin/main --depth=1
+          git fetch origin +main:refs/remotes/origin/main --depth=1
           node scripts/audit/check-audit-weakening.mjs

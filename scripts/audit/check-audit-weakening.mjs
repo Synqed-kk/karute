@@ -12,6 +12,15 @@
 //     dropped commitment — fresh-eyes fix, 2026-07-28; plain skip rows that
 //     never carried a commitment may come and go freely);
 //   - a live row's action or targetType swapped (still emits, wrong thing);
+//   - a live row's kind swapped (view↔mutation — changes WHEN the hook
+//     emits), or a parked row's action/category/targetType/kind swapped
+//     (a pendingWave row pins the FUTURE truth);
+//   - a row's coveredBy citation repointed or dropped vs main (blind-round
+//     find, 2026-07-28: CP2 only proves the NEW citation names a real
+//     emitter — it never notices the citation moved, and a repointed
+//     choke-point claim is a truth swap; checked for every row present on
+//     both sides, including plain-skip rows, whose existence is otherwise
+//     free to change);
 //   - an AUDIT_ACTIONS member removed;
 //   - an AUDITED_CORES entry/symbol removed — including renames (rename
 //     tolerance was removed, fix round 1 #8: symbol-set matching is unsound
@@ -20,7 +29,10 @@
 //     symbol added to an existing entry — exempt ONCE while the LEDGER
 //     doesn't exist on main yet (this PR's own bootstrap; keyed on the
 //     ledger, not audit-policy.ts, because the ledger is undeletable once
-//     merged — append-only — so the window provably never reopens) —
+//     merged — append-only — so the window never reopens via any PR path;
+//     a DIRECT push to main deleting the ledger could still reopen it, and
+//     only branch protection closes that door — same caveat as every gate
+//     here) —
 // passes ONLY if docs/audit-weakening-ledger.md has an ADDED line (vs main)
 // naming the affected key, AND the ledger's diff has NO removed lines
 // (append-only — an edited/deleted old entry breaks the audit trail; each
@@ -28,8 +40,9 @@
 // Strengthenings (skip/pendingWave→live, allowlist removal, new actions)
 // pass free, no ledger entry needed.
 //
-// Supersedes the CP8-forerunner hardcoded pin (facade-audit-totality.test.ts,
-// deleted by this PR) — that pin caught a live-row reclassification because
+// Supersedes the CP8-forerunner hardcoded pin (facade-audit-totality.test.ts's
+// 'CP8 forerunner' describe block, deleted by this PR — the file itself
+// survives and still hosts the route walker) — that pin caught a live-row reclassification because
 // the SNAPSHOT and the map moved in lockstep; this script instead diffs
 // against main directly, so no snapshot can silently drift with the map.
 import { execFileSync } from 'node:child_process'
@@ -79,15 +92,19 @@ function resolveMainRef() {
   )
 }
 
-/** Content of `path` at `ref`, or null if the file doesn't exist there yet
- *  (tolerated ONLY for audit-policy.ts — this PR ADDS that file, so main
- *  never has it before this PR merges: the bootstrap case). */
+/** Content of `path` at `ref`; null ONLY when the file genuinely doesn't
+ *  exist at that ref (tolerated for the files this PR itself introduces —
+ *  audit-policy.ts and the ledger: the bootstrap case). Any OTHER git
+ *  failure throws loud (blind-round find, 2026-07-28): absence is what
+ *  keys the bootstrap exemption, so conflating a transient git error with
+ *  absence could reopen the one-time window on a partial/odd clone.
+ *  ls-tree distinguishes the two: bad ref / repo error → throws; valid ref
+ *  with the path absent → exit 0, empty output (and no stderr 'fatal:'
+ *  noise on the expected-absent bootstrap probes, unlike `git show`). */
 function readAtRef(ref, path) {
-  try {
-    return execFileSync('git', ['show', `${ref}:${path}`], { cwd: ROOT, encoding: 'utf8' })
-  } catch {
-    return null
-  }
+  const entry = git(['ls-tree', ref, '--', path])
+  if (entry.trim() === '') return null
+  return git(['show', `${ref}:${path}`])
 }
 
 function parseVersion(auditText, policyText, label) {
@@ -126,8 +143,15 @@ function findRowWeakenings(mainV, headV) {
     ['decision', mainV.decisionRows, headV.decisionRows],
   ]
   for (const [kind, mainRows, headRows] of allRowSources) {
-    for (const [key, mainRow] of Object.entries(mainRows)) {
-      const headRow = headRows[key]
+    for (const [rawKey, mainRow] of Object.entries(mainRows)) {
+      const headRow = headRows[rawKey]
+      // Ledger keys are NAMESPACED by source (blind-round find, 2026-07-28):
+      // the flat namespace collided — 'export' is both a map AND a decision
+      // key today, and an action name can equal an allowlist call string —
+      // so one human-reviewed ledger line could silently amnesty a second,
+      // unrelated weakening. Notes below quote the namespaced key verbatim;
+      // authors copy it from the gate's own output, never construct it.
+      const key = `${kind}:${rawKey}`
       if (isLive(mainRow)) {
         if (!headRow) {
           weakenings.push({ key, note: `${kind} row '${key}' deleted (was live)` })
@@ -153,9 +177,13 @@ function findRowWeakenings(mainV, headV) {
         // recategorization, and it's exactly what the deleted
         // facade-audit-totality.test.ts hardcoded pin used to catch.
         // `mainRow.<field> !== undefined` guard (fix round 2): a field ADDED
-        // where main had none is enrichment (e.g. giving a decision row its
-        // structured action) — only a swap or a drop of a prior value is a
-        // weakening.
+        // where main had none is enrichment — only a swap or a drop of a
+        // prior value is a weakening. This covers parked rows gaining their
+        // structured action (5 on the proof-suite PR itself) AND the 3 LIVE
+        // decision rows (sync/quickreserve, sync/quickreserve/config.POST,
+        // export), where a decision row's `action` is CP4 doc metadata, not
+        // an emitter input — an addition there is runtime-inert and shows up
+        // in the regenerated AUDIT_ACTIONS.md diff regardless.
         if (mainRow.action !== undefined && headRow.action !== mainRow.action) {
           weakenings.push({
             key,
@@ -175,6 +203,12 @@ function findRowWeakenings(mainV, headV) {
           weakenings.push({
             key,
             note: `${kind} row '${key}' kind changed '${mainRow.kind}' → '${headRow.kind}' (still live)`,
+          })
+        }
+        if (mainRow.coveredBy !== undefined && headRow.coveredBy !== mainRow.coveredBy) {
+          weakenings.push({
+            key,
+            note: `${kind} row '${key}' coveredBy changed '${mainRow.coveredBy}' → '${headRow.coveredBy}' (still live)`,
           })
         }
       } else if (mainRow.pendingWave) {
@@ -247,7 +281,24 @@ function findRowWeakenings(mainV, headV) {
               note: `${kind} row '${key}' pendingWave changed '${mainRow.pendingWave}' → '${headRow.pendingWave}'`,
             })
           }
+          if (mainRow.coveredBy !== undefined && headRow.coveredBy !== mainRow.coveredBy) {
+            weakenings.push({
+              key,
+              note: `${kind} row '${key}' coveredBy changed '${mainRow.coveredBy}' → '${headRow.coveredBy}' (pendingWave row)`,
+            })
+          }
         }
+      } else if (headRow && mainRow.coveredBy !== undefined && headRow.coveredBy !== mainRow.coveredBy) {
+        // Plain-skip main row (no commitment): its EXISTENCE is free to
+        // change — tsc totality and the route walker own that — but a
+        // coveredBy repoint/drop on a row present on BOTH sides is a truth
+        // swap (blind-round find, 2026-07-28): CP2 proves the new citation
+        // names a real emitter, never that it is the SAME choke point main
+        // reviewed. Gaining a first coveredBy stays free (enrichment).
+        weakenings.push({
+          key,
+          note: `${kind} row '${key}' coveredBy changed '${mainRow.coveredBy}' → '${headRow.coveredBy}' (skip row)`,
+        })
       }
     }
   }
@@ -258,7 +309,7 @@ function findActionWeakenings(mainV, headV) {
   const headActions = new Set(headV.actions)
   return mainV.actions
     .filter((a) => !headActions.has(a))
-    .map((action) => ({ key: action, note: `AUDIT_ACTIONS member '${action}' removed` }))
+    .map((action) => ({ key: `action:${action}`, note: `AUDIT_ACTIONS member removed — ledger key 'action:${action}'` }))
 }
 
 export function findAuditedCoresWeakenings(mainV, headV) {
@@ -274,14 +325,14 @@ export function findAuditedCoresWeakenings(mainV, headV) {
   for (const entry of mainV.auditedCores) {
     const headSymbols = headCoresByFile.get(entry.file)
     if (!headSymbols) {
-      weakenings.push({ key: entry.file, note: `AUDITED_CORES entry '${entry.file}' removed` })
+      weakenings.push({ key: `cores:${entry.file}`, note: `AUDITED_CORES entry removed — ledger key 'cores:${entry.file}'` })
       continue
     }
     for (const symbol of entry.symbols) {
       if (!headSymbols.has(symbol)) {
         weakenings.push({
-          key: `${entry.file}#${symbol}`,
-          note: `AUDITED_CORES symbol '${entry.file}#${symbol}' removed`,
+          key: `cores:${entry.file}#${symbol}`,
+          note: `AUDITED_CORES symbol removed — ledger key 'cores:${entry.file}#${symbol}'`,
         })
       }
     }
@@ -294,7 +345,8 @@ function findAllowlistWeakenings(mainV, headV, bootstrapping) {
     console.log(
       '[check-audit-weakening] BOOTSTRAP: docs/audit-weakening-ledger.md does not exist on main yet — allowlist ' +
         'additions are exempt for THIS PR only (the taxonomy + ledger are both new). Once merged the ledger exists ' +
-        'and is append-only (undeletable), so this window can never reopen.',
+        'and is append-only (undeletable), so no PR path can reopen this window (direct main pushes are ' +
+        'branch-protection territory).',
     )
     return []
   }
@@ -309,9 +361,13 @@ function findAllowlistWeakenings(mainV, headV, bootstrapping) {
       const id = `${entry.file}::${entry.call}`
       const mainEntry = mainById.get(id)
       if (!mainEntry) {
+        // Key carries the LIST and the FILE too (blind-round find,
+        // 2026-07-28): a bare call string collided with action names, and
+        // omitting the file let one line cover the same call added to any
+        // number of files.
         weakenings.push({
-          key: entry.call,
-          note: `${listName} addition: ${entry.file} '${entry.call}' (new legal silent write)`,
+          key: `${listName}:${id}`,
+          note: `${listName} addition (new legal silent write) — ledger key '${listName}:${id}'`,
         })
         continue
       }
@@ -323,8 +379,8 @@ function findAllowlistWeakenings(mainV, headV, bootstrapping) {
       for (const symbol of entry.symbols ?? []) {
         if (!mainSymbols.has(symbol)) {
           weakenings.push({
-            key: `${entry.call}#${symbol}`,
-            note: `${listName} symbol addition: ${entry.file} '${entry.call}' gained symbol '${symbol}' (new legal silent write)`,
+            key: `${listName}:${id}#${symbol}`,
+            note: `${listName} symbol addition (new legal silent write) — ledger key '${listName}:${id}#${symbol}'`,
           })
         }
       }
@@ -358,7 +414,8 @@ function main() {
   if (headMapCount < MIN_MAP_ROWS || headDecisionCount < MIN_DECISION_ROWS) {
     fail(
       `sanity floor breached — HEAD parsed ${headMapCount} facade map rows (need >= ${MIN_MAP_ROWS}) and ` +
-        `${headDecisionCount} decision rows (need >= ${MIN_DECISION_ROWS}). Treat as a parser bug, not a clean run.`,
+        `${headDecisionCount} decision rows (need >= ${MIN_DECISION_ROWS}). Treat as a parser bug FIRST; if a ` +
+        `legitimate route purge really shrank the tables, lower the floor constant in a code-owner-reviewed edit.`,
     )
   }
 
@@ -431,7 +488,9 @@ function main() {
   // OTHER key's legitimate line. An added line ledgers EXACTLY the key in
   // its own key field — `- YYYY-MM-DD · <key> · <why> · <who ruled>` — which
   // also machine-enforces the entry format and the 1:1 rule the header
-  // mandates (one entry line carries one key field).
+  // mandates (one entry line carries one key field). Keys are namespaced by
+  // source (map:/decision:/action:/cores:/<ALLOWLIST_NAME>:) — copy them
+  // exactly as the gate prints them.
   const LEDGER_ENTRY_RE = /^- \d{4}-\d{2}-\d{2} · (.+?) · /
   const ledgeredKeys = new Set(
     addedLines.map((line) => LEDGER_ENTRY_RE.exec(line)?.[1]).filter((k) => k !== undefined),

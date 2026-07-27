@@ -27,17 +27,20 @@ function literalString(node) {
 }
 
 function findTopLevelDeclaration(sf, name) {
-  let found
-  function visit(node) {
-    if (found) return
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.name.text === name) {
-      found = node.initializer
-      return
+  // Top-level statements ONLY (blind-round find, 2026-07-28): the old
+  // recursive walk returned the FIRST same-named VariableDeclaration
+  // anywhere in the file in document order — a decoy `const FACADE_AUDIT_MAP
+  // = {…copy of main…}` inside an earlier function body would hijack the
+  // parse and let the REAL map below be weakened unseen by CP8 AND CP4
+  // (both read through this function). At top level a duplicate identifier
+  // is a tsc error, so a first-match here is provably the only match.
+  for (const stmt of sf.statements) {
+    if (!ts.isVariableStatement(stmt)) continue
+    for (const decl of stmt.declarationList.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === name) return decl.initializer
     }
-    ts.forEachChild(node, visit)
   }
-  visit(sf)
-  return found
+  return undefined
 }
 
 function objectLiteralProps(objLit) {

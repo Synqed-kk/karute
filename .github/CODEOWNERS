@@ -12,9 +12,26 @@
 # and not the behaviour.
 /src/lib/app-api/handler.ts @alee046
 /scripts/audit/ @alee046
-/src/__tests__/integration/audit-*.test.ts @alee046
+# The four CP gate suites by NAME, not an audit-* glob (blind round,
+# 2026-07-28): the glob also swept in routine feature suites — the audit-log
+# viewer suite is Wave V's hot surface, and owner-gating it would bottleneck
+# the lane (same reasoning as the *audit* decline below). Emission EXISTENCE
+# is owned by CP7's registry-reality walker + CP8's registry diff, both
+# protected here; the unprotected per-action suites pin row SHAPE
+# (severity/detail/target) and stay routine-editable deliberately.
+/src/__tests__/integration/audit-actions-taxonomy.test.ts @alee046
+/src/__tests__/integration/audit-coveredby.test.ts @alee046
+/src/__tests__/integration/audit-sdk-write-sites.test.ts @alee046
+/src/__tests__/integration/audit-writer-emission.test.ts @alee046
 /src/__tests__/integration/facade-audit*.test.ts @alee046
-/src/__tests__/integration/helpers/ @alee046
+# Only the helpers the protected suites execute through (blind round,
+# 2026-07-28: the whole-dir glob owner-gated four generic mock helpers that
+# ordinary feature tests edit routinely).
+/src/__tests__/integration/helpers/audit-emission.ts @alee046
+/src/__tests__/integration/helpers/ast-access.ts @alee046
+/src/__tests__/integration/helpers/sdk-write-methods.ts @alee046
+/src/__tests__/integration/helpers/src-files.ts @alee046
+/src/__tests__/integration/helpers/audit-lines.ts @alee046
 # jest plumbing the protected suites execute through (fresh-eyes fix round
 # 2): jest.config.ts picks which suites run at all; setup/ runs before every
 # suite and could globally mock the emitters. Both change rarely — low ping

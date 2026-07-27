@@ -7,7 +7,11 @@
      the affected key; it never blocks a strengthening (skip/pendingWave→live,
      allowlist removal, new actions).
 
-     Format: - YYYY-MM-DD · <key> · <why> · <who ruled> -->
+     Format: - YYYY-MM-DD · <key> · <why> · <who ruled>
+     Keys are namespaced by source — copy them EXACTLY as the gate prints
+     them (map:… / decision:… / action:… / cores:… / <ALLOWLIST>:…). Keep
+     the key and the '·' after it on the entry's FIRST line (the gate's
+     exact-key match reads line one); wrap the why/who freely after. -->
 
 - 2026-07-27 · facade-audit-totality.test.ts CP8-forerunner pin · the hardcoded
   live-row disposition snapshot (describe 'CP8 forerunner — hardcoded live-row

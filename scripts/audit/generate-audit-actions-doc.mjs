@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Regenerates docs/AUDIT_ACTIONS.md from src/lib/audit-policy.ts's
 // AUDIT_ACTIONS + src/lib/audit.ts's FACADE_AUDIT_MAP/API_ROUTE_DECISIONS
-// (contract §8 CP4). CI runs this then `git diff --exit-code
-// docs/AUDIT_ACTIONS.md` — a taxonomy edit that forgets to regenerate the
-// doc fails the gate instead of drifting silently.
+// (contract §8 CP4). CI runs this then checks `git status --porcelain
+// --ignored -- docs/AUDIT_ACTIONS.md` is empty (a plain diff misses a
+// deleted-then-regenerated or gitignored doc) — a taxonomy edit that
+// forgets to regenerate the doc fails the gate instead of drifting silently.
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
