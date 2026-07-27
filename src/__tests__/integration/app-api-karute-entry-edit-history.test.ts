@@ -41,7 +41,12 @@ jest.mock('@/lib/auth/require-permission', () => ({
   ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
 }))
 
-jest.mock('@/lib/audit', () => ({ audit: jest.fn(), FACADE_AUDIT_MAP: {} }))
+// Spread the REAL module so FACADE_AUDIT_MAP stays live inside logFacadeAudit
+// — an empty stub makes the map lookup miss ('karute.entryEdits.list' reads
+// as UNMAPPED, not its real pendingWave row), tripping CP6's loud floor in
+// test mode (contract §8: dev/test throws on a genuinely unmapped key).
+// Only the emitter is stubbed.
+jest.mock('@/lib/audit', () => ({ ...jest.requireActual('@/lib/audit'), audit: jest.fn() }))
 
 const get = jest.fn(async (id: string) => {
   if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })

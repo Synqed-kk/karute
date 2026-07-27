@@ -46,7 +46,7 @@ const HS_CONFIG: VerifierConfig = { issuer: ISSUER, audience: 'authenticated', h
 
 describe('facadeHandler', () => {
   it('OPTIONS preflight short-circuits BEFORE auth (no token needed)', async () => {
-    const handler = facadeHandler('x', async (ctx) => ok(ctx, { ok: true }))
+    const handler = facadeHandler('customer.read', async (ctx) => ok(ctx, { ok: true }))
     const res = await handler(new Request('https://s/api/app/v1/x', { method: 'OPTIONS', headers: { origin: 'capacitor://localhost' } }), route)
     expect(res.status).toBe(204)
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('capacitor://localhost')

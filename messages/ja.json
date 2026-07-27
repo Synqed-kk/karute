@@ -2130,7 +2130,19 @@
       "actions": {
         "customer": {
           "view": "顧客記録を閲覧",
-          "edit": "顧客情報を編集"
+          "edit": "顧客情報を編集",
+          "memory_add": "メモリーを追加",
+          "memory_update": "メモリーを編集",
+          "memory_delete": "メモリーを削除",
+          "memory_relearn": "メモリーを再学習",
+          "pack_create": "回数券を登録",
+          "pack_redeem": "回数券を消化",
+          "pack_undo": "回数券消化を取り消し",
+          "passport_update": "基本情報を修正",
+          "photo_add": "写真を追加"
+        },
+        "audit": {
+          "unmapped_endpoint": "未登録の操作を検出（要確認）"
         },
         "karute": {
           "save": "カルテを保存",
