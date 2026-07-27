@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
@@ -7,6 +8,16 @@ import { runKaruteSuggestions } from '@/lib/ai/karute-suggestions'
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('suggestions')
   if (limited) return limited
   try {

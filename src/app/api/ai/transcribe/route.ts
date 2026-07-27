@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
 import { featureAllowed } from '@/lib/subscription/feature-gate'
 import { getCurrentUserStaffId } from '@/lib/staff'
@@ -50,6 +51,16 @@ function isAllowedAudioUrl(raw: unknown): boolean {
  * and the caller's OWN voiceprint reference (cookie identity) and delegates.
  */
 export async function POST(request: Request) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('transcribe')
   if (limited) return limited
   // Plan gate (P4): transcription is the front door of AI karute generation —

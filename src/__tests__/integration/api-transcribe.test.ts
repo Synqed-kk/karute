@@ -7,6 +7,15 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   enforceAiRateLimit: jest.fn(async () => null),
 }))
 
+// Mutable auth scenario for the fail-fast guard test below (declared before
+// the jest.mock call it's referenced from — see consent-save-gate.test.ts).
+const authScenario: { user: { id: string } | null } = { user: { id: 'user-1' } }
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: jest.fn(async () => ({
+    auth: { getUser: jest.fn(async () => ({ data: { user: authScenario.user }, error: null })) },
+  })),
+}))
+
 // The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
 // the rate limiter above. Allowed by default; the gate's own behavior is
 // covered in api-extract.test.ts + subscription-enforcement.test.ts.
@@ -36,6 +45,7 @@ afterAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   fetchMock.mockReset()
+  authScenario.user = { id: 'user-1' }
 })
 
 function deepgramResponse(transcript: string): Response {
@@ -74,6 +84,31 @@ function deepgramResponse(transcript: string): Response {
 }
 
 describe('POST /api/ai/transcribe', () => {
+  it('returns 401 for anonymous callers before the rate limiter runs (fail-fast auth guard)', async () => {
+    authScenario.user = null
+    const { enforceAiRateLimit } = jest.requireMock('@/lib/ai-rate-limit')
+
+    const formData = new FormData()
+    const audioBlob = new Blob(['fake-audio'], { type: 'audio/webm' })
+    formData.append('audio', audioBlob, 'audio.webm')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          body: formData,
+        })
+
+        expect(response.status).toBe(401)
+        const body = await response.json()
+        expect(body.error).toBe('Unauthorized')
+        expect(enforceAiRateLimit).not.toHaveBeenCalled()
+        expect(fetchMock).not.toHaveBeenCalled()
+      },
+    })
+  })
+
   it('returns transcript for valid audio upload', async () => {
     fetchMock.mockResolvedValue(deepgramResponse('こんにちは'))
 
