@@ -72,7 +72,11 @@ function callSites(src: string): CallSite[] {
     const before = src.slice(0, m.index)
     const line = before.split('\n').length
     const precedingLines = before.split('\n').slice(-5).join('\n')
-    sites.push({ line, args, documentedSkip: precedingLines.includes('no-request-scope:') })
+    // The marker must carry a WRITTEN reason after the colon (contract C2:
+    // checkable justifications, never a bare escape hatch) — a naked
+    // `// no-request-scope:` does not count as documented (M5 delta-verify
+    // finding, 2026-07-27).
+    sites.push({ line, args, documentedSkip: /no-request-scope:\s*\S/.test(precedingLines) })
   }
   return sites
 }
@@ -133,5 +137,21 @@ describe('audit requestId threading (CP5)', () => {
     ].join('\n')
     const [site] = callSites(fakeSrc)
     expect(site.documentedSkip).toBe(true)
+  })
+
+  it('rejects a BARE no-request-scope marker with no written reason (self-check)', () => {
+    const fakeSrc = [
+      `// no-request-scope:`,
+      `audit({`,
+      `  category: 'auth',`,
+      `  action: 'auth.pin_lockout',`,
+      `  actorId: actor,`,
+      `  actorType: 'staff',`,
+      `  businessId: null,`,
+      `  source: 'web',`,
+      `})`,
+    ].join('\n')
+    const [site] = callSites(fakeSrc)
+    expect(site.documentedSkip).toBe(false)
   })
 })
