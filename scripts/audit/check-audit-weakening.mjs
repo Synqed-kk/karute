@@ -435,6 +435,23 @@ export function ownerApprovalVerdict(reviews, headSha, ownerLogin = CODE_OWNER_L
   return { ok: true, why: 'approved at head' }
 }
 
+/** Fetch EVERY page of reviews (Greptile #635 r2: a single per_page=100 call
+ *  could hide the owner's LATER withdrawal on page 2 behind a stale page-1
+ *  approval — "latest" is only meaningful over the full list). fetchImpl is
+ *  injectable so the selftest covers pagination without the network.
+ *  Fail-closed throughout: an error status or an absurd page count throws. */
+export async function fetchAllReviews(fetchImpl, baseUrl, headers) {
+  const all = []
+  for (let page = 1; ; page += 1) {
+    if (page > 30) throw new Error('more than 3000 reviews — refusing to trust a truncated list')
+    const res = await fetchImpl(`${baseUrl}?per_page=100&page=${page}`, { headers })
+    if (!res.ok) throw new Error(`could not list PR reviews (HTTP ${res.status})`)
+    const batch = await res.json()
+    all.push(...batch)
+    if (batch.length < 100) return all
+  }
+}
+
 async function enforceOwnerApproval(weakeningCount) {
   const eventPath = process.env.GITHUB_EVENT_PATH
   if (!process.env.GITHUB_ACTIONS || !eventPath) {
@@ -452,12 +469,16 @@ async function enforceOwnerApproval(weakeningCount) {
   const token = process.env.GITHUB_TOKEN
   if (!token) fail('GITHUB_TOKEN missing — cannot verify code-owner approval for ledgered weakenings.')
   const api = process.env.GITHUB_API_URL ?? 'https://api.github.com'
-  const url = `${api}/repos/${event.repository.full_name}/pulls/${pr.number}/reviews?per_page=100`
-  const res = await fetch(url, {
-    headers: { authorization: `Bearer ${token}`, accept: 'application/vnd.github+json' },
-  })
-  if (!res.ok) fail(`could not list PR reviews (HTTP ${res.status}) — failing closed; ledgered weakenings need verified owner approval.`)
-  const verdict = ownerApprovalVerdict(await res.json(), pr.head.sha)
+  let reviews
+  try {
+    reviews = await fetchAllReviews(fetch, `${api}/repos/${event.repository.full_name}/pulls/${pr.number}/reviews`, {
+      authorization: `Bearer ${token}`,
+      accept: 'application/vnd.github+json',
+    })
+  } catch (err) {
+    fail(`${err?.message ?? err} — failing closed; ledgered weakenings need verified owner approval.`)
+  }
+  const verdict = ownerApprovalVerdict(reviews, pr.head.sha)
   if (!verdict.ok) {
     fail(
       `${weakeningCount} ledgered weakening(s) need a SECOND REVIEWER (contract §8): ${verdict.why}. ` +

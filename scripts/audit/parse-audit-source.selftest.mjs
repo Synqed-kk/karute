@@ -14,6 +14,7 @@ import {
   findActionWeakenings,
   findAllowlistWeakenings,
   ownerApprovalVerdict,
+  fetchAllReviews,
 } from './check-audit-weakening.mjs'
 
 let n = 0
@@ -173,5 +174,24 @@ ok('trailing COMMENTED review does not cancel an approval', () =>
   assert.equal(ownerApprovalVerdict([rev(OWNER, 'APPROVED', 'H'), rev(OWNER, 'COMMENTED', 'H')], 'H', OWNER).ok, true))
 ok("someone else's approval does not count", () =>
   assert.equal(ownerApprovalVerdict([rev('mallory', 'APPROVED', 'H')], 'H', OWNER).ok, false))
+
+// ── Review pagination (Greptile #635 r2: a withdrawal on page 2 must not
+// hide behind a stale page-1 approval) ───────────────────────────────────
+const pagedFetch = (pages) => async (url) => {
+  const page = Number(new URL(url, 'http://x').searchParams.get('page'))
+  return { ok: true, json: async () => pages[page - 1] ?? [] }
+}
+await (async () => {
+  const page1 = Array.from({ length: 100 }, () => rev('bystander', 'COMMENTED', 'H'))
+  page1[50] = rev(OWNER, 'APPROVED', 'H')
+  const page2 = [rev(OWNER, 'CHANGES_REQUESTED', 'H')]
+  ok('pagination: all pages fetched, later withdrawal wins', async () => {})
+  const reviews = await fetchAllReviews(pagedFetch([page1, page2]), 'http://x/reviews', {})
+  assert.equal(reviews.length, 101)
+  assert.equal(ownerApprovalVerdict(reviews, 'H', OWNER).ok, false)
+  const approvedOnly = await fetchAllReviews(pagedFetch([page1]), 'http://x/reviews', {})
+  assert.equal(ownerApprovalVerdict(approvedOnly, 'H', OWNER).ok, true)
+  await assert.rejects(() => fetchAllReviews(async () => ({ ok: false, status: 500 }), 'http://x/reviews', {}), /HTTP 500/)
+})()
 
 console.log(`[parse-audit-source.selftest] ${n} checks passed`)
