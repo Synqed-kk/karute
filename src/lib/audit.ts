@@ -2,6 +2,7 @@
 // ~/Documents/Claude/karute-ai-quality/AUDIT-LOG-DESIGN.md, mirrored in the
 // Anthony ask's Addendum 2).
 import { after } from 'next/server'
+import type { AuditAction } from '@/lib/audit-policy'
 //
 // The durable audit_log table lives in synqed-core (Anthony item). Until that
 // endpoint exists, every event emits as ONE structured console line — the same
@@ -34,8 +35,10 @@ export type AuditSeverity = 'info' | 'notice' | 'warning'
 
 export interface AuditEvent {
   category: AuditCategory
-  /** Namespaced key, e.g. 'karute.view', 'settings.permissions_change'. */
-  action: string
+  /** Namespaced key, e.g. 'karute.view', 'settings.permissions_change'. Typed
+   *  against audit-policy's AUDIT_ACTIONS (type-only import — the emitter
+   *  stays dependency-free); tsc totality is CP4's enforcement (contract §8). */
+  action: AuditAction
   /** Auth user UUID; null for system/cron-originated events. */
   actorId: string | null
   actorType: 'staff' | 'system'
@@ -185,8 +188,8 @@ async function forwardToCore(e: AuditEvent, businessId: string): Promise<void> {
 // to it identically; CP1's fixture test (src/lib/app-api/__typetests__/
 // facade-endpoint-key.ts) pins that both forms stay covered. Census: 75 keys
 // across 31 plain + 44 generic call sites, re-derived from source by the
-// totality test (facade-audit.test.ts) — that test fails loud if this union
-// drifts from src/app/api/**.
+// totality test (facade-audit-totality.test.ts) — that test fails loud if
+// this union drifts from src/app/api/**.
 export type FacadeEndpointKey =
   | 'ai.chat'
   | 'ai.extract'
@@ -267,13 +270,21 @@ export type FacadeEndpointKey =
 export interface FacadeAuditRule {
   kind: 'view' | 'mutation' | 'skip'
   category: AuditCategory
-  action: string
+  action: AuditAction | ''
   targetType?: AuditEvent['targetType']
   /** Dated tracked-TODO (e.g. 'Wave V — 2026-07-27'): the row's classification
    *  is decided but its writer isn't built yet. logFacadeAudit no-ops for any
    *  rule carrying this — set kind/category/action to the FUTURE truth, never
    *  leave the row silently claiming coverage it doesn't have (contract C2). */
   pendingWave?: string
+  /** Structured choke-point citation, format 'src/path/file.ts#symbolName' —
+   *  the file+symbol whose OWN body carries the real emit for a 'skip' row
+   *  that's covered elsewhere (e.g. karute.save → createOrUpdateKaruteRecord),
+   *  or (rarely) a self-citation for a row whose emit already lives at this
+   *  exact route. CP2 (audit-coveredby.test.ts) walks every row carrying this
+   *  field and proves the citation is real (contract §8 CP2). Prose comments
+   *  stay alongside — this is a machine-checkable index, not a replacement. */
+  coveredBy?: string
 }
 
 // ── Facade endpoint → audit classification ──────────────────────────────
@@ -316,10 +327,10 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // mutations.ts) — the ONE function both the web action and this facade
   // route call. A row here would double-log every facade write. (Category is
   // decorative on 'skip' rows — nothing emits.)
-  'appointment.create': { kind: 'skip', category: 'customer', action: '' },
-  'appointment.cancel': { kind: 'skip', category: 'customer', action: '' },
-  'appointment.noShow': { kind: 'skip', category: 'customer', action: '' },
-  'appointment.restore': { kind: 'skip', category: 'customer', action: '' },
+  'appointment.create': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#createAppointmentCore' },
+  'appointment.cancel': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#cancelAppointmentCore' },
+  'appointment.noShow': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#markNoShowAppointmentCore' },
+  'appointment.restore': { kind: 'skip', category: 'customer', action: '', coveredBy: 'src/lib/appointments/mutations.ts#restoreAppointmentCore' },
   // dashboard pack mutations (design-parity Gap B-1 PR 2): the trail lives
   // in the rows themselves (dismissed_by / contacted_by stamps on the
   // packs tables), and the web actions emit no app-side audit for these
@@ -339,8 +350,8 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // settings.store_create / settings.store_update themselves. A rule here
   // would double-log every facade create/update; list reads stay unmapped
   // (list-render-is-not-a-view, same ruling as customers.list).
-  'stores.create': { kind: 'skip', category: 'settings', action: '' },
-  'stores.update': { kind: 'skip', category: 'settings', action: '' },
+  'stores.create': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#createStoreCore' },
+  'stores.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#updateStoreCore' },
   // staff CRUD + avatar + permissions + staff-stores (design-parity packet
   // 12 §S4a): createStaffCore/updateStaffCore/deleteStaffCore/
   // uploadStaffAvatarCore/setStaffPermissionsCore/setStaffStoresCore (the
@@ -349,12 +360,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // settings.permissions_change, settings.staff_stores_change). Same
   // reasoning as stores.create/update above — a rule here would double-log
   // every facade write.
-  'staff.create': { kind: 'skip', category: 'staff', action: '' },
-  'staff.update': { kind: 'skip', category: 'staff', action: '' },
-  'staff.delete': { kind: 'skip', category: 'staff', action: '' },
-  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '' },
-  'permissions.update': { kind: 'skip', category: 'settings', action: '' },
-  'staffStores.set': { kind: 'skip', category: 'settings', action: '' },
+  'staff.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#createStaffCore' },
+  'staff.update': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#updateStaffCore' },
+  'staff.delete': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#deleteStaffCore' },
+  'staff.uploadAvatar': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff.ts#uploadStaffAvatarCore' },
+  'permissions.update': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/permissions.ts#setStaffPermissionsCore' },
+  'staffStores.set': { kind: 'skip', category: 'settings', action: '', coveredBy: 'src/actions/stores.ts#setStaffStoresCore' },
   // PIN + voice + invites (design-parity packet 12 §S4b): setStaffPinCore/
   // removeStaffPinCore/enrollVoiceActionCore/revokeVoiceActionCore/
   // createInviteCore/revokeInviteCore (the ONE core both the web action and
@@ -362,12 +373,12 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // (staff.pin_set/pin_removed, privacy.voice_enroll/voice_revoke,
   // staff.invite_create/invite_revoke). Same reasoning as staff.create/
   // update/delete above — a rule here would double-log every facade write.
-  'staff.setPin': { kind: 'skip', category: 'staff', action: '' },
-  'staff.removePin': { kind: 'skip', category: 'staff', action: '' },
-  'staff.voice.enroll': { kind: 'skip', category: 'privacy', action: '' },
-  'staff.voice.revoke': { kind: 'skip', category: 'privacy', action: '' },
-  'invite.create': { kind: 'skip', category: 'staff', action: '' },
-  'invite.revoke': { kind: 'skip', category: 'staff', action: '' },
+  'staff.setPin': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff-pin.ts#setStaffPinCore' },
+  'staff.removePin': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/staff-pin.ts#removeStaffPinCore' },
+  'staff.voice.enroll': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/actions/voice.ts#enrollVoiceActionCore' },
+  'staff.voice.revoke': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/actions/voice.ts#revokeVoiceActionCore' },
+  'invite.create': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/invites.ts#createInviteCore' },
+  'invite.revoke': { kind: 'skip', category: 'staff', action: '', coveredBy: 'src/actions/invites.ts#revokeInviteCore' },
   // 今すぐ同期 manual crawl trigger (Liam ruling 7/24, packet 32): an owner
   // action worth a trail row, same family as settings.sync_config_update
   // above — this endpoint only TRIGGERS core's crawl (no credentials touched
@@ -430,7 +441,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // A live rule here would double-log every facade list once #630 lands —
   // same reasoning as the karute.save choke-point skip. The facade route's
   // own header (app/v1/audit-log/route.ts) documents this contract.
-  'audit.list': { kind: 'skip', category: 'privacy', action: '' },
+  'audit.list': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/actions/audit-log.ts#listAuditLogWithClient' },
 
   // export (§3.1 row 8): self-covered, NOT a row worth double-logging — this
   // route calls audit() directly with a custom `detail` payload (scope/
@@ -438,7 +449,7 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // hook cannot reproduce (see src/app/api/app/v1/export/route.ts's own
   // header comment — verified at source, it already emits
   // privacy.customer_export on every successful export).
-  'export': { kind: 'skip', category: 'privacy', action: '' },
+  'export': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/app/api/app/v1/export/route.ts#GET' },
 
   // ai.* baseline (§3.1: "log →" rows) + karute.ai.suggestedMessage — the
   // canon Wave-2 baseline never built; action decided, writer is Wave W
@@ -501,25 +512,35 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
 
   // karute.regenerate (§3.1: "mutation → karute.entries_regenerate /
   // karute.summary_regenerate", canon Wave 2, batch rules canon §4.2): the
-  // table gives TWO possible actions for this ONE static endpoint key — which
-  // one fires depends on the regenerate mode in the request body, and
-  // FacadeAuditRule's action is a fixed string per key, so neither can be
-  // picked correctly from this map alone. Marked pendingWave rather than
-  // guess-and-possibly-mislabel a security-sensitive row; flagged for the
-  // director — resolving this needs either two endpoint keys or a
-  // request-body-driven action, both outside a map-totality PR's scope.
-  // Which shape wins (two-key split vs body-driven single action) is itself
-  // a Wave W design decision, not resolved by this PR — the action string
-  // below is a placeholder until then, not a locked-in choice.
+  // (FIX ROUND 1 #14 — fact-check correction: the route (src/app/api/app/v1/
+  // karute/[id]/regenerate/route.ts) reads NO body at all — only `id` from
+  // params and `locale` from a query string — so there is no "mode" for a
+  // second action to depend on; regenerateKaruteWithClient (src/actions/
+  // regenerate-karute.ts) never mentions a summary-regenerate action either.
+  // Only karute.entries_regenerate exists. pendingWave stays: the writer
+  // (the three SDK calls inside regenerateKaruteEntriesWithClient/rollback/
+  // updateKaruteSummaryWithClient) isn't wired to emit this action yet — see
+  // SDK_WRITE_ALLOWLIST's regenerate-karute.ts entries.
   'karute.regenerate': { kind: 'mutation', category: 'karute', action: 'karute.entries_regenerate', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
 
-  // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest") —
-  // all three skip, coveredBy the SAME choke point as karute.save/
-  // karute.entry.update above: the pipeline's ONE eventual karute.save call
-  // is what logs, not the enqueue/mint/upload-url steps that stage it.
-  'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '' },
-  'recordings.session.mint': { kind: 'skip', category: 'recording', action: '' },
-  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '' },
+  // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest").
+  // recordings.job.enqueue: the job-pipeline's OWN choke point is
+  // process-recording.ts#processJob (karute.ts's own header on
+  // createOrUpdateKaruteRecord says "process-recording.ts does NOT call this
+  // function" — verified, FIX ROUND 1 #17) — the enqueue step routes
+  // EXCLUSIVELY into that worker, never into the interactive save.
+  'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
+  // EITHER downstream pipeline (verified at source: thin's
+  // viteRecordingPort.prepareTranscription AND .stageForJob both call the
+  // SAME upload-url facade endpoint before diverging — one leg reaches
+  // createOrUpdateKaruteRecord via the interactive transcribe→save flow, the
+  // other reaches processJob via enqueueJob). coveredBy keeps citing the
+  // interactive choke point (the default/primary flow when no job is
+  // enqueued); the job-pipeline alternative is real too and not reducible to
+  // one symbol — flagged here rather than silently picking one truth.
+  'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
 
   // karute.save / karute.entry.update (§3.1 last row: "deliberate skip, now
   // with machine-readable coveredBy" — C2 formalizes what the comments above
@@ -527,8 +548,8 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // for the first time; same doctrine as the standing comments earlier in
   // this file (do not remove those comments — this is the map row they were
   // always describing).
-  'karute.save': { kind: 'skip', category: 'karute', action: '' },
-  'karute.entry.update': { kind: 'skip', category: 'karute', action: '' },
+  'karute.save': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  'karute.entry.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#updateKaruteDetailEntryWithClient' },
 }
 
 // ── Out-of-facade route decisions (contract §2.3/§2.5, PR-M4) ───────────
@@ -546,14 +567,22 @@ export interface ApiRouteDecision {
    *  content-generation/consult event, distinct from a CRUD 'mutation'. */
   kind: 'mutation' | 'view' | 'skip' | 'log'
   /** Cites the covering file#symbol for a skip/already-emits row, or the
-   *  reason nothing emits. Free text — CP2 (a follow-up PR, not this one)
-   *  is what machine-resolves these. */
+   *  reason nothing emits. Free text — CP2 (audit-coveredby.test.ts, in this
+   *  PR) machine-resolves the structured `coveredBy` field below, never this
+   *  prose. */
   justification: string
   /** ISO date this decision was made/last reviewed. */
   dated: string
   /** Same dated tracked-TODO device as FacadeAuditRule.pendingWave — the
    *  action is decided, the writer isn't built yet. */
   pendingWave?: string
+  /** Structured taxonomy source for a pendingWave row whose action is decided
+   *  but not yet emitted anywhere — CP4 (audit-actions-taxonomy.test.ts)
+   *  reads this instead of parsing the free-text justification. */
+  action?: AuditAction
+  /** Same structured choke-point citation as FacadeAuditRule.coveredBy —
+   *  'src/path/file.ts#symbolName'. CP2 walks every row carrying this. */
+  coveredBy?: string
 }
 
 export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<string, ApiRouteDecision>> = {
@@ -569,24 +598,28 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       'ai.consult_session (§3.1 askAi.read+ai.chat row) — writer not built (false session-mint claim, the AI相談 lesson); auth guard already present (getUser 401).',
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
+    action: 'ai.consult_session',
   },
   'ai/extract': {
     kind: 'log',
     justification: 'ai.memory_extract (§3.1) — auth guard lands in PR-M3.',
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
+    action: 'ai.memory_extract',
   },
   'ai/summarize': {
     kind: 'log',
     justification: 'ai.summary_generate (§3.1) — auth guard lands in PR-M3.',
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
+    action: 'ai.summary_generate',
   },
   'ai/suggestions': {
     kind: 'log',
     justification: 'ai.suggested_message (§3.1) — auth guard lands in PR-M3.',
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
+    action: 'ai.suggested_message',
   },
   'ai/transcribe': {
     kind: 'log',
@@ -594,6 +627,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       'recording.transcribe (§3.1) — auth guard lands in PR-M3; verify still reachable post-server-pipeline before Wave W wires the emit (§3.1: "if dead, delete instead of map").',
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
+    action: 'recording.transcribe',
   },
 
   // 今すぐ同期 (§3.1): mutation, maps to the same sync.run classification as
@@ -605,6 +639,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     justification:
       "settings.sync_run_now — coveredBy this route's own auditWeb call (src/app/api/sync/quickreserve/route.ts) — lands with PR #631 (at the gate, 2026-07-27) — MERGE-ORDERED BEFORE THIS PR; verify at merge time.",
     dated: '2026-07-27',
+    coveredBy: 'src/app/api/sync/quickreserve/route.ts#POST',
   },
   // Split by method: the config GET is a metadata read (credentials never
   // leave core regardless — synqed.sync.getConfig omits the password — but
@@ -624,6 +659,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
       justification:
         "coveredBy this route's own settings.sync_config_update auditWeb emit (pre-existing, verified at source).",
       dated: '2026-07-27',
+      coveredBy: 'src/app/api/sync/quickreserve/config/route.ts#POST',
     },
   },
   'sync/quickreserve-deep': {
@@ -639,6 +675,7 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     kind: 'mutation',
     justification: "coveredBy this route's own privacy.customer_export auditWeb emit (verified at source, pre-existing).",
     dated: '2026-07-27',
+    coveredBy: 'src/app/api/export/route.ts#GET',
   },
 
   cleanup: {

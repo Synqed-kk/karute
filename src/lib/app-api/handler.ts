@@ -126,6 +126,12 @@ async function logFacadeAudit(
       return
     }
     if (rule.kind === 'skip' || rule.pendingWave !== undefined) return
+    // Load-bearing narrow (contract §8 taxonomy typing): FacadeAuditRule.action
+    // is `AuditAction | ''` ('' only ever appears on a 'skip' row, already
+    // returned above), but tsc can't see that invariant — AuditEvent.action
+    // is `AuditAction` with no empty-string member, so this guard is what
+    // makes the emit below type-check, not just documentation.
+    if (!rule.action) return
     const params = (await route.params) as Record<string, string> | undefined
     audit({
       category: rule.category,

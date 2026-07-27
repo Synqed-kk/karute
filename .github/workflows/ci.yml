@@ -21,11 +21,14 @@ jobs:
       packages: read
 
     steps:
+      # SHA-pinned actions (Greptile #635): a mutable tag can be repointed
+      # upstream — pin the exact commits so the execution environment can't
+      # change under us. Same pins in both jobs.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           cache: 'npm'
@@ -38,16 +41,33 @@ jobs:
           # to it (403 on npm ci). Re-applies f4d264d, reverted by ab90af5.
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
+      # Direct npx invocations, not `npm run` (fresh-eyes fix round 3):
+      # package.json is not CODEOWNERS-protected, so a PR could redefine
+      # "test"/"type-check"/"lint" to skip the protected audit suites or the
+      # tsc totality gate without touching a protected file. Same commands
+      # the npm scripts run. `--no` (Fable direct audit, 2026-07-28): non-TTY
+      # npx silently FETCHES a missing package from the registry and runs
+      # latest — so a dep removed from package.json would swap a lockfile-
+      # pinned tool for an unpinned one without failing. `--no` makes that
+      # loud. ACCEPTED RESIDUAL (documented, not closable at this tier):
+      # this job executes UNPROTECTED code before and inside the suites —
+      # npm ci lifecycle scripts, next.config.ts loaded by next/jest, the
+      # lockfile-resolved toolchain binaries, and the suites' own src
+      # imports — so any jest-hosted checkpoint (CP2/CP3/CP7) can be
+      # neutered by a PR that never touches an owned path. The machine-diff
+      # gates (CP4/CP8) live in the isolated audit-gates job precisely
+      # because they CAN run without that surface; porting CP3's write-site
+      # scan to that tier is queued follow-up work. Moot while branch
+      # protection is off.
       - name: Lint
-        run: npm run lint
-        # NOTE: next lint was removed in Next.js 16 — package.json uses "eslint src" directly
+        run: npx --no -- eslint src
+        # NOTE: next lint was removed in Next.js 16 — "eslint src" directly
 
       - name: Type-check
-        run: npm run type-check
-        # tsc --noEmit
+        run: npx --no -- tsc --noEmit
 
       - name: Test
-        run: npm test -- --passWithNoTests
+        run: npx --no -- jest --passWithNoTests
         # --passWithNoTests allows CI to pass when no test files exist yet (Phase 8 adds tests)
         env:
           # jest.setup.ts requires these at import time but every suite is fully
@@ -62,10 +82,106 @@ jobs:
         # env: the gate measures bytes and greps forbidden markers — the baked
         # values don't affect either, and real values in CI are forbidden.
         run: |
-          npx vite build --config thin/vite.config.ts
+          npx --no -- vite build --config thin/vite.config.ts
           node scripts/thin/check-bundle-budget.mjs
         env:
           VITE_SHELL_MODE: local
           VITE_FACADE_URL: https://ci-dummy.invalid
           VITE_SUPABASE_URL: https://test-dummy.supabase.co
           VITE_SUPABASE_ANON_KEY: dummy-not-a-key
+
+  # ── Audit gates — ISOLATED job (fresh-eyes fix round 2, 2026-07-28) ──────
+  # These two gates enforce the audit taxonomy (contract §8 CP4/CP8). They
+  # run in their own job, not the main `ci` job, because the main job
+  # executes unprotected code (npm lifecycle scripts, lint/test npm scripts —
+  # all defined by files outside CODEOWNERS) BEFORE any gate step, and that
+  # code could rewrite the protected scripts in the checkout. Here the chain
+  # is protected end-to-end: checkout → setup-node → an exact-pinned
+  # typescript install with --ignore-scripts (the ONLY dependency the audit
+  # scripts import — pinned HERE, not lockfile-resolved, so a poisoned
+  # package-lock.json cannot swap the parser) → node on CODEOWNERS-protected
+  # scripts. No npm-script indirection, no lifecycle scripts, no other deps.
+  audit-gates:
+    name: Audit gates (taxonomy doc + weakening)
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # Read PR reviews: the weakening gate verifies code-owner approval on
+      # the exact head commit whenever ledgered weakenings exist (contract
+      # §8 second-reviewer rule, enforced in-gate until branch protection
+      # takes over).
+      pull-requests: read
+
+    steps:
+      # SHA-pinned (Greptile #635): this job's isolation claim starts at the
+      # checkout — a repointed upstream tag must not be able to alter it.
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
+      - name: Install pinned typescript only
+        # --prefix into an EMPTY temp dir, then symlink: a plain `npm install
+        # typescript` inside the checkout would reconcile the whole
+        # package.json tree (lockfile-resolved — the exact vector this job
+        # exists to avoid, and it 403s on @synqed-kk/client without the
+        # packages token anyway). The audit scripts import only 'typescript'.
+        # The find-purge (fresh-eyes fix round 3): a COMMITTED node_modules
+        # dir anywhere in the checkout would shadow the pinned install —
+        # `ln -s` into an existing dir silently NESTS the link (exit 0), and
+        # ESM resolution prefers a closer node_modules (scripts/node_modules
+        # beats the root symlink and is not even gitignored). Purge them all
+        # before linking; node_modules is never a legitimate committed
+        # artifact in this repo.
+        # `--prefix` is ALSO load-bearing for config isolation (Fable direct
+        # audit, 2026-07-28): it moves npm's project-config root to the temp
+        # dir, so the checkout's committed .npmrc (NOT CODEOWNERS-protected)
+        # cannot redirect the registry for this install — verified on npm 10
+        # and 11: with --prefix set, `npm config get @synqed-kk:registry`
+        # stops resolving the checkout's .npmrc value. Don't replace it with
+        # a bare `cd`-into-checkout install.
+        run: |
+          find . -name node_modules -prune -exec rm -rf {} +
+          npm install --prefix "$RUNNER_TEMP/audit-deps" --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.3
+          ln -s "$RUNNER_TEMP/audit-deps/node_modules" node_modules
+
+      - name: Audit gate selftest (parser boundaries + weakening matrix)
+        # In-repo, in-TIER regression tests (Greptile #635): the red-run
+        # proof artifacts live in the lane's fleet log outside the repo —
+        # this pins the same boundaries (decoy/spread/non-literal
+        # rejections, ledger-key namespacing, cited-skip deletion,
+        # owner-approval verdicts) on every PR, inside the pinned-typescript
+        # chain instead of the jest tier.
+        run: node scripts/audit/parse-audit-source.selftest.mjs
+
+      - name: Audit actions doc is up to date
+        # `git status --porcelain --ignored`, not `git diff --quiet`: diff
+        # ignores UNTRACKED files, so a PR that deleted the doc would go
+        # green forever (the generator recreates it untracked). Porcelain
+        # catches modified AND untracked/deleted states; --ignored (fix
+        # round 3) closes the last variant — deleting the doc AND
+        # gitignoring it (unprotected .gitignore) made the regenerated file
+        # ignored-untracked, which plain porcelain omits.
+        run: |
+          node scripts/audit/generate-audit-actions-doc.mjs
+          test -z "$(git status --porcelain --ignored -- docs/AUDIT_ACTIONS.md)" || { echo "::error::docs/AUDIT_ACTIONS.md is stale or was deleted — run npm run audit:actions-doc and commit the result"; git status -- docs/AUDIT_ACTIONS.md; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
+
+      - name: Audit weakening gate
+        # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
+        # default shallow clone has no refs/remotes/origin/main until this
+        # fetches it — check-audit-weakening.mjs falls back to FETCH_HEAD if
+        # the ref is still absent for any reason. `+` (blind round,
+        # 2026-07-28): on push-to-main runs checkout@v4 already created the
+        # ref, and if main advances mid-job a depth-1 fetch can't verify
+        # fast-forward and rejects the update — force the tracking-ref
+        # update; it's a mirror of the remote, not local history.
+        env:
+          # For the second-reviewer check (reviews API) — read-only.
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git fetch origin +main:refs/remotes/origin/main --depth=1
+          node scripts/audit/check-audit-weakening.mjs
