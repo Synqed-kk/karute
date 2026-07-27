@@ -38,11 +38,13 @@ export interface FacadeContext<P = Record<string, string>> {
    *  merge) and `request_id` (a route-supplied one would ride into
    *  audit.ts's detailWithRequestId, which deliberately keeps a
    *  caller-supplied value, silently replacing the server mint on the
-   *  durable row). Values are bounded (strings 256 chars, 8 keys) so a
-   *  stray oversized route value can't balloon detail past core's ~2KB cap
-   *  and truncate away sibling fields — the same eviction the client-header
-   *  128-char bound prevents. Sanity rails, not byte-exact budgeting: real
-   *  rows carry one or two flag/id keys. */
+   *  durable row). Values are bounded (strings 256 chars, 8 ROUTE keys —
+   *  the hook's own client_request_id rides on top, outside the cap, so
+   *  route keys can never evict it) so a stray oversized route value can't
+   *  balloon detail past core's ~2KB cap and truncate away sibling fields —
+   *  the same eviction the client-header 128-char bound prevents. Sanity
+   *  rails, not byte-exact budgeting (worst case ≈2.2KB sits just over the
+   *  soft cap): real rows carry one or two flag/id keys. */
   auditDetail?: Record<string, string | number | boolean | null>
 }
 

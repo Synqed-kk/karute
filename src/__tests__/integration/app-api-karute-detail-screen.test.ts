@@ -230,6 +230,17 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect(views[0].detail).toMatchObject({ transcript_shown: false })
   })
 
+  it('a customer-less karute (manual/legacy record) emits with customer_id:null — no crash, honest join input', async () => {
+    KAR.current = { ...KAR.current, customer_id: null, staff_id: 'auth-user-1' }
+    const lines = await auditLines(async () => {
+      const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0].detail).toMatchObject({ transcript_shown: true, customer_id: null })
+  })
+
   it('a 404 open emits NO karute.view — a missing record is not a view (7/17 ruling, facade side)', async () => {
     const lines = await auditLines(async () => {
       const res = await GET(req({ headers: auth }), routeFor('kar-nope'))
