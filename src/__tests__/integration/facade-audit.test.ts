@@ -15,7 +15,7 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??= 'test-anon-key'
 import { createHmac } from 'node:crypto'
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
-import { audit, type FacadeEndpointKey } from '@/lib/audit'
+import { audit, FACADE_AUDIT_MAP, type FacadeEndpointKey } from '@/lib/audit'
 import { recordPinFailure, _resetPinThrottle } from '@/lib/auth/pin-throttle'
 import type { VerifierConfig } from '@/lib/auth/verify-bearer'
 import { auditLines } from './helpers/audit-lines'
@@ -102,6 +102,20 @@ describe('facadeHandler audit hook', () => {
     })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ action: 'customer.edit', target_id: 'c-9' })
+  })
+
+  it('customer.pack.undoRedemption never stamps its route param as the target (fix round F1: that param is a REDEMPTION id, not a customer id)', async () => {
+    const handler = facadeHandler('customer.pack.undoRedemption', async (ctx) => ok(ctx, { ok: true }), {
+      config: HS_CONFIG,
+      getUser: async () => ({ id: 'u1' }),
+    })
+    // Deliberately named like a redemption id, never a customer id — the
+    // wrong-target bug stamped exactly this value as target_type:'customer'.
+    const lines = await auditLines(() => handler(authedReq(), route({ id: 'redemption-abc' })))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ action: 'customer.pack_undo', category: 'customer' })
+    expect(lines[0].target_type).toBeNull()
+    expect(lines[0].target_id).toBeNull()
   })
 
   it('a LIST endpoint emits nothing — names on a list are not a view (Liam 2026-07-17)', async () => {
@@ -199,6 +213,57 @@ describe('CP6 loud floor — unmapped endpoint (contract §8)', () => {
     expect(res.status).toBe(500)
     expect((await res.json()).error.code).toBe('internal')
   })
+})
+
+// FACADE_AUDIT_MAP row disposition — parameterized pins (fix round F5). The
+// hand-written tests above pin a handful of representative keys; these two
+// suites drive facadeHandler for EVERY key in the map so flipping any single
+// row's disposition (skip <-> live, dropping pendingWave, changing
+// category/action/targetType) is a test failure by construction — the exact
+// mistake class the director corrections in this file's history had to catch
+// by hand (e.g. undoRedemption's wrong targetType, fixed alongside this).
+describe('FACADE_AUDIT_MAP row disposition — every rule, parameterized', () => {
+  const route = (params: Record<string, string> = {}) => ({ params: Promise.resolve(params) })
+  const deps = { config: HS_CONFIG, getUser: async () => ({ id: 'u1' }) }
+
+  // Presence-based, same as FIX 6's logFacadeAudit gate (`'pendingWave' in
+  // rule`, not truthiness) — a future empty-string pendingWave marker must
+  // still land in this list.
+  const silentKeys = (Object.keys(FACADE_AUDIT_MAP) as FacadeEndpointKey[]).filter((key) => {
+    const rule = FACADE_AUDIT_MAP[key]
+    return rule.kind === 'skip' || 'pendingWave' in rule
+  })
+  const liveKeys = (Object.keys(FACADE_AUDIT_MAP) as FacadeEndpointKey[]).filter((key) => !silentKeys.includes(key))
+
+  it('sanity: both groups are non-empty (an empty filter would make the loops below silently vacuous)', () => {
+    expect(silentKeys.length).toBeGreaterThan(0)
+    expect(liveKeys.length).toBeGreaterThan(0)
+    expect(silentKeys.length + liveKeys.length).toBe(Object.keys(FACADE_AUDIT_MAP).length)
+  })
+
+  it.each(silentKeys)('%s (skip or pendingWave) emits zero audit lines', async (key) => {
+    const handler = facadeHandler(key, async (ctx) => ok(ctx, { ok: 1 }), deps)
+    const lines = await auditLines(() => handler(authedReq(), route({ id: 'target-1' })))
+    expect(lines).toHaveLength(0)
+  })
+
+  it.each(liveKeys)(
+    "%s (live) emits exactly the rule's category+action; target_id stamps only when targetType is set",
+    async (key) => {
+      const rule = FACADE_AUDIT_MAP[key]
+      const handler = facadeHandler(key, async (ctx) => ok(ctx, { ok: 1 }), deps)
+      const lines = await auditLines(() => handler(authedReq(), route({ id: 'target-1' })))
+      expect(lines).toHaveLength(1)
+      expect(lines[0]).toMatchObject({ category: rule.category, action: rule.action, source: 'facade' })
+      if (rule.targetType) {
+        expect(lines[0].target_type).toBe(rule.targetType)
+        expect(lines[0].target_id).toBe('target-1')
+      } else {
+        expect(lines[0].target_type).toBeNull()
+        expect(lines[0].target_id).toBeNull()
+      }
+    },
+  )
 })
 
 describe('PIN lockout routes through the audit emitter', () => {

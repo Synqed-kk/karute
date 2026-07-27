@@ -2130,7 +2130,19 @@
       "actions": {
         "customer": {
           "view": "Viewed customer record",
-          "edit": "Edited customer info"
+          "edit": "Edited customer info",
+          "memory_add": "Added memory item",
+          "memory_update": "Edited memory item",
+          "memory_delete": "Deleted memory item",
+          "memory_relearn": "Relearned memory",
+          "pack_create": "Created pack",
+          "pack_redeem": "Redeemed pack",
+          "pack_undo": "Undid pack redemption",
+          "passport_update": "Corrected customer info",
+          "photo_add": "Added customer photo"
+        },
+        "audit": {
+          "unmapped_endpoint": "Unmapped operation detected (needs attention)"
         },
         "karute": {
           "save": "Saved karute record",

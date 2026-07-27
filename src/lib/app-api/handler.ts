@@ -116,7 +116,7 @@ async function logFacadeAudit(
       reportUnmappedEndpoint(endpoint, identity)
       return
     }
-    if (rule.kind === 'skip' || rule.pendingWave) return
+    if (rule.kind === 'skip' || rule.pendingWave !== undefined) return
     const params = (await route.params) as Record<string, string> | undefined
     audit({
       category: rule.category,
@@ -130,11 +130,12 @@ async function logFacadeAudit(
       source: 'facade',
     })
   } catch (err) {
-    // CP6 loud floor (contract §8): in dev/test, reportUnmappedEndpoint's
-    // throw (below) escapes here on purpose — an unmapped key must be
-    // impossible to miss while building, not just alerted on in prod. Every
-    // OTHER failure (and this one, in production) stays best-effort: never
-    // let auditing break the request path for a real caller.
+    // CP6 loud floor (contract §8): this rethrow covers ANY failure that
+    // reaches this catch — not only reportUnmappedEndpoint's throw below.
+    // That broadened scope is deliberate: loud while building, so any
+    // post-handler audit failure fails the request in dev/test; production
+    // never breaks the response (this rethrow is skipped there — same
+    // best-effort contract as forwardToCore's own catch in audit.ts).
     if (process.env.NODE_ENV !== 'production') throw err
   }
 }

@@ -18,7 +18,7 @@
 // slips past tsc entirely). This test is the runtime half of CP1.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join, relative } from 'node:path'
-import { API_ROUTE_DECISIONS, FACADE_AUDIT_MAP } from '@/lib/audit'
+import { API_ROUTE_DECISIONS, FACADE_AUDIT_MAP, type ApiRouteDecision } from '@/lib/audit'
 
 const API_ROOT = join(process.cwd(), 'src/app/api')
 const FACADE_ROOT = join(process.cwd(), 'src/app/api/app/v1')
@@ -83,5 +83,120 @@ describe('route totality (CP1)', () => {
     const fakeSrc = `export const GET = facadeHandler('totally.__unmapped__', h)`
     const [key] = facadeKeys(fakeSrc)
     expect(key in FACADE_AUDIT_MAP).toBe(false)
+  })
+})
+
+// ── CP1 hardening (contract §8, PR-M4 fix round F4) ─────────────────────
+// The two checks above prove every route.ts registers AT LEAST ONE mapped
+// key/decision — they never looked at whether a file with SEVERAL exported
+// HTTP methods covers all of them. A mutant that survived the blind round:
+// add a second bare (unwrapped) export to a facade file, or add a second
+// method to a non-facade route without extending its decision — both slip
+// past the checks above untouched. These two suites close that gap.
+
+/** method -> the RHS expression assigned to it, e.g. `facadeHandler<P>('x', fn)`
+ *  or a bare identifier (`POST`, the OPTIONS-alias idiom). Facade route files
+ *  only ever use the `export const METHOD = ...` form (verified across the
+ *  whole app/v1 tree — none use `export function METHOD`). */
+function facadeMethodExports(src: string): Record<string, string> {
+  const re = /^export const (GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s*=\s*(.+)$/gm
+  const out: Record<string, string> = {}
+  for (let m = re.exec(src); m; m = re.exec(src)) out[m[1]] = m[2].trim()
+  return out
+}
+
+function isFacadeWrapped(rhs: string): boolean {
+  return /^facadeHandler\s*(?:<[^>]*>)?\s*\(/.test(rhs)
+}
+
+/** Methods that are neither facadeHandler-wrapped themselves nor an alias
+ *  (`export const OPTIONS = POST`) of another exported method IN THE SAME
+ *  FILE that is. Empty = the file's every export is accounted for. */
+function unwrappedFacadeMethods(src: string): string[] {
+  const exported = facadeMethodExports(src)
+  const offenders: string[] = []
+  for (const [method, rhs] of Object.entries(exported)) {
+    if (isFacadeWrapped(rhs)) continue
+    const aliasTarget = /^([A-Z]+)\b/.exec(rhs)?.[1]
+    if (aliasTarget && exported[aliasTarget] && isFacadeWrapped(exported[aliasTarget])) continue
+    offenders.push(method)
+  }
+  return offenders
+}
+
+describe('CP1 hardening — every facade export is wrapped or aliases a wrapped export', () => {
+  const files = routeFiles(API_ROOT).filter((f) => f.startsWith(FACADE_ROOT + '/'))
+
+  it('every exported HTTP method in every facade route.ts is facadeHandler-wrapped (or aliases one that is)', () => {
+    const offenders: string[] = []
+    for (const file of files) {
+      const rel = file.replace(process.cwd() + '/', '')
+      for (const method of unwrappedFacadeMethods(readFileSync(file, 'utf8'))) {
+        offenders.push(`${rel}: exported ${method} is not facadeHandler-wrapped and does not alias a wrapped export`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('would FAIL for a file with one wrapped export and one bare export (self-check / mutant proof)', () => {
+    const fakeSrc = [
+      `export const GET = facadeHandler('customer.read', async (ctx) => ok(ctx, {}))`,
+      `export const POST = async (req) => new Response(null)`,
+    ].join('\n')
+    expect(unwrappedFacadeMethods(fakeSrc)).toEqual(['POST'])
+  })
+
+  it('accepts the OPTIONS-alias idiom (self-check)', () => {
+    const fakeSrc = [
+      `export const POST = facadeHandler('customer.update', async (ctx) => ok(ctx, {}))`,
+      `export const OPTIONS = POST // facadeHandler short-circuits OPTIONS before auth.`,
+    ].join('\n')
+    expect(unwrappedFacadeMethods(fakeSrc)).toEqual([])
+  })
+})
+
+/** Non-facade routes use `export async function METHOD(...)` / `export
+ *  function METHOD(...)` (verified across the whole non-facade route set —
+ *  none use the `const` form). */
+function nonFacadeMethodExports(src: string): string[] {
+  const re = /^export (?:async )?function (GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\b/gm
+  const out: string[] = []
+  for (let m = re.exec(src); m; m = re.exec(src)) out.push(m[1])
+  return out
+}
+
+function isMethodKeyed(
+  entry: ApiRouteDecision | Record<string, ApiRouteDecision>,
+): entry is Record<string, ApiRouteDecision> {
+  return !('kind' in entry)
+}
+
+describe('CP1 hardening — every method on a decisioned non-facade route is covered', () => {
+  const files = routeFiles(API_ROOT).filter((f) => !f.startsWith(FACADE_ROOT + '/'))
+
+  it('every exported method has its own decision, or the directory-level decision covers all methods', () => {
+    const offenders: string[] = []
+    for (const file of files) {
+      const rel = file.replace(process.cwd() + '/', '')
+      const decisionKey = relative(API_ROOT, dirname(file))
+      const entry = API_ROUTE_DECISIONS[decisionKey]
+      if (!entry) continue // caught by the route-totality test above
+      if (!isMethodKeyed(entry)) continue // one directory-level decision covers every method
+      for (const method of nonFacadeMethodExports(readFileSync(file, 'utf8'))) {
+        if (!(method in entry)) {
+          offenders.push(`${rel}: exported ${method} has no API_ROUTE_DECISIONS['${decisionKey}'].${method} entry`)
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  it('would FAIL for a method-keyed decision missing one exported method (self-check / mutant proof)', () => {
+    const fakeSrc = ['export async function GET() {}', 'export async function POST() {}'].join('\n')
+    const fakeDecision: Record<string, ApiRouteDecision> = {
+      GET: { kind: 'skip', justification: 'x', dated: '2026-07-27' },
+    }
+    const offenders = nonFacadeMethodExports(fakeSrc).filter((m) => !(m in fakeDecision))
+    expect(offenders).toEqual(['POST'])
   })
 })

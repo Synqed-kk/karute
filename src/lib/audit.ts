@@ -378,16 +378,23 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // the viewer front-end + these writers are Wave V per contract §11. Kind/
   // category/action carry the FUTURE truth so Wave V doesn't have to
   // re-derive it; pendingWave keeps logFacadeAudit silent until then.
+  // karute.read specifically: the design-canon table mandates a
+  // `transcriptShown` detail flag on this row — rides in with Wave V's real
+  // writer via a direct audit() call at this route (the generic facadeHandler
+  // hook has no `detail` payload to give it), same custom-detail pattern the
+  // export route uses for privacy.customer_export (see that row's comment).
   'karute.read': { kind: 'view', category: 'karute', action: 'karute.view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
   'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
   'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
   'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
   // 監査ログ list (§3.1): the row is the TWIN'S OWN write — the facade GET
-  // delegates to listAuditLogWithClient (src/actions/audit-log.ts), which
-  // writes privacy.audit_log.view unconditionally per invocation for BOTH
-  // surfaces (PR-M1, #630). A live rule here would double-log every facade
-  // list — same reasoning as the karute.save choke-point skip. The facade
-  // route's own header (app/v1/audit-log/route.ts) documents this contract.
+  // delegates to listAuditLogWithClient (src/actions/audit-log.ts), which is
+  // meant to write privacy.audit_log.view unconditionally per invocation for
+  // BOTH surfaces — that unconditional write lands with PR #630 (at the
+  // gate, 2026-07-27) — MERGE-ORDERED BEFORE THIS PR; verify at merge time.
+  // A live rule here would double-log every facade list once #630 lands —
+  // same reasoning as the karute.save choke-point skip. The facade route's
+  // own header (app/v1/audit-log/route.ts) documents this contract.
   'audit.list': { kind: 'skip', category: 'privacy', action: '' },
 
   // export (§3.1 row 8): self-covered, NOT a row worth double-logging — this
@@ -425,7 +432,20 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // customer.pack.* mutations (§3.1 canon §0 hole 3; race class R2 §6).
   'customer.pack.create': { kind: 'mutation', category: 'customer', action: 'customer.pack_create', targetType: 'customer' },
   'customer.pack.redeem': { kind: 'mutation', category: 'customer', action: 'customer.pack_redeem', targetType: 'customer' },
-  'customer.pack.undoRedemption': { kind: 'mutation', category: 'customer', action: 'customer.pack_undo', targetType: 'customer' },
+  // undoRedemption's route param is the REDEMPTION id (packs/redemptions/[id]/
+  // undo/route.ts), NOT the customer id — logFacadeAudit stamps params.id
+  // verbatim as targetId, so a targetType:'customer' row here would wrongly
+  // stamp a redemption UUID as the customer target (breaks the per-customer
+  // dispute view — four-lens blind-round finding, 2026-07-27). No cheap fix
+  // exists: PacksClient (node_modules/@synqed-kk/client) has no
+  // getRedemption(id)-by-id lookup, and removeRedemption's own response is
+  // just `{ ok: boolean }` — the customer id isn't derivable from anything
+  // that exists today without a NEW core method, not merely an extra round-
+  // trip with what's already there. targetType omitted deliberately: the row
+  // still emits customer.pack_undo with no target — honest > wrong. Wave-W
+  // refinement: add a core getRedemption(id) lookup (or have removeRedemption
+  // return customer_id) so this row can carry a correct target.
+  'customer.pack.undoRedemption': { kind: 'mutation', category: 'customer', action: 'customer.pack_undo' },
 
   // consent/lifecycle/outcome mutation MIRRORS (§3.1 D1: today these are
   // row-stamped only — stamps stay as defense-in-depth). D1 mirror events are
@@ -453,6 +473,9 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // guess-and-possibly-mislabel a security-sensitive row; flagged for the
   // director — resolving this needs either two endpoint keys or a
   // request-body-driven action, both outside a map-totality PR's scope.
+  // Which shape wins (two-key split vs body-driven single action) is itself
+  // a Wave W design decision, not resolved by this PR — the action string
+  // below is a placeholder until then, not a locked-in choice.
   'karute.regenerate': { kind: 'mutation', category: 'karute', action: 'karute.entries_regenerate', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
 
   // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest") —
@@ -539,24 +562,26 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
   },
 
   // 今すぐ同期 (§3.1): mutation, maps to the same sync.run classification as
-  // the facade twin. ⚠ As of this tip the cited emit is PR-M2's work (a
-  // sibling Wave-M PR, not built here) — this decision row describes the
-  // state ONCE PR-M2 lands, not necessarily today; flagged in the PR-M4
-  // build report.
+  // the facade twin. The cited emit + capability gate lands with PR #631
+  // (at the gate, 2026-07-27) — MERGE-ORDERED BEFORE THIS PR; verify at
+  // merge time.
   'sync/quickreserve': {
     kind: 'mutation',
     justification:
-      'settings.sync_run_now — coveredBy this route\'s own auditWeb call (src/app/api/sync/quickreserve/route.ts), added by PR-M2 alongside the sync.view capability gate.',
+      "settings.sync_run_now — coveredBy this route's own auditWeb call (src/app/api/sync/quickreserve/route.ts) — lands with PR #631 (at the gate, 2026-07-27) — MERGE-ORDERED BEFORE THIS PR; verify at merge time.",
     dated: '2026-07-27',
   },
-  // Split by method: the config GET is a metadata read (sync.view-gated
-  // since PR-M2, credentials never leave core — synqed.sync.getConfig omits
-  // the password); the config POST already emits today (verified at
-  // source: settings.sync_config_update via auditWeb, pre-existing).
+  // Split by method: the config GET is a metadata read (credentials never
+  // leave core regardless — synqed.sync.getConfig omits the password — but
+  // the sync.view capability gate itself lands with PR #631, at the gate,
+  // 2026-07-27 — MERGE-ORDERED BEFORE THIS PR; verify at merge time); the
+  // config POST already emits today (verified at source:
+  // settings.sync_config_update via auditWeb, pre-existing).
   'sync/quickreserve/config': {
     GET: {
       kind: 'skip',
-      justification: 'sync-settings metadata read; sync.view-gated since PR-M2; credentials never leave core.',
+      justification:
+        'sync-settings metadata read; credentials never leave core (synqed.sync.getConfig omits the password) — the sync.view gate lands with PR #631 (at the gate, 2026-07-27) — MERGE-ORDERED BEFORE THIS PR; verify at merge time.',
       dated: '2026-07-27',
     },
     POST: {
