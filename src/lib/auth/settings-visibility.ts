@@ -15,6 +15,9 @@ export interface SettingsCaps {
   canViewAllStores: boolean
   /** owner OR an explicit per-staff audit.view grant (Liam ruling 7/17). */
   canViewAudit: boolean
+  /** owner OR an explicit per-staff sync.view grant — same posture as
+   *  canViewAudit (Liam ruling 7/24, packet 31; PR-M2 fix round). */
+  canViewSync: boolean
 }
 
 /**
@@ -22,6 +25,9 @@ export interface SettingsCaps {
  *   - `ownerOnly` tabs (packs / subscription) stay owner-only.
  *   - The 監査ログ (audit) tab follows the grant: owner always, a manager only
  *     when the owner ticked audit.view onto them in StaffForm.
+ *   - The 予約同期 (sync) tab follows the sync.view grant, same rule as audit —
+ *     without it every non-owner staff could open the tab and hit a 403 from
+ *     the now-gated sync routes (PR-M2 fix round).
  *   - The 店舗 (stores) tab requires stores.viewAll: a branch-restricted staff
  *     can't switch stores (the switch is server-clamped) and the section
  *     otherwise leaks the other branch + its customer counts.
@@ -33,6 +39,7 @@ export function visibleSettingsTabs<T extends { id: string; ownerOnly?: boolean 
   return tabs.filter((tab) => {
     if (tab.id === 'stores' && !caps.canViewAllStores) return false
     if (tab.id === 'audit' && !caps.canViewAudit) return false
+    if (tab.id === 'sync' && !caps.canViewSync) return false
     return !tab.ownerOnly || caps.isOwner
   })
 }

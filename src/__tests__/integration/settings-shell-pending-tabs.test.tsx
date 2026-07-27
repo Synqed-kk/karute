@@ -73,6 +73,7 @@ const baseProps = {
   canManageStaff: true,
   canInviteStaff: true,
   canViewAudit: true,
+  canViewSync: true,
   initialStores: [] as StoreRow[],
   initialActiveStoreId: null,
   initialEntitlement: null,

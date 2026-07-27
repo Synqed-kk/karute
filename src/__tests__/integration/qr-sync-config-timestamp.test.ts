@@ -11,10 +11,28 @@ jest.mock('@/lib/staff', () => ({
 }))
 jest.mock('@/lib/synqed/client', () => ({ getSynqedClient: jest.fn() }))
 
+// PR-M2 fix round: config now carries the same sync.view capability gate as
+// the sibling run-now route. Default-granted here so every pre-existing test
+// below (which predates the gate) keeps exercising exactly what it tested;
+// the dedicated "capability gate" describe block below flips it off.
+const capabilities = { current: new Set<string>(['sync.view']) }
+jest.mock('@/lib/auth/require-permission', () => ({
+  getMyCapabilities: jest.fn(async () => capabilities.current),
+  ensureCapability: jest.requireActual('@/lib/auth/require-permission').ensureCapability,
+}))
+
 import { GET, POST } from '@/app/api/sync/quickreserve/config/route'
 import { auditLines } from './helpers/audit-lines'
 
 const client = jest.requireMock('@/lib/synqed/client') as { getSynqedClient: jest.Mock }
+
+// Runs before every test in this file (outer beforeEach fires before each
+// describe's own jest.clearAllMocks()) — keeps the grant at its default
+// regardless of what an earlier test in the "capability gate" block below
+// left it at.
+beforeEach(() => {
+  capabilities.current = new Set(['sync.view'])
+})
 
 function mockConfig(config: Record<string, unknown> | null) {
   client.getSynqedClient.mockResolvedValue({
@@ -89,5 +107,59 @@ describe('quickreserve config POST — audit writer (wave A part 3)', () => {
       expect((await POST(req)).status).toBe(502)
     })
     expect(lines).toHaveLength(0)
+  })
+})
+
+// PR-M2 fix round, blind-round finding #1 (BLOCKER): before this fix, ANY
+// signed-in staff could read the QR username (GET) or rewrite credentials /
+// flip enabled (POST) — no capability check at all. Same gate + error
+// classification as the sibling run-now route.
+describe('quickreserve config — capability gate (PR-M2 fix round)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    client.getSynqedClient.mockResolvedValue({
+      sync: {
+        getConfig: jest.fn().mockResolvedValue(null),
+        upsertConfig: jest.fn().mockResolvedValue({}),
+      },
+    })
+  })
+
+  it('GET without sync.view → 403 {error:{code:"forbidden"}}, core never touched', async () => {
+    capabilities.current = new Set(['customers.view'])
+    const res = await GET()
+    expect(res.status).toBe(403)
+    const body = await res.json()
+    expect(body).toMatchObject({ error: { code: 'forbidden' } })
+    expect(client.getSynqedClient).not.toHaveBeenCalled()
+  })
+
+  it('POST without sync.view → 403, core never touched, no audit emit', async () => {
+    capabilities.current = new Set(['customers.view'])
+    const req = new Request('https://app.test/api/sync/quickreserve/config', {
+      method: 'POST',
+      body: JSON.stringify({ username: 'velune', password: 'hunter2', enabled: true }),
+    })
+    const lines = await auditLines(async () => {
+      const res = await POST(req)
+      expect(res.status).toBe(403)
+      const body = await res.json()
+      expect(body).toMatchObject({ error: { code: 'forbidden' } })
+    })
+    expect(client.getSynqedClient).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  it('anon (getBusinessId throws) → 401, capability never checked', async () => {
+    const { getBusinessId } = jest.requireMock('@/lib/staff') as { getBusinessId: jest.Mock }
+    const { getMyCapabilities } = jest.requireMock('@/lib/auth/require-permission') as {
+      getMyCapabilities: jest.Mock
+    }
+    getBusinessId.mockRejectedValueOnce(new Error('no session'))
+    const res = await GET()
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'Unauthorized' })
+    expect(getMyCapabilities).not.toHaveBeenCalled()
   })
 })

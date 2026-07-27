@@ -92,6 +92,9 @@ const dto: SettingsScreenDTOType = {
   canManageStaff: true,
   canInviteStaff: true,
   canViewAudit: true,
+  // Owner in this fixture (isOwner: true) → the tab itself must stay visible
+  // regardless of the syncStatus card/fallback variant each test below picks.
+  canViewSync: true,
   // Web-only pin below asserts the FALLBACK panel — null keeps that path
   // exercised regardless of what packet 31's own card tests cover.
   syncStatus: null,

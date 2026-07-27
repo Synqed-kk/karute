@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { featureAllowed } from '@/lib/subscription/feature-gate'
@@ -7,6 +8,16 @@ import { runKaruteExtraction } from '@/lib/ai/karute-extract'
 export const maxDuration = 120
 
 export async function POST(request: Request) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('extract')
   if (limited) return limited
   // Plan gate (P4): AI karute generation is a paid capability. Inert until

@@ -93,6 +93,7 @@ const dto: SettingsScreenDTOType = {
   canManageStaff: true,
   canInviteStaff: true,
   canViewAudit: true,
+  canViewSync: true,
   syncStatus: null,
   initialTab: 'audit',
   auditTargetId: null,

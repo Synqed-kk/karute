@@ -163,6 +163,7 @@ export const GET = facadeHandler('screens.settings', async (ctx: FacadeContext) 
         canManageStaff,
         canInviteStaff,
         canViewAudit,
+        canViewSync,
         syncStatus,
         initialTab,
         auditTargetId,

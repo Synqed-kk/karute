@@ -9,32 +9,42 @@ const TABS = [
   { id: 'stores' },
   { id: 'theme' },
   { id: 'staff' },
+  { id: 'sync' },
   { id: 'packs', ownerOnly: true },
   { id: 'audit' },
 ] as const
 
 describe('visibleSettingsTabs', () => {
   it('owner sees everything (incl. stores + ownerOnly tabs)', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true }).map((t) => t.id)
-    expect(ids).toEqual(['organization', 'stores', 'theme', 'staff', 'packs', 'audit'])
+    const ids = visibleSettingsTabs(TABS, { isOwner: true, canViewAllStores: true, canViewAudit: true, canViewSync: true }).map((t) => t.id)
+    expect(ids).toEqual(['organization', 'stores', 'theme', 'staff', 'sync', 'packs', 'audit'])
   })
 
-  it('cross-store manager (viewAll, not owner, no grant) sees stores but not packs/audit', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false }).map((t) => t.id)
+  it('cross-store manager (viewAll, not owner, no grant) sees stores but not sync/packs/audit', () => {
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: false }).map((t) => t.id)
     expect(ids).toContain('stores')
+    expect(ids).not.toContain('sync')
     expect(ids).not.toContain('packs')
     expect(ids).not.toContain('audit')
   })
 
   it('audit.view-granted manager sees 監査ログ but still not owner-only tabs', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: true }).map((t) => t.id)
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: true, canViewSync: false }).map((t) => t.id)
     expect(ids).toContain('audit')
     expect(ids).not.toContain('packs')
   })
 
-  it('branch-restricted staff (no viewAll): the 店舗 tab is hidden entirely', () => {
-    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false }).map((t) => t.id)
+  it('sync.view-granted manager sees 予約同期 but still not owner-only tabs (PR-M2 fix round)', () => {
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: true, canViewAudit: false, canViewSync: true }).map((t) => t.id)
+    expect(ids).toContain('sync')
+    expect(ids).not.toContain('packs')
+    expect(ids).not.toContain('audit')
+  })
+
+  it('branch-restricted staff (no viewAll, no sync.view): the 店舗 and 予約同期 tabs are hidden entirely', () => {
+    const ids = visibleSettingsTabs(TABS, { isOwner: false, canViewAllStores: false, canViewAudit: false, canViewSync: false }).map((t) => t.id)
     expect(ids).not.toContain('stores')
+    expect(ids).not.toContain('sync')
     // ...but still sees the ordinary tabs.
     expect(ids).toEqual(['organization', 'theme', 'staff'])
   })
