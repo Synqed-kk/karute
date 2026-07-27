@@ -78,7 +78,7 @@ export const PUT = facadeHandler<Params>('staffStores.set', async (ctx) => {
   const result = await setStaffStoresCore(
     synqed,
     businessId,
-    { staffList, selfUserId: ctx.identity.authUserId, source: 'facade' },
+    { staffList, selfUserId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     id,
     parsed.data.storeIds,
   )

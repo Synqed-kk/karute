@@ -96,7 +96,14 @@ type ListAuditLogResult =
  *  read — page 1, paging, filtered — writes its own row on success. */
 export async function listAuditLogWithClient(
   synqed: ReturnType<typeof newSynqedClient>,
-  actor: { staffId: string | null; businessId: string | null; source: 'web' | 'facade' },
+  actor: {
+    staffId: string | null
+    businessId: string | null
+    source: 'web' | 'facade'
+    /** PR-M5 piece ④: minted at the web action boundary / read off
+     *  ctx.meta on the facade twin. */
+    requestId?: string
+  },
   filters: AuditLogFilters,
 ): Promise<ListAuditLogResult> {
   try {
@@ -191,6 +198,7 @@ export async function listAuditLogWithClient(
       ...(filters.targetId
         ? { targetType: 'customer' as const, targetId: filters.targetId }
         : {}),
+      requestId: actor.requestId,
       source: actor.source,
     })
 
@@ -273,6 +281,9 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
     staffId: await getCurrentUserStaffId().catch(() => null),
     businessId,
     source: 'web' as const,
+    // PR-M5 piece ④: minted once at the action boundary — the one id every
+    // audit row of this invocation carries.
+    requestId: crypto.randomUUID(),
   }
   return listAuditLogWithClient(synqed, actor, filters)
 }

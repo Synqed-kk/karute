@@ -22,6 +22,9 @@ type StaffPinClient = Pick<SynqedClient, 'staff'>
 type StaffPinWriteDeps = {
   actorId: string | null
   source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
 }
 
 /**
@@ -60,6 +63,7 @@ export async function setStaffPinCore(
       businessId,
       targetType: 'staff',
       targetId: staffId,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return {}
@@ -84,7 +88,14 @@ export async function setStaffPin(staffId: string, pin: string): Promise<{ error
   }
 
   const { actorId, businessId } = await resolveWebAuditContext()
-  const result = await setStaffPinCore(synqed, businessId, { actorId, source: 'web' }, staffId, pin, actingStaffId)
+  const result = await setStaffPinCore(
+    synqed,
+    businessId,
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    staffId,
+    pin,
+    actingStaffId,
+  )
   if (!result.error) updateTag('staff-list')
   return result
 }
@@ -116,6 +127,7 @@ export async function removeStaffPinCore(
       businessId,
       targetType: 'staff',
       targetId: staffId,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return {}
@@ -138,7 +150,13 @@ export async function removeStaffPin(staffId: string): Promise<{ error?: string 
   }
 
   const { actorId, businessId } = await resolveWebAuditContext()
-  const result = await removeStaffPinCore(synqed, businessId, { actorId, source: 'web' }, staffId, actingStaffId)
+  const result = await removeStaffPinCore(
+    synqed,
+    businessId,
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    staffId,
+    actingStaffId,
+  )
   if (!result.error) updateTag('staff-list')
   return result
 }

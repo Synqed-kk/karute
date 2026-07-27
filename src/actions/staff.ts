@@ -26,6 +26,9 @@ type StaffClient = Pick<SynqedClient, 'staff'>
 type StaffWriteDeps = {
   actorId: string | null
   source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
 }
 
 /** House result shape for the staff mutations: undefined = success, else a
@@ -94,6 +97,7 @@ export async function createStaffCore(
       businessId,
       targetType: 'staff',
       targetId: created.id,
+      requestId: deps.requestId,
       source: deps.source,
     })
 
@@ -127,7 +131,12 @@ export async function createStaff(data: StaffProfileInput): Promise<StaffActionR
   }
 
   const { actorId, businessId } = await resolveWebAuditContext()
-  const result = await createStaffCore(synqed, businessId, { actorId, source: 'web' }, parsed.data)
+  const result = await createStaffCore(
+    synqed,
+    businessId,
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    parsed.data,
+  )
   if ('error' in result) {
     // Never let a thrown message reach the client raw (prod strips it). Log for
     // observability; return the generic translated fallback.
@@ -200,6 +209,7 @@ export async function updateStaffCore(
     businessId,
     targetType: 'staff',
     targetId: id,
+    requestId: deps.requestId,
     source: deps.source,
   })
 
@@ -220,7 +230,13 @@ export async function updateStaff(id: string, data: StaffProfileInput): Promise<
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
     const actorId = await resolveWebActorId()
-    const result = await updateStaffCore(synqed, businessId, { actorId, source: 'web' }, id, parsed.data)
+    const result = await updateStaffCore(
+      synqed,
+      businessId,
+      { actorId, source: 'web', requestId: crypto.randomUUID() },
+      id,
+      parsed.data,
+    )
     if ('error' in result) {
       console.error('[updateStaff]', result.error)
       return { error: t('somethingWentWrong') }
@@ -297,6 +313,7 @@ export async function deleteStaffCore(
     targetType: 'staff',
     targetId: id,
     detail: { synqed_staff_id: synqedStaffId ?? null },
+    requestId: deps.requestId,
     source: deps.source,
   })
 
@@ -332,7 +349,12 @@ export async function deleteStaff(id: string): Promise<StaffActionResult> {
     const businessId = await getBusinessId()
     const synqed = await getSynqedClient()
     const actorId = await resolveWebActorId()
-    const result = await deleteStaffCore(synqed, businessId, { actorId, source: 'web' }, id)
+    const result = await deleteStaffCore(
+      synqed,
+      businessId,
+      { actorId, source: 'web', requestId: crypto.randomUUID() },
+      id,
+    )
     if ('error' in result) return { error: result.error }
 
     revalidatePath('/settings')
@@ -364,6 +386,7 @@ export async function uploadStaffAvatarCore(
       businessId,
       targetType: 'staff',
       targetId: staffId,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return { url: avatar_url }
@@ -392,7 +415,13 @@ export async function uploadStaffAvatar(
   }
 
   const { actorId, businessId } = await resolveWebAuditContext()
-  const result = await uploadStaffAvatarCore(synqed, businessId, { actorId, source: 'web' }, staffId, file)
+  const result = await uploadStaffAvatarCore(
+    synqed,
+    businessId,
+    { actorId, source: 'web', requestId: crypto.randomUUID() },
+    staffId,
+    file,
+  )
   if ('url' in result) {
     revalidatePath('/settings')
     revalidatePath('/', 'layout')

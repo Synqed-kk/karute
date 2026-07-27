@@ -126,7 +126,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
         is_manual: entry.isManual ?? false,
       })),
     },
-    { actorId: ctx.identity.authUserId, businessId, source: 'facade' },
+    { actorId: ctx.identity.authUserId, businessId, source: 'facade', requestId: ctx.meta.requestId },
     input.entriesMode,
   )
 

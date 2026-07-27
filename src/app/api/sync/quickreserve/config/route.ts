@@ -93,6 +93,7 @@ export async function POST(request: Request) {
     action: 'settings.sync_config_update',
     severity: 'notice',
     targetType: 'business',
+    requestId: crypto.randomUUID(),
     detail: { enabled: Boolean(enabled), password_changed: Boolean(password) },
   })
 

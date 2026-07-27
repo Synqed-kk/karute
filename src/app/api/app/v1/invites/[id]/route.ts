@@ -36,7 +36,7 @@ export const DELETE = facadeHandler<Params>('invite.revoke', async (ctx) => {
   const result = await revokeInviteCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade' },
+    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     id,
   )
   return ok(ctx, result)

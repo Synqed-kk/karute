@@ -114,7 +114,7 @@ export async function createAppointment(input: AppointmentInput) {
       synqedStaffId,
       preferredStoreId: cookieStore,
       operatingHours: orgSettings?.operating_hours,
-      actor: { ...auditActor, source: 'web' },
+      actor: { ...auditActor, source: 'web', requestId: crypto.randomUUID() },
     })
     if ('id' in result) {
       revalidatePath('/dashboard')
@@ -290,6 +290,7 @@ export async function deleteAppointment(appointmentId: string) {
     const result = await deleteAppointmentCore(synqed, appointmentId, {
       ...auditActor,
       source: 'web',
+      requestId: crypto.randomUUID(),
     })
     if ('success' in result) {
       revalidatePath('/dashboard')
@@ -340,6 +341,7 @@ export async function updateAppointment(
     const result = await updateAppointmentCore(synqed, appointmentId, patch, {
       ...auditActor,
       source: 'web',
+      requestId: crypto.randomUUID(),
     })
     if ('success' in result) {
       revalidatePath('/appointments')
@@ -396,6 +398,7 @@ export async function cancelAppointment(
     const result = await cancelAppointmentCore(synqed, appointmentId, input, actingStaffId, {
       ...auditActor,
       source: 'web',
+      requestId: crypto.randomUUID(),
     })
     if ('success' in result) {
       revalidatePath('/appointments')
@@ -436,6 +439,7 @@ export async function restoreAppointment(
     const result = await restoreAppointmentCore(synqed, appointmentId, actingStaffId, {
       ...auditActor,
       source: 'web',
+      requestId: crypto.randomUUID(),
     })
     if ('success' in result) {
       revalidatePath('/appointments')
@@ -479,6 +483,7 @@ export async function markNoShowAppointment(
     const result = await markNoShowAppointmentCore(synqed, appointmentId, input, actingStaffId, {
       ...auditActor,
       source: 'web',
+      requestId: crypto.randomUUID(),
     })
     if ('success' in result) {
       revalidatePath('/appointments')

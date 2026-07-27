@@ -107,7 +107,13 @@ export const POST = facadeHandler<Params>('staff.voice.enroll', async (ctx) => {
   const result = await enrollVoiceActionCore(
     synqed,
     businessId,
-    { selfUserId, callerCapabilities: ctx.identity.capabilities, actorId: ctx.identity.authUserId, source: 'facade' },
+    {
+      selfUserId,
+      callerCapabilities: ctx.identity.capabilities,
+      actorId: ctx.identity.authUserId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+    },
     id,
     form,
   )
@@ -123,7 +129,13 @@ export const DELETE = facadeHandler<Params>('staff.voice.revoke', async (ctx) =>
   const result = await revokeVoiceActionCore(
     synqed,
     businessId,
-    { selfUserId, callerCapabilities: ctx.identity.capabilities, actorId: ctx.identity.authUserId, source: 'facade' },
+    {
+      selfUserId,
+      callerCapabilities: ctx.identity.capabilities,
+      actorId: ctx.identity.authUserId,
+      source: 'facade',
+      requestId: ctx.meta.requestId,
+    },
     id,
   )
   return ok(ctx, result)

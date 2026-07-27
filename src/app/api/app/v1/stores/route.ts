@@ -81,7 +81,7 @@ export const POST = facadeHandler('stores.create', async (ctx) => {
   const result = await createStoreCore(
     synqed,
     businessId,
-    { staffList, selfUserId: ctx.identity.authUserId, source: 'facade' },
+    { staffList, selfUserId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     body as StoreInput,
   )
   if ('error' in result && result.error === STORE_OWNER_DENIAL) {

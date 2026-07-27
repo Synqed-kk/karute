@@ -64,7 +64,7 @@ export const POST = facadeHandler('staff.create', async (ctx) => {
   const result = await createStaffCore(
     synqed,
     businessId,
-    { actorId: ctx.identity.authUserId, source: 'facade' },
+    { actorId: ctx.identity.authUserId, source: 'facade', requestId: ctx.meta.requestId },
     parsed.data,
   )
   return ok(ctx, result, 'id' in result ? 201 : 200)

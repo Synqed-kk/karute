@@ -101,7 +101,14 @@ async function resolveKaruteStoreId(
 export async function createOrUpdateKaruteRecord(
   synqed: SynqedClient,
   payload: Parameters<SynqedClient['karuteRecords']['create']>[0],
-  actor: { actorId: string | null; businessId: string | null; source: 'web' | 'facade' },
+  actor: {
+    actorId: string | null
+    businessId: string | null
+    source: 'web' | 'facade'
+    /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta
+     *  on the facade twin. */
+    requestId?: string
+  },
   entriesMode: 'replace' | 'fill-if-empty',
 ): Promise<{ id: string; fresh: boolean; transcriptChanged: boolean }> {
   const emitSave = (result: { id: string; fresh: boolean; transcriptChanged: boolean }) => {
@@ -121,6 +128,7 @@ export async function createOrUpdateKaruteRecord(
         transcript_changed: result.transcriptChanged,
         customer_id: payload.customer_id ?? null,
       },
+      requestId: actor.requestId,
       source: actor.source,
     })
     return result
@@ -303,7 +311,7 @@ export async function saveKaruteRecord(
           is_manual: entry.isManual ?? false,
         })),
       },
-      { actorId, businessId, source: 'web' },
+      { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'replace',
     )
     recordId = id
@@ -418,7 +426,7 @@ export async function saveKaruteRecordInline(
           is_manual: entry.isManual ?? false,
         })),
       },
-      { actorId, businessId, source: 'web' },
+      { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       'fill-if-empty',
     )
 
@@ -592,7 +600,14 @@ export async function updateKaruteDetailEntryWithClient(
     expectedVersion: number
     actorStaffId: string | null
   },
-  actor: { actorId: string | null; businessId: string | null; source: 'web' | 'facade' },
+  actor: {
+    actorId: string | null
+    businessId: string | null
+    source: 'web' | 'facade'
+    /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta
+     *  on the facade twin. */
+    requestId?: string
+  },
   customerId: string | null,
 ): Promise<CoreUpdateEntryResult> {
   // Content bounds checked HERE (not just the facade's zod) so the web path
@@ -625,6 +640,7 @@ export async function updateKaruteDetailEntryWithClient(
       // customer_id rides in detail (ids only, PII rule) — same viewer
       // name-join rationale as karute.save's emitSave above.
       detail: { entry_id: entryId, category: input.category ?? null, customer_id: customerId },
+      requestId: actor.requestId,
       source: actor.source,
     })
     return { ok: true }
@@ -680,7 +696,7 @@ export async function updateKaruteDetailEntry(
         expectedVersion: input.expectedVersion,
         actorStaffId,
       },
-      { actorId, businessId, source: 'web' },
+      { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
       record?.customer_id ?? null,
     )
     if ('ok' in result) {

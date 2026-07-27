@@ -36,9 +36,13 @@ export async function POST() {
   }
 
   const synqed = await getSynqedClient()
+  // PR-M5: one id per request — both 2xx emit paths below carry it (this
+  // route landed with PR-M2 mid-wave; the CP5 scan caught the missing
+  // threading at the M5 rebase, exactly as designed).
+  const requestId = crypto.randomUUID()
   try {
     const result = await synqed.sync.runNow('QUICKRESERVE')
-    await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business' })
+    await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
     return NextResponse.json({
       success: true,
       ...result,
@@ -53,7 +57,7 @@ export async function POST() {
     // error, matching the pre-delegation behavior. Still a 2xx → still an
     // audit row (facade parity: FACADE_AUDIT_MAP fires on any 2xx).
     if (/config not found|no credentials/i.test(message)) {
-      await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business' })
+      await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
       return NextResponse.json({
         message: 'QR sync not configured — save your Quick Reserve login first.',
       })

@@ -166,6 +166,7 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
       targetType: 'customer',
       targetId: customer.id,
       severity: 'info',
+      requestId: crypto.randomUUID(),
     })
 
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
@@ -207,6 +208,7 @@ export async function createQuickCustomer(
       targetType: 'customer',
       targetId: customer.id,
       severity: 'info',
+      requestId: crypto.randomUUID(),
     })
 
     return { success: true, id: customer.id, name: customer.name }
@@ -298,6 +300,7 @@ export async function updateCustomer(
       targetType: 'customer',
       targetId: id,
       severity: 'info',
+      requestId: crypto.randomUUID(),
     })
   }
   return result
@@ -336,6 +339,7 @@ async function emitDeletionAudit(
     targetType: 'customer',
     targetId: customerId,
     severity: action === 'privacy.customer_delete_scheduled' ? 'warning' : 'notice',
+    requestId: crypto.randomUUID(),
     source: 'web',
   })
 }

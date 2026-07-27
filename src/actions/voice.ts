@@ -41,6 +41,9 @@ type VoiceWriteDeps = {
   callerCapabilities: Set<Capability>
   actorId: string | null
   source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
 }
 
 /**
@@ -118,6 +121,7 @@ export async function enrollVoiceActionCore(
       businessId,
       targetType: 'staff',
       targetId: staffId,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return { ok: true, enrolledAt }
@@ -141,7 +145,7 @@ export async function enrollVoiceAction(
     const result = await enrollVoiceActionCore(
       synqed,
       businessId,
-      { selfUserId, callerCapabilities, actorId, source: 'web' },
+      { selfUserId, callerCapabilities, actorId, source: 'web', requestId: crypto.randomUUID() },
       staffId,
       formData,
     )
@@ -203,6 +207,7 @@ export async function revokeVoiceActionCore(
       businessId,
       targetType: 'staff',
       targetId: staffId,
+      requestId: deps.requestId,
       source: deps.source,
     })
     return { ok: true }
@@ -225,7 +230,7 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
     const result = await revokeVoiceActionCore(
       synqed,
       businessId,
-      { selfUserId, callerCapabilities, actorId, source: 'web' },
+      { selfUserId, callerCapabilities, actorId, source: 'web', requestId: crypto.randomUUID() },
       staffId,
     )
     if (result.ok) {

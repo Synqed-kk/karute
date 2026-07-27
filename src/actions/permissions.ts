@@ -126,6 +126,9 @@ export interface PermissionsWriteDeps {
   callerCapabilities: Set<Capability>
   actorId: string | null
   source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
 }
 
 /** Client-threaded core of setStaffPermissions (facade Bearer path, design-
@@ -229,6 +232,7 @@ export async function setStaffPermissionsCore(
     targetType: 'staff',
     targetId: staffId,
     detail: { before_role: beforeRole, after_role: permissionRole, customized: !matchesPreset },
+    requestId: deps.requestId,
     source: deps.source,
   })
 
@@ -255,7 +259,7 @@ export async function setStaffPermissions(
   ])
   const result = await setStaffPermissionsCore(
     businessId,
-    { callerCapabilities, callerStaffId, actorId, source: 'web' },
+    { callerCapabilities, callerStaffId, actorId, source: 'web', requestId: crypto.randomUUID() },
     staffId,
     permissionRole,
     capabilities,

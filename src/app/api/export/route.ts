@@ -90,7 +90,9 @@ export async function GET(request: Request) {
       category: 'privacy',
       action: 'privacy.customer_export',
       actorId: user.id,
+      storeId,
       severity: 'notice',
+      requestId: crypto.randomUUID(),
       detail: {
         scope,
         format,
