@@ -10,7 +10,8 @@
 //     letter changed) — not a hard-fail on a past date, just ledger-tracked;
 //   - a pendingWave row DELETED, or left as a skip carrying no pendingWave (a
 //     dropped commitment — fresh-eyes fix, 2026-07-28; plain skip rows that
-//     never carried a commitment may come and go freely);
+//     never carried a commitment may come and go freely — UNLESS the row
+//     carries a coveredBy citation, see the coveredBy clause below);
 //   - a live row's action or targetType swapped (still emits, wrong thing);
 //   - a live row's kind swapped (view↔mutation — changes WHEN the hook
 //     emits), or a parked row's action/category/targetType/kind swapped
@@ -19,8 +20,10 @@
 //     find, 2026-07-28: CP2 only proves the NEW citation names a real
 //     emitter — it never notices the citation moved, and a repointed
 //     choke-point claim is a truth swap; checked for every row present on
-//     both sides, including plain-skip rows, whose existence is otherwise
-//     free to change);
+//     both sides), and a CITED skip row DELETED outright (verify-round
+//     find: a flat→method-keyed restructure changes the row's key, so a
+//     repoint could otherwise ride through as delete+add — only UNCITED
+//     plain-skip rows come and go freely);
 //   - an AUDIT_ACTIONS member removed;
 //   - an AUDITED_CORES entry/symbol removed — including renames (rename
 //     tolerance was removed, fix round 1 #8: symbol-set matching is unsound
