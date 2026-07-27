@@ -56,6 +56,20 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://test-dummy.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
 
+      - name: Audit actions doc is up to date
+        run: |
+          npm run audit:actions-doc
+          git diff --quiet -- docs/AUDIT_ACTIONS.md || { echo "::error::docs/AUDIT_ACTIONS.md is stale — run npm run audit:actions-doc"; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
+
+      - name: Audit weakening gate
+        # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
+        # default shallow clone has no refs/remotes/origin/main until this
+        # fetches it — check-audit-weakening.mjs falls back to FETCH_HEAD if
+        # the ref is still absent for any reason.
+        run: |
+          git fetch origin main:refs/remotes/origin/main --depth=1
+          npm run audit:weakening
+
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
         # (packet-09 F-1: the breach masked a §1.5 purchase-code leak). Dummy

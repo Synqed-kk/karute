@@ -201,53 +201,8 @@ describe('CP1 hardening — every method on a decisioned non-facade route is cov
   })
 })
 
-// CP8 forerunner — ground-truth disposition pin (M4 delta-verify finding,
-// 2026-07-27): the parameterized hook pins derive their expectations from the
-// map itself, so a quiet map edit (live row flipped to skip, an action
-// renamed, a pending row going live) moves test and code in LOCKSTEP and
-// ships green — proven by a full-suite mutant. This table is the HARDCODED
-// truth: any disposition change must edit this snapshot too, making the
-// reclassification a visible, reviewable diff (contract §8 CP8's spirit,
-// until the CI weakening-diff proof lands with the proof-suite PR).
-// Editing this table is not a chore to route around — it IS the review gate.
-describe('CP8 forerunner — hardcoded live-row disposition pin', () => {
-  const LIVE_ROWS: Record<
-    string,
-    { kind: 'view' | 'mutation'; action: string; targetType?: string }
-  > = {
-    'customer.read': { kind: 'view', action: 'customer.view', targetType: 'customer' },
-    'customer.update': { kind: 'mutation', action: 'customer.edit', targetType: 'customer' },
-    'sync.run': { kind: 'mutation', action: 'settings.sync_run_now', targetType: 'business' },
-    'customer.memory.add': { kind: 'mutation', action: 'customer.memory_add', targetType: 'customer' },
-    'customer.memory.update': { kind: 'mutation', action: 'customer.memory_update', targetType: 'customer' },
-    'customer.memory.delete': { kind: 'mutation', action: 'customer.memory_delete', targetType: 'customer' },
-    'customer.memory.relearn': { kind: 'mutation', action: 'customer.memory_relearn', targetType: 'customer' },
-    'customer.pack.create': { kind: 'mutation', action: 'customer.pack_create', targetType: 'customer' },
-    'customer.pack.redeem': { kind: 'mutation', action: 'customer.pack_redeem', targetType: 'customer' },
-    // No targetType: the route param is the REDEMPTION id — see the map row's
-    // comment (Wave-W refinement pending a core getRedemption lookup).
-    'customer.pack.undoRedemption': { kind: 'mutation', action: 'customer.pack_undo' },
-    'customer.passport.upsert': { kind: 'mutation', action: 'customer.passport_update', targetType: 'customer' },
-    'customer.photo.upload': { kind: 'mutation', action: 'customer.photo_add', targetType: 'customer' },
-  }
-
-  it('exactly the pinned rows are live — every other key is skip or pendingWave', () => {
-    const liveInMap = Object.entries(FACADE_AUDIT_MAP)
-      .filter(([, r]) => r.kind !== 'skip' && r.pendingWave === undefined)
-      .map(([k]) => k)
-      .sort()
-    expect(liveInMap).toEqual(Object.keys(LIVE_ROWS).sort())
-  })
-
-  it('every live row matches its pinned kind/action/target exactly', () => {
-    for (const [key, expected] of Object.entries(LIVE_ROWS)) {
-      const rule = FACADE_AUDIT_MAP[key as keyof typeof FACADE_AUDIT_MAP]
-      expect({ key, kind: rule.kind, action: rule.action, targetType: rule.targetType }).toEqual({
-        key,
-        kind: expected.kind,
-        action: expected.action,
-        targetType: expected.targetType,
-      })
-    }
-  })
-})
+// CP8 forerunner — DELETED (proof-suite PR, 2026-07-27): the hardcoded
+// live-row disposition pin this used to be is superseded by
+// scripts/audit/check-audit-weakening.mjs, which diffs the taxonomy against
+// origin/main directly instead of a snapshot that moved in lockstep with the
+// map. See docs/audit-weakening-ledger.md's seed entry.
