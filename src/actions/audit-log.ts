@@ -227,8 +227,9 @@ export async function listAuditLogWithClient(
     // additionally rests on no '_view'-suffix action ever carrying warn/crit
     // severity (the only rows ever written with that spelling — historical
     // privacy.audit_log_view — are always info) — if the audit taxonomy ever
-    // grows one, it inherits the same core-side exclude_views gap 変更 is
-    // parked on below.
+    // grows one, it shares the same core-side exclude_views dependency the
+    // 変更 subtraction below leans on (both exact only while the server's
+    // view-suffix exclusion — the #56 widen — matches isViewAction).
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
     return {

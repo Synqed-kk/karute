@@ -22,7 +22,7 @@ jest.mock('@/lib/staff', () => ({
 }))
 jest.mock('@/lib/supabase/karute', () => ({
   getKaruteRecord: jest.fn(async (id: string) =>
-    id === 'missing' ? null : { id, client_id: null, summary: null },
+    id === 'missing' ? null : { id, client_id: 'cust-9', summary: null },
   ),
 }))
 jest.mock('@/lib/karute/outcome', () => ({ getKaruteOutcome: jest.fn(async () => null) }))
@@ -98,7 +98,8 @@ describe('karute.view — single-record open (web twin)', () => {
       severity: 'info',
       source: 'web',
     })
-    expect(lines[0].detail).toEqual({ transcript_shown: true })
+    // customer_id rides in detail for the 監査ログ name join (packet 30 §4).
+    expect(lines[0].detail).toEqual({ transcript_shown: true, customer_id: 'cust-9' })
   })
 
   it('transcript_shown:false when the DTO carries no transcript (none exists OR ACL-withheld)', async () => {
@@ -109,7 +110,7 @@ describe('karute.view — single-record open (web twin)', () => {
     })
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ action: 'karute.view', target_id: 'k-2' })
-    expect(lines[0].detail).toEqual({ transcript_shown: false })
+    expect(lines[0].detail).toEqual({ transcript_shown: false, customer_id: 'cust-9' })
   })
 
   it('a 404 open (record does not exist) emits nothing — a missing record is not a view', async () => {

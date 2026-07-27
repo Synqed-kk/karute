@@ -63,6 +63,7 @@ jest.mock('@/lib/customers/queries', () => ({ getCustomerWithClient: (c: unknown
 jest.mock('@/lib/customers/list-all', () => ({ listAllCustomers: jest.fn(async () => ({ customers: [{ id: 'cust-1', name: '山田 花子' }], total: 1 })) }))
 
 import { GET, OPTIONS } from '@/app/api/app/v1/screens/karute/[id]/route'
+import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -185,6 +186,56 @@ describe('GET /api/app/v1/screens/karute/[id] (packet 07 §Build 2)', () => {
     expect(en.status).toBe(200)
     const bad = await GET(new Request('https://s/x?locale=zz', { headers: auth }), routeFor('kar-1'))
     expect(bad.status).toBe(200)
+  })
+
+  // Wave V: the REAL route's karute.view emit, pinned end-to-end (mutation
+  // lens find — the seam mechanism alone, tested in facade-audit.test.ts,
+  // would not catch this route hardcoding or dropping the flag). The real
+  // buildKaruteDetailScreen + real audit() run; only network is mocked.
+  it('emits ONE karute.view whose transcript_shown is FALSE for an ACL-restricted viewer (transcript exists, withheld)', async () => {
+    const lines = await auditLines(async () => {
+      const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0]).toMatchObject({
+      category: 'karute',
+      target_type: 'karute',
+      target_id: 'kar-1',
+      source: 'facade',
+      detail: { transcript_shown: false, customer_id: 'cust-1' },
+    })
+  })
+
+  it('emits transcript_shown TRUE for the recording owner (the transcript actually shipped)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1' }
+    const lines = await auditLines(async () => {
+      const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0].detail).toMatchObject({ transcript_shown: true, customer_id: 'cust-1' })
+  })
+
+  it('emits transcript_shown FALSE when the record has no transcript at all (owner viewing)', async () => {
+    KAR.current = { ...KAR.current, staff_id: 'auth-user-1', transcript: null }
+    const lines = await auditLines(async () => {
+      const res = await GET(req({ headers: auth }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    const views = lines.filter((l) => l.action === 'karute.view')
+    expect(views).toHaveLength(1)
+    expect(views[0].detail).toMatchObject({ transcript_shown: false })
+  })
+
+  it('a 404 open emits NO karute.view — a missing record is not a view (7/17 ruling, facade side)', async () => {
+    const lines = await auditLines(async () => {
+      const res = await GET(req({ headers: auth }), routeFor('kar-nope'))
+      expect(res.status).toBe(404)
+    })
+    expect(lines.filter((l) => l.action === 'karute.view')).toHaveLength(0)
   })
 
   it('OPTIONS shell-origin preflight → 204 + Allow-Origin, no downstream', async () => {

@@ -88,15 +88,16 @@ export default async function KaruteDetailPage({
   // Fired AFTER the existence check (a 404 open is not a view — same 7/17
   // ruling as customer.view) and after assembly so transcript_shown reflects
   // what THIS render actually ships: false covers both "none exists" and
-  // "ACL-withheld to null". Fire-and-forget, never blocks the render (same
-  // web writers' best-effort contract as customers/[id]/page.tsx).
+  // "ACL-withheld to null". customer_id is the 監査ログ name join (packet 30
+  // §4 karute-row idiom, ids only). Fire-and-forget, never blocks the render
+  // (same web writers' best-effort contract as customers/[id]/page.tsx).
   void auditWeb({
     category: 'karute',
     action: 'karute.view',
     targetType: 'karute',
     targetId: id,
     severity: 'info',
-    detail: { transcript_shown: built.transcript !== null },
+    detail: { transcript_shown: built.transcript !== null, customer_id: customerId },
   })
 
   return (

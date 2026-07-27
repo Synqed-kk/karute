@@ -43,9 +43,9 @@ jest.mock('@/lib/auth/require-permission', () => ({
 
 // Spread the REAL module so FACADE_AUDIT_MAP stays live inside logFacadeAudit
 // — an empty stub makes the map lookup miss ('karute.entryEdits.list' reads
-// as UNMAPPED, not its real pendingWave row), tripping CP6's loud floor in
-// test mode (contract §8: dev/test throws on a genuinely unmapped key).
-// Only the emitter is stubbed.
+// as UNMAPPED, not its real live view row — karute.entry_edits_view, Wave V),
+// tripping CP6's loud floor in test mode (contract §8: dev/test throws on a
+// genuinely unmapped key). Only the emitter is stubbed.
 jest.mock('@/lib/audit', () => ({ ...jest.requireActual('@/lib/audit'), audit: jest.fn() }))
 
 const get = jest.fn(async (id: string) => {
@@ -194,6 +194,22 @@ describe('GET /karute/[id]/entry-edits (edit-layer W2 history-sheet packet)', ()
         createdAt: '2026-07-20T00:00:00.000Z',
       }),
     ])
+  })
+
+  it('happy path emits karute.entry_edits_view with the customer_id name-join detail (Wave V — real route, not the seam in isolation)', async () => {
+    const res = await GET(getReq(), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    const { audit } = jest.requireMock('@/lib/audit') as { audit: jest.Mock }
+    const viewEmits = audit.mock.calls.filter(([e]) => e.action === 'karute.entry_edits_view')
+    expect(viewEmits).toHaveLength(1)
+    expect(viewEmits[0][0]).toMatchObject({
+      category: 'karute',
+      action: 'karute.entry_edits_view',
+      targetType: 'karute',
+      targetId: 'kar-1',
+      source: 'facade',
+      detail: { customer_id: 'cust-1' },
+    })
   })
 
   it('a null action (legacy-null enum row) passes the DTO and renders in the body', async () => {

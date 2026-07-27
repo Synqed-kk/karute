@@ -29,10 +29,20 @@ export interface FacadeContext<P = Record<string, string>> {
   /** Observability metadata carried by every facade request. */
   meta: { requestId: string; appVersion: string | null; platform: string | null }
   /** Extra detail a route hands to the success-hook emit (Wave V:
-   *  karute.read's `transcript_shown`). ADDITIVE ONLY — a route can enrich
-   *  its map row's emit, never suppress or replace it; the reserved
-   *  `client_request_id` key stays hook-owned (merged after this, so a
-   *  route value can never shadow the real correlation hint). */
+   *  karute.read's `transcript_shown` + the karute rows' `customer_id` name
+   *  join). ADDITIVE ONLY — a route can enrich its map row's emit, never
+   *  suppress or replace it. Set it synchronously before returning the
+   *  response; the hook reads it once, right after the handler resolves.
+   *  The TWO correlation keys are hook-owned and stripped if a route sets
+   *  them: `client_request_id` (re-asserted from the real header after the
+   *  merge) and `request_id` (a route-supplied one would ride into
+   *  audit.ts's detailWithRequestId, which deliberately keeps a
+   *  caller-supplied value, silently replacing the server mint on the
+   *  durable row). Values are bounded (strings 256 chars, 8 keys) so a
+   *  stray oversized route value can't balloon detail past core's ~2KB cap
+   *  and truncate away sibling fields — the same eviction the client-header
+   *  128-char bound prevents. Sanity rails, not byte-exact budgeting: real
+   *  rows carry one or two flag/id keys. */
   auditDetail?: Record<string, string | number | boolean | null>
 }
 
@@ -141,13 +151,22 @@ async function logFacadeAudit(
     // makes the emit below type-check, not just documentation.
     if (!rule.action) return
     const params = (await route.params) as Record<string, string> | undefined
-    // Route-supplied detail first, hook-owned client_request_id LAST — the
-    // spread order is the enforcement of auditDetail's "additive only"
-    // contract (a route key named client_request_id loses to the real one).
-    const detail = {
-      ...(routeDetail ?? {}),
-      ...(clientRequestId ? { client_request_id: clientRequestId.slice(0, 128) } : {}),
+    // Route-supplied detail is additive color, never authority (see the
+    // FacadeContext.auditDetail doc): the two hook-owned correlation keys
+    // are STRIPPED (request_id would hijack the server mint downstream —
+    // audit.ts's detailWithRequestId keeps a caller-supplied one; the real
+    // client_request_id is written after the loop), string values are capped
+    // at 256 chars and keys at 8, so a stray route value can't push detail
+    // past core's ~2KB cap and truncate away siblings.
+    const detail: Record<string, string | number | boolean | null> = {}
+    if (routeDetail) {
+      for (const [k, v] of Object.entries(routeDetail)) {
+        if (k === 'request_id' || k === 'client_request_id') continue
+        if (Object.keys(detail).length >= 8) break
+        detail[k] = typeof v === 'string' ? v.slice(0, 256) : v
+      }
     }
+    if (clientRequestId) detail.client_request_id = clientRequestId.slice(0, 128)
     audit({
       category: rule.category,
       action: rule.action,
