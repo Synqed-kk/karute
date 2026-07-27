@@ -49,11 +49,13 @@ export interface AuditLogFilters {
 const PAGE_SIZE = 100
 
 /** View-kind actions (customer.view, privacy.audit_log.view, …) stay out of
- *  the default feed by naming convention. Core's exclude_views (SDK 1.14)
- *  covers the '.view' suffix server-side; this belt still guards the '_view'
- *  suffix core misses — HISTORICAL rows only since the 7/27 respell (old
- *  privacy.audit_log_view rows are append-only forever; core-widen proposal
- *  filed to exclude the class server-side too). */
+ *  the default feed by naming convention. Core's exclude_views excludes BOTH
+ *  suffixes server-side — '.view' since SDK 1.14, '_view' since the 7/27
+ *  widen (synqed-core #56, MERGED + auto-deployed; CI-proven with a posted
+ *  '_view' row asserted excluded and totals exact). Historical
+ *  privacy.audit_log_view rows are therefore excluded from the feed AND its
+ *  total/hasMore counts by the server. This belt is pure defense-in-depth
+ *  (e.g. a core rollback), not a correctness dependency. */
 function isViewAction(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
@@ -192,13 +194,12 @@ export async function listAuditLogWithClient(
       source: actor.source,
     })
 
-    // BELT on top of server exclude_views (packet-18 fix round): core's
-    // exclusion matches endsWith '.view' | ='view' but NOT the '_view' suffix
-    // (verified in synqed-core PR #52's where-clause). Since the 7/27 respell
-    // this row lands server-excluded ('.view'), so the belt's remaining job
-    // is the append-only HISTORICAL '_view' rows — those still inflate
-    // res.total/hasMore slightly in windows that include them (core-widen
-    // proposal filed; drift stopped growing at the respell).
+    // BELT on top of server exclude_views (packet-18 fix round): the server
+    // now excludes BOTH view spellings — '.view' (SDK 1.14) and '_view'
+    // (synqed-core #56, merged + deployed 7/27, CI-proven) — so res.total and
+    // hasMore are exact and no view row of either era reaches this filter in
+    // the default feed. The belt stays as pure defense-in-depth against a
+    // core-side regression, mirroring isViewAction's doc above.
     const events = (res.events as AuditLogEvent[]).filter(
       (e) => filters.includeViews || !isViewAction(e.action),
     )
@@ -218,9 +219,9 @@ export async function listAuditLogWithClient(
       events,
       total: res.total,
       page: res.page,
-      // hasMore follows the server-filtered total; the belt above may hide a
-      // few '_view' rows the server still counts, so a page can render short —
-      // same class of imperfection the pre-18 code had, much smaller window.
+      // hasMore follows the server-filtered total, which is exact since the
+      // #56 widen (server excludes both view spellings from events AND
+      // total) — the belt hides nothing the server counted.
       hasMore: res.page * res.page_size < res.total,
       breakGlassTotal: breakGlassRes
         ? breakGlassRes.total
@@ -228,12 +229,12 @@ export async function listAuditLogWithClient(
           ? res.total
           : null,
       warningsTotal: warnPairOk ? warnPair[0]!.total + warnPair[1]!.total : null,
-      // BLOCKED on the same core '_view' gap: exact 変更 = nvAll − nvWarn −
-      // nvCrit, but nvAll today still counts '_view' rows (e.g. every
-      // audit-log open) as "changes" — a visibly wrong number for the chip.
-      // Held at null so the component keeps its honest client approx + '+'
-      // until core widens exclude_views; then restore the nvAll probe and the
-      // subtraction (shape preserved in this PR's history).
+      // UNBLOCKED as of the #56 widen (nvAll no longer counts '_view' rows):
+      // exact 変更 = nvAll − nvWarn − nvCrit is now computable. Deliberately
+      // NOT restored in this security-fix PR — the nvAll probe + subtraction
+      // is viewer-feature work, queued for Wave V (shape preserved in this
+      // file's history). Held at null; the component keeps its honest client
+      // approx + '+'.
       changesTotal: null,
       targetLabels: await resolveTargetLabels(synqed, events),
     }
