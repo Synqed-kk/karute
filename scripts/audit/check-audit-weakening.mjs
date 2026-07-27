@@ -7,6 +7,8 @@
 //     RECATEGORIZATION (category changed while staying live);
 //   - a non-live row's pendingWave VALUE changing (date pushed out, wave
 //     letter changed) — not a hard-fail on a past date, just ledger-tracked;
+//   - a pendingWave row DELETED or demoted to skip (a dropped commitment —
+//     fresh-eyes fix, 2026-07-28; plain skip rows may come and go freely);
 //   - a live row's action or targetType swapped (still emits, wrong thing);
 //   - an AUDIT_ACTIONS member removed;
 //   - an AUDITED_CORES entry/symbol removed — including renames (rename
@@ -160,14 +162,30 @@ function findRowWeakenings(mainV, headV) {
             note: `${kind} row '${key}' targetType changed '${mainRow.targetType}' → '${headRow.targetType}' (still live)`,
           })
         }
-      } else if (headRow && mainRow.pendingWave && headRow.pendingWave && headRow.pendingWave !== mainRow.pendingWave) {
-        // Non-live in both, but the pendingWave VALUE moved (date pushed out
-        // / wave letter changed) — ledger-tracked, never a hard-fail on a
-        // past date by itself.
-        weakenings.push({
-          key,
-          note: `${kind} row '${key}' pendingWave changed '${mainRow.pendingWave}' → '${headRow.pendingWave}'`,
-        })
+      } else if (mainRow.pendingWave) {
+        // Non-live main row still carrying a COMMITMENT (fresh-eyes fix,
+        // 2026-07-28): the contract's "deleted" clause is unqualified —
+        // dropping a promised row (deleted outright, or demoted to skip) is
+        // the same dropped-commitment class as a pendingWave value change.
+        // Only a plain skip row may come and go freely (its route's deletion
+        // is already tsc-enforced via FacadeEndpointKey totality). The
+        // CP4-orphan → action-member-removal interlock catches SOME of these
+        // transitively, but only when no other source emits the action.
+        if (!headRow) {
+          weakenings.push({ key, note: `${kind} row '${key}' deleted (was pendingWave '${mainRow.pendingWave}')` })
+        } else if (headRow.kind === 'skip' && mainRow.kind !== 'skip') {
+          weakenings.push({
+            key,
+            note: `${kind} row '${key}' pendingWave '${mainRow.pendingWave}' → skip (promised writer dropped)`,
+          })
+        } else if (headRow.pendingWave && headRow.pendingWave !== mainRow.pendingWave) {
+          // pendingWave VALUE moved (date pushed out / wave letter changed)
+          // — ledger-tracked, never a hard-fail on a past date by itself.
+          weakenings.push({
+            key,
+            note: `${kind} row '${key}' pendingWave changed '${mainRow.pendingWave}' → '${headRow.pendingWave}'`,
+          })
+        }
       }
     }
   }
@@ -303,6 +321,18 @@ function main() {
   // provably one-time.
   const mainLedgerText = readAtRef(mainRef, LEDGER_PATH)
   const bootstrapping = mainLedgerText === null
+
+  // Fresh-eyes fix (2026-07-28): a deleted working-tree ledger used to
+  // short-circuit ledgerDiffLines to empty — a PR deleting the ledger while
+  // making no other weakening exited 0, and once merged, main would lack the
+  // ledger and the one-time bootstrap window would REOPEN (defeating the
+  // "keyed on the ledger because it's undeletable" reasoning above).
+  // Deletion/rename of an existing ledger is a hard fail outright.
+  if (!bootstrapping && !existsSync(join(ROOT, LEDGER_PATH))) {
+    fail(
+      `${LEDGER_PATH} exists at ${mainRef} but is missing from the working tree — the ledger is append-only and must never be deleted or renamed.`,
+    )
+  }
 
   const mainV = parseVersion(mainAuditText, mainPolicyText, mainRef)
 

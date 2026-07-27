@@ -57,18 +57,24 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: dummy-not-a-key
 
       - name: Audit actions doc is up to date
+        # Direct node invocation, NOT `npm run` (fresh-eyes fix, 2026-07-28):
+        # package.json is not CODEOWNERS-protected, so an npm-script
+        # indirection would let a PR redefine the gate to a no-op without
+        # touching any protected file. This workflow and scripts/audit/ both
+        # ARE protected. The npm scripts remain for local use.
         run: |
-          npm run audit:actions-doc
+          node scripts/audit/generate-audit-actions-doc.mjs
           git diff --quiet -- docs/AUDIT_ACTIONS.md || { echo "::error::docs/AUDIT_ACTIONS.md is stale — run npm run audit:actions-doc"; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
 
       - name: Audit weakening gate
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
         # default shallow clone has no refs/remotes/origin/main until this
         # fetches it — check-audit-weakening.mjs falls back to FETCH_HEAD if
-        # the ref is still absent for any reason.
+        # the ref is still absent for any reason. Direct node invocation for
+        # the same CODEOWNERS reason as the doc step above.
         run: |
           git fetch origin main:refs/remotes/origin/main --depth=1
-          npm run audit:weakening
+          node scripts/audit/check-audit-weakening.mjs
 
       - name: Thin bundle gate (size budget + purchase exclusion)
         # The gate breached silently for weeks because it only ran by hand
