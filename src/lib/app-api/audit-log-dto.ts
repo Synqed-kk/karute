@@ -13,7 +13,7 @@ const AuditLogEventSchema = z.object({
   actor_id: z.string().nullable(),
   actor_type: z.string(),
   category: z.string(),
-  action: z.string(),
+  action: z.string(), // stays a plain string, not AuditAction — this viewer renders core-side rows too, whose action names are outside the app's taxonomy (proof-suite PR, 2026-07-27).
   target_type: z.string().nullable(),
   target_id: z.string().nullable(),
   target_label: z.string().nullable(),
