@@ -512,23 +512,33 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
 
   // karute.regenerate (§3.1: "mutation → karute.entries_regenerate /
   // karute.summary_regenerate", canon Wave 2, batch rules canon §4.2): the
-  // table gives TWO possible actions for this ONE static endpoint key — which
-  // one fires depends on the regenerate mode in the request body, and
-  // FacadeAuditRule's action is a fixed string per key, so neither can be
-  // picked correctly from this map alone. Marked pendingWave rather than
-  // guess-and-possibly-mislabel a security-sensitive row; flagged for the
-  // director — resolving this needs either two endpoint keys or a
-  // request-body-driven action, both outside a map-totality PR's scope.
-  // Which shape wins (two-key split vs body-driven single action) is itself
-  // a Wave W design decision, not resolved by this PR — the action string
-  // below is a placeholder until then, not a locked-in choice.
+  // (FIX ROUND 1 #14 — fact-check correction: the route (src/app/api/app/v1/
+  // karute/[id]/regenerate/route.ts) reads NO body at all — only `id` from
+  // params and `locale` from a query string — so there is no "mode" for a
+  // second action to depend on; regenerateKaruteWithClient (src/actions/
+  // regenerate-karute.ts) never mentions a summary-regenerate action either.
+  // Only karute.entries_regenerate exists. pendingWave stays: the writer
+  // (the three SDK calls inside regenerateKaruteEntriesWithClient/rollback/
+  // updateKaruteSummaryWithClient) isn't wired to emit this action yet — see
+  // SDK_WRITE_ALLOWLIST's regenerate-karute.ts entries.
   'karute.regenerate': { kind: 'mutation', category: 'karute', action: 'karute.entries_regenerate', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
 
-  // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest") —
-  // all three skip, coveredBy the SAME choke point as karute.save/
-  // karute.entry.update above: the pipeline's ONE eventual karute.save call
-  // is what logs, not the enqueue/mint/upload-url steps that stage it.
-  'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
+  // recordings.* (§3.1: "Inventory-verified; CP2 keeps the claim honest").
+  // recordings.job.enqueue: the job-pipeline's OWN choke point is
+  // process-recording.ts#processJob (karute.ts's own header on
+  // createOrUpdateKaruteRecord says "process-recording.ts does NOT call this
+  // function" — verified, FIX ROUND 1 #17) — the enqueue step routes
+  // EXCLUSIVELY into that worker, never into the interactive save.
+  'recordings.job.enqueue': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/lib/jobs/process-recording.ts#processJob' },
+  // recordings.session.mint / recordings.uploadUrl: BOTH stage audio/ids for
+  // EITHER downstream pipeline (verified at source: thin's
+  // viteRecordingPort.prepareTranscription AND .stageForJob both call the
+  // SAME upload-url facade endpoint before diverging — one leg reaches
+  // createOrUpdateKaruteRecord via the interactive transcribe→save flow, the
+  // other reaches processJob via enqueueJob). coveredBy keeps citing the
+  // interactive choke point (the default/primary flow when no job is
+  // enqueued); the job-pipeline alternative is real too and not reducible to
+  // one symbol — flagged here rather than silently picking one truth.
   'recordings.session.mint': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
   'recordings.uploadUrl': { kind: 'skip', category: 'recording', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
 
