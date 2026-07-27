@@ -7,6 +7,15 @@
 // from disk" contract (contract §8).
 import ts from 'typescript'
 
+// Fix round 1 #3 — spread-blindness: a SpreadElement/SpreadAssignment (or any
+// other node shape none of the branches below recognize) inside one of the
+// six parsed structures must fail the WHOLE parse loudly (null → CP8 exit 2),
+// never be silently skipped. Silently skipping a spread would let a
+// programmatically-assembled entry (`...someObject`) hide a write/action from
+// every downstream scan while still compiling. Thrown internally, caught only
+// at each exported function's boundary.
+class AuditParseFailure extends Error {}
+
 function sourceFileOf(text, fileName) {
   return ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
 }
@@ -35,11 +44,23 @@ function objectLiteralProps(objLit) {
   const out = []
   if (!objLit || !ts.isObjectLiteralExpression(objLit)) return out
   for (const prop of objLit.properties) {
+    if (ts.isSpreadAssignment(prop)) throw new AuditParseFailure()
     if (!ts.isPropertyAssignment(prop)) continue
     const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
     out.push({ key, valueNode: prop.initializer })
   }
   return out
+}
+
+/** Runs `fn`, returning null instead of throwing if it hit a spread (or other
+ *  non-conforming shape) anywhere in the structure it walked. */
+function parseOrNull(fn) {
+  try {
+    return fn()
+  } catch (e) {
+    if (e instanceof AuditParseFailure) return null
+    throw e
+  }
 }
 
 function extractFacadeRule(objLit) {
@@ -48,6 +69,7 @@ function extractFacadeRule(objLit) {
     if (key === 'kind') rule.kind = literalString(valueNode)
     if (key === 'category') rule.category = literalString(valueNode)
     if (key === 'action') rule.action = literalString(valueNode) ?? ''
+    if (key === 'targetType') rule.targetType = literalString(valueNode)
     if (key === 'pendingWave') rule.pendingWave = literalString(valueNode)
     if (key === 'coveredBy') rule.coveredBy = literalString(valueNode)
   }
@@ -63,14 +85,17 @@ export function parseFacadeAuditMap(sourceText) {
   const sf = sourceFileOf(sourceText, 'audit.ts')
   const objLit = findTopLevelDeclaration(sf, 'FACADE_AUDIT_MAP')
   if (!objLit || !ts.isObjectLiteralExpression(objLit)) return null
-  const rows = {}
-  for (const prop of objLit.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue
-    const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
-    if (!key) continue
-    rows[key] = extractFacadeRule(prop.initializer)
-  }
-  return rows
+  return parseOrNull(() => {
+    const rows = {}
+    for (const prop of objLit.properties) {
+      if (ts.isSpreadAssignment(prop)) throw new AuditParseFailure()
+      if (!ts.isPropertyAssignment(prop)) continue
+      const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
+      if (!key) continue
+      rows[key] = extractFacadeRule(prop.initializer)
+    }
+    return rows
+  })
 }
 
 /** Parses `export const API_ROUTE_DECISIONS: Record<...> = {...}` — each
@@ -81,28 +106,31 @@ export function parseApiRouteDecisions(sourceText) {
   const sf = sourceFileOf(sourceText, 'audit.ts')
   const objLit = findTopLevelDeclaration(sf, 'API_ROUTE_DECISIONS')
   if (!objLit || !ts.isObjectLiteralExpression(objLit)) return null
-  const rows = {}
-  for (const prop of objLit.properties) {
-    if (!ts.isPropertyAssignment(prop)) continue
-    const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
-    if (!key) continue
-    const val = prop.initializer
-    if (ts.isObjectLiteralExpression(val)) {
-      const props = objectLiteralProps(val)
-      const isFlat = props.some((p) => p.key === 'kind')
-      if (isFlat) {
-        rows[key] = extractFacadeRule(val)
-      } else {
-        // method-keyed: { GET: {...}, POST: {...} }
-        for (const { key: method, valueNode } of props) {
-          if (ts.isObjectLiteralExpression(valueNode)) {
-            rows[`${key}.${method}`] = extractFacadeRule(valueNode)
+  return parseOrNull(() => {
+    const rows = {}
+    for (const prop of objLit.properties) {
+      if (ts.isSpreadAssignment(prop)) throw new AuditParseFailure()
+      if (!ts.isPropertyAssignment(prop)) continue
+      const key = literalString(prop.name) ?? (ts.isIdentifier(prop.name) ? prop.name.text : undefined)
+      if (!key) continue
+      const val = prop.initializer
+      if (ts.isObjectLiteralExpression(val)) {
+        const props = objectLiteralProps(val)
+        const isFlat = props.some((p) => p.key === 'kind')
+        if (isFlat) {
+          rows[key] = extractFacadeRule(val)
+        } else {
+          // method-keyed: { GET: {...}, POST: {...} }
+          for (const { key: method, valueNode } of props) {
+            if (ts.isObjectLiteralExpression(valueNode)) {
+              rows[`${key}.${method}`] = extractFacadeRule(valueNode)
+            }
           }
         }
       }
     }
-  }
-  return rows
+    return rows
+  })
 }
 
 /** Parses `export const AUDIT_ACTIONS = [...] as const` from
@@ -114,12 +142,16 @@ export function parseAuditActions(policySourceText) {
   // `[...] as const` wraps the ArrayLiteralExpression in an AsExpression.
   const arrayNode = ts.isAsExpression(arr) ? arr.expression : arr
   if (!ts.isArrayLiteralExpression(arrayNode)) return null
-  const out = []
-  for (const el of arrayNode.elements) {
-    const s = literalString(el)
-    if (s) out.push(s)
-  }
-  return out
+  return parseOrNull(() => {
+    const out = []
+    for (const el of arrayNode.elements) {
+      if (ts.isSpreadElement(el)) throw new AuditParseFailure()
+      const s = literalString(el)
+      if (s === undefined) throw new AuditParseFailure()
+      out.push(s)
+    }
+    return out
+  })
 }
 
 /** Parses `export const AUDITED_CORES: ... = [...]` → [{file, symbols}].
@@ -128,38 +160,60 @@ export function parseAuditedCores(policySourceText) {
   const sf = sourceFileOf(policySourceText, 'audit-policy.ts')
   const arr = findTopLevelDeclaration(sf, 'AUDITED_CORES')
   if (!arr || !ts.isArrayLiteralExpression(arr)) return null
-  const out = []
-  for (const el of arr.elements) {
-    if (!ts.isObjectLiteralExpression(el)) continue
-    let file
-    let symbols = []
-    for (const { key, valueNode } of objectLiteralProps(el)) {
-      if (key === 'file') file = literalString(valueNode)
-      if (key === 'symbols' && ts.isArrayLiteralExpression(valueNode)) {
-        symbols = valueNode.elements.map(literalString).filter(Boolean)
+  return parseOrNull(() => {
+    const out = []
+    for (const el of arr.elements) {
+      if (ts.isSpreadElement(el)) throw new AuditParseFailure()
+      if (!ts.isObjectLiteralExpression(el)) throw new AuditParseFailure()
+      let file
+      let symbols = []
+      for (const { key, valueNode } of objectLiteralProps(el)) {
+        if (key === 'file') file = literalString(valueNode)
+        if (key === 'symbols') {
+          if (!ts.isArrayLiteralExpression(valueNode)) throw new AuditParseFailure()
+          symbols = valueNode.elements.map((s) => {
+            if (ts.isSpreadElement(s)) throw new AuditParseFailure()
+            const str = literalString(s)
+            if (str === undefined) throw new AuditParseFailure()
+            return str
+          })
+        }
       }
+      if (file) out.push({ file, symbols })
     }
-    if (file) out.push({ file, symbols })
-  }
-  return out
+    return out
+  })
 }
 
 /** Parses either SDK_WRITE_ALLOWLIST or RAW_SUPABASE_WRITE_ALLOWLIST →
- *  [{file, call}]. Returns null on parse failure. */
+ *  [{file, call, symbols}]. Returns null on parse failure. */
 export function parseAllowlist(policySourceText, exportName) {
   const sf = sourceFileOf(policySourceText, 'audit-policy.ts')
   const arr = findTopLevelDeclaration(sf, exportName)
   if (!arr || !ts.isArrayLiteralExpression(arr)) return null
-  const out = []
-  for (const el of arr.elements) {
-    if (!ts.isObjectLiteralExpression(el)) continue
-    let file
-    let call
-    for (const { key, valueNode } of objectLiteralProps(el)) {
-      if (key === 'file') file = literalString(valueNode)
-      if (key === 'call') call = literalString(valueNode)
+  return parseOrNull(() => {
+    const out = []
+    for (const el of arr.elements) {
+      if (ts.isSpreadElement(el)) throw new AuditParseFailure()
+      if (!ts.isObjectLiteralExpression(el)) throw new AuditParseFailure()
+      let file
+      let call
+      let symbols = []
+      for (const { key, valueNode } of objectLiteralProps(el)) {
+        if (key === 'file') file = literalString(valueNode)
+        if (key === 'call') call = literalString(valueNode)
+        if (key === 'symbols') {
+          if (!ts.isArrayLiteralExpression(valueNode)) throw new AuditParseFailure()
+          symbols = valueNode.elements.map((s) => {
+            if (ts.isSpreadElement(s)) throw new AuditParseFailure()
+            const str = literalString(s)
+            if (str === undefined) throw new AuditParseFailure()
+            return str
+          })
+        }
+      }
+      if (file && call) out.push({ file, call, symbols })
     }
-    if (file && call) out.push({ file, call })
-  }
-  return out
+    return out
+  })
 }

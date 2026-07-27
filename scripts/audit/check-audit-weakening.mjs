@@ -142,6 +142,22 @@ function findRowWeakenings(mainV, headV) {
             note: `${kind} row '${key}' recategorized ${mainRow.category} → ${headRow.category} (still live)`,
           })
         }
+        // Fix round 1 #10: a live row's action or targetType swapping is
+        // silent — same "still emits, but now the WRONG thing" class as a
+        // recategorization, and it's exactly what the deleted
+        // facade-audit-totality.test.ts hardcoded pin used to catch.
+        if (headRow.action !== mainRow.action) {
+          weakenings.push({
+            key,
+            note: `${kind} row '${key}' action changed '${mainRow.action}' → '${headRow.action}' (still live)`,
+          })
+        }
+        if (headRow.targetType !== mainRow.targetType) {
+          weakenings.push({
+            key,
+            note: `${kind} row '${key}' targetType changed '${mainRow.targetType}' → '${headRow.targetType}' (still live)`,
+          })
+        }
       } else if (headRow && mainRow.pendingWave && headRow.pendingWave && headRow.pendingWave !== mainRow.pendingWave) {
         // Non-live in both, but the pendingWave VALUE moved (date pushed out
         // / wave letter changed) — ledger-tracked, never a hard-fail on a
@@ -164,27 +180,18 @@ function findActionWeakenings(mainV, headV) {
 }
 
 export function findAuditedCoresWeakenings(mainV, headV) {
+  // Fix round 1 #8: rename tolerance REMOVED entirely — symbol-set matching
+  // is unsound with generic route symbol lists (['GET'] / ['POST'] appear on
+  // multiple registry entries), so both a subset check and an equality check
+  // are defeated by an added unrelated route claiming to be "the rename". A
+  // genuine file rename now takes one ledger line, same as any other
+  // deliberate weakening — simpler and sound, not simplified-but-leaky.
   const weakenings = []
   const headCoresByFile = new Map(headV.auditedCores.map((e) => [e.file, new Set(e.symbols)]))
-  const mainFiles = new Set(mainV.auditedCores.map((e) => e.file))
 
   for (const entry of mainV.auditedCores) {
     const headSymbols = headCoresByFile.get(entry.file)
     if (!headSymbols) {
-      // Rename tolerance (contract §8 v2 Deliverable 7): the entry's FULL
-      // symbol set reappears — subset containment — inside ONE entry that is
-      // ADDED in this same diff (its file absent from main's registry). The
-      // added-only restriction is load-bearing: registry entries for route
-      // files share generic symbol names (['GET'], ['POST']), so containment
-      // in ANY pre-existing entry would let a deleted route entry masquerade
-      // as a rename into an unrelated route (Fable audit finding, 7/27).
-      const renamedInto = headV.auditedCores.some(
-        (headEntry) =>
-          !mainFiles.has(headEntry.file) &&
-          entry.symbols.length > 0 &&
-          entry.symbols.every((s) => headEntry.symbols.includes(s)),
-      )
-      if (renamedInto) continue
       weakenings.push({ key: entry.file, note: `AUDITED_CORES entry '${entry.file}' removed` })
       continue
     }
@@ -215,14 +222,29 @@ function findAllowlistWeakenings(mainV, headV, bootstrapping) {
     ['RAW_SUPABASE_WRITE_ALLOWLIST', mainV.rawAllowlist, headV.rawAllowlist],
   ]
   for (const [listName, mainList, headList] of allowlistSources) {
-    const mainSet = new Set(mainList.map((e) => `${e.file}::${e.call}`))
+    const mainById = new Map(mainList.map((e) => [`${e.file}::${e.call}`, e]))
     for (const entry of headList) {
       const id = `${entry.file}::${entry.call}`
-      if (!mainSet.has(id)) {
+      const mainEntry = mainById.get(id)
+      if (!mainEntry) {
         weakenings.push({
           key: entry.call,
           note: `${listName} addition: ${entry.file} '${entry.call}' (new legal silent write)`,
         })
+        continue
+      }
+      // Fix round 1 #7: a symbol ADDED to an existing (file, call) entry
+      // grants amnesty to a NEW site the entry never covered before — the
+      // same "newly-legalized silent write" class as a brand-new entry, just
+      // scoped one level deeper.
+      const mainSymbols = new Set(mainEntry.symbols ?? [])
+      for (const symbol of entry.symbols ?? []) {
+        if (!mainSymbols.has(symbol)) {
+          weakenings.push({
+            key: `${entry.call}#${symbol}`,
+            note: `${listName} symbol addition: ${entry.file} '${entry.call}' gained symbol '${symbol}' (new legal silent write)`,
+          })
+        }
       }
     }
   }
