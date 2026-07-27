@@ -7,6 +7,26 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   enforceAiRateLimit: jest.fn(async () => null),
 }))
 
+// Mutable auth scenario for the fail-fast guard test below (declared before
+// the jest.mock call it's referenced from — see consent-save-gate.test.ts).
+const authScenario: { user: { id: string } | null } = { user: { id: 'user-1' } }
+
+// Supabase server client is used for the auth guard. Return a chain stub so
+// .from().select().limit().single() resolves without a real DB — mirrors
+// api-extract.test.ts's shape (kept complete even though this route's own
+// reachable paths don't call .from(), so an unmocked caller degrades to a
+// harmless empty result instead of throwing).
+jest.mock('@/lib/supabase/server', () => ({
+  createClient: jest.fn(async () => ({
+    auth: { getUser: jest.fn(async () => ({ data: { user: authScenario.user }, error: null })) },
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null }),
+    })),
+  })),
+}))
+
 // The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
 // the rate limiter above. Allowed by default; the gate's own behavior is
 // covered in api-extract.test.ts + subscription-enforcement.test.ts.
@@ -19,12 +39,30 @@ jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => ({ speaker_diarization: true })),
 }))
 
+// Speaker-id voiceprint resolution is exercised in its own test — keep the
+// transcribe tests focused on Deepgram wiring. Without this stub, a non-null
+// auth user (above) makes getCurrentUserStaffId() walk into
+// getBusinessId()/staffListByBusiness(), which hit the REAL (unmocked)
+// service-role client from @/lib/supabase/service. That client resolves its
+// fetch implementation lazily against whatever `global.fetch` currently is
+// (@supabase/supabase-js's resolveFetch — `(...args) => fetch(...args)`), so
+// it silently piggybacks on fetchMock below: a phantom
+// GET .../rest/v1/profiles call lands as fetchMock's call #0 and drains the
+// single shared Deepgram Response's body before Deepgram is ever reached.
+// Stubbing the staff-id boundary closes that off at its source.
+jest.mock('@/lib/staff', () => ({
+  getCurrentUserStaffId: jest.fn(async () => null),
+}))
+
 // Deepgram is reached via global fetch in lib/deepgram.ts. Stub fetch so the
-// test runs offline with a deterministic transcript.
+// test runs offline with a deterministic transcript. Installed in beforeEach
+// (not beforeAll) so it's freshly (re)applied after all module loading, on
+// top of a clean slate every test — cheap insurance against any other suite
+// or boundary leaving `global.fetch` in an unexpected state.
 const fetchMock = jest.fn()
 const originalFetch = global.fetch
+
 beforeAll(() => {
-  global.fetch = fetchMock as unknown as typeof global.fetch
   process.env.DEEPGRAM_API_KEY = 'test-key'
   // Pin the SSRF allowlist host so the audioUrl guard is deterministic here.
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test-dummy.supabase.co'
@@ -36,6 +74,8 @@ afterAll(() => {
 beforeEach(() => {
   jest.clearAllMocks()
   fetchMock.mockReset()
+  global.fetch = fetchMock as unknown as typeof global.fetch
+  authScenario.user = { id: 'user-1' }
 })
 
 function deepgramResponse(transcript: string): Response {
@@ -74,6 +114,31 @@ function deepgramResponse(transcript: string): Response {
 }
 
 describe('POST /api/ai/transcribe', () => {
+  it('returns 401 for anonymous callers before the rate limiter runs (fail-fast auth guard)', async () => {
+    authScenario.user = null
+    const { enforceAiRateLimit } = jest.requireMock('@/lib/ai-rate-limit')
+
+    const formData = new FormData()
+    const audioBlob = new Blob(['fake-audio'], { type: 'audio/webm' })
+    formData.append('audio', audioBlob, 'audio.webm')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          body: formData,
+        })
+
+        expect(response.status).toBe(401)
+        const body = await response.json()
+        expect(body.error).toBe('Unauthorized')
+        expect(enforceAiRateLimit).not.toHaveBeenCalled()
+        expect(fetchMock).not.toHaveBeenCalled()
+      },
+    })
+  })
+
   it('returns transcript for valid audio upload', async () => {
     fetchMock.mockResolvedValue(deepgramResponse('こんにちは'))
 

@@ -57,6 +57,11 @@ export default async function SettingsPage({
   const canInviteStaff = caps.has('staff.invite')
   // 監査ログ: owner always; a manager only via the explicit audit.view grant.
   const canViewAudit = isOwner || caps.has('audit.view')
+  // 予約同期: owner always; a manager only via the explicit sync.view grant —
+  // same posture as canViewAudit (PR-M2 fix round: the tab had no filter at
+  // all, so every non-owner staff could open it and hit a 403 from the
+  // now-gated sync routes).
+  const canViewSync = isOwner || caps.has('sync.view')
 
   // Deep-link support (?tab=audit&target=<customerId> from the privacy tab's
   // アクセス履歴 row). Unknown tab values — and audit links followed by staff
@@ -77,6 +82,7 @@ export default async function SettingsPage({
         canManageStaff={canManageStaff}
         canInviteStaff={canInviteStaff}
         canViewAudit={canViewAudit}
+        canViewSync={canViewSync}
         initialTab={initialTab}
         auditTargetId={auditTargetId}
         initialStores={canViewAllStores ? stores : []}

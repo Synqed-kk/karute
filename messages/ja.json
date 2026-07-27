@@ -2175,7 +2175,10 @@
           "customer_delete_canceled": "顧客削除を取り消し",
           "customer_delete_executed": "顧客データを完全削除",
           "voice_enroll": "音声を登録",
-          "voice_revoke": "音声を削除"
+          "voice_revoke": "音声を削除",
+          "audit_log": {
+            "view": "監査ログを閲覧"
+          }
         },
         "booking": {
           "create": "予約の作成",
@@ -3026,7 +3029,7 @@
     "cap_staff_manage": "スタッフの管理・削除",
     "cap_settings_manage": "店舗設定",
     "cap_audit_view": "監査ログ",
-    "cap_sync_view": "予約同期ステータス",
+    "cap_sync_view": "予約同期",
     "cap_data_export": "データの書き出し・取り込み",
     "cap_records_delete": "記録の削除",
     "cap_records_write": "録音・カルテ編集",

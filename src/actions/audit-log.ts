@@ -3,7 +3,7 @@
 // 監査ログ viewer read path (AUDIT-LOG-DESIGN.md §11, fix-plan P1-D).
 // Owner-only by default; a manager reaches it only via the explicit audit.view
 // grant — enforced HERE (the tab filter is exposure reduction, not security).
-import { getSynqedClient } from '@/lib/synqed/client'
+import { newSynqedClient } from '@/lib/synqed/client'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
 import { audit } from '@/lib/audit'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
@@ -44,18 +44,18 @@ export interface AuditLogFilters {
   includeViews?: boolean
   breakGlass?: boolean
   page?: number
-  /** Set by the section on its FIRST fetch only — one privacy.audit_log_view
-   *  row per open, not per filter click. Best-effort UI semantics: the caller
-   *  is already audit.view-gated above, so this flag only shapes volume. */
-  logOpen?: boolean
 }
 
 const PAGE_SIZE = 100
 
-/** View-kind actions (customer.view, privacy.audit_log_view, …) stay out of
- *  the default feed by naming convention. Core's exclude_views (SDK 1.14)
- *  covers the '.view' suffix server-side; this belt still guards the '_view'
- *  suffix core misses (audit_log_view) until the core-side widen ships. */
+/** View-kind actions (customer.view, privacy.audit_log.view, …) stay out of
+ *  the default feed by naming convention. Core's exclude_views excludes BOTH
+ *  suffixes server-side — '.view' since SDK 1.14, '_view' since the 7/27
+ *  widen (synqed-core #56, MERGED + auto-deployed; CI-proven with a posted
+ *  '_view' row asserted excluded and totals exact). Historical
+ *  privacy.audit_log_view rows are therefore excluded from the feed AND its
+ *  total/hasMore counts by the server. This belt is pure defense-in-depth
+ *  (e.g. a core rollback), not a correctness dependency. */
 function isViewAction(action: string): boolean {
   return action.endsWith('.view') || action.endsWith('_view')
 }
@@ -88,13 +88,15 @@ type ListAuditLogResult =
 
 /** Client-threaded core of listAuditLog (facade Bearer path, design-parity
  *  packet 17 §S3 — the 監査ログ tab going live). Carries the post-gate read
- *  AND the logOpen write so web and facade can never diverge; `actor` is the
- *  ONLY thing that differs between callers (cookie-resolved staff/business
- *  for web, Bearer-resolved for the facade) — null when this fetch isn't
- *  opening the log (filter clicks and paging never write the row). */
+ *  AND the privacy.audit_log.view write so web and facade can never diverge;
+ *  `actor` is the ONLY thing that differs between callers (cookie-resolved
+ *  staff/business for web, Bearer-resolved for the facade) — always resolved
+ *  by the caller now (contract §3.1, PR-M1): a client-supplied flag can no
+ *  longer decide whether a read gets disclosed, so every invocation of this
+ *  read — page 1, paging, filtered — writes its own row on success. */
 export async function listAuditLogWithClient(
-  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
-  actor: { staffId: string | null; businessId: string | null; source: 'web' | 'facade' } | null,
+  synqed: ReturnType<typeof newSynqedClient>,
+  actor: { staffId: string | null; businessId: string | null; source: 'web' | 'facade' },
   filters: AuditLogFilters,
 ): Promise<ListAuditLogResult> {
   try {
@@ -172,30 +174,32 @@ export async function listAuditLogWithClient(
             }).catch(() => null),
       ])
 
-    // Opening the 監査ログ is itself a privileged read — one row per open
-    // (the section sends logOpen on its first fetch only; filter clicks and
-    // paging are the same open). Its _view suffix keeps it out of the
-    // default feed like every other view event.
-    if (filters.logOpen) {
-      audit({
-        category: 'privacy',
-        action: 'privacy.audit_log_view',
-        actorId: actor?.staffId ?? null,
-        actorType: 'staff',
-        businessId: actor?.businessId ?? null,
-        ...(filters.targetId
-          ? { targetType: 'customer' as const, targetId: filters.targetId }
-          : {}),
-        source: actor?.source ?? 'web',
-      })
-    }
+    // Reading the 監査ログ is itself a privileged read — ONE row per
+    // invocation of this read (contract §3.1, PR-M1): page 1, paging, and
+    // filter clicks each write their own row now — no client-supplied flag
+    // gates it. The '.view' suffix (respelled from '_view', Liam 7/27 —
+    // §3.1 key amendment) puts it inside core's server-side exclude_views
+    // match, so the default feed's total/hasMore stay exact — no drift from
+    // this row's own volume. Historical '_view'-spelled rows stay hidden by
+    // the client belt below.
+    audit({
+      category: 'privacy',
+      action: 'privacy.audit_log.view',
+      actorId: actor.staffId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      ...(filters.targetId
+        ? { targetType: 'customer' as const, targetId: filters.targetId }
+        : {}),
+      source: actor.source,
+    })
 
-    // BELT on top of server exclude_views (packet-18 fix round): core's
-    // exclusion matches endsWith '.view' | ='view' but NOT the '_view' suffix
-    // (verified in synqed-core PR #52's where-clause), so its filter alone
-    // would surface privacy.audit_log_view rows in the default feed. Client
-    // filter re-applied until core widens (Anthony ask pending); the server
-    // param still does the bulk work and keeps res.total near-exact.
+    // BELT on top of server exclude_views (packet-18 fix round): the server
+    // now excludes BOTH view spellings — '.view' (SDK 1.14) and '_view'
+    // (synqed-core #56, merged + deployed 7/27, CI-proven) — so res.total and
+    // hasMore are exact and no view row of either era reaches this filter in
+    // the default feed. The belt stays as pure defense-in-depth against a
+    // core-side regression, mirroring isViewAction's doc above.
     const events = (res.events as AuditLogEvent[]).filter(
       (e) => filters.includeViews || !isViewAction(e.action),
     )
@@ -204,9 +208,10 @@ export async function listAuditLogWithClient(
     // count all warn/crit (warnAll/critAll). Pair must be complete — never a
     // partial sum from a failed probe (T1). Exactness in the hidden state
     // additionally rests on no '_view'-suffix action ever carrying warn/crit
-    // severity (today's only one, privacy.audit_log_view, is always info) —
-    // if the audit taxonomy ever grows one, it inherits the same core-side
-    // exclude_views gap 変更 is parked on below.
+    // severity (the only rows ever written with that spelling — historical
+    // privacy.audit_log_view — are always info) — if the audit taxonomy ever
+    // grows one, it inherits the same core-side exclude_views gap 変更 is
+    // parked on below.
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
     return {
@@ -214,9 +219,9 @@ export async function listAuditLogWithClient(
       events,
       total: res.total,
       page: res.page,
-      // hasMore follows the server-filtered total; the belt above may hide a
-      // few '_view' rows the server still counts, so a page can render short —
-      // same class of imperfection the pre-18 code had, much smaller window.
+      // hasMore follows the server-filtered total, which is exact since the
+      // #56 widen (server excludes both view spellings from events AND
+      // total) — the belt hides nothing the server counted.
       hasMore: res.page * res.page_size < res.total,
       breakGlassTotal: breakGlassRes
         ? breakGlassRes.total
@@ -224,12 +229,12 @@ export async function listAuditLogWithClient(
           ? res.total
           : null,
       warningsTotal: warnPairOk ? warnPair[0]!.total + warnPair[1]!.total : null,
-      // BLOCKED on the same core '_view' gap: exact 変更 = nvAll − nvWarn −
-      // nvCrit, but nvAll today still counts '_view' rows (e.g. every
-      // audit-log open) as "changes" — a visibly wrong number for the chip.
-      // Held at null so the component keeps its honest client approx + '+'
-      // until core widens exclude_views; then restore the nvAll probe and the
-      // subtraction (shape preserved in this PR's history).
+      // UNBLOCKED as of the #56 widen (nvAll no longer counts '_view' rows):
+      // exact 変更 = nvAll − nvWarn − nvCrit is now computable. Deliberately
+      // NOT restored in this security-fix PR — the nvAll probe + subtraction
+      // is viewer-feature work, queued for Wave V (shape preserved in this
+      // file's history). Held at null; the component keeps its honest client
+      // approx + '+'.
       changesTotal: null,
       targetLabels: await resolveTargetLabels(synqed, events),
     }
@@ -238,31 +243,37 @@ export async function listAuditLogWithClient(
   }
 }
 
-/** Thin wrapper — resolves the cookie session into `actor` ONLY when opening
- *  the log (the cookie reads stay gated exactly as before: filters.logOpen
- *  decides whether they run at all), then delegates to the twin. */
+/** Thin wrapper — always resolves the cookie session into `actor` (contract
+ *  §3.1, PR-M1: every invocation writes its own row, so every invocation
+ *  needs the actor), then delegates to the twin. businessId is resolved ONCE
+ *  and feeds BOTH the client construction and the audit row (blind-round
+ *  security find, ledger #8): two independent resolves could diverge under a
+ *  future de-memoization of getBusinessId, and a divergence would silently
+ *  skip the durable row (audit() drops core forwarding when businessId is
+ *  null) — single-sourcing makes that structurally impossible, matching how
+ *  the facade route builds both from one ctx.identity.businessId. */
 export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditLogResult> {
   try {
     ensureCapability(await getMyCapabilities(), 'audit.view')
   } catch {
     return { ok: false, error: 'forbidden' }
   }
-  // Pre-extraction this call sat inside the read's own try — a failed client
-  // construction must keep returning the 'failed' envelope, never throw
-  // across the server-action boundary.
-  let synqed: Awaited<ReturnType<typeof getSynqedClient>>
+  // A failed session/business resolve or client construction must keep
+  // returning the 'failed' envelope, never throw across the server-action
+  // boundary (and never proceed to an unattributable read).
+  let businessId: string
+  let synqed: ReturnType<typeof newSynqedClient>
   try {
-    synqed = await getSynqedClient()
+    businessId = await getBusinessId()
+    synqed = newSynqedClient(businessId)
   } catch {
     return { ok: false, error: 'failed' }
   }
-  const actor = filters.logOpen
-    ? {
-        staffId: await getCurrentUserStaffId().catch(() => null),
-        businessId: await getBusinessId().catch(() => null),
-        source: 'web' as const,
-      }
-    : null
+  const actor = {
+    staffId: await getCurrentUserStaffId().catch(() => null),
+    businessId,
+    source: 'web' as const,
+  }
   return listAuditLogWithClient(synqed, actor, filters)
 }
 
@@ -271,7 +282,7 @@ export async function listAuditLog(filters: AuditLogFilters): Promise<ListAuditL
  *  customers resolve while soft-deleted (include_deleted); hard-purged rows
  *  simply don't — the row's id stands, which is the honest state. */
 async function resolveTargetLabels(
-  synqed: Awaited<ReturnType<typeof getSynqedClient>>,
+  synqed: ReturnType<typeof newSynqedClient>,
   events: AuditLogEvent[],
 ): Promise<Record<string, string>> {
   const idsOf = (type: string) =>

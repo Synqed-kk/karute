@@ -40,3 +40,24 @@ describe('i18n key parity (en ⇄ ja)', () => {
     expect(missingInEn).toEqual([])
   })
 })
+
+// 監査ログ action labels (PR-M1 respell): the viewer resolves a row's label via
+// t(`actions.${action}`) inside the settings.auditLog namespace, and next-intl
+// treats dots as NESTING — so the emitted action string and the message-file
+// key structure must agree, or the row renders its raw action string. The
+// delta-verify round caught exactly that for the 7/27 respell.
+describe('監査ログ action label paths', () => {
+  const enKeys = new Set(flattenKeys(en as Json))
+  const jaKeys = new Set(flattenKeys(ja as Json))
+
+  it('the emitted privacy.audit_log.view action resolves in both locales', () => {
+    // Must match the literal emitted in src/actions/audit-log.ts.
+    expect(enKeys.has('settings.auditLog.actions.privacy.audit_log.view')).toBe(true)
+    expect(jaKeys.has('settings.auditLog.actions.privacy.audit_log.view')).toBe(true)
+  })
+
+  it('the historical flat spelling keeps its label (old rows still render)', () => {
+    expect(enKeys.has('settings.auditLog.actions.privacy.audit_log_view')).toBe(true)
+    expect(jaKeys.has('settings.auditLog.actions.privacy.audit_log_view')).toBe(true)
+  })
+})

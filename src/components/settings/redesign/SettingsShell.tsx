@@ -161,6 +161,9 @@ interface SettingsShellProps {
   canInviteStaff: boolean
   /** owner OR explicit audit.view grant — gates the 監査ログ tab. */
   canViewAudit: boolean
+  /** owner OR explicit sync.view grant — gates the 予約同期 tab (PR-M2 fix
+   *  round). Same idiom as canViewAudit. */
+  canViewSync: boolean
   /** Deep-link tab (?tab=…): opens drilled-in on mobile, selected on desktop. */
   initialTab?: SettingsTabId | null
   /** Customer id for the 監査ログ dispute view (?tab=audit&target=…). */
@@ -219,6 +222,7 @@ export function SettingsShell({
   canManageStaff,
   canInviteStaff,
   canViewAudit,
+  canViewSync,
   initialTab,
   auditTargetId,
   initialStores,
@@ -240,7 +244,7 @@ export function SettingsShell({
   // 店舗 hidden from branch-restricted staff; staff roster clamped to self for
   // non-managers. Pure, unit-tested rules (see lib/auth/settings-visibility) —
   // this is UI exposure reduction; server actions enforce the real boundary.
-  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit })
+  const visibleTabs = visibleSettingsTabs(TABS, { isOwner, canViewAllStores, canViewAudit, canViewSync })
   const visibleStaff = visibleStaffRoster(staffList, activeStaffId, canManageStaff)
 
   const desktopActiveTab = activeTab ?? visibleTabs[0]?.id ?? null
@@ -304,7 +308,10 @@ export function SettingsShell({
           />
         )
       case 'sync':
-        return <SyncSection />
+        // Defense in depth alongside the tab filter above (same idiom as the
+        // audit/stores sections) — the server routes enforce sync.view
+        // regardless; this only stops a stray render.
+        return canViewSync ? <SyncSection /> : null
       case 'packs':
         return isOwner ? <PacksSection orgSettings={orgSettings} /> : null
       case 'audit':

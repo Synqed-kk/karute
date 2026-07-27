@@ -79,6 +79,7 @@ export function SettingsScreenInner({ dto }: { dto: SettingsScreenDTOType }) {
         canManageStaff={dto.canManageStaff}
         canInviteStaff={dto.canInviteStaff}
         canViewAudit={dto.canViewAudit}
+        canViewSync={dto.canViewSync}
         syncStatus={dto.syncStatus}
         onRunNow={runSyncNow}
         initialTab={dto.initialTab}
