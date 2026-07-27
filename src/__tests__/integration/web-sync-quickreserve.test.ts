@@ -29,8 +29,10 @@ jest.mock('@/lib/audit-web', () => ({ auditWeb: (...a: unknown[]) => auditWeb(..
 
 import { POST } from '@/app/api/sync/quickreserve/route'
 import { getBusinessId } from '@/lib/staff'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
 
 const getBusinessIdMock = getBusinessId as jest.Mock
+const getMyCapabilitiesMock = getMyCapabilities as jest.Mock
 
 beforeEach(() => {
   jest.clearAllMocks()
@@ -98,6 +100,34 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
     getBusinessIdMock.mockRejectedValueOnce(new Error('no session'))
     const res = await POST()
     expect(res.status).toBe(401)
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('401 body is the flat legacy shape, byte-exact', async () => {
+    getBusinessIdMock.mockRejectedValueOnce(new Error('no session'))
+    const res = await POST()
+    expect(res.status).toBe(401)
+    const body = await res.json()
+    expect(body).toEqual({ error: 'Unauthorized' })
+  })
+
+  it('order pin: anon AND capability-denied together still resolve as 401 with getMyCapabilities never called — kills the order-swap mutant', async () => {
+    getBusinessIdMock.mockRejectedValueOnce(new Error('no session'))
+    capabilities.current = new Set()
+    const res = await POST()
+    expect(res.status).toBe(401)
+    expect(getMyCapabilitiesMock).not.toHaveBeenCalled()
+    expect(runNow).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('infra failure resolving capabilities → 500 {error:{code:"internal"}}, never 403; runNow/audit untouched', async () => {
+    getMyCapabilitiesMock.mockRejectedValueOnce(new Error('capability service unreachable'))
+    const res = await POST()
+    expect(res.status).toBe(500)
+    const body = await res.json()
+    expect(body).toMatchObject({ error: { code: 'internal' } })
     expect(runNow).not.toHaveBeenCalled()
     expect(auditWeb).not.toHaveBeenCalled()
   })

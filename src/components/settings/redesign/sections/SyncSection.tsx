@@ -21,7 +21,7 @@ type SyncResponse = {
  * "Unexpected token 'I'" and masked the real failure. So: read text first, parse
  * if we can, and ALWAYS surface the HTTP status so the true error is visible.
  */
-async function readSyncResponse(
+export async function readSyncResponse(
   res: Response,
 ): Promise<{ ok: true; data: SyncResponse } | { ok: false; message: string }> {
   const raw = await res.text().catch(() => '')

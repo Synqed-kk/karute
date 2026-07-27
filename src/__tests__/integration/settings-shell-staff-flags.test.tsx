@@ -80,6 +80,7 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         canManageStaff
         canInviteStaff
         canViewAudit
+        canViewSync
         initialTab={'staff' as SettingsTabId}
         initialStores={[storeRow]}
         initialActiveStoreId={null}
@@ -109,6 +110,7 @@ describe('SettingsShell — staff prop threading (T3)', () => {
         canManageStaff
         canInviteStaff
         canViewAudit
+        canViewSync
         initialTab={'staff' as SettingsTabId}
         initialStores={[]}
         initialActiveStoreId={null}

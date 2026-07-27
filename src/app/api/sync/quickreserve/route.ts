@@ -3,7 +3,7 @@ import { getBusinessId } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { auditWeb } from '@/lib/audit-web'
 import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
-import { AppApiError, errorBody } from '@/lib/app-api/errors'
+import { errorBody, toAppApiError } from '@/lib/app-api/errors'
 
 export const maxDuration = 300
 
@@ -31,7 +31,7 @@ export async function POST() {
   try {
     ensureCapability(await getMyCapabilities(), 'sync.view')
   } catch (err) {
-    const apiErr = err instanceof AppApiError ? err : new AppApiError('forbidden', 'Forbidden')
+    const apiErr = toAppApiError(err)
     return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
   }
 
