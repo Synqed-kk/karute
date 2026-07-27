@@ -76,6 +76,19 @@ describe('route totality (CP1)', () => {
     expect(offenders).toEqual([])
   })
 
+  // Fix round 1 #11: the handler's `if (!rule.action) return` (src/lib/
+  // app-api/handler.ts) is a load-bearing type narrow, not just a runtime
+  // guard — it's the ONLY thing that lets `action: rule.action` type-check
+  // against AuditEvent['action'] (AuditAction, no '' member). It must stay
+  // provably dead: a `kind: 'mutation', action: ''` row compiles fine and
+  // would silently never emit. This proves no such row exists.
+  it('every non-skip FACADE_AUDIT_MAP row has a truthy action (keeps the handler\'s action-narrow provably dead)', () => {
+    const offenders = Object.entries(FACADE_AUDIT_MAP)
+      .filter(([, rule]) => rule.kind !== 'skip' && !rule.action)
+      .map(([key]) => key)
+    expect(offenders).toEqual([])
+  })
+
   it('would FAIL for a hypothetical unmapped facade route (self-check)', () => {
     // Proves the assertion logic actually bites (guards against a future
     // refactor that no-ops the check) — same self-check convention as
