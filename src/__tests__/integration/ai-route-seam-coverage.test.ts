@@ -11,9 +11,9 @@ import { viteRecordingPort } from '../../../thin/ports/recording.vite'
 
 const ROOT = join(process.cwd(), 'src/components')
 
-// Deliberate exemptions:
-//  - AIAdvice.tsx is dead code (rendered nowhere; surgical rule says leave it).
-const ALLOWED = new Set(['src/components/karute/AIAdvice.tsx'])
+// Deliberate exemptions — none. (AIAdvice.tsx, the last one, was deleted with
+// its dead /api/ai/advice route; restore from git history if ever needed.)
+const ALLOWED = new Set<string>()
 
 function sourceFiles(dir: string): string[] {
   const out: string[] = []
