@@ -11,7 +11,9 @@
 
 - 2026-07-27 · facade-audit-totality.test.ts CP8-forerunner pin · the hardcoded
   live-row disposition snapshot (describe 'CP8 forerunner — hardcoded live-row
-  disposition pin') is deleted by the proof-suite PR — it moved in lockstep
-  with FACADE_AUDIT_MAP and could never actually catch a reclassification;
-  this script diffs against origin/main directly instead, so no snapshot can
-  drift with the map it's supposed to guard · Liam (proof-suite PR kickoff)
+  disposition pin') is deleted by the proof-suite PR. It WORKED (hardcoded
+  precisely so it could NOT move in lockstep with the map — built after a
+  full-suite mutant proved the parameterized pins did) but covered only live
+  facade rows; check-audit-weakening.mjs supersedes it with a vs-main diff
+  that also tracks categories, decision rows, allowlists, registries, and the
+  ledger itself · Liam (proof-suite PR kickoff)

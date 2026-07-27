@@ -28,7 +28,7 @@
 // against main directly, so no snapshot can silently drift with the map.
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 import {
   parseFacadeAuditMap,
@@ -163,19 +163,26 @@ function findActionWeakenings(mainV, headV) {
     .map((action) => ({ key: action, note: `AUDIT_ACTIONS member '${action}' removed` }))
 }
 
-function findAuditedCoresWeakenings(mainV, headV) {
+export function findAuditedCoresWeakenings(mainV, headV) {
   const weakenings = []
   const headCoresByFile = new Map(headV.auditedCores.map((e) => [e.file, new Set(e.symbols)]))
+  const mainFiles = new Set(mainV.auditedCores.map((e) => e.file))
 
   for (const entry of mainV.auditedCores) {
     const headSymbols = headCoresByFile.get(entry.file)
     if (!headSymbols) {
       // Rename tolerance (contract §8 v2 Deliverable 7): the entry's FULL
-      // symbol set reappears — subset containment — inside ONE
-      // added-or-modified HEAD entry (any file, not only a file new to
-      // HEAD) in the same diff. That is a rename, not a coverage loss.
+      // symbol set reappears — subset containment — inside ONE entry that is
+      // ADDED in this same diff (its file absent from main's registry). The
+      // added-only restriction is load-bearing: registry entries for route
+      // files share generic symbol names (['GET'], ['POST']), so containment
+      // in ANY pre-existing entry would let a deleted route entry masquerade
+      // as a rename into an unrelated route (Fable audit finding, 7/27).
       const renamedInto = headV.auditedCores.some(
-        (headEntry) => entry.symbols.length > 0 && entry.symbols.every((s) => headEntry.symbols.includes(s)),
+        (headEntry) =>
+          !mainFiles.has(headEntry.file) &&
+          entry.symbols.length > 0 &&
+          entry.symbols.every((s) => headEntry.symbols.includes(s)),
       )
       if (renamedInto) continue
       weakenings.push({ key: entry.file, note: `AUDITED_CORES entry '${entry.file}' removed` })
@@ -318,4 +325,9 @@ function main() {
   process.exit(0)
 }
 
-main()
+// Only run when invoked as the entry point — the exported pure diff
+// functions are imported by test harnesses, and an import must never
+// execute the gate (it would exit the importing process).
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+}
