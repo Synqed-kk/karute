@@ -77,6 +77,8 @@ describe('POST /api/sync/quickreserve — capability gate + audit parity', () =>
       category: 'settings',
       action: 'settings.sync_run_now',
       targetType: 'business',
+      // PR-M5: one server-minted id per request rides every emit.
+      requestId: expect.any(String),
     })
   })
 
