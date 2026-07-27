@@ -382,13 +382,13 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
   'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
   'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
-  // 監査ログ list (§3.1): server-side-unconditional privacy.audit_log_view is
-  // listed under contract §11's Wave V (viewer front-end), same as the other
-  // view-class rows above — NOT the same lane as PR-M1's web-action fix
-  // (src/actions/audit-log.ts), which removes the client-gated logOpen flag
-  // on the WEB emit now. This facade key has never emitted anything; going
-  // live here is a Wave V decision, not a live-fix.
-  'audit.list': { kind: 'view', category: 'privacy', action: 'privacy.audit_log_view', pendingWave: 'Wave V — 2026-07-27' },
+  // 監査ログ list (§3.1): the row is the TWIN'S OWN write — the facade GET
+  // delegates to listAuditLogWithClient (src/actions/audit-log.ts), which
+  // writes privacy.audit_log.view unconditionally per invocation for BOTH
+  // surfaces (PR-M1, #630). A live rule here would double-log every facade
+  // list — same reasoning as the karute.save choke-point skip. The facade
+  // route's own header (app/v1/audit-log/route.ts) documents this contract.
+  'audit.list': { kind: 'skip', category: 'privacy', action: '' },
 
   // export (§3.1 row 8): self-covered, NOT a row worth double-logging — this
   // route calls audit() directly with a custom `detail` payload (scope/
@@ -428,16 +428,17 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   'customer.pack.undoRedemption': { kind: 'mutation', category: 'customer', action: 'customer.pack_undo', targetType: 'customer' },
 
   // consent/lifecycle/outcome mutation MIRRORS (§3.1 D1: today these are
-  // row-stamped only — stamps stay as defense-in-depth, this is the NEW
-  // audit_log mirror the viewer actually reads). The table gives these rows
-  // no explicit action string; named here per the repo's existing
-  // category.snake_verb convention (customer.pack_redeem, customer.photo_add
-  // etc., a few lines below) — flagged for the director's check, not a
-  // verbatim table transcription like the other rows.
-  'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer' },
-  'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer' },
-  'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer' },
-  'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute' },
+  // row-stamped only — stamps stay as defense-in-depth). D1 mirror events are
+  // EXPLICITLY Wave W per the build packet ("The 20 web writers + D1 mirrors
+  // + ai.* baseline events = Wave W") — the mirror design decides its emit
+  // point (shared core vs per-surface) there; a live facade rule now would
+  // double-log the facade side the moment that lands. Action strings below
+  // are placeholders per the repo's category.snake_verb convention — CP4's
+  // generated taxonomy canonizes them in the proof-suite PR.
+  'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer', pendingWave: 'Wave W — 2026-07-27' },
+  'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer', pendingWave: 'Wave W — 2026-07-27' },
+  'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer', pendingWave: 'Wave W — 2026-07-27' },
+  'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
 
   // Photos are the customer (§3.1).
   'customer.passport.upsert': { kind: 'mutation', category: 'customer', action: 'customer.passport_update', targetType: 'customer' },
