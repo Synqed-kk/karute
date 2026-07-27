@@ -86,23 +86,5 @@ describe('ai-body-prediction body_prediction cache — content-keyed', () => {
   })
 })
 
-describe('insights route cache — content-keyed', () => {
-  it('cacheInput is keyed on record content (summary + entries), not ids alone', () => {
-    const src = readFileSync(join(process.cwd(), 'src/app/api/ai/insights/route.ts'), 'utf8')
-    expect(src).not.toContain('ids: records.map((r) => r.id),')
-    expect(src).toContain('s: r.summary,')
-    // Everything else the prompt reads (fleet round 7/25): per-row name +
-    // date, and the persona's business_type — a vertical switch must not
-    // serve yesterday's persona for a day.
-    expect(src).toContain('n: r.customerName,')
-    expect(src).toContain('d: r.createdAt,')
-    expect(src).toContain("bt: orgSettings?.business_type ?? null,")
-    // Greptile P1 rounds on #613: a transient settings failure must degrade
-    // to a generic-persona response that touches the cache in NEITHER
-    // direction — no read (could serve a stale bt:null entry) and no write
-    // (would pin one for a day).
-    expect(src).toContain('settingsFailed = true')
-    expect(src).toContain("settingsFailed ? null : await getCachedAI('insights', cacheInput)")
-    expect(src).toContain('if (!settingsFailed) {')
-  })
-})
+// (The insights-route cache guard that lived here died with the route itself —
+// /api/ai/insights was retired 2026-07-27, zero callers; see git history.)

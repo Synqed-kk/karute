@@ -17,7 +17,7 @@ This is the karute-side mirror of the design-spike's authoritative `AI_PROMPTS.m
 | §2 | Outreach draft (post-session) | 🟡 | `src/components/karute/spike-lifted/outreach/AIOutreachCard.tsx` |
 | §3 | Session summary | ✅ | `src/lib/prompts.ts:getSummarySystemPrompt`, `src/app/api/ai/summarize/route.ts` |
 | §4 | Entry categorization (real-time, low-latency) | ✅ (batch variant) | `src/lib/prompts.ts:getExtractionSystemPrompt`, `src/app/api/ai/extract/route.ts` — currently post-session; spike spec is per-keystroke debounced |
-| §5 | Dashboard recommendations | 🟡 (shape mismatch) | `src/app/api/ai/insights/route.ts` |
+| §5 | Dashboard recommendations | ❌ (route retired 2026-07-27, PR #629) | superseded by the daily attention lines (`src/lib/dashboard/daily-attention-ai.ts`); old `/api/ai/insights` implementation restorable from git `f4f85eee` |
 | §6 | Customer signal classification (rule-based) | ❌ | — |
 | §7 | Next visit prediction | ❌ | `src/components/customers/redesign/list/AiStatusChipRow.tsx` (chip only) |
 | §8 | Booking flags (rule-based) | ❌ | — |
