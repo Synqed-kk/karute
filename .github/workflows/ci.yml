@@ -38,16 +38,23 @@ jobs:
           # to it (403 on npm ci). Re-applies f4d264d, reverted by ab90af5.
           NODE_AUTH_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
 
+      # Direct npx invocations, not `npm run` (fresh-eyes fix round 3):
+      # package.json is not CODEOWNERS-protected, so a PR could redefine
+      # "test"/"type-check"/"lint" to skip the protected audit suites or the
+      # tsc totality gate without touching a protected file. Same commands
+      # the npm scripts run. ACCEPTED RESIDUAL (documented, not closable at
+      # this tier): the jest/tsc/eslint binaries themselves are
+      # lockfile-resolved by `npm ci` — a whole toolchain can't be
+      # workflow-pinned the way the audit-gates job pins its single dep.
       - name: Lint
-        run: npm run lint
-        # NOTE: next lint was removed in Next.js 16 — package.json uses "eslint src" directly
+        run: npx eslint src
+        # NOTE: next lint was removed in Next.js 16 — "eslint src" directly
 
       - name: Type-check
-        run: npm run type-check
-        # tsc --noEmit
+        run: npx tsc --noEmit
 
       - name: Test
-        run: npm test -- --passWithNoTests
+        run: npx jest --passWithNoTests
         # --passWithNoTests allows CI to pass when no test files exist yet (Phase 8 adds tests)
         env:
           # jest.setup.ts requires these at import time but every suite is fully
@@ -103,18 +110,29 @@ jobs:
         # package.json tree (lockfile-resolved — the exact vector this job
         # exists to avoid, and it 403s on @synqed-kk/client without the
         # packages token anyway). The audit scripts import only 'typescript'.
+        # The find-purge (fresh-eyes fix round 3): a COMMITTED node_modules
+        # dir anywhere in the checkout would shadow the pinned install —
+        # `ln -s` into an existing dir silently NESTS the link (exit 0), and
+        # ESM resolution prefers a closer node_modules (scripts/node_modules
+        # beats the root symlink and is not even gitignored). Purge them all
+        # before linking; node_modules is never a legitimate committed
+        # artifact in this repo.
         run: |
+          find . -name node_modules -prune -exec rm -rf {} +
           npm install --prefix "$RUNNER_TEMP/audit-deps" --no-save --ignore-scripts --no-audit --no-fund typescript@5.9.3
           ln -s "$RUNNER_TEMP/audit-deps/node_modules" node_modules
 
       - name: Audit actions doc is up to date
-        # `git status --porcelain`, not `git diff --quiet`: diff ignores
-        # UNTRACKED files, so a PR that deleted the doc would go green
-        # forever (the generator recreates it untracked). Porcelain catches
-        # modified AND untracked/deleted states.
+        # `git status --porcelain --ignored`, not `git diff --quiet`: diff
+        # ignores UNTRACKED files, so a PR that deleted the doc would go
+        # green forever (the generator recreates it untracked). Porcelain
+        # catches modified AND untracked/deleted states; --ignored (fix
+        # round 3) closes the last variant — deleting the doc AND
+        # gitignoring it (unprotected .gitignore) made the regenerated file
+        # ignored-untracked, which plain porcelain omits.
         run: |
           node scripts/audit/generate-audit-actions-doc.mjs
-          test -z "$(git status --porcelain -- docs/AUDIT_ACTIONS.md)" || { echo "::error::docs/AUDIT_ACTIONS.md is stale or was deleted — run npm run audit:actions-doc and commit the result"; git status -- docs/AUDIT_ACTIONS.md; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
+          test -z "$(git status --porcelain --ignored -- docs/AUDIT_ACTIONS.md)" || { echo "::error::docs/AUDIT_ACTIONS.md is stale or was deleted — run npm run audit:actions-doc and commit the result"; git status -- docs/AUDIT_ACTIONS.md; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
 
       - name: Audit weakening gate
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's

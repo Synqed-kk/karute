@@ -7,7 +7,7 @@
 /src/lib/audit-policy.ts @alee046
 /scripts/audit/ @alee046
 /src/__tests__/integration/audit-*.test.ts @alee046
-/src/__tests__/integration/facade-audit-*.test.ts @alee046
+/src/__tests__/integration/facade-audit*.test.ts @alee046
 /src/__tests__/integration/helpers/ @alee046
 # jest plumbing the protected suites execute through (fresh-eyes fix round
 # 2): jest.config.ts picks which suites run at all; setup/ runs before every
