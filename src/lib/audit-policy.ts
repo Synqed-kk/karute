@@ -124,12 +124,14 @@ export const AUDITED_CORES: {
       'updateAppointmentCore',
     ],
   },
-  // src/lib/auth/pin-throttle.ts NOT registered: auditLockout (the only real
-  // emitter) is a private, non-exported helper called conditionally (past
-  // the lockout threshold) from recordPinFailure — no EXPORTED symbol's own
-  // subtree contains a direct audit()/auditWeb() call, so CP7's src-wide scan
-  // (exported symbols only, round-2 amendment A) never requires an entry
-  // here. Kept out rather than registered-with-empty-symbols (dead weight).
+  // FIX ROUND 1 #16: auditLockout is a private, non-exported helper, so the
+  // registry-reality cross-check (which enumerates EXPORTED symbols only)
+  // will never require this entry on its own — but findSymbol is
+  // export-agnostic (processJob, below, is the existing precedent: also
+  // private, also registered), and auditLockout's OWN body calls audit()
+  // unconditionally, so it resolves and proves clean. Registered so the
+  // real writer is provably covered, not left off as "not required."
+  { file: 'src/lib/auth/pin-throttle.ts', symbols: ['auditLockout'] },
   { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
   {
     file: 'src/actions/customers.ts',
@@ -183,6 +185,12 @@ export const AUDITED_CORES: {
 export const SDK_WRITE_ALLOWLIST: {
   file: string
   call: string
+  /** The enclosing symbol(s) this entry covers, derived mechanically from
+   *  the current scan (fix round 1 #7) — a site legal by (file, call) alone
+   *  used to grant FILE-WIDE amnesty, contradicting the file's own
+   *  symbol-level doctrine; a NEW site under an already-allowlisted (file,
+   *  call) but a DIFFERENT symbol is a real gap CP3 must still catch. */
+  symbols: string[]
   justification: string
   dated: string
   pendingWave?: string
@@ -190,13 +198,15 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/bootstrap.ts',
     call: 'staff.create',
+    symbols: ['bootstrapBusinessForNewUser'],
     justification:
-      'Signup bootstrap — creates the OWNER\'s own synqed staff record as part of account provisioning, not an admin managing staff. Runs before any audit-actor identity is meaningful (the business row is being minted in this same call). No facade/web action endpoint covers this path at all.',
+      "Signup bootstrap — creates the OWNER's own synqed staff record as part of account provisioning, not an admin managing staff. FIX ROUND 1 #13 correction: the actor is NOT unknown — the function verifies the auth uid via service.auth.admin.getUserById BEFORE this write and resolves businessId in the same call. Self-provisioning on the user's OWN new account; silent today; no wave committed (candidate mirror: a future staff.bootstrap action per the coverage inventory). No facade/web action endpoint covers this path at all.",
     dated: '2026-07-27',
   },
   {
     file: 'src/actions/customers.ts',
     call: 'customers.update',
+    symbols: ['updateCustomerWithClient', 'scheduleCustomerDeletion', 'cancelCustomerDeletion'],
     justification:
       "customer.update is a LIVE FACADE_AUDIT_MAP row (facade auto-emit) — this call site sits inside updateCustomerWithClient/scheduleCustomerDeletion/cancelCustomerDeletion, none of which are AUDITED_CORES symbols. Web-path coverage: updateCustomerWithClient's caller (updateCustomer) conditionally auditWebs customer.edit (see AUDITED_CORES unproven note); scheduleCustomerDeletion/cancelCustomerDeletion each call emitDeletionAudit (AUDITED_CORES) unconditionally on the success path — verified at source, not lexically provable by symbol-span containment.",
     dated: '2026-07-27',
@@ -204,6 +214,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/customers.ts',
     call: 'customers.uploadPhoto',
+    symbols: ['uploadCustomerPhotoWithClient'],
     justification:
       "customer.photo.upload is a LIVE FACADE_AUDIT_MAP row (facade auto-emit). uploadCustomerPhotoWithClient itself never audits (deliberate — matches the WithClient/Core split convention where the shared core stays audit-free and only the facade's generic hook or a registered wrapper emits); the web action uploadCustomerPhoto has no auditWeb call today — parity gap, not built here.",
     dated: '2026-07-27',
@@ -211,6 +222,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/customers.ts',
     call: 'customers.deletePhoto',
+    symbols: ['deleteCustomerPhoto'],
     justification:
       'No FacadeEndpointKey covers photo deletion and the web action deleteCustomerPhoto has no auditWeb call — genuinely untracked today, not pendingWave (no wave has claimed it).',
     dated: '2026-07-27',
@@ -218,6 +230,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/customers.ts',
     call: 'customers.grantConsent',
+    symbols: ['grantCustomerConsentWithClient'],
     justification:
       'customer.consent.grant is a pendingWave FACADE_AUDIT_MAP row (writer not built); grantCustomerConsentWithClient itself never audits, matching the Core/WithClient split convention.',
     dated: '2026-07-27',
@@ -226,6 +239,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/customers.ts',
     call: 'customers.revokeConsent',
+    symbols: ['revokeCustomerConsentWithClient'],
     justification:
       'customer.consent.revoke is a pendingWave FACADE_AUDIT_MAP row (writer not built); revokeCustomerConsentWithClient itself never audits, matching the Core/WithClient split convention.',
     dated: '2026-07-27',
@@ -234,6 +248,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/karute.ts',
     call: 'karuteRecords.delete',
+    symbols: ['deleteKaruteRecord'],
     justification:
       'deleteKaruteRecord — no FacadeEndpointKey covers karute deletion and no audit() call exists on this path today. Genuinely untracked, not pendingWave (no wave has claimed it). Flagged here rather than silently passing.',
     dated: '2026-07-27',
@@ -241,13 +256,15 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/karute.ts',
     call: 'karuteRecords.create',
+    symbols: ['createOrUpdateKaruteRecord', 'createManualKaruteRecord'],
     justification:
-      'createManualKaruteRecord (the "+ 新規カルテ" manual-entry dialog) — a separate creation path from the recording flow\'s createOrUpdateKaruteRecord choke point; no audit() call exists here today. Genuinely untracked, not pendingWave.',
+      'createOrUpdateKaruteRecord (AUDITED_CORES — this specific call site is its own fresh-record branch, dominated by its emitSave call-through, already proven by CP2/CP7) and createManualKaruteRecord (the "+ 新規カルテ" manual-entry dialog — a separate creation path with no audit() call today, genuinely untracked, not pendingWave).',
     dated: '2026-07-27',
   },
   {
     file: 'src/actions/org-settings.ts',
     call: 'orgSettings.upsert',
+    symbols: ['writeOrgSettingsBlobWithClient'],
     justification:
       'Deliberately unaudited by design — see FACADE_AUDIT_MAP[\'orgSettings.update\'] skip row: "writeOrgSettingsBlob has no auditWeb() call on the web side" (verified at source). Not pendingWave-tracked; this is the accepted parity rule, not a gap.',
     dated: '2026-07-27',
@@ -255,65 +272,75 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/recording-jobs.ts',
     call: 'recordingJobs.enqueue',
+    symbols: ['enqueueRecordingJob'],
     justification:
-      "coveredBy the eventual karute.save emit at pipeline completion (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) — see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row. The enqueue step itself stages no auditable outcome.",
+      "coveredBy the eventual karute.save emit at pipeline completion (src/lib/jobs/process-recording.ts#processJob, AUDITED_CORES) — see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row (FIX ROUND 1 #17: this citation now correctly points at processJob, the job pipeline's true and only choke point — not createOrUpdateKaruteRecord, which karute.ts's own header comment says process-recording.ts never calls). The enqueue step itself stages no auditable outcome.",
     dated: '2026-07-27',
   },
   {
     file: 'src/actions/recordings.ts',
     call: 'recordings.create',
+    symbols: ['startRecordingSessionWithClient'],
     justification:
-      "coveredBy the eventual karute.save emit (see FACADE_AUDIT_MAP['recordings.session.mint'] skip row) — this mints the recording_sessions id only; nothing auditable happens until the save.",
+      "mints the recording_sessions id only — nothing auditable happens until the eventual save. Feeds EITHER downstream pipeline (verified, FIX ROUND 1 #17): the interactive save (createOrUpdateKaruteRecord) or the job pipeline (processJob) — see FACADE_AUDIT_MAP['recordings.session.mint'] skip row comment for the same ambiguity on its facade twin.",
     dated: '2026-07-27',
   },
   {
     file: 'src/actions/regenerate-karute.ts',
     call: 'karuteRecords.deleteEntry',
+    symbols: ['rollback', 'regenerateKaruteEntriesWithClient'],
     justification:
-      "karute.regenerate — action ambiguous between two possible taxonomy members depending on request-body mode, and the writer isn't built; pendingWave (see FACADE_AUDIT_MAP['karute.regenerate']).",
+      "karute.regenerate — pendingWave (writer not wired to emit yet). FIX ROUND 1 #14 correction: the prior claim of TWO actions depending on a request-body mode was fabricated — the facade route (src/app/api/app/v1/karute/[id]/regenerate/route.ts) parses NO body at all (only `id` from params, `locale` from a query string), and only karute.entries_regenerate exists anywhere in this file. See FACADE_AUDIT_MAP['karute.regenerate'].",
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {
     file: 'src/actions/regenerate-karute.ts',
     call: 'karuteRecords.addEntry',
+    symbols: ['regenerateKaruteEntriesWithClient'],
     justification:
-      "karute.regenerate — same pendingWave gap as karuteRecords.deleteEntry above in this file (see FACADE_AUDIT_MAP['karute.regenerate']).",
+      "karute.regenerate — same pendingWave gap as karuteRecords.deleteEntry above in this file, same FIX ROUND 1 #14 correction (no request-body mode exists; only karute.entries_regenerate). See FACADE_AUDIT_MAP['karute.regenerate'].",
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {
     file: 'src/actions/regenerate-karute.ts',
     call: 'karuteRecords.update',
+    symbols: ['updateKaruteSummaryWithClient'],
     justification:
-      "karute.regenerate — same pendingWave gap as the other regenerate-karute.ts write sites (see FACADE_AUDIT_MAP['karute.regenerate']).",
+      "karute.regenerate — same pendingWave gap as the other regenerate-karute.ts write sites, same FIX ROUND 1 #14 correction (no request-body mode exists; only karute.entries_regenerate). See FACADE_AUDIT_MAP['karute.regenerate'].",
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {
     file: 'src/actions/staff-pin.ts',
     call: 'staff.verifyPin',
+    symbols: ['verifyStaffPin'],
     justification:
-      'verifyStaffPin — a PIN verification attempt (correct or wrong), not a mutation of the target. Failures/lockouts already audit via auth.pin_lockout (src/lib/auth/pin-throttle.ts); a successful verify is a profile-switch read-path, not a write the taxonomy tracks. Derives as a write only because the SDK endpoint is POST-shaped (known accepted noise).',
+      'verifyStaffPin — a PIN verification attempt (correct or wrong), not a mutation of the target. FIX ROUND 1 #15 correction: auth.pin_lockout only fires once failures reach the lockout THRESHOLD (>= 5 within the rolling window, src/lib/auth/pin-throttle.ts recordPinFailure) — a single wrong PIN attempt below that threshold audits nothing at all, correctly (nothing was mutated). A successful verify is a profile-switch read-path, not a write the taxonomy tracks. Derives as a write only because the SDK endpoint is POST-shaped (known accepted noise).',
     dated: '2026-07-27',
   },
   {
     file: 'src/actions/stores.ts',
     call: 'stores.create',
+    symbols: ['listStoresWithClient'],
     justification:
-      "listStoresWithClient's lazy 本店-create (ensurePrimary) — a one-time, system-triggered provisioning write on a brand-new tenant's first render, not a staff-initiated store creation (that path is createStoreCore, AUDITED_CORES, which already covers stores.create's OTHER call site). No facade/web action surface triggers this specific call directly.",
+      "listStoresWithClient's lazy 本店-create (ensurePrimary). FIX ROUND 1 #12 correction: the prior claim that no facade/web surface triggers this was FALSE — ensurePrimary:true is passed from BOTH the stores.list facade GET and the listStores web action (layout + settings render), so this fires on every zero-store tenant's first read, not just at signup. The acting staff IS resolvable (the read's own identity) and the write is genuinely SILENT today (no audit call anywhere in listStoresWithClient). The coverage inventory's silent-hole list already claims this as settings.store_create, source:system — pendingWave reflects that.",
     dated: '2026-07-27',
+    pendingWave: 'Wave W — 2026-07-27',
   },
   {
     file: 'src/app/api/app/v1/recordings/job/route.ts',
     call: 'recordingJobs.enqueue',
+    symbols: ['POST'],
     justification:
-      "Facade twin of src/actions/recording-jobs.ts — same coveredBy reasoning: the eventual karute.save emit is the audited choke point (see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row).",
+      "Facade twin of src/actions/recording-jobs.ts — same coveredBy reasoning: the job pipeline's true choke point is process-recording.ts#processJob (see FACADE_AUDIT_MAP['recordings.job.enqueue'] skip row, corrected per FIX ROUND 1 #17).",
     dated: '2026-07-27',
   },
   {
     file: 'src/app/api/app/v1/sync/run/route.ts',
     call: 'sync.runNow',
+    symbols: ['POST'],
     justification:
       "sync.run is a LIVE FACADE_AUDIT_MAP row (kind: 'mutation') — handler.ts's generic post-response hook (logFacadeAudit) auto-emits settings.sync_run_now on every 2xx from this route. No direct audit() call belongs in this file.",
     dated: '2026-07-27',
@@ -321,13 +348,15 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/app/api/app/v1/ai/transcribe/route.ts',
     call: 'storage.recordings.remove',
+    symbols: ['POST'],
     justification:
-      'Best-effort cleanup of the staged audio object after transcription (finally block) — not itself a business action; the eventual karute.save is what audits.',
+      'Best-effort cleanup of the staged audio object after transcription (finally block, mirrors ai-pipeline.ts\'s own cleanup() timing — right after the transcribe call resolves, before extraction/summarization/save even start) — not itself a business action; the eventual karute.save is what audits.',
     dated: '2026-07-27',
   },
   {
     file: 'src/app/api/cleanup/route.ts',
     call: 'storage.recordings.remove',
+    symbols: ['GET'],
     justification:
       "CRON_SECRET-gated system janitor (see API_ROUTE_DECISIONS['cleanup']: \"no user-attributable action\") — deletes orphaned recording objects on a schedule, not in response to any staff action.",
     dated: '2026-07-27',
@@ -335,6 +364,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ai-cache.ts',
     call: 'aiCache.upsert',
+    symbols: ['setCachedAI'],
     justification:
       'Global AI-response cache write — internal performance cache (hash-of-input key, TTL expiry), not a user-attributable business mutation. No facade/web action surface exists for it.',
     dated: '2026-07-27',
@@ -342,12 +372,14 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ai-cache.ts',
     call: 'aiCache.cleanup',
+    symbols: ['cleanupExpiredAiCache'],
     justification: 'Cron maintenance sweep of expired cache rows — system-internal, not user-attributable.',
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/ai-rate-limit.ts',
     call: 'aiRateLimit.consume',
+    symbols: ['enforceAiRateLimitWithClient', 'enforceAiRateLimit'],
     justification:
       'Per-request AI spend/rate accounting — system-internal counter increment, not a user-attributable business mutation.',
     dated: '2026-07-27',
@@ -355,12 +387,14 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ai-rate-limit.ts',
     call: 'aiRateLimit.recordUsage',
+    symbols: ['reportAiUsageWithClient'],
     justification: 'Fire-and-forget token-usage report for the daily $-cap — system-internal accounting.',
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'karuteRecords.update',
+    symbols: ['upsertKaruteRecord'],
     justification:
       'upsertKaruteRecord (the reprocess-existing-record branch) — a private helper CALLED BY processJob (AUDITED_CORES) but not lexically inside its span; processJob emits karute.save unconditionally after this helper returns, covering the outcome.',
     dated: '2026-07-27',
@@ -368,6 +402,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'karuteRecords.create',
+    symbols: ['upsertKaruteRecord'],
     justification:
       'upsertKaruteRecord (the fresh-record branch) — same reasoning as karuteRecords.update above in this file: called by processJob (AUDITED_CORES), covered by its unconditional karute.save emit on return.',
     dated: '2026-07-27',
@@ -375,6 +410,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'recordingJobs.claim',
+    symbols: ['processRecordingJobs'],
     justification:
       'processRecordingJobs\' claim-and-process loop — job-queue plumbing (atomically claims the next job for THIS worker tick), not a business mutation on customer/karute data. Derives as a write only because the SDK endpoint is POST-shaped (known accepted noise).',
     dated: '2026-07-27',
@@ -382,18 +418,21 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'recordingJobs.complete',
+    symbols: ['processRecordingJobs'],
     justification: 'Job-queue status transition (QUEUED/RUNNING→DONE) — infrastructure bookkeeping, not a business mutation; the actual outcome is already audited via processJob\'s karute.save.',
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/jobs/process-recording.ts',
     call: 'recordingJobs.fail',
+    symbols: ['processRecordingJobs'],
     justification: 'Job-queue status transition on failure (attempts→FAILED) — infrastructure bookkeeping, not a business mutation; nothing was committed to audit.',
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/karute/outcome.ts',
     call: 'karuteOutcomes.upsert',
+    symbols: ['setKaruteOutcomeWithClient', 'setKaruteOutcome'],
     justification:
       "karute.outcome_set — action decided, writer not built yet; pendingWave (see FACADE_AUDIT_MAP['karute.outcome.set']).",
     dated: '2026-07-27',
@@ -402,6 +441,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.createPack',
+    symbols: ['createPackWithClient'],
     justification:
       "customer.pack_create is a LIVE FACADE_AUDIT_MAP row (facade auto-emit via handler.ts). The web action path (src/actions/packs.ts) has no auditWeb() call today — documented parity gap, not built here.",
     dated: '2026-07-27',
@@ -409,13 +449,15 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.addRedemption',
+    symbols: ['addRedemptionWithClient'],
     justification:
-      'customer.pack_redeem is a LIVE FACADE_AUDIT_MAP row (facade auto-emit). Web-path parity gap same as packs.createPack above. When called from appointments/mutations.ts\'s executeGuardedBurn (AUDITED_CORES), the burn is additionally captured in that caller\'s own booking.cancel/booking.no_show audit row detail (burn_pack/burn_error).',
+      "customer.pack_redeem is a LIVE FACADE_AUDIT_MAP row (facade auto-emit). Web-path parity gap same as packs.createPack above. FIX ROUND 1 #15 correction: executeGuardedBurn (src/lib/appointments/mutations.ts) is a PRIVATE helper, not itself an AUDITED_CORES entry — its two callers, cancelAppointmentCore and markNoShowAppointmentCore (both AUDITED_CORES), are the real registered callers; when the burn runs from either, it is additionally captured in that caller's own booking.cancel/booking.no_show audit row detail (burn_pack/burn_error).",
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.removeRedemption',
+    symbols: ['removeRedemptionWithClient'],
     justification:
       'customer.pack_undo is a LIVE FACADE_AUDIT_MAP row (facade auto-emit). Web-path parity gap same as packs.createPack above.',
     dated: '2026-07-27',
@@ -423,6 +465,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.addAlertDismissal',
+    symbols: ['addPackAlertDismissalWithClient'],
     justification:
       "customer.pack.alert.dismiss is a FACADE_AUDIT_MAP 'skip' row — deliberately unaudited on both facade and web paths (verified: src/actions/packs.ts has no audit() calls for any pack action).",
     dated: '2026-07-27',
@@ -430,6 +473,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.addContact',
+    symbols: ['addCustomerContactWithClient'],
     justification:
       "customer.pack.contact.log is a FACADE_AUDIT_MAP 'skip' row — deliberately unaudited on both paths, same as packs.addAlertDismissal above.",
     dated: '2026-07-27',
@@ -437,6 +481,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.addVisitDismissal',
+    symbols: ['addVisitReconcileDismissalWithClient'],
     justification:
       "customer.pack.reconcile.dismiss is a FACADE_AUDIT_MAP 'skip' row — deliberately unaudited on both paths, same as packs.addAlertDismissal above.",
     dated: '2026-07-27',
@@ -444,6 +489,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.setLifecycle',
+    symbols: ['setCustomerLifecycleWithClient'],
     justification:
       "customer.lifecycle_set — action decided, writer not built yet; pendingWave (see FACADE_AUDIT_MAP['customer.lifecycle.set']).",
     dated: '2026-07-27',
@@ -452,6 +498,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/packs/store.ts',
     call: 'packs.updatePackStatus',
+    symbols: ['updatePackStatus'],
     justification:
       'No FacadeEndpointKey or web action taxonomy entry covers pack status changes at all today — genuinely untracked, not pendingWave (no wave has claimed it). Flagged here rather than silently passing.',
     dated: '2026-07-27',
@@ -459,20 +506,23 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/ports/recording-port.ts',
     call: 'storage.recordings.upload',
+    symbols: ['prepareTranscription', 'stageForJob'],
     justification:
-      "The web recording port's audio staging upload — coveredBy the eventual karute.save emit at save time (same reasoning as src/actions/recordings.ts's recordings.create entry above); nothing auditable happens until the save.",
+      "The web recording port's audio staging upload (both the interactive prepareTranscription leg and the job-pipeline stageForJob leg) — nothing auditable happens until the eventual save (createOrUpdateKaruteRecord) or job completion (processJob).",
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/ports/recording-port.ts',
     call: 'storage.recordings.remove',
+    symbols: ['prepareTranscription'],
     justification:
-      'Best-effort cleanup of the staged audio object after a successful save (or on retry) — not itself a business action; the save is what audits.',
+      "Best-effort cleanup of the staged audio object. FIX ROUND 1 #15 correction: this fires right AFTER TRANSCRIPTION resolves (verified at source, src/lib/ai-pipeline.ts:101-115 — cleanup() is called immediately after the transcribe fetch, BEFORE extraction/summarization/save even start), not \"after a successful save\" and never on retry — not itself a business action either way; the eventual karute.save is what audits.",
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/synqed/staff-map.ts',
     call: 'staff.update',
+    symbols: ['lookupSynqedStaffIdForBusiness'],
     justification:
       'Internal self-heal side effect (patches a synqed staff record\'s user_id when an email-only match resolves it) — not a user-initiated staff-management action; no facade/web action surface triggers this directly.',
     dated: '2026-07-27',
@@ -480,6 +530,7 @@ export const SDK_WRITE_ALLOWLIST: {
   {
     file: 'src/lib/synqed/staff-map.ts',
     call: 'staff.create',
+    symbols: ['resolveSynqedStaffIdForBusiness'],
     justification:
       'Internal create-on-miss side effect of resolving a profiles.id to a synqed staff.id for an FK the booking flow needs — not a user-initiated "add staff" action; no facade/web action surface triggers this directly.',
     dated: '2026-07-27',
@@ -493,6 +544,7 @@ export const SDK_WRITE_ALLOWLIST: {
 export const RAW_SUPABASE_WRITE_ALLOWLIST: {
   file: string
   call: string
+  symbols: string[]
   justification: string
   dated: string
   pendingWave?: string
@@ -500,30 +552,42 @@ export const RAW_SUPABASE_WRITE_ALLOWLIST: {
   {
     file: 'src/actions/bootstrap.ts',
     call: 'profiles.update',
+    symbols: ['bootstrapBusinessForNewUser'],
     justification:
-      'Signup bootstrap — stamps the auto-created profiles row with the salon name (and the OWNER role, once, gated on a role-less row). Runs before any audit-actor identity is meaningful; same reasoning as this file\'s staff.create SDK entry above.',
+      "Signup bootstrap — stamps the auto-created profiles row with the salon name (and the OWNER role, once, gated on a role-less row). FIX ROUND 1 #13 correction: same as this file's staff.create SDK entry above — the actor IS verified (service.auth.admin.getUserById) before this write, not unknown.",
     dated: '2026-07-27',
   },
   {
     file: 'src/actions/bootstrap.ts',
     call: 'profiles.insert',
+    symbols: ['bootstrapBusinessForNewUser'],
     justification:
-      'Signup bootstrap fallback (only when the Supabase auto-create trigger is absent) — same reasoning as profiles.update above in this file.',
+      'Signup bootstrap fallback (only when the Supabase auto-create trigger is absent) — same reasoning and same FIX ROUND 1 #13 correction as profiles.update above in this file.',
     dated: '2026-07-27',
   },
   {
     file: 'src/lib/karute/customer-memory.ts',
     call: 'customer_memory_items.insert',
+    symbols: ['applyMemoryDelta', 'addStaffMemoryItem', 'upsertPassportField'],
     justification:
-      "customer.memory_add is a LIVE FACADE_AUDIT_MAP row — the facade's own hook is the first thing that has ever emitted it (see that row's comment: \"W3.2's web-silent-hole list (customer-memory.ts ×11) is the SEPARATE web-action gap, tracked for Wave W\"). Web-path writes here (addStaffMemoryItem, applyMemoryDelta's add branch, upsertPassportField's insert branch) are silent today; pendingWave.",
+      "customer.memory_add is a LIVE FACADE_AUDIT_MAP row — the facade's own hook is the first thing that has ever emitted it (see that row's comment: \"W3.2's web-silent-hole list (customer-memory.ts ×11) is the SEPARATE web-action gap, tracked for Wave W\"). Web-path writes here (applyMemoryDelta's add branch, addStaffMemoryItem, upsertPassportField's insert branch) are silent today; pendingWave.",
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
   },
   {
     file: 'src/lib/karute/customer-memory.ts',
     call: 'customer_memory_items.update',
+    symbols: [
+      'applyMemoryDelta',
+      'updateMemoryItem',
+      'softDeleteAiExtractionItems',
+      'restoreMemoryItems',
+      'setMemoryItemPinned',
+      'softDeleteMemoryItem',
+      'upsertPassportField',
+    ],
     justification:
-      'customer.memory_update/customer.memory_delete are LIVE FACADE_AUDIT_MAP rows with the same web-silent-hole gap as customer_memory_items.insert above in this file (applyMemoryDelta\'s update/remove branches, updateMemoryItem, softDeleteAiExtractionItems, restoreMemoryItems, setMemoryItemPinned, softDeleteMemoryItem, upsertPassportField\'s update branch) — pendingWave, tracked together per the map row\'s comment.',
+      'customer.memory_update/customer.memory_delete are LIVE FACADE_AUDIT_MAP rows with the same web-silent-hole gap as customer_memory_items.insert above in this file — pendingWave, tracked together per the map row\'s comment.',
     dated: '2026-07-27',
     pendingWave: 'Wave W — 2026-07-27',
   },
