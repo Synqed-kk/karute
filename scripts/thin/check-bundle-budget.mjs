@@ -46,7 +46,13 @@ const DIST = 'thin/dist/assets'
 // labels, measured at 1670.5 KB raw against the prior 1669.9 KB ceiling
 // (over by 0.6 KB). Genuine feature strings, not bloat — same class as
 // every prior raise; the purchase-marker scan below stays the real gate.
-const BUDGET_BYTES = 1_720_000
+// Raised 2026-07-29 at the 詳細記録-pencil PR (#644) — the summary edit
+// sheet ships (SummaryEditSheet + card pencil wiring + facade port +
+// summaryEdit/summary_edit ja/en strings), measured at 1679.9 KB raw
+// against the prior 1679.7 KB ceiling (over by 0.2 KB). Genuine
+// new-feature volume, not bloat — same class as every prior raise; the
+// purchase-marker scan below stays the real gate.
+const BUDGET_BYTES = 1_730_000
 
 let dir
 try {
