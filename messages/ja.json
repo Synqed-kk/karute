@@ -457,7 +457,7 @@
       "allDone": "{done}件を再生成しました（失敗 {failed}）"
     },
     "aiSummary": {
-      "title": "AI要約"
+      "title": "詳細記録"
     },
     "transcript": {
       "title": "録音 ・ 文字起こし",
