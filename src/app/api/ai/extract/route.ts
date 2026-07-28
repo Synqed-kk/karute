@@ -4,6 +4,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { featureAllowed } from '@/lib/subscription/feature-gate'
 import { runKaruteExtraction } from '@/lib/ai/karute-extract'
+import { auditWeb } from '@/lib/audit-web'
 
 export const maxDuration = 120
 
@@ -19,7 +20,17 @@ export async function POST(request: Request) {
   }
 
   const limited = await enforceAiRateLimit('extract')
-  if (limited) return limited
+  if (limited) {
+    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
+    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
+    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
+    // .catch guards a parse failure on the limiter's own body from escaping
+    // this route's error envelope.
+    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
+      status: 429,
+      headers: limited.headers,
+    })
+  }
   // Plan gate (P4): AI karute generation is a paid capability. Inert until
   // billing arms (KARUTE_BILLING_ENFORCEMENT) — see feature-gate.ts.
   if (!(await featureAllowed('aiKaruteGeneration'))) {
@@ -48,6 +59,9 @@ export async function POST(request: Request) {
       businessType: orgSettings?.business_type,
     })
     if (usage) void reportAiUsage('extract', usage.tokensIn, usage.tokensOut)
+    // 監査ログ Wave W1 (§3.1 ai.* baseline): logged AFTER extraction succeeds,
+    // before the response — ids-only, no transcript/entry content.
+    await auditWeb({ category: 'ai', action: 'ai.memory_extract', requestId: crypto.randomUUID() })
     return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

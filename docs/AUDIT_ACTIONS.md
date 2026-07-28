@@ -8,9 +8,9 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | action | category | status | label key |
 | --- | --- | --- | --- |
 | `ai.consult_session` | ai | pending | `settings.auditLog.actions.ai.consult_session` |
-| `ai.memory_extract` | ai | pending | `settings.auditLog.actions.ai.memory_extract` |
-| `ai.suggested_message` | ai | pending | `settings.auditLog.actions.ai.suggested_message` |
-| `ai.summary_generate` | ai | pending | `settings.auditLog.actions.ai.summary_generate` |
+| `ai.memory_extract` | ai | live | `settings.auditLog.actions.ai.memory_extract` |
+| `ai.suggested_message` | ai | live | `settings.auditLog.actions.ai.suggested_message` |
+| `ai.summary_generate` | ai | live | `settings.auditLog.actions.ai.summary_generate` |
 | `audit.unmapped_endpoint` | privacy | live | `settings.auditLog.actions.audit.unmapped_endpoint` |
 | `auth.pin_lockout` | auth | live | `settings.auditLog.actions.auth.pin_lockout` |
 | `booking.cancel` | booking | live | `settings.auditLog.actions.booking.cancel` |
@@ -48,7 +48,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `privacy.customer_export` | privacy | live | `settings.auditLog.actions.privacy.customer_export` |
 | `privacy.voice_enroll` | privacy | live | `settings.auditLog.actions.privacy.voice_enroll` |
 | `privacy.voice_revoke` | privacy | live | `settings.auditLog.actions.privacy.voice_revoke` |
-| `recording.transcribe` | recording | pending | `settings.auditLog.actions.recording.transcribe` |
+| `recording.transcribe` | recording | live | `settings.auditLog.actions.recording.transcribe` |
 | `settings.permissions_change` | settings | live | `settings.auditLog.actions.settings.permissions_change` |
 | `settings.staff_stores_change` | settings | live | `settings.auditLog.actions.settings.staff_stores_change` |
 | `settings.store_create` | settings | live | `settings.auditLog.actions.settings.store_create` |

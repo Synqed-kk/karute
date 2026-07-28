@@ -23,9 +23,9 @@
 // 'recording.*'/'booking.*' interleaving with 'audit.'/'auth.' at the top.
 export const AUDIT_ACTIONS = [
   'ai.consult_session', // pending: Wave W
-  'ai.memory_extract', // pending: Wave W
-  'ai.suggested_message', // pending: Wave W
-  'ai.summary_generate', // pending: Wave W
+  'ai.memory_extract',
+  'ai.suggested_message',
+  'ai.summary_generate',
   'audit.unmapped_endpoint', // category: privacy (see header note)
   'auth.pin_lockout',
   'booking.cancel',
@@ -63,7 +63,7 @@ export const AUDIT_ACTIONS = [
   'privacy.customer_export',
   'privacy.voice_enroll',
   'privacy.voice_revoke',
-  'recording.transcribe', // pending: Wave W
+  'recording.transcribe',
   'settings.permissions_change',
   'settings.staff_stores_change',
   'settings.store_create',
@@ -174,6 +174,16 @@ export const AUDITED_CORES: {
   { file: 'src/app/api/sync/quickreserve/config/route.ts', symbols: ['POST'] },
   { file: 'src/app/api/sync/quickreserve/route.ts', symbols: ['POST'] },
   { file: 'src/app/api/export/route.ts', symbols: ['GET'] },
+  { file: 'src/app/api/ai/extract/route.ts', symbols: ['POST'] },
+  { file: 'src/app/api/ai/summarize/route.ts', symbols: ['POST'] },
+  { file: 'src/app/api/ai/suggestions/route.ts', symbols: ['POST'] },
+  { file: 'src/app/api/ai/transcribe/route.ts', symbols: ['POST'] },
+  // Wave W1 fix round: the web (cookie) twin of the facade's
+  // karute.ai.suggestedMessage row was silently unaudited — getSuggestedFollowUp
+  // now emits unconditionally on every non-error return (parity with the
+  // facade's generic hook). getSuggestedFollowUpWithClient stays unregistered
+  // (and audit-free) deliberately — the facade hook is its only emitter.
+  { file: 'src/lib/karute/ai-outreach.ts', symbols: ['getSuggestedFollowUp'] },
 ]
 
 // ── SDK_WRITE_ALLOWLIST ──────────────────────────────────────────────────────
