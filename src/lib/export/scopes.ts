@@ -142,7 +142,7 @@ export const SCOPES: Record<ScopeKey, ExportScope> = {
       { key: 'staff_id', label: 'Staff ID', labelJa: 'スタッフID', group: 'Who', required: false, recommended: true, pii: false },
       { key: 'staff_name', label: 'Staff name', labelJa: 'スタッフ名', group: 'Who', required: false, recommended: false, pii: false },
       { key: 'entries', label: 'Entries (JSON)', labelJa: '記録項目（JSON）', group: 'Content', required: false, recommended: true, pii: true },
-      { key: 'summary', label: 'AI summary', labelJa: 'AI要約', group: 'Content', required: false, recommended: true, pii: true },
+      { key: 'summary', label: 'Detailed record', labelJa: '詳細記録', group: 'Content', required: false, recommended: true, pii: true },
       { key: 'transcript', label: 'Diarized transcript', labelJa: '話者分離済み文字起こし', group: 'Content', required: false, recommended: false, pii: true },
       { key: 'ai_status', label: 'AI status', labelJa: 'AIステータス', group: 'State', required: false, recommended: false, pii: false },
       { key: 'confidence', label: 'AI confidence', labelJa: 'AI信頼度', group: 'State', required: false, recommended: false, pii: false },
