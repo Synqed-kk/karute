@@ -515,6 +515,77 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     if (!res.ok) throw new Error('expected ok')
     expect(res.targetLabels).toEqual({})
   })
+
+  it('resolves staff targets in BOTH id spaces (synqed staff.id + linked profiles.id) incl. deactivated staff — one unfiltered list call', async () => {
+    const staffList = jest.fn(async () => ({
+      staff: [
+        // Deactivated (departed) staff — must still resolve, so the list call
+        // must NOT filter on is_active.
+        { id: 'syn-kita', user_id: 'prof-kita', name: '北野亮介', is_active: false },
+        { id: 'syn-solo', user_id: null, name: '浜野', is_active: true },
+      ],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      staff: { list: staffList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        // Pre-signup row: stamped with the synqed-core staff id (the 7/28
+        // field find — rendered as a raw UUID before this fix).
+        coreEvent({ id: 'e-syn', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'syn-kita' }),
+        // Post-signup row: same person, stamped with the profiles.id — the
+        // user_id link resolves it.
+        coreEvent({ id: 'e-prof', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'prof-kita' }),
+        coreEvent({ id: 'e-solo', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'syn-solo' }),
+      ],
+      total: 3,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(staffList).toHaveBeenCalledTimes(1)
+    expect(staffList).toHaveBeenCalledWith({ page_size: 200 })
+    expect(res.targetLabels).toEqual({
+      'syn-kita': '北野亮介',
+      'prof-kita': '北野亮介',
+      'syn-solo': '浜野',
+    })
+  })
+
+  it('no staff-target rows on the page → staff.list is never queried', async () => {
+    const staffList = jest.fn(async () => ({ staff: [] }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [] })) },
+      staff: { list: staffList },
+    }))
+    const res = await listAuditLog({}) // default coreEvent targets a customer
+    if (!res.ok) throw new Error('expected ok')
+    expect(staffList).not.toHaveBeenCalled()
+  })
+
+  it('a failed staff lookup degrades to ids for staff only — other labels survive, the feed never fails', async () => {
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: jest.fn(async () => ({ customers: [{ id: 'cus-1', name: '鈴木 一郎' }] })) },
+      staff: { list: jest.fn(async () => { throw new Error('core down') }) },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent(),
+        coreEvent({ id: 'e-stf', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'syn-kita' }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.events).toHaveLength(2)
+    expect(res.targetLabels).toEqual({ 'cus-1': '鈴木 一郎' })
+  })
 })
 
 describe('listAuditLogWithClient — per-invocation privacy.audit_log.view (contract §3.1, PR-M1)', () => {

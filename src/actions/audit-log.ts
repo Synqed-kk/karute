@@ -79,9 +79,10 @@ type ListAuditLogResult =
        *  falls back to its client-side approximate count + '+' when null. */
       warningsTotal: number | null
       changesTotal: number | null
-      /** Display names for this page's customer/store targets — rows store ids
-       *  only (PII rule), so names join at read time. Staff resolve client-side
-       *  off the roster the section already holds. */
+      /** Display names for this page's customer/store/staff targets — rows
+       *  store ids only (PII rule), so names join at read time. Staff also
+       *  resolve client-side off the roster; this map is the fallback for ids
+       *  the roster can't key (historical id-space rows, departed staff). */
       targetLabels: Record<string, string>
     }
   | { ok: false; error: 'forbidden' | 'failed' }
@@ -350,6 +351,32 @@ async function resolveTargetLabels(
     try {
       const { stores } = await synqed.stores.list()
       for (const s of stores) labels[s.id] = s.name
+    } catch {
+      /* ids remain */
+    }
+  }
+  // Staff targets live in TWO id spaces: rows stamp whatever id the roster
+  // held at write time — the synqed-core staff.id while the member was
+  // owner-created/unsigned-up, the Supabase profiles.id after signup (the
+  // 7/28 field find: 北野's pre-signup staff.update row renders raw). Core's
+  // staff row links both (user_id = profiles.id), so ONE unfiltered list —
+  // no is_active filter, deactivated staff must keep resolving — maps either
+  // spelling to a name. The component still prefers its live roster; this
+  // fills what the roster can't key. Hard-deleted core rows simply don't
+  // resolve — the id stands, same honest state as purged customers.
+  const staffIds = idsOf('staff')
+  if (staffIds.length > 0) {
+    try {
+      const { staff } = await synqed.staff.list({ page_size: 200 })
+      const staffNameById = new Map<string, string>()
+      for (const s of staff) {
+        staffNameById.set(s.id, s.name)
+        if (s.user_id) staffNameById.set(s.user_id, s.name)
+      }
+      for (const id of staffIds) {
+        const name = staffNameById.get(id)
+        if (name) labels[id] = name
+      }
     } catch {
       /* ids remain */
     }
