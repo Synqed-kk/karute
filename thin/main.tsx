@@ -8,6 +8,7 @@ import { hideNativeSplash } from '@/lib/app-root/splash'
 import { ThinShell } from './shell'
 import { ThinRouter } from './router'
 import { ThinChromeContent, ThinChromeNav } from './chrome/Chrome'
+import { ContentErrorBoundary } from './ContentErrorBoundary'
 import { AuthGate } from './AuthGate'
 import { bootMobileAuth } from './auth/session'
 import { bindForegroundRevalidate } from './data/foreground-revalidate'
@@ -100,7 +101,9 @@ function main(): void {
         <ThinShell nav={<ThinChromeNav />}>
           <AuthGate>
             <ThinChromeContent>
-              <ThinRouter />
+              <ContentErrorBoundary>
+                <ThinRouter />
+              </ContentErrorBoundary>
             </ThinChromeContent>
           </AuthGate>
         </ThinShell>
