@@ -462,14 +462,22 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // per key.
   'ai.extract': { kind: 'mutation', category: 'ai', action: 'ai.memory_extract' },
   'ai.summarize': { kind: 'mutation', category: 'ai', action: 'ai.summary_generate' },
-  // Verified alive 2026-07-28 — the interactive recorder is the live UI
-  // (recorder-swap parked by Liam); web pipeline fetches it at
-  // src/lib/ai-pipeline.ts:104 via the port's aiBase seam (recording-port.ts:68
-  // = '/api/ai'; shell port = facade twin), plus 7/27 3-day prod-log traffic.
+  // FIX ROUND 1 (2026-07-28) correction: the prior comment cited the WEB
+  // route's evidence for THIS facade row — wrong twin. This key is reached by
+  // LOCAL-mode shell builds: thin/main.tsx:30 setRecordingPipelinePort(
+  // viteRecordingPort) wires thin/ports/recording.vite.ts:16's
+  // aiBase: '/api/app/v1/ai' (this facade route), baked into device builds via
+  // scripts/shell/release.mjs (KARUTE_SHELL_MODE=local) — field-confirmed
+  // 2026-07-28 (device renders the local bundle). The WEB pipeline instead
+  // reaches the LEGACY twin (src/lib/ai-pipeline.ts:104, recording-port.ts:68's
+  // aiBase '/api/ai') — that evidence now lives on the decision row below
+  // (API_ROUTE_DECISIONS['ai/transcribe']) instead of here.
   'ai.transcribe': { kind: 'mutation', category: 'recording', action: 'recording.transcribe' },
   'ai.suggestions': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message' },
   // Weakest-held row (D2) — hidden from default feed is a Wave W viewer
   // concern, not a facade-map field; writer live as of Wave W1 (2026-07-28).
+  // Facade-side client: thin/screens/KaruteDetailScreen.tsx:81 (SuggestedMessageSlot's
+  // useAiSlot call against this exact route).
   'karute.ai.suggestedMessage': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', targetType: 'karute' },
 
   // customer.memory.* (§3.1: "Worst attribution cluster") — live now: the
@@ -597,8 +605,8 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
   // D5). §3.1: decision rows on BOTH twins (this route + its facade twin
   // above) using the SAME ai.* action; all pendingWave — the writers land
   // Wave W, same as the facade twins. Auth: `chat` already has the explicit
-  // getUser() 401 guard; extract/summarize/suggestions/transcribe get the
-  // same guard in PR-M3 (a sibling Wave-M PR, not built here).
+  // getUser() 401 guard; extract/summarize/suggestions/transcribe have
+  // carried the same guard since PR-M3 (#632, merged 2026-07-27).
   'ai/chat': {
     kind: 'log',
     justification:
@@ -628,10 +636,14 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
     action: 'ai.suggested_message',
     coveredBy: 'src/app/api/ai/suggestions/route.ts#POST',
   },
+  // FIX ROUND 1 (2026-07-28) correction: this justification now carries the
+  // WEB pipeline's own evidence (moved off the facade row's comment above,
+  // which was citing the wrong twin) — src/lib/ai-pipeline.ts:104 fetches
+  // this legacy route via recording-port.ts:68's aiBase '/api/ai'.
   'ai/transcribe': {
     kind: 'log',
     justification:
-      'recording.transcribe (§3.1) — verified alive 2026-07-28 (see FACADE_AUDIT_MAP row comment); writer live (Wave W1): auditWeb() emits before every non-error response.',
+      "recording.transcribe (§3.1) — verified alive 2026-07-28: src/lib/ai-pipeline.ts:104 fetches this route via recording-port.ts:68 aiBase '/api/ai', plus 7/27 3-day prod-log traffic; writer live (Wave W1): auditWeb() emits before every non-error response.",
     dated: '2026-07-28',
     action: 'recording.transcribe',
     coveredBy: 'src/app/api/ai/transcribe/route.ts#POST',

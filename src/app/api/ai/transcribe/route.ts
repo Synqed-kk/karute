@@ -66,8 +66,13 @@ export async function POST(request: Request) {
   if (limited) {
     // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
     // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
-    // truthy return); body + headers (incl. Retry-After) preserved as-is.
-    return NextResponse.json(await limited.json(), { status: 429, headers: limited.headers })
+    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
+    // .catch guards a parse failure on the limiter's own body from escaping
+    // this route's error envelope.
+    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
+      status: 429,
+      headers: limited.headers,
+    })
   }
   // Plan gate (P4): transcription is the front door of AI karute generation —
   // same key as extract/summarize. Inert until billing arms (see feature-gate.ts).

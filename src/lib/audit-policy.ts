@@ -178,6 +178,12 @@ export const AUDITED_CORES: {
   { file: 'src/app/api/ai/summarize/route.ts', symbols: ['POST'] },
   { file: 'src/app/api/ai/suggestions/route.ts', symbols: ['POST'] },
   { file: 'src/app/api/ai/transcribe/route.ts', symbols: ['POST'] },
+  // Wave W1 fix round: the web (cookie) twin of the facade's
+  // karute.ai.suggestedMessage row was silently unaudited — getSuggestedFollowUp
+  // now emits unconditionally on every non-error return (parity with the
+  // facade's generic hook). getSuggestedFollowUpWithClient stays unregistered
+  // (and audit-free) deliberately — the facade hook is its only emitter.
+  { file: 'src/lib/karute/ai-outreach.ts', symbols: ['getSuggestedFollowUp'] },
 ]
 
 // ── SDK_WRITE_ALLOWLIST ──────────────────────────────────────────────────────

@@ -6,9 +6,15 @@
 //       once, with the expected category+action and a non-empty requestId, on
 //       every non-error (mocked success) return path — and never emits on an
 //       auth-fail/rate-limit/validation/catch error path ("errors are not
-//       actions").
+//       actions"). Every success-path assertion additionally pins the emit's
+//       CLOSED shape (exact key set) so a stray PII-shaped field landing in a
+//       future edit fails loud, not just the fields we bothered to name.
 //   (c) a detail-less audit() event prints `detail: null` on the console
 //       line, never `undefined`.
+//   (d) the web (cookie) twin of karute.ai.suggestedMessage —
+//       src/lib/karute/ai-outreach.ts's getSuggestedFollowUp — emits on its
+//       one success path and never on its internal-error path (fix round #2:
+//       this was the real coverage gap the blind round found).
 // Mocking conventions copied from api-extract.test.ts / api-summarize.test.ts
 // / api-suggestions.test.ts / api-transcribe.test.ts (the #632-era guard
 // tests that already drive these four routes) and from facade-audit.test.ts's
@@ -79,6 +85,7 @@ import { mockExtractionResult, mockSummaryResult } from './helpers/openai-mocks'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
 import { audit } from '@/lib/audit'
 import { auditLines } from './helpers/audit-lines'
+import { getSuggestedFollowUp } from '@/lib/karute/ai-outreach'
 
 const { auditWeb } = jest.requireMock('@/lib/audit-web') as { auditWeb: jest.Mock }
 
@@ -147,6 +154,9 @@ describe('POST /api/ai/extract — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'ai', action: 'ai.memory_extract', requestId: expect.stringMatching(UUID_RE) }),
     )
+    // Closed shape: exactly these 3 keys — a stray field (e.g. a PII-shaped
+    // `detail`) fails this, not just the fields we bothered to assert above.
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
   it('401 (anonymous, fail-fast auth guard): auditWeb never called', async () => {
@@ -165,10 +175,11 @@ describe('POST /api/ai/extract — auditWeb writer', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
-  it('429 (rate limited): auditWeb never called', async () => {
+  it('429 (rate limited): auditWeb never called, and the limiter body is preserved verbatim', async () => {
     const { enforceAiRateLimit } = jest.requireMock('@/lib/ai-rate-limit')
+    const limiterBody = { error: 'Hourly AI request cap reached' }
     ;(enforceAiRateLimit as jest.Mock).mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: 'Hourly AI request cap reached' }), {
+      new Response(JSON.stringify(limiterBody), {
         status: 429,
         headers: { 'Content-Type': 'application/json', 'Retry-After': '3600' },
       }),
@@ -183,6 +194,9 @@ describe('POST /api/ai/extract — auditWeb writer', () => {
         })
         expect(res.status).toBe(429)
         expect(res.headers.get('Retry-After')).toBe('3600')
+        // The .catch guard (fix round #2) must never invent a body — the
+        // limiter's own body rides through unchanged.
+        await expect(res.json()).resolves.toEqual(limiterBody)
       },
     })
     expect(auditWeb).not.toHaveBeenCalled()
@@ -203,6 +217,23 @@ describe('POST /api/ai/extract — auditWeb writer', () => {
     expect(auditWeb).not.toHaveBeenCalled()
   })
 
+  it('403 (plan gate locked): auditWeb never called', async () => {
+    const { featureAllowed } = jest.requireMock('@/lib/subscription/feature-gate')
+    ;(featureAllowed as jest.Mock).mockResolvedValueOnce(false)
+    await testApiHandler({
+      appHandler: extractHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: 'anything', locale: 'ja' }),
+        })
+        expect(res.status).toBe(403)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
   it('500 (OpenAI fails, catch path): auditWeb never called', async () => {
     ;(openai.chat.completions.parse as jest.Mock).mockRejectedValue(new Error('OpenAI API error'))
     await testApiHandler({
@@ -217,6 +248,29 @@ describe('POST /api/ai/extract — auditWeb writer', () => {
       },
     })
     expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('requestId uniqueness: two successful calls emit two DIFFERENT requestIds', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: mockExtractionResult } }],
+    })
+    const call = () =>
+      testApiHandler({
+        appHandler: extractHandler,
+        test: async ({ fetch }) => {
+          const res = await fetch({
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transcript: 'Client wanted natural brown hair.', locale: 'en' }),
+          })
+          expect(res.status).toBe(200)
+        },
+      })
+    await call()
+    await call()
+    expect(auditWeb).toHaveBeenCalledTimes(2)
+    const [first, second] = auditWeb.mock.calls.map((c) => c[0].requestId)
+    expect(first).not.toBe(second)
   })
 })
 
@@ -245,6 +299,7 @@ describe('POST /api/ai/summarize — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'ai', action: 'ai.summary_generate', requestId: expect.stringMatching(UUID_RE) }),
     )
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
   it('401 (anonymous, fail-fast auth guard): auditWeb never called', async () => {
@@ -296,6 +351,23 @@ describe('POST /api/ai/summarize — auditWeb writer', () => {
           body: JSON.stringify({}),
         })
         expect(res.status).toBe(400)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('403 (plan gate locked): auditWeb never called', async () => {
+    const { featureAllowed } = jest.requireMock('@/lib/subscription/feature-gate')
+    ;(featureAllowed as jest.Mock).mockResolvedValueOnce(false)
+    await testApiHandler({
+      appHandler: summarizeHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: 'anything', locale: 'ja' }),
+        })
+        expect(res.status).toBe(403)
       },
     })
     expect(auditWeb).not.toHaveBeenCalled()
@@ -342,6 +414,7 @@ describe('POST /api/ai/suggestions — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'ai', action: 'ai.suggested_message', requestId: expect.stringMatching(UUID_RE) }),
     )
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
   it('mocked success (cache hit): auditWeb called exactly once', async () => {
@@ -363,9 +436,10 @@ describe('POST /api/ai/suggestions — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'ai', action: 'ai.suggested_message', requestId: expect.stringMatching(UUID_RE) }),
     )
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
-  it('mocked success (freshly generated): auditWeb called exactly once', async () => {
+  it('mocked success (generation stubbed via runKaruteSuggestions mock): auditWeb called exactly once', async () => {
     await testApiHandler({
       appHandler: suggestionsHandler,
       test: async ({ fetch }) => {
@@ -381,6 +455,7 @@ describe('POST /api/ai/suggestions — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'ai', action: 'ai.suggested_message', requestId: expect.stringMatching(UUID_RE) }),
     )
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
   it('401 (anonymous, fail-fast auth guard): auditWeb never called', async () => {
@@ -475,6 +550,7 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'recording', action: 'recording.transcribe', requestId: expect.stringMatching(UUID_RE) }),
     )
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
   it('mocked success (JSON audioUrl path): auditWeb called exactly once with recording.transcribe', async () => {
@@ -495,6 +571,7 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({ category: 'recording', action: 'recording.transcribe', requestId: expect.stringMatching(UUID_RE) }),
     )
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual(['action', 'category', 'requestId'])
   })
 
   it('401 (anonymous, fail-fast auth guard): auditWeb never called', async () => {
@@ -534,6 +611,20 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('403 (plan gate locked): auditWeb never called', async () => {
+    const { featureAllowed } = jest.requireMock('@/lib/subscription/feature-gate')
+    ;(featureAllowed as jest.Mock).mockResolvedValueOnce(false)
+    await testApiHandler({
+      appHandler: transcribeHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({ method: 'POST', body: new FormData() })
+        expect(res.status).toBe(403)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('400 (no audio provided, validation): auditWeb never called', async () => {
     await testApiHandler({
       appHandler: transcribeHandler,
@@ -556,6 +647,61 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
         expect(res.status).toBe(500)
       },
     })
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+})
+
+// (d) Web (cookie) twin of karute.ai.suggestedMessage — the fix-round #2 real
+// coverage gap (getSuggestedFollowUp, src/lib/karute/ai-outreach.ts). Not a
+// route, so called directly rather than via testApiHandler; reuses the same
+// shared top-of-file mocks (openai, ai-cache, org-settings, feature-gate,
+// audit-web).
+describe('getSuggestedFollowUp (src/lib/karute/ai-outreach.ts) — auditWeb writer', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it('success (generated draft): auditWeb called exactly once with the closed shape', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'Thanks for visiting today!' } } }],
+    })
+    const draft = await getSuggestedFollowUp({
+      karuteId: 'karute-1',
+      customerName: 'Jane',
+      summary: 'Client came in for a haircut.',
+      locale: 'en',
+    })
+    expect(draft).toEqual({ channel: 'LINE', body: 'Thanks for visiting today!' })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'ai',
+        action: 'ai.suggested_message',
+        targetType: 'karute',
+        targetId: 'karute-1',
+        requestId: expect.stringMatching(UUID_RE),
+      }),
+    )
+    // Closed shape: 5 keys exactly — incl. targetType/targetId (unlike the
+    // 4 legacy routes above, which carry no target).
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
+      'action',
+      'category',
+      'requestId',
+      'targetId',
+      'targetType',
+    ])
+  })
+
+  it('error path (OpenAI throws, caught internally): auditWeb never called', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockRejectedValue(new Error('LLM error'))
+    const draft = await getSuggestedFollowUp({
+      karuteId: 'karute-1',
+      customerName: 'Jane',
+      summary: 'Client came in for a haircut.',
+      locale: 'en',
+    })
+    expect(draft).toBeNull()
     expect(auditWeb).not.toHaveBeenCalled()
   })
 })
