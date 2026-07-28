@@ -60,6 +60,9 @@ export const REVOCATION_SENSITIVE_ENDPOINTS = new Set<string>([
   // just-terminated staffer must not keep editing karute entries on the
   // local fast-path.
   'karute.entry.update',
+  // whole-summary edit (edit-layer W2 summary half — same customer-data
+  // PATCH class): same rule, no local fast-path.
+  'karute.summary.update',
   // recording-flow mutations (packet 08 batch 5 — customer VOICE data). Consent
   // grant, the recording-session mint, and the signed-upload-url mint are all
   // non-GET facade writes → they re-check revocation (no local fast-path) so a

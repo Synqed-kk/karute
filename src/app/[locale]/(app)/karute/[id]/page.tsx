@@ -110,6 +110,8 @@ export default async function KaruteDetailPage({
       sessionDateIso={built.sessionDateIso}
       entries={built.entries}
       summaryBullets={built.summaryBullets}
+      summaryRaw={built.summaryRaw}
+      summaryEdited={built.summaryEdited}
       transcript={built.transcript}
       consentOnFile={built.consentOnFile}
       transcriptDurationLabel={built.transcriptDurationLabel}

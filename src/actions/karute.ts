@@ -12,7 +12,7 @@ import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
-import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
+import { SESSION_CATEGORY_TO_ENTRY_CATEGORY, summaryTextToBullets } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction, KaruteEntryEdit } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
@@ -704,6 +704,145 @@ export async function updateKaruteDetailEntry(
     }
     // Collapse the core-only validationError variant — the sheet only ever
     // sees {ok}|{conflict}|{error}.
+    if ('validationError' in result) return { error: result.validationError }
+    return result
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// updateKaruteDetailSummary (edit-layer W2 summary half — the 詳細記録 pencil)
+// ---------------------------------------------------------------------------
+
+export type UpdateKaruteDetailSummaryResult = { ok: true } | { error: string }
+
+/** Core-only variant — same structural convention as CoreUpdateEntryResult
+ *  above (facade maps validationError to 400, {error} to a fixed generic
+ *  502; the web wrapper collapses it into {error}). */
+type CoreUpdateDetailSummaryResult = UpdateKaruteDetailSummaryResult | { validationError: string }
+
+// NO content in the audit detail — the emitter's interim sink is a console
+// line into Vercel log drains and its PII rule is "ids only, no note/summary
+// text, ever" (src/lib/audit.ts header + AuditEvent.detail doc). The DETAILED
+// before/after Liam requires lives where #620's entry-edit precedent puts it:
+// core's record-level lineage row (contentBefore/After, UNTRUNCATED) written
+// on every edited_summary change, surfaced by the 監査ログ row expansion and
+// the sheet's 編集履歴 block. The row itself carries lengths + ids only.
+
+/**
+ * Whole-section summary edit CORE — writes the `edited_summary` overlay (⚖
+ * Liam 7/29: ONE pencil, whole-section edit). `ai_summary` is never touched;
+ * readers already prefer the overlay via effectiveSummary. NO CAS: core's
+ * record update has no expected_version — last write wins, and no version is
+ * lost because core logs every change as a record-level lineage row (entry
+ * ids null). Shared by the web wrapper below and the facade PATCH route
+ * (…/karute/[id]/summary); the spine emit IS here (choke-point doctrine,
+ * mirrors updateKaruteDetailEntryWithClient above) so both callers get
+ * exactly one karute.summary_edit row and the facade key stays a
+ * FACADE_AUDIT_MAP skip.
+ */
+export async function updateKaruteDetailSummaryWithClient(
+  synqed: SynqedEntryClient,
+  recordId: string,
+  input: {
+    content: string
+    actorStaffId: string | null
+  },
+  actor: {
+    actorId: string | null
+    businessId: string | null
+    source: 'web' | 'facade'
+    requestId?: string
+  },
+  customerId: string | null,
+  /** The effective summary BEFORE this edit (edited ?? ai), from the caller's
+   *  authoritative read — rides the audit detail as `before`. */
+  summaryBefore: string | null,
+): Promise<CoreUpdateDetailSummaryResult> {
+  // Content bounds checked HERE (not just the facade's zod) so the web path
+  // is covered too — same rule as updateKaruteDetailEntryWithClient: an
+  // emptied or >4000-char summary never reaches core. The bullet-split check
+  // closes the marker-only hole (blind-round P2): text like a lone 「・」
+  // passes trim but splits to ZERO bullets — the card renders nothing, the
+  // pencil unmounts with it (permanent UI lockout of edited_summary), and
+  // every downstream effectiveSummary reader is fed the marker. Reject it on
+  // BOTH surfaces at the choke.
+  const trimmed = input.content.trim()
+  if (
+    trimmed.length === 0 ||
+    input.content.length > 4000 ||
+    summaryTextToBullets(input.content).length === 0
+  ) {
+    return { validationError: ENTRY_CONTENT_INVALID_ERROR }
+  }
+  // No-change guard at the choke (the sheet no-ops too, but a facade caller
+  // might not): an identical save writes nothing and must not mint an audit
+  // row claiming an edit happened.
+  if (input.content === summaryBefore) return { ok: true }
+  try {
+    await synqed.karuteRecords.update(recordId, {
+      edited_summary: input.content,
+      actor_staff_id: input.actorStaffId,
+    })
+    audit({
+      category: 'karute',
+      action: 'karute.summary_edit',
+      actorId: actor.actorId,
+      actorType: 'staff',
+      businessId: actor.businessId,
+      targetType: 'karute',
+      targetId: recordId,
+      // customer_id rides in detail (ids only, PII rule — same viewer
+      // name-join rationale as karute.entry_edit above). Lengths, not text
+      // (see the no-content comment above the function): the before/after
+      // themselves live in core's lineage row, read back by the 監査ログ
+      // expansion. before_len is the caller's proof-read view — best-effort
+      // under concurrency (no CAS on this path; core's lineage row is the
+      // transactional truth).
+      detail: {
+        customer_id: customerId,
+        before_len: summaryBefore === null ? 0 : summaryBefore.length,
+        after_len: input.content.length,
+      },
+      requestId: actor.requestId,
+      source: actor.source,
+    })
+    return { ok: true }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Unknown error' }
+  }
+}
+
+/** Cookie web wrapper — records.write gate + business-scoped client +
+ *  resolved identity, then the core (which owns the spine emit). The
+ *  authoritative GET supplies customer_id AND the before-text — never the
+ *  client (same Greptile-#616 rationale as updateKaruteDetailEntry). */
+export async function updateKaruteDetailSummary(
+  recordId: string,
+  input: { content: string },
+): Promise<UpdateKaruteDetailSummaryResult> {
+  try {
+    await requireCapability('records.write')
+    const synqed = await getSynqedClient()
+    const actorStaffId = await getCurrentUserStaffId()
+    const { actorId, businessId } = await resolveWebAuditContext()
+    const record = (await synqed.karuteRecords.get(recordId, {
+      include_entries: false,
+    })) as { customer_id?: string | null; edited_summary?: string | null; ai_summary?: string | null } | null
+    const result = await updateKaruteDetailSummaryWithClient(
+      synqed,
+      recordId,
+      { content: input.content, actorStaffId },
+      { actorId, businessId, source: 'web', requestId: crypto.randomUUID() },
+      record?.customer_id ?? null,
+      record?.edited_summary ?? record?.ai_summary ?? null,
+    )
+    if ('ok' in result) {
+      revalidatePath('/[locale]/(app)/karute/[id]', 'page')
+    }
+    // Collapse the core-only validationError variant — the sheet only ever
+    // sees {ok}|{error}.
     if ('validationError' in result) return { error: result.validationError }
     return result
   } catch (err) {

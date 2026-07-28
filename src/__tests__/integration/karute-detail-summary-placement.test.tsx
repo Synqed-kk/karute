@@ -22,6 +22,15 @@ jest.mock('next-intl', () => {
     },
   }
 })
+// AISummaryCard (REAL below) imports SummaryEditSheet → '@/actions/karute';
+// the real module pulls next/cache → Next server stream-utils → TextEncoder,
+// which CI's jsdom lacks (passes locally only because the local node leaks
+// the global). Mock the action seam like every sheet test does — the sheet
+// itself never mounts here (no summaryRaw prop → no pencil).
+jest.mock('@/actions/karute', () => ({
+  updateKaruteDetailSummary: jest.fn(),
+  listEntryEditHistory: jest.fn(async () => ({ edits: [], truncated: false })),
+}))
 // Every sibling card is out of scope — stub to inert placeholders so the view
 // renders without their server/client deps. AISummaryCard stays REAL.
 jest.mock('@/components/karute/redesign/detail/CustomerHeaderCard', () => ({

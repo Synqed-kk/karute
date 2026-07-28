@@ -56,6 +56,7 @@ export const AUDIT_ACTIONS = [
   'karute.entry_edits_view',
   'karute.outcome_set',
   'karute.save',
+  'karute.summary_edit',
   'karute.view',
   'privacy.audit_log.view',
   'privacy.customer_delete_canceled',
@@ -164,7 +165,11 @@ export const AUDITED_CORES: {
   { file: 'src/actions/invites.ts', symbols: ['createInviteCore', 'revokeInviteCore', 'acceptInvite'] },
   {
     file: 'src/actions/karute.ts',
-    symbols: ['createOrUpdateKaruteRecord', 'updateKaruteDetailEntryWithClient'],
+    symbols: [
+      'createOrUpdateKaruteRecord',
+      'updateKaruteDetailEntryWithClient',
+      'updateKaruteDetailSummaryWithClient',
+    ],
   },
   {
     file: 'src/app/[locale]/(app)/customers/[id]/page.tsx',
