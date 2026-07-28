@@ -61,7 +61,7 @@ export function OutcomeCard({
   function handleResolve(outcome: SessionOutcome) {
     if (!customerId) return
     startTransition(async () => {
-      const res = await updateKaruteOutcome(karuteRecordId, customerId, outcome)
+      const res = await updateKaruteOutcome(karuteRecordId, outcome)
       setOpen(false)
       if (res.error) toast.error(res.error)
       else router.refresh()

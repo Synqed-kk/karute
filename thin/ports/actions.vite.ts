@@ -235,15 +235,12 @@ async function facadeSetLifecycle(input: {
 }
 
 // -- session detail: outcome + regenerate (packet 07 Decision 2 + §Build 3) ----
-// The web updateKaruteOutcome takes (karuteRecordId, customerId, outcome), but the
-// facade DERIVES customerId server-side from the karute record (never trusts the
-// client) — so the port drops the customerId arg and forwards only the outcome.
+// Signature matches the web action (Wave W3: BOTH surfaces now derive
+// customerId server-side from the karute record — the caller never supplies it).
 async function facadeUpdateKaruteOutcome(
   karuteRecordId: string,
-  _customerId: string,
   outcome: { status: string; reason?: string | null; isFirstVisit?: boolean },
 ): Promise<{ error?: string }> {
-  void _customerId // path is karuteRecordId; customerId is server-derived
   const res = await getDataPort().apiFetch(
     `/api/app/v1/karute/${enc(karuteRecordId)}/outcome`,
     jsonInit('POST', {
@@ -1265,8 +1262,14 @@ export const getBurnablePackSummary = async (
     return null
   }
 }
-// -- karute-outcome (packet 07 §Build 3)
-export const updateKaruteOutcome = facadeUpdateKaruteOutcome
+// -- karute-outcome (packet 07 §Build 3). The `satisfies` pin is type-only
+// (erased by vite, no runtime import): under tsc the shared components check
+// against the WEB action while vite swaps in this port — a signature drift
+// between the two is invisible at both build gates without it (Wave W3
+// blind-round catch: the web action's arity change would have shipped a
+// device-runtime break).
+export const updateKaruteOutcome =
+  facadeUpdateKaruteOutcome satisfies typeof import('@/actions/karute-outcome').updateKaruteOutcome
 // -- regenerate-karute (packet 07 Decision 2). regenerateKarute is the new
 //    server-side orchestration; the entries/summary cores + the bulk backfill
 //    tool stay web-internal (notWired — Decision 2 pre-ruling).

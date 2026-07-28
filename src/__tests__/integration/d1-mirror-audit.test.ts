@@ -143,13 +143,15 @@ describe('facade hook — D1 mirror keys emit on 2xx (Wave W3)', () => {
 // ── (c) web wrapper twins ───────────────────────────────────────────────────
 
 const synqedCustomers = { grantConsent: jest.fn(), revokeConsent: jest.fn() }
+const synqedKaruteRecords = { get: jest.fn() }
 
 beforeEach(() => {
   jest.clearAllMocks()
   getCurrentUserStaffId.mockImplementation(async () => 'staff-1')
-  getSynqedClient.mockImplementation(async () => ({ customers: synqedCustomers }))
+  getSynqedClient.mockImplementation(async () => ({ customers: synqedCustomers, karuteRecords: synqedKaruteRecords }))
   synqedCustomers.grantConsent.mockResolvedValue({ id: 'consent-1' })
   synqedCustomers.revokeConsent.mockResolvedValue(undefined)
+  synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: 'cus-4' })
   setCustomerLifecycleWithClient.mockResolvedValue({ ok: true })
   setKaruteOutcome.mockResolvedValue({})
 })
@@ -237,14 +239,27 @@ describe('setLifecycleAction — web twin (Wave W3)', () => {
     expect(res.ok).toBe(false)
     expect(auditWeb).not.toHaveBeenCalled()
   })
+
+  it('empty customerId: the WithClient guard fails closed, no write, no emit', async () => {
+    const res = await setLifecycleAction({ ...input, customerId: '' })
+    expect(res.ok).toBe(false)
+    expect(setCustomerLifecycleWithClient).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
 })
 
 describe('updateKaruteOutcome — web twin (Wave W3)', () => {
   const outcome = { status: 'success' as const, reason: null, isFirstVisit: false }
 
-  it('success: auditWeb exactly once with karute.outcome_set, karute target + customer_id detail', async () => {
-    const res = await updateKaruteOutcome('kar-1', 'cus-4', outcome)
+  it('success: auditWeb exactly once with karute.outcome_set, karute target + the DERIVED customer_id detail', async () => {
+    const res = await updateKaruteOutcome('kar-1', outcome)
     expect(res.error).toBeUndefined()
+    // The customer is derived from the record (facade parity — never
+    // caller-supplied): both the write and the row carry the record's id.
+    expect(synqedKaruteRecords.get).toHaveBeenCalledWith('kar-1')
+    expect(setKaruteOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ karuteRecordId: 'kar-1', customerId: 'cus-4' }),
+    )
     expect(auditWeb).toHaveBeenCalledTimes(1)
     expect(auditWeb).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -257,9 +272,25 @@ describe('updateKaruteOutcome — web twin (Wave W3)', () => {
     )
   })
 
+  it('record not found (or cross-tenant): fails before any write, auditWeb never called', async () => {
+    synqedKaruteRecords.get.mockRejectedValue(new Error('404'))
+    const res = await updateKaruteOutcome('kar-9', outcome)
+    expect(res.error).toBe('karute record not found')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('record with no linked customer: fails before any write, auditWeb never called', async () => {
+    synqedKaruteRecords.get.mockResolvedValue({ id: 'kar-1', customer_id: null })
+    const res = await updateKaruteOutcome('kar-1', outcome)
+    expect(res.error).toBe('karute has no linked customer')
+    expect(setKaruteOutcome).not.toHaveBeenCalled()
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
   it('outcome-write failure: the error passes through, auditWeb never called', async () => {
     setKaruteOutcome.mockResolvedValue({ error: 'outcome write failed' })
-    const res = await updateKaruteOutcome('kar-1', 'cus-4', outcome)
+    const res = await updateKaruteOutcome('kar-1', outcome)
     expect(res.error).toBe('outcome write failed')
     expect(auditWeb).not.toHaveBeenCalled()
   })

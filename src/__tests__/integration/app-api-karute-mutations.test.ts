@@ -77,6 +77,7 @@ jest.mock('@/lib/subscription/feature-gate', () => ({
 
 import { POST as regenerate, OPTIONS as regenerateOptions } from '@/app/api/app/v1/karute/[id]/regenerate/route'
 import { POST as outcome, OPTIONS as outcomeOptions } from '@/app/api/app/v1/karute/[id]/outcome/route'
+import { auditLines } from './helpers/audit-lines'
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -244,6 +245,21 @@ describe('POST /karute/[id]/outcome (§Build 3)', () => {
     expect(upsertOutcome).toHaveBeenCalledWith(
       expect.objectContaining({ karute_record_id: 'kar-1', customer_id: 'cust-1', outcome: 'success', is_first_visit: true, decided_by: 'auth-user-1' }),
     )
+  })
+
+  it('Wave W3: a 2xx emits karute.outcome_set carrying the ROUTE-set customer_id detail (pins outcome/route.ts ctx.auditDetail, not just the seam machinery)', async () => {
+    const lines = await auditLines(async () => {
+      const res = await outcome(jsonReq({ status: 'success' }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action: 'karute.outcome_set',
+      target_type: 'karute',
+      target_id: 'kar-1',
+      source: 'facade',
+    })
+    expect(lines[0].detail).toMatchObject({ customer_id: 'cust-1' })
   })
 
   it('customerId is DERIVED from the record — a spoofed body customerId is rejected (strict)', async () => {

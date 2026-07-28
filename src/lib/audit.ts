@@ -523,8 +523,8 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // stay audit-free. karute.outcome.set fires ONLY on the dedicated
   // after-the-fact route, which enriches the row with customer_id via
   // ctx.auditDetail (Wave V karute-target canon — the viewer's name join);
-  // a save-EMBEDDED outcome write (facade karute save, web saveKaruteRecord,
-  // processJob) is part of the save and deliberately row-less on BOTH
+  // a save-EMBEDDED outcome write (facade karute save, web saveKaruteRecord /
+  // saveKaruteRecordInline, processJob) is part of the save and deliberately row-less on BOTH
   // surfaces — that path's karute.save row covers it (same choke-point
   // doctrine as karute.entry.update above). Row-stamps stay as
   // defense-in-depth.

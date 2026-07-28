@@ -7,7 +7,7 @@
 
 // ── AUDIT_ACTIONS ──────────────────────────────────────────────────────────
 // Exact union of: every non-empty FACADE_AUDIT_MAP action (live AND
-// pendingWave — canonizing the D1 placeholders), every structured decision-row
+// pendingWave), every structured decision-row
 // action (API_ROUTE_DECISIONS), and every literal `action: '...'` string
 // emitted via audit()/auditWeb() in src. CP4 (audit-actions-taxonomy.test.ts)
 // enforces set-equality both directions — an orphan member (nobody maps/emits
@@ -466,7 +466,7 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteOutcomes.upsert',
     symbols: ['setKaruteOutcomeWithClient', 'setKaruteOutcome'],
     justification:
-      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). Both symbols here stay audit-free: a save-EMBEDDED outcome write (createOrUpdateKaruteRecord, the facade karute save route, processJob) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap.",
+      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). Both symbols here stay audit-free: a save-EMBEDDED outcome write (web saveKaruteRecord/saveKaruteRecordInline via setKaruteOutcome, the facade karute save route, processJob) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap.",
     dated: '2026-07-28',
   },
   {
