@@ -28,6 +28,11 @@ export interface KaruteDetailViewProps {
   sessionDateIso?: string | null
   entries: SessionEntry[]
   summaryBullets: string[]
+  /** Raw effective summary (edited ?? ai) — seeds the 詳細記録 pencil's edit
+   *  sheet. Optional so callers that predate the pencil render read-only. */
+  summaryRaw?: string | null
+  /** True when the summary carries a human overlay — amber pencil. */
+  summaryEdited?: boolean
   transcript: string | null
   consentOnFile: boolean
   transcriptDurationLabel: string | null
@@ -52,6 +57,8 @@ export function KaruteDetailView({
   sessionDateLong,
   entries,
   summaryBullets,
+  summaryRaw,
+  summaryEdited,
   transcript,
   consentOnFile,
   transcriptDurationLabel,
@@ -111,7 +118,13 @@ export function KaruteDetailView({
           />
         </div>
         <div className="flex flex-col gap-4">
-          <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
+          <AISummaryCard
+            sessionDate={sessionDateLong}
+            bullets={summaryBullets}
+            karuteRecordId={karuteId}
+            summaryRaw={summaryRaw}
+            summaryEdited={summaryEdited}
+          />
           {suggestedMessageSlot}
           <RecordingTranscriptCard
             transcript={transcript}

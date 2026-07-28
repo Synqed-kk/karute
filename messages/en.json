@@ -436,6 +436,12 @@
       "error": "Could not save",
       "reload": "Reload"
     },
+    "summaryEdit": {
+      "title": "Edit detailed record",
+      "editButton": "Edit detailed record",
+      "save": "Save",
+      "error": "Could not save"
+    },
     "entryHistory": {
       "title": "Edit history",
       "unknownStaff": "Unknown",
@@ -2156,6 +2162,7 @@
           "view": "Viewed karute record",
           "entry_edits_view": "Viewed karute edit history",
           "entries_regenerate": "Regenerated karute entries",
+          "summary_edit": "Edited detailed record",
           "outcome_set": "Recorded session outcome"
         },
         "staff": {

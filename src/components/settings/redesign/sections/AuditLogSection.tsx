@@ -330,8 +330,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     return targetName
   }
 
-  // Tap a karute.entry_edit row: toggle it open/closed, fetching its trail
-  // once (cached by row id thereafter — no refetch on re-expand).
+  // Tap a karute.entry_edit / karute.summary_edit row: toggle it open/closed,
+  // fetching its trail once (cached by row id thereafter — no refetch on
+  // re-expand).
   function toggleEntryEditTrail(e: AuditLogEvent) {
     if (expandedEditId === e.id) {
       setExpandedEditId(null)
@@ -340,9 +341,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     setExpandedEditId(e.id)
     if (editTrails[e.id] || inFlightEditFetches.current.has(e.id)) return
     const detail = (e.detail ?? {}) as Record<string, unknown>
+    // summary_edit rows are record-level BY DESIGN (no entry_id — core logs
+    // the change with both entry ids null); entry_edit rows need theirs.
+    const isSummary = e.action === 'karute.summary_edit'
     const entryId = typeof detail.entry_id === 'string' ? detail.entry_id : null
     const recordId = e.target_id
-    if (!entryId || !recordId) {
+    if ((!isSummary && !entryId) || !recordId) {
       setEditTrails((prev) => ({ ...prev, [e.id]: { status: 'error' } }))
       return
     }
@@ -365,10 +369,16 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
           ...prev,
           [e.id]: {
             status: 'ok',
-            // Per-ENTRY scope, same join as EntryHistorySheet.tsx: the record's
-            // full trail, filtered to rows that touch this row's entry_id on
-            // either side of a REGEN_REPLACE-style swap.
-            rows: result.edits.filter((r) => r.entryIdNew === entryId || r.entryIdOld === entryId),
+            // Per-ENTRY scope, same join as the edit sheets: the record's full
+            // trail, filtered to rows that touch this row's entry_id on either
+            // side of a REGEN_REPLACE-style swap — or, for a summary_edit row,
+            // to the RECORD-LEVEL rows (both entry ids null = core's
+            // summary-edit lineage; SummaryEditSheet's same filter).
+            rows: result.edits.filter((r) =>
+              isSummary
+                ? r.entryIdNew === null && r.entryIdOld === null
+                : r.entryIdNew === entryId || r.entryIdOld === entryId,
+            ),
             truncated: result.truncated,
           },
         }))
@@ -554,7 +564,8 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                     ? t('systemActor')
                     : e.actor_label ||
                       ((e.actor_id && staffNames.get(e.actor_id)) || t('unknownActor'))
-                const isEntryEdit = e.action === 'karute.entry_edit'
+                const isEntryEdit =
+                  e.action === 'karute.entry_edit' || e.action === 'karute.summary_edit'
                 const isOpen = isEntryEdit && expandedEditId === e.id
                 const trail = isEntryEdit ? editTrails[e.id] : undefined
                 return (

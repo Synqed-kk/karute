@@ -436,6 +436,12 @@
       "error": "保存に失敗しました",
       "reload": "再読み込み"
     },
+    "summaryEdit": {
+      "title": "詳細記録を編集",
+      "editButton": "詳細記録を編集",
+      "save": "保存",
+      "error": "保存に失敗しました"
+    },
     "entryHistory": {
       "title": "編集履歴",
       "unknownStaff": "不明",
@@ -2156,6 +2162,7 @@
           "view": "カルテを閲覧",
           "entry_edits_view": "カルテ編集履歴を閲覧",
           "entries_regenerate": "カルテを再生成",
+          "summary_edit": "詳細記録を編集",
           "outcome_set": "セッション結果を記録"
         },
         "staff": {

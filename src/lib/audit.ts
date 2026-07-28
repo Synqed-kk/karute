@@ -236,6 +236,7 @@ export type FacadeEndpointKey =
   | 'karute.read'
   | 'karute.regenerate'
   | 'karute.save'
+  | 'karute.summary.update'
   | 'orgSettings.update'
   | 'permissions.get'
   | 'permissions.update'
@@ -577,6 +578,10 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // always describing).
   'karute.save': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#createOrUpdateKaruteRecord' },
   'karute.entry.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#updateKaruteDetailEntryWithClient' },
+  // karute.summary_edit follows the identical choke-point doctrine: the ONE
+  // emit lives in updateKaruteDetailSummaryWithClient and covers the web action AND
+  // this facade route. Do not add a live row for 'karute.summary.update'.
+  'karute.summary.update': { kind: 'skip', category: 'karute', action: '', coveredBy: 'src/actions/karute.ts#updateKaruteDetailSummaryWithClient' },
 }
 
 // ── Out-of-facade route decisions (contract §2.3/§2.5, PR-M4) ───────────

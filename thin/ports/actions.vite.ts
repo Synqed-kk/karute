@@ -309,6 +309,32 @@ async function facadeUpdateKaruteEntry(
   }
 }
 
+// -- session detail: whole-summary edit (edit-layer W2 summary half — the
+// 詳細記録 pencil). Same result shape as the web action
+// (updateKaruteDetailSummary) so SummaryEditSheet's success/error branches
+// behave identically on both platforms. NOT the regen path's
+// updateKaruteSummary (ai_summary) — this writes the edited_summary overlay.
+async function facadeUpdateKaruteDetailSummary(
+  karuteRecordId: string,
+  input: { content: string },
+): Promise<{ ok: true } | { error: string }> {
+  // Whole body try/caught: a network-level fetch rejection must come back as
+  // the declared {error} result, exactly like the web action's catch — same
+  // transport-rejection parity as facadeUpdateKaruteEntry above (Greptile P1,
+  // #615).
+  try {
+    const res = await getDataPort().apiFetch(
+      `/api/app/v1/karute/${enc(karuteRecordId)}/summary`,
+      jsonInit('PATCH', input),
+    )
+    if (res.ok) return { ok: true }
+    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null
+    return { error: body?.error?.message ?? `Update failed (${res.status})` }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Network request failed' }
+  }
+}
+
 // -- session detail: per-entry edit history (edit-layer W2 history-sheet
 // packet). Local redeclaration of EntryEditHistoryRow (src/actions/karute.ts)
 // — same "redeclare the shape" convention as AuditLogEvent/StoreRow below.
@@ -1286,6 +1312,12 @@ export const regenerateKaruteEntries = notWired('regenerateKaruteEntries')
 export const updateKaruteSummary = notWired('updateKaruteSummary')
 // -- entry edit (edit-layer W2 PR-B — edit-save only, no delete yet)
 export const updateKaruteDetailEntry = facadeUpdateKaruteEntry
+// -- summary edit (edit-layer W2 summary half — the 詳細記録 pencil). The
+// `satisfies` pin is type-only (erased by vite — see updateKaruteOutcome's
+// comment above): a signature drift between the web action and this port
+// would otherwise be invisible at both build gates.
+export const updateKaruteDetailSummary =
+  facadeUpdateKaruteDetailSummary satisfies typeof import('@/actions/karute').updateKaruteDetailSummary
 // -- entry edit history (edit-layer W2 history-sheet packet)
 export const listEntryEditHistory = facadeListEntryEditHistory
 export const listCustomerKaruteForRegen = notWired('listCustomerKaruteForRegen')

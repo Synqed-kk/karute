@@ -101,8 +101,13 @@ export function karuteEntriesToTimeline(
 export function karuteSummaryToBullets(
   karute: KaruteWithRelations,
 ): string[] {
-  if (!karute.summary) return []
-  const raw = karute.summary
+  return summaryTextToBullets(karute.summary)
+}
+
+/** Raw-text variant of the split above — the 詳細記録 pencil's optimistic
+ *  post-save re-render calls this client-side with the just-saved text. */
+export function summaryTextToBullets(raw: string | null): string[] {
+  if (!raw) return []
   // New format (prompts.ts): bullet lines, each optionally prefixed with ・/•/-.
   // Detect the new format by a bullet marker OR a newline — NOT by line count.
   // That way a SINGLE bullet ("・次回来店：6月29日 16:00") isn't mis-routed to the

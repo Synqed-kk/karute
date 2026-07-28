@@ -59,6 +59,12 @@ export interface KaruteDetailScreen {
   sessionDateIso: string | null
   entries: SessionEntry[]
   summaryBullets: string[]
+  /** The effective summary's RAW text (edited ?? ai) — seeds the 詳細記録
+   *  pencil's edit sheet, which needs the real line breaks the bullet split
+   *  throws away. */
+  summaryRaw: string | null
+  /** True when the summary is the human overlay — drives the amber pencil. */
+  summaryEdited: boolean
   /** The transcript AS THE VIEWER MAY SEE IT — withheld to null by the ACL. */
   transcript: string | null
   consentOnFile: boolean
@@ -165,6 +171,8 @@ export function buildKaruteDetailScreen(
       (karute.session_date ?? karute.created_at)?.slice(0, 10) ?? null,
     entries: sessionEntries,
     summaryBullets,
+    summaryRaw: karute.summary ?? null,
+    summaryEdited: karute.summary_edited ?? false,
     transcript: visibleTranscript,
     consentOnFile,
     transcriptDurationLabel: null,

@@ -19,6 +19,9 @@ export interface KaruteWithRelations {
   created_at: string
   session_date: string | null
   summary: string | null
+  /** True when `summary` is the human overlay (edited_summary), not the AI's
+   *  own text — drives the amber pencil on the 詳細記録 card. */
+  summary_edited?: boolean
   transcript: string | null
   customer_id: string | null
   client_id: string | null
@@ -91,6 +94,7 @@ export function mapSynqedKaruteRecord(
     // synqed-core has no session_date; the header falls back to created_at.
     session_date: null,
     summary: effectiveSummary(rec),
+    summary_edited: (rec.edited_summary ?? null) !== null,
     transcript: rec.transcript ?? null,
     // Supabase column semantics: customer_id = tenant, client_id = the client.
     customer_id: rec.business_id ?? null,

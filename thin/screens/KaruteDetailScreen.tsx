@@ -113,6 +113,8 @@ export function KaruteDetailScreen({ id }: { id: string }) {
             sessionDateIso={dto.sessionDateIso}
             entries={dto.entries}
             summaryBullets={dto.summaryBullets}
+            summaryRaw={dto.summaryRaw}
+            summaryEdited={dto.summaryEdited}
             transcript={dto.transcript}
             consentOnFile={dto.consentOnFile}
             transcriptDurationLabel={dto.transcriptDurationLabel}
