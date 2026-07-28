@@ -63,8 +63,18 @@ const fakeClient = {
 }
 jest.mock('@/lib/synqed/client', () => ({ newSynqedClient: jest.fn(() => fakeClient) }))
 
+// Wave W2: spy on the emitter while keeping the REAL map/types — the generic
+// facade hook (logFacadeAudit) now emits ai.consult_session on every 2xx of
+// this route, enriched by ctx.auditDetail/auditStoreId.
+jest.mock('@/lib/audit', () => ({
+  ...jest.requireActual('@/lib/audit'),
+  audit: jest.fn(),
+}))
+
 import { POST } from '@/app/api/app/v1/ai/chat/route'
 import { AppApiError } from '@/lib/app-api/errors'
+
+const auditSpy = (jest.requireMock('@/lib/audit') as { audit: jest.Mock }).audit
 
 const SECRET = process.env.AUTH_SUPABASE_JWT_SECRET!
 const ISSUER = `${process.env.AUTH_SUPABASE_URL}/auth/v1`
@@ -181,5 +191,69 @@ describe('happy path + accounting', () => {
     const res = await POST(post(auth, { message: 'x' }), noRoute)
     expect(res.status).toBe(429)
     expect(runChat).not.toHaveBeenCalled()
+  })
+})
+
+describe('監査ログ Wave W2 — the generic hook emits ai.consult_session per exchange', () => {
+  it('2xx exchange: ONE facade emit with first_turn/history_len enrichment (first exchange = the session row)', async () => {
+    const res = await POST(post(auth, { message: '肩こりの相談', locale: 'ja' }), noRoute)
+    expect(res.status).toBe(200)
+    const calls = auditSpy.mock.calls.filter(([e]) => e.action === 'ai.consult_session')
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toEqual(
+      expect.objectContaining({
+        category: 'ai',
+        action: 'ai.consult_session',
+        source: 'facade',
+        businessId: 'business-1',
+        storeId: undefined,
+        detail: expect.objectContaining({ first_turn: true, history_len: 0 }),
+      }),
+    )
+  })
+
+  it('later exchange: first_turn false, history_len counts the capped history', async () => {
+    const res = await POST(
+      post(auth, {
+        message: '続き',
+        history: [
+          { role: 'user', content: 'a' },
+          { role: 'assistant', content: 'b' },
+        ],
+      }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    const [e] = auditSpy.mock.calls.filter(([ev]) => ev.action === 'ai.consult_session')[0]
+    expect(e.detail).toEqual(expect.objectContaining({ first_turn: false, history_len: 2 }))
+  })
+
+  it("clamped staff: the row carries the clamp's store as its store lens", async () => {
+    staffStoresGet.mockResolvedValue({ store_ids: ['store-ginza'] })
+    const res = await POST(post(auth, { message: 'x' }), noRoute)
+    expect(res.status).toBe(200)
+    const [e] = auditSpy.mock.calls.filter(([ev]) => ev.action === 'ai.consult_session')[0]
+    expect(e.storeId).toBe('store-ginza')
+  })
+
+  it('viewAll (business-wide context): no store lens on the row', async () => {
+    capabilities.current = new Set(['customers.view', 'stores.viewAll'])
+    const res = await POST(post({ ...auth, 'store-id': 'store-ginza' }, { message: 'x' }), noRoute)
+    expect(res.status).toBe(200)
+    const [e] = auditSpy.mock.calls.filter(([ev]) => ev.action === 'ai.consult_session')[0]
+    expect(e.storeId).toBeUndefined()
+  })
+
+  it('errors are not actions: 403 (capability) and 429 (rate limit) emit nothing', async () => {
+    capabilities.current = new Set()
+    const forbidden = await POST(post(auth, { message: 'x' }), noRoute)
+    expect(forbidden.status).toBe(403)
+
+    capabilities.current = new Set(['customers.view'])
+    enforceRate.mockRejectedValueOnce(new AppApiError('rate_limited', 'slow down'))
+    const limited = await POST(post(auth, { message: 'x' }), noRoute)
+    expect(limited.status).toBe(429)
+
+    expect(auditSpy.mock.calls.filter(([e]) => e.action === 'ai.consult_session')).toHaveLength(0)
   })
 })

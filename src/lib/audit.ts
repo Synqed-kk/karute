@@ -309,17 +309,19 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // rule readers: do not add 'karute.save' to this map.
   // List render ≠ a view (Liam ruling 2026-07-17) — names on a list don't log.
   'customers.list': { kind: 'skip', category: 'customer', action: '' },
-  // AI相談 (contract §3.1, "replace FALSE skip" — council finding): the
-  // comment this replaces claimed the row was "wired at the session mint,
-  // not this screen GET" — no such writer exists anywhere. Honest state:
-  // ai.consult_session, ONE row per session, is DECIDED but not built —
-  // dated tracked-TODO (C2/F6), never a silent skip claiming coverage that
-  // doesn't exist (the false AI相談-row lesson). Which of these two keys
-  // actually mints the row (session open vs first send) is a Wave W design
-  // question — both carry the marker so neither can re-acquire a false
-  // "covered elsewhere" claim in the interim.
+  // AI相談 mint (⚖ Liam ruled Option A, 2026-07-28): the row mints PER
+  // EXCHANGE at the send (ai.chat) — the generic hook fires on every 2xx now
+  // that the marker is off, and the route enriches it with
+  // {first_turn, history_len} via ctx.auditDetail. Canon for the "ONE row
+  // per session" phrasing: the first_turn row IS the session row. A
+  // screen-open mint at askAi.read was rejected (weak evidence of intent,
+  // and CP7's shape law makes a first-send-only emit mechanically
+  // impossible). askAi.read stays a dated tracked-TODO VERBATIM — its
+  // retirement is a ledgered (Anthony-gated) edit, queued, someday; until
+  // then the marker keeps it from re-acquiring a false "covered elsewhere"
+  // claim (the false AI相談-row lesson, C2/F6).
   'askAi.read': { kind: 'mutation', category: 'ai', action: 'ai.consult_session', pendingWave: 'Wave W — 2026-07-27' },
-  'ai.chat': { kind: 'mutation', category: 'ai', action: 'ai.consult_session', pendingWave: 'Wave W — 2026-07-27' },
+  'ai.chat': { kind: 'mutation', category: 'ai', action: 'ai.consult_session' },
   // Booking mutations (Liam ruling 2026-07-26: everything gets logged,
   // including bookings): the ONE booking.create/cancel/no_show/restore emit
   // lives in the shared cores (createAppointmentCore / cancelAppointmentCore /
@@ -612,10 +614,10 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
   'ai/chat': {
     kind: 'log',
     justification:
-      'ai.consult_session (§3.1 askAi.read+ai.chat row) — writer not built (false session-mint claim, the AI相談 lesson); auth guard already present (getUser 401).',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+      'ai.consult_session (§3.1, Option A — Liam 7/28) — writer live (Wave W2): auditWeb() emits per exchange before the success response, first_turn/history_len in detail; auth guard present (getUser 401).',
+    dated: '2026-07-28',
     action: 'ai.consult_session',
+    coveredBy: 'src/app/api/ai/chat/route.ts#POST',
   },
   'ai/extract': {
     kind: 'log',

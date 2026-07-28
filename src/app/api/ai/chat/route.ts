@@ -5,6 +5,7 @@ import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { runKaruteChat, parseContextHint, capHistory, type ChatTurn } from '@/lib/ai/karute-chat'
+import { auditWeb } from '@/lib/audit-web'
 
 export const maxDuration = 60
 
@@ -20,7 +21,17 @@ export async function POST(request: Request) {
   }
 
   const limited = await enforceAiRateLimit('chat')
-  if (limited) return limited
+  if (limited) {
+    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
+    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
+    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
+    // .catch guards a parse failure on the limiter's own body from escaping
+    // this route's error envelope.
+    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
+      status: 429,
+      headers: limited.headers,
+    })
+  }
   try {
     const body = await request.json().catch(() => null)
 
@@ -71,6 +82,18 @@ export async function POST(request: Request) {
     if (usage) {
       void reportAiUsage('chat', usage.tokensIn, usage.tokensOut)
     }
+    // 監査ログ Wave W2 (Option A, Liam 7/28): one ai.consult_session row per
+    // exchange, unconditional before the success response — exact parity
+    // with the facade twin's hook emit incl. the first_turn/history_len
+    // detail ("ONE row per session" canon: the first_turn row IS the
+    // session row) and the clamped store as the row's store lens.
+    await auditWeb({
+      category: 'ai',
+      action: 'ai.consult_session',
+      detail: { first_turn: history.length === 0, history_len: history.length },
+      storeId: scopedStoreId,
+      requestId: crypto.randomUUID(),
+    })
     // context_label is omitted from the JSON when absent (no hint) → the
     // no-hint response body stays byte-identical.
     return NextResponse.json({ reply, context_label: contextLabel })

@@ -76,10 +76,37 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => null),
 }))
 
+// ── chat-route mocks (Wave W2) ──────────────────────────────────────────
+// Mutable scope scenario, same declared-before-mock convention as authScenario.
+const scopeScenario: { allowedStoreIds: string[] | null; storeId: string | null } = {
+  allowedStoreIds: null,
+  storeId: null,
+}
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({ ...scopeScenario })),
+}))
+jest.mock('@/lib/synqed/client', () => ({
+  getSynqedClient: jest.fn(async () => ({})),
+}))
+// The requireActual of karute-chat below walks into modules that import the
+// ESM @synqed-kk/client — stub it out (app-api-ai-chat.test.ts's convention)
+// so jest never parses the untransformed package.
+jest.mock('@synqed-kk/client', () => ({ SynqedClient: jest.fn(), SynqedError: class extends Error {} }))
+const runKaruteChat = jest.fn(async () => ({
+  reply: 'AIの回答',
+  contextLabel: undefined as string | undefined,
+  usage: null as { tokensIn: number; tokensOut: number } | null,
+}))
+jest.mock('@/lib/ai/karute-chat', () => ({
+  ...jest.requireActual('@/lib/ai/karute-chat'),
+  runKaruteChat: (...args: unknown[]) => runKaruteChat(...(args as [])),
+}))
+
 import * as extractHandler from '@/app/api/ai/extract/route'
 import * as summarizeHandler from '@/app/api/ai/summarize/route'
 import * as suggestionsHandler from '@/app/api/ai/suggestions/route'
 import * as transcribeHandler from '@/app/api/ai/transcribe/route'
+import * as chatHandler from '@/app/api/ai/chat/route'
 import { openai } from '@/lib/openai'
 import { mockExtractionResult, mockSummaryResult } from './helpers/openai-mocks'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
@@ -724,5 +751,174 @@ describe('detail-less event shape (contract: detail: null, never undefined)', ()
     expect(lines).toHaveLength(1)
     expect(lines[0].detail).toBeNull()
     expect('detail' in lines[0]).toBe(true)
+  })
+})
+
+// ── Wave W2 (Option A, Liam 7/28): ai.consult_session per exchange ────────
+
+describe('FACADE_AUDIT_MAP — ai.chat promoted, askAi.read stays parked (Wave W2)', () => {
+  it('ai.chat is LIVE (no pendingWave) with action ai.consult_session', () => {
+    const rule = FACADE_AUDIT_MAP['ai.chat']
+    expect(rule.pendingWave).toBeUndefined()
+    expect(rule).toEqual({ kind: 'mutation', category: 'ai', action: 'ai.consult_session' })
+  })
+
+  it('askAi.read is STILL parked VERBATIM — any edit to this row is an Anthony-gated weakening', () => {
+    expect(FACADE_AUDIT_MAP['askAi.read']).toEqual({
+      kind: 'mutation',
+      category: 'ai',
+      action: 'ai.consult_session',
+      pendingWave: 'Wave W — 2026-07-27',
+    })
+  })
+})
+
+describe('POST /api/ai/chat — auditWeb writer (Wave W2)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    authScenario.user = { id: 'user-1' }
+    scopeScenario.allowedStoreIds = null
+    scopeScenario.storeId = null
+    runKaruteChat.mockResolvedValue({ reply: 'AIの回答', contextLabel: undefined, usage: null })
+  })
+
+  it('first exchange (no history): one emit — first_turn true, history_len 0, no store lens; closed shape pinned', async () => {
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: '肩こりの相談まとめて', locale: 'ja' }),
+        })
+        expect(res.status).toBe(200)
+      },
+    })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb).toHaveBeenCalledWith(
+      expect.objectContaining({
+        category: 'ai',
+        action: 'ai.consult_session',
+        detail: { first_turn: true, history_len: 0 },
+        storeId: undefined,
+        requestId: expect.stringMatching(UUID_RE),
+      }),
+    )
+    // Closed shape: exactly these keys — a stray PII-shaped field fails loud.
+    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
+      'action', 'category', 'detail', 'requestId', 'storeId',
+    ])
+  })
+
+  it('later exchange (2-turn history): first_turn false, history_len 2 — one row per exchange', async () => {
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: '続きをお願い',
+            locale: 'ja',
+            history: [
+              { role: 'user', content: 'a' },
+              { role: 'assistant', content: 'b' },
+            ],
+          }),
+        })
+        expect(res.status).toBe(200)
+      },
+    })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0].detail).toEqual({ first_turn: false, history_len: 2 })
+  })
+
+  it('clamped staff: the row carries their store as its store lens', async () => {
+    scopeScenario.allowedStoreIds = ['store-ginza']
+    scopeScenario.storeId = 'store-ginza'
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'x', locale: 'ja' }),
+        })
+        expect(res.status).toBe(200)
+      },
+    })
+    expect(auditWeb.mock.calls[0][0].storeId).toBe('store-ginza')
+  })
+
+  it('401 (anonymous): auditWeb never called', async () => {
+    authScenario.user = null
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'x' }),
+        })
+        expect(res.status).toBe(401)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('429 (rate limited): auditWeb never called, limiter body + Retry-After preserved verbatim', async () => {
+    const { enforceAiRateLimit } = jest.requireMock('@/lib/ai-rate-limit')
+    const limiterBody = { error: 'Hourly AI request cap reached' }
+    ;(enforceAiRateLimit as jest.Mock).mockResolvedValueOnce(
+      new Response(JSON.stringify(limiterBody), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', 'Retry-After': '3600' },
+      }),
+    )
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'x' }),
+        })
+        expect(res.status).toBe(429)
+        expect(res.headers.get('Retry-After')).toBe('3600')
+        await expect(res.json()).resolves.toEqual(limiterBody)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('400 (blank message, validation): auditWeb never called', async () => {
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: '   ' }),
+        })
+        expect(res.status).toBe(400)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
+  })
+
+  it('500 (chat core throws, catch path): auditWeb never called — errors are not actions', async () => {
+    runKaruteChat.mockRejectedValueOnce(new Error('LLM down'))
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'x' }),
+        })
+        expect(res.status).toBe(500)
+      },
+    })
+    expect(auditWeb).not.toHaveBeenCalled()
   })
 })

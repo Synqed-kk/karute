@@ -66,6 +66,13 @@ export const POST = facadeHandler('ai.chat', async (ctx) => {
     contextDeps: { synqed, customers: () => getCachedCustomerListFor(businessId) },
   })
   if (usage) void reportAiUsageWithClient(synqed, 'chat', usage.tokensIn, usage.tokensOut)
+  // 監査ログ Wave W2 (Option A, Liam 7/28): the generic hook emits
+  // ai.consult_session on this 2xx — these two seams only ENRICH that one
+  // emit (additive-only contract). first_turn marks the session row ("ONE
+  // row per session" canon: the first exchange IS the session); the clamped
+  // store rides as the row's store lens, unset = business-wide as before.
+  ctx.auditDetail = { first_turn: history.length === 0, history_len: history.length }
+  if (scopedStoreId) ctx.auditStoreId = scopedStoreId
   // context_label omitted when absent (JSON.stringify drops undefined) — same
   // no-hint body as the web route.
   return ok(ctx, { reply, context_label: contextLabel })

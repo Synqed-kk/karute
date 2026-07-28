@@ -46,6 +46,12 @@ export interface FacadeContext<P = Record<string, string>> {
    *  rails, not byte-exact budgeting (worst case ≈2.2KB sits just over the
    *  soft cap): real rows carry one or two flag/id keys. */
   auditDetail?: Record<string, string | number | boolean | null>
+  /** Store lens for the hook's emit (Wave W2, same additive-only contract as
+   *  auditDetail): a route that clamped its work to one store hands the
+   *  clamped id here and the row becomes store-filterable (audit.ts
+   *  storeId → core store_id). Never authority — display/filter color only;
+   *  unset = business-wide row, exactly as before. */
+  auditStoreId?: string
 }
 
 type FacadeFn<P> = (ctx: FacadeContext<P>) => Promise<Response>
@@ -104,7 +110,7 @@ export function facadeHandler<P = Record<string, string>>(
       const identity = await resolveBearerIdentity(req, endpoint, deps)
       const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
       const res = await fn(ctx)
-      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId, ctx.auditDetail)
+      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId, ctx.auditDetail, ctx.auditStoreId)
       return res
     } catch (err) {
       const apiErr = toAppApiError(err)
@@ -131,6 +137,7 @@ async function logFacadeAudit(
   meta: FacadeContext['meta'],
   clientRequestId: string | null,
   routeDetail?: FacadeContext['auditDetail'],
+  routeStoreId?: string,
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -177,6 +184,7 @@ async function logFacadeAudit(
       businessId: identity.businessId,
       targetType: rule.targetType,
       targetId: rule.targetType && params?.id ? params.id : undefined,
+      storeId: routeStoreId,
       requestId: meta.requestId,
       // Contract §7 / PR-M5 piece ③: the (possibly forged) client header is
       // never the row's requestId — kept only as a correlation hint, BOUNDED

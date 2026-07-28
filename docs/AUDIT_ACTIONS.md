@@ -7,7 +7,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 
 | action | category | status | label key |
 | --- | --- | --- | --- |
-| `ai.consult_session` | ai | pending | `settings.auditLog.actions.ai.consult_session` |
+| `ai.consult_session` | ai | live | `settings.auditLog.actions.ai.consult_session` |
 | `ai.memory_extract` | ai | live | `settings.auditLog.actions.ai.memory_extract` |
 | `ai.suggested_message` | ai | live | `settings.auditLog.actions.ai.suggested_message` |
 | `ai.summary_generate` | ai | live | `settings.auditLog.actions.ai.summary_generate` |
