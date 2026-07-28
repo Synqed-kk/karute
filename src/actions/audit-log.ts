@@ -133,7 +133,7 @@ export async function listAuditLogWithClient(
     // breakGlass on (that feed IS the count strip then).
     const skipStripProbes = Boolean(filters.breakGlass) || Boolean(filters.actorId)
 
-    const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes] =
+    const [res, breakGlassRes, warnAllRes, critAllRes, nvWarnRes, nvCritRes, nvAllRes] =
       await Promise.all([
         synqed.audit.list({
           ...baseQuery,
@@ -179,6 +179,15 @@ export async function listAuditLogWithClient(
               page: 1,
               page_size: 1,
             }).catch(() => null),
+        // 変更 probe (Wave V — the restore the #630 comment queued): all
+        // non-view rows regardless of severity; exact 変更 = this minus the
+        // two nv severity probes below it. Same skip + best-effort contract
+        // as every other strip probe.
+        skipStripProbes
+          ? null
+          : auditListProbe({ ...baseQuery, exclude_views: true, page: 1, page_size: 1 }).catch(
+              () => null,
+            ),
       ])
 
     // Reading the 監査ログ is itself a privileged read — ONE row per
@@ -218,8 +227,9 @@ export async function listAuditLogWithClient(
     // additionally rests on no '_view'-suffix action ever carrying warn/crit
     // severity (the only rows ever written with that spelling — historical
     // privacy.audit_log_view — are always info) — if the audit taxonomy ever
-    // grows one, it inherits the same core-side exclude_views gap 変更 is
-    // parked on below.
+    // grows one, it shares the same core-side exclude_views dependency the
+    // 変更 subtraction below leans on (both exact only while the server's
+    // view-suffix exclusion — the #56 widen — matches isViewAction).
     const warnPair = filters.includeViews ? [warnAllRes, critAllRes] : [nvWarnRes, nvCritRes]
     const warnPairOk = warnPair.every((r) => r !== null)
     return {
@@ -237,13 +247,18 @@ export async function listAuditLogWithClient(
           ? res.total
           : null,
       warningsTotal: warnPairOk ? warnPair[0]!.total + warnPair[1]!.total : null,
-      // UNBLOCKED as of the #56 widen (nvAll no longer counts '_view' rows):
-      // exact 変更 = nvAll − nvWarn − nvCrit is now computable. Deliberately
-      // NOT restored in this security-fix PR — the nvAll probe + subtraction
-      // is viewer-feature work, queued for Wave V (shape preserved in this
-      // file's history). Held at null; the component keeps its honest client
-      // approx + '+'.
-      changesTotal: null,
+      // 変更 is exact (Wave V restore; the #56 widen made nvAll view-clean):
+      // nvAll − nvWarn − nvCrit, i.e. non-view rows that aren't warn/crit —
+      // matching the component's client lens exactly, in BOTH view-toggle
+      // states (views are never 変更). Triple must be complete — a partial
+      // subtraction would understate silently; any failed probe → null and
+      // the component keeps its honest client approx + '+'. Clamped at 0:
+      // the three probes are independent reads, and a row written between
+      // them could otherwise push the difference negative.
+      changesTotal:
+        nvAllRes !== null && nvWarnRes !== null && nvCritRes !== null
+          ? Math.max(0, nvAllRes.total - nvWarnRes.total - nvCritRes.total)
+          : null,
       targetLabels: await resolveTargetLabels(synqed, events),
     }
   } catch {

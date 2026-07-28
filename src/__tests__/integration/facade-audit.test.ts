@@ -90,6 +90,95 @@ describe('facadeHandler audit hook', () => {
     })
   })
 
+  // Wave V promotions: the four view rows are LIVE — the same hook emit as
+  // customer.view above, one per single-record open, with the route param as
+  // the target (karute id for the two karute.* keys, customer id for the two
+  // customer.* keys — both routes are [id]-parameterized on exactly that id).
+  it.each([
+    ['karute.read', 'karute.view', 'karute', 'k-7'],
+    ['karute.entryEdits.list', 'karute.entry_edits_view', 'karute', 'k-7'],
+    ['customer.ai.preSessionBrief', 'customer.brief_view', 'customer', 'c-7'],
+    ['customer.ai.bodyPrediction', 'customer.ai_prediction_view', 'customer', 'c-7'],
+  ] as const)('%s emits %s (Wave V view row)', async (endpoint, action, targetType, id) => {
+    const handler = facadeHandler(endpoint, async (ctx) => ok(ctx, { ok: 1 }), { config: HS_CONFIG })
+    const lines = await auditLines(() => handler(authedReq(), route({ id })))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      action,
+      actor_id: 'u1',
+      business_id: 'business-1',
+      target_type: targetType,
+      target_id: id,
+      source: 'facade',
+    })
+  })
+
+  it('ctx.auditDetail rides the hook emit — karute.read carries transcript_shown', async () => {
+    const handler = facadeHandler(
+      'karute.read',
+      async (ctx) => {
+        ctx.auditDetail = { transcript_shown: false }
+        return ok(ctx, { ok: 1 })
+      },
+      { config: HS_CONFIG },
+    )
+    const lines = await auditLines(() => handler(authedReq(), route({ id: 'k-7' })))
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).toEqual({ transcript_shown: false })
+  })
+
+  it('a route auditDetail key can never shadow the hook-owned client_request_id', async () => {
+    const handler = facadeHandler(
+      'karute.read',
+      async (ctx) => {
+        ctx.auditDetail = { transcript_shown: true, client_request_id: 'spoofed-by-route' }
+        return ok(ctx, { ok: 1 })
+      },
+      { config: HS_CONFIG },
+    )
+    const req = new Request('https://s/api/app/v1/x', {
+      headers: { authorization: `Bearer ${hs256Token(SECRET)}`, 'request-id': 'client-hint-1' },
+    })
+    const lines = await auditLines(() => handler(req, route({ id: 'k-7' })))
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).toEqual({ transcript_shown: true, client_request_id: 'client-hint-1' })
+  })
+
+  it('a route auditDetail request_id is STRIPPED — it would hijack the server mint downstream (detailWithRequestId keeps a caller-supplied one)', async () => {
+    const handler = facadeHandler(
+      'karute.read',
+      async (ctx) => {
+        ctx.auditDetail = { request_id: 'spoofed-mint' }
+        return ok(ctx, { ok: 1 })
+      },
+      { config: HS_CONFIG },
+    )
+    const lines = await auditLines(() => handler(authedReq(), route({ id: 'k-7' })))
+    expect(lines).toHaveLength(1)
+    // The only key the route supplied is reserved → stripped → no detail at
+    // all, identical to a route that set nothing (the emitted line carries
+    // detail: null for a detail-less event).
+    expect(lines[0].detail).toBeNull()
+  })
+
+  it('route auditDetail is bounded: strings capped at 256 chars, at most 8 keys — a stray value cannot balloon detail past core\'s cap', async () => {
+    const big = 'x'.repeat(5000)
+    const many = Object.fromEntries(Array.from({ length: 20 }, (_, i) => [`k${String(i).padStart(2, '0')}`, i]))
+    const handler = facadeHandler(
+      'karute.read',
+      async (ctx) => {
+        ctx.auditDetail = { note: big, ...many }
+        return ok(ctx, { ok: 1 })
+      },
+      { config: HS_CONFIG },
+    )
+    const lines = await auditLines(() => handler(authedReq(), route({ id: 'k-7' })))
+    expect(lines).toHaveLength(1)
+    const detail = lines[0].detail as Record<string, unknown>
+    expect((detail.note as string).length).toBe(256)
+    expect(Object.keys(detail)).toHaveLength(8)
+  })
+
   it('a mapped mutation emits customer.edit', async () => {
     // Mutations are revocation-checked — inject getUser like the handler suite does.
     const handler = facadeHandler('customer.update', async (ctx) => ok(ctx, { ok: true }), {

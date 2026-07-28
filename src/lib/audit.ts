@@ -420,19 +420,24 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // AI-generated attention line text.
   'screens.dashboard': { kind: 'skip', category: 'customer', action: '' },
 
-  // View-class rows (§3.1): action decided, DELIBERATELY not emitting yet —
-  // the viewer front-end + these writers are Wave V per contract §11. Kind/
-  // category/action carry the FUTURE truth so Wave V doesn't have to
-  // re-derive it; pendingWave keeps logFacadeAudit silent until then.
-  // karute.read specifically: the design-canon table mandates a
-  // `transcriptShown` detail flag on this row — rides in with Wave V's real
-  // writer via a direct audit() call at this route (the generic facadeHandler
-  // hook has no `detail` payload to give it), same custom-detail pattern the
-  // export route uses for privacy.customer_export (see that row's comment).
-  'karute.read': { kind: 'view', category: 'karute', action: 'karute.view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
-  'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute', pendingWave: 'Wave V — 2026-07-27' },
-  'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
-  'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer', pendingWave: 'Wave V — 2026-07-27' },
+  // View-class rows (§3.1) — LIVE as of Wave V: single-record opens on the
+  // four view surfaces, emitted by the generic success hook like every other
+  // live row. karute.read specifically: the design-canon table mandates a
+  // transcriptShown flag on this row (stored snake_case, `transcript_shown`,
+  // per the detail-key convention — same as client_request_id) — the route
+  // hands it to THE HOOK'S OWN emit via ctx.auditDetail (handler.ts), not a
+  // separate direct audit() call. The pre-gate plan ("direct call at the
+  // route, export-row pattern") would have demoted this row to
+  // skip+coveredBy, which CP8 prices as an owner-approved ledger weakening;
+  // the auditDetail seam delivers the same flag while the row stays a live
+  // view and the emit stays the hook's unconditional-on-2xx write. Web twin:
+  // the karute detail page fires its own karute.view with the same detail
+  // (auditWeb — src/app/[locale]/(app)/karute/[id]/page.tsx, registered in
+  // AUDITED_CORES).
+  'karute.read': { kind: 'view', category: 'karute', action: 'karute.view', targetType: 'karute' },
+  'karute.entryEdits.list': { kind: 'view', category: 'karute', action: 'karute.entry_edits_view', targetType: 'karute' },
+  'customer.ai.preSessionBrief': { kind: 'view', category: 'customer', action: 'customer.brief_view', targetType: 'customer' },
+  'customer.ai.bodyPrediction': { kind: 'view', category: 'customer', action: 'customer.ai_prediction_view', targetType: 'customer' },
   // 監査ログ list (§3.1): the row is the TWIN'S OWN write — the facade GET
   // delegates to listAuditLogWithClient (src/actions/audit-log.ts), which is
   // meant to write privacy.audit_log.view unconditionally per invocation for

@@ -28,6 +28,24 @@ export interface FacadeContext<P = Record<string, string>> {
   route: RouteContext<P>
   /** Observability metadata carried by every facade request. */
   meta: { requestId: string; appVersion: string | null; platform: string | null }
+  /** Extra detail a route hands to the success-hook emit (Wave V:
+   *  karute.read's `transcript_shown` + the karute rows' `customer_id` name
+   *  join). ADDITIVE ONLY — a route can enrich its map row's emit, never
+   *  suppress or replace it. Set it synchronously before returning the
+   *  response; the hook reads it once, right after the handler resolves.
+   *  The TWO correlation keys are hook-owned and stripped if a route sets
+   *  them: `client_request_id` (re-asserted from the real header after the
+   *  merge) and `request_id` (a route-supplied one would ride into
+   *  audit.ts's detailWithRequestId, which deliberately keeps a
+   *  caller-supplied value, silently replacing the server mint on the
+   *  durable row). Values are bounded (strings 256 chars, 8 ROUTE keys —
+   *  the hook's own client_request_id rides on top, outside the cap, so
+   *  route keys can never evict it) so a stray oversized route value can't
+   *  balloon detail past core's ~2KB cap and truncate away sibling fields —
+   *  the same eviction the client-header 128-char bound prevents. Sanity
+   *  rails, not byte-exact budgeting (worst case ≈2.2KB sits just over the
+   *  soft cap): real rows carry one or two flag/id keys. */
+  auditDetail?: Record<string, string | number | boolean | null>
 }
 
 type FacadeFn<P> = (ctx: FacadeContext<P>) => Promise<Response>
@@ -84,8 +102,9 @@ export function facadeHandler<P = Record<string, string>>(
 
     try {
       const identity = await resolveBearerIdentity(req, endpoint, deps)
-      const res = await fn({ req, identity, origin, route, meta })
-      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId)
+      const ctx: FacadeContext<P> = { req, identity, origin, route, meta }
+      const res = await fn(ctx)
+      await logFacadeAudit(endpoint, res, identity, route, meta, clientRequestId, ctx.auditDetail)
       return res
     } catch (err) {
       const apiErr = toAppApiError(err)
@@ -111,6 +130,7 @@ async function logFacadeAudit(
   route: { params: Promise<unknown> },
   meta: FacadeContext['meta'],
   clientRequestId: string | null,
+  routeDetail?: FacadeContext['auditDetail'],
 ): Promise<void> {
   try {
     // 2xx only — a redirect or other non-success must not read as a completed
@@ -133,6 +153,22 @@ async function logFacadeAudit(
     // makes the emit below type-check, not just documentation.
     if (!rule.action) return
     const params = (await route.params) as Record<string, string> | undefined
+    // Route-supplied detail is additive color, never authority (see the
+    // FacadeContext.auditDetail doc): the two hook-owned correlation keys
+    // are STRIPPED (request_id would hijack the server mint downstream —
+    // audit.ts's detailWithRequestId keeps a caller-supplied one; the real
+    // client_request_id is written after the loop), string values are capped
+    // at 256 chars and keys at 8, so a stray route value can't push detail
+    // past core's ~2KB cap and truncate away siblings.
+    const detail: Record<string, string | number | boolean | null> = {}
+    if (routeDetail) {
+      for (const [k, v] of Object.entries(routeDetail)) {
+        if (k === 'request_id' || k === 'client_request_id') continue
+        if (Object.keys(detail).length >= 8) break
+        detail[k] = typeof v === 'string' ? v.slice(0, 256) : v
+      }
+    }
+    if (clientRequestId) detail.client_request_id = clientRequestId.slice(0, 128)
     audit({
       category: rule.category,
       action: rule.action,
@@ -147,9 +183,7 @@ async function logFacadeAudit(
       // (Greptile #634 r1): it's untrusted input, and unbounded it could
       // balloon detail past core's ~2KB cap, whose truncation would eat
       // sibling fields. 128 chars fits any legitimate id (UUID = 36).
-      detail: clientRequestId
-        ? { client_request_id: clientRequestId.slice(0, 128) }
-        : undefined,
+      detail: Object.keys(detail).length > 0 ? detail : undefined,
       source: 'facade',
     })
   } catch (err) {

@@ -34,8 +34,8 @@ export const AUDIT_ACTIONS = [
   'booking.no_show',
   'booking.restore',
   'booking.update',
-  'customer.ai_prediction_view', // pending: Wave V
-  'customer.brief_view', // pending: Wave V
+  'customer.ai_prediction_view',
+  'customer.brief_view',
   'customer.consent_grant', // pending: Wave W
   'customer.consent_revoke', // pending: Wave W
   'customer.create',
@@ -53,10 +53,10 @@ export const AUDIT_ACTIONS = [
   'customer.view',
   'karute.entries_regenerate', // pending: Wave W
   'karute.entry_edit',
-  'karute.entry_edits_view', // pending: Wave V
+  'karute.entry_edits_view',
   'karute.outcome_set', // pending: Wave W
   'karute.save',
-  'karute.view', // pending: Wave V
+  'karute.view',
   'privacy.audit_log.view',
   'privacy.customer_delete_canceled',
   'privacy.customer_delete_scheduled',
@@ -163,6 +163,12 @@ export const AUDITED_CORES: {
     symbols: ['CustomerProfilePage'],
     note:
       'The page.tsx writer the original grep census missed (round-2 amendment A finding) — a single-record open (customer.view) fires a fire-and-forget auditWeb() at render.',
+  },
+  {
+    file: 'src/app/[locale]/(app)/karute/[id]/page.tsx',
+    symbols: ['KaruteDetailPage'],
+    note:
+      'Wave V: the web twin of the facade karute.view row — a single-record open fires a fire-and-forget auditWeb() after the existence check, carrying transcript_shown.',
   },
   { file: 'src/app/api/app/v1/export/route.ts', symbols: ['GET'] },
   { file: 'src/app/api/sync/quickreserve/config/route.ts', symbols: ['POST'] },

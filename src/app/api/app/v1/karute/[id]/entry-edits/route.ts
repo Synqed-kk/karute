@@ -9,11 +9,14 @@
 // 404, genuine upstream failure → 502 (sibling entries/[entryId] pattern),
 // BEFORE the history read runs.
 //
-// audit: 'karute.entryEdits.list' must NOT enter FACADE_AUDIT_MAP
-// (src/lib/audit.ts) — it is a pure view of an already-audited trail (each
-// entry_edit row IS the audit event of the write that produced it), same
-// reasoning 'karute.read' (the whole detail screen) stays unmapped. Deny-
-// default doc rule readers: do not add 'karute.entryEdits.list' to that map.
+// audit: 'karute.entryEdits.list' IS a live view row in FACADE_AUDIT_MAP
+// (karute.entry_edits_view, Wave V). This header used to argue the opposite
+// ("each entry_edit row IS the audit event") — the council REVERSED that
+// (contract §3.1): the DTO returns contentBefore/contentAfter, verbatim
+// before/after clinical text, and canon §1 split the tables precisely so
+// content ≠ event spine. Content-defined rule ⇒ view. The emit is the
+// generic success hook's; this route only enriches it with the customer id
+// for the viewer's name join (packet 30 §4 idiom, ids only).
 //
 // revocation: GET, zero write side effects — unlike 'audit.list'/
 // 'stores.list' this route's read hides no write, so it does NOT belong in
@@ -54,9 +57,13 @@ export const GET = facadeHandler<Params>('karute.entryEdits.list', async (ctx) =
 
   // Proof-read BEFORE the history read — a cross-tenant/missing id 404s here
   // via classifyGetError (readKaruteRaw), never reaching the twin.
-  await readKaruteRaw(synqed, id)
+  const raw = await readKaruteRaw(synqed, id)
 
   const result = await listEntryEditHistoryWithClient(synqed, businessId, id)
+  // Viewer name join (same karute-row idiom as karute.save/entry_edit):
+  // customer_id rides in detail so the 監査ログ row shows the customer's
+  // name, not a raw karute UUID. Free — the proof-read already holds it.
+  ctx.auditDetail = { customer_id: (raw.customer_id as string | null) ?? null }
   return ok(ctx, EntryEditHistoryDTO.parse(result))
 })
 

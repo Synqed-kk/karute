@@ -515,6 +515,10 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
               {day.events.map((e) => {
                 const Icon = CATEGORY_ICONS[e.category] ?? Activity
                 const sub = eventSub(e)
+                // Mock 840dd1d1 note 3: view rows mix into the feed as
+                // muted gray lines, so 変更 rows stay the eye's anchor when
+                // 閲覧を含む is ON. Severity coloring still wins on the icon.
+                const isView = isViewEvent(e.action)
                 // Durable label wins (packet 18 T3, SDK 1.14 write-time
                 // snapshot) — the live roster is only a fallback for rows
                 // written before core started sending it; 不明 last. System
@@ -547,7 +551,13 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                       </span>
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <span className="text-sm font-medium text-foreground">
+                          <span
+                            className={
+                              isView
+                                ? 'text-sm text-muted-foreground'
+                                : 'text-sm font-medium text-foreground'
+                            }
+                          >
                             {actionLabel(e.action)}
                           </span>
                           {e.break_glass && (
@@ -561,7 +571,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                       </div>
                       <div className="shrink-0 text-right">
                         {e.actor_type === 'system' || !e.actor_id ? (
-                          <div className="text-xs text-foreground">{actorName}</div>
+                          <div className={`text-xs ${isView ? 'text-muted-foreground' : 'text-foreground'}`}>
+                            {actorName}
+                          </div>
                         ) : (
                           // §10 cause-based investigation: an actor name is a
                           // one-tap person filter. Raw events only — never stats.
@@ -571,7 +583,9 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                               setActorId(e.actor_id)
                               setWarnOnly(false)
                             }}
-                            className="border-b border-dotted border-muted-foreground/50 text-xs text-foreground hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400"
+                            className={`border-b border-dotted border-muted-foreground/50 text-xs hover:border-sky-500 hover:text-sky-600 dark:hover:text-sky-400 ${
+                              isView ? 'text-muted-foreground' : 'text-foreground'
+                            }`}
                           >
                             {actorName}
                           </button>
