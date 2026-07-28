@@ -11,7 +11,7 @@ import { render, screen } from '@testing-library/react'
 // useTranslations resolves against the real ja catalog — the title assertion
 // below must break if messages/ja.json changes, so no key-echo stub here.
 jest.mock('next-intl', () => {
-  const ja = require('../../../messages/ja.json')
+  const ja = jest.requireActual('../../../messages/ja.json') as Record<string, unknown>
   return {
     useTranslations: (ns: string) => (key: string) => {
       let cur: unknown = ja
