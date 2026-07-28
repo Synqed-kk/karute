@@ -97,7 +97,7 @@ export function EntryEditSheet({
   // occluded height. POSITION ONLY — the fold above stays focus-driven
   // (#621's disclosed wedge: geometry-driven folding can re-crush the
   // textarea when the keyboard reopens on an already-focused field).
-  const [keyboardInset, setKeyboardInset] = useState(0)
+  const [keyboard, setKeyboard] = useState<{ inset: number; visibleHeight: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const historyBlockRef = useRef<HTMLDivElement>(null)
 
@@ -106,18 +106,25 @@ export function EntryEditSheet({
     if (!open) return
     const vv = window.visualViewport
     if (!vv) return // jsdom / ancient WebView — sheet keeps its bottom-0 anchor
-    const update = () =>
+    const update = () => {
       // Bottom occlusion = layout height − visual height − visual top offset
       // (iOS pans the visual viewport when the focused field would sit under
       // the keyboard — the scroll listener catches that repositioning too).
-      setKeyboardInset(Math.max(0, window.innerHeight - vv.height - vv.offsetTop))
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      // visibleHeight rides along for the height cap: the lifted sheet's
+      // bottom edge sits exactly on the visual viewport's bottom edge, so
+      // vv.height IS its full visible budget. A cap derived from the inset
+      // alone would overshoot by exactly offsetTop when the viewport is
+      // panned, hiding the sheet's title above the pan (Greptile #640).
+      setKeyboard(inset > 0 ? { inset, visibleHeight: vv.height } : null)
+    }
     update()
     vv.addEventListener('resize', update)
     vv.addEventListener('scroll', update)
     return () => {
       vv.removeEventListener('resize', update)
       vv.removeEventListener('scroll', update)
-      setKeyboardInset(0)
+      setKeyboard(null)
     }
   }, [open])
 
@@ -278,13 +285,14 @@ export function EntryEditSheet({
       <SheetContent
         side="bottom"
         className="max-h-[85vh] gap-3 overflow-y-auto p-5"
-        // Lift by the keyboard, and cap height to the space that's actually
-        // visible above it (85vh of the layout viewport could still poke
-        // under). overflow-y-auto absorbs the difference — content scrolls,
-        // nothing is crushed (textarea keeps its min-h floor).
+        // Lift by the keyboard, and cap height to the visual viewport's own
+        // height — the sheet's bottom edge sits exactly on the visual
+        // viewport's bottom, so that IS its full visible budget (pan-safe).
+        // overflow-y-auto absorbs the difference — content scrolls, nothing
+        // is crushed (textarea keeps its min-h floor).
         style={
-          keyboardInset > 0
-            ? { bottom: keyboardInset, maxHeight: `min(85vh, calc(100vh - ${keyboardInset}px))` }
+          keyboard
+            ? { bottom: keyboard.inset, maxHeight: `min(85vh, ${keyboard.visibleHeight}px)` }
             : undefined
         }
       >

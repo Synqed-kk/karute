@@ -222,7 +222,7 @@ describe('EntryEditSheet — keyboard-aware position (7/28 field fix)', () => {
       vv.dispatchEvent(new Event('resize'))
     })
     expect(sheet().style.bottom).toBe('300px')
-    expect(sheet().style.maxHeight).toBe('min(85vh, calc(100vh - 300px))')
+    expect(sheet().style.maxHeight).toBe('min(85vh, 500px)')
     // Keyboard closes: geometry restored → inline overrides removed, the
     // sheet is back on its bottom-0 class anchor.
     act(() => {
@@ -242,6 +242,10 @@ describe('EntryEditSheet — keyboard-aware position (7/28 field fix)', () => {
     })
     // 800 − 500 − 100: the panned-away top is not keyboard occlusion.
     expect(sheet().style.bottom).toBe('200px')
+    // The height cap is the VISUAL height, not layout-minus-inset — an
+    // inset-derived cap would allow 600px here and hide the sheet's top
+    // 100px above the pan (Greptile #640).
+    expect(sheet().style.maxHeight).toBe('min(85vh, 500px)')
   })
 
   it('without visualViewport the sheet keeps its class anchor (guard path)', () => {
