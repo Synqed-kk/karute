@@ -457,7 +457,7 @@
       "allDone": "{done} regenerated ({failed} failed)"
     },
     "aiSummary": {
-      "title": "AI summary"
+      "title": "Detailed record"
     },
     "transcript": {
       "title": "Recording · transcript",
@@ -1040,7 +1040,7 @@
         "description": "Drafts a follow-up LINE / SMS / email after each session based on the customer's memory + this visit's notes. Staff can edit before sending, or approve as-is."
       },
       "aiSummary": {
-        "title": "AI Session Summary",
+        "title": "Detailed record",
         "description": "Bullet-list summary of what happened in today's session — concerns raised, treatments done, products discussed, next steps. Auto-extracted from the recording + entries."
       },
       "recordingTranscript": {
@@ -1273,7 +1273,7 @@
     "saveKarute": "Save Karute",
     "transcript": "Transcript",
     "noTranscript": "No transcript available.",
-    "aiSummary": "AI Summary",
+    "aiSummary": "Detailed record",
     "aiSuggestions": "AI Suggestions",
     "addEntry": "Add Entry",
     "customer": "Customer:",

@@ -111,8 +111,8 @@ export function KaruteDetailView({
           />
         </div>
         <div className="flex flex-col gap-4">
-          {suggestedMessageSlot}
           <AISummaryCard sessionDate={sessionDateLong} bullets={summaryBullets} />
+          {suggestedMessageSlot}
           <RecordingTranscriptCard
             transcript={transcript}
             consentOnFile={consentOnFile}

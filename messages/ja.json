@@ -457,7 +457,7 @@
       "allDone": "{done}件を再生成しました（失敗 {failed}）"
     },
     "aiSummary": {
-      "title": "AI要約"
+      "title": "詳細記録"
     },
     "transcript": {
       "title": "録音 ・ 文字起こし",
@@ -1040,7 +1040,7 @@
         "description": "お客様メモリーと今回のセッションメモから、施術後のフォローアップメッセージ（LINE／SMS／メール）を自動生成します。送信前にスタッフが編集することも、そのまま承認することも可能です。"
       },
       "aiSummary": {
-        "title": "AI要約",
+        "title": "詳細記録",
         "description": "今回のセッションで話されたお悩み、施術内容、ご提案商品、次回の予定を箇条書きで自動要約します。録音内容とエントリーから抽出されます。"
       },
       "recordingTranscript": {
@@ -1273,7 +1273,7 @@
     "saveKarute": "カルテを保存",
     "transcript": "トランスクリプト",
     "noTranscript": "トランスクリプトがありません。",
-    "aiSummary": "AIサマリー",
+    "aiSummary": "詳細記録",
     "aiSuggestions": "AI提案",
     "addEntry": "エントリーを追加",
     "customer": "顧客:",
