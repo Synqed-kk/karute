@@ -456,19 +456,21 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // privacy.customer_export on every successful export).
   'export': { kind: 'skip', category: 'privacy', action: '', coveredBy: 'src/app/api/app/v1/export/route.ts#GET' },
 
-  // ai.* baseline (§3.1: "log →" rows) + karute.ai.suggestedMessage — the
-  // canon Wave-2 baseline never built; action decided, writer is Wave W
-  // (contract §11). Same twins as the out-of-facade legacy /api/ai/* routes
-  // (API_ROUTE_DECISIONS below) — both get the same action per key.
-  'ai.extract': { kind: 'mutation', category: 'ai', action: 'ai.memory_extract', pendingWave: 'Wave W — 2026-07-27' },
-  'ai.summarize': { kind: 'mutation', category: 'ai', action: 'ai.summary_generate', pendingWave: 'Wave W — 2026-07-27' },
-  // Verify this route is still reachable post-server-pipeline before Wave W
-  // wires the emit (§3.1: "if dead, delete instead of map").
-  'ai.transcribe': { kind: 'mutation', category: 'recording', action: 'recording.transcribe', pendingWave: 'Wave W — 2026-07-27' },
-  'ai.suggestions': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', pendingWave: 'Wave W — 2026-07-27' },
+  // ai.* baseline (§3.1: "log →" rows) + karute.ai.suggestedMessage — writers
+  // live as of Wave W1 (2026-07-28). Same twins as the out-of-facade legacy
+  // /api/ai/* routes (API_ROUTE_DECISIONS below) — both get the same action
+  // per key.
+  'ai.extract': { kind: 'mutation', category: 'ai', action: 'ai.memory_extract' },
+  'ai.summarize': { kind: 'mutation', category: 'ai', action: 'ai.summary_generate' },
+  // Verified alive 2026-07-28 — the interactive recorder is the live UI
+  // (recorder-swap parked by Liam); web pipeline fetches it at
+  // src/lib/ai-pipeline.ts:104 via the port's aiBase seam (recording-port.ts:68
+  // = '/api/ai'; shell port = facade twin), plus 7/27 3-day prod-log traffic.
+  'ai.transcribe': { kind: 'mutation', category: 'recording', action: 'recording.transcribe' },
+  'ai.suggestions': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message' },
   // Weakest-held row (D2) — hidden from default feed is a Wave W viewer
-  // concern, not a facade-map field; nothing to add here beyond the marker.
-  'karute.ai.suggestedMessage': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
+  // concern, not a facade-map field; writer live as of Wave W1 (2026-07-28).
+  'karute.ai.suggestedMessage': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', targetType: 'karute' },
 
   // customer.memory.* (§3.1: "Worst attribution cluster") — live now: the
   // facade's own hook is the first thing that has ever emitted these:
@@ -607,32 +609,32 @@ export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<strin
   },
   'ai/extract': {
     kind: 'log',
-    justification: 'ai.memory_extract (§3.1) — auth guard lands in PR-M3.',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+    justification: 'ai.memory_extract (§3.1) — writer live (Wave W1): auditWeb() emits before the success response.',
+    dated: '2026-07-28',
     action: 'ai.memory_extract',
+    coveredBy: 'src/app/api/ai/extract/route.ts#POST',
   },
   'ai/summarize': {
     kind: 'log',
-    justification: 'ai.summary_generate (§3.1) — auth guard lands in PR-M3.',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+    justification: 'ai.summary_generate (§3.1) — writer live (Wave W1): auditWeb() emits before the success response.',
+    dated: '2026-07-28',
     action: 'ai.summary_generate',
+    coveredBy: 'src/app/api/ai/summarize/route.ts#POST',
   },
   'ai/suggestions': {
     kind: 'log',
-    justification: 'ai.suggested_message (§3.1) — auth guard lands in PR-M3.',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+    justification: 'ai.suggested_message (§3.1) — writer live (Wave W1): auditWeb() emits before every non-error response.',
+    dated: '2026-07-28',
     action: 'ai.suggested_message',
+    coveredBy: 'src/app/api/ai/suggestions/route.ts#POST',
   },
   'ai/transcribe': {
     kind: 'log',
     justification:
-      'recording.transcribe (§3.1) — auth guard lands in PR-M3; verify still reachable post-server-pipeline before Wave W wires the emit (§3.1: "if dead, delete instead of map").',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+      'recording.transcribe (§3.1) — verified alive 2026-07-28 (see FACADE_AUDIT_MAP row comment); writer live (Wave W1): auditWeb() emits before every non-error response.',
+    dated: '2026-07-28',
     action: 'recording.transcribe',
+    coveredBy: 'src/app/api/ai/transcribe/route.ts#POST',
   },
 
   // 今すぐ同期 (§3.1): mutation, maps to the same sync.run classification as

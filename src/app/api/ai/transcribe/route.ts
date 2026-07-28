@@ -9,6 +9,7 @@ import {
   speakerIdMode,
   loadStaffReferenceForStaff,
 } from '@/lib/ai/transcribe'
+import { auditWeb } from '@/lib/audit-web'
 
 export const maxDuration = 300
 
@@ -62,7 +63,12 @@ export async function POST(request: Request) {
   }
 
   const limited = await enforceAiRateLimit('transcribe')
-  if (limited) return limited
+  if (limited) {
+    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
+    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
+    // truthy return); body + headers (incl. Retry-After) preserved as-is.
+    return NextResponse.json(await limited.json(), { status: 429, headers: limited.headers })
+  }
   // Plan gate (P4): transcription is the front door of AI karute generation —
   // same key as extract/summarize. Inert until billing arms (see feature-gate.ts).
   if (!(await featureAllowed('aiKaruteGeneration'))) {
@@ -104,6 +110,9 @@ export async function POST(request: Request) {
         mode,
         businessType,
       })
+      // 監査ログ Wave W1 (§3.1 ai.* baseline): logged AFTER transcription
+      // succeeds, before the response — ids-only, no transcript content.
+      await auditWeb({ category: 'recording', action: 'recording.transcribe', requestId: crypto.randomUUID() })
       return NextResponse.json(body)
     }
 
@@ -124,6 +133,7 @@ export async function POST(request: Request) {
       mode,
       businessType,
     })
+    await auditWeb({ category: 'recording', action: 'recording.transcribe', requestId: crypto.randomUUID() })
     return NextResponse.json(body)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
