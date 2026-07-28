@@ -30,14 +30,21 @@ export function AISummaryCard({
 }: AISummaryCardProps) {
   const t = useTranslations('karuteDetail')
   const [sheetOpen, setSheetOpen] = useState(false)
-  // Optimistic post-save override (EntryEditSheet's onSaved fleet fix): a
-  // re-open before router.refresh() lands re-seeds the sheet with the
-  // just-saved text, and the bullets repaint immediately.
-  const [override, setOverride] = useState<string | null>(null)
+  // Optimistic post-save override (CurrentSessionCard's stale-reopen guard,
+  // adapted): a re-open before router.refresh() lands re-seeds the sheet with
+  // the just-saved text and the bullets repaint immediately. The summary has
+  // no version field for the entry card's `o.version > entry.version` inert
+  // rule, so `basedOn` (the prop the save was made FROM) plays that role: the
+  // override wins ONLY while the prop still shows the pre-save text. The
+  // moment summaryRaw moves at all — our own save landing, or another
+  // device's newer edit — props win again; a versionless override that never
+  // expired would silently mask (and on re-save clobber) the other edit.
+  const [override, setOverride] = useState<{ raw: string; basedOn: string | null } | null>(null)
 
-  const raw = override ?? summaryRaw ?? null
-  const shownBullets = override !== null ? summaryTextToBullets(override) : bullets
-  const edited = override !== null || (summaryEdited ?? false)
+  const activeOverride = override !== null && override.basedOn === (summaryRaw ?? null)
+  const raw = activeOverride ? override.raw : (summaryRaw ?? null)
+  const shownBullets = activeOverride ? summaryTextToBullets(override.raw) : bullets
+  const edited = activeOverride || (summaryEdited ?? false)
   const canEdit = !!karuteRecordId && raw !== null
 
   if (shownBullets.length === 0) return null
@@ -87,7 +94,7 @@ export function AISummaryCard({
           onOpenChange={setSheetOpen}
           seed={raw}
           edited={edited}
-          onSaved={setOverride}
+          onSaved={(savedRaw) => setOverride({ raw: savedRaw, basedOn: summaryRaw ?? null })}
         />
       )}
     </section>

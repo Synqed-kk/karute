@@ -26,12 +26,19 @@ const auditSpy = jest.fn()
 jest.mock('@/lib/audit', () => ({ audit: (...a: unknown[]) => auditSpy(...(a as [])) }))
 
 const update = jest.fn(async () => ({ id: 'kar-1' }))
-const get = jest.fn(async () => ({
-  id: 'kar-1',
-  customer_id: 'cust-authoritative',
-  ai_summary: 'AIの要約',
-  edited_summary: null,
-}))
+const get = jest.fn(
+  async (): Promise<{
+    id: string
+    customer_id: string
+    ai_summary: string | null
+    edited_summary: string | null
+  }> => ({
+    id: 'kar-1',
+    customer_id: 'cust-authoritative',
+    ai_summary: 'AIの要約',
+    edited_summary: null,
+  }),
+)
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({ karuteRecords: { update, get } })),
 }))

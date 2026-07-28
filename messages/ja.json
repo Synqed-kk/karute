@@ -2238,6 +2238,7 @@
       "storesCount": "{count}店舗",
       "entryEditToggle": "編集内容を表示",
       "entryEditTrailTitle": "この項目の編集履歴（全{count}件）",
+      "summaryEditTrailTitle": "詳細記録の編集履歴（全{count}件）",
       "entryEditError": "編集内容を読み込めませんでした。",
       "entryEditDeleted": "編集履歴が見つかりません（カルテが削除された場合、履歴も一緒に削除されます）",
       "entryEditPartial": "これより古い履歴は表示されません"

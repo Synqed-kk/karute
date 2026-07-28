@@ -655,7 +655,12 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
                             audit row's own change. */}
                         {trail?.status === 'ok' && (
                           <p className="mb-2 text-[11px] text-muted-foreground">
-                            {t('entryEditTrailTitle', { count: trail.rows.length })}
+                            {t(
+                              e.action === 'karute.summary_edit'
+                                ? 'summaryEditTrailTitle'
+                                : 'entryEditTrailTitle',
+                              { count: trail.rows.length },
+                            )}
                           </p>
                         )}
                         {(!trail || trail.status === 'loading') && (

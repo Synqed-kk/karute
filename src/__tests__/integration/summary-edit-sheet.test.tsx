@@ -105,6 +105,40 @@ describe('AISummaryCard — the 詳細記録 pencil', () => {
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('・直した行'))
     expect(refresh).toHaveBeenCalled()
   })
+
+  it('the override goes inert the moment props move — a newer server edit is never masked (stale-reopen guard)', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ ok: true })
+    const { rerender } = render(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={BULLETS}
+        karuteRecordId="kar-1"
+        summaryRaw={RAW}
+        summaryEdited={false}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・自分の編集' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('自分の編集')).toBeInTheDocument())
+    // Server props catch up carrying ANOTHER device's newer edit (≠ the text
+    // this override was based on). A versionless override that never expired
+    // would keep masking it — the basedOn rule must let the props win.
+    rerender(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={['他端末の編集']}
+        karuteRecordId="kar-1"
+        summaryRaw={'・他端末の編集'}
+        summaryEdited={true}
+      />,
+    )
+    expect(screen.getByText('他端末の編集')).toBeInTheDocument()
+    expect(screen.queryByText('自分の編集')).not.toBeInTheDocument()
+    // The reopened sheet must seed the SERVER text, not the dead override.
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('・他端末の編集'))
+  })
 })
 
 describe('SummaryEditSheet — save contract', () => {
