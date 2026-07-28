@@ -86,7 +86,10 @@ export async function POST(request: Request) {
     // exchange, unconditional before the success response — exact parity
     // with the facade twin's hook emit incl. the first_turn/history_len
     // detail ("ONE row per session" canon: the first_turn row IS the
-    // session row) and the clamped store as the row's store lens.
+    // session row) and the clamped store as the row's store lens. Both
+    // detail fields derive from the CLIENT-supplied history, post-capHistory
+    // — display color, never authority: a session-count consumer must
+    // re-derive from row sequence, not trust the flag.
     await auditWeb({
       category: 'ai',
       action: 'ai.consult_session',

@@ -210,6 +210,30 @@ describe('監査ログ Wave W2 — the generic hook emits ai.consult_session per
         detail: expect.objectContaining({ first_turn: true, history_len: 0 }),
       }),
     )
+    // Closed detail shape (blind-round F1): the hook bounds detail keys but
+    // has no PII guard — a regression adding message content to
+    // ctx.auditDetail must fail HERE, not ride through objectContaining.
+    // (No request-id header sent → no client_request_id fallback key.)
+    expect(Object.keys(calls[0][0].detail).sort()).toEqual(['first_turn', 'history_len'])
+  })
+
+  it('over-budget history: history_len counts the CAPPED turns, not the raw client array', async () => {
+    // Two turns totalling ~35k chars — capHistory (30k budget) drops the
+    // oldest, so post-cap length is 1 while the raw array has 2. Kills the
+    // `history_len: raw.length` mutant the short-history tests can't see.
+    const res = await POST(
+      post(auth, {
+        message: 'x',
+        history: [
+          { role: 'user', content: 'a'.repeat(20000) },
+          { role: 'assistant', content: 'b'.repeat(15000) },
+        ],
+      }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    const [e] = auditSpy.mock.calls.filter(([ev]) => ev.action === 'ai.consult_session')[0]
+    expect(e.detail).toEqual(expect.objectContaining({ first_turn: false, history_len: 1 }))
   })
 
   it('later exchange: first_turn false, history_len counts the capped history', async () => {

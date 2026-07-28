@@ -71,6 +71,9 @@ export const POST = facadeHandler('ai.chat', async (ctx) => {
   // emit (additive-only contract). first_turn marks the session row ("ONE
   // row per session" canon: the first exchange IS the session); the clamped
   // store rides as the row's store lens, unset = business-wide as before.
+  // Both fields derive from the CLIENT-supplied history, post-capHistory —
+  // display color, never authority: a session-count consumer must re-derive
+  // from row sequence, not trust the flag.
   ctx.auditDetail = { first_turn: history.length === 0, history_len: history.length }
   if (scopedStoreId) ctx.auditStoreId = scopedStoreId
   // context_label omitted when absent (JSON.stringify drops undefined) — same

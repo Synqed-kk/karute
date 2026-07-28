@@ -315,8 +315,10 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // {first_turn, history_len} via ctx.auditDetail. Canon for the "ONE row
   // per session" phrasing: the first_turn row IS the session row. A
   // screen-open mint at askAi.read was rejected (weak evidence of intent,
-  // and CP7's shape law makes a first-send-only emit mechanically
-  // impossible). askAi.read stays a dated tracked-TODO VERBATIM — its
+  // and CP7's shape law fails the natural braced form of a first-send-only
+  // conditional emit, pushing writers to unconditional per-exchange emits —
+  // its walker is lexical dominance, not full control-flow analysis).
+  // askAi.read stays a dated tracked-TODO VERBATIM — its
   // retirement is a ledgered (Anthony-gated) edit, queued, someday; until
   // then the marker keeps it from re-acquiring a false "covered elsewhere"
   // claim (the false AI相談-row lesson, C2/F6).

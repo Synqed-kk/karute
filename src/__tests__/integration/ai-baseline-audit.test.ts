@@ -850,6 +850,52 @@ describe('POST /api/ai/chat — auditWeb writer (Wave W2)', () => {
     expect(auditWeb.mock.calls[0][0].storeId).toBe('store-ginza')
   })
 
+  it('viewAll pinned to a store (allowedStoreIds null, storeId set): NO store lens — scope gate, not raw pin (blind-round F2)', async () => {
+    // Kills the `storeId: scope.storeId ?? undefined` mutant: an owner's
+    // active-store pin must never store-stamp business-wide consult rows.
+    scopeScenario.allowedStoreIds = null
+    scopeScenario.storeId = 'store-ginza'
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: 'x', locale: 'ja' }),
+        })
+        expect(res.status).toBe(200)
+      },
+    })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0].storeId).toBeUndefined()
+  })
+
+  it('over-budget history: history_len counts the CAPPED turns, not the raw client array (blind-round F3)', async () => {
+    // Two turns totalling ~35k chars — capHistory (30k budget) drops the
+    // oldest → post-cap length 1 vs raw 2. Kills the `rawHistory.length`
+    // mutant the short-history test above cannot distinguish.
+    await testApiHandler({
+      appHandler: chatHandler,
+      test: async ({ fetch }) => {
+        const res = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message: 'x',
+            locale: 'ja',
+            history: [
+              { role: 'user', content: 'a'.repeat(20000) },
+              { role: 'assistant', content: 'b'.repeat(15000) },
+            ],
+          }),
+        })
+        expect(res.status).toBe(200)
+      },
+    })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0].detail).toEqual({ first_turn: false, history_len: 1 })
+  })
+
   it('401 (anonymous): auditWeb never called', async () => {
     authScenario.user = null
     await testApiHandler({

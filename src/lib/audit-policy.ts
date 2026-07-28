@@ -22,7 +22,7 @@
 // 'auth.*', not next to the other privacy.* members) and 'ai.*'/
 // 'recording.*'/'booking.*' interleaving with 'audit.'/'auth.' at the top.
 export const AUDIT_ACTIONS = [
-  'ai.consult_session', // pending: Wave W
+  'ai.consult_session',
   'ai.memory_extract',
   'ai.suggested_message',
   'ai.summary_generate',
