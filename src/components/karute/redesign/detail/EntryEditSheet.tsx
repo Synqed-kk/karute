@@ -88,8 +88,45 @@ export function EntryEditSheet({
   // read behind `humanTouched` below — an AI entry's autoFocus firing on
   // open must not fold anything, since it has no history block to fold.
   const [isTyping, setIsTyping] = useState(false)
+  // Keyboard occlusion of the LAYOUT viewport's bottom edge (7/28 field fix):
+  // the shell's WKWebView doesn't resize the layout viewport when the
+  // keyboard shows, so a bottom-anchored fixed sheet mounts UNDER it — the
+  // grey-pencil path autoFocuses at open (desired, Liam ruling 7/28), which
+  // put the whole sheet behind the keyboard. visualViewport is the only
+  // geometry that sees this; the inset lifts the sheet by exactly the
+  // occluded height. POSITION ONLY — the fold above stays focus-driven
+  // (#621's disclosed wedge: geometry-driven folding can re-crush the
+  // textarea when the keyboard reopens on an already-focused field).
+  const [keyboard, setKeyboard] = useState<{ inset: number; visibleHeight: number } | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const historyBlockRef = useRef<HTMLDivElement>(null)
+
+  const open = entry !== null
+  useEffect(() => {
+    if (!open) return
+    const vv = window.visualViewport
+    if (!vv) return // jsdom / ancient WebView — sheet keeps its bottom-0 anchor
+    const update = () => {
+      // Bottom occlusion = layout height − visual height − visual top offset
+      // (iOS pans the visual viewport when the focused field would sit under
+      // the keyboard — the scroll listener catches that repositioning too).
+      const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+      // visibleHeight rides along for the height cap: the lifted sheet's
+      // bottom edge sits exactly on the visual viewport's bottom edge, so
+      // vv.height IS its full visible budget. A cap derived from the inset
+      // alone would overshoot by exactly offsetTop when the viewport is
+      // panned, hiding the sheet's title above the pan (Greptile #640).
+      setKeyboard(inset > 0 ? { inset, visibleHeight: vv.height } : null)
+    }
+    update()
+    vv.addEventListener('resize', update)
+    vv.addEventListener('scroll', update)
+    return () => {
+      vv.removeEventListener('resize', update)
+      vv.removeEventListener('scroll', update)
+      setKeyboard(null)
+    }
+  }, [open])
 
   // Reseed only when a NEW entry opens — a re-render mid-edit must not clobber it.
   useEffect(() => {
@@ -244,8 +281,21 @@ export function EntryEditSheet({
   }
 
   return (
-    <Sheet open={entry !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="max-h-[85vh] gap-3 overflow-y-auto p-5">
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        className="max-h-[85vh] gap-3 overflow-y-auto p-5"
+        // Lift by the keyboard, and cap height to the visual viewport's own
+        // height — the sheet's bottom edge sits exactly on the visual
+        // viewport's bottom, so that IS its full visible budget (pan-safe).
+        // overflow-y-auto absorbs the difference — content scrolls, nothing
+        // is crushed (textarea keeps its min-h floor).
+        style={
+          keyboard
+            ? { bottom: keyboard.inset, maxHeight: `min(85vh, ${keyboard.visibleHeight}px)` }
+            : undefined
+        }
+      >
         <SheetHeader className="p-0">
           <SheetTitle>{t('title')}</SheetTitle>
         </SheetHeader>

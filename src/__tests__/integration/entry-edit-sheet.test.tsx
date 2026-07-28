@@ -6,7 +6,7 @@
  * contract. (next-intl mocked to echo keys, per the repo's tsx-test
  * convention — see current-session-card.test.tsx.)
  */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 // useLocale added alongside useTranslations: EntryEditSheet now folds in the
 // 編集履歴 block (W2 one-sheet consolidation) and calls useLocale() for its
@@ -183,5 +183,75 @@ describe('EntryEditSheet — save', () => {
         expect.objectContaining({ author: 'HUMAN_CREATED' }),
       ),
     )
+  })
+})
+
+describe('EntryEditSheet — keyboard-aware position (7/28 field fix)', () => {
+  // Minimal visualViewport stand-in: EventTarget dispatch + the two geometry
+  // fields the hook reads. jsdom has no visualViewport at all, so the
+  // no-viewport guard path is what every OTHER test in this file exercises.
+  class FakeViewport extends EventTarget {
+    height = 800
+    offsetTop = 0
+  }
+  let vv: FakeViewport
+
+  const sheet = () => {
+    const el = document.querySelector('[data-slot="sheet-content"]') as HTMLElement | null
+    if (!el) throw new Error('sheet content not mounted')
+    return el
+  }
+
+  beforeEach(() => {
+    vv = new FakeViewport()
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true })
+    Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true })
+  })
+  afterEach(() => {
+    // Restore jsdom's real absence — the rest of the file depends on the
+    // guard path (no visualViewport → hook no-ops).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).visualViewport
+  })
+
+  it('lifts the sheet by the keyboard occlusion and caps its height to the visible space', () => {
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)
+    // Keyboard opens: visual viewport shrinks 800 → 500.
+    act(() => {
+      vv.height = 500
+      vv.dispatchEvent(new Event('resize'))
+    })
+    expect(sheet().style.bottom).toBe('300px')
+    expect(sheet().style.maxHeight).toBe('min(85vh, 500px)')
+    // Keyboard closes: geometry restored → inline overrides removed, the
+    // sheet is back on its bottom-0 class anchor.
+    act(() => {
+      vv.height = 800
+      vv.dispatchEvent(new Event('resize'))
+    })
+    expect(sheet().style.bottom).toBe('')
+    expect(sheet().style.maxHeight).toBe('')
+  })
+
+  it('iOS visual-viewport pan (offsetTop) counts toward the occlusion via the scroll listener', () => {
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)
+    act(() => {
+      vv.height = 500
+      vv.offsetTop = 100
+      vv.dispatchEvent(new Event('scroll'))
+    })
+    // 800 − 500 − 100: the panned-away top is not keyboard occlusion.
+    expect(sheet().style.bottom).toBe('200px')
+    // The height cap is the VISUAL height, not layout-minus-inset — an
+    // inset-derived cap would allow 600px here and hide the sheet's top
+    // 100px above the pan (Greptile #640).
+    expect(sheet().style.maxHeight).toBe('min(85vh, 500px)')
+  })
+
+  it('without visualViewport the sheet keeps its class anchor (guard path)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).visualViewport
+    render(<EntryEditSheet karuteRecordId="kar-1" entry={versionedEntry} onOpenChange={jest.fn()} />)
+    expect(sheet().style.bottom).toBe('')
   })
 })
