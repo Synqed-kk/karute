@@ -2141,7 +2141,11 @@
           "passport_update": "Corrected customer info",
           "photo_add": "Added customer photo",
           "brief_view": "Viewed pre-session brief",
-          "ai_prediction_view": "Viewed AI body prediction"
+          "ai_prediction_view": "Viewed AI body prediction",
+          "create": "Created customer",
+          "consent_grant": "Consent granted",
+          "consent_revoke": "Consent revoked",
+          "lifecycle_set": "Changed customer status"
         },
         "audit": {
           "unmapped_endpoint": "Unmapped operation detected (needs attention)"
@@ -2150,7 +2154,9 @@
           "save": "Saved karute record",
           "entry_edit": "Edited karute entry",
           "view": "Viewed karute record",
-          "entry_edits_view": "Viewed karute edit history"
+          "entry_edits_view": "Viewed karute edit history",
+          "entries_regenerate": "Regenerated karute entries",
+          "outcome_set": "Recorded session outcome"
         },
         "staff": {
           "add": "Added staff",
@@ -2191,6 +2197,18 @@
           "restore": "Booking restored",
           "update": "Booking updated",
           "delete": "Booking deleted"
+        },
+        "auth": {
+          "pin_lockout": "PIN locked after repeated failures"
+        },
+        "ai": {
+          "consult_session": "Used AI consult",
+          "memory_extract": "Auto-extracted memory",
+          "summary_generate": "Generated AI summary",
+          "suggested_message": "Generated AI suggested message"
+        },
+        "recording": {
+          "transcribe": "Transcribed recording"
         }
       },
       "burnError": {
@@ -3040,6 +3058,7 @@
     "cap_recordings_viewAll": "View every staff's recordings",
     "cap_analytics_viewAll": "Whole-salon analytics",
     "cap_stores_viewAll": "View all stores",
+    "cap_alerts_manage": "Manage alerts",
     "cap_customers_view": "View customers",
     "cap_bookings_manage": "Manage bookings"
   },

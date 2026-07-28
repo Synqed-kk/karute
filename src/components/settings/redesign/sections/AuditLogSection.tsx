@@ -9,7 +9,7 @@
 // counts, rates, rankings. Raw events only. The スタッフ filter is the §10
 // cause-based investigation path and always renders raw events; the summary
 // strip counts EVENTS for the whole filter window, never per-person.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import {
   Activity,
@@ -196,6 +196,29 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
     void load(1, false)
   }, [load])
 
+  // Filter-change scroll reset (field report 7/28, same class as Greptile
+  // #595): a filter tap can collapse a long feed to ~1 row while the user is
+  // scrolled deep — the viewport then sits past the new (short) content, so
+  // it reads as a white screen and taps hit nothing. Reset so the filter
+  // chips + summary strip land in view again. SAME mechanism as #595's fix
+  // (SettingsShell.tsx's DrillInView effect): walk up from the section root
+  // zeroing scrollTop — a no-op on an unscrolled ancestor, and this already
+  // covers both targets web/thin split that fix solved (web's ancestor chain
+  // ends at <html>, whose scrollTop IS the window scroll in standards mode;
+  // thin's ends at its own overflow container). useLayoutEffect, not effect,
+  // so the reset lands before paint. Keyed on every state that REPLACES the
+  // feed: the six `load(1, false)` deps (category/actorId/range/targetId/
+  // includeViews/breakGlass) plus warnOnly — a client-side lens over already-
+  // loaded events that shrinks the visible list exactly the same way, even
+  // though it never calls load(). Deliberately NOT keyed on page/events, so a
+  // load-more append (same filters, next page) never fires this.
+  const rootRef = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    for (let el = rootRef.current?.parentElement ?? null; el; el = el.parentElement) {
+      el.scrollTop = 0
+    }
+  }, [category, actorId, range, targetId, includeViews, breakGlass, warnOnly])
+
   const dayFmt = useMemo(
     () =>
       new Intl.DateTimeFormat(locale, { month: 'long', day: 'numeric', weekday: 'short' }),
@@ -356,7 +379,7 @@ export function AuditLogSection({ staffList, initialTargetId }: AuditLogSectionP
   }
 
   return (
-    <div className="space-y-4">
+    <div ref={rootRef} className="space-y-4">
       <div>
         <h3 className="text-lg font-semibold">{t('label')}</h3>
         <p className="text-sm text-muted-foreground">{t('description')}</p>
