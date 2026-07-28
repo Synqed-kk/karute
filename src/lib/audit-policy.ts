@@ -22,7 +22,7 @@
 // 'auth.*', not next to the other privacy.* members) and 'ai.*'/
 // 'recording.*'/'booking.*' interleaving with 'audit.'/'auth.' at the top.
 export const AUDIT_ACTIONS = [
-  'ai.consult_session', // pending: Wave W
+  'ai.consult_session',
   'ai.memory_extract',
   'ai.suggested_message',
   'ai.summary_generate',
@@ -178,6 +178,9 @@ export const AUDITED_CORES: {
   { file: 'src/app/api/ai/summarize/route.ts', symbols: ['POST'] },
   { file: 'src/app/api/ai/suggestions/route.ts', symbols: ['POST'] },
   { file: 'src/app/api/ai/transcribe/route.ts', symbols: ['POST'] },
+  // Wave W2 (Option A, Liam 7/28): ai.consult_session per exchange — the web
+  // twin of the promoted facade ai.chat row.
+  { file: 'src/app/api/ai/chat/route.ts', symbols: ['POST'] },
   // Wave W1 fix round: the web (cookie) twin of the facade's
   // karute.ai.suggestedMessage row was silently unaudited — getSuggestedFollowUp
   // now emits unconditionally on every non-error return (parity with the
