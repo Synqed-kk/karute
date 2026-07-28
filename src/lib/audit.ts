@@ -603,10 +603,12 @@ export interface ApiRouteDecision {
 export const API_ROUTE_DECISIONS: Record<string, ApiRouteDecision | Record<string, ApiRouteDecision>> = {
   // Legacy /api/ai/* — 5 of 7 stay live (advice/insights were deleted, #629,
   // D5). §3.1: decision rows on BOTH twins (this route + its facade twin
-  // above) using the SAME ai.* action; all pendingWave — the writers land
-  // Wave W, same as the facade twins. Auth: `chat` already has the explicit
-  // getUser() 401 guard; extract/summarize/suggestions/transcribe have
-  // carried the same guard since PR-M3 (#632, merged 2026-07-27).
+  // above) using the SAME ai.* action. Four of five went LIVE in Wave W1
+  // (2026-07-28, direct auditWeb writers at each route); only ai/chat stays
+  // pendingWave — its mint design is Wave W2 (Liam ruled Option A, 7/28).
+  // Auth: `chat` already has the explicit getUser() 401 guard;
+  // extract/summarize/suggestions/transcribe have carried the same guard
+  // since PR-M3 (#632, merged 2026-07-27).
   'ai/chat': {
     kind: 'log',
     justification:
