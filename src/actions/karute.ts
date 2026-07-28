@@ -12,7 +12,7 @@ import { setKaruteOutcome } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
-import { SESSION_CATEGORY_TO_ENTRY_CATEGORY } from '@/lib/adapters/karute-detail'
+import { SESSION_CATEGORY_TO_ENTRY_CATEGORY, summaryTextToBullets } from '@/lib/adapters/karute-detail'
 import { ENTRY_CONTENT_INVALID_ERROR, type SaveKaruteInput } from '@/types/karute'
 import type { KaruteRecord, SynqedClient, Appointment, EntryEditAction, KaruteEntryEdit } from '@synqed-kk/client'
 import type { SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
@@ -762,9 +762,18 @@ export async function updateKaruteDetailSummaryWithClient(
 ): Promise<CoreUpdateDetailSummaryResult> {
   // Content bounds checked HERE (not just the facade's zod) so the web path
   // is covered too — same rule as updateKaruteDetailEntryWithClient: an
-  // emptied or >4000-char summary never reaches core.
+  // emptied or >4000-char summary never reaches core. The bullet-split check
+  // closes the marker-only hole (blind-round P2): text like a lone 「・」
+  // passes trim but splits to ZERO bullets — the card renders nothing, the
+  // pencil unmounts with it (permanent UI lockout of edited_summary), and
+  // every downstream effectiveSummary reader is fed the marker. Reject it on
+  // BOTH surfaces at the choke.
   const trimmed = input.content.trim()
-  if (trimmed.length === 0 || input.content.length > 4000) {
+  if (
+    trimmed.length === 0 ||
+    input.content.length > 4000 ||
+    summaryTextToBullets(input.content).length === 0
+  ) {
     return { validationError: ENTRY_CONTENT_INVALID_ERROR }
   }
   // No-change guard at the choke (the sheet no-ops too, but a facade caller

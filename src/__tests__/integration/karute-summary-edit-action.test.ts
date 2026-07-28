@@ -164,6 +164,35 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
     expect(auditSpy).not.toHaveBeenCalled()
   })
 
+  it('marker-only content (zero bullets) is rejected — it would render an empty card and unmount the pencil', async () => {
+    for (const junk of ['・', '・\n・', '-', '。']) {
+      const result = await updateKaruteDetailSummaryWithClient(
+        fakeClient,
+        'kar-1',
+        { content: junk, actorStaffId: 'staff-1' },
+        actor,
+        null,
+        null,
+      )
+      expect(result).toEqual({ validationError: ENTRY_CONTENT_INVALID_ERROR })
+    }
+    expect(update).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('exactly 4000 chars is ACCEPTED — the boundary is user-reachable (textarea maxLength)', async () => {
+    const result = await updateKaruteDetailSummaryWithClient(
+      fakeClient,
+      'kar-1',
+      { content: 'x'.repeat(4000), actorStaffId: 'staff-1' },
+      actor,
+      null,
+      null,
+    )
+    expect(result).toEqual({ ok: true })
+    expect(update).toHaveBeenCalledTimes(1)
+  })
+
   it('an upstream failure returns {error} and no audit row (the log proves presence, never absence)', async () => {
     update.mockRejectedValueOnce(new Error('core down'))
     const result = await updateKaruteDetailSummaryWithClient(
@@ -219,5 +248,16 @@ describe('updateKaruteDetailSummary — web wrapper', () => {
     const result = await updateKaruteDetailSummary('kar-1', { content: '   ' })
     expect(result).toEqual({ error: ENTRY_CONTENT_INVALID_ERROR })
     expect(update).not.toHaveBeenCalled()
+  })
+
+  it('the records.write gate is load-bearing — a denied capability blocks the write entirely', async () => {
+    const { requireCapability } = jest.requireMock('@/lib/auth/require-permission') as {
+      requireCapability: jest.Mock
+    }
+    requireCapability.mockRejectedValueOnce(new Error('forbidden'))
+    const result = await updateKaruteDetailSummary('kar-1', { content: '・直した要約' })
+    expect(result).toEqual({ error: 'forbidden' })
+    expect(update).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 })

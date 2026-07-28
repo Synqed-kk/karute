@@ -48,10 +48,19 @@ jest.mock('@/lib/audit', () => ({
   audit: (...a: unknown[]) => auditSpy(...(a as [])),
 }))
 
-const get = jest.fn(async (id: string) => {
-  if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
-  return { id: 'kar-1', customer_id: 'cust-1', ai_summary: 'AIの要約', edited_summary: null }
-})
+const get = jest.fn(
+  async (
+    id: string,
+  ): Promise<{
+    id: string
+    customer_id: string
+    ai_summary: string | null
+    edited_summary: string | null
+  }> => {
+    if (id !== 'kar-1') throw Object.assign(new Error('not found'), { status: 404 })
+    return { id: 'kar-1', customer_id: 'cust-1', ai_summary: 'AIの要約', edited_summary: null }
+  },
+)
 const update = jest.fn(async () => ({ id: 'kar-1' }))
 jest.mock('@/lib/synqed/client', () => ({
   newSynqedClient: () => ({ karuteRecords: { get: (id: string) => get(id), update } }),
@@ -132,5 +141,46 @@ describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
     const res = await PATCH(patchReq({ content: 'x', ai_summary: 'smuggled' }), routeFor('kar-1'))
     expect(res.status).toBe(400)
     expect(update).not.toHaveBeenCalled()
+  })
+
+  it('an existing overlay wins as the before-value on the facade too (edited ?? ai)', async () => {
+    // Second-edit path: BOTH fields set — the overlay (6 chars), not the AI
+    // text (5 chars), must be the before. A mutant swapping the ?? order
+    // would report before_len 5 here.
+    get.mockResolvedValueOnce({
+      id: 'kar-1',
+      customer_id: 'cust-1',
+      ai_summary: 'AIの要約',
+      edited_summary: '前回の人間版',
+    })
+    const res = await PATCH(patchReq({ content: '・さらに直した' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(auditSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.objectContaining({ before_len: 6 }),
+      }),
+    )
+  })
+
+  it('a PATCH identical to the CURRENT overlay no-ops — no write, no audit row (guard compares against the overlay, not the AI text)', async () => {
+    get.mockResolvedValueOnce({
+      id: 'kar-1',
+      customer_id: 'cust-1',
+      ai_summary: 'AIの要約',
+      edited_summary: '前回の人間版',
+    })
+    const res = await PATCH(patchReq({ content: '前回の人間版' }), routeFor('kar-1'))
+    expect(res.status).toBe(200)
+    expect(update).not.toHaveBeenCalled()
+    expect(auditSpy).not.toHaveBeenCalled()
+  })
+
+  it('a core upstream failure maps to the fixed generic 502 — never the raw error (no-internals-leak)', async () => {
+    update.mockRejectedValueOnce(new Error('pg: relation karute_records exploded at 10.0.0.7'))
+    const res = await PATCH(patchReq({ content: '・直した要約' }), routeFor('kar-1'))
+    expect(res.status).toBe(502)
+    const body = (await res.json()) as { error: { message: string } }
+    expect(body.error.message).toBe('summary update failed')
+    expect(auditSpy).not.toHaveBeenCalled()
   })
 })

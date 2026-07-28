@@ -83,9 +83,13 @@ export const KaruteDetailScreenDTO = z.object({
   summaryBullets: z.array(z.string()),
   /** Raw effective summary (edited ?? ai) — seeds the 詳細記録 pencil's edit
    *  sheet. Same recording-privacy note as transcript does NOT apply: the
-   *  summary is the shared record, never ACL-withheld. */
-  summaryRaw: z.string().nullable(),
-  summaryEdited: z.boolean(),
+   *  summary is the shared record, never ACL-withheld. Optional for the same
+   *  compat reason as SessionEntrySchema's provenance fields: a response
+   *  minted by a server predating these fields (prod rollback under a newer
+   *  shell) must degrade to a read-only card, not fail the whole screen's
+   *  parse. */
+  summaryRaw: z.string().nullable().optional(),
+  summaryEdited: z.boolean().optional(),
   /** The transcript AS THE VIEWER MAY SEE IT — server-withheld to null by the
    *  recording-privacy ACL; the DTO never carries restricted text. */
   transcript: z.string().nullable(),

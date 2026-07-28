@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { updateKaruteDetailSummary, listEntryEditHistory } from '@/actions/karute'
+import { summaryTextToBullets } from '@/lib/adapters/karute-detail'
 import { cn } from '@/lib/utils'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 
@@ -281,7 +282,10 @@ export function SummaryEditSheet({
               >
                 <span
                   className={cn(
-                    'line-clamp-2 flex-1 text-[13px] leading-relaxed',
+                    // Short-viewport degrade carried from EntryEditSheet
+                    // (its ~358px clamp-budget note) — this sheet's textarea
+                    // floor is 32px BIGGER, so the degrade matters more here.
+                    'line-clamp-2 [@media(max-height:360px)]:line-clamp-1 flex-1 text-[13px] leading-relaxed',
                     latestTone === 'error' && 'text-red-500',
                     latestTone === 'content' && 'text-foreground',
                     latestTone === 'muted' && 'text-muted-foreground',
@@ -374,7 +378,11 @@ export function SummaryEditSheet({
             // a save tap while typing must land on a stable layout.
             onMouseDown={(evt) => evt.preventDefault()}
             onClick={save}
-            disabled={saving || content.trim() === ''}
+            // Zero-BULLET content disables save, not just zero-trim: a lone
+            // marker (「・」) would render an empty card and unmount the
+            // pencil with it — the choke rejects it server-side too
+            // (blind-round P2); this gate keeps the UX honest.
+            disabled={saving || summaryTextToBullets(content).length === 0}
             className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
           >
             {t('save')}

@@ -203,15 +203,30 @@ describe('SummaryEditSheet — record-level history (edited summaries only)', ()
   it('fetches for an edited summary and renders ONLY record-level rows (both entry ids null)', async () => {
     listEntryEditHistory.mockResolvedValue({
       edits: [
+        // Realistic EDIT row: BOTH ids set. Kills a mutant dropping the
+        // entryIdNew===null clause.
         {
           id: 'row-entry',
-          entryIdOld: null,
+          entryIdOld: 'e1',
           entryIdNew: 'e1',
           action: 'EDIT',
           actorName: '田中',
           contentBefore: 'エントリー前',
           contentAfter: 'エントリー後',
           createdAt: '2026-07-29T10:00:00.000Z',
+        },
+        // DELETE-shape row: old set, new null. Kills a mutant dropping the
+        // entryIdOld===null clause — the leak would put a DELETED entry's
+        // content into the summary's 編集履歴 trail.
+        {
+          id: 'row-delete',
+          entryIdOld: 'e9',
+          entryIdNew: null,
+          action: 'DELETE',
+          actorName: '田中',
+          contentBefore: '削除された項目',
+          contentAfter: null,
+          createdAt: '2026-07-29T10:30:00.000Z',
         },
         {
           id: 'row-summary',
@@ -237,8 +252,10 @@ describe('SummaryEditSheet — record-level history (edited summaries only)', ()
     )
     await waitFor(() => expect(screen.getByText('要約の後')).toBeInTheDocument())
     expect(screen.getByText('要約の前')).toBeInTheDocument()
-    // The per-entry row must NOT leak into the summary's own trail.
+    // Neither the per-entry edit nor the deleted entry's content may leak
+    // into the summary's own trail.
     expect(screen.queryByText('エントリー後')).not.toBeInTheDocument()
+    expect(screen.queryByText('削除された項目')).not.toBeInTheDocument()
   })
 })
 
