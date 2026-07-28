@@ -67,6 +67,9 @@ export const POST = facadeHandler<Params>('karute.outcome.set', async (ctx) => {
     decidedBy: staffId,
   })
   if (result.error) throw new AppApiError('upstream_unavailable', 'outcome write failed')
+  // Wave W3: customer_id rides the hook's karute.outcome_set emit for the
+  // viewer's name join (Wave V karute-target canon — additive color only).
+  ctx.auditDetail = { customer_id: customerId }
   return ok(ctx, { ok: true })
 })
 

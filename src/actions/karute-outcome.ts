@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
@@ -25,8 +26,21 @@ export async function updateKaruteOutcome(
     isFirstVisit: outcome.isFirstVisit,
     decidedBy: staffId,
   })
-  if (result.error) return result
+  if (result.error) return { error: result.error }
   revalidatePath(`/karute/${karuteRecordId}`)
   revalidatePath(`/customers/${customerId}`)
+  // Wave W3: the web twin of the facade karute.outcome.set row (that side is
+  // the generic success hook on the dedicated outcome route). AFTER-THE-FACT
+  // only — a save-embedded outcome write is covered by that path's
+  // karute.save row instead. customer_id rides the detail for the viewer's
+  // name join (Wave V karute-target canon).
+  await auditWeb({
+    category: 'karute',
+    action: 'karute.outcome_set',
+    targetType: 'karute',
+    targetId: karuteRecordId,
+    detail: { customer_id: customerId },
+    requestId: crypto.randomUUID(),
+  })
   return {}
 }

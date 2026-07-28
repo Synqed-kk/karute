@@ -21,11 +21,11 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `booking.update` | booking | live | `settings.auditLog.actions.booking.update` |
 | `customer.ai_prediction_view` | customer | live | `settings.auditLog.actions.customer.ai_prediction_view` |
 | `customer.brief_view` | customer | live | `settings.auditLog.actions.customer.brief_view` |
-| `customer.consent_grant` | customer | pending | `settings.auditLog.actions.customer.consent_grant` |
-| `customer.consent_revoke` | customer | pending | `settings.auditLog.actions.customer.consent_revoke` |
+| `customer.consent_grant` | customer | live | `settings.auditLog.actions.customer.consent_grant` |
+| `customer.consent_revoke` | customer | live | `settings.auditLog.actions.customer.consent_revoke` |
 | `customer.create` | customer | live | `settings.auditLog.actions.customer.create` |
 | `customer.edit` | customer | live | `settings.auditLog.actions.customer.edit` |
-| `customer.lifecycle_set` | customer | pending | `settings.auditLog.actions.customer.lifecycle_set` |
+| `customer.lifecycle_set` | customer | live | `settings.auditLog.actions.customer.lifecycle_set` |
 | `customer.memory_add` | customer | live | `settings.auditLog.actions.customer.memory_add` |
 | `customer.memory_delete` | customer | live | `settings.auditLog.actions.customer.memory_delete` |
 | `customer.memory_relearn` | customer | live | `settings.auditLog.actions.customer.memory_relearn` |
@@ -39,7 +39,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `karute.entries_regenerate` | karute | pending | `settings.auditLog.actions.karute.entries_regenerate` |
 | `karute.entry_edit` | karute | live | `settings.auditLog.actions.karute.entry_edit` |
 | `karute.entry_edits_view` | karute | live | `settings.auditLog.actions.karute.entry_edits_view` |
-| `karute.outcome_set` | karute | pending | `settings.auditLog.actions.karute.outcome_set` |
+| `karute.outcome_set` | karute | live | `settings.auditLog.actions.karute.outcome_set` |
 | `karute.save` | karute | live | `settings.auditLog.actions.karute.save` |
 | `karute.view` | karute | live | `settings.auditLog.actions.karute.view` |
 | `privacy.audit_log.view` | privacy | live | `settings.auditLog.actions.privacy.audit_log.view` |

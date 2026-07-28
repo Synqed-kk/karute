@@ -512,18 +512,26 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // return customer_id) so this row can carry a correct target.
   'customer.pack.undoRedemption': { kind: 'mutation', category: 'customer', action: 'customer.pack_undo' },
 
-  // consent/lifecycle/outcome mutation MIRRORS (§3.1 D1: today these are
-  // row-stamped only — stamps stay as defense-in-depth). D1 mirror events are
-  // EXPLICITLY Wave W per the build packet ("The 20 web writers + D1 mirrors
-  // + ai.* baseline events = Wave W") — the mirror design decides its emit
-  // point (shared core vs per-surface) there; a live facade rule now would
-  // double-log the facade side the moment that lands. Action strings below
-  // are placeholders per the repo's category.snake_verb convention — CP4's
-  // generated taxonomy canonizes them in the proof-suite PR.
-  'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer', pendingWave: 'Wave W — 2026-07-27' },
-  'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer', pendingWave: 'Wave W — 2026-07-27' },
-  'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer', pendingWave: 'Wave W — 2026-07-27' },
-  'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute', pendingWave: 'Wave W — 2026-07-27' },
+  // consent/lifecycle/outcome mutation MIRRORS (§3.1 D1) — LIVE as of Wave W3
+  // (2026-07-28). The mirror design resolved to PER-SURFACE emits (a
+  // shared-core emit would demote these rows to skip+coveredBy — a ledgered
+  // weakening — and would double-log the facade side): facade = the generic
+  // success hook via these rows; web = each wrapper's own auditWeb —
+  // grantCustomerConsent/revokeCustomerConsent (src/actions/customers.ts),
+  // setLifecycleAction (src/actions/packs.ts), updateKaruteOutcome
+  // (src/actions/karute-outcome.ts) — all AUDITED_CORES. The WithClient cores
+  // stay audit-free. karute.outcome.set fires ONLY on the dedicated
+  // after-the-fact route, which enriches the row with customer_id via
+  // ctx.auditDetail (Wave V karute-target canon — the viewer's name join);
+  // a save-EMBEDDED outcome write (facade karute save, web saveKaruteRecord,
+  // processJob) is part of the save and deliberately row-less on BOTH
+  // surfaces — that path's karute.save row covers it (same choke-point
+  // doctrine as karute.entry.update above). Row-stamps stay as
+  // defense-in-depth.
+  'customer.consent.grant': { kind: 'mutation', category: 'customer', action: 'customer.consent_grant', targetType: 'customer' },
+  'customer.consent.revoke': { kind: 'mutation', category: 'customer', action: 'customer.consent_revoke', targetType: 'customer' },
+  'customer.lifecycle.set': { kind: 'mutation', category: 'customer', action: 'customer.lifecycle_set', targetType: 'customer' },
+  'karute.outcome.set': { kind: 'mutation', category: 'karute', action: 'karute.outcome_set', targetType: 'karute' },
 
   // Photos are the customer (§3.1).
   'customer.passport.upsert': { kind: 'mutation', category: 'customer', action: 'customer.passport_update', targetType: 'customer' },

@@ -1,6 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
+import { auditWeb } from '@/lib/audit-web'
 import { getCurrentUserStaffId } from '@/lib/staff'
 import { requireCapability } from '@/lib/auth/require-permission'
 import {
@@ -349,6 +350,16 @@ export async function setLifecycleAction(
   const { getSynqedClient } = await import('@/lib/synqed/client')
   const [synqed, staffId] = await Promise.all([getSynqedClient(), getCurrentUserStaffId().catch(() => null)])
   const result = await setLifecycleActionWithClient(synqed, staffId, input)
-  if (result.ok) revalidateProfile()
+  if (!result.ok) return { ok: false }
+  revalidateProfile()
+  // Wave W3: the web twin of the facade customer.lifecycle.set row (that side
+  // is the generic success hook on the lifecycle route) — success only.
+  await auditWeb({
+    category: 'customer',
+    action: 'customer.lifecycle_set',
+    targetType: 'customer',
+    targetId: input.customerId,
+    requestId: crypto.randomUUID(),
+  })
   return result
 }

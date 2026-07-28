@@ -36,11 +36,11 @@ export const AUDIT_ACTIONS = [
   'booking.update',
   'customer.ai_prediction_view',
   'customer.brief_view',
-  'customer.consent_grant', // pending: Wave W
-  'customer.consent_revoke', // pending: Wave W
+  'customer.consent_grant',
+  'customer.consent_revoke',
   'customer.create',
   'customer.edit',
-  'customer.lifecycle_set', // pending: Wave W
+  'customer.lifecycle_set',
   'customer.memory_add',
   'customer.memory_delete',
   'customer.memory_relearn',
@@ -54,7 +54,7 @@ export const AUDIT_ACTIONS = [
   'karute.entries_regenerate', // pending: Wave W
   'karute.entry_edit',
   'karute.entry_edits_view',
-  'karute.outcome_set', // pending: Wave W
+  'karute.outcome_set',
   'karute.save',
   'karute.view',
   'privacy.audit_log.view',
@@ -135,7 +135,15 @@ export const AUDITED_CORES: {
   { file: 'src/lib/jobs/process-recording.ts', symbols: ['processJob'] },
   {
     file: 'src/actions/customers.ts',
-    symbols: ['createCustomer', 'createQuickCustomer', 'updateCustomer', 'emitDeletionAudit'],
+    symbols: [
+      'createCustomer',
+      'createQuickCustomer',
+      'updateCustomer',
+      'emitDeletionAudit',
+      // Wave W3 (D1 mirrors): the web twins of the facade consent rows.
+      'grantCustomerConsent',
+      'revokeCustomerConsent',
+    ],
     unproven: [
       {
         symbol: 'updateCustomer',
@@ -187,6 +195,13 @@ export const AUDITED_CORES: {
   // facade's generic hook). getSuggestedFollowUpWithClient stays unregistered
   // (and audit-free) deliberately — the facade hook is its only emitter.
   { file: 'src/lib/karute/ai-outreach.ts', symbols: ['getSuggestedFollowUp'] },
+  // Wave W3 (D1 mirrors): the web twins of the facade lifecycle/outcome rows.
+  // The WithClient cores they wrap stay audit-free (Core/WithClient split);
+  // updateKaruteOutcome is the AFTER-THE-FACT path only — a save-embedded
+  // outcome write is covered by that path's karute.save row on both surfaces
+  // (see the FACADE_AUDIT_MAP mirror-block comment in audit.ts).
+  { file: 'src/actions/packs.ts', symbols: ['setLifecycleAction'] },
+  { file: 'src/actions/karute-outcome.ts', symbols: ['updateKaruteOutcome'] },
 ]
 
 // ── SDK_WRITE_ALLOWLIST ──────────────────────────────────────────────────────
@@ -251,18 +266,16 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'customers.grantConsent',
     symbols: ['grantCustomerConsentWithClient'],
     justification:
-      'customer.consent.grant is a pendingWave FACADE_AUDIT_MAP row (writer not built); grantCustomerConsentWithClient itself never audits, matching the Core/WithClient split convention.',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+      'customer.consent_grant is a LIVE FACADE_AUDIT_MAP row as of Wave W3 (facade auto-emit); the web wrapper grantCustomerConsent emits its own auditWeb (AUDITED_CORES). grantCustomerConsentWithClient itself stays audit-free, matching the Core/WithClient split convention.',
+    dated: '2026-07-28',
   },
   {
     file: 'src/actions/customers.ts',
     call: 'customers.revokeConsent',
     symbols: ['revokeCustomerConsentWithClient'],
     justification:
-      'customer.consent.revoke is a pendingWave FACADE_AUDIT_MAP row (writer not built); revokeCustomerConsentWithClient itself never audits, matching the Core/WithClient split convention.',
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+      'customer.consent_revoke is a LIVE FACADE_AUDIT_MAP row as of Wave W3 (facade auto-emit); the web wrapper revokeCustomerConsent emits its own auditWeb (AUDITED_CORES). revokeCustomerConsentWithClient itself stays audit-free, matching the Core/WithClient split convention.',
+    dated: '2026-07-28',
   },
   {
     file: 'src/actions/karute.ts',
@@ -453,9 +466,8 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'karuteOutcomes.upsert',
     symbols: ['setKaruteOutcomeWithClient', 'setKaruteOutcome'],
     justification:
-      "karute.outcome_set — action decided, writer not built yet; pendingWave (see FACADE_AUDIT_MAP['karute.outcome.set']).",
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+      "karute.outcome_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3, fired ONLY by the dedicated after-the-fact route (facade auto-emit); the web after-the-fact wrapper updateKaruteOutcome (src/actions/karute-outcome.ts) emits its own auditWeb (AUDITED_CORES). Both symbols here stay audit-free: a save-EMBEDDED outcome write (createOrUpdateKaruteRecord, the facade karute save route, processJob) is part of the save, covered by that path's karute.save row on BOTH surfaces — deliberately row-less, not a gap.",
+    dated: '2026-07-28',
   },
   {
     file: 'src/lib/packs/store.ts',
@@ -510,9 +522,8 @@ export const SDK_WRITE_ALLOWLIST: {
     call: 'packs.setLifecycle',
     symbols: ['setCustomerLifecycleWithClient'],
     justification:
-      "customer.lifecycle_set — action decided, writer not built yet; pendingWave (see FACADE_AUDIT_MAP['customer.lifecycle.set']).",
-    dated: '2026-07-27',
-    pendingWave: 'Wave W — 2026-07-27',
+      "customer.lifecycle_set is a LIVE FACADE_AUDIT_MAP row as of Wave W3 (facade auto-emit via the lifecycle route); the web wrapper setLifecycleAction emits its own auditWeb (AUDITED_CORES). setCustomerLifecycleWithClient itself stays audit-free (Core/WithClient split).",
+    dated: '2026-07-28',
   },
   {
     file: 'src/lib/packs/store.ts',
