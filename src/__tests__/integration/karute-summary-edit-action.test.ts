@@ -1,10 +1,11 @@
 // Edit-layer W2 summary half: the whole-summary edit CORE + the cookie web
 // wrapper. Pins: the write is edited_summary ONLY (never ai_summary, never
 // entries — the full-replace foot-gun); the choke-point audit fires exactly
-// once on success with before/after SNIPPETS (256-cap) + full lengths +
-// customer_id; the no-change guard writes nothing and mints no audit row;
+// once on success with before_len/after_len + customer_id and NO record
+// content (the emitter's log-drain PII rule — the text lives in core's
+// lineage row); the no-change guard writes nothing and mints no audit row;
 // content bounds are enforced server-side too (the entries T4 rule); the web
-// wrapper derives before-text + customer_id from the AUTHORITATIVE record.
+// wrapper derives before-value + customer_id from the AUTHORITATIVE record.
 jest.mock('next/cache', () => ({
   revalidatePath: jest.fn(),
   updateTag: jest.fn(),
@@ -84,10 +85,11 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
         targetType: 'karute',
         targetId: 'kar-1',
         source: 'web',
+        // EXACT detail — lengths + ids ONLY. The emitter's interim sink is a
+        // console line into log drains; its PII rule bans record content in
+        // detail (audit.ts). The text itself lives in core's lineage row.
         detail: {
           customer_id: 'cust-1',
-          before: '・元の要約',
-          after: '・直した要約',
           before_len: 5,
           after_len: 6,
         },
@@ -95,7 +97,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
     )
   })
 
-  it('caps before/after audit snippets at 256 chars and carries the FULL lengths', async () => {
+  it('NO record content ever rides the audit detail — lengths only, any length (PII drain rule)', async () => {
     const before = 'あ'.repeat(300)
     const after = 'い'.repeat(400)
     await updateKaruteDetailSummaryWithClient(
@@ -107,13 +109,12 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       before,
     )
     const detail = auditSpy.mock.calls[0][0].detail as Record<string, unknown>
-    expect(detail.before).toBe('あ'.repeat(256))
-    expect(detail.after).toBe('い'.repeat(256))
-    expect(detail.before_len).toBe(300)
-    expect(detail.after_len).toBe(400)
+    // toEqual (not objectContaining): a re-added before/after text key must
+    // turn this red — it would be the codebase's only content-carrying emit.
+    expect(detail).toEqual({ customer_id: null, before_len: 300, after_len: 400 })
   })
 
-  it('a never-summarized record audits before:null / before_len:0', async () => {
+  it('a never-summarized record audits before_len:0', async () => {
     await updateKaruteDetailSummaryWithClient(
       fakeClient,
       'kar-1',
@@ -123,8 +124,7 @@ describe('updateKaruteDetailSummaryWithClient — overlay core', () => {
       null,
     )
     const detail = auditSpy.mock.calls[0][0].detail as Record<string, unknown>
-    expect(detail.before).toBeNull()
-    expect(detail.before_len).toBe(0)
+    expect(detail).toEqual({ customer_id: null, before_len: 0, after_len: 2 })
   })
 
   it('no-change guard: identical content writes nothing and mints no audit row', async () => {
@@ -191,25 +191,26 @@ describe('updateKaruteDetailSummary — web wrapper', () => {
       expect.objectContaining({
         action: 'karute.summary_edit',
         source: 'web',
-        detail: expect.objectContaining({
-          customer_id: 'cust-authoritative',
-          before: 'AIの要約',
-        }),
+        // 'AIの要約' is 5 chars — before_len proves the authoritative
+        // ai_summary was the before-value without the text riding the row.
+        detail: { customer_id: 'cust-authoritative', before_len: 5, after_len: 6 },
       }),
     )
   })
 
-  it('an existing overlay wins as the before-text (edited ?? ai)', async () => {
+  it('an existing overlay wins as the before-value (edited ?? ai)', async () => {
     get.mockResolvedValueOnce({
       id: 'kar-1',
       customer_id: 'cust-authoritative',
       ai_summary: 'AIの要約',
-      edited_summary: '前回の人間版',
+      edited_summary: '前回の人間版の要約だ',
     })
     await updateKaruteDetailSummary('kar-1', { content: '・さらに直した' })
+    // 10-char overlay (not the 4-char ai_summary) is the before — proven by
+    // length, no text in the row.
     expect(auditSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        detail: expect.objectContaining({ before: '前回の人間版' }),
+        detail: expect.objectContaining({ before_len: 10 }),
       }),
     )
   })

@@ -722,13 +722,13 @@ export type UpdateKaruteDetailSummaryResult = { ok: true } | { error: string }
  *  502; the web wrapper collapses it into {error}). */
 type CoreUpdateDetailSummaryResult = UpdateKaruteDetailSummaryResult | { validationError: string }
 
-/** Audit-detail cap (core caps detail ~2KB; handler.ts's facade-hook cap is
- *  256/string) — the before/after here honor the same bound, with the full
- *  lengths carried alongside so a truncated pair still tells the whole
- *  story. The FULL texts are never lost: core writes a record-level
- *  entry-edit lineage row (contentBefore/After untruncated) on every
- *  edited_summary change. */
-const SUMMARY_AUDIT_SNIPPET_MAX = 256
+// NO content in the audit detail — the emitter's interim sink is a console
+// line into Vercel log drains and its PII rule is "ids only, no note/summary
+// text, ever" (src/lib/audit.ts header + AuditEvent.detail doc). The DETAILED
+// before/after Liam requires lives where #620's entry-edit precedent puts it:
+// core's record-level lineage row (contentBefore/After, UNTRUNCATED) written
+// on every edited_summary change, surfaced by the 監査ログ row expansion and
+// the sheet's 編集履歴 block. The row itself carries lengths + ids only.
 
 /**
  * Whole-section summary edit CORE — writes the `edited_summary` overlay (⚖
@@ -785,13 +785,14 @@ export async function updateKaruteDetailSummaryWithClient(
       targetType: 'karute',
       targetId: recordId,
       // customer_id rides in detail (ids only, PII rule — same viewer
-      // name-join rationale as karute.entry_edit above). before/after are
-      // capped snippets + full lengths; the untruncated pair lives in core's
-      // record-level lineage row.
+      // name-join rationale as karute.entry_edit above). Lengths, not text
+      // (see the no-content comment above the function): the before/after
+      // themselves live in core's lineage row, read back by the 監査ログ
+      // expansion. before_len is the caller's proof-read view — best-effort
+      // under concurrency (no CAS on this path; core's lineage row is the
+      // transactional truth).
       detail: {
         customer_id: customerId,
-        before: summaryBefore === null ? null : summaryBefore.slice(0, SUMMARY_AUDIT_SNIPPET_MAX),
-        after: input.content.slice(0, SUMMARY_AUDIT_SNIPPET_MAX),
         before_len: summaryBefore === null ? 0 : summaryBefore.length,
         after_len: input.content.length,
       },

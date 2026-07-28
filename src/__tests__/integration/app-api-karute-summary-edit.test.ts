@@ -3,7 +3,7 @@
 // write is edited_summary ONLY); the proof-read 404s a foreign/missing record
 // BEFORE any write; missing capability is 403 before any read/write;
 // trim-empty content is a 400, not a 502; the choke-point audit fires exactly
-// once with source:'facade', the proof-read's customer_id AND before-text —
+// once with source:'facade' and the proof-read's customer_id + lengths —
 // 'karute.summary.update' is a deliberate `skip` row in FACADE_AUDIT_MAP
 // (choke-point doctrine, same as karute.entry.update), so this is the ONLY
 // place the facade's emit is pinned.
@@ -99,11 +99,9 @@ describe('PATCH /karute/[id]/summary (edit-layer W2 summary half)', () => {
         businessId: 'business-1',
         source: 'facade',
         targetId: 'kar-1',
-        detail: expect.objectContaining({
-          customer_id: 'cust-1',
-          before: 'AIの要約',
-          after: '・直した要約',
-        }),
+        // EXACT detail — lengths + ids ONLY, never record content (the
+        // emitter's log-drain PII rule; the text lives in core's lineage row).
+        detail: { customer_id: 'cust-1', before_len: 5, after_len: 6 },
       }),
     )
   })
