@@ -524,6 +524,16 @@ export async function grantCustomerConsent(
     )
     revalidatePath(`/customers/${customerId}`)
     updateTag('customer-consent')
+    // Wave W3: the web twin of the facade customer.consent.grant row (that
+    // side is the generic success hook) — success only, never on the
+    // no-staff/error returns.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.consent_grant',
+      targetType: 'customer',
+      targetId: customerId,
+      requestId: crypto.randomUUID(),
+    })
     return { ok: true as const, consent }
   } catch (err) {
     return {
@@ -558,6 +568,14 @@ export async function revokeCustomerConsent(customerId: string) {
     await revokeCustomerConsentWithClient(synqed, customerId, staffId)
     revalidatePath(`/customers/${customerId}`)
     updateTag('customer-consent')
+    // Wave W3: the web twin of the facade customer.consent.revoke row.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.consent_revoke',
+      targetType: 'customer',
+      targetId: customerId,
+      requestId: crypto.randomUUID(),
+    })
     return { ok: true as const }
   } catch (err) {
     // Same policy as the other mutating actions in this file: never leak a
