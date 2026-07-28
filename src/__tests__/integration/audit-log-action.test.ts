@@ -524,6 +524,9 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
         { id: 'syn-kita', user_id: 'prof-kita', name: '北野亮介', is_active: false },
         { id: 'syn-solo', user_id: null, name: '浜野', is_active: true },
       ],
+      total: 2,
+      page: 1,
+      page_size: 200,
     }))
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
@@ -546,12 +549,44 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(staffList).toHaveBeenCalledTimes(1)
-    expect(staffList).toHaveBeenCalledWith({ page_size: 200 })
+    expect(staffList).toHaveBeenCalledWith({ page: 1, page_size: 200 })
     expect(res.targetLabels).toEqual({
       'syn-kita': '北野亮介',
       'prof-kita': '北野亮介',
       'syn-solo': '浜野',
     })
+  })
+
+  it('walks staff pages past the 200 cap — a >200-staff business still resolves late-page targets (Greptile #639)', async () => {
+    // 201 staff: page 1 full, the target on page 2.
+    const filler = Array.from({ length: 200 }, (_, i) => ({
+      id: `syn-${i}`,
+      user_id: null,
+      name: `staff ${i}`,
+      is_active: true,
+    }))
+    const staffList = jest.fn(async ({ page }: { page: number }) => ({
+      staff: page === 1 ? filler : [{ id: 'syn-late', user_id: null, name: '201人目', is_active: true }],
+      total: 201,
+      page,
+      page_size: 200,
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      staff: { list: staffList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'e-late', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'syn-late' }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(staffList).toHaveBeenCalledTimes(2)
+    expect(res.targetLabels['syn-late']).toBe('201人目')
   })
 
   it('no staff-target rows on the page → staff.list is never queried', async () => {
