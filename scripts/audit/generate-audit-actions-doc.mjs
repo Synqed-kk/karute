@@ -27,6 +27,10 @@ const LITERAL_ONLY_CATEGORY = {
   'booking.update': 'booking',
   'karute.save': 'karute',
   'karute.entry_edit': 'karute',
+  // Choke emit: src/actions/karute.ts#updateKaruteDetailSummaryWithClient
+  // (facade key karute.summary.update is a skip row — same doctrine as
+  // karute.entry_edit above).
+  'karute.summary_edit': 'karute',
   'customer.create': 'customer',
   'privacy.customer_delete_canceled': 'privacy',
   'privacy.customer_delete_scheduled': 'privacy',

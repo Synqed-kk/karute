@@ -41,6 +41,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `karute.entry_edits_view` | karute | live | `settings.auditLog.actions.karute.entry_edits_view` |
 | `karute.outcome_set` | karute | live | `settings.auditLog.actions.karute.outcome_set` |
 | `karute.save` | karute | live | `settings.auditLog.actions.karute.save` |
+| `karute.summary_edit` | karute | live | `settings.auditLog.actions.karute.summary_edit` |
 | `karute.view` | karute | live | `settings.auditLog.actions.karute.view` |
 | `privacy.audit_log.view` | privacy | live | `settings.auditLog.actions.privacy.audit_log.view` |
 | `privacy.customer_delete_canceled` | privacy | live | `settings.auditLog.actions.privacy.customer_delete_canceled` |
