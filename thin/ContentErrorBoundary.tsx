@@ -29,7 +29,11 @@ class Boundary extends Component<Props, State> {
     console.error('[thin-boundary]', error)
   }
 
-  private reset = () => this.setState({ hasError: false })
+  // A real reload, not a state reset (Greptile #637 P1): clearing hasError
+  // just re-renders the same crashed subtree — a deterministic throw bounced
+  // straight back to this card. The shell's bundle is local (offline first
+  // paint), so a full reload is fast and honestly matches the button label.
+  private reset = () => window.location.reload()
 
   render() {
     if (!this.state.hasError) return this.props.children
