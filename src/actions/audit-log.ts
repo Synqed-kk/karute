@@ -368,18 +368,22 @@ async function resolveTargetLabels(
   if (staffIds.length > 0) {
     try {
       const staffNameById = new Map<string, string>()
-      // Paginated walk (Greptile #639): the app's roster call sites take a
-      // single 200-cap page, but historical audit rows outlive roster caps —
-      // a >200-staff business must still resolve old targets. Bounded at 10
-      // pages (2000 staff) with an empty-page break so a misbehaving server
-      // can never loop this; past the cap, ids remain — the honest state.
-      for (let page = 1; page <= 10; page++) {
+      // Paginated walk (Greptile #639 r1+r2): the app's roster call sites
+      // take a single 200-cap page, but historical audit rows outlive roster
+      // caps — EVERY retained staff record must stay resolvable, so the page
+      // count comes from the server's own total (no arbitrary cap to fall
+      // off). The bound is computed ONCE from page 1 — finite even against a
+      // server that keeps inflating total — and an empty page breaks early;
+      // a missing/NaN total degrades to the single first page, ids remain.
+      let expectedPages = 1
+      for (let page = 1; page <= expectedPages; page++) {
         const res = await synqed.staff.list({ page, page_size: 200 })
+        if (page === 1) expectedPages = Math.ceil(res.total / res.page_size)
         for (const s of res.staff) {
           staffNameById.set(s.id, s.name)
           if (s.user_id) staffNameById.set(s.user_id, s.name)
         }
-        if (res.staff.length === 0 || page * res.page_size >= res.total) break
+        if (res.staff.length === 0) break
       }
       for (const id of staffIds) {
         const name = staffNameById.get(id)

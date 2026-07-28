@@ -589,6 +589,39 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.targetLabels['syn-late']).toBe('201人目')
   })
 
+  it('page count derives from the server total — no fixed cap leaves retained staff unresolvable (Greptile #639 r2)', async () => {
+    // 2001 staff: the target sits on page 11, past any 10-page/2000 bound.
+    const filler = (page: number) =>
+      Array.from({ length: 200 }, (_, i) => ({
+        id: `syn-${page}-${i}`,
+        user_id: null,
+        name: `staff ${page}-${i}`,
+        is_active: true,
+      }))
+    const staffList = jest.fn(async ({ page }: { page: number }) => ({
+      staff: page <= 10 ? filler(page) : [{ id: 'syn-2001', user_id: null, name: '2001人目', is_active: true }],
+      total: 2001,
+      page,
+      page_size: 200,
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      staff: { list: staffList },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({ id: 'e-2001', category: 'staff', action: 'staff.update', target_type: 'staff', target_id: 'syn-2001' }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(staffList).toHaveBeenCalledTimes(11) // ceil(2001/200)
+    expect(res.targetLabels['syn-2001']).toBe('2001人目')
+  })
+
   it('no staff-target rows on the page → staff.list is never queried', async () => {
     const staffList = jest.fn(async () => ({ staff: [] }))
     newSynqedClient.mockImplementation(() => ({
