@@ -235,7 +235,7 @@ describe('updateKaruteDetailSummary — web wrapper', () => {
       edited_summary: '前回の人間版の要約だ',
     })
     await updateKaruteDetailSummary('kar-1', { content: '・さらに直した' })
-    // 10-char overlay (not the 4-char ai_summary) is the before — proven by
+    // 10-char overlay (not the 5-char ai_summary) is the before — proven by
     // length, no text in the row.
     expect(auditSpy).toHaveBeenCalledWith(
       expect.objectContaining({

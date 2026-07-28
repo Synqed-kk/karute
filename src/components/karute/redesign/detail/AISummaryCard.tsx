@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { FileText, Pencil } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -42,6 +42,15 @@ export function AISummaryCard({
   const [override, setOverride] = useState<{ raw: string; basedOn: string | null } | null>(null)
 
   const activeOverride = override !== null && override.basedOn === (summaryRaw ?? null)
+  // Tombstone (delta round, ABA hole): a value-equality inert rule can
+  // RESURRECT — props move to our saved text (inert, correct), a colleague
+  // later reverts the summary back to the pre-save value, and basedOn
+  // matches again, masking their revert indefinitely. The entry card's
+  // `version >` rule is monotonic and can't ABA; without a version, kill the
+  // override permanently the first time props move off basedOn.
+  useEffect(() => {
+    if (override !== null && override.basedOn !== (summaryRaw ?? null)) setOverride(null)
+  }, [override, summaryRaw])
   const raw = activeOverride ? override.raw : (summaryRaw ?? null)
   const shownBullets = activeOverride ? summaryTextToBullets(override.raw) : bullets
   const edited = activeOverride || (summaryEdited ?? false)

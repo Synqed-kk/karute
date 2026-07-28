@@ -139,6 +139,34 @@ describe('AISummaryCard — the 詳細記録 pencil', () => {
     fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
     await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('・他端末の編集'))
   })
+
+  it('a dead override never resurrects when the server text returns to the pre-save value (ABA)', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ ok: true })
+    const props = {
+      sessionDate: 'd',
+      karuteRecordId: 'kar-1',
+    }
+    const { rerender } = render(
+      <AISummaryCard {...props} bullets={BULLETS} summaryRaw={RAW} summaryEdited={false} />,
+    )
+    // Save RAW → '・自分の編集' (override basedOn = RAW).
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・自分の編集' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('自分の編集')).toBeInTheDocument())
+    // Refresh lands with OUR text — override goes inert.
+    rerender(
+      <AISummaryCard {...props} bullets={['自分の編集']} summaryRaw={'・自分の編集'} summaryEdited={true} />,
+    )
+    // A colleague REVERTS the summary back to the original — props return to
+    // the exact pre-save value. The value-equality rule would match basedOn
+    // again; the tombstone must keep the dead override dead.
+    rerender(
+      <AISummaryCard {...props} bullets={BULLETS} summaryRaw={RAW} summaryEdited={true} />,
+    )
+    await waitFor(() => expect(screen.getByText('肩の張りが続いている')).toBeInTheDocument())
+    expect(screen.queryByText('自分の編集')).not.toBeInTheDocument()
+  })
 })
 
 describe('SummaryEditSheet — save contract', () => {
@@ -161,6 +189,17 @@ describe('SummaryEditSheet — save contract', () => {
   it('emptied content disables save — the summary can never be blanked from here', () => {
     render(<SummaryEditSheet {...baseProps} />)
     fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } })
+    expect(screen.getByText('save')).toBeDisabled()
+  })
+
+  it('marker-only content disables save (zero bullets = the card would vanish)', () => {
+    render(<SummaryEditSheet {...baseProps} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・' } })
+    expect(screen.getByText('save')).toBeDisabled()
+  })
+
+  it('an over-4000-char SEED disables save — maxLength only bounds typing, the choke would reject', () => {
+    render(<SummaryEditSheet {...baseProps} seed={'・' + 'あ'.repeat(4100)} />)
     expect(screen.getByText('save')).toBeDisabled()
   })
 

@@ -378,11 +378,16 @@ export function SummaryEditSheet({
             // a save tap while typing must land on a stable layout.
             onMouseDown={(evt) => evt.preventDefault()}
             onClick={save}
-            // Zero-BULLET content disables save, not just zero-trim: a lone
-            // marker (「・」) would render an empty card and unmount the
-            // pencil with it — the choke rejects it server-side too
-            // (blind-round P2); this gate keeps the UX honest.
-            disabled={saving || summaryTextToBullets(content).length === 0}
+            // Mirror the choke's WHOLE validation, both axes: zero-BULLET
+            // content (a lone 「・」 would render an empty card and unmount
+            // the pencil — blind-round P2) AND the 4000 cap. maxLength only
+            // bounds typing — an uncapped ai_summary can SEED past 4000
+            // (process-recording writes the model's text unbounded), and an
+            // enabled save the server rejects is a dead-end the generic
+            // error can't explain (delta round).
+            disabled={
+              saving || content.length > 4000 || summaryTextToBullets(content).length === 0
+            }
             className="rounded-full bg-foreground px-8 py-2.5 text-sm font-semibold text-background disabled:opacity-50"
           >
             {t('save')}
