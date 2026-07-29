@@ -63,6 +63,11 @@ import {
   undoRedemptionAction,
 } from '@/actions/packs'
 import { resolveOutcomeMode } from '@/lib/packs/resolve'
+import {
+  deriveInitials,
+  formatTimeRange,
+  liveTargetCardAppointment,
+} from './live-target-appointment'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 import type { VisitSegment, VisitRhythm } from '@/lib/visits/segment'
 import { VisitRhythmPanel } from '@/components/visits/VisitRhythmPanel'
@@ -137,22 +142,6 @@ export interface RecordPageViewProps {
   ticketsEnabled?: boolean
 }
 
-function deriveInitials(name: string): string {
-  const parts = name.trim().split(/\s+/)
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
-}
-
-function formatHHMM(d: Date): string {
-  // Pin to JST so the time-range pill ("11:30–12:30") matches the booking
-  // dialog input regardless of where the renderer is running.
-  return d.toLocaleTimeString('en-GB', {
-    timeZone: 'Asia/Tokyo',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
 export function RecordPageView({
   customers,
   locale,
@@ -208,7 +197,6 @@ export function RecordPageView({
   const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
   const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
   const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
-  const boundKaruteNumber = (live && target ? target.karuteNumber : nextAppointment?.karuteNumber) ?? null
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
   // recording runs unusually long, and tell them when the hard cap auto-saved it.
@@ -373,6 +361,16 @@ export function RecordPageView({
         customerName: nextAppointment.customerName,
         karuteNumber: nextAppointment.karuteNumber ?? null,
         appointmentId: nextAppointment.id || null,
+        // Bind-time display snapshot — keeps the 録音対象 card's booking
+        // pixels while live (field bug 7/29: the card degraded to 担当:—
+        // for the whole recording once the live branch took over).
+        service: nextAppointment.title,
+        timeRange: formatTimeRange(
+          nextAppointment.startTime,
+          nextAppointment.durationMinutes,
+        ),
+        statusKey: nextAppointment.statusKey,
+        isNew: brief?.isFirstTimeVisit ?? false,
       },
     })
   }
@@ -657,20 +655,10 @@ export function RecordPageView({
   // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null =
     live && target
-      ? {
-          // While a recording/pipeline is live, the card MUST show the customer
-          // the audio is BOUND to — never re-derive from nextAppointment, which
-          // can have drifted to today's first booking under the singleton.
-          id: target.appointmentId ?? '',
-          customerName: boundCustomerName ?? target.customerName,
-          initials: deriveInitials(target.customerName),
-          karuteNumber: boundKaruteNumber,
-          service: '—',
-          timeRange: '',
-          staffName: '—',
-          statusKey: 'booked',
-          isNew: false,
-        }
+      ? // While a recording/pipeline is live, the card MUST show the customer
+        // the audio is BOUND to — never re-derive from nextAppointment, which
+        // can have drifted to today's first booking under the singleton.
+        liveTargetCardAppointment(target, currentStaffName)
       : nextAppointment
         ? {
             id: nextAppointment.id,
@@ -678,13 +666,10 @@ export function RecordPageView({
             initials: deriveInitials(nextAppointment.customerName),
             karuteNumber: nextAppointment.karuteNumber ?? null,
             service: nextAppointment.title ?? '—',
-            timeRange: (() => {
-              const start = new Date(nextAppointment.startTime)
-              const end = new Date(
-                start.getTime() + nextAppointment.durationMinutes * 60_000,
-              )
-              return `${formatHHMM(start)}–${formatHHMM(end)}`
-            })(),
+            timeRange: formatTimeRange(
+              nextAppointment.startTime,
+              nextAppointment.durationMinutes,
+            ),
             // Real staffName threaded from sessions/page.tsx via the
             // staff list lookup. Earlier the value was hardcoded '—'
             // even though staff_profile_id was selected on the

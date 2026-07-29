@@ -23,6 +23,14 @@ export interface RecordingTarget {
   customerName: string
   karuteNumber: string | null
   appointmentId: string | null // null = walk-in (no booking)
+  // Display snapshot for the 録音対象 card, captured at recording start so
+  // the card keeps the booking's pixels while live instead of degrading to
+  // placeholders (field bug 7/29: 担当:— mid-recording). Optional: takes
+  // persisted before this change lack them and fall back to placeholders.
+  service?: string | null
+  timeRange?: string | null
+  statusKey?: import('@/components/karute/redesign/record/RecordingTargetCard').RecordTargetAppointment['statusKey']
+  isNew?: boolean
 }
 
 // ── Runaway-recording safety nets ────────────────────────────────────────────
