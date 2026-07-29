@@ -32,11 +32,25 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 const parse = (raw: unknown): KaruteDetailScreenDTOType =>
   KaruteDetailScreenDTO.parse(raw)
 
+/** Session-lived memory for the AI cards (Liam ruling 2026-07-29: an unchanged
+ *  draft must load instantly, not shimmer on every reopen). Keyed by fetch
+ *  path, so both AI slots share it for free. Bounded FIFO — Map iteration is
+ *  insertion-ordered, so evicting the first key drops the oldest entry.
+ *  ponytail: in-memory only (dies with the webview); server ai_cache is the
+ *  durable layer, this only kills the reopen shimmer. */
+const aiSlotCache = new Map<string, unknown>()
+const AI_SLOT_CACHE_MAX = 50
+
 /** Fetch a Decision-1 AI card on mount. The preview is BOTH the loading state and
  *  the null/failure state (web fallback parity — the card "can never look worse").
- *  A non-2xx or a null payload keeps the preview; never surfaces an error. */
+ *  A non-2xx or a null payload keeps the preview; never surfaces an error.
+ *  A cached value renders synchronously; the mount fetch still runs and swaps
+ *  the value if the server disagrees (a summary edit = new draft within one
+ *  round-trip — stale can never stick). */
 function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | null): T | null {
-  const [value, setValue] = useState<T | null>(null)
+  const [value, setValue] = useState<T | null>(() =>
+    path ? ((aiSlotCache.get(path) as T | undefined) ?? null) : null,
+  )
   useEffect(() => {
     if (!path) return
     let alive = true
@@ -44,7 +58,13 @@ function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | null): T
       .apiFetch(path)
       .then(async (res) => (res.ok ? pick(await res.json().catch(() => null)) : null))
       .then((v) => {
-        if (alive && v) setValue(v)
+        if (!v) return
+        if (aiSlotCache.size >= AI_SLOT_CACHE_MAX && !aiSlotCache.has(path)) {
+          const oldest = aiSlotCache.keys().next().value
+          if (oldest !== undefined) aiSlotCache.delete(oldest)
+        }
+        aiSlotCache.set(path, v)
+        if (alive) setValue(v)
       })
       .catch(() => {})
     return () => {

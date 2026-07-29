@@ -2212,7 +2212,8 @@
           "consult_session": "AI相談を利用",
           "memory_extract": "メモリーを自動抽出",
           "summary_generate": "AI要約を生成",
-          "suggested_message": "AI提案メッセージを生成"
+          "suggested_message": "AI提案メッセージを生成",
+          "suggested_message_view": "AI提案メッセージを閲覧"
         },
         "recording": {
           "transcribe": "録音を文字起こし"

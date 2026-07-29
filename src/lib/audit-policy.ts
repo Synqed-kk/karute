@@ -25,6 +25,7 @@ export const AUDIT_ACTIONS = [
   'ai.consult_session',
   'ai.memory_extract',
   'ai.suggested_message',
+  'ai.suggested_message_view',
   'ai.summary_generate',
   'audit.unmapped_endpoint', // category: privacy (see header note)
   'auth.pin_lockout',
@@ -194,12 +195,22 @@ export const AUDITED_CORES: {
   // Wave W2 (Option A, Liam 7/28): ai.consult_session per exchange — the web
   // twin of the promoted facade ai.chat row.
   { file: 'src/app/api/ai/chat/route.ts', symbols: ['POST'] },
-  // Wave W1 fix round: the web (cookie) twin of the facade's
-  // karute.ai.suggestedMessage row was silently unaudited — getSuggestedFollowUp
-  // now emits unconditionally on every non-error return (parity with the
-  // facade's generic hook). getSuggestedFollowUpWithClient stays unregistered
-  // (and audit-free) deliberately — the facade hook is its only emitter.
-  { file: 'src/lib/karute/ai-outreach.ts', symbols: ['getSuggestedFollowUp'] },
+  // 2026-07-29 honesty split (Liam ruling): getSuggestedFollowUp emits the
+  // per-VIEW row unconditionally on every non-error return (web twin of the
+  // facade hook's view row); the 生成 row lives in the two PRIVATE helpers
+  // (auditLockout pattern — each body emits unconditionally on its one
+  // return path, computeSuggestedFollowUp conditions the CALL to the real
+  // generation branch only). getSuggestedFollowUpWithClient stays
+  // unregistered (and emit-free) — the facade hook + the facade helper are
+  // that path's emitters.
+  {
+    file: 'src/lib/karute/ai-outreach.ts',
+    symbols: [
+      'getSuggestedFollowUp',
+      'auditSuggestedMessageGeneratedWeb',
+      'auditSuggestedMessageGeneratedFacade',
+    ],
+  },
   // Wave W3 (D1 mirrors): the web twins of the facade lifecycle/outcome rows.
   // The WithClient cores they wrap stay audit-free (Core/WithClient split);
   // updateKaruteOutcome is the AFTER-THE-FACT path only — a save-embedded

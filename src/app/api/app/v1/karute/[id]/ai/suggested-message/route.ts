@@ -42,12 +42,26 @@ export const GET = facadeHandler<Params>('karute.ai.suggestedMessage', async (ct
     ? await synqed.customers.get(clientId).then((c) => c.name ?? '').catch(() => '')
     : ''
 
-  const draft = await getSuggestedFollowUpWithClient(synqed, ctx.identity.businessId, {
-    karuteId: id,
-    customerName,
-    summary,
-    locale: readLocale(ctx),
-  })
+  // Wave V karute-target canon: the hook's per-VIEW row carries customer_id
+  // so the 監査ログ viewer name-joins instead of rendering a raw karute UUID.
+  ctx.auditDetail = { customer_id: clientId }
+
+  // actorId/requestId thread through ONLY for the conditional 生成 row (emitted
+  // inside ai-outreach's facade helper when the LLM actually runs — same
+  // requestId as this request's view row, so the pair correlates).
+  const draft = await getSuggestedFollowUpWithClient(
+    synqed,
+    ctx.identity.businessId,
+    ctx.identity.authUserId,
+    ctx.meta.requestId,
+    {
+      karuteId: id,
+      customerId: clientId,
+      customerName,
+      summary,
+      locale: readLocale(ctx),
+    },
+  )
   return ok(ctx, { draft })
 })
 
