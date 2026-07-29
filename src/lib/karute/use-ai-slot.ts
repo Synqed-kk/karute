@@ -17,7 +17,7 @@
 //     to an authoritative empty answer.
 import { useEffect, useState } from 'react'
 import { getDataPort } from '@/lib/ports/data-port'
-import { getAiSlot, setAiSlot, deleteAiSlot } from '@/lib/karute/ai-slot-cache'
+import { getAiSlot, setAiSlot, deleteAiSlot, aiSlotEpoch } from '@/lib/karute/ai-slot-cache'
 
 export function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | null): T | null {
   const [value, setValue] = useState<T | null>(() =>
@@ -26,16 +26,21 @@ export function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | n
   useEffect(() => {
     if (!path) return
     let alive = true
+    // Captured at request start: if a sign-out wipe bumps the epoch while
+    // this fetch is in flight, its response may touch NOTHING (Greptile
+    // #649 — an unfenced late write re-filled the wiped cache with the
+    // previous user's content).
+    const startedEpoch = aiSlotEpoch()
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
         if (!res.ok) return
         const v = pick(await res.json().catch(() => null))
         if (v) {
-          setAiSlot(path, v)
+          setAiSlot(path, v, startedEpoch)
           if (alive) setValue(v)
         } else {
-          deleteAiSlot(path)
+          deleteAiSlot(path, startedEpoch)
           if (alive) setValue(null)
         }
       })

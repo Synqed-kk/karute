@@ -108,3 +108,26 @@ it('clearAiSlotCache empties everything (the sign-out wipe hook)', () => {
   expect(getAiSlot('/a')).toBeUndefined()
   expect(getAiSlot('/b')).toBeUndefined()
 })
+
+// Greptile #649 (logout repopulation race): a fetch started BEFORE the
+// sign-out wipe resolves AFTER it — its response must touch NOTHING, or the
+// previous user's content re-fills the freshly wiped cache on a shared
+// device. The epoch fence makes every pre-wipe response a no-op.
+it('a fetch resolving AFTER a sign-out wipe cannot repopulate the cache', async () => {
+  const d = deferred()
+  apiFetch.mockReturnValue(d.promise)
+  render(<Probe path="/race" />)
+  clearAiSlotCache() // sign-out wipe while the fetch is still in flight
+  await act(async () => d.resolve(ok({ draft: { body: 'prev user secret' } })))
+  expect(getAiSlot('/race')).toBeUndefined()
+})
+
+it('a pre-wipe authoritative null cannot delete the NEXT session\'s fresh entry', async () => {
+  const d = deferred()
+  apiFetch.mockReturnValue(d.promise)
+  render(<Probe path="/race2" />)
+  clearAiSlotCache()
+  setAiSlot('/race2', { body: 'next user fresh value' }) // new session repopulated
+  await act(async () => d.resolve(ok({ draft: null })))
+  expect(getAiSlot('/race2')).toEqual({ body: 'next user fresh value' })
+})

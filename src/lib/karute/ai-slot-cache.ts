@@ -11,11 +11,23 @@
 const cache = new Map<string, unknown>()
 const MAX = 50
 
+// Epoch fence (Greptile #649: logout repopulation race). A fetch started
+// BEFORE a sign-out wipe can resolve AFTER it — an unfenced write would
+// quietly re-fill the cleared cache with the previous user's content.
+// Writers capture the epoch when their request STARTS and pass it back;
+// the wipe bumps the epoch, so every pre-wipe response becomes a no-op.
+let epoch = 0
+
+export function aiSlotEpoch(): number {
+  return epoch
+}
+
 export function getAiSlot(path: string): unknown {
   return cache.get(path)
 }
 
-export function setAiSlot(path: string, value: unknown): void {
+export function setAiSlot(path: string, value: unknown, asOfEpoch: number = epoch): void {
+  if (asOfEpoch !== epoch) return
   if (cache.size >= MAX && !cache.has(path)) {
     const oldest = cache.keys().next().value
     if (oldest !== undefined) cache.delete(oldest)
@@ -26,11 +38,14 @@ export function setAiSlot(path: string, value: unknown): void {
 /** Authoritative server null (a 200 whose payload carries no card — e.g. the
  *  summary was cleared, so no draft exists anymore): the stale entry must
  *  die, or the card would keep pre-filling outreach text grounded in a
- *  deleted summary (blind-round P1, 2026-07-29). */
-export function deleteAiSlot(path: string): void {
+ *  deleted summary (blind-round P1, 2026-07-29). Fenced like setAiSlot — a
+ *  pre-wipe response may not delete the NEXT session's entry either. */
+export function deleteAiSlot(path: string, asOfEpoch: number = epoch): void {
+  if (asOfEpoch !== epoch) return
   cache.delete(path)
 }
 
 export function clearAiSlotCache(): void {
+  epoch += 1
   cache.clear()
 }
