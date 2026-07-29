@@ -346,16 +346,19 @@ async function resolveTargetLabels(
     .slice(0, 30)
   const karuteCustomerById = new Map<string, string>()
   if (unresolvedKaruteIds.length > 0) {
+    // async wrapper (not a bare .then chain): a SYNCHRONOUS throw — e.g. a
+    // client without the karuteRecords surface — must degrade to raw ids for
+    // those rows, never crash the whole feed.
     await Promise.all(
-      unresolvedKaruteIds.map((id) =>
-        synqed.karuteRecords
-          .get(id)
-          .then((r) => {
-            const cid = (r as { customer_id?: unknown }).customer_id
-            if (typeof cid === 'string' && cid.length > 0) karuteCustomerById.set(id, cid)
-          })
-          .catch(() => {}),
-      ),
+      unresolvedKaruteIds.map(async (id) => {
+        try {
+          const r = await synqed.karuteRecords.get(id)
+          const cid = (r as { customer_id?: unknown }).customer_id
+          if (typeof cid === 'string' && cid.length > 0) karuteCustomerById.set(id, cid)
+        } catch {
+          /* id stays raw */
+        }
+      }),
     )
   }
   const allCustomerIds = [

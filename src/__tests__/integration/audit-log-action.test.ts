@@ -491,7 +491,43 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     expect(res.targetLabels).toEqual({ 'kar-1': '鈴木 一郎' })
   })
 
-  it('a karute row WITHOUT detail.customer_id resolves no label — id fallback stays honest, no crash', async () => {
+  // 2026-07-29 field find (ぴあそん りえむ raw-UUID row): karute rows written
+  // before customer_id rode in detail — the whole historical backlog — now
+  // fall back to a bounded karuteRecords.get so old rows heal at read time.
+  it('a karute row WITHOUT detail.customer_id heals via the record lookup (historical-row fallback)', async () => {
+    const karGet = jest.fn(async (id: string) => ({ id, customer_id: 'cus-old' }))
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: 'cus-old', name: 'ぴあそん りえむ' }],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+      karuteRecords: { get: karGet },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-kar2',
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-2',
+          detail: {},
+        }),
+      ],
+      total: 1,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(karGet).toHaveBeenCalledTimes(1)
+    expect(karGet).toHaveBeenCalledWith('kar-2')
+    expect(customersList).toHaveBeenCalledWith({ ids: ['cus-old'], include_deleted: true })
+    expect(res.targetLabels).toEqual({ 'kar-2': 'ぴあそん りえむ' })
+  })
+
+  it('record lookup unavailable (no karuteRecords surface, a SYNC throw): id fallback stays honest, feed never crashes', async () => {
     newSynqedClient.mockImplementation(() => ({
       audit: mockAudit(),
       customers: { list: jest.fn(async () => ({ customers: [] })) },
@@ -514,6 +550,47 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(res.targetLabels).toEqual({})
+  })
+
+  it('record lookup REJECTS (deleted/cross-tenant karute): that id stays raw, siblings still resolve', async () => {
+    const karGet = jest.fn(async (id: string) => {
+      if (id === 'kar-dead') throw Object.assign(new Error('nope'), { status: 404 })
+      return { id, customer_id: 'cus-live' }
+    })
+    const customersList = jest.fn(async () => ({
+      customers: [{ id: 'cus-live', name: '鈴木 一郎' }],
+    }))
+    newSynqedClient.mockImplementation(() => ({
+      audit: mockAudit(),
+      customers: { list: customersList },
+      karuteRecords: { get: karGet },
+    }))
+    list.mockImplementation(async () => ({
+      events: [
+        coreEvent({
+          id: 'evt-kar3',
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-dead',
+          detail: {},
+        }),
+        coreEvent({
+          id: 'evt-kar4',
+          category: 'karute',
+          action: 'karute.save',
+          target_type: 'karute',
+          target_id: 'kar-live',
+          detail: {},
+        }),
+      ],
+      total: 2,
+      page: 1,
+      page_size: 100,
+    }))
+    const res = await listAuditLog({})
+    if (!res.ok) throw new Error('expected ok')
+    expect(res.targetLabels).toEqual({ 'kar-live': '鈴木 一郎' })
   })
 
   it('resolves staff targets in BOTH id spaces (synqed staff.id + linked profiles.id) incl. deactivated staff — one unfiltered list call', async () => {
