@@ -15,6 +15,7 @@ jest.mock('@/lib/ports/data-port', () => ({
 
 import { useAiSlot } from '@/lib/karute/use-ai-slot'
 import { setAiSlot, getAiSlot, clearAiSlotCache } from '@/lib/karute/ai-slot-cache'
+import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 
 type Draft = { body: string }
 const pick = (b: unknown) => (b as { draft?: Draft | null } | null)?.draft ?? null
@@ -99,6 +100,17 @@ it('cache caps at 50 by FIFO — oldest key evicted, cap never exceeded', () => 
   expect(getAiSlot('/k0')).toBeUndefined()
   expect(getAiSlot('/k1')).toEqual({ body: 'v1' })
   expect(getAiSlot('/k50')).toEqual({ body: 'v50' })
+})
+
+// Greptile #649 r3: the wipe must invalidate in-flight responses BEFORE its
+// first await — a post-await epoch bump left a settling window. Pin: the
+// cache is already empty SYNCHRONOUSLY after calling wipeSessionVault(),
+// before the returned promise is awaited.
+it('wipeSessionVault clears + fences the AI-slot cache synchronously, before any await', () => {
+  setAiSlot('/pre', { body: 'outgoing user' })
+  const p = wipeSessionVault()
+  expect(getAiSlot('/pre')).toBeUndefined() // BEFORE awaiting the wipe
+  return p.catch(() => {})
 })
 
 it('clearAiSlotCache empties everything (the sign-out wipe hook)', () => {

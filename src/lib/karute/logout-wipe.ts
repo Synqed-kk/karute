@@ -1,5 +1,7 @@
 'use client'
 
+import { clearAiSlotCache } from '@/lib/karute/ai-slot-cache'
+
 /**
  * The ONE logout wipe for the session vault — call from every sign-out
  * surface (sidebar, profile, and any future mobile-auth purge).
@@ -26,21 +28,23 @@
  * takes on the shared device.
  */
 export async function wipeSessionVault(opts: { uid?: string } = {}): Promise<void> {
-  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }, { clearAiSlotCache }] =
+  // AI-card session memory: cleared FIRST and SYNCHRONOUSLY (static import —
+  // the module is tiny and dependency-free, unlike the recorder chains
+  // below). The clear also bumps the epoch fence, so every in-flight AI
+  // response is invalidated before this function's first await; bumping
+  // after the dynamic-import await left a window where a settling response
+  // still counted as fresh (Greptile #649 r3).
+  clearAiSlotCache()
+  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }] =
     await Promise.all([
       import('@/lib/global-recorder'),
       import('@/lib/global-pipeline'),
       import('@/lib/karute/draft'),
       import('@/lib/karute/take-store'),
-      import('@/lib/karute/ai-slot-cache'),
     ])
   globalRecorder.discard() // stops the mic if live; deletes the live take
   globalPipeline.reset()
   clearDraft()
-  // AI-card session memory (drafts/predictions keyed by record path): module
-  // scope survives a soft logout, so without this the next signer-in on the
-  // same device could render the previous user's cached card.
-  clearAiSlotCache()
   // Owner-scoped on purpose: only the signing-out user's takes die here —
   // another staff member's crash-recovery audio must survive their logout
   // (it is already invisible to everyone else via the store's owner gate).
