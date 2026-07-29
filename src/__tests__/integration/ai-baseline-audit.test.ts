@@ -54,6 +54,14 @@ jest.mock('@/actions/org-settings', () => ({
   orgSettingsWithClient: jest.fn(async () => null),
 }))
 
+// The chat route's H0 Ask-AI capability guard — granted here so the audit-writer
+// pins keep exercising the post-guard body; denial itself is pinned in
+// ask-ai-authz.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  ...jest.requireActual('@/lib/auth/require-permission'),
+  getMyCapabilities: jest.fn(async () => new Set(['customers.view'])),
+}))
+
 jest.mock('@/lib/openai', () => ({
   openai: { chat: { completions: { parse: jest.fn() } } },
 }))
