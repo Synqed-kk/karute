@@ -1,4 +1,6 @@
-import type { ReactNode } from 'react'
+import { useRef, type ReactNode } from 'react'
+
+import { useStandardIOSGestures } from './gestures'
 
 // ThinShell — reproduces the VIEWPORT CLAMP of src/app/[locale]/(app)/layout.tsx
 // (its outer box), the one container every screen is authored to live inside:
@@ -38,9 +40,13 @@ export function ThinShell({
   children: ReactNode
   nav?: ReactNode
 }) {
+  // Standard iOS gestures (status-bar tap scroll-to-top + tab swipe) live on
+  // the scroll container — see thin/gestures.ts for the full contract.
+  const mainRef = useRef<HTMLElement | null>(null)
+  useStandardIOSGestures(mainRef)
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]">
-      <main className="relative flex-1 overflow-y-auto">{children}</main>
+      <main ref={mainRef} className="relative flex-1 overflow-y-auto">{children}</main>
       {/* Bottom nav as a flex sibling BELOW the scroll region (packet-09 F-7
        *  cause 3) — it carries its own safe-area inset, like the web. */}
       {nav}

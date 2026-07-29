@@ -98,6 +98,9 @@ export function StoreSwitcher({ stores, activeStoreId, variant = 'mobile' }: Sto
       {open && (
         <div
           role="listbox"
+          // Open overlay: the shell's tab-swipe must not change the screen
+          // under it (thin/gestures.ts walks for this tag).
+          data-gesture-inert=""
           className="absolute right-0 top-full z-50 mt-1 w-60 overflow-hidden rounded-xl border border-black/10 bg-white shadow-lg dark:border-white/10 dark:bg-neutral-900"
         >
           <div className="border-b border-black/5 px-3 py-2 text-[11px] text-muted-foreground dark:border-white/10">
