@@ -60,15 +60,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // this subclass (customClass="CookieVC"). Restore-only: covers cold launches
 // within the access-token TTL; a >1h-idle launch may still re-login (documented
 // tail — add a native pre-navigation refresh later only if it shows in testing).
-final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver, UIScrollViewDelegate {
+final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private var didLoadOnce = false
-    // Status-bar-tap catcher. The app's content scrolls an inner <main>, so the
-    // WKWebView's own scrollView never leaves offset 0 — iOS then never fires
-    // its scroll-to-top machinery for it. This 1pt off-screen scroll view is
-    // made the ONLY scrollsToTop-eligible candidate; a status-bar tap asks its
-    // delegate (scrollViewShouldScrollToTop below), which forwards the tap to
-    // the web layer as a `karute:status-tap` event and declines the scroll.
-    private let statusTapCatcher = UIScrollView()
     // Captured once at launch so handleLaunchNavigation never does a synchronous
     // Keychain read on the main thread per url-change event: did we cold-launch
     // with a restored session?
@@ -135,14 +128,15 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver, UIScro
     }
 
     // Standard iOS behaviors (Liam 7/29): edge-swipe back/forward across the
-    // SPA's pushState history, and status-bar tap → scroll-to-top (forwarded
-    // to the web layer, which owns the actual scroll container).
+    // SPA's pushState history. Status-bar tap → scroll-to-top needs NOTHING
+    // here anymore — the thin shell scrolls the PAGE (root-scroller layout,
+    // thin/shell.tsx), so the WKWebView's own scroller is live and iOS's
+    // native tap machinery just works.
     //
     // LOCAL shell mode only. A remote-mode binary (the config's documented
-    // instant-rollback story) serves the live site, which has no
-    // karute:status-tap listener — disabling the webView's own scrollsToTop
-    // there would silently break native scroll-to-top, and the back gesture
-    // would expose the launch redirect's stale landing//login history
+    // instant-rollback story) serves the live site, whose layout still pins
+    // the page — every native default stays untouched there, and the back
+    // gesture would expose the launch redirect's stale landing//login history
     // entries. Remote mode keeps today's behavior untouched.
     private func setupStandardIOSGestures() {
         guard bridge?.config.serverURL.scheme == "capacitor" else {
@@ -150,33 +144,29 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver, UIScro
             return
         }
         webView?.allowsBackForwardNavigationGestures = true
+        // Capacitor hardcodes bounces=false (CAPBridgeViewController.swift:301)
+        // — invisible while the page never scrolled; under the root scroller
+        // it would kill the standard iOS rubber-band feel. Restore it.
+        webView?.scrollView.bounces = true
 
-        // See statusTapCatcher above: a 1pt scrollable view as the only
-        // scroll-to-top candidate. Fully eligible: visible alpha (transparent
-        // background — nothing renders), interactive, scrollable content,
-        // offset off the top. Parked at x=200 — outside both screen-edge
-        // gesture zones, so its 1pt hit-test area can never intersect the
-        // back/forward edge-swipe start region.
-        webView?.scrollView.scrollsToTop = false
-        statusTapCatcher.frame = CGRect(x: 200, y: 120, width: 1, height: 1)
-        statusTapCatcher.contentSize = CGSize(width: 1, height: 3)
-        statusTapCatcher.contentOffset = CGPoint(x: 0, y: 1)
-        statusTapCatcher.backgroundColor = .clear
-        statusTapCatcher.isUserInteractionEnabled = true
-        statusTapCatcher.contentInsetAdjustmentBehavior = .never
-        statusTapCatcher.scrollsToTop = true
-        statusTapCatcher.delegate = self
-        view.addSubview(statusTapCatcher)
-    }
-
-    // Status-bar tap lands here (the catcher is the only eligible scroll view).
-    // Forward to the web layer and decline the native scroll so the catcher
-    // stays scrolled (eligible for the next tap either way).
-    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
-        guard scrollView === statusTapCatcher else { return false }
-        NSLog("[CookieVC] status-bar tap — forwarding to web")
-        bridge?.eval(js: "window.dispatchEvent(new Event('karute:status-tap'))")
-        return false
+        // Diagnostic for the first root-scroller device build — DELETE once
+        // the status-bar tap is device-proven. iOS scrolls NOTHING (silently)
+        // when more than one visible scroll view has scrollsToTop enabled; if
+        // this WebKit leaves it enabled on composited inner overflow regions,
+        // the tap stays dead with zero output. One census line in the device
+        // Console explains a dead tap. Log-only: mutates nothing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+            guard let webView = self?.webView else { return }
+            var count = 0
+            func walk(_ v: UIView) {
+                if let sv = v as? UIScrollView, sv.scrollsToTop, sv !== webView.scrollView {
+                    count += 1
+                }
+                v.subviews.forEach(walk)
+            }
+            walk(webView)
+            NSLog("[CookieVC] scrollsToTop census: \(count) competitor(s) besides the page scroller")
+        }
     }
 
     // Splash failsafe. launchAutoHide=false (capacitor.config.ts) keeps the

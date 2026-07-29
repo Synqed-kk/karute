@@ -1,8 +1,8 @@
 // The web (app) layout's chrome, mounted in the thin tree (design-parity
 // Gap A): the REAL BottomNav (3 tabs + center mic + メニュー sheet) and
 // MobileHeader (back/title/store-switcher/bell), both fed from the chrome
-// DTO via the module store. Two mount points because ThinShell keeps the nav
-// as a flex sibling BELOW the scroll region (packet-09 F-7 cause 3 — it must
+// DTO via the module store. Two mount points because ThinShell pins the nav
+// in its own fixed wrapper OUTSIDE <main> (packet-09 F-7 cause 3 — it must
 // clear the home indicator and never scroll with content).
 
 import type { ReactNode } from 'react'
@@ -55,8 +55,15 @@ export function ThinChromeContent({ children }: { children: ReactNode }) {
     >
       <MobileHeader stores={stores} activeStoreId={chrome?.activeStoreId ?? null} />
       {/* The web layout's content frame — screens are authored against it
-       *  (max-w clamp + the vertical-only padding rule). */}
-      <div className="mx-auto max-w-7xl py-4 md:py-6">{children}</div>
+       *  (max-w clamp + the vertical-only padding rule). Bottom padding =
+       *  nav clearance under the root-scroller shell: the bar's real box
+       *  (4rem row + 1px border + safe-area inset, bottom-nav.tsx:194/197)
+       *  + this frame's own 1rem (1.5rem at md:) breathing room — the same
+       *  gap the old in-flow arrangement produced. Chrome-gated here (not on
+       *  <main>) so login/boot never inherit dead padding. */}
+      <div className="mx-auto max-w-7xl py-4 pb-[calc(5rem+1px+env(safe-area-inset-bottom))] md:py-6 md:pb-[calc(5.5rem+1px+env(safe-area-inset-bottom))]">
+        {children}
+      </div>
     </NotificationsProvider>
   )
 }

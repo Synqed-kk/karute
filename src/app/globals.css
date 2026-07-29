@@ -5,6 +5,13 @@
 
 /* Tailwind v4 needs an explicit source for class detection in node_modules */
 @source "../../node_modules/@synqed-kk/ui/dist/**/*.{js,jsx}";
+/* The thin shell builds from thin/ as the Vite root, so src/ is OUTSIDE its
+ * automatic scan — utilities used ONLY by src components (e.g. bottom-nav's
+ * bg-card) silently never emitted in the shell bundle and survived
+ * on accidental overlap with classes the UI package / thin files also use.
+ * Explicit source closes that hole; the Next build already scans src, so this
+ * is a no-op for the web output. */
+@source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
