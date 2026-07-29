@@ -16,9 +16,10 @@ import { useStandardIOSGestures } from './gestures'
 // The clamp's OTHER job — containing mobile full-bleed elements (e.g.
 // CustomerTabBar's `-mx-4`) so the DOCUMENT never widens and WKWebView never
 // shrink-to-fits the page (the follow-up-f zoomed rendering) — moved to the
-// TRUE root: `html, body { overflow-x: hidden }` in thin/index.html.
-// Root-level so portaled dialogs (Base UI portals to <body>, outside any
-// wrapper) are clamped too. Vertical scrolling is untouched by it.
+// TRUE root: `html { overflow-x: hidden }` in thin/index.html (html ONLY —
+// on body it would break MobileHeader's sticky pinning; see the comment
+// there). Root-level so portaled dialogs (Base UI portals to <body>, outside
+// any wrapper) are clamped too. Vertical scrolling is untouched by it.
 //
 // The bottom nav is pinned by the shell-owned fixed wrapper below; the
 // nav-clearance bottom padding lives in ThinChromeContent's content frame

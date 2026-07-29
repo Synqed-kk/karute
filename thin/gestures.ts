@@ -93,7 +93,7 @@ function signedIn(): boolean {
   return s.status === 'signed-in' || (s.status === 'recovering' && hasKnownSession())
 }
 
-/** Wires both behaviors onto the shell's scroll container. */
+/** Wires the tab swipe onto <main> (the shell's content region). */
 export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
   // useRouter() mints a fresh object every render; depending on it would
   // tear down and re-arm the listeners (and kill an in-flight gesture) on

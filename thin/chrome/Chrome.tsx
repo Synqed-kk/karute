@@ -1,8 +1,8 @@
 // The web (app) layout's chrome, mounted in the thin tree (design-parity
 // Gap A): the REAL BottomNav (3 tabs + center mic + メニュー sheet) and
 // MobileHeader (back/title/store-switcher/bell), both fed from the chrome
-// DTO via the module store. Two mount points because ThinShell keeps the nav
-// as a flex sibling BELOW the scroll region (packet-09 F-7 cause 3 — it must
+// DTO via the module store. Two mount points because ThinShell pins the nav
+// in its own fixed wrapper OUTSIDE <main> (packet-09 F-7 cause 3 — it must
 // clear the home indicator and never scroll with content).
 
 import type { ReactNode } from 'react'
