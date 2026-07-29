@@ -39,12 +39,20 @@ export function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | n
       .then(async (res) => {
         if (!res.ok) return
         const v = pick(await res.json().catch(() => null))
+        // Superseded responses touch NOTHING — neither state nor cache.
+        // `fresh()` covers logout (epoch bumped); `alive` covers the
+        // same-path reorder race (post-merge delta-verify find, 2026-07-30):
+        // instance A unmounts mid-flight, instance B for the SAME path
+        // resolves first, then A's older response lands — without the alive
+        // gate on the WRITES it would overwrite B's newer cache entry and
+        // seed the next mount with stale content.
+        if (!alive || !fresh()) return
         if (v) {
           setAiSlot(path, v, startedEpoch)
-          if (alive && fresh()) setValue(v)
+          setValue(v)
         } else {
           deleteAiSlot(path, startedEpoch)
-          if (alive && fresh()) setValue(null)
+          setValue(null)
         }
       })
       .catch(() => {})
