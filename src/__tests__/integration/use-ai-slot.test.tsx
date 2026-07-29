@@ -122,6 +122,19 @@ it('a fetch resolving AFTER a sign-out wipe cannot repopulate the cache', async 
   expect(getAiSlot('/race')).toBeUndefined()
 })
 
+// r2 narrowing: the fence must also cover REACT STATE — a late response in
+// the wipe→unmount gap may not paint the outgoing session's content on the
+// still-mounted screen, not even momentarily.
+it('a fetch resolving AFTER a sign-out wipe cannot update the rendered value either', async () => {
+  const d = deferred()
+  apiFetch.mockReturnValue(d.promise)
+  render(<Probe path="/race3" />)
+  expect(screen.getByTestId('out').textContent).toBe('PREVIEW')
+  clearAiSlotCache() // wipe fires; component not yet unmounted
+  await act(async () => d.resolve(ok({ draft: { body: 'prev user secret' } })))
+  expect(screen.getByTestId('out').textContent).toBe('PREVIEW')
+})
+
 it('a pre-wipe authoritative null cannot delete the NEXT session\'s fresh entry', async () => {
   const d = deferred()
   apiFetch.mockReturnValue(d.promise)

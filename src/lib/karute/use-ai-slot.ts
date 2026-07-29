@@ -27,10 +27,13 @@ export function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | n
     if (!path) return
     let alive = true
     // Captured at request start: if a sign-out wipe bumps the epoch while
-    // this fetch is in flight, its response may touch NOTHING (Greptile
-    // #649 — an unfenced late write re-filled the wiped cache with the
-    // previous user's content).
+    // this fetch is in flight, its response may touch NOTHING — not the
+    // cache (Greptile #649 r1: a late write re-filled the wiped cache) and
+    // not React state either (r2: setValue during the wipe→unmount gap
+    // could momentarily paint the outgoing session's content). The cache
+    // module enforces the fence for writes; `fresh` enforces it for state.
     const startedEpoch = aiSlotEpoch()
+    const fresh = () => startedEpoch === aiSlotEpoch()
     getDataPort()
       .apiFetch(path)
       .then(async (res) => {
@@ -38,10 +41,10 @@ export function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | n
         const v = pick(await res.json().catch(() => null))
         if (v) {
           setAiSlot(path, v, startedEpoch)
-          if (alive) setValue(v)
+          if (alive && fresh()) setValue(v)
         } else {
           deleteAiSlot(path, startedEpoch)
-          if (alive) setValue(null)
+          if (alive && fresh()) setValue(null)
         }
       })
       .catch(() => {})
