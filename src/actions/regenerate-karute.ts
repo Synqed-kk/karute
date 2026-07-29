@@ -35,6 +35,14 @@ type SynqedCategory =
 const toSynqedCategory = (c: string): SynqedCategory =>
   c.toUpperCase() as SynqedCategory
 
+/** Core's deleteEntry CAS verdict (SDK 1.19.0, core #61): a stale
+ *  expected_version 409s instead of removing content the deleter never saw.
+ *  Same duck-typed status idiom as updateKaruteDetailEntryWithClient
+ *  (karute.ts) — the SDK throws SynqedError with a numeric .status. */
+const isVersionConflict = (err: unknown): boolean =>
+  typeof err === 'object' && err !== null && 'status' in err &&
+  (err as { status: unknown }).status === 409
+
 export interface RegenerateResult {
   /** Hard failure — no change applied (adds rolled back). The button surfaces this. */
   error?: string
@@ -57,7 +65,9 @@ export interface RegenerateResult {
  *      out here — I1: regen never deletes a human-authored entry),
  *   2. add ALL the new entries (collecting their ids),
  *   3. delete the snapshotted old ids — per-id, resilient: a single stale/404 id
- *      can't abort the loop and strand the rest.
+ *      can't abort the loop and strand the rest. CAS-guarded (core #61): each
+ *      delete sends expected_version from the pre-delete fresh read, so a
+ *      concurrently-edited row 409s and survives instead of vanishing.
  *   If the add loop throws, OR every delete fails (e.g. a delete-endpoint outage),
  *   we ROLL BACK the just-added entries so a failed run is a clean no-op (old
  *   entries preserved, never empty, never compounding on retry). Worst surviving
@@ -67,16 +77,15 @@ export interface RegenerateResult {
  * KNOWN LIMITS (flagged for Anthony, acceptable for this confirm-gated manual
  * action):
  *   - Concurrency: two simultaneous runs (two tabs/devices) can each delete only
- *     their own snapshot and leave duplicates. A per-record lock / version check
+ *     their own snapshot and leave duplicate ADDS (deletes are CAS-guarded
+ *     now, but adds aren't deduped). A per-record lock
  *     belongs in synqed-core.
- *   - Edit-during-regen (edit-layer W2): a pencil edit that lands after the
- *     delete phase's fresh re-read but before that row's own delete call can
- *     still be deleted — deleteEntry has no CAS (Anthony ask sent 2026-07-25).
- *     Mitigations: the fresh re-read narrows the window to the delete loop
- *     itself; core's delete is SOFT (deletedAt + full before-content in
- *     entry_edits), so a casualty is recoverable, never destroyed; the
- *     regen-in-flight client lock (design §3) ships with the completion-state
- *     PR. Airtight close = core-side deleteEntry expected_version.
+ *   - Edit-during-regen (edit-layer W2): CLOSED — core #61 delivered
+ *     deleteEntry expected_version (the 2026-07-25 ask) and this file adopts
+ *     it: every delete sends the version the fresh re-read supplied, so an
+ *     edit landing after that read 409s the delete and the row is kept.
+ *     Core's delete stays SOFT (deletedAt + full before-content in
+ *     entry_edits) as defense-in-depth behind the CAS.
  *   - Entries are written to AND read from synqed-core — getKaruteRecord is
  *     synqed-authoritative — so a successful regenerate always reflects the
  *     change on the detail page.
@@ -120,22 +129,30 @@ export async function regenerateKaruteEntriesWithClient(
     // Roll back partial adds so a failed run leaves the record exactly as it
     // was. Returns the count of deletes that themselves failed — callers that
     // claim "no changes applied" must not lie when cleanup partially failed
-    // (Greptile #616).
-    const rollback = async (ids: string[]): Promise<number> => {
+    // (Greptile #616). CAS: each delete sends the version addEntry returned,
+    // so a just-added row that got human-edited in the failure window 409s
+    // and is KEPT — that's I1-correct (never delete a human row), not
+    // cleanup debt, so a conflict doesn't count as a failure.
+    const rollback = async (rows: Array<{ id: string; version?: number }>): Promise<number> => {
       let failures = 0
-      for (const id of ids) {
+      for (const { id, version } of rows) {
         try {
-          await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
-        } catch {
-          failures += 1
+          if (version !== undefined) {
+            await synqed.karuteRecords.deleteEntry(karuteRecordId, id, { expected_version: version })
+          } else {
+            await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
+          }
+        } catch (err) {
+          if (!isVersionConflict(err)) failures += 1
         }
       }
       return failures
     }
 
     // 2. Add the new AI entries first — the record never goes empty. Collect the
-    //    created ids so we can undo on failure.
-    const addedIds: string[] = []
+    //    created ids (+ versions, for a CAS-guarded rollback) so we can undo on
+    //    failure.
+    const addedRows: Array<{ id: string; version?: number }> = []
     try {
       for (const e of newEntries) {
         const created = (await synqed.karuteRecords.addEntry(karuteRecordId, {
@@ -144,11 +161,16 @@ export async function regenerateKaruteEntriesWithClient(
           is_manual: false,
           confidence: e.confidence_score,
           original_quote: e.source_quote,
-        })) as { id?: string | null } | null
-        if (created?.id) addedIds.push(created.id)
+        })) as { id?: string | null; version?: number | null } | null
+        if (created?.id) {
+          addedRows.push({
+            id: created.id,
+            ...(typeof created.version === 'number' ? { version: created.version } : {}),
+          })
+        }
       }
     } catch (err) {
-      const rollbackFailures = await rollback(addedIds)
+      const rollbackFailures = await rollback(addedRows)
       const reason = err instanceof Error ? err.message : 'unknown'
       return {
         error:
@@ -161,20 +183,19 @@ export async function regenerateKaruteEntriesWithClient(
     // 3. Remove the prior entries — re-filtered against a FRESH read taken
     //    AFTER the adds, not the pre-loop snapshot. edit-layer W2 PR-B made
     //    this reachable: a pencil edit can flip a row AI→HUMAN_EDITED while
-    //    this add phase is running, and core's deleteEntry has no CAS/
-    //    human-row refusal — deleting off the stale snapshot would silently
-    //    kill an edit that landed in the interim. Residual: the gap between
-    //    THIS read and each row's own delete below is still unguarded — the
-    //    loop is one sequential round-trip PER id, so the real window spans
-    //    the whole delete phase, not one call. A casualty is recoverable
-    //    (core soft-deletes + entry_edits keeps the before-content); the
-    //    airtight close is core-side deleteEntry CAS (Anthony ask sent
-    //    2026-07-25). Per-id resilient: one bad id never strands the rest.
+    //    this add phase is running — deleting off the stale snapshot would
+    //    silently kill an edit that landed in the interim. The read-to-delete
+    //    gap itself is CAS-closed (core #61, SDK 1.19.0): each delete sends
+    //    the version THIS read supplied, so an edit landing between this read
+    //    and that row's own delete 409s and the row is kept — the airtight
+    //    close the 2026-07-25 Anthony ask requested. Per-id resilient: one
+    //    bad id never strands the rest.
     let freshAfterAdds: {
       entries?: Array<{
         id?: string | null
         author?: EntryAuthor | null
         is_manual?: boolean | null
+        version?: number | null
       }>
     } | null
     try {
@@ -184,7 +205,7 @@ export async function regenerateKaruteEntriesWithClient(
       // edit — without it we must not delete at all. Roll the adds back so a
       // failed run leaves the record exactly as it was (the function's
       // standing invariant); best-effort like every other rollback here.
-      const rollbackFailures = await rollback(addedIds)
+      const rollbackFailures = await rollback(addedRows)
       return {
         error:
           rollbackFailures > 0
@@ -198,15 +219,30 @@ export async function regenerateKaruteEntriesWithClient(
         .map((e) => e?.id),
     )
     const idsToDelete = oldIds.filter((id) => freshAiIds.has(id))
+    const freshVersions = new Map<string, number>()
+    for (const e of freshAfterAdds?.entries ?? []) {
+      if (e?.id && typeof e.version === 'number') freshVersions.set(e.id, e.version)
+    }
 
     let removed = 0
     let deleteFailures = 0
     for (const id of idsToDelete) {
+      const expected = freshVersions.get(id)
       try {
-        await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
+        if (expected !== undefined) {
+          await synqed.karuteRecords.deleteEntry(karuteRecordId, id, { expected_version: expected })
+        } else {
+          // Legacy fallback: a row the fresh read returned without a numeric
+          // version deletes unguarded, exactly as before CAS adoption.
+          await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
+        }
         removed += 1
-      } catch {
-        deleteFailures += 1
+      } catch (err) {
+        // 409 = the row was edited between the fresh read and this delete —
+        // core kept it (now a human row per I1). Correct outcome, visible in
+        // the UI on refresh; NOT cleanup debt (a re-run's author filter skips
+        // it), so it counts as neither removed nor failed.
+        if (!isVersionConflict(err)) deleteFailures += 1
       }
     }
 
@@ -214,9 +250,12 @@ export async function regenerateKaruteEntriesWithClient(
     // don't leave (and, on retry, compound) a doubled set. idsToDelete (not
     // oldIds) is the right count here — a snapshot id that dropped out via the
     // fresh re-filter was never going to be deleted, so its absence must not
-    // read as a failure.
-    if (idsToDelete.length > 0 && removed === 0) {
-      const rollbackFailures = await rollback(addedIds)
+    // read as a failure. deleteFailures > 0 keeps this an OUTAGE check: a
+    // removed === 0 run where every row 409'd is CAS working (all old rows
+    // were edited mid-regen and correctly kept), never a reason to undo the
+    // adds.
+    if (idsToDelete.length > 0 && removed === 0 && deleteFailures > 0) {
+      const rollbackFailures = await rollback(addedRows)
       return {
         error:
           rollbackFailures > 0
@@ -226,7 +265,7 @@ export async function regenerateKaruteEntriesWithClient(
     }
 
     return {
-      added: addedIds.length,
+      added: addedRows.length,
       removed,
       // Partial cleanup is a soft warning, NOT a hard error — the entries did get
       // replaced, so the caller should still refresh (a re-run finishes cleanup).
