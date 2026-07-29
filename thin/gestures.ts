@@ -118,10 +118,12 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
     main.style.touchAction = 'pan-y'
 
     const onStatusTap = () => {
-      // iOS convention scrolls the frontmost scrollable; with a portaled
-      // dialog open, scrolling the hidden content behind it would be a
-      // surprise on close — do nothing instead.
-      if (document.querySelector('[role="dialog"][data-state="open"]')) return
+      // iOS convention scrolls the frontmost scrollable; with a dialog open
+      // (Base UI portaled, or the inline sheets), scrolling the content
+      // behind it would be a surprise on close — do nothing instead. Every
+      // dialog in this app renders conditionally, so PRESENCE means open —
+      // deliberately not a library-specific open-state attribute.
+      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
       main.scrollTo({ top: 0, behavior: 'smooth' })
     }
     window.addEventListener('karute:status-tap', onStatusTap)

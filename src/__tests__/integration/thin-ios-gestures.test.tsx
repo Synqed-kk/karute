@@ -107,20 +107,28 @@ describe('ThinShell wiring', () => {
     expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
   })
 
-  it('karute:status-tap is a no-op while a portaled dialog is open', () => {
+  it('karute:status-tap is a no-op while a dialog is open (presence = open)', () => {
+    // Every dialog here renders conditionally — Base UI portaled dialogs AND
+    // the inline sheets (CancelBookingSheet role="dialog") — so a bare
+    // role=dialog in the DOM means one is open. Pins the presence contract,
+    // NOT a library-specific open-state attribute (the first cut checked
+    // Radix's data-state="open", which nothing in this repo ever renders).
     const { container } = renderShell()
     const main = container.querySelector('main')!
     const scrollTo = jest.fn()
     main.scrollTo = scrollTo as never
     const dialog = document.createElement('div')
     dialog.setAttribute('role', 'dialog')
-    dialog.setAttribute('data-state', 'open')
     document.body.appendChild(dialog)
     act(() => {
       window.dispatchEvent(new Event('karute:status-tap'))
     })
     expect(scrollTo).not.toHaveBeenCalled()
     dialog.remove()
+    act(() => {
+      window.dispatchEvent(new Event('karute:status-tap'))
+    })
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
   })
 
   it('a fast left swipe on a tab screen navigates to the next tab', () => {

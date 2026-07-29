@@ -169,6 +169,9 @@ export function StaffSelector({
           id={listboxId}
           role="listbox"
           aria-labelledby={labelId}
+          // Open overlay: the shell's tab-swipe must not change the screen
+          // under it (thin/gestures.ts walks for this tag).
+          data-gesture-inert=""
           // right-0 opens the 256px panel leftward from the chip's right edge
           // — same as the StoreSwitcher — which is correct when the chip sits
           // on the RIGHT of its filter row. If the chip ever wraps to the left
