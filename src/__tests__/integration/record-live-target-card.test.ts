@@ -9,7 +9,14 @@
  * Repro fixture mirrors the field case: booking 担当 = 原田かなみ,
  * recorded under the Liam owner account, 16:00–17:00 VIP施術.
  */
+// Pin the worker's local TZ away from JST so dropping the explicit
+// timeZone: 'Asia/Tokyo' in formatTimeRange fails HERE, not only on
+// UTC CI runners (blind-round finding: the mutant survived on a JST
+// dev machine).
+process.env.TZ = 'UTC'
+
 import {
+  deriveInitials,
   liveTargetCardAppointment,
   formatTimeRange,
 } from '@/components/karute/redesign/record/live-target-appointment'
@@ -63,6 +70,21 @@ describe('録音対象 card while recording (liveTargetCardAppointment)', () => 
   it('shows the dash only when the signed-in user has no staff display name', () => {
     const card = liveTargetCardAppointment(fieldCaseTarget, null)
     expect(card.staffName).toBe('—')
+  })
+
+  it('passes a first-visit snapshot through to the 新規 pill', () => {
+    // Blind-round finding: no fixture exercised isNew=true, so hardcoding
+    // `isNew: false` shipped green while silently dropping the 新規 pill.
+    const card = liveTargetCardAppointment({ ...fieldCaseTarget, isNew: true }, 'Liam')
+    expect(card.isNew).toBe(true)
+  })
+})
+
+describe('deriveInitials', () => {
+  it('derives avatar initials for single and spaced names', () => {
+    expect(deriveInitials('田中')).toBe('田中')
+    expect(deriveInitials('リエム 代表')).toBe('リ代')
+    expect(deriveInitials('anna maria smith')).toBe('AS')
   })
 })
 
