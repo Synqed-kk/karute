@@ -2,36 +2,33 @@ import { useRef, type ReactNode } from 'react'
 
 import { useStandardIOSGestures } from './gestures'
 
-// ThinShell — reproduces the VIEWPORT CLAMP of src/app/[locale]/(app)/layout.tsx
-// (its outer box), the one container every screen is authored to live inside:
+// ThinShell — ROOT-SCROLLER layout: the PAGE is the vertical scroller.
 //
-//     <div className="flex h-dvh flex-col overflow-hidden">     ← clamps to the
-//        <main className="... overflow-y-auto">                    dynamic viewport
+// The web (app) layout clamps every screen inside an inner scrolling <main>
+// (h-dvh + overflow-hidden, main overflow-y-auto). The shell deliberately does
+// NOT reproduce that anymore: an inner scroller pins the page at offset 0
+// forever, so iOS's built-in status-bar-tap scroll-to-top has nothing to
+// scroll (device-dead in 1.1(4), and the native catcher workaround proved
+// fragile). Here <main> grows with its content, the document scrolls, and the
+// WKWebView's own scroller is live — the status-bar tap works natively, no
+// custom code on either side.
 //
-// The thin target never renders that Next server layout, so a screen mounted
-// bare has NO ancestor overflow boundary. Mobile full-bleed elements authored to
-// be CLIPPED by the shell — e.g. CustomerTabBar's `-mx-4` bleed
-// (src/components/customers/redesign/profile/CustomerTabBar.tsx) — then extend
-// past the viewport edge and widen the DOCUMENT horizontally. iOS WKWebView, with
-// `width=device-width, initial-scale=1`, responds by shrinking the whole page to
-// fit that overflow → the zoomed/stretched rendering (follow-up f).
+// The clamp's OTHER job — containing mobile full-bleed elements (e.g.
+// CustomerTabBar's `-mx-4`) so the DOCUMENT never widens and WKWebView never
+// shrink-to-fits the page (the follow-up-f zoomed rendering) — moved to the
+// TRUE root: `html, body { overflow-x: hidden }` in thin/index.html.
+// Root-level so portaled dialogs (Base UI portals to <body>, outside any
+// wrapper) are clamped too. Vertical scrolling is untouched by it.
 //
-// Reproducing the clamp here (outer `overflow-hidden` + inner `overflow-y-auto`,
-// which per CSS forces overflow-x to `auto` on the scroll region) keeps the bleed
-// contained inside `main` exactly as the web layout does, so html/body never grow
-// and WKWebView never rescales. The salon chrome (header / sidebar / bottom nav)
-// is deliberately NOT reproduced here — it is not part of the clamp and is out of
-// this batch's scope.
-// Safe-area / Dynamic-Island: the shell used to pad the viewport box by the
-// vertical insets because it had NO chrome to do it (packet 06 §Build 3).
-// With the REAL web chrome mounted (parity P-A), the chrome owns the insets
-// exactly like the web layout: MobileHeader pads pt-[env(safe-area-inset-top)]
-// and BottomNav pads pb-[env(safe-area-inset-bottom)]. Keeping the shell
-// padding too DOUBLED both edges (a dead strip above the header and below the
-// nav on notched phones). The chrome-free branches (login, boot loading) are
-// center-aligned full-screen content, clear of both edges by construction.
-// Horizontal insets stay unapplied — 0 in portrait (the app's orientation),
-// and padding them would inset CustomerTabBar's deliberate full-bleed `-mx-4`.
+// The bottom nav is pinned by the shell-owned fixed wrapper below; the
+// nav-clearance bottom padding lives in ThinChromeContent's content frame
+// (chrome-gated, so the chrome-free branches — login, boot loading — keep
+// their exact-viewport centering with no phantom scroll). In the WEB layout
+// the bar stays a flex sibling under the h-dvh clamp (bottom-nav.tsx's
+// flex-column comment describes the web); that arrangement needs the
+// fixed-height column this shell gave up.
+// Safe-area / Dynamic-Island: unchanged — the chrome owns the insets
+// (MobileHeader pads top, BottomNav pads bottom), per parity P-A.
 
 export function ThinShell({
   children,
@@ -40,16 +37,16 @@ export function ThinShell({
   children: ReactNode
   nav?: ReactNode
 }) {
-  // Standard iOS gestures (status-bar tap scroll-to-top + tab swipe) live on
-  // the scroll container — see thin/gestures.ts for the full contract.
+  // Standard iOS tab swipe lives on <main> — see thin/gestures.ts for the
+  // full contract. (Status-bar tap needs no wiring: native, see above.)
   const mainRef = useRef<HTMLElement | null>(null)
   useStandardIOSGestures(mainRef)
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-[var(--color-bg)]">
-      <main ref={mainRef} className="relative flex-1 overflow-y-auto">{children}</main>
-      {/* Bottom nav as a flex sibling BELOW the scroll region (packet-09 F-7
-       *  cause 3) — it carries its own safe-area inset, like the web. */}
-      {nav}
+    <div className="flex min-h-dvh flex-col bg-[var(--color-bg)]">
+      <main ref={mainRef} className="relative flex-1">{children}</main>
+      {/* Pinned to the viewport now that the page scrolls — the bar must not
+       *  scroll away with content. It still carries its own safe-area inset. */}
+      <div className="fixed inset-x-0 bottom-0 z-40">{nav}</div>
     </div>
   )
 }

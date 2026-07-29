@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Karute</title>
+    <style>
+      /* Root-scroller shell (#648): the page is the vertical scroller. The
+         horizontal clamp lives on the true root — not a wrapper — so
+         full-bleed elements (-mx-4) AND portaled dialogs (Base UI portals to
+         <body>) can never widen the document and retrigger WKWebView's
+         shrink-to-fit rescale; root-level overflow is also what makes Base
+         UI's iOS scroll lock target the element that really scrolls. */
+      html,
+      body {
+        overflow-x: hidden;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

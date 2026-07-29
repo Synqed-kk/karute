@@ -75,6 +75,14 @@ function main(): void {
   // foreground (visibilitychange) — see thin/data/foreground-revalidate.ts.
   bindForegroundRevalidate()
 
+  // Root-scroller shell: the document scrolls now, which would activate
+  // WebKit's AUTOMATIC scroll restoration on history traversal (header back
+  // arrow, native edge swipe) for the first time — racing screens that fetch
+  // on mount (router.tsx renders per-pathname, no keep-alive). Keep today's
+  // behavior instead: nothing restores, positions just persist in the live
+  // DOM. We own scroll, the browser doesn't.
+  if ('scrollRestoration' in history) history.scrollRestoration = 'manual'
+
   // Locale-prefixed boot pathname / deep link (B3, packet 12 fix batch round
   // 3): toHref's write-side strip (nav.vite.tsx) covers every push/Link, but
   // a cold boot or external deep link lands on location.pathname directly —

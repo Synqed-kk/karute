@@ -1,20 +1,18 @@
-// Standard iOS gestures for the shell (Liam 7/29). Two behaviors:
+// Standard iOS tab swipe for the shell (Liam 7/29). Status-bar tap →
+// scroll-to-top needs NO code here anymore: under the root-scroller shell
+// the page itself scrolls, so iOS's native machinery handles the tap
+// end-to-end (see thin/shell.tsx).
 //
-//   1. Status-bar tap → scroll to top. The native side (CookieVC's
-//      statusTapCatcher) forwards the tap as a `karute:status-tap` window
-//      event because the WKWebView's own scrollView never scrolls (the app
-//      scrolls ThinShell's inner <main>) — the web layer owns the container,
-//      so it owns the scroll.
+//   Horizontal swipe on a TOP-LEVEL tab screen → previous/next tab, in
+//   the bottom-bar order with ホーム first. Detail pages, sheets, and the
+//   login screen are inert; the WKWebView edge-swipe (back/forward, native
+//   allowsBackForwardNavigationGestures) keeps both 28px screen edges; a
+//   touch starting inside anything horizontally scrollable (hero carousel,
+//   予約 time grid, tab chip rows) belongs to that element, never to us.
 //
-//   2. Horizontal swipe on a TOP-LEVEL tab screen → previous/next tab, in
-//      the bottom-bar order with ホーム first. Detail pages, sheets, and the
-//      login screen are inert; the WKWebView edge-swipe (back/forward, native
-//      allowsBackForwardNavigationGestures) keeps both 28px screen edges; a
-//      touch starting inside anything horizontally scrollable (hero carousel,
-//      予約 time grid, tab chip rows) belongs to that element, never to us.
-//
-// Attached to <main> only — the bottom nav and its sheet are flex siblings
-// outside it, so tapping/swiping the bar can never switch tabs by accident.
+// Attached to <main> only — the bottom nav and its sheet live outside it
+// (the shell's fixed wrapper), so tapping/swiping the bar can never switch
+// tabs by accident.
 
 import { useEffect, useRef, type RefObject } from 'react'
 import { getSessionState, hasKnownSession } from '@/lib/auth/mobile/session-store'
@@ -109,24 +107,16 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
     const main = mainRef.current
     if (!main) return
 
-    // pan-y: without this WebKit may claim a horizontal drag for (rubber-band)
-    // scrolling of this vertical container and fire touchcancel — the swipe
-    // then never reaches touchend. Descendant horizontal scrollers (hero
-    // carousel, 予約 grid) keep their own default touch-action, so they still
-    // pan horizontally; only MAIN's own horizontal panning is ruled out.
+    // pan-y: constrains native handling of touches STARTING on main to
+    // vertical panning — of the PAGE, since main itself is no longer a
+    // scroll container under the root-scroller shell — so WebKit never
+    // claims a horizontal drag for itself and fires touchcancel; the swipe
+    // reliably reaches touchend. Descendant horizontal scrollers (hero
+    // carousel, 予約 grid) keep their own default touch-action, so they
+    // still pan horizontally; only horizontal panning that would fall
+    // through to the page is ruled out.
     const prevTouchAction = main.style.touchAction
     main.style.touchAction = 'pan-y'
-
-    const onStatusTap = () => {
-      // iOS convention scrolls the frontmost scrollable; with a dialog open
-      // (Base UI portaled, or the inline sheets), scrolling the content
-      // behind it would be a surprise on close — do nothing instead. Every
-      // dialog in this app renders conditionally, so PRESENCE means open —
-      // deliberately not a library-specific open-state attribute.
-      if (document.querySelector('[role="dialog"], [role="alertdialog"]')) return
-      main.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-    window.addEventListener('karute:status-tap', onStatusTap)
 
     // touchend/touchcancel attach DIRECTLY to the touchstart target, per
     // gesture — not to main. iOS keeps delivering a touch to its original
@@ -175,7 +165,6 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
     main.addEventListener('touchstart', onTouchStart, { passive: true })
     return () => {
       main.style.touchAction = prevTouchAction
-      window.removeEventListener('karute:status-tap', onStatusTap)
       main.removeEventListener('touchstart', onTouchStart)
       detachGesture?.()
     }

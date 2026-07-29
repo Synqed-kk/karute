@@ -55,8 +55,15 @@ export function ThinChromeContent({ children }: { children: ReactNode }) {
     >
       <MobileHeader stores={stores} activeStoreId={chrome?.activeStoreId ?? null} />
       {/* The web layout's content frame — screens are authored against it
-       *  (max-w clamp + the vertical-only padding rule). */}
-      <div className="mx-auto max-w-7xl py-4 md:py-6">{children}</div>
+       *  (max-w clamp + the vertical-only padding rule). Bottom padding =
+       *  nav clearance under the root-scroller shell: the bar's real box
+       *  (4rem row + 1px border + safe-area inset, bottom-nav.tsx:194/197)
+       *  + this frame's own 1rem (1.5rem at md:) breathing room — the same
+       *  gap the old in-flow arrangement produced. Chrome-gated here (not on
+       *  <main>) so login/boot never inherit dead padding. */}
+      <div className="mx-auto max-w-7xl py-4 pb-[calc(5rem+1px+env(safe-area-inset-bottom))] md:py-6 md:pb-[calc(5.5rem+1px+env(safe-area-inset-bottom))]">
+        {children}
+      </div>
     </NotificationsProvider>
   )
 }

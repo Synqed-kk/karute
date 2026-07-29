@@ -96,40 +96,10 @@ describe('ThinShell wiring', () => {
     el.dispatchEvent(e)
   }
 
-  it('karute:status-tap scrolls the main container to top', () => {
-    const { container } = renderShell()
-    const main = container.querySelector('main')!
-    const scrollTo = jest.fn()
-    main.scrollTo = scrollTo as never
-    act(() => {
-      window.dispatchEvent(new Event('karute:status-tap'))
-    })
-    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
-  })
-
-  it('karute:status-tap is a no-op while a dialog is open (presence = open)', () => {
-    // Every dialog here renders conditionally — Base UI portaled dialogs AND
-    // the inline sheets (CancelBookingSheet role="dialog") — so a bare
-    // role=dialog in the DOM means one is open. Pins the presence contract,
-    // NOT a library-specific open-state attribute (the first cut checked
-    // Radix's data-state="open", which nothing in this repo ever renders).
-    const { container } = renderShell()
-    const main = container.querySelector('main')!
-    const scrollTo = jest.fn()
-    main.scrollTo = scrollTo as never
-    const dialog = document.createElement('div')
-    dialog.setAttribute('role', 'dialog')
-    document.body.appendChild(dialog)
-    act(() => {
-      window.dispatchEvent(new Event('karute:status-tap'))
-    })
-    expect(scrollTo).not.toHaveBeenCalled()
-    dialog.remove()
-    act(() => {
-      window.dispatchEvent(new Event('karute:status-tap'))
-    })
-    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' })
-  })
+  // (The karute:status-tap listener tests died with the listener: under the
+  //  root-scroller shell the status-bar tap is handled natively end-to-end —
+  //  there is no web-side event to pin. The tab-swipe pins below are the
+  //  surviving contract.)
 
   it('a fast left swipe on a tab screen navigates to the next tab', () => {
     const { container } = renderShell('/appointments')
@@ -298,16 +268,10 @@ describe('ThinShell wiring', () => {
     const { container, unmount } = renderShell('/appointments')
     const main = container.querySelector('main')!
     expect(main.style.touchAction).toBe('pan-y')
-    const scrollTo = jest.fn()
-    main.scrollTo = scrollTo as never
     unmount()
     // jsdom reads a property restored to '' back as undefined — both mean
     // "pan-y is gone", which is the contract.
     expect(main.style.touchAction || '').toBe('')
-    act(() => {
-      window.dispatchEvent(new Event('karute:status-tap'))
-    })
-    expect(scrollTo).not.toHaveBeenCalled()
     act(() => {
       touch(main, 'touchstart', 300, 400)
       touch(main, 'touchend', 150, 405)
