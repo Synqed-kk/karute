@@ -95,6 +95,24 @@ it('null path renders preview and never fetches (body-prediction without custome
   expect(apiFetch).not.toHaveBeenCalled()
 })
 
+// Post-merge delta-verify find (2026-07-30, I3): same-path reorder race —
+// instance A unmounts mid-flight, instance B (same path) resolves FIRST,
+// then A's OLDER response lands. A dead instance's response may not
+// overwrite the cache the live one just wrote.
+it('a superseded instance\'s late response cannot overwrite the newer cache entry', async () => {
+  const d1 = deferred()
+  const d2 = deferred()
+  apiFetch.mockReturnValueOnce(d1.promise).mockReturnValueOnce(d2.promise)
+  const first = render(<Probe path="/dup" />)
+  first.unmount() // instance A gone, fetch A still in flight
+  render(<Probe path="/dup" />) // instance B, same path
+  await act(async () => d2.resolve(ok({ draft: { body: 'newer' } })))
+  expect(getAiSlot('/dup')).toEqual({ body: 'newer' })
+  await act(async () => d1.resolve(ok({ draft: { body: 'older' } })))
+  expect(getAiSlot('/dup')).toEqual({ body: 'newer' })
+  expect(screen.getByTestId('out').textContent).toBe('newer')
+})
+
 it('cache caps at 50 by FIFO — oldest key evicted, cap never exceeded', () => {
   for (let i = 0; i < 51; i++) setAiSlot(`/k${i}`, { body: `v${i}` })
   expect(getAiSlot('/k0')).toBeUndefined()
