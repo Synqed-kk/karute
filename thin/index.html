@@ -10,9 +10,12 @@
          full-bleed elements (-mx-4) AND portaled dialogs (Base UI portals to
          <body>) can never widen the document and retrigger WKWebView's
          shrink-to-fit rescale; root-level overflow is also what makes Base
-         UI's iOS scroll lock target the element that really scrolls. */
-      html,
-      body {
+         UI's iOS scroll lock target the element that really scrolls.
+         html ONLY, never body: a non-visible overflow on body makes body a
+         scroll container, and position:sticky descendants (MobileHeader) then
+         stick to body's never-scrolling scrollport instead of the page —
+         header silently stops pinning (caught in the sim battery). */
+      html {
         overflow-x: hidden;
       }
     </style>
