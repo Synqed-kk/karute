@@ -60,8 +60,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 // this subclass (customClass="CookieVC"). Restore-only: covers cold launches
 // within the access-token TTL; a >1h-idle launch may still re-login (documented
 // tail — add a native pre-navigation refresh later only if it shows in testing).
-final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
+final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver, UIScrollViewDelegate {
     private var didLoadOnce = false
+    // Status-bar-tap catcher. The app's content scrolls an inner <main>, so the
+    // WKWebView's own scrollView never leaves offset 0 — iOS then never fires
+    // its scroll-to-top machinery for it. This 1pt off-screen scroll view is
+    // made the ONLY scrollsToTop-eligible candidate; a status-bar tap asks its
+    // delegate (scrollViewShouldScrollToTop below), which forwards the tap to
+    // the web layer as a `karute:status-tap` event and declines the scroll.
+    private let statusTapCatcher = UIScrollView()
     // Captured once at launch so handleLaunchNavigation never does a synchronous
     // Keychain read on the main thread per url-change event: did we cold-launch
     // with a restored session?
@@ -77,6 +84,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private static let locales: Set<String> = ["ja", "en"]
 
     override func viewDidLoad() {
+        setupStandardIOSGestures()
         guard
             let store = webView?.configuration.websiteDataStore.httpCookieStore,
             let saved = SessionCookieStore.load(), !saved.isEmpty
@@ -124,6 +132,49 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         // Watchdog: never block the load forever if a setCookie completion is
         // dropped (documented) — a missed completion must not white-screen.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: proceed)
+    }
+
+    // Standard iOS behaviors (Liam 7/29): edge-swipe back/forward across the
+    // SPA's pushState history, and status-bar tap → scroll-to-top (forwarded
+    // to the web layer, which owns the actual scroll container).
+    private func setupStandardIOSGestures() {
+        webView?.allowsBackForwardNavigationGestures = true
+
+        // See statusTapCatcher above: park a 1pt scrollable view off the layout
+        // and make it the only scroll-to-top candidate. Fully eligible: visible
+        // alpha (transparent background — nothing renders), interactive,
+        // scrollable content, offset off the top.
+        webView?.scrollView.scrollsToTop = false
+        statusTapCatcher.frame = CGRect(x: 0, y: 120, width: 1, height: 1)
+        statusTapCatcher.contentSize = CGSize(width: 1, height: 3)
+        statusTapCatcher.contentOffset = CGPoint(x: 0, y: 1)
+        statusTapCatcher.backgroundColor = .clear
+        statusTapCatcher.isUserInteractionEnabled = true
+        statusTapCatcher.contentInsetAdjustmentBehavior = .never
+        statusTapCatcher.scrollsToTop = true
+        statusTapCatcher.delegate = self
+        view.addSubview(statusTapCatcher)
+        NSLog("[CookieVC] gesture setup: backForward=%d catcher eligible (frame=%@ offset=%@)",
+              webView?.allowsBackForwardNavigationGestures == true ? 1 : 0,
+              NSCoder.string(for: statusTapCatcher.frame),
+              NSCoder.string(for: statusTapCatcher.contentOffset))
+    }
+
+    // Status-bar tap lands here (the catcher is the only eligible scroll view).
+    // Forward to the web layer and decline the native scroll so the catcher
+    // stays scrolled (eligible for the next tap either way).
+    func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
+        NSLog("[CookieVC] status-bar tap (catcher=%d) — forwarding to web",
+              scrollView === statusTapCatcher ? 1 : 0)
+        guard scrollView === statusTapCatcher else { return false }
+        bridge?.eval(js: "window.dispatchEvent(new Event('karute:status-tap'))")
+        return false
+    }
+
+    // Belt-and-braces observability while smoking this in the sim: if the
+    // system scrolls the catcher instead of asking, this still fires.
+    func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
+        NSLog("[CookieVC] didScrollToTop fired")
     }
 
     // Splash failsafe. launchAutoHide=false (capacitor.config.ts) keeps the
