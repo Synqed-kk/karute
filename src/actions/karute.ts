@@ -9,6 +9,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
@@ -40,7 +41,10 @@ async function resolveKaruteStoreId(
   synqed: SynqedClient,
   appointmentId: string | null | undefined,
   fetchedAppointment?: Appointment | null,
-): Promise<string | null> {
+): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+  // Also hands back the appointment it fetched so callers can copy booking
+  // metadata (service = the booked menu) into the record without a second
+  // appointments.get for the same save.
   if (appointmentId) {
     const appt = fetchedAppointment ?? (await synqed.appointments.get(appointmentId).catch(() => null))
     const apptStore = appt?.store_id ?? null
@@ -59,9 +63,9 @@ async function resolveKaruteStoreId(
         throw new Error('This booking belongs to a store you are not assigned to.')
       }
     }
-    return apptStore
+    return { storeId: apptStore, appointment: appt }
   }
-  return (await resolveStoreScope()).storeId
+  return { storeId: (await resolveStoreScope()).storeId, appointment: null }
 }
 
 /**
@@ -283,7 +287,11 @@ export async function saveKaruteRecord(
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
+    const { storeId, appointment: linkedAppointment } = await resolveKaruteStoreId(
+      synqed,
+      input.appointmentId,
+      fetchedAppointment,
+    )
 
     // Resolve BEFORE the write so a resolver hiccup can't orphan the emit
     // decision (packet 30 §3) — same tolerant identity seam the other web
@@ -298,6 +306,12 @@ export async function saveKaruteRecord(
         staff_id: staffId,
         appointment_id: input.appointmentId ?? null,
         recording_session_id: input.recordingSessionId ?? null,
+        // 施術メニュー + 録音時間, so the カルテ list's "menu · minutes" line is
+        // real for recorded karute, not only manual entries. The choke's
+        // update path never sends these, so an existing value (manual entry,
+        // pipeline-written duration) is never overwritten by a re-save.
+        service: linkedAppointment?.title ?? null,
+        duration_minutes: durationMinutesFromSeconds(input.duration),
         transcript: input.transcript,
         ai_summary: input.summary,
         entries: input.entries.map((entry) => ({
@@ -400,7 +414,11 @@ export async function saveKaruteRecordInline(
       return { error: 'No staff identity for the signed-in user.' }
     }
 
-    const storeId = await resolveKaruteStoreId(synqed, input.appointmentId, fetchedAppointment)
+    const { storeId, appointment: linkedAppointment } = await resolveKaruteStoreId(
+      synqed,
+      input.appointmentId,
+      fetchedAppointment,
+    )
 
     // Resolve BEFORE the write — same identity seam as saveKaruteRecord.
     const { actorId, businessId } = await resolveWebAuditContext()
@@ -413,6 +431,9 @@ export async function saveKaruteRecordInline(
         staff_id: staffId,
         appointment_id: input.appointmentId ?? null,
         recording_session_id: input.recordingSessionId ?? null,
+        // Same booked-menu + recording-minutes fill as saveKaruteRecord.
+        service: linkedAppointment?.title ?? null,
+        duration_minutes: durationMinutesFromSeconds(input.duration),
         transcript: input.transcript,
         ai_summary: input.summary,
         entries: input.entries.map((entry) => ({
@@ -528,7 +549,7 @@ export async function createManualKaruteRecord(input: {
 
     // Manual creation has no linked appointment — store resolution falls
     // straight to the viewer's active-store cookie.
-    const storeId = await resolveKaruteStoreId(synqed, null)
+    const { storeId } = await resolveKaruteStoreId(synqed, null)
 
     const record = await synqed.karuteRecords.create({
       customer_id: input.customerId,

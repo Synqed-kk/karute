@@ -185,6 +185,69 @@ describe('saveKaruteRecord — store_id resolution reuses the staff-fallback app
   })
 })
 
+describe('recorded saves copy the booked menu + recording minutes (7/29 field report)', () => {
+  // Field case: every recorded karute rendered 「— · 51分」 in the カルテ list —
+  // the service column was only ever written by the manual 新規カルテ dialog,
+  // and the web save threw the recording duration away.
+  const inScopeBooking = () => {
+    appointments.get.mockResolvedValue({
+      id: 'ap-1',
+      staff_id: 'other-staff',
+      store_id: 'store-A',
+      title: 'VIP施術',
+    })
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-A',
+      viewAll: false,
+      allowedStoreIds: ['store-A'],
+    })
+  }
+
+  it('saveKaruteRecord: service = the booked menu, duration_minutes from the take seconds', async () => {
+    inScopeBooking()
+    await saveKaruteRecord({ ...baseInput, appointmentId: 'ap-1', duration: 3070 }).catch(() => {})
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ service: 'VIP施術', duration_minutes: 51 }),
+    )
+  })
+
+  it('saveKaruteRecordInline (autosave): same fill', async () => {
+    inScopeBooking()
+    await saveKaruteRecordInline({ ...baseInput, appointmentId: 'ap-1', duration: 3070 })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ service: 'VIP施術', duration_minutes: 51 }),
+    )
+  })
+
+  it('walk-in (no booking): service stays null, minutes still recorded', async () => {
+    await saveKaruteRecordInline({ ...baseInput, duration: 125 })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null, duration_minutes: 2 }),
+    )
+  })
+
+  it('no duration on the input: duration_minutes null, never 0', async () => {
+    await saveKaruteRecordInline({ ...baseInput })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null, duration_minutes: null }),
+    )
+  })
+
+  it('negative duration never persists as negative minutes (trust boundary)', async () => {
+    await saveKaruteRecordInline({ ...baseInput, duration: -300 })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ duration_minutes: null }),
+    )
+  })
+
+  it('a sub-30s take persists 1分, never a 0 the renderers hide (Greptile r2 on #646)', async () => {
+    await saveKaruteRecordInline({ ...baseInput, duration: 20 })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ duration_minutes: 1 }),
+    )
+  })
+})
+
 describe('createManualKaruteRecord — store_id resolution', () => {
   it('has no appointment concept: always falls back to the resolved store scope', async () => {
     resolveStoreScopeMock.mockResolvedValue(scope('store-D'))

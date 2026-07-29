@@ -18,6 +18,7 @@ import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/custome
 import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { createOrUpdateKaruteRecord } from '@/actions/karute'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
@@ -36,16 +37,18 @@ async function resolveSaveStore(
   appointmentId: string | null | undefined,
   fetchedAppt: Appointment | null,
   clamp: { storeId: string | null; allowedStoreIds: string[] | null },
-): Promise<string | null> {
+): Promise<{ storeId: string | null; appointment: Appointment | null }> {
+  // Web-parity: also hands back the fetched appointment so the save can copy
+  // the booked menu (service) into the record without a second fetch.
   if (appointmentId) {
     const appt = fetchedAppt ?? (await synqed.appointments.get(appointmentId).catch(() => null))
     const apptStore = (appt as { store_id?: string | null } | null)?.store_id ?? null
     if (apptStore && clamp.allowedStoreIds && !clamp.allowedStoreIds.includes(apptStore)) {
       throw new AppApiError('store_forbidden', 'this booking belongs to a store you are not assigned to')
     }
-    return apptStore
+    return { storeId: apptStore, appointment: appt }
   }
-  return clamp.storeId
+  return { storeId: clamp.storeId, appointment: null }
 }
 
 export const POST = facadeHandler('karute.save', async (ctx) => {
@@ -106,7 +109,12 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
     throw new AppApiError('forbidden', 'no staff identity for the signed-in user')
   }
 
-  const storeId = await resolveSaveStore(synqed, input.appointmentId, fetchedAppt, clamp)
+  const { storeId, appointment: linkedAppointment } = await resolveSaveStore(
+    synqed,
+    input.appointmentId,
+    fetchedAppt,
+    clamp,
+  )
 
   const { id, fresh, transcriptChanged } = await createOrUpdateKaruteRecord(
     synqed as unknown as SynqedClient,
@@ -116,6 +124,10 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       staff_id: staffId,
       appointment_id: input.appointmentId ?? null,
       recording_session_id: input.recordingSessionId ?? null,
+      // Booked menu + recording minutes — web-parity fill (see
+      // saveKaruteRecord); the choke's update path never sends these.
+      service: (linkedAppointment as { title?: string | null } | null)?.title ?? null,
+      duration_minutes: durationMinutesFromSeconds(input.duration),
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
