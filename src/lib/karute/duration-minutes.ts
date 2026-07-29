@@ -2,9 +2,9 @@
  *  Trust-boundary guard shared by every writer (web actions, facade POST,
  *  recording-job worker): duration arrives as client-supplied JSON, so a
  *  negative / NaN / Infinity value must persist as null, never as garbage
- *  minutes (Greptile P1 on #646). Sub-30s takes round to 0 — the list
- *  renderers already hide a 0 duration. */
+ *  minutes. A real take always persists at least 1分 — a sub-30s recording
+ *  rounding to 0 would render as the same 「—」 as no duration at all. */
 export function durationMinutesFromSeconds(seconds: number | null | undefined): number | null {
   if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return null
-  return Math.round(seconds / 60)
+  return Math.max(1, Math.round(seconds / 60))
 }

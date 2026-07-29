@@ -239,6 +239,13 @@ describe('recorded saves copy the booked menu + recording minutes (7/29 field re
       expect.objectContaining({ duration_minutes: null }),
     )
   })
+
+  it('a sub-30s take persists 1分, never a 0 the renderers hide (Greptile r2 on #646)', async () => {
+    await saveKaruteRecordInline({ ...baseInput, duration: 20 })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ duration_minutes: 1 }),
+    )
+  })
 })
 
 describe('createManualKaruteRecord — store_id resolution', () => {
