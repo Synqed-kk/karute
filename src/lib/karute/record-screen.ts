@@ -323,7 +323,10 @@ export async function buildRecordScreen(input: {
       customerName: targetCustomerName,
       initials: deriveFamilyInitials(targetCustomerName),
       karuteNumber: targetKaruteNumber,
-      service: '—',
+      // Real fields from the record (same honest-'—' convention as the
+      // カルテ list): the booked menu + recording minutes are written at
+      // save since the 7/29 service fill; older records render the dash.
+      service: r.service || '—',
       date: dt.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
         timeZone: 'Asia/Tokyo',
         year: 'numeric',
@@ -331,7 +334,7 @@ export async function buildRecordScreen(input: {
         day: 'numeric',
       }),
       startTime: hhmm(dt),
-      durationLabel: '—',
+      durationLabel: r.duration_minutes ? `${r.duration_minutes}分` : '—',
       karuteLinked: !!effectiveSummary(r),
       entryCount: (r.entries?.length || r.entry_count) ?? 0,
       karuteId: r.id,

@@ -79,6 +79,12 @@ const complete = jest.fn(async () => ({}))
 const fail = jest.fn(async () => ({}))
 
 const staffGet = jest.fn(async () => ({ id: 'staff-1', user_id: 'auth-user-9' }))
+const appointmentsGet = jest.fn(async () => ({
+  id: 'ap-1',
+  staff_id: 'staff-1',
+  store_id: null,
+  title: 'VIP施術',
+}))
 
 const fakeClient = {
   customers: { getConsent, get: customersGet },
@@ -90,6 +96,7 @@ const fakeClient = {
   },
   recordingJobs: { claim, complete, fail },
   staff: { get: staffGet },
+  appointments: { get: appointmentsGet },
 }
 jest.mock('@synqed-kk/client', () => ({
   SynqedClient: jest.fn(() => fakeClient),
@@ -157,6 +164,33 @@ describe('process-recording worker — outcome write (packet 22 B4)', () => {
     )
     expect(complete).toHaveBeenCalledWith('job-1', 'record-1')
     expect(fail).not.toHaveBeenCalled()
+  })
+
+  it('appointment-linked job → record created with the booked menu (7/29 field report)', async () => {
+    claim
+      .mockResolvedValueOnce({
+        ...baseJob,
+        payload: { ...baseJob.payload, appointment_id: 'ap-1', duration_seconds: 3070 },
+      })
+      .mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(appointmentsGet).toHaveBeenCalledWith('ap-1')
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ service: 'VIP施術', duration_minutes: 51 }),
+    )
+  })
+
+  it('no appointment on the job → service null, appointment never fetched', async () => {
+    claim.mockResolvedValueOnce({ ...baseJob }).mockResolvedValueOnce(null)
+
+    await processRecordingJobs(10_000)
+
+    expect(appointmentsGet).not.toHaveBeenCalled()
+    expect(karuteRecordsCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null }),
+    )
   })
 
   it.each([

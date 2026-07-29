@@ -98,6 +98,31 @@ describe('POST /api/app/v1/karute (save)', () => {
     expect((await res.json()).id).toBe('kar-new')
     expect(create).toHaveBeenCalled()
   })
+  it('appointment-linked save copies the booked menu + recording minutes (7/29 field report)', async () => {
+    fakeClient.appointments.get.mockResolvedValueOnce({
+      staff_id: 'appt-staff',
+      store_id: null,
+      title: 'VIP施術',
+    })
+    const res = await savePOST(
+      post({ ...auth, ...idem }, { ...validSave, appointmentId: 'ap-1', duration: 3070 }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ service: 'VIP施術', duration_minutes: 51 }),
+    )
+  })
+  it('no booking on the save → service null, minutes still from the take', async () => {
+    const res = await savePOST(
+      post({ ...auth, ...idem }, { ...validSave, duration: 125 }),
+      noRoute,
+    )
+    expect(res.status).toBe(200)
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({ service: null, duration_minutes: 2 }),
+    )
+  })
   it('consent MISSING → CONSENT_REQUIRED (403), no write', async () => {
     consentRow.current = null
     const res = await savePOST(post({ ...auth, ...idem }, validSave), noRoute)

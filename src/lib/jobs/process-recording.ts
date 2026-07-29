@@ -287,6 +287,11 @@ async function upsertKaruteRecord(
     })
     return existing.id
   }
+  // 施術メニュー from the linked booking — best-effort: a missing/deleted
+  // booking just leaves service null and the カルテ list shows its honest '—'.
+  const linkedAppointment = payload.appointment_id
+    ? await synqed.appointments.get(payload.appointment_id).catch(() => null)
+    : null
   const record = await synqed.karuteRecords.create({
     customer_id: payload.customer_id,
     staff_id: payload.staff_id,
@@ -296,6 +301,7 @@ async function upsertKaruteRecord(
     status: 'DRAFT',
     transcript: result.transcript,
     ai_summary: result.summary,
+    service: linkedAppointment?.title ?? null,
     duration_minutes: payload.duration_seconds
       ? Math.round(payload.duration_seconds / 60)
       : null,

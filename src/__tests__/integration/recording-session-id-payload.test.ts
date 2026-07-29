@@ -161,6 +161,10 @@ describe('saveKaruteRecordInline — recording_session_id payload', () => {
       // this test was written on a pre-#427 base — null here because the
       // suite mocks no active-store cookie and there's no appointment.
       store_id: null,
+      // service + duration_minutes joined with the 7/29 booked-menu fill —
+      // null here: no appointment and no duration on the input.
+      service: null,
+      duration_minutes: null,
       transcript: 't',
       ai_summary: 's',
       entries: [],
