@@ -222,7 +222,9 @@ ${defensivePreamble(locale)}`
   })
   const body = completion.choices[0]?.message?.parsed?.body?.trim()
   if (!body) return null
-  // The LLM actually ran — the ONE place the 生成 row is earned. Best-effort
+  // The LLM produced a usable draft — the ONE place this feature's 生成 row
+  // is earned (a completed call with an empty/unparseable body earns
+  // nothing: taxonomy = "draft generated", not "tokens spent"). Best-effort
   // like every audit emit (the helper never throws for web; facade audit()
   // is fire-and-forget) — a logging failure must not cost the draft.
   await onGenerated().catch(() => {})

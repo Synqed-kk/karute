@@ -26,16 +26,21 @@
  * takes on the shared device.
  */
 export async function wipeSessionVault(opts: { uid?: string } = {}): Promise<void> {
-  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }] =
+  const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }, { clearAiSlotCache }] =
     await Promise.all([
       import('@/lib/global-recorder'),
       import('@/lib/global-pipeline'),
       import('@/lib/karute/draft'),
       import('@/lib/karute/take-store'),
+      import('@/lib/karute/ai-slot-cache'),
     ])
   globalRecorder.discard() // stops the mic if live; deletes the live take
   globalPipeline.reset()
   clearDraft()
+  // AI-card session memory (drafts/predictions keyed by record path): module
+  // scope survives a soft logout, so without this the next signer-in on the
+  // same device could render the previous user's cached card.
+  clearAiSlotCache()
   // Owner-scoped on purpose: only the signing-out user's takes die here —
   // another staff member's crash-recovery audio must survive their logout
   // (it is already invisible to everyone else via the store's owner gate).

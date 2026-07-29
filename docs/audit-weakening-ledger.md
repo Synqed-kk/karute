@@ -20,8 +20,12 @@
   ~15 rows/evening from reopens, 変更 86→93 in hours). The 生成 action is NOT
   retired: it moved to the actual generation site (ai-outreach.ts private
   helpers, AUDITED_CORES-registered, emitted only when OpenAI returns a
-  draft), so the taxonomy is strictly more truthful — every 生成 row now
-  means a real generation · Liam (2026-07-29 ruling: A of A–D, "unless
+  draft), so the taxonomy is strictly more truthful — every 生成 row FROM THE
+  KARUTE-DETAIL CARD now means a real generation. (Known residual, out of
+  this entry's scope: the separate recording-review suggestions feature —
+  web /api/ai/suggestions + facade 'ai.suggestions' — still emits the same
+  action string unconditionally incl. cache hits; its own honesty split is
+  queued, blind-round find 2026-07-29.) · Liam (2026-07-29 ruling: A of A–D, "unless
   something changed it shouldn't regenerate — and the log should say what
   actually happened")
 - 2026-07-29 · map:karute.ai.suggestedMessage · kind changed 'mutation' →

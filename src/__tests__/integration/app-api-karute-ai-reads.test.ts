@@ -133,6 +133,10 @@ describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
     expect(actorId).toBe('auth-user-1')
     expect(typeof requestId).toBe('string')
     expect(requestId.length).toBeGreaterThan(0)
+    // Exactly ONE generator invocation per request — a double-call bug would
+    // double OpenAI cost and the 生成 row (blind-round find: nothing pinned
+    // the call count anywhere).
+    expect(getSuggestedFollowUpWithClient).toHaveBeenCalledTimes(1)
   })
 
   it('hook row is the VIEW twin and carries detail.customer_id (Wave V name-join canon)', async () => {

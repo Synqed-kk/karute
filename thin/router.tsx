@@ -95,7 +95,11 @@ export function ThinRouter() {
   const profile = PROFILE_PATH.exec(pathname)
   if (profile) return <CustomerProfileScreen id={safeDecode(profile[1])} />
   const karute = KARUTE_DETAIL_PATH.exec(pathname)
-  if (karute) return <KaruteDetailScreen id={safeDecode(karute[1])} />
+  // key: a karute→karute transition must REMOUNT the screen — reconciling
+  // by position would keep the previous record's AI-slot state rendering
+  // under the new record's props (blind-round latent find, 2026-07-29; no
+  // such nav path exists today, the key makes it structural).
+  if (karute) return <KaruteDetailScreen key={karute[1]} id={safeDecode(karute[1])} />
   if (PENDING_WEB_ROUTES.some((r) => pathname === r || pathname.startsWith(`${r}/`)))
     return <PendingScreen />
   // Fallthrough (incl. the shell's /index.html entry): the customer list.

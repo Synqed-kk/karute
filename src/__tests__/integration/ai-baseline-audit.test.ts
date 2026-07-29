@@ -702,7 +702,13 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
 // Not a route, so called directly rather than via testApiHandler; reuses the
 // shared top-of-file mocks (openai, ai-cache, org-settings, feature-gate,
 // audit-web).
-const OUTREACH_PARAMS = {
+const OUTREACH_PARAMS: {
+  karuteId: string
+  customerId: string | null
+  customerName: string
+  summary: string | null
+  locale: string
+} = {
   karuteId: 'karute-1',
   customerId: 'cust-1',
   customerName: 'Jane',
@@ -786,16 +792,15 @@ describe('getSuggestedFollowUpWithClient — facade 生成 row only on real gene
     jest.clearAllMocks()
   })
 
-  const call = () =>
-    getSuggestedFollowUpWithClient(
-      {} as never,
-      'biz-1',
-      'staff-uid-1',
-      'req-1',
-      OUTREACH_PARAMS,
-    )
+  // Sentinel client object: computeSuggestedFollowUp must thread THIS exact
+  // client into orgSettingsWithClient (blind-round find — the wiring had no
+  // assertion anywhere, so dropping/swapping the client slipped every test).
+  const SENTINEL_CLIENT = { orgSettings: {} } as never
 
-  it('generated draft: one facade 生成 line with actor/requestId/customer_id', async () => {
+  const call = (params = OUTREACH_PARAMS) =>
+    getSuggestedFollowUpWithClient(SENTINEL_CLIENT, 'biz-1', 'staff-uid-1', 'req-1', params)
+
+  it('generated draft: one facade 生成 line with actor/requestId/customer_id; org-settings sees the caller client', async () => {
     ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
       choices: [{ message: { parsed: { body: 'Thanks!' } } }],
     })
@@ -815,6 +820,19 @@ describe('getSuggestedFollowUpWithClient — facade 生成 row only on real gene
       request_id: 'req-1',
       source: 'facade',
     })
+    const { orgSettingsWithClient } = jest.requireMock('@/actions/org-settings')
+    expect(orgSettingsWithClient).toHaveBeenCalledWith(SENTINEL_CLIENT)
+  })
+
+  it('generated draft with NO customer: detail.customer_id rides as null, row never dropped', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'Thanks!' } } }],
+    })
+    const lines = await auditLines(async () => {
+      await call({ ...OUTREACH_PARAMS, customerId: null })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ detail: { customer_id: null } })
   })
 
   it('cache hit: zero audit lines from this function (the hook owns the view row)', async () => {
@@ -824,6 +842,21 @@ describe('getSuggestedFollowUpWithClient — facade 生成 row only on real gene
       await expect(call()).resolves.toEqual({ channel: 'LINE', body: 'cached draft' })
     })
     expect(openai.chat.completions.parse).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
+  })
+
+  // Deliberate web/facade ASYMMETRY pin (blind-round emission P2): an internal
+  // OpenAI throw resolves null with ZERO lines from this function — but the
+  // facade ROUTE still 200s { draft: null }, so its generic hook still writes
+  // the view row (the karute WAS opened; the card degraded to the preview).
+  // Web's twin instead emits nothing at all on the same throw ("errors are
+  // not actions") — both halves are per-surface doctrine, pinned here so a
+  // future "unify the twins" edit has to meet this test consciously.
+  it('OpenAI throw: resolves null, zero audit lines from this function', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockRejectedValue(new Error('LLM error'))
+    const lines = await auditLines(async () => {
+      await expect(call()).resolves.toBeNull()
+    })
     expect(lines).toHaveLength(0)
   })
 })

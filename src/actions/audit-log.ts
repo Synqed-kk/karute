@@ -352,7 +352,10 @@ async function resolveTargetLabels(
     await Promise.all(
       unresolvedKaruteIds.map(async (id) => {
         try {
-          const r = await synqed.karuteRecords.get(id)
+          // include_entries:false — this lookup exists ONLY to read
+          // customer_id; without it core defaults to shipping the full
+          // clinical entry set (blind-round P2, least-privilege).
+          const r = await synqed.karuteRecords.get(id, { include_entries: false })
           const cid = (r as { customer_id?: unknown }).customer_id
           if (typeof cid === 'string' && cid.length > 0) karuteCustomerById.set(id, cid)
         } catch {

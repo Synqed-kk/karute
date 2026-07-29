@@ -522,7 +522,9 @@ describe('listAuditLog — target name resolution (read-time join, PII stays out
     const res = await listAuditLog({})
     if (!res.ok) throw new Error('expected ok')
     expect(karGet).toHaveBeenCalledTimes(1)
-    expect(karGet).toHaveBeenCalledWith('kar-2')
+    // include_entries:false pinned — this lookup may only ever read
+    // customer_id, never ship the clinical entry set (blind-round P2).
+    expect(karGet).toHaveBeenCalledWith('kar-2', { include_entries: false })
     expect(customersList).toHaveBeenCalledWith({ ids: ['cus-old'], include_deleted: true })
     expect(res.targetLabels).toEqual({ 'kar-2': 'ぴあそん りえむ' })
   })

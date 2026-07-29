@@ -464,7 +464,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // ai.* baseline (§3.1: "log →" rows) + karute.ai.suggestedMessage — writers
   // live as of Wave W1 (2026-07-28). Same twins as the out-of-facade legacy
   // /api/ai/* routes (API_ROUTE_DECISIONS below) — both get the same action
-  // per key.
+  // per key. ⚠ ai.suggestions still emits ai.suggested_message on EVERY 2xx
+  // (incl. cache hits) while karute.ai.suggestedMessage below diverged to the
+  // 2026-07-29 honesty split (view row per open, 生成 only on real
+  // generation) — the same split for the suggestions feature is a queued
+  // follow-up (see the ledger's residual note).
   'ai.extract': { kind: 'mutation', category: 'ai', action: 'ai.memory_extract' },
   'ai.summarize': { kind: 'mutation', category: 'ai', action: 'ai.summary_generate' },
   // FIX ROUND 1 (2026-07-28) correction: the prior comment cited the WEB
