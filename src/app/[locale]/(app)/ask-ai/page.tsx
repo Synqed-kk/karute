@@ -22,11 +22,15 @@ export default async function AskAIPage({
 
   // Shared Ask-AI capability rule (H0) — same rule as the chat routes, checked
   // BEFORE the scope-count fan-out below so a denied account never preloads
-  // karute/customer/appointment counts. A failed capability resolve denies
-  // (fail closed), matching the guard's posture on the API routes.
+  // karute/customer/appointment counts. A REJECTED capability resolve is
+  // treated as no capabilities → redirect away (this surface has no error
+  // envelope; the API routes return their own 500 instead). The deeper
+  // resolver degrades query failures to the practitioner preset by design
+  // (pre-RBAC-migration grace) — that system-wide posture is Permission v2's
+  // to revisit, not this guard's.
   const caps = await getMyCapabilities().catch(() => new Set<Capability>())
   if (!canUseAskAi(caps)) {
-    redirect(`/${locale}/dashboard`)
+    redirect(`/${localeArg}/dashboard`)
   }
 
   const t = await getTranslations('askAi')

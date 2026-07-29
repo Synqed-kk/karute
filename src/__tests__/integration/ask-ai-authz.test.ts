@@ -91,6 +91,7 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { runKaruteChat } from '@/lib/ai/karute-chat'
 import { auditWeb } from '@/lib/audit-web'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { getTodaySignals } from '@/lib/karute/ai-signals'
 import { redirect } from 'next/navigation'
 
 const createClientMock = createClient as jest.Mock
@@ -185,6 +186,15 @@ describe('legacy cookie chat route — capability guard (H0)', () => {
     expectNoWork()
   })
 
+  it("capability-resolution failure → the route's own 500 envelope, never 403/200; no work", async () => {
+    signedIn()
+    capsScenario.current = null
+    const res = await POST(req())
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Failed' })
+    expectNoWork()
+  })
+
   it('customers.view-only custom account → 200 (the current shared rule — facade parity)', async () => {
     signedIn()
     grant('customers.view')
@@ -210,6 +220,7 @@ describe('/ask-ai page — surface guard (H0)', () => {
     expect(redirect).toHaveBeenCalledWith('/ja/dashboard')
     expect(getSynqedClient).not.toHaveBeenCalled()
     expect(getOrgSettings).not.toHaveBeenCalled()
+    expect(getTodaySignals).not.toHaveBeenCalled()
   })
 
   it('capability-resolution failure → fail closed (redirect), no preload', async () => {

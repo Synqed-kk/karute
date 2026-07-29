@@ -160,7 +160,12 @@ export function can(caps: Set<Capability>, capability: Capability): boolean {
 // Front Desk) is a product decision: change THIS list and every entry point
 // and its tests follow. Do not add Permission-v2 vocabulary here.
 // ───────────────────────────────────────────────────────────────────────────
-export const ASK_AI_REQUIRED_CAPABILITIES: readonly Capability[] = ['customers.view']
+// Non-empty tuple type: emptying this list must FAIL THE BUILD — [].every()
+// is vacuously true and an empty ensureCapability loop doesn't iterate, so an
+// empty rule would silently admit everyone on all four surfaces at once.
+export const ASK_AI_REQUIRED_CAPABILITIES: readonly [Capability, ...Capability[]] = [
+  'customers.view',
+]
 
 /** True when the resolved capability set satisfies the shared Ask AI rule. */
 export function canUseAskAi(caps: Set<Capability>): boolean {
