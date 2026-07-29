@@ -66,8 +66,9 @@ export interface RegenerateResult {
  *   2. add ALL the new entries (collecting their ids),
  *   3. delete the snapshotted old ids — per-id, resilient: a single stale/404 id
  *      can't abort the loop and strand the rest. CAS-guarded (core #61): each
- *      delete sends expected_version from the pre-delete fresh read, so a
- *      concurrently-edited row 409s and survives instead of vanishing.
+ *      delete sends the expected_version the pre-delete fresh read supplied
+ *      (core returns one on every row), so a concurrently-edited row 409s and
+ *      survives instead of vanishing.
  *   If the add loop throws, OR every delete fails (e.g. a delete-endpoint outage),
  *   we ROLL BACK the just-added entries so a failed run is a clean no-op (old
  *   entries preserved, never empty, never compounding on retry). Worst surviving
@@ -190,10 +191,11 @@ export async function regenerateKaruteEntriesWithClient(
     //    this add phase is running — deleting off the stale snapshot would
     //    silently kill an edit that landed in the interim. The read-to-delete
     //    gap itself is CAS-closed (core #61, SDK 1.19.0): each delete sends
-    //    the version THIS read supplied, so an edit landing between this read
-    //    and that row's own delete 409s and the row is kept — the airtight
-    //    close the 2026-07-25 Anthony ask requested. Per-id resilient: one
-    //    bad id never strands the rest.
+    //    the version THIS read supplied (core returns one on every row; a
+    //    versionless row would delete unguarded as before), so an edit
+    //    landing between this read and that row's own delete 409s and the
+    //    row is kept — the airtight close the 2026-07-25 Anthony ask
+    //    requested. Per-id resilient: one bad id never strands the rest.
     let freshAfterAdds: {
       entries?: Array<{
         id?: string | null
