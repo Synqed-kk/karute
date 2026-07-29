@@ -82,8 +82,10 @@ export interface RegenerateResult {
  *     belongs in synqed-core.
  *   - Edit-during-regen (edit-layer W2): CLOSED — core #61 delivered
  *     deleteEntry expected_version (the 2026-07-25 ask) and this file adopts
- *     it: every delete sends the version the fresh re-read supplied, so an
- *     edit landing after that read 409s the delete and the row is kept.
+ *     it: every delete whose fresh re-read supplied a version sends it (core
+ *     returns version on every row per the SDK types; a versionless row would
+ *     fall back to the old unguarded delete), so an edit landing after that
+ *     read 409s the delete and the row is kept.
  *     Core's delete stays SOFT (deletedAt + full before-content in
  *     entry_edits) as defense-in-depth behind the CAS.
  *   - Entries are written to AND read from synqed-core — getKaruteRecord is
@@ -143,7 +145,9 @@ export async function regenerateKaruteEntriesWithClient(
             await synqed.karuteRecords.deleteEntry(karuteRecordId, id)
           }
         } catch (err) {
-          if (!isVersionConflict(err)) failures += 1
+          // Same rule as the delete loop: the conflict verdict only applies
+          // when this call sent expected_version.
+          if (version === undefined || !isVersionConflict(err)) failures += 1
         }
       }
       return failures
@@ -241,8 +245,10 @@ export async function regenerateKaruteEntriesWithClient(
         // 409 = the row was edited between the fresh read and this delete —
         // core kept it (now a human row per I1). Correct outcome, visible in
         // the UI on refresh; NOT cleanup debt (a re-run's author filter skips
-        // it), so it counts as neither removed nor failed.
-        if (!isVersionConflict(err)) deleteFailures += 1
+        // it), so it counts as neither removed nor failed. Only a delete that
+        // actually SENT expected_version can earn that verdict — a 409 on the
+        // unguarded legacy path compared nothing, so it stays a plain failure.
+        if (expected === undefined || !isVersionConflict(err)) deleteFailures += 1
       }
     }
 

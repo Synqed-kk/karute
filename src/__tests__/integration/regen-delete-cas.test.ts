@@ -166,6 +166,69 @@ describe('regenerateKaruteEntriesWithClient — deleteEntry CAS (core #61)', () 
     expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'new-1', { expected_version: 1 })
   })
 
+  it('a 409 on an UNGUARDED legacy delete (no version sent) stays a plain failure — outage rollback fires', async () => {
+    // No expected_version was sent, so a 409 compared nothing and cannot be a
+    // CAS keep — it must count as a real failure.
+    const deleteEntry = jest.fn(async (_rec: string, id: string) => {
+      if (id !== 'new-1') throw conflict()
+    })
+    const get = jest.fn(async () => ({ entries: [{ id: 'ai-1', author: 'AI' }] }))
+    const synqed = {
+      karuteRecords: { get, addEntry: jest.fn(async () => ({ id: 'new-1' })), deleteEntry },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [NEW_ENTRY])
+
+    expect(result.error).toContain('Could not remove the old entries')
+    expect(deleteEntry).toHaveBeenCalledWith('kar-1', 'new-1')
+  })
+
+  it('a 409 on an UNGUARDED rollback delete (no version from addEntry) stays a cleanup failure', async () => {
+    const deleteEntry = jest.fn(async () => {
+      throw conflict()
+    })
+    const addEntry = jest
+      .fn()
+      .mockResolvedValueOnce({ id: 'new-1' }) // versionless add
+      .mockRejectedValueOnce(new Error('add died'))
+    const synqed = {
+      karuteRecords: {
+        get: jest.fn(async () => ({ entries: [{ id: 'ai-1', author: 'AI', version: 2 }] })),
+        addEntry,
+        deleteEntry,
+      },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [
+      NEW_ENTRY,
+      NEW_ENTRY,
+    ])
+
+    expect(result.error).toContain('cleanup failed')
+  })
+
+  it('partial real failure keeps the soft warning: some rows removed, failed rows reported', async () => {
+    const deleteEntry = jest.fn(async (_rec: string, id: string) => {
+      if (id === 'ai-2') throw new Error('network')
+    })
+    const get = jest.fn(async () => ({
+      entries: [
+        { id: 'ai-1', author: 'AI', version: 1 },
+        { id: 'ai-2', author: 'AI', version: 1 },
+      ],
+    }))
+    const synqed = {
+      karuteRecords: { get, addEntry: jest.fn(async () => ({ id: 'new-1' })), deleteEntry },
+    }
+
+    const result = await regenerateKaruteEntriesWithClient(synqed as never, 'kar-1', [NEW_ENTRY])
+
+    expect(result.added).toBe(1)
+    expect(result.removed).toBe(1)
+    expect(result.warning).toContain('could not be removed')
+    expect(result.error).toBeUndefined()
+  })
+
   it('rollback 409 = the just-added row was edited and kept: honest "No changes applied", not "cleanup failed"', async () => {
     const deleteEntry = jest.fn(async () => {
       throw conflict()
