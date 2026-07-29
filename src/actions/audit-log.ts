@@ -348,7 +348,7 @@ async function resolveTargetLabels(
   if (unresolvedKaruteIds.length > 0) {
     await Promise.all(
       unresolvedKaruteIds.map((id) =>
-        synqed.karute
+        synqed.karuteRecords
           .get(id)
           .then((r) => {
             const cid = (r as { customer_id?: unknown }).customer_id

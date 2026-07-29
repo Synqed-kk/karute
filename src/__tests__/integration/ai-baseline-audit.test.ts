@@ -32,6 +32,7 @@ jest.mock('@/lib/ai-rate-limit', () => ({
 
 jest.mock('@/lib/subscription/feature-gate', () => ({
   featureAllowed: jest.fn(async () => true),
+  featureAllowedForBusiness: jest.fn(async () => true),
 }))
 
 // Mutable auth scenario, same convention as the four existing api-*.test.ts
@@ -50,6 +51,7 @@ jest.mock('@/lib/supabase/server', () => ({
 
 jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => null),
+  orgSettingsWithClient: jest.fn(async () => null),
 }))
 
 jest.mock('@/lib/openai', () => ({
@@ -112,7 +114,7 @@ import { mockExtractionResult, mockSummaryResult } from './helpers/openai-mocks'
 import { FACADE_AUDIT_MAP } from '@/lib/audit'
 import { audit } from '@/lib/audit'
 import { auditLines } from './helpers/audit-lines'
-import { getSuggestedFollowUp } from '@/lib/karute/ai-outreach'
+import { getSuggestedFollowUp, getSuggestedFollowUpWithClient } from '@/lib/karute/ai-outreach'
 
 const { auditWeb } = jest.requireMock('@/lib/audit-web') as { auditWeb: jest.Mock }
 
@@ -147,12 +149,24 @@ describe('FACADE_AUDIT_MAP — ai.* baseline rows are LIVE (Wave W1)', () => {
     ['ai.summarize', 'ai.summary_generate'],
     ['ai.transcribe', 'recording.transcribe'],
     ['ai.suggestions', 'ai.suggested_message'],
-    ['karute.ai.suggestedMessage', 'ai.suggested_message'],
+    ['karute.ai.suggestedMessage', 'ai.suggested_message_view'],
   ] as const)('%s is live (no pendingWave) with action %s', (key, action) => {
     const rule = FACADE_AUDIT_MAP[key]
     expect(rule.pendingWave).toBeUndefined()
     expect(rule.kind).not.toBe('skip')
     expect(rule.action).toBe(action)
+  })
+
+  // 2026-07-29 honesty split (Liam ruling, ledgered ×2): the per-open hook row
+  // is a VIEW — full-row pin so any drift back to mutation (or away from the
+  // _view action the 変更 counter and 閲覧を含む toggle both key on) is loud.
+  it('karute.ai.suggestedMessage is the VIEW twin (full-row pin)', () => {
+    expect(FACADE_AUDIT_MAP['karute.ai.suggestedMessage']).toEqual({
+      kind: 'view',
+      category: 'ai',
+      action: 'ai.suggested_message_view',
+      targetType: 'karute',
+    })
   })
 })
 
@@ -678,58 +692,139 @@ describe('POST /api/ai/transcribe — auditWeb writer', () => {
   })
 })
 
-// (d) Web (cookie) twin of karute.ai.suggestedMessage — the fix-round #2 real
-// coverage gap (getSuggestedFollowUp, src/lib/karute/ai-outreach.ts). Not a
-// route, so called directly rather than via testApiHandler; reuses the same
+// (d) Web (cookie) twin of karute.ai.suggestedMessage — since the 2026-07-29
+// honesty split (Liam ruling) this function emits TWO distinct rows:
+//   · ai.suggested_message_view — unconditionally on every non-error return
+//     (cache hit, gated/no-summary null, generated draft all count);
+//   · ai.suggested_message (生成) — ONLY when the OpenAI call actually ran,
+//     via the private auditLockout-pattern helper. A cache hit MUST NOT
+//     produce a 生成 row — that lie was the whole field bug.
+// Not a route, so called directly rather than via testApiHandler; reuses the
 // shared top-of-file mocks (openai, ai-cache, org-settings, feature-gate,
 // audit-web).
-describe('getSuggestedFollowUp (src/lib/karute/ai-outreach.ts) — auditWeb writer', () => {
+const OUTREACH_PARAMS = {
+  karuteId: 'karute-1',
+  customerId: 'cust-1',
+  customerName: 'Jane',
+  summary: 'Client came in for a haircut.',
+  locale: 'en',
+}
+
+describe('getSuggestedFollowUp (src/lib/karute/ai-outreach.ts) — view row always, 生成 row only on real generation', () => {
   beforeEach(() => {
     jest.clearAllMocks()
   })
 
-  it('success (generated draft): auditWeb called exactly once with the closed shape', async () => {
+  it('generated draft: 生成 row THEN view row, both carrying detail.customer_id', async () => {
     ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
       choices: [{ message: { parsed: { body: 'Thanks for visiting today!' } } }],
     })
-    const draft = await getSuggestedFollowUp({
-      karuteId: 'karute-1',
-      customerName: 'Jane',
-      summary: 'Client came in for a haircut.',
-      locale: 'en',
-    })
+    const draft = await getSuggestedFollowUp(OUTREACH_PARAMS)
     expect(draft).toEqual({ channel: 'LINE', body: 'Thanks for visiting today!' })
+    expect(auditWeb).toHaveBeenCalledTimes(2)
+    // calls[0] = the 生成 helper (fires inside the generation branch, before
+    // the unconditional view emit on the return path).
+    expect(auditWeb.mock.calls[0][0]).toEqual({
+      category: 'ai',
+      action: 'ai.suggested_message',
+      targetType: 'karute',
+      targetId: 'karute-1',
+      detail: { customer_id: 'cust-1' },
+      requestId: expect.stringMatching(UUID_RE),
+    })
+    expect(auditWeb.mock.calls[1][0]).toEqual({
+      category: 'ai',
+      action: 'ai.suggested_message_view',
+      targetType: 'karute',
+      targetId: 'karute-1',
+      detail: { customer_id: 'cust-1' },
+      requestId: expect.stringMatching(UUID_RE),
+    })
+  })
+
+  it('cache hit: view row ONLY — no 生成 row, no OpenAI call', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache')
+    ;(getCachedAI as jest.Mock).mockResolvedValueOnce({ body: 'cached draft' })
+    const draft = await getSuggestedFollowUp(OUTREACH_PARAMS)
+    expect(draft).toEqual({ channel: 'LINE', body: 'cached draft' })
+    expect(openai.chat.completions.parse).not.toHaveBeenCalled()
     expect(auditWeb).toHaveBeenCalledTimes(1)
-    expect(auditWeb).toHaveBeenCalledWith(
-      expect.objectContaining({
-        category: 'ai',
-        action: 'ai.suggested_message',
-        targetType: 'karute',
-        targetId: 'karute-1',
-        requestId: expect.stringMatching(UUID_RE),
-      }),
-    )
-    // Closed shape: 5 keys exactly — incl. targetType/targetId (unlike the
-    // 4 legacy routes above, which carry no target).
-    expect(Object.keys(auditWeb.mock.calls[0][0]).sort()).toEqual([
-      'action',
-      'category',
-      'requestId',
-      'targetId',
-      'targetType',
-    ])
+    expect(auditWeb.mock.calls[0][0]).toMatchObject({ action: 'ai.suggested_message_view' })
+  })
+
+  it('no summary (null draft): view row ONLY — a non-result is still a completed read', async () => {
+    const draft = await getSuggestedFollowUp({ ...OUTREACH_PARAMS, summary: '  ' })
+    expect(draft).toBeNull()
+    expect(openai.chat.completions.parse).not.toHaveBeenCalled()
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0]).toMatchObject({ action: 'ai.suggested_message_view' })
+  })
+
+  it('null customerId degrades to detail.customer_id null, never a dropped row', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache')
+    ;(getCachedAI as jest.Mock).mockResolvedValueOnce({ body: 'cached draft' })
+    await getSuggestedFollowUp({ ...OUTREACH_PARAMS, customerId: null })
+    expect(auditWeb).toHaveBeenCalledTimes(1)
+    expect(auditWeb.mock.calls[0][0]).toMatchObject({ detail: { customer_id: null } })
   })
 
   it('error path (OpenAI throws, caught internally): auditWeb never called', async () => {
     ;(openai.chat.completions.parse as jest.Mock).mockRejectedValue(new Error('LLM error'))
-    const draft = await getSuggestedFollowUp({
-      karuteId: 'karute-1',
-      customerName: 'Jane',
-      summary: 'Client came in for a haircut.',
-      locale: 'en',
-    })
+    const draft = await getSuggestedFollowUp(OUTREACH_PARAMS)
     expect(draft).toBeNull()
     expect(auditWeb).not.toHaveBeenCalled()
+  })
+})
+
+// (d2) Facade (Bearer) twin — the 生成 helper emits through the REAL audit()
+// (auditWeb is web-only), so assertions read the raw console sink via
+// auditLines. The per-VIEW row on this path is the route hook's
+// (logFacadeAudit), out of scope here — so a generation prints EXACTLY ONE
+// line, and a cache hit prints ZERO.
+describe('getSuggestedFollowUpWithClient — facade 生成 row only on real generation', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  const call = () =>
+    getSuggestedFollowUpWithClient(
+      {} as never,
+      'biz-1',
+      'staff-uid-1',
+      'req-1',
+      OUTREACH_PARAMS,
+    )
+
+  it('generated draft: one facade 生成 line with actor/requestId/customer_id', async () => {
+    ;(openai.chat.completions.parse as jest.Mock).mockResolvedValue({
+      choices: [{ message: { parsed: { body: 'Thanks!' } } }],
+    })
+    const lines = await auditLines(async () => {
+      await expect(call()).resolves.toEqual({ channel: 'LINE', body: 'Thanks!' })
+    })
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({
+      category: 'ai',
+      action: 'ai.suggested_message',
+      actor_id: 'staff-uid-1',
+      actor_type: 'staff',
+      business_id: 'biz-1',
+      target_type: 'karute',
+      target_id: 'karute-1',
+      detail: { customer_id: 'cust-1' },
+      request_id: 'req-1',
+      source: 'facade',
+    })
+  })
+
+  it('cache hit: zero audit lines from this function (the hook owns the view row)', async () => {
+    const { getCachedAI } = jest.requireMock('@/lib/ai-cache')
+    ;(getCachedAI as jest.Mock).mockResolvedValueOnce({ body: 'cached draft' })
+    const lines = await auditLines(async () => {
+      await expect(call()).resolves.toEqual({ channel: 'LINE', body: 'cached draft' })
+    })
+    expect(openai.chat.completions.parse).not.toHaveBeenCalled()
+    expect(lines).toHaveLength(0)
   })
 })
 

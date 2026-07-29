@@ -10,6 +10,7 @@ App-emitted actions only — core-written rows may carry actions outside this li
 | `ai.consult_session` | ai | live | `settings.auditLog.actions.ai.consult_session` |
 | `ai.memory_extract` | ai | live | `settings.auditLog.actions.ai.memory_extract` |
 | `ai.suggested_message` | ai | live | `settings.auditLog.actions.ai.suggested_message` |
+| `ai.suggested_message_view` | ai | live | `settings.auditLog.actions.ai.suggested_message_view` |
 | `ai.summary_generate` | ai | live | `settings.auditLog.actions.ai.summary_generate` |
 | `audit.unmapped_endpoint` | privacy | live | `settings.auditLog.actions.audit.unmapped_endpoint` |
 | `auth.pin_lockout` | auth | live | `settings.auditLog.actions.auth.pin_lockout` |

@@ -48,9 +48,9 @@ jest.mock('@/actions/karute', () => ({ getCustomerKaruteRecordsWithClient: () =>
 
 const getBodyPredictionWithClient = jest.fn(async (): Promise<unknown> => ({ headline: 'h', confidence: 70, delta: null, recommended: '1〜2週間後', recommendedSub: null, rationaleSummary: 'r' }))
 jest.mock('@/lib/karute/ai-body-prediction', () => ({ getBodyPredictionWithClient: () => getBodyPredictionWithClient() }))
-type MsgParams = { summary: string; customerName: string; karuteId: string; locale: string }
-const getSuggestedFollowUpWithClient = jest.fn<Promise<unknown>, [unknown, string, MsgParams]>(async () => ({ channel: 'LINE', body: 'draft body' }))
-jest.mock('@/lib/karute/ai-outreach', () => ({ getSuggestedFollowUpWithClient: (s: unknown, b: string, p: MsgParams) => getSuggestedFollowUpWithClient(s, b, p) }))
+type MsgParams = { summary: string; customerName: string; customerId: string | null; karuteId: string; locale: string }
+const getSuggestedFollowUpWithClient = jest.fn<Promise<unknown>, [unknown, string, string, string, MsgParams]>(async () => ({ channel: 'LINE', body: 'draft body' }))
+jest.mock('@/lib/karute/ai-outreach', () => ({ getSuggestedFollowUpWithClient: (s: unknown, b: string, a: string, r: string, p: MsgParams) => getSuggestedFollowUpWithClient(s, b, a, r, p) }))
 
 import { GET as bodyPrediction, OPTIONS as bodyOptions } from '@/app/api/app/v1/customers/[id]/ai/body-prediction/route'
 import { GET as suggestedMessage, OPTIONS as msgOptions } from '@/app/api/app/v1/karute/[id]/ai/suggested-message/route'
@@ -122,10 +122,37 @@ describe('GET /karute/[id]/ai/suggested-message (Decision 1)', () => {
     expect(res.status).toBe(200)
     expect((await res.json()).draft.body).toBe('draft body')
     // summary + customerName come from the record/customer, never the client.
-    const [, , params] = getSuggestedFollowUpWithClient.mock.calls[0]
+    const [, , actorId, requestId, params] = getSuggestedFollowUpWithClient.mock.calls[0]
     expect(params.summary).toBe('・肩こり改善傾向')
     expect(params.customerName).toBe('山田 花子')
     expect(params.karuteId).toBe('kar-1')
+    // 2026-07-29 honesty split: the record's customer threads through for the
+    // 生成 row's detail; actor/requestId thread from the verified identity so
+    // a real generation stamps the same requestId as this request's view row.
+    expect(params.customerId).toBe('cust-1')
+    expect(actorId).toBe('auth-user-1')
+    expect(typeof requestId).toBe('string')
+    expect(requestId.length).toBeGreaterThan(0)
+  })
+
+  it('hook row is the VIEW twin and carries detail.customer_id (Wave V name-join canon)', async () => {
+    const { auditLines } = await import('./helpers/audit-lines')
+    const lines = await auditLines(async () => {
+      const res = await suggestedMessage(req({ headers: auth }), routeFor('kar-1'))
+      expect(res.status).toBe(200)
+    })
+    const hookRows = lines.filter((l) => l.action === 'ai.suggested_message_view')
+    expect(hookRows).toHaveLength(1)
+    expect(hookRows[0]).toMatchObject({
+      category: 'ai',
+      target_type: 'karute',
+      target_id: 'kar-1',
+      detail: expect.objectContaining({ customer_id: 'cust-1' }),
+      source: 'facade',
+    })
+    // And no 生成 row from a mocked cache-served draft — the mutation action
+    // may only ever be emitted by the real generation branch.
+    expect(lines.filter((l) => l.action === 'ai.suggested_message')).toHaveLength(0)
   })
   it('generator miss (locked/no-summary/failure) → 200 { draft: null }', async () => {
     getSuggestedFollowUpWithClient.mockResolvedValueOnce(null)
