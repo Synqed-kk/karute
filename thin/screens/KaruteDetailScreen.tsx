@@ -12,8 +12,7 @@
 // without it the screen throws at mount; with it the owner-hides-the-panel privacy
 // gate still holds.
 
-import { useEffect, useState } from 'react'
-import { getDataPort } from '@/lib/ports/data-port'
+import { useAiSlot } from '@/lib/karute/use-ai-slot'
 import { SessionProvider } from '@/providers/session-provider'
 import { KaruteDetailView } from '@/components/karute/redesign/detail/KaruteDetailView'
 import { PhotoRecordsCard } from '@/components/karute/redesign/detail/PhotoRecordsCard'
@@ -32,28 +31,9 @@ import { ScreenStates, useScreenDto } from './ScreenBoundary'
 const parse = (raw: unknown): KaruteDetailScreenDTOType =>
   KaruteDetailScreenDTO.parse(raw)
 
-/** Fetch a Decision-1 AI card on mount. The preview is BOTH the loading state and
- *  the null/failure state (web fallback parity — the card "can never look worse").
- *  A non-2xx or a null payload keeps the preview; never surfaces an error. */
-function useAiSlot<T>(path: string | null, pick: (body: unknown) => T | null): T | null {
-  const [value, setValue] = useState<T | null>(null)
-  useEffect(() => {
-    if (!path) return
-    let alive = true
-    getDataPort()
-      .apiFetch(path)
-      .then(async (res) => (res.ok ? pick(await res.json().catch(() => null)) : null))
-      .then((v) => {
-        if (alive && v) setValue(v)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pick is a stable module fn; path drives the fetch
-  }, [path])
-  return value
-}
+// The AI cards fetch via src/lib/karute/use-ai-slot (session cache seeded
+// synchronously, wiped on sign-out; authoritative server null clears a stale
+// draft; fetch failure keeps the preview — "can never look worse").
 
 const enc = encodeURIComponent
 

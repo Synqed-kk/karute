@@ -1,5 +1,7 @@
 'use client'
 
+import { clearAiSlotCache } from '@/lib/karute/ai-slot-cache'
+
 /**
  * The ONE logout wipe for the session vault — call from every sign-out
  * surface (sidebar, profile, and any future mobile-auth purge).
@@ -26,6 +28,13 @@
  * takes on the shared device.
  */
 export async function wipeSessionVault(opts: { uid?: string } = {}): Promise<void> {
+  // AI-card session memory: cleared FIRST and SYNCHRONOUSLY (static import —
+  // the module is tiny and dependency-free, unlike the recorder chains
+  // below). The clear also bumps the epoch fence, so every in-flight AI
+  // response is invalidated before this function's first await; bumping
+  // after the dynamic-import await left a window where a settling response
+  // still counted as fresh (Greptile #649 r3).
+  clearAiSlotCache()
   const [{ globalRecorder }, { globalPipeline }, { clearDraft }, { clearOwnTakes }] =
     await Promise.all([
       import('@/lib/global-recorder'),

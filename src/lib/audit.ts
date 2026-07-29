@@ -464,7 +464,11 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // ai.* baseline (§3.1: "log →" rows) + karute.ai.suggestedMessage — writers
   // live as of Wave W1 (2026-07-28). Same twins as the out-of-facade legacy
   // /api/ai/* routes (API_ROUTE_DECISIONS below) — both get the same action
-  // per key.
+  // per key. ⚠ ai.suggestions still emits ai.suggested_message on EVERY 2xx
+  // (incl. cache hits) while karute.ai.suggestedMessage below diverged to the
+  // 2026-07-29 honesty split (view row per open, 生成 only on real
+  // generation) — the same split for the suggestions feature is a queued
+  // follow-up (see the ledger's residual note).
   'ai.extract': { kind: 'mutation', category: 'ai', action: 'ai.memory_extract' },
   'ai.summarize': { kind: 'mutation', category: 'ai', action: 'ai.summary_generate' },
   // FIX ROUND 1 (2026-07-28) correction: the prior comment cited the WEB
@@ -479,11 +483,16 @@ export const FACADE_AUDIT_MAP: Record<FacadeEndpointKey, FacadeAuditRule> = {
   // (API_ROUTE_DECISIONS['ai/transcribe']) instead of here.
   'ai.transcribe': { kind: 'mutation', category: 'recording', action: 'recording.transcribe' },
   'ai.suggestions': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message' },
-  // Weakest-held row (D2) — hidden from default feed is a Wave W viewer
-  // concern, not a facade-map field; writer live as of Wave W1 (2026-07-28).
-  // Facade-side client: thin/screens/KaruteDetailScreen.tsx:81 (SuggestedMessageSlot's
+  // 2026-07-29 honesty split (Liam ruling; ledgered — docs/audit-weakening-
+  // ledger.md): this hook row fires on EVERY 2xx of the draft GET, which is a
+  // cache-served READ on all but the first open — logging it as the mutation
+  // 'ai.suggested_message' (生成) flooded the default feed and inflated 変更
+  // with rows where no LLM ever ran. The per-open row is now the VIEW twin;
+  // the 生成 row moved to the actual generation site (ai-outreach.ts's
+  // AUDITED_CORES helpers, emitted only when OpenAI returns a draft).
+  // Facade-side client: thin/screens/KaruteDetailScreen.tsx (SuggestedMessageSlot's
   // useAiSlot call against this exact route).
-  'karute.ai.suggestedMessage': { kind: 'mutation', category: 'ai', action: 'ai.suggested_message', targetType: 'karute' },
+  'karute.ai.suggestedMessage': { kind: 'view', category: 'ai', action: 'ai.suggested_message_view', targetType: 'karute' },
 
   // customer.memory.* (§3.1: "Worst attribution cluster") — live now: the
   // facade's own hook is the first thing that has ever emitted these:

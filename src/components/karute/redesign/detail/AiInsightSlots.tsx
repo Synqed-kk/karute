@@ -44,7 +44,7 @@ export async function AISuggestedMessageSlot({
   summary: string | null
   locale: string
 }) {
-  const draft = await getSuggestedFollowUp({ karuteId, customerName, summary, locale })
+  const draft = await getSuggestedFollowUp({ karuteId, customerId, customerName, summary, locale })
   if (!draft) return <AIOutreachPreview />
   return (
     <AISuggestedMessageCard

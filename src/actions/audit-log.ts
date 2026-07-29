@@ -325,7 +325,48 @@ async function resolveTargetLabels(
     .filter((e) => e.target_type === 'karute')
     .map((e) => (e.detail as { customer_id?: unknown } | null)?.customer_id)
     .filter((id): id is string => typeof id === 'string' && id.length > 0)
-  const allCustomerIds = [...new Set([...customerIds, ...karuteCustomerIds])]
+  // 2026-07-29 field find (ぴあそん りえむ raw-UUID row): historical karute-target
+  // rows written before customer_id rode in detail can only resolve through the
+  // record itself — so ids still unresolved after the detail pass get a bounded,
+  // best-effort karute.get each (no ids-filter exists on karute.list — same SDK
+  // gap as pack-undo; a core ids filter would collapse this to one call). Cap
+  // keeps the worst page (50 distinct cold karutes) from fanning out unbounded;
+  // a capped-out or failed/deleted id stays raw, the honest state.
+  const detailKaruteIds = new Set(
+    events
+      .filter(
+        (e) =>
+          e.target_type === 'karute' &&
+          typeof (e.detail as { customer_id?: unknown } | null)?.customer_id === 'string',
+      )
+      .map((e) => e.target_id!),
+  )
+  const unresolvedKaruteIds = idsOf('karute')
+    .filter((id) => !detailKaruteIds.has(id))
+    .slice(0, 30)
+  const karuteCustomerById = new Map<string, string>()
+  if (unresolvedKaruteIds.length > 0) {
+    // async wrapper (not a bare .then chain): a SYNCHRONOUS throw — e.g. a
+    // client without the karuteRecords surface — must degrade to raw ids for
+    // those rows, never crash the whole feed.
+    await Promise.all(
+      unresolvedKaruteIds.map(async (id) => {
+        try {
+          // include_entries:false — this lookup exists ONLY to read
+          // customer_id; without it core defaults to shipping the full
+          // clinical entry set (blind-round P2, least-privilege).
+          const r = await synqed.karuteRecords.get(id, { include_entries: false })
+          const cid = (r as { customer_id?: unknown }).customer_id
+          if (typeof cid === 'string' && cid.length > 0) karuteCustomerById.set(id, cid)
+        } catch {
+          /* id stays raw */
+        }
+      }),
+    )
+  }
+  const allCustomerIds = [
+    ...new Set([...customerIds, ...karuteCustomerIds, ...karuteCustomerById.values()]),
+  ]
   if (allCustomerIds.length > 0) {
     try {
       const { customers } = await synqed.customers.list({
@@ -339,7 +380,9 @@ async function resolveTargetLabels(
       }
       for (const e of events) {
         if (e.target_type !== 'karute' || !e.target_id) continue
-        const cid = (e.detail as { customer_id?: unknown } | null)?.customer_id
+        const cid =
+          (e.detail as { customer_id?: unknown } | null)?.customer_id ??
+          karuteCustomerById.get(e.target_id)
         const name = typeof cid === 'string' ? nameById.get(cid) : undefined
         if (name) labels[e.target_id] = name
       }

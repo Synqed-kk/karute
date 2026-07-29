@@ -13,6 +13,7 @@ import {
 import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
 import { KARUTE_PROMPT_VERSION, cleanNameToken } from '@/lib/karute/prompt-fragments'
 import type { SuggestedMessage } from '@/components/karute/redesign/detail/AISuggestedMessageCard'
+import { audit } from '@/lib/audit'
 import { auditWeb } from '@/lib/audit-web'
 
 const OutreachSchema = z.object({
@@ -33,9 +34,49 @@ const OutreachSchema = z.object({
  */
 interface OutreachParams {
   karuteId: string
+  /** For the audit rows' detail.customer_id (viewer name-join, Wave V
+   *  karute-target canon) — never a prompt anchor. */
+  customerId: string | null
   customerName: string
   summary: string | null
   locale: string
+}
+
+/** 生成-row emitters (Liam ruling 2026-07-29: the ai.suggested_message row
+ *  means "the LLM actually ran", never "the card was viewed"). Private
+ *  helpers on the auditLockout pattern (CP7): each body emits
+ *  UNCONDITIONALLY on its one return path and is AUDITED_CORES-registered;
+ *  computeSuggestedFollowUp conditions the CALL (generation branch only —
+ *  cache hits and gated/no-summary nulls never reach it). */
+async function auditSuggestedMessageGeneratedWeb(params: OutreachParams): Promise<void> {
+  await auditWeb({
+    category: 'ai',
+    action: 'ai.suggested_message',
+    targetType: 'karute',
+    targetId: params.karuteId,
+    detail: { customer_id: params.customerId },
+    requestId: crypto.randomUUID(),
+  })
+}
+
+function auditSuggestedMessageGeneratedFacade(
+  businessId: string,
+  actorId: string,
+  requestId: string,
+  params: OutreachParams,
+): void {
+  audit({
+    category: 'ai',
+    action: 'ai.suggested_message',
+    actorId,
+    actorType: 'staff',
+    businessId,
+    targetType: 'karute',
+    targetId: params.karuteId,
+    detail: { customer_id: params.customerId },
+    requestId,
+    source: 'facade',
+  })
 }
 
 /** Web (cookie) entry — cookie org-settings + cookie feature gate. */
@@ -52,6 +93,7 @@ export async function getSuggestedFollowUp(
         const { featureAllowed } = await import('@/lib/subscription/feature-gate')
         return featureAllowed('aiOutreachDrafts')
       },
+      () => auditSuggestedMessageGeneratedWeb(params),
     )
   } catch (err) {
     // Errors are not actions (same doctrine as the /api/ai/* routes' catch
@@ -59,17 +101,18 @@ export async function getSuggestedFollowUp(
     console.error('[getSuggestedFollowUp] failed:', err)
     return null
   }
-  // 監査ログ Wave W1 (real-coverage-gap fix): the web twin of the facade's
-  // karute.ai.suggestedMessage row (handler.ts's generic hook fires
-  // unconditionally on every facade 2xx, regardless of draft content) — this
-  // fires unconditionally on every non-error return of computeSuggestedFollowUp
+  // Per-VIEW row, web twin of the facade's karute.ai.suggestedMessage hook row
+  // (both view-kind since the 2026-07-29 honesty split — Liam ruling): fires
+  // unconditionally on every non-error return of computeSuggestedFollowUp
   // (cache-hit, plan-locked/no-summary null, and a freshly generated draft all
-  // count) so the web surface stops being silently unaudited.
+  // count) so the web surface stays audited. The 生成 row is the conditional
+  // helper above — a real generation therefore writes view + 生成 together.
   await auditWeb({
     category: 'ai',
-    action: 'ai.suggested_message',
+    action: 'ai.suggested_message_view',
     targetType: 'karute',
     targetId: params.karuteId,
+    detail: { customer_id: params.customerId },
     requestId: crypto.randomUUID(),
   })
   return result
@@ -77,12 +120,16 @@ export async function getSuggestedFollowUp(
 
 /** Facade (Bearer) entry — identity-threaded org-settings + business-scoped
  *  feature gate (packet 07 Decision 1). Same generator core, no cookie. The
- *  facade's own generic success hook (logFacadeAudit) is the ONE emitter for
- *  this path — this function stays audit-free (same Core/WithClient split
- *  convention as the rest of the codebase) to avoid double-logging. */
+ *  facade's generic success hook (logFacadeAudit) owns the per-VIEW row for
+ *  this path (karute.ai.suggestedMessage, view-kind since 2026-07-29); the
+ *  actor/requestId args exist ONLY so a real generation can stamp its 生成
+ *  row via the facade helper above — this function itself stays emit-free
+ *  (Core/WithClient split convention). */
 export async function getSuggestedFollowUpWithClient(
   synqed: Pick<SynqedClient, 'orgSettings'>,
   businessId: string,
+  actorId: string,
+  requestId: string,
   params: OutreachParams,
 ): Promise<SuggestedMessage | null> {
   try {
@@ -93,6 +140,7 @@ export async function getSuggestedFollowUpWithClient(
         const { featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
         return featureAllowedForBusiness(businessId, 'aiOutreachDrafts')
       },
+      async () => auditSuggestedMessageGeneratedFacade(businessId, actorId, requestId, params),
     )
   } catch (err) {
     console.error('[getSuggestedFollowUpWithClient] failed:', err)
@@ -104,6 +152,7 @@ async function computeSuggestedFollowUp(
   params: OutreachParams,
   resolveOrgSettings: () => Promise<OrgSettings | null>,
   checkOutreachAllowed: () => Promise<boolean>,
+  onGenerated: () => Promise<void>,
 ): Promise<SuggestedMessage | null> {
   const { karuteId, summary, locale } = params
   if (!summary?.trim()) return null
@@ -173,6 +222,17 @@ ${defensivePreamble(locale)}`
   })
   const body = completion.choices[0]?.message?.parsed?.body?.trim()
   if (!body) return null
-  await setCachedAI('karute_followup', cacheInput, { body }, 7).catch(() => {})
+  // The LLM produced a usable draft — the ONE place this feature's 生成 row
+  // is earned (a completed call with an empty/unparseable body earns
+  // nothing: taxonomy = "draft generated", not "tokens spent"). Best-effort
+  // like every audit emit (the helper never throws for web; facade audit()
+  // is fire-and-forget) — a logging failure must not cost the draft.
+  await onGenerated().catch(() => {})
+  // Liam ruling 2026-07-29: a generated draft is FACTS-KEYED, not time-keyed —
+  // it must never quietly regenerate while the karute is unchanged. The key
+  // already hashes the full summary (any edit/regen = new key = fresh draft),
+  // so retention is the only expiry left: 365d = effectively "keep until the
+  // facts change" within core ai_cache's expires_at contract.
+  await setCachedAI('karute_followup', cacheInput, { body }, 365).catch(() => {})
   return { channel: 'LINE', body }
 }

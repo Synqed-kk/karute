@@ -2212,7 +2212,8 @@
           "consult_session": "Used AI consult",
           "memory_extract": "Auto-extracted memory",
           "summary_generate": "Generated AI summary",
-          "suggested_message": "Generated AI suggested message"
+          "suggested_message": "Generated AI suggested message",
+          "suggested_message_view": "Viewed AI suggested message"
         },
         "recording": {
           "transcribe": "Transcribed recording"
