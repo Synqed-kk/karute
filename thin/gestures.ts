@@ -16,7 +16,8 @@
 // Attached to <main> only — the bottom nav and its sheet are flex siblings
 // outside it, so tapping/swiping the bar can never switch tabs by accident.
 
-import { useEffect, type RefObject } from 'react'
+import { useEffect, useRef, type RefObject } from 'react'
+import { getSessionState, hasKnownSession } from '@/lib/auth/mobile/session-store'
 import { useRouter } from './ports/nav.vite'
 
 export const TAB_ORDER = ['/dashboard', '/appointments', '/karute', '/customers'] as const
@@ -50,28 +51,60 @@ export function swipeTarget(s: SwipeInput): string | null {
   return TAB_ORDER[to] ?? null
 }
 
-/** True when the touch began inside an element that scrolls horizontally
- *  itself (carousel, time grid, chip row) — that element owns the swipe.
- *  Threshold is deliberately COARSE (48px): per CSS, every overflow-y:auto
- *  container computes overflow-x:auto too, and list containers routinely
- *  overflow sideways by a few bleed pixels (-mx-4 rows) — that must NOT
- *  suppress the tab swipe. A real carousel/grid overflows by hundreds. */
+/** True when the touch began inside an element that owns the gesture itself:
+ *
+ *  - a horizontal scroller (carousel, time grid, chip row). Threshold is
+ *    deliberately COARSE (48px): per CSS, every overflow-y:auto container
+ *    computes overflow-x:auto too, and list containers routinely overflow
+ *    sideways by a few bleed pixels (-mx-4 rows) — that must NOT suppress
+ *    the tab swipe. A real carousel/grid overflows by hundreds.
+ *  - an OVERLAY rendered inline inside <main> (fixed-position sheet like
+ *    CancelBookingSheet, or anything tagged data-gesture-inert). A swipe on
+ *    an open sheet must never switch the screen underneath it — with the
+ *    cancel sheet's hold-to-confirm that could fire a destructive action
+ *    AND navigate in one release. Portaled dialogs are outside <main> and
+ *    never reach this walk.
+ */
 export const H_SCROLL_SLOP = 48
-function insideHorizontalScroller(start: EventTarget | null, stop: HTMLElement): boolean {
+function ownsTheGesture(start: EventTarget | null, stop: HTMLElement): boolean {
   let el = start instanceof Element ? start : null
   while (el && el !== stop) {
-    if (el instanceof HTMLElement && el.scrollWidth > el.clientWidth + H_SCROLL_SLOP) {
-      const overflowX = getComputedStyle(el).overflowX
-      if (overflowX === 'auto' || overflowX === 'scroll') return true
+    if (el instanceof HTMLElement) {
+      if (el.dataset.gestureInert !== undefined) return true
+      const style = getComputedStyle(el)
+      if (style.position === 'fixed') return true
+      if (
+        el.scrollWidth > el.clientWidth + H_SCROLL_SLOP &&
+        (style.overflowX === 'auto' || style.overflowX === 'scroll')
+      ) {
+        return true
+      }
     }
     el = el.parentElement
   }
   return false
 }
 
+/** The chrome's own mounted-app gate (ThinChromeNav): signed-in, or an
+ *  offline resume with a known session. A signed-out boot renders LoginScreen
+ *  while location.pathname can still be a TAB_ORDER path (main.tsx rewrites
+ *  '/' → '/customers' before render) — swipes must not mutate history under
+ *  the login screen. */
+function signedIn(): boolean {
+  const s = getSessionState()
+  return s.status === 'signed-in' || (s.status === 'recovering' && hasKnownSession())
+}
+
 /** Wires both behaviors onto the shell's scroll container. */
 export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
-  const router = useRouter()
+  // useRouter() mints a fresh object every render; depending on it would
+  // tear down and re-arm the listeners (and kill an in-flight gesture) on
+  // every ThinShell re-render. push closes over nothing, so a ref is safe.
+  const { push } = useRouter()
+  const pushRef = useRef(push)
+  useEffect(() => {
+    pushRef.current = push
+  })
   useEffect(() => {
     const main = mainRef.current
     if (!main) return
@@ -84,7 +117,13 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
     const prevTouchAction = main.style.touchAction
     main.style.touchAction = 'pan-y'
 
-    const onStatusTap = () => main.scrollTo({ top: 0, behavior: 'smooth' })
+    const onStatusTap = () => {
+      // iOS convention scrolls the frontmost scrollable; with a portaled
+      // dialog open, scrolling the hidden content behind it would be a
+      // surprise on close — do nothing instead.
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return
+      main.scrollTo({ top: 0, behavior: 'smooth' })
+    }
     window.addEventListener('karute:status-tap', onStatusTap)
 
     // touchend/touchcancel attach DIRECTLY to the touchstart target, per
@@ -101,7 +140,7 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
         x: t.clientX,
         y: t.clientY,
         t: Date.now(),
-        scroller: insideHorizontalScroller(e.target, main),
+        scroller: ownsTheGesture(e.target, main),
       }
       const node = e.target
       if (!node) return
@@ -119,7 +158,7 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
           viewportWidth: window.innerWidth,
         }
         const target = swipeTarget(input)
-        if (target) router.push(target)
+        if (target && signedIn()) pushRef.current(target)
       }
       const onCancel = () => detachGesture?.()
       node.addEventListener('touchend', onEnd, { passive: true })
@@ -138,5 +177,5 @@ export function useStandardIOSGestures(mainRef: RefObject<HTMLElement | null>) {
       main.removeEventListener('touchstart', onTouchStart)
       detachGesture?.()
     }
-  }, [mainRef, router])
+  }, [mainRef])
 }

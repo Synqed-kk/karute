@@ -137,15 +137,28 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver, UIScro
     // Standard iOS behaviors (Liam 7/29): edge-swipe back/forward across the
     // SPA's pushState history, and status-bar tap → scroll-to-top (forwarded
     // to the web layer, which owns the actual scroll container).
+    //
+    // LOCAL shell mode only. A remote-mode binary (the config's documented
+    // instant-rollback story) serves the live site, which has no
+    // karute:status-tap listener — disabling the webView's own scrollsToTop
+    // there would silently break native scroll-to-top, and the back gesture
+    // would expose the launch redirect's stale landing//login history
+    // entries. Remote mode keeps today's behavior untouched.
     private func setupStandardIOSGestures() {
+        guard bridge?.config.serverURL.scheme == "capacitor" else {
+            NSLog("[CookieVC] gesture setup skipped (remote shell mode)")
+            return
+        }
         webView?.allowsBackForwardNavigationGestures = true
 
-        // See statusTapCatcher above: park a 1pt scrollable view off the layout
-        // and make it the only scroll-to-top candidate. Fully eligible: visible
-        // alpha (transparent background — nothing renders), interactive,
-        // scrollable content, offset off the top.
+        // See statusTapCatcher above: a 1pt scrollable view as the only
+        // scroll-to-top candidate. Fully eligible: visible alpha (transparent
+        // background — nothing renders), interactive, scrollable content,
+        // offset off the top. Parked at x=200 — outside both screen-edge
+        // gesture zones, so its 1pt hit-test area can never intersect the
+        // back/forward edge-swipe start region.
         webView?.scrollView.scrollsToTop = false
-        statusTapCatcher.frame = CGRect(x: 0, y: 120, width: 1, height: 1)
+        statusTapCatcher.frame = CGRect(x: 200, y: 120, width: 1, height: 1)
         statusTapCatcher.contentSize = CGSize(width: 1, height: 3)
         statusTapCatcher.contentOffset = CGPoint(x: 0, y: 1)
         statusTapCatcher.backgroundColor = .clear
@@ -154,27 +167,16 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver, UIScro
         statusTapCatcher.scrollsToTop = true
         statusTapCatcher.delegate = self
         view.addSubview(statusTapCatcher)
-        NSLog("[CookieVC] gesture setup: backForward=%d catcher eligible (frame=%@ offset=%@)",
-              webView?.allowsBackForwardNavigationGestures == true ? 1 : 0,
-              NSCoder.string(for: statusTapCatcher.frame),
-              NSCoder.string(for: statusTapCatcher.contentOffset))
     }
 
     // Status-bar tap lands here (the catcher is the only eligible scroll view).
     // Forward to the web layer and decline the native scroll so the catcher
     // stays scrolled (eligible for the next tap either way).
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
-        NSLog("[CookieVC] status-bar tap (catcher=%d) — forwarding to web",
-              scrollView === statusTapCatcher ? 1 : 0)
         guard scrollView === statusTapCatcher else { return false }
+        NSLog("[CookieVC] status-bar tap — forwarding to web")
         bridge?.eval(js: "window.dispatchEvent(new Event('karute:status-tap'))")
         return false
-    }
-
-    // Belt-and-braces observability while smoking this in the sim: if the
-    // system scrolls the catcher instead of asking, this still fires.
-    func scrollViewDidScrollToTop(_ scrollView: UIScrollView) {
-        NSLog("[CookieVC] didScrollToTop fired")
     }
 
     // Splash failsafe. launchAutoHide=false (capacitor.config.ts) keeps the
