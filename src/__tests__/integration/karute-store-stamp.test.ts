@@ -232,6 +232,13 @@ describe('recorded saves copy the booked menu + recording minutes (7/29 field re
       expect.objectContaining({ service: null, duration_minutes: null }),
     )
   })
+
+  it('negative duration never persists as negative minutes (trust boundary)', async () => {
+    await saveKaruteRecordInline({ ...baseInput, duration: -300 })
+    expect(karuteRecords.create).toHaveBeenCalledWith(
+      expect.objectContaining({ duration_minutes: null }),
+    )
+  })
 })
 
 describe('createManualKaruteRecord — store_id resolution', () => {

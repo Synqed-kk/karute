@@ -25,6 +25,7 @@ import { buildDiarizedTranscript, toSpeakerText } from '@/lib/diarized'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { audit } from '@/lib/audit'
 import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
 /** The enqueue payload contract (client → core job row → this worker). */
@@ -302,9 +303,7 @@ async function upsertKaruteRecord(
     transcript: result.transcript,
     ai_summary: result.summary,
     service: linkedAppointment?.title ?? null,
-    duration_minutes: payload.duration_seconds
-      ? Math.round(payload.duration_seconds / 60)
-      : null,
+    duration_minutes: durationMinutesFromSeconds(payload.duration_seconds),
     entries,
   })
   return record.id

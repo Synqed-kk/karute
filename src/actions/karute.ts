@@ -9,6 +9,7 @@ import { getSynqedClient } from '@/lib/synqed/client'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { setKaruteOutcome } from '@/lib/karute/outcome'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import { audit } from '@/lib/audit'
 import { resolveWebAuditContext } from '@/lib/audit-web'
@@ -310,7 +311,7 @@ export async function saveKaruteRecord(
         // update path never sends these, so an existing value (manual entry,
         // pipeline-written duration) is never overwritten by a re-save.
         service: linkedAppointment?.title ?? null,
-        duration_minutes: input.duration ? Math.round(input.duration / 60) : null,
+        duration_minutes: durationMinutesFromSeconds(input.duration),
         transcript: input.transcript,
         ai_summary: input.summary,
         entries: input.entries.map((entry) => ({
@@ -432,7 +433,7 @@ export async function saveKaruteRecordInline(
         recording_session_id: input.recordingSessionId ?? null,
         // Same booked-menu + recording-minutes fill as saveKaruteRecord.
         service: linkedAppointment?.title ?? null,
-        duration_minutes: input.duration ? Math.round(input.duration / 60) : null,
+        duration_minutes: durationMinutesFromSeconds(input.duration),
         transcript: input.transcript,
         ai_summary: input.summary,
         entries: input.entries.map((entry) => ({

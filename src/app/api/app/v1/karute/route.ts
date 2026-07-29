@@ -18,6 +18,7 @@ import { requireIdempotencyKey, resolveSelfStaffId } from '@/lib/app-api/custome
 import { SaveKaruteSchema } from '@/lib/app-api/record-schemas'
 import { isConsentCurrent, CONSENT_REQUIRED_ERROR } from '@/lib/consent'
 import { createOrUpdateKaruteRecord } from '@/actions/karute'
+import { durationMinutesFromSeconds } from '@/lib/karute/duration-minutes'
 import { setKaruteOutcomeWithClient } from '@/lib/karute/outcome'
 import { ingestSessionMemory } from '@/lib/karute/memory-ingest'
 import type { SynqedClient, Appointment } from '@synqed-kk/client'
@@ -126,7 +127,7 @@ export const POST = facadeHandler('karute.save', async (ctx) => {
       // Booked menu + recording minutes — web-parity fill (see
       // saveKaruteRecord); the choke's update path never sends these.
       service: (linkedAppointment as { title?: string | null } | null)?.title ?? null,
-      duration_minutes: input.duration ? Math.round(input.duration / 60) : null,
+      duration_minutes: durationMinutesFromSeconds(input.duration),
       transcript: input.transcript,
       ai_summary: input.summary,
       entries: input.entries.map((entry) => ({
