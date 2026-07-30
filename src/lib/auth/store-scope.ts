@@ -86,7 +86,9 @@ export async function resolveStoreScope(): Promise<StoreScope> {
     // bookings quietly land in the primary store. One store is still strictly
     // narrower than the previous degraded result (no clamp at all), and the
     // lens itself is already clamped: setActiveStore only pins a store the
-    // staff is assigned to. No stores at all → nothing to scope to.
+    // staff is assigned to (at pin time — a later reassignment can leave a
+    // stale pin; still one store, still narrower than the old unclamped
+    // result). No stores at all → nothing to scope to.
     const storeId = activeStore ?? (await getPrimaryStoreId())
     return {
       storeId,

@@ -59,10 +59,11 @@ export async function GET(request: Request) {
   // Store clamp (#465 family): only stores.viewAll (owner / manager / SV) gets
   // the business-wide export. Everyone else — restricted AND floating staff —
   // clamps to their resolved store lens. Deliberately STRICTER than the
-  // customer-search convention (floating = every store): getStaffStores
-  // swallows lookup failures to [], which reads as floating, and a transient
-  // lookup error must not widen a bulk-PII export to the whole business
-  // (Greptile P1 ×2 on this PR). Fail CLOSED at both layers: a thrown scope
+  // customer-search convention (floating = every store): a transient lookup
+  // error must not widen a bulk-PII export to the whole business (Greptile
+  // P1 ×2 on this PR — since #653 resolveStoreScope clamps a failed
+  // assignment lookup itself; this route keeps its own layer regardless).
+  // Fail CLOSED at both layers: a thrown scope
   // resolution AND a non-viewAll scope with no resolvable store lens (double
   // lookup failure) both refuse the export — never fall through business-wide.
   let storeId: string | undefined
