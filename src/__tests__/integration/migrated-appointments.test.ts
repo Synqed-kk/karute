@@ -26,6 +26,27 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(async () => '28318e68-6b73-46ed-a1a2-c21299deee3f'),
 }))
 
+// The actions gate on can()/requireCapability. This suite previously relied
+// on the resolver's silent degradation to the practitioner preset when its
+// unmocked service client couldn't reach the dummy test URL; the resolver now
+// fails closed on such errors (Greptile #652 P1), so grant the gate explicitly
+// at the seam the actions actually call. Resolver discipline itself is pinned
+// in require-permission-fallback.test.ts.
+jest.mock('@/lib/auth/require-permission', () => ({
+  ...jest.requireActual('@/lib/auth/require-permission'),
+  can: jest.fn(async () => true),
+  requireCapability: jest.fn(async () => undefined),
+}))
+// getAppointmentsByDate resolves store scope (which chains into the same
+// resolver); unclamped view = the suite's pre-existing effective behavior.
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: jest.fn(async () => ({
+    storeId: null,
+    viewAll: true,
+    allowedStoreIds: null,
+  })),
+}))
+
 // Stub getOrgSettings so validateAppointmentTime treats operating hours as permissive
 jest.mock('@/actions/org-settings', () => ({
   getOrgSettings: jest.fn(async () => ({
