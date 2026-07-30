@@ -24,7 +24,7 @@ jest.mock('@/lib/staff', () => ({
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(async () => null),
   getPrimaryStoreId: jest.fn(async () => 'store-primary'),
-  getStaffStores: jest.fn(async () => ['store-b']),
+  getStaffStoresStrict: jest.fn(async () => ['store-b']),
 }))
 jest.mock('next/cache', () => ({
   unstable_cache: jest.fn((fn: (...a: unknown[]) => unknown) => fn),
@@ -33,12 +33,12 @@ jest.mock('next/cache', () => ({
 }))
 
 import { resolveStoreScope } from '@/lib/auth/store-scope'
-import { getStaffStores } from '@/actions/stores'
+import { getStaffStoresStrict } from '@/actions/stores'
 
 beforeEach(() => {
   jest.clearAllMocks()
   mockCaps.current = 'reject'
-  ;(getStaffStores as jest.Mock).mockResolvedValue(['store-b'])
+  ;(getStaffStoresStrict as jest.Mock).mockResolvedValue(['store-b'])
 })
 
 describe('resolveStoreScope — capability-resolution failure absorbed, never rejected', () => {
@@ -48,9 +48,25 @@ describe('resolveStoreScope — capability-resolution failure absorbed, never re
   })
 
   it('floating staff during a resolver failure → no clamp, primary-store lens, resolves', async () => {
-    ;(getStaffStores as jest.Mock).mockResolvedValue([])
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValue([])
     const scope = await resolveStoreScope()
     expect(scope).toEqual({ storeId: 'store-primary', viewAll: false, allowedStoreIds: null })
+  })
+
+  it('assignment lookup failure → restricted to nothing, never read as floating', async () => {
+    // An empty list means "works in every store", so a failed lookup must not
+    // produce one. Restricted-to-nothing keeps every membership check false.
+    ;(getStaffStoresStrict as jest.Mock).mockRejectedValue(new Error('core unavailable'))
+    const scope = await resolveStoreScope()
+    expect(scope).toEqual({ storeId: 'store-primary', viewAll: false, allowedStoreIds: [] })
+  })
+
+  it('healthy resolve + failed assignment lookup → still restricted to nothing (both dials checked)', async () => {
+    mockCaps.current = new Set(['customers.view'])
+    ;(getStaffStoresStrict as jest.Mock).mockRejectedValue(new Error('core unavailable'))
+    const scope = await resolveStoreScope()
+    expect(scope.allowedStoreIds).toEqual([])
+    expect(scope.viewAll).toBe(false)
   })
 
   it('sanity: healthy resolve with stores.viewAll keeps the unclamped lens', async () => {

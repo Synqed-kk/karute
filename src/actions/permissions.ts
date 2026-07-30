@@ -251,12 +251,24 @@ export async function setStaffPermissions(
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
-  const businessId = await getBusinessId()
-  const [callerCapabilities, callerStaffId, actorId] = await Promise.all([
-    getMyCapabilities(),
-    getCurrentUserStaffId(),
-    resolveWebActorId(),
-  ])
+  // Declared return is a result shape, and StaffForm awaits this action — a
+  // rejection here would cross the server-action boundary instead of becoming
+  // a toast. (Same resolve as the gate above, served from its per-request
+  // memo in the normal case.)
+  let businessId: string
+  let callerCapabilities: Set<Capability>
+  let callerStaffId: string | null
+  let actorId: string | null
+  try {
+    businessId = await getBusinessId()
+    ;[callerCapabilities, callerStaffId, actorId] = await Promise.all([
+      getMyCapabilities(),
+      getCurrentUserStaffId(),
+      resolveWebActorId(),
+    ])
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  }
   const result = await setStaffPermissionsCore(
     businessId,
     { callerCapabilities, callerStaffId, actorId, source: 'web', requestId: crypto.randomUUID() },

@@ -36,6 +36,10 @@ jest.mock('next/cache', () => ({
 
 import { setActiveStore } from '@/actions/stores'
 
+beforeEach(() => {
+  mockCookieSet.mockClear()
+})
+
 describe('setActiveStore — capability-resolution failure fails closed', () => {
   it('clamp applies (no viewAll assumed): pinning an unassigned store → house error, no cookie write, no rejection', async () => {
     const res = await setActiveStore('store-a')
@@ -47,5 +51,18 @@ describe('setActiveStore — capability-resolution failure fails closed', () => 
     const res = await setActiveStore('store-b')
     expect(res).toEqual({ ok: true })
     expect(mockCookieSet).toHaveBeenCalled()
+  })
+
+  it('assignment lookup failure → house error, clamp NOT skipped, no cookie write', async () => {
+    // The tolerant [] doubles as "floating = may pin any store", so a failed
+    // lookup must fail the switch rather than fall through unclamped.
+    const { getSynqedClient } = jest.requireMock('@/lib/synqed/client')
+    const client = await getSynqedClient()
+    client.staffStores.get.mockRejectedValueOnce(new Error('core unavailable'))
+    const res = await setActiveStore('store-a')
+    expect(res).toEqual({
+      error: 'Could not verify your store assignment. Please try again.',
+    })
+    expect(mockCookieSet).not.toHaveBeenCalled()
   })
 })

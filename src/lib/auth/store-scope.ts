@@ -14,7 +14,7 @@ import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
 import type { Capability } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
-import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
+import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
 export interface StoreScope {
   /** The store_id to filter store-scoped reads by. null = no store filter
@@ -25,7 +25,9 @@ export interface StoreScope {
   viewAll: boolean
   /** The stores the viewer is RESTRICTED to, or null when unrestricted
    *  (viewAll, or a floating staff with an empty staff_stores set). A non-null
-   *  array means reads + search MUST stay within it. */
+   *  array means reads + search MUST stay within it. An EMPTY array means the
+   *  assignment lookup failed: restricted to nothing, so every membership
+   *  check fails and search stays clamped — see resolveStoreScope. */
   allowedStoreIds: string[] | null
 }
 
@@ -40,6 +42,8 @@ export interface StoreScope {
  *   - no viewAll + has stores   → clamped: the cookie picks among the user's own
  *                                  stores; an out-of-scope / unset cookie falls
  *                                  back to their first assigned store.
+ *   - assignment lookup failed  → restricted to nothing (empty allowed list):
+ *                                  a failure must never read as "floating".
  */
 export async function resolveStoreScope(): Promise<StoreScope> {
   // Capability-resolution failure → treat as NO capabilities rather than
@@ -66,7 +70,23 @@ export async function resolveStoreScope(): Promise<StoreScope> {
     }
   }
 
-  const allowed = staffId ? await getStaffStores(staffId) : []
+  // Strict lookup here: a FAILED assignment read must not be mistaken for "no
+  // assignment". An empty set is the floating-staff convention (works in every
+  // store), so degrading a transient failure to [] would show a branch staff
+  // more than they normally see. On failure, restrict to nothing: every
+  // membership check fails and search stays clamped to the current store lens,
+  // which is narrower than both the healthy result and the previous degraded
+  // one. A genuine empty set from a SUCCESSFUL read keeps its meaning.
+  const allowed = staffId
+    ? await getStaffStoresStrict(staffId).catch(() => null) // null = lookup failed
+    : []
+  if (allowed === null) {
+    return {
+      storeId: activeStore ?? (await getPrimaryStoreId()),
+      viewAll: false,
+      allowedStoreIds: [],
+    }
+  }
   if (allowed.length === 0) {
     // Floating staff (assigned to no specific store) = works in every store,
     // per the staff_stores convention. Same unset-cookie default as above.

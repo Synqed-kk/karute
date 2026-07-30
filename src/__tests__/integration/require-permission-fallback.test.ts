@@ -33,7 +33,7 @@ jest.mock('@/lib/staff', () => ({
   getCurrentUserStaffId: jest.fn(),
 }))
 
-import { capabilitiesForUser } from '@/lib/auth/require-permission'
+import { can, capabilitiesForUser, requireCapability } from '@/lib/auth/require-permission'
 
 beforeEach(() => {
   mockState.combined = { data: null, error: null }
@@ -91,5 +91,31 @@ describe('capabilitiesForUser — fallback discipline (Greptile #652 P1)', () =>
     mockState.combined = { data: null, error: null }
     mockState.base = { data: null, error: null }
     await expect(capabilitiesForUser('u-1')).rejects.toThrow('capability resolution failed')
+  })
+
+  it('requireCapability separates a lookup failure from a denial (both still block)', async () => {
+    // The ~24 gate sites surface the thrown message in their { error } result:
+    // "try again" is retryable, "no permission" is not. Delegating this gate to
+    // can() would collapse the two into a denial.
+    const { getCurrentUserStaffId } = jest.requireMock('@/lib/staff')
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValue('u-1')
+    mockState.combined = { data: null, error: { code: '08006' } }
+    await expect(requireCapability('customers.view')).rejects.toThrow(/temporarily unavailable/)
+
+    mockState.combined = {
+      data: { display_role: 'stylist', permission_role: 'practitioner', permissions: [] },
+      error: null,
+    }
+    await expect(requireCapability('customers.view')).rejects.toThrow(/do not have permission/)
+  })
+
+  it('can() absorbs a resolver failure as a plain deny — boolean sites resolve false, never reject', async () => {
+    // can() is the seam for result-shaped actions and UI gating, whose callers
+    // await without try/catch — a rejection would become an unhandled server-
+    // action rejection during a DB hiccup. Deny is strictly narrower.
+    const { getCurrentUserStaffId } = jest.requireMock('@/lib/staff')
+    ;(getCurrentUserStaffId as jest.Mock).mockResolvedValueOnce('u-1')
+    mockState.combined = { data: null, error: { code: '08006' } }
+    await expect(can('customers.view')).resolves.toBe(false)
   })
 })

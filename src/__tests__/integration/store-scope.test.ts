@@ -13,19 +13,19 @@ jest.mock('@/lib/staff', () => ({ getCurrentUserStaffId: jest.fn() }))
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(),
   getPrimaryStoreId: jest.fn(),
-  getStaffStores: jest.fn(),
+  getStaffStoresStrict: jest.fn(),
 }))
 
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
 import { getCurrentUserStaffId } from '@/lib/staff'
-import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
+import { getActiveStoreId, getPrimaryStoreId, getStaffStoresStrict } from '@/actions/stores'
 
 const mockCaps = getMyCapabilities as jest.Mock
 const mockStaffId = getCurrentUserStaffId as jest.Mock
 const mockActive = getActiveStoreId as jest.Mock
 const mockPrimary = getPrimaryStoreId as jest.Mock
-const mockStores = getStaffStores as jest.Mock
+const mockStores = getStaffStoresStrict as jest.Mock
 
 const caps = (...c: Capability[]) => new Set<Capability>(c)
 

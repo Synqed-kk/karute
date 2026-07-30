@@ -19,7 +19,7 @@ jest.mock('@/lib/staff', () => ({
 jest.mock('@/actions/stores', () => ({
   getActiveStoreId: jest.fn(),
   getPrimaryStoreId: jest.fn(),
-  getStaffStores: jest.fn(),
+  getStaffStoresStrict: jest.fn(),
 }))
 
 import {

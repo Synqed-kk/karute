@@ -29,7 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
 import { getStaffPermissions, setStaffPermissions } from '@/actions/permissions'
-import { getStaffStores, setStaffStores, type StoreRow } from '@/actions/stores'
+import { getStaffStoresStrict, setStaffStores, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import {
   CAPABILITIES,
@@ -110,6 +110,9 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   // fetched here (per-staff, edit-target-dependent — the DTO can't carry
   // every staff member's assignment up front).
   const [storeIds, setStoreIds] = useState<string[]>([])
+  // Whether the current assignment actually loaded. An empty list means "works
+  // in every store", so a failed load must not be saved back as one.
+  const [storesLoaded, setStoresLoaded] = useState(false)
 
   // 役職 options adapt to the salon's business type (a 美容整体 shows 整体師, a
   // hair salon スタイリスト). businessType arrives as a prop now (T3) — resolved
@@ -145,10 +148,18 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   useEffect(() => {
     if (!(storesEnabled && mode === 'edit' && staffId)) return
     let cancelled = false
-    void getStaffStores(staffId).then((current) => {
-      if (cancelled) return
-      setStoreIds(current ?? [])
-    })
+    setStoresLoaded(false)
+    void getStaffStoresStrict(staffId)
+      .then((current) => {
+        if (cancelled) return
+        setStoreIds(current)
+        setStoresLoaded(true)
+      })
+      .catch(() => {
+        // Leave the checkboxes disabled rather than showing an empty (and
+        // savable) assignment the staff member doesn't actually have.
+        if (!cancelled) setStoresLoaded(false)
+      })
     return () => {
       cancelled = true
     }
@@ -189,7 +200,9 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
             return
           }
         }
-        if (storesEnabled) {
+        // Only write assignments that actually loaded — saving after a failed
+        // load would replace the real assignment with an empty one.
+        if (storesEnabled && storesLoaded) {
           const res = await setStaffStores(staff.id, storeIds)
           if ('error' in res) {
             toast.error(res.error)
@@ -261,6 +274,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
                       <input
                         type="checkbox"
                         checked={checked}
+                        disabled={!storesLoaded}
                         onChange={(e) =>
                           setStoreIds((prev) =>
                             e.target.checked

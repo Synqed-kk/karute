@@ -7,7 +7,7 @@
 //   - featureMultiStore prop wins over env; omitted falls back to env
 //   - the businessType prop drives the 役職 picker's options synchronously
 //     (no getOrgSettings() fetch / loading flicker)
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -17,7 +17,7 @@ jest.mock('@/actions/permissions', () => ({
   setStaffPermissions: jest.fn(async () => ({ ok: true })),
 }))
 jest.mock('@/actions/stores', () => ({
-  getStaffStores: jest.fn(async () => []),
+  getStaffStoresStrict: jest.fn(async () => []),
   setStaffStores: jest.fn(async () => ({ ok: true })),
 }))
 jest.mock('@/actions/staff', () => ({
@@ -92,6 +92,42 @@ describe('StaffForm — featureMultiStore prop ?? env', () => {
       <StaffForm mode="edit" staff={{ id: 'staff-9', name: 'A' }} onClose={() => {}} stores={stores} />,
     )
     expect(screen.queryByText('渋谷店')).toBeNull()
+  })
+})
+
+describe('StaffForm — store assignment only editable once it has loaded', () => {
+  // An empty assignment means "works in every store", so a failed load must not
+  // present a savable empty state. The same flag gates the save-time write.
+  it('load succeeds → checkboxes enabled', async () => {
+    const { getStaffStoresStrict } = jest.requireMock('@/actions/stores')
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValueOnce(['store-a'])
+    render(
+      <StaffForm
+        mode="edit"
+        staff={{ id: 'staff-9', name: 'A' }}
+        onClose={() => {}}
+        featureMultiStore
+        stores={stores}
+      />,
+    )
+    const box = await screen.findByRole('checkbox')
+    await waitFor(() => expect((box as HTMLInputElement).disabled).toBe(false))
+  })
+
+  it('load fails → checkboxes stay disabled (no savable empty assignment)', async () => {
+    const { getStaffStoresStrict } = jest.requireMock('@/actions/stores')
+    ;(getStaffStoresStrict as jest.Mock).mockRejectedValueOnce(new Error('core unavailable'))
+    render(
+      <StaffForm
+        mode="edit"
+        staff={{ id: 'staff-9', name: 'A' }}
+        onClose={() => {}}
+        featureMultiStore
+        stores={stores}
+      />,
+    )
+    const box = await screen.findByRole('checkbox')
+    await waitFor(() => expect((box as HTMLInputElement).disabled).toBe(true))
   })
 })
 

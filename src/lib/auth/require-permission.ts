@@ -110,13 +110,38 @@ export function ensureCapability(caps: Set<Capability>, capability: Capability):
 }
 
 export async function can(capability: Capability): Promise<boolean> {
-  return (await getMyCapabilities()).has(capability)
+  // Resolution failure = NOT allowed. can() is the boolean seam consumed by
+  // result-shaped server actions and UI gating, whose callers await without a
+  // try/catch (see createAppointment) — a rejection here would surface as an
+  // unhandled rejection during a transient DB hiccup. Absorbing the failure as
+  // a deny is strictly narrower (never grants), keeps every current and future
+  // boolean site fail-closed at the chokepoint, and leaves requireCapability's
+  // thrown message the clean user-safe denial string. Surfaces that must
+  // distinguish "denied" (403) from "temporarily unavailable" (500) call
+  // getMyCapabilities directly and keep the throw (ask-ai + quickreserve rule).
+  try {
+    return (await getMyCapabilities()).has(capability)
+  } catch {
+    return false
+  }
 }
 
 /** Throw if the caller lacks the capability. Call at the top of privileged
  *  server actions. The thrown message is safe to surface to the user. */
 export async function requireCapability(capability: Capability): Promise<void> {
-  if (!(await can(capability))) {
+  // Resolves directly rather than through can(): can() absorbs a lookup
+  // failure as a plain "no" for its boolean callers, but this throwing gate
+  // keeps the repo's existing rule that a service failure is NOT a denial
+  // (quickreserve routes, ask-ai). Its ~24 call sites surface the thrown
+  // message in their { error } result, so the two cases must read differently
+  // — "try again" is retryable, "no permission" is not. Both still block.
+  let caps: Set<Capability>
+  try {
+    caps = await getMyCapabilities()
+  } catch {
+    throw new Error('Permission check is temporarily unavailable. Please try again.')
+  }
+  if (!caps.has(capability)) {
     throw new Error('You do not have permission to perform this action.')
   }
 }

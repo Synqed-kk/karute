@@ -256,7 +256,15 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
   const caps = await getMyCapabilities().catch(() => new Set<Capability>())
   if (!caps.has('stores.viewAll')) {
     const uid = await getCurrentUserStaffId()
-    const allowed = uid ? await getStaffStores(uid) : []
+    // Strict lookup: a failed assignment read must NOT skip the clamp (the
+    // tolerant [] doubles as "floating staff = may pin any store"). Fail the
+    // switch instead — retryable, and the cookie keeps its previous value.
+    let allowed: string[]
+    try {
+      allowed = uid ? await getStaffStoresStrict(uid) : []
+    } catch {
+      return { error: 'Could not verify your store assignment. Please try again.' }
+    }
     if (allowed.length > 0 && !allowed.includes(storeId)) {
       return { error: 'You can only view a store you are assigned to.' }
     }
@@ -478,6 +486,18 @@ export async function getStaffStores(staffId: string): Promise<string[]> {
   } catch {
     return []
   }
+}
+
+/** Strict twin of getStaffStores for CLAMP/enforcement paths (store-scope
+ *  resolution, the setActiveStore pin check): there, "lookup failed" must
+ *  restrict rather than widen, so this propagates the failure instead of
+ *  degrading to [] — [] means "floating staff, works in every store" and would
+ *  turn a hiccup into a broader view. A genuinely assignment-less staff member
+ *  still gets a successful [] from core, keeping the floating convention for
+ *  real data. Display/management consumers keep the tolerant wrapper above. */
+export async function getStaffStoresStrict(staffId: string): Promise<string[]> {
+  const synqed = await getSynqedClient()
+  return (await synqed.staffStores.get(staffId)).store_ids
 }
 
 /** Client-threaded core of setStaffStores (facade Bearer path, design-parity
