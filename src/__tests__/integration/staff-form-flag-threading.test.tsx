@@ -7,7 +7,7 @@
 //   - featureMultiStore prop wins over env; omitted falls back to env
 //   - the businessType prop drives the 役職 picker's options synchronously
 //     (no getOrgSettings() fetch / loading flicker)
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -112,6 +112,49 @@ describe('StaffForm — store assignment only editable once it has loaded', () =
     )
     const box = await screen.findByRole('checkbox')
     await waitFor(() => expect((box as HTMLInputElement).disabled).toBe(false))
+  })
+
+  it('load fails → SAVING does not write assignments (the guard, not just the disabled box)', async () => {
+    // The disabled attribute is UI only; a submit doesn't need an enabled
+    // checkbox. This pins the save-time guard that stops an empty list from
+    // replacing the real assignment.
+    const { getStaffStoresStrict, setStaffStores } = jest.requireMock('@/actions/stores')
+    const { updateStaff } = jest.requireMock('@/actions/staff')
+    ;(setStaffStores as jest.Mock).mockClear()
+    ;(updateStaff as jest.Mock).mockClear()
+    ;(getStaffStoresStrict as jest.Mock).mockRejectedValueOnce(new Error('core unavailable'))
+    render(
+      <StaffForm
+        mode="edit"
+        staff={{ id: 'staff-9', name: 'A' }}
+        onClose={() => {}}
+        featureMultiStore
+        stores={stores}
+      />,
+    )
+    await screen.findByRole('checkbox')
+    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    await waitFor(() => expect(updateStaff as jest.Mock).toHaveBeenCalled())
+    expect(setStaffStores as jest.Mock).not.toHaveBeenCalled()
+  })
+
+  it('load succeeds → SAVING does write assignments (the guard is not just always-off)', async () => {
+    const { getStaffStoresStrict, setStaffStores } = jest.requireMock('@/actions/stores')
+    ;(setStaffStores as jest.Mock).mockClear()
+    ;(getStaffStoresStrict as jest.Mock).mockResolvedValueOnce(['store-a'])
+    render(
+      <StaffForm
+        mode="edit"
+        staff={{ id: 'staff-9', name: 'A' }}
+        onClose={() => {}}
+        featureMultiStore
+        stores={stores}
+      />,
+    )
+    const box = await screen.findByRole('checkbox')
+    await waitFor(() => expect((box as HTMLInputElement).disabled).toBe(false))
+    fireEvent.click(screen.getByRole('button', { name: 'save' }))
+    await waitFor(() => expect(setStaffStores as jest.Mock).toHaveBeenCalledWith('staff-9', ['store-a']))
   })
 
   it('load fails → checkboxes stay disabled (no savable empty assignment)', async () => {

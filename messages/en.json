@@ -2049,6 +2049,7 @@
       },
       "assignLabel": "Store / location",
       "assignMultiHint": "Select any number. If none are selected, the staff appears in every store.",
+      "assignLoadFailed": "Couldn't load store assignments. Saving won't change them — reopen and try again.",
       "unassigned": "Unassigned"
     },
     "coaching": {

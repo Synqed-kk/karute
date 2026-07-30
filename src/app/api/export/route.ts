@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { can } from '@/lib/auth/require-permission'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import type { Capability } from '@/lib/auth/permissions'
 import { resolveStoreScope } from '@/lib/auth/store-scope'
 import { auditWeb } from '@/lib/audit-web'
 import { getBusinessId } from '@/lib/staff'
@@ -20,8 +21,17 @@ export async function GET(request: Request) {
   // owner / manager / senior only (practitioner + frontdesk lack it). The
   // /data-export page + nav link are NOT capability-gated in the UI today, so
   // this route was reachable by any signed-in staff; this is the enforcement
-  // point. 403, not a thrown error, because this is an HTTP handler.
-  if (!(await can('data.export'))) {
+  // point. 403, not a thrown error, because this is an HTTP handler — and a
+  // failed permission LOOKUP is a 500, not a 403: telling someone they lack a
+  // permission they actually hold sends them to the wrong person. (can()
+  // absorbs that failure into a plain "no", so resolve directly here.)
+  let caps: Set<Capability>
+  try {
+    caps = await getMyCapabilities()
+  } catch {
+    return NextResponse.json({ error: 'Could not verify your permissions.' }, { status: 500 })
+  }
+  if (!caps.has('data.export')) {
     return NextResponse.json(
       { error: 'You do not have permission to export data.' },
       { status: 403 },

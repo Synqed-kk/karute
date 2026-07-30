@@ -53,19 +53,24 @@ describe('resolveStoreScope — capability-resolution failure absorbed, never re
     expect(scope).toEqual({ storeId: 'store-primary', viewAll: false, allowedStoreIds: null })
   })
 
-  it('assignment lookup failure → restricted to nothing, never read as floating', async () => {
+  it('assignment lookup failure → clamped to the store in view, never read as floating', async () => {
     // An empty list means "works in every store", so a failed lookup must not
-    // produce one. Restricted-to-nothing keeps every membership check false.
+    // produce one. Clamping to the current lens keeps the app usable while
+    // still being narrower than the old no-clamp result.
     ;(getStaffStoresStrict as jest.Mock).mockRejectedValue(new Error('core unavailable'))
     const scope = await resolveStoreScope()
-    expect(scope).toEqual({ storeId: 'store-primary', viewAll: false, allowedStoreIds: [] })
+    expect(scope).toEqual({
+      storeId: 'store-primary',
+      viewAll: false,
+      allowedStoreIds: ['store-primary'],
+    })
   })
 
-  it('healthy resolve + failed assignment lookup → still restricted to nothing (both dials checked)', async () => {
+  it('lookup failure never yields an unclamped scope (the widening case)', async () => {
     mockCaps.current = new Set(['customers.view'])
     ;(getStaffStoresStrict as jest.Mock).mockRejectedValue(new Error('core unavailable'))
     const scope = await resolveStoreScope()
-    expect(scope.allowedStoreIds).toEqual([])
+    expect(scope.allowedStoreIds).not.toBeNull()
     expect(scope.viewAll).toBe(false)
   })
 

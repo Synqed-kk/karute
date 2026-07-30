@@ -779,6 +779,18 @@ async function facadeGetStaffStores(staffId: string): Promise<string[]> {
   }
 }
 
+// The form's load path must tell "no assignment" apart from "lookup failed":
+// an empty list means "works in every store", so a failed read must not become
+// a savable empty state. This variant propagates instead of catching — a plain
+// re-export of the tolerant one above would ship that exact overwrite on the
+// shell. Mirrors getStaffStoresStrict in src/actions/stores.ts.
+async function facadeGetStaffStoresStrict(staffId: string): Promise<string[]> {
+  const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/stores`)
+  if (!res.ok) throw new Error(`staff stores lookup failed (${res.status})`)
+  const body = (await res.json()) as { storeIds?: string[] } | null
+  return body?.storeIds ?? []
+}
+
 async function facadeSetStaffStores(
   staffId: string,
   storeIds: string[],
@@ -826,6 +838,7 @@ export const getActiveStoreId = async (): Promise<string | null> => {
   return getThinActiveStore()
 }
 export const getStaffStores = facadeGetStaffStores
+export const getStaffStoresStrict = facadeGetStaffStoresStrict
 export const setStaffStores = facadeSetStaffStores
 export const getEntitlement = facadeGetEntitlement
 export const startRecordingSession = facadeStartRecordingSession
@@ -1029,7 +1042,7 @@ async function facadeRevokeInvite(id: string): Promise<{ ok: true } | { error: s
 }
 
 // -- staff profile/authority (design-parity packet 12 §B-3 S4b tab-live
-// prerequisite — StaffForm calls getStaffPermissions/getStaffStores on
+// prerequisite — StaffForm calls getStaffPermissions/getStaffStoresStrict on
 // mount and create/update/setStaffPermissions/setStaffStores on submit;
 // StaffList calls deleteStaff/uploadStaffAvatar — all reachable now that
 // the tab is live). Local redeclarations, not imports — same "redeclare the

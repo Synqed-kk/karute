@@ -25,9 +25,8 @@ export interface StoreScope {
   viewAll: boolean
   /** The stores the viewer is RESTRICTED to, or null when unrestricted
    *  (viewAll, or a floating staff with an empty staff_stores set). A non-null
-   *  array means reads + search MUST stay within it. An EMPTY array means the
-   *  assignment lookup failed: restricted to nothing, so every membership
-   *  check fails and search stays clamped — see resolveStoreScope. */
+   *  array means reads + search MUST stay within it. A failed assignment lookup
+   *  yields the single store already in view — see resolveStoreScope. */
   allowedStoreIds: string[] | null
 }
 
@@ -42,8 +41,8 @@ export interface StoreScope {
  *   - no viewAll + has stores   → clamped: the cookie picks among the user's own
  *                                  stores; an out-of-scope / unset cookie falls
  *                                  back to their first assigned store.
- *   - assignment lookup failed  → restricted to nothing (empty allowed list):
- *                                  a failure must never read as "floating".
+ *   - assignment lookup failed  → clamped to the store already in view (never
+ *                                  "floating", never unclamped).
  */
 export async function resolveStoreScope(): Promise<StoreScope> {
   // Capability-resolution failure → treat as NO capabilities rather than
@@ -73,18 +72,26 @@ export async function resolveStoreScope(): Promise<StoreScope> {
   // Strict lookup here: a FAILED assignment read must not be mistaken for "no
   // assignment". An empty set is the floating-staff convention (works in every
   // store), so degrading a transient failure to [] would show a branch staff
-  // more than they normally see. On failure, restrict to nothing: every
-  // membership check fails and search stays clamped to the current store lens,
-  // which is narrower than both the healthy result and the previous degraded
-  // one. A genuine empty set from a SUCCESSFUL read keeps its meaning.
+  // more than they normally see. A genuine empty set from a SUCCESSFUL read
+  // keeps its meaning.
   const allowed = staffId
     ? await getStaffStoresStrict(staffId).catch(() => null) // null = lookup failed
     : []
   if (allowed === null) {
+    // Failure → clamp to the ONE store already in view, not to nothing.
+    // "Nothing" is narrower on paper but breaks the app for the duration of the
+    // outage: every membership check fails, so an appointment-linked karute
+    // save is refused, getAppointmentById returns null for every booking (and
+    // the record screen's fallback then picks an unrelated one), and new
+    // bookings quietly land in the primary store. One store is still strictly
+    // narrower than the previous degraded result (no clamp at all), and the
+    // lens itself is already clamped: setActiveStore only pins a store the
+    // staff is assigned to. No stores at all → nothing to scope to.
+    const storeId = activeStore ?? (await getPrimaryStoreId())
     return {
-      storeId: activeStore ?? (await getPrimaryStoreId()),
+      storeId,
       viewAll: false,
-      allowedStoreIds: [],
+      allowedStoreIds: storeId ? [storeId] : [],
     }
   }
   if (allowed.length === 0) {

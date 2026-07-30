@@ -20,6 +20,12 @@
  *   - getStaffStores: GET; unwraps { storeIds } → string[]; ANY failure
  *     (403/500/transport reject) degrades to [] — web-exact (the action
  *     never throws).
+ *   - getStaffStoresStrict: same GET, but ANY failure THROWS — web-exact with
+ *     its own strict twin. The staff form needs "lookup failed" to be
+ *     distinguishable from "assigned to no store" (an empty list means "works
+ *     in every store", so degrading would save an empty assignment over a real
+ *     one). A re-export of the tolerant version above still BUILDS, so this
+ *     contract is the only thing guarding it.
  *   - setStaffStores: PUT; { ok: true } | { error } rides the 2xx body
  *     VERBATIM; a facade 403 { error: { code: 'forbidden' } } maps to web's
  *     own STORE_OWNER_DENIAL copy (same "forbidden code → the action's own
@@ -37,6 +43,7 @@ import {
   getStaffPermissions,
   setStaffPermissions,
   getStaffStores,
+  getStaffStoresStrict,
   setStaffStores,
 } from '../../../thin/ports/actions.vite'
 
@@ -245,6 +252,35 @@ describe('thin actions port — staff-stores assignment', () => {
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(getStaffStores('staff-9')).resolves.toEqual([])
+  })
+
+  it('getStaffStoresStrict: unwraps { storeIds } on success, same as the tolerant twin', async () => {
+    const apiFetch = jest.fn(async (path: string) => {
+      expect(path).toBe('/api/app/v1/staff/staff-9/stores')
+      return new Response(JSON.stringify({ storeIds: ['store-a'] }), { status: 200 })
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getStaffStoresStrict('staff-9')).resolves.toEqual(['store-a'])
+  })
+
+  it('getStaffStoresStrict: a non-ok response THROWS — the form must not read it as "no assignment"', async () => {
+    // The whole point of the strict twin. If this ever degrades to [] (e.g.
+    // someone re-exports the tolerant one), the staff form would enable its
+    // checkboxes and save an empty assignment over the real one.
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({ error: {} }), { status: 403 }))
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getStaffStoresStrict('staff-9')).rejects.toThrow()
+  })
+
+  it('getStaffStoresStrict: a transport reject THROWS (offline shell must not look assignment-less)', async () => {
+    const apiFetch = jest.fn(async () => {
+      throw new TypeError('Load failed')
+    })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getStaffStoresStrict('staff-9')).rejects.toThrow()
   })
 
   it('setStaffStores: PUT to /api/app/v1/staff/[id]/stores, body { storeIds }, verbatim passthrough', async () => {

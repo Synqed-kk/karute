@@ -113,6 +113,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
   // Whether the current assignment actually loaded. An empty list means "works
   // in every store", so a failed load must not be saved back as one.
   const [storesLoaded, setStoresLoaded] = useState(false)
+  const [storesFailed, setStoresFailed] = useState(false)
 
   // 役職 options adapt to the salon's business type (a 美容整体 shows 整体師, a
   // hair salon スタイリスト). businessType arrives as a prop now (T3) — resolved
@@ -149,6 +150,7 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
     if (!(storesEnabled && mode === 'edit' && staffId)) return
     let cancelled = false
     setStoresLoaded(false)
+    setStoresFailed(false)
     void getStaffStoresStrict(staffId)
       .then((current) => {
         if (cancelled) return
@@ -156,9 +158,10 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
         setStoresLoaded(true)
       })
       .catch(() => {
-        // Leave the checkboxes disabled rather than showing an empty (and
-        // savable) assignment the staff member doesn't actually have.
-        if (!cancelled) setStoresLoaded(false)
+        // Say so instead of leaving the boxes silently grey — same posture as
+        // the permissions section above. Disabled + unsaved beats showing an
+        // empty (and savable) assignment the staff member doesn't have.
+        if (!cancelled) setStoresFailed(true)
       })
     return () => {
       cancelled = true
@@ -263,6 +266,11 @@ export function StaffForm({ mode, staff, onClose, businessType, stores, featureM
             <div className="flex flex-col gap-1.5">
               <label className="text-sm font-medium">{tStore('assignLabel')}</label>
               <p className="text-xs text-muted-foreground">{tStore('assignMultiHint')}</p>
+              {storesFailed && (
+                <p className="text-xs text-red-600 dark:text-red-400">
+                  {tStore('assignLoadFailed')}
+                </p>
+              )}
               <div className="flex flex-col gap-1.5">
                 {(stores ?? []).map((s) => {
                   const checked = storeIds.includes(s.id)

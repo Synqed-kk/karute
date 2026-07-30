@@ -17,7 +17,9 @@ jest.mock('@/lib/supabase/server', () => ({
 
 // Define the spies INSIDE the factories (no outer-variable TDZ), then pull the
 // references back out via the mocked modules after import.
-jest.mock('@/lib/auth/require-permission', () => ({ can: jest.fn(async () => true) }))
+jest.mock('@/lib/auth/require-permission', () => ({
+  getMyCapabilities: jest.fn(async () => new Set(['data.export'])),
+}))
 jest.mock('@/lib/customers/queries', () => ({
   fetchCustomers: jest.fn(async () => ({ customers: [], totalPages: 1 })),
 }))
@@ -37,11 +39,11 @@ jest.mock('@/lib/staff', () => ({
 
 import { GET } from '@/app/api/export/route'
 import { auditLines } from './helpers/audit-lines'
-import { can as canImport } from '@/lib/auth/require-permission'
+import { getMyCapabilities as getMyCapabilitiesImport } from '@/lib/auth/require-permission'
 import { fetchCustomers as fetchCustomersImport } from '@/lib/customers/queries'
 import { resolveStoreScope as resolveStoreScopeImport } from '@/lib/auth/store-scope'
 
-const can = canImport as jest.Mock
+const getMyCapabilities = getMyCapabilitiesImport as jest.Mock
 const fetchCustomers = fetchCustomersImport as jest.Mock
 const resolveStoreScope = resolveStoreScopeImport as jest.Mock
 
@@ -51,7 +53,7 @@ function req(qs = 'scope=customers&format=json&columns=customer_id,name') {
 
 beforeEach(() => {
   jest.clearAllMocks()
-  can.mockImplementation(async () => true)
+  getMyCapabilities.mockImplementation(async () => new Set(['data.export']))
   resolveStoreScope.mockImplementation(async () => ({
     storeId: 'store-primary',
     viewAll: true,
@@ -61,9 +63,9 @@ beforeEach(() => {
 
 describe('GET /api/export — data.export enforcement', () => {
   it('403s and never reads customers when the caller lacks data.export', async () => {
-    can.mockImplementation(async (cap: string) => cap !== 'data.export')
+    getMyCapabilities.mockImplementation(async () => new Set(['customers.view']))
     const res = await GET(req())
-    expect(can).toHaveBeenCalledWith('data.export')
+    expect(getMyCapabilities).toHaveBeenCalled()
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({
       error: 'You do not have permission to export data.',
@@ -77,6 +79,16 @@ describe('GET /api/export — data.export enforcement', () => {
     expect(fetchCustomers).toHaveBeenCalled()
   })
 
+  it('a failed permission LOOKUP is a 500, not a 403 — never tell a holder they lack it', async () => {
+    getMyCapabilities.mockImplementation(async () => {
+      throw new Error('capability resolution failed')
+    })
+    const res = await GET(req())
+    expect(res.status).toBe(500)
+    expect(await res.json()).toEqual({ error: 'Could not verify your permissions.' })
+    expect(fetchCustomers).not.toHaveBeenCalled()
+  })
+
   it('the capability check runs only after auth (401 with no user)', async () => {
     // Flip the mocked user to null for this test.
     const mod = jest.requireMock('@/lib/supabase/server') as {
@@ -87,7 +99,7 @@ describe('GET /api/export — data.export enforcement', () => {
     })
     const res = await GET(req())
     expect(res.status).toBe(401)
-    expect(can).not.toHaveBeenCalled()
+    expect(getMyCapabilities).not.toHaveBeenCalled()
   })
 })
 
@@ -192,7 +204,7 @@ describe('GET /api/export — audit trail (AUDIT-LOG-DESIGN §7)', () => {
   })
 
   it('a DENIED export emits nothing — errors are not actions', async () => {
-    can.mockImplementation(async () => false)
+    getMyCapabilities.mockImplementation(async () => new Set())
     const lines = await auditLines(async () => {
       const res = await GET(req())
       expect(res.status).toBe(403)
