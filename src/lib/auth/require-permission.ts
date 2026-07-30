@@ -64,14 +64,17 @@ export async function capabilitiesForUser(uid: string): Promise<Set<Capability>>
     override = (data.permissions as string[] | null) ?? null
   } else {
     // The graceful fallback exists ONLY for the pre-RBAC-migration schema,
-    // where the permission_role/permissions columns don't exist yet (Postgres
-    // 42703 undefined_column / PostgREST PGRST204 schema-cache miss). Any
-    // OTHER combined-select failure — e.g. a transient DB error post-migration
-    // — must fail CLOSED instead: deriving a preset from display_role would
-    // DROP an explicit per-staff override and could re-grant a capability the
-    // owner deliberately removed (Greptile #652 P1). A missing row without an
-    // error keeps the pre-existing preset path (no override exists to drop).
-    if (error && error.code !== '42703' && error.code !== 'PGRST204') {
+    // where the permission_role/permissions columns don't exist yet — Postgres
+    // 42703 undefined_column, the one unambiguous "schema really lacks the
+    // column" code. PGRST204 (PostgREST schema-CACHE miss) is deliberately
+    // NOT accepted: a stale cache can fire it post-migration, and honoring it
+    // would re-open the exact hole this guard closes (Greptile #652 round 2).
+    // Every other combined-select failure — transient DB errors included —
+    // fails CLOSED: deriving a preset from display_role would DROP an explicit
+    // per-staff override and could re-grant a capability the owner
+    // deliberately removed (Greptile #652 P1). A missing row without an error
+    // keeps the pre-existing preset path (no override exists to drop).
+    if (error && error.code !== '42703') {
       throw new Error('capability resolution failed')
     }
     const { data: base } = await service

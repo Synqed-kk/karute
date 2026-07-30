@@ -62,11 +62,10 @@ describe('capabilitiesForUser — fallback discipline (Greptile #652 P1)', () =>
     expect(caps.has('customers.view')).toBe(true) // practitioner preset
   })
 
-  it('PGRST204 schema-cache miss also counts as pre-migration', async () => {
+  it('PGRST204 schema-cache miss → throws (a stale cache fires post-migration; honoring it would re-open the override-drop hole — Greptile #652 round 2)', async () => {
     mockState.combined = { data: null, error: { code: 'PGRST204' } }
     mockState.base = { data: { display_role: 'assistant' }, error: null }
-    const caps = await capabilitiesForUser('u-1')
-    expect(caps.has('customers.view')).toBe(true) // frontdesk preset
+    await expect(capabilitiesForUser('u-1')).rejects.toThrow('capability resolution failed')
   })
 
   it('any OTHER combined-select failure → throws (fail closed), never a preset that could restore a revoked capability', async () => {
