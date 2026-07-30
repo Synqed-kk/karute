@@ -96,6 +96,41 @@ describe('getDailyAttentionLines — cacheOnly (web render path)', () => {
     expect(setCachedAI).toHaveBeenCalledTimes(1)
   })
 
+  it('MISS burst: a cold cache schedules ONE fill, not one per request', async () => {
+    // The morning case: several staff open the dashboard within seconds of
+    // each other while ai_cache is still empty for the day.
+    parse.mockResolvedValue({ choices: [{ message: { parsed: AI_LINE } }] })
+
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+
+    expect(afterSpy).toHaveBeenCalledTimes(1)
+
+    // ...and once that fill settles, a later miss may schedule again.
+    await scheduled[0]!()
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    expect(afterSpy).toHaveBeenCalledTimes(2)
+
+    // Settle the second one too: the in-flight registry is module state, so a
+    // fill left pending here would suppress the NEXT test's scheduling.
+    await scheduled[1]!()
+  })
+
+  it('a failed deferred fill is reported, never swallowed silently', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    parse.mockRejectedValue(new Error('openai down'))
+
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    await expect(scheduled[0]!()).resolves.not.toThrow()
+
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining('ai_cache stays cold'),
+      expect.any(Error),
+    )
+    warn.mockRestore()
+  })
+
   it('HIT: unchanged — cached lines, nothing deferred, no model call', async () => {
     getCachedAI.mockResolvedValue(AI_LINE)
 

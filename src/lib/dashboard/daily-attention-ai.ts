@@ -36,6 +36,18 @@ export interface AttentionInputItem extends AttentionItem {
   lastSummary: string | null
 }
 
+/**
+ * Cache keys whose deferred fill is already scheduled on THIS instance, so a
+ * burst of cold-cache dashboard loads schedules one model call, not one each.
+ *
+ * ponytail: per-instance, not global — two serverless instances can still
+ * duplicate a single fill, exactly as the pre-existing inline path already
+ * could. Bounded regardless: entries are removed when the fill settles, and a
+ * key only lives as long as one generation. Upgrade path if duplicate fills
+ * ever cost real money: a short-lived sentinel row in ai_cache.
+ */
+const inFlightFills = new Set<string>()
+
 const BADGE_LABEL: Record<AttentionItem['badge'], string> = {
   lastOne: 'ticket pack: 1 session left (renewal moment)',
   packDone: 'finished their pack and came back (wants to continue)',
@@ -135,8 +147,27 @@ ${defensivePreamble(locale)}`
     // `after()` is unavailable (called outside a request scope), fall through
     // to the inline generate rather than silently never filling the cache.
     if (!cached && cacheOnly) {
+      const fillKey = JSON.stringify(cacheInput)
+      // One in-flight fill per cache key. A cold cache is exactly the moment
+      // several staff open the dashboard at once (the morning), and each miss
+      // would otherwise schedule its own model call for the identical key.
+      if (inFlightFills.has(fillKey)) return fallback()
       try {
-        after(() => generate().catch(() => {}))
+        after(() =>
+          generate()
+            .catch((err) => {
+              // Never silent: a swallowed failure here leaves the cache cold,
+              // so every later load pays the miss again and nothing says why.
+              console.warn(
+                '[dashboard] deferred 要注目 line fill failed — ai_cache stays cold:',
+                err,
+              )
+            })
+            .finally(() => inFlightFills.delete(fillKey)),
+        )
+        // Registered only once after() accepted the work, so a throw below
+        // can't leave a key stuck marked as in-flight.
+        inFlightFills.add(fillKey)
         return fallback()
       } catch {
         /* no request scope — generate inline below */
