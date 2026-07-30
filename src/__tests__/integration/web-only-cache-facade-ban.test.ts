@@ -46,12 +46,17 @@ function resolveSpec(spec: string, fromFile: string): string | null {
   return null
 }
 
-// Backtick alternative included: `import(\`@/x\`)` is a live idiom in this
-// repo (src/i18n/request.ts) and the string-only regex was proven blind to it
-// by a delta-verify PoC — a facade route using the backtick form walked right
-// past the scan.
-const IMPORT_RE =
-  /(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|import\(\s*`([^`]+)`\s*\)/g
+// THREE independent regexes, not one alternation. Two proven blind spots:
+// a string-only pattern misses `import(\`@/x\`)` (delta-verify PoC — the
+// backtick form is a live idiom in this repo, src/i18n/request.ts), and a
+// combined alternation's `[^'"]*?` lazy scan spans newlines, letting a quoted
+// `from '…'` later in the file swallow a preceding backtick import inside its
+// match (order-fragile — proven by mutant). Independent passes can't shadow
+// each other; FROM_RE keys on the `from '…'` clause alone, covering import,
+// export-from and multi-line named forms alike.
+const FROM_RE = /from\s*['"]([^'"]+)['"]/g
+const DYN_RE = /import\(\s*['"]([^'"]+)['"]\s*\)/g
+const DYN_BACKTICK_RE = /import\(\s*`([^`]+)`\s*\)/g
 
 /** Every file transitively reachable from `entry` via static imports.
  *  An INTERPOLATED local dynamic import (`import(\`@/x/${y}\`)`) cannot be
@@ -69,19 +74,23 @@ function reachable(entry: string): {
     if (seen.has(f)) continue
     seen.add(f)
     const src = readFileSync(f, 'utf8')
-    IMPORT_RE.lastIndex = 0
-    for (const m of src.matchAll(IMPORT_RE)) {
-      const spec = m[1] || m[2] || m[3]
-      if (!spec) continue
-      if (
-        spec.includes('${') &&
-        (spec.startsWith('@/') || spec.startsWith('.'))
-      ) {
-        unscannable.push(`${f.replace(process.cwd(), '.')}: import(\`${spec}\`)`)
-        continue
+    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE]) {
+      re.lastIndex = 0
+      for (const m of src.matchAll(re)) {
+        const spec = m[1]
+        if (!spec) continue
+        if (
+          spec.includes('${') &&
+          (spec.startsWith('@/') || spec.startsWith('.'))
+        ) {
+          unscannable.push(
+            `${f.replace(process.cwd(), '.')}: import(\`${spec}\`)`,
+          )
+          continue
+        }
+        const r = resolveSpec(spec, f)
+        if (r) stack.push(r)
       }
-      const r = resolveSpec(spec, f)
-      if (r) stack.push(r)
     }
   }
   return { seen, unscannable }
@@ -108,16 +117,21 @@ describe('web-only caches never reach the facade', () => {
     expect([...reachable(page).seen]).toContain(BANNED[0])
   })
 
-  it('resolves backtick dynamic imports (the PoC-proven blind spot stays covered)', () => {
-    // Self-check of the regex: a backtick, non-interpolated local specifier
-    // must resolve like the quoted form. Uses the walker's own regex.
-    IMPORT_RE.lastIndex = 0
-    const m = [
-      ...'const x = await import(`@/lib/appointments/day-agenda-cached`)'.matchAll(
-        IMPORT_RE,
-      ),
-    ]
-    expect(m[0]?.[3]).toBe('@/lib/appointments/day-agenda-cached')
+  it('resolves backtick dynamic imports even with a quoted import LATER in the file', () => {
+    // Self-check of the walker's regexes against BOTH proven blind spots:
+    // the backtick form itself, and the order-fragility where a later quoted
+    // `from '…'` used to swallow it inside a combined alternation's match.
+    const source = [
+      'const x = await import(`@/lib/appointments/day-agenda-cached`)',
+      "import { z } from '@/lib/staff'",
+    ].join('\n')
+    const specs: string[] = []
+    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE]) {
+      re.lastIndex = 0
+      for (const m of source.matchAll(re)) specs.push(m[1])
+    }
+    expect(specs).toContain('@/lib/appointments/day-agenda-cached')
+    expect(specs).toContain('@/lib/staff')
   })
 
   it.each(routes.map((r) => [r.replace(process.cwd(), '.'), r]))(
