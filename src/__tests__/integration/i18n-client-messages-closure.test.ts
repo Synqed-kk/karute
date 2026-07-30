@@ -57,10 +57,21 @@ function resolveSpec(spec: string, fromFile: string): string | null {
 
 const NS_RE = /(?:useTranslations|getTranslations)\(\s*['"]([^'"]+)['"]/g
 const NS_OBJ_RE = /getTranslations\(\s*\{[^}]*namespace:\s*['"]([^'"]+)['"]/g
-const IMPORT_RE =
-  /(?:import|export)[^'"]*?from\s+['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
+// THREE independent regexes, not one alternation: a combined pattern's
+// `[^'"]*?` lazy scan spans newlines, so a quoted `from '…'` later in the
+// file would swallow a preceding backtick dynamic import inside its match
+// (order-fragile — proven by mutant). Independent passes can't shadow each
+// other. FROM_RE keys on the `from '…'` clause alone, which covers import,
+// export-from and multi-line named forms alike.
+const FROM_RE = /from\s*['"]([^'"]+)['"]/g
+const DYN_RE = /import\(\s*['"]([^'"]+)['"]\s*\)/g
+const DYN_BACKTICK_RE = /import\(\s*`([^`]+)`\s*\)/g
 
-/** All translation-namespace literals reachable from `entry` via static imports. */
+/** All translation-namespace literals reachable from `entry` via static
+ *  imports. An INTERPOLATED local dynamic import can't be followed statically
+ *  — it throws so a walked tree never silently under-reports its closure
+ *  (messages/*.json interpolation in i18n/request.ts is not reachable from
+ *  any route file, so this stays quiet until someone adds one). */
 function reachableLiterals(entry: string): Set<string> {
   const seen = new Set<string>()
   const lits = new Set<string>()
@@ -74,12 +85,23 @@ function reachableLiterals(entry: string): Set<string> {
       re.lastIndex = 0
       for (const m of s.matchAll(re)) lits.add(m[1])
     }
-    IMPORT_RE.lastIndex = 0
-    for (const m of s.matchAll(IMPORT_RE)) {
-      const spec = m[1] || m[2]
-      if (!spec) continue
-      const r = resolveSpec(spec, f)
-      if (r && !r.includes('__tests__')) stack.push(r)
+    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE]) {
+      re.lastIndex = 0
+      for (const m of s.matchAll(re)) {
+        const spec = m[1]
+        if (!spec) continue
+        if (
+          spec.includes('${') &&
+          (spec.startsWith('@/') || spec.startsWith('.'))
+        ) {
+          throw new Error(
+            `unscannable interpolated import in ${f}: import(\`${spec}\`) — ` +
+              'the closure walk cannot follow it; resolve statically or extend the test',
+          )
+        }
+        const r = resolveSpec(spec, f)
+        if (r && !r.includes('__tests__')) stack.push(r)
+      }
     }
   }
   return lits
