@@ -57,6 +57,11 @@ function resolveSpec(spec: string, fromFile: string): string | null {
 const FROM_RE = /from\s*['"]([^'"]+)['"]/g
 const DYN_RE = /import\(\s*['"]([^'"]+)['"]\s*\)/g
 const DYN_BACKTICK_RE = /import\(\s*`([^`]+)`\s*\)/g
+// Side-effect imports (`import '@/x'`) have no `from` and no call parens —
+// invisible to the three regexes above (Greptile #660 finding). Executing a
+// module IS reaching it, so the guard must see this form too. The quote
+// directly after `import` keeps `import x from 'y'` out of this pattern.
+const SIDE_EFFECT_RE = /import\s*['"]([^'"]+)['"]/g
 
 /** Every file transitively reachable from `entry` via static imports.
  *  An INTERPOLATED local dynamic import (`import(\`@/x/${y}\`)`) cannot be
@@ -74,7 +79,7 @@ function reachable(entry: string): {
     if (seen.has(f)) continue
     seen.add(f)
     const src = readFileSync(f, 'utf8')
-    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE]) {
+    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE, SIDE_EFFECT_RE]) {
       re.lastIndex = 0
       for (const m of src.matchAll(re)) {
         const spec = m[1]
@@ -124,14 +129,18 @@ describe('web-only caches never reach the facade', () => {
     const source = [
       'const x = await import(`@/lib/appointments/day-agenda-cached`)',
       "import { z } from '@/lib/staff'",
+      "import '@/lib/appointments/screen'",
     ].join('\n')
     const specs: string[] = []
-    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE]) {
+    for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE, SIDE_EFFECT_RE]) {
       re.lastIndex = 0
       for (const m of source.matchAll(re)) specs.push(m[1])
     }
     expect(specs).toContain('@/lib/appointments/day-agenda-cached')
     expect(specs).toContain('@/lib/staff')
+    // Side-effect form seen; and the quote-after-import pattern must NOT
+    // misparse a default import as a side-effect specifier.
+    expect(specs).toContain('@/lib/appointments/screen')
   })
 
   it.each(routes.map((r) => [r.replace(process.cwd(), '.'), r]))(
