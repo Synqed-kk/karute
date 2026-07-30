@@ -1,4 +1,5 @@
 import 'server-only'
+import { after } from 'next/server'
 import { z } from 'zod'
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { openai } from '@/lib/openai'
@@ -50,8 +51,21 @@ export async function getDailyAttentionLines(params: {
   storeId: string | null
   dateYmd: string
   locale: string
+  /**
+   * WEB opt-in: never block the response on the model call. On an ai_cache HIT
+   * this changes nothing. On a MISS it returns the deterministic fallback lines
+   * immediately and generates AFTER the response is sent (Next's `after()`), so
+   * the cache is warm for the next load instead of the first viewer of the day
+   * per store eating multiple seconds of OpenAI latency inside the render path
+   * (dashboard render blocks on this — 2026-07-30 speed pass).
+   *
+   * Default false: the facade screen route keeps generating inline, because the
+   * native shell has no second render to pick up a late fill — it asks once and
+   * paints what it gets.
+   */
+  cacheOnly?: boolean
 }): Promise<Map<string, string>> {
-  const { items, businessType, businessId, storeId, dateYmd, locale } = params
+  const { items, businessType, businessId, storeId, dateYmd, locale, cacheOnly } = params
   const fallback = () => new Map(items.map((i) => [i.clientId, fallbackLine(i)]))
   if (items.length === 0) return new Map()
   if (!process.env.OPENAI_API_KEY) return fallback()
@@ -114,6 +128,19 @@ ${defensivePreamble(locale)}`
       const parsed = completion.choices[0]?.message?.parsed ?? { lines: [] }
       await setCachedAI('daily_attention', cacheInput, parsed, 1).catch(() => {})
       return parsed
+    }
+    // Cache miss on the web path: hand the model call to `after()` so it runs
+    // once the response is already on its way, and serve the deterministic
+    // lines now. Same idiom as the durable audit write (lib/audit.ts). If
+    // `after()` is unavailable (called outside a request scope), fall through
+    // to the inline generate rather than silently never filling the cache.
+    if (!cached && cacheOnly) {
+      try {
+        after(() => generate().catch(() => {}))
+        return fallback()
+      } catch {
+        /* no request scope — generate inline below */
+      }
     }
     const result = cached ?? (await generate())
     const byId = new Map(result.lines.map((l) => [l.customerId, l.line.trim()]))
