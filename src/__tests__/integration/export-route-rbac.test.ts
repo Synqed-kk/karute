@@ -89,6 +89,22 @@ describe('GET /api/export — data.export enforcement', () => {
     expect(fetchCustomers).not.toHaveBeenCalled()
   })
 
+  it('a degraded (failure-clamped) store scope refuses the export outright', async () => {
+    // The clamp keeps pages readable through a lookup blip, but its lens is
+    // unverified (a stale or unpinned cookie falls back to the primary
+    // store) — a bulk-PII export must never run on it, even with a storeId.
+    resolveStoreScope.mockImplementation(async () => ({
+      storeId: 'store-primary',
+      viewAll: false,
+      allowedStoreIds: ['store-primary'],
+      degraded: true,
+    }))
+    const res = await GET(req())
+    expect(res.status).toBe(403)
+    expect(await res.json()).toEqual({ error: 'Could not resolve your store scope.' })
+    expect(fetchCustomers).not.toHaveBeenCalled()
+  })
+
   it('the capability check runs only after auth (401 with no user)', async () => {
     // Flip the mocked user to null for this test.
     const mod = jest.requireMock('@/lib/supabase/server') as {

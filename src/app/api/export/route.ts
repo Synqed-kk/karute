@@ -63,13 +63,15 @@ export async function GET(request: Request) {
   // error must not widen a bulk-PII export to the whole business (Greptile
   // P1 ×2 on this PR — since #653 resolveStoreScope clamps a failed
   // assignment lookup itself; this route keeps its own layer regardless).
-  // Fail CLOSED at both layers: a thrown scope
-  // resolution AND a non-viewAll scope with no resolvable store lens (double
-  // lookup failure) both refuse the export — never fall through business-wide.
+  // Fail CLOSED at both layers: a thrown scope resolution, a non-viewAll
+  // scope with no resolvable store lens, AND a degraded (failure-clamped)
+  // scope all refuse the export — the clamp keeps pages readable through a
+  // lookup blip, but its lens is unverified (a stale or unpinned cookie falls
+  // back to the primary store), and a bulk-PII export must not run on it.
   let storeId: string | undefined
   try {
     const storeScope = await resolveStoreScope()
-    if (!storeScope.viewAll && !storeScope.storeId) {
+    if (!storeScope.viewAll && (!storeScope.storeId || storeScope.degraded)) {
       return NextResponse.json(
         { error: 'Could not resolve your store scope.' },
         { status: 403 },

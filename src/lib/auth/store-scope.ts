@@ -28,6 +28,11 @@ export interface StoreScope {
    *  array means reads + search MUST stay within it. A failed assignment lookup
    *  yields the single store already in view — see resolveStoreScope. */
   allowedStoreIds: string[] | null
+  /** True only when the assignment lookup failed and this scope is the
+   *  single-store fallback clamp. Read surfaces keep working through it;
+   *  a surface that must not act on an unverified lens (the bulk customer
+   *  export) refuses it instead. */
+  degraded?: true
 }
 
 /**
@@ -84,16 +89,20 @@ export async function resolveStoreScope(): Promise<StoreScope> {
     // save is refused, getAppointmentById returns null for every booking (and
     // the record screen's fallback then picks an unrelated one), and new
     // bookings quietly land in the primary store. One store is still strictly
-    // narrower than the previous degraded result (no clamp at all), and the
-    // lens itself is already clamped: setActiveStore only pins a store the
-    // staff is assigned to (at pin time — a later reassignment can leave a
-    // stale pin; still one store, still narrower than the old unclamped
-    // result). No stores at all → nothing to scope to.
+    // narrower than the previous degraded result (no clamp at all). The lens
+    // is best-effort, not verified: the pin was validated against the
+    // assignment at PIN time (setActiveStore), but a later reassignment can
+    // leave a stale pin, an unpinned viewer falls back to the primary store,
+    // and nothing can re-validate the cookie while the very lookup that would
+    // do so is failing — hence `degraded`, so surfaces that must not act on
+    // an unverified lens can refuse. Still one store, still narrower than the
+    // old unclamped result. No stores at all → nothing to scope to.
     const storeId = activeStore ?? (await getPrimaryStoreId())
     return {
       storeId,
       viewAll: false,
       allowedStoreIds: storeId ? [storeId] : [],
+      degraded: true,
     }
   }
   if (allowed.length === 0) {

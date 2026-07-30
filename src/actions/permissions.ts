@@ -251,10 +251,12 @@ export async function setStaffPermissions(
     return { error: e instanceof Error ? e.message : 'Not allowed' }
   }
 
-  // Declared return is a result shape, and StaffForm awaits this action — a
-  // rejection here would cross the server-action boundary instead of becoming
-  // a toast. (Same resolve as the gate above, served from its per-request
-  // memo in the normal case.)
+  // Declared return is a result shape: a rejection here would reach the form
+  // as a redacted production digest instead of a readable toast — and these
+  // resolvers' raw error text is not for users' eyes either, so return the
+  // house shape with its own safe, retryable message. (Same resolve as the
+  // gate above, served from its per-request memo in the normal case; the gate
+  // keeps e.message because requireCapability's strings are user-safe.)
   let businessId: string
   let callerCapabilities: Set<Capability>
   let callerStaffId: string | null
@@ -266,8 +268,8 @@ export async function setStaffPermissions(
       getCurrentUserStaffId(),
       resolveWebActorId(),
     ])
-  } catch (e) {
-    return { error: e instanceof Error ? e.message : 'Not allowed' }
+  } catch {
+    return { error: 'Could not verify your account. Please try again.' }
   }
   const result = await setStaffPermissionsCore(
     businessId,

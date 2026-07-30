@@ -787,8 +787,13 @@ async function facadeGetStaffStores(staffId: string): Promise<string[]> {
 async function facadeGetStaffStoresStrict(staffId: string): Promise<string[]> {
   const res = await getDataPort().apiFetch(`/api/app/v1/staff/${enc(staffId)}/stores`)
   if (!res.ok) throw new Error(`staff stores lookup failed (${res.status})`)
-  const body = (await res.json()) as { storeIds?: string[] } | null
-  return body?.storeIds ?? []
+  const body = (await res.json()) as { storeIds?: unknown } | null
+  // A 200 without the list is still a failed read — degrading it to [] would
+  // be the exact "works in every store" state this variant exists to prevent.
+  if (!body || !Array.isArray(body.storeIds)) {
+    throw new Error('staff stores lookup returned no assignment list')
+  }
+  return body.storeIds as string[]
 }
 
 async function facadeSetStaffStores(

@@ -63,6 +63,9 @@ describe('resolveStoreScope — capability-resolution failure absorbed, never re
       storeId: 'store-primary',
       viewAll: false,
       allowedStoreIds: ['store-primary'],
+      // The clamp lens is best-effort (stale/unpinned cookie → primary), so
+      // the scope says so — surfaces like the bulk export refuse on it.
+      degraded: true,
     })
   })
 

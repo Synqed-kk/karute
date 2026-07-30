@@ -488,13 +488,14 @@ export async function getStaffStores(staffId: string): Promise<string[]> {
   }
 }
 
-/** Strict twin of getStaffStores for CLAMP/enforcement paths (store-scope
- *  resolution, the setActiveStore pin check): there, "lookup failed" must
- *  restrict rather than widen, so this propagates the failure instead of
- *  degrading to [] — [] means "floating staff, works in every store" and would
- *  turn a hiccup into a broader view. A genuinely assignment-less staff member
- *  still gets a successful [] from core, keeping the floating convention for
- *  real data. Display/management consumers keep the tolerant wrapper above. */
+/** Strict twin of getStaffStores for paths where a failed read must not pass
+ *  as "no assignment" (store-scope resolution, the setActiveStore pin check,
+ *  the staff edit form's load): [] means "floating staff, works in every
+ *  store", so degrading a hiccup to [] would widen a view — or, on the form,
+ *  become a savable empty assignment. This propagates the failure instead. A
+ *  genuinely assignment-less staff member still gets a successful [] from
+ *  core, keeping the floating convention for real data. Pure display
+ *  consumers keep the tolerant wrapper above. */
 export async function getStaffStoresStrict(staffId: string): Promise<string[]> {
   const synqed = await getSynqedClient()
   return (await synqed.staffStores.get(staffId)).store_ids

@@ -20,8 +20,9 @@
  *   - getStaffStores: GET; unwraps { storeIds } → string[]; ANY failure
  *     (403/500/transport reject) degrades to [] — web-exact (the action
  *     never throws).
- *   - getStaffStoresStrict: same GET, but ANY failure THROWS — web-exact with
- *     its own strict twin. The staff form needs "lookup failed" to be
+ *   - getStaffStoresStrict: same GET, but ANY failure THROWS — including a
+ *     200 whose body lacks the list (a malformed success must not read as
+ *     "no assignment"). The staff form needs "lookup failed" to be
  *     distinguishable from "assigned to no store" (an empty list means "works
  *     in every store", so degrading would save an empty assignment over a real
  *     one). A re-export of the tolerant version above still BUILDS, so this
@@ -278,6 +279,13 @@ describe('thin actions port — staff-stores assignment', () => {
     const apiFetch = jest.fn(async () => {
       throw new TypeError('Load failed')
     })
+    setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
+
+    await expect(getStaffStoresStrict('staff-9')).rejects.toThrow()
+  })
+
+  it('getStaffStoresStrict: a 200 without the list THROWS — a malformed success must not read as "no assignment"', async () => {
+    const apiFetch = jest.fn(async () => new Response(JSON.stringify({}), { status: 200 }))
     setDataPort({ apiFetch } as unknown as Parameters<typeof setDataPort>[0])
 
     await expect(getStaffStoresStrict('staff-9')).rejects.toThrow()
