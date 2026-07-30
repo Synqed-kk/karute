@@ -6,8 +6,55 @@
  *     helper MUST re-sort in memory or the list silently reorders.
  *  2. The SAME search must go into every page closure; applying it only on page 1
  *     would page the unfiltered set against a filtered total.
+ *
+ * Web性能 (speed lever 3): the WEB pages' no-search case is served by the new
+ * listAllCustomersCached (unstable_cache, 60s, tag 'customers') while search —
+ * and every facade caller — stays on the untouched live listAllCustomers. The
+ * suite below locks down that split:
+ *  3. the live function never memoizes — search / facade calls stay fresh.
+ *  4. the cache key carries businessId — two tenants never share an entry
+ *     (CRITICAL: silently dropping businessId from the key would leak one
+ *     business's customers into another's 顧客/カルテ page).
+ *  5. the cache key carries store_id + enforceStore + sort_by — different
+ *     scopes never collide into the same entry.
+ *
+ * unstable_cache is mocked as a REAL keyed memoizer here (not the plain
+ * passthrough the sibling cache suites use — dashboard-cached,
+ * customers-list-enrich) because cases 4/5 specifically test the KEY, which a
+ * passthrough would trivially "pass" without proving anything.
  */
-import { listAllCustomers } from '@/lib/customers/list-all'
+process.env.SYNQED_CORE_URL = 'http://synqed.test'
+process.env.SYNQED_CORE_API_KEY = 'test-key'
+
+// Keyed-memoizing mock of unstable_cache: same arg-tuple → the underlying fn
+// runs once (cache HIT on repeat); a different arg-tuple → a separate entry
+// (a fresh underlying call). This is what actually lets tests 4/5 prove the
+// cache key includes businessId / store_id / enforceStore / sort_by.
+const mockCacheStore = new Map<string, unknown>()
+jest.mock('next/cache', () => ({
+  unstable_cache:
+    (fn: (...args: never[]) => Promise<unknown>) =>
+    async (...args: never[]) => {
+      const key = JSON.stringify(args)
+      if (!mockCacheStore.has(key)) mockCacheStore.set(key, await fn(...args))
+      return mockCacheStore.get(key)
+    },
+}))
+
+// The cached path builds its OWN client per businessId (the store-scope.ts
+// request-context-escape idiom) instead of any request-bound client — route
+// each constructed client's customers.list to a per-business registered mock
+// so tests can prove which tenant's data a call actually reached.
+const listByBusiness = new Map<string, jest.Mock>()
+jest.mock('@synqed-kk/client', () => ({
+  SynqedClient: jest.fn(({ businessId }: { businessId: string }) => {
+    const list = listByBusiness.get(businessId)
+    if (!list) throw new Error(`no mock client registered for business "${businessId}"`)
+    return { customers: { list } }
+  }),
+}))
+
+import { listAllCustomers, listAllCustomersCached } from '@/lib/customers/list-all'
 
 const mk = (id: string, over: Record<string, unknown> = {}) => ({
   id,
@@ -17,7 +64,10 @@ const mk = (id: string, over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-type ListArg = { page: number; search?: string; page_size?: number }
+type ListArg = { page: number; search?: string; page_size?: number; store_id?: string }
+
+// Live-path client double (unchanged from the original suite) — used by the
+// listAllCustomers tests, which call the caller's own passed-in client directly.
 const client = (pages: ReturnType<typeof mk>[][], total: number) => ({
   customers: {
     list: jest.fn(async ({ page }: ListArg) => ({
@@ -27,12 +77,26 @@ const client = (pages: ReturnType<typeof mk>[][], total: number) => ({
   },
 })
 
-describe('listAllCustomers', () => {
+// Registers the mock client the CACHED path will construct for this businessId
+// (see the @synqed-kk/client mock above).
+function registerBusiness(businessId: string, pages: ReturnType<typeof mk>[][], total: number) {
+  const list = jest.fn(async ({ page }: ListArg) => ({ customers: pages[page - 1] ?? [], total }))
+  listByBusiness.set(businessId, list)
+  return list
+}
+
+beforeEach(() => {
+  mockCacheStore.clear()
+  listByBusiness.clear()
+})
+
+describe('listAllCustomers (live, untouched)', () => {
   it('assembles every page and re-sorts updated_at DESC (server order discarded by dedupe)', async () => {
     // pages arrive 1,3 then 2 → dedupe insertion order is [1,3,2]; the helper
     // must re-sort to updated_at DESC = [3,2,1].
     const c = client([[mk('1'), mk('3')], [mk('2')]], 3)
     const { customers, total } = await listAllCustomers(c as never, {
+      search: 'x',
       sort_by: 'updated_at',
       sort_order: 'desc',
     })
@@ -43,6 +107,7 @@ describe('listAllCustomers', () => {
   it('re-sorts created_at ASC for the karute/profile surfaces', async () => {
     const c = client([[mk('3'), mk('1')], [mk('2')]], 3)
     const { customers } = await listAllCustomers(c as never, {
+      search: 'x',
       sort_by: 'created_at',
       sort_order: 'asc',
     })
@@ -62,8 +127,90 @@ describe('listAllCustomers', () => {
 
   it('returns the real total for a single under-cap page', async () => {
     const c = client([[mk('1'), mk('2')]], 2)
-    const { customers, total } = await listAllCustomers(c as never)
+    const { customers, total } = await listAllCustomers(c as never, { search: 'x' })
     expect(customers.map((x) => x.id)).toEqual(['1', '2'])
     expect(total).toBe(2)
+  })
+
+  it('never memoizes — two identical calls are two live fetches (search + facade path)', async () => {
+    const c = client([[mk('1')]], 1)
+    await listAllCustomers(c as never, { search: 'tanaka', sort_by: 'name', sort_order: 'asc' })
+    await listAllCustomers(c as never, { search: 'tanaka', sort_by: 'name', sort_order: 'asc' })
+    expect(c.customers.list).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('listAllCustomersCached (web no-search path)', () => {
+  it('caches per businessId — a repeat call with the same key hits the cache', async () => {
+    const list = registerBusiness('biz-1', [[mk('a1')]], 1)
+
+    await listAllCustomersCached('biz-1', { sort_by: 'created_at', sort_order: 'asc' })
+    await listAllCustomersCached('biz-1', { sort_by: 'created_at', sort_order: 'asc' })
+
+    expect(list).toHaveBeenCalledTimes(1)
+  })
+
+  it('CRITICAL tenant isolation: two businessIds never share a cache entry', async () => {
+    const listA = registerBusiness('biz-a', [[mk('a1')]], 1)
+    const listB = registerBusiness('biz-b', [[mk('b1')]], 1)
+
+    const resultA = await listAllCustomersCached('biz-a', {
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    const resultB = await listAllCustomersCached('biz-b', {
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+
+    // Same options, DIFFERENT businessId — each tenant must get its own rows,
+    // not the first caller's cached entry.
+    expect(resultA.customers.map((x) => x.id)).toEqual(['a1'])
+    expect(resultB.customers.map((x) => x.id)).toEqual(['b1'])
+    expect(listA).toHaveBeenCalledTimes(1)
+    expect(listB).toHaveBeenCalledTimes(1)
+  })
+
+  it('parameter isolation: different store_id / enforceStore / sort_by never collide', async () => {
+    const list = registerBusiness('biz-scope', [[mk('x1')]], 1)
+
+    await listAllCustomersCached('biz-scope', {
+      store_id: 'store-a',
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    // Same key repeated → cache HIT, no new underlying call.
+    await listAllCustomersCached('biz-scope', {
+      store_id: 'store-a',
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    expect(list).toHaveBeenCalledTimes(1)
+
+    // Different store_id → a distinct cache entry → a 2nd underlying call.
+    await listAllCustomersCached('biz-scope', {
+      store_id: 'store-b',
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    expect(list).toHaveBeenCalledTimes(2)
+
+    // Same store_id, but enforceStore flips → a distinct entry → a 3rd call.
+    await listAllCustomersCached('biz-scope', {
+      store_id: 'store-b',
+      enforceStore: true,
+      sort_by: 'created_at',
+      sort_order: 'asc',
+    })
+    expect(list).toHaveBeenCalledTimes(3)
+
+    // Same store_id + enforceStore, but sort_by flips → a distinct entry → a 4th call.
+    await listAllCustomersCached('biz-scope', {
+      store_id: 'store-b',
+      enforceStore: true,
+      sort_by: 'name',
+      sort_order: 'asc',
+    })
+    expect(list).toHaveBeenCalledTimes(4)
   })
 })
