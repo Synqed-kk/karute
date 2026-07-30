@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { getLocale, getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -114,15 +116,21 @@ export default async function CustomersPage({
   const burnUnpricedIds = burn?.unpricedCustomers ?? []
 
   return (
-    <CustomersListView
-      rows={screen.rows}
-      totalRegistered={screen.totalRegistered}
-      query={query}
-      selfStaffId={activeStaffId}
-      bookingDataAvailable={screen.bookingDataAvailable}
-      staffList={pickerStaff}
-      burnByCustomer={burnByCustomer}
-      burnUnpricedIds={burnUnpricedIds}
-    />
+    <>
+      {/* SWR delivery: this screen may have been served from the
+          router cache — stamp when the SERVER built it so a stale
+          copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
+      <CustomersListView
+        rows={screen.rows}
+        totalRegistered={screen.totalRegistered}
+        query={query}
+        selfStaffId={activeStaffId}
+        bookingDataAvailable={screen.bookingDataAvailable}
+        staffList={pickerStaff}
+        burnByCustomer={burnByCustomer}
+        burnUnpricedIds={burnUnpricedIds}
+      />
+    </>
   )
 }

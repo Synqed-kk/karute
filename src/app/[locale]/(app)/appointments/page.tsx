@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { createClient } from '@/lib/supabase/server'
 import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
@@ -141,24 +143,30 @@ export default async function AppointmentsPage({
   })
 
   return (
-    <AppointmentsView
-      staff={screen.staff}
-      activeStaffId={screen.visibleActiveStaffId ?? screen.staff[0]?.id ?? null}
-      authProfileId={authProfileId}
-      customers={customers}
-      locale={locale}
-      orgSettings={orgSettings}
-      initialAppointments={dayAppointments}
-      initialView={view}
-      selectedDateIso={selectedDate.toISOString()}
-      weekData={screen.weekData}
-      weekStartIso={screen.weekStartIso}
-      monthData={screen.monthData}
-      monthStartIso={screen.monthStartIso}
-      reservationViews={screen.reservationViews}
-      reservationStaff={screen.reservationStaff}
-      businessHours={screen.businessHours}
-      staffFilter={staffFilter}
-    />
+    <>
+      {/* SWR delivery: this screen may have been served from the
+          router cache — stamp when the SERVER built it so a stale
+          copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
+      <AppointmentsView
+        staff={screen.staff}
+        activeStaffId={screen.visibleActiveStaffId ?? screen.staff[0]?.id ?? null}
+        authProfileId={authProfileId}
+        customers={customers}
+        locale={locale}
+        orgSettings={orgSettings}
+        initialAppointments={dayAppointments}
+        initialView={view}
+        selectedDateIso={selectedDate.toISOString()}
+        weekData={screen.weekData}
+        weekStartIso={screen.weekStartIso}
+        monthData={screen.monthData}
+        monthStartIso={screen.monthStartIso}
+        reservationViews={screen.reservationViews}
+        reservationStaff={screen.reservationStaff}
+        businessHours={screen.businessHours}
+        staffFilter={staffFilter}
+      />
+    </>
   )
 }

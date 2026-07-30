@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { getLocale } from 'next-intl/server'
 import { getStaffList, getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
@@ -94,26 +96,32 @@ export default async function DashboardPage() {
   })
 
   return (
-    <DashboardPageView
-      dateLabel={screen.dateLabel}
-      isOwner={screen.isOwner}
-      onboardingComplete={screen.onboardingComplete}
-      heroSlides={screen.heroSlides}
-      heroTomorrow={screen.heroTomorrow}
-      doneCount={screen.doneCount}
-      karuteTodos={screen.karuteTodos}
-      redeemTodos={screen.redeemTodos}
-      attentionItems={screen.attentionItems}
-      totalToday={screen.totalToday}
-      renewals={screen.renewals}
-      rebooks={screen.rebooks}
-      winbacks={screen.winbacks}
-      tomorrow={screen.tomorrow}
-      packAlerts={screen.packAlerts}
-      reconcile={screen.reconcile}
-      canDismissAlerts={screen.canDismissAlerts}
-      pulse={screen.pulse}
-      ticketsEnabled={screen.ticketsEnabled}
-    />
+    <>
+      {/* SWR delivery: this screen may have been served from the
+          router cache — stamp when the SERVER built it so a stale
+          copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
+      <DashboardPageView
+        dateLabel={screen.dateLabel}
+        isOwner={screen.isOwner}
+        onboardingComplete={screen.onboardingComplete}
+        heroSlides={screen.heroSlides}
+        heroTomorrow={screen.heroTomorrow}
+        doneCount={screen.doneCount}
+        karuteTodos={screen.karuteTodos}
+        redeemTodos={screen.redeemTodos}
+        attentionItems={screen.attentionItems}
+        totalToday={screen.totalToday}
+        renewals={screen.renewals}
+        rebooks={screen.rebooks}
+        winbacks={screen.winbacks}
+        tomorrow={screen.tomorrow}
+        packAlerts={screen.packAlerts}
+        reconcile={screen.reconcile}
+        canDismissAlerts={screen.canDismissAlerts}
+        pulse={screen.pulse}
+        ticketsEnabled={screen.ticketsEnabled}
+      />
+    </>
   )
 }
