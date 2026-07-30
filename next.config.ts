@@ -4,7 +4,20 @@ import { withSentryConfig } from '@sentry/nextjs'
 
 const withNextIntl = createNextIntlPlugin('./next-intl.config.ts')
 
-const nextConfig: NextConfig = {}
+const nextConfig: NextConfig = {
+  experimental: {
+    // Router-cache reuse for dynamic screens. Next's default is 0s: every
+    // sidebar hop and 予約 date-arrow press re-runs the full server render
+    // (measured 1.0–2.6s per click on prod, 2026-07-30 speed pass). 30s lets
+    // the client reuse a screen it already has for quick revisits. Staleness
+    // ceiling: in-app mutations stay fresh (router.refresh() after writes
+    // bypasses this); only OTHER-device changes can be up to 30s stale on a
+    // revisit — same order as the shell's cached facade packets. Web-only:
+    // the native shell renders the Vite thin bundle, which this file never
+    // touches.
+    staleTimes: { dynamic: 30 },
+  },
+}
 
 export default withSentryConfig(withNextIntl(nextConfig), {
   org: process.env.SENTRY_ORG,
