@@ -11,7 +11,7 @@
 
 const mockState: {
   combined: { data: unknown; error: { code?: string } | null }
-  base: { data: unknown; error: null }
+  base: { data: unknown; error: { code?: string } | null }
 } = {
   combined: { data: null, error: null },
   base: { data: null, error: null },
@@ -62,6 +62,19 @@ describe('capabilitiesForUser — fallback discipline (Greptile #652 P1)', () =>
     expect(caps.has('customers.view')).toBe(true) // practitioner preset
   })
 
+  it("42703 branch whose OWN follow-up query fails → throws — the fallback must never synthesize a preset with no authoritative data (r3)", async () => {
+    mockState.combined = { data: null, error: { code: '42703' } }
+    mockState.base = { data: null, error: { code: '08006' } }
+    await expect(capabilitiesForUser('u-1')).rejects.toThrow('capability resolution failed')
+  })
+
+  it('42703 branch with a row whose display_role is null → preset default stands (the row IS authoritative)', async () => {
+    mockState.combined = { data: null, error: { code: '42703' } }
+    mockState.base = { data: { display_role: null }, error: null }
+    const caps = await capabilitiesForUser('u-1')
+    expect(caps.has('customers.view')).toBe(true) // practitioner default
+  })
+
   it('PGRST204 schema-cache miss → throws (a stale cache fires post-migration; honoring it would re-open the override-drop hole — Greptile #652 round 2)', async () => {
     mockState.combined = { data: null, error: { code: 'PGRST204' } }
     mockState.base = { data: { display_role: 'assistant' }, error: null }
@@ -74,10 +87,9 @@ describe('capabilitiesForUser — fallback discipline (Greptile #652 P1)', () =>
     await expect(capabilitiesForUser('u-1')).rejects.toThrow('capability resolution failed')
   })
 
-  it('missing profile row without an error keeps the pre-existing preset path', async () => {
+  it('missing profile row → throws (no row = no authoritative data; a legit signed-in staff always has one — r3)', async () => {
     mockState.combined = { data: null, error: null }
     mockState.base = { data: null, error: null }
-    const caps = await capabilitiesForUser('u-1')
-    expect(caps.has('customers.view')).toBe(true) // practitioner default
+    await expect(capabilitiesForUser('u-1')).rejects.toThrow('capability resolution failed')
   })
 })

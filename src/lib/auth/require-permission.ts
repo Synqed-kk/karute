@@ -77,12 +77,21 @@ export async function capabilitiesForUser(uid: string): Promise<Set<Capability>>
     if (error && error.code !== '42703') {
       throw new Error('capability resolution failed')
     }
-    const { data: base } = await service
+    const { data: base, error: baseError } = await service
       .from('profiles')
       .select('display_role')
       .eq('id', uid)
       .maybeSingle()
-    role = synqedRoleToPreset(base?.display_role)
+    // The fallback must never SYNTHESIZE access: if its own query fails, or
+    // the profile row is missing entirely, there is no authoritative
+    // permission data at all — fail closed rather than defaulting to the
+    // practitioner preset (Greptile #652 r3). A row whose display_role is
+    // null/unset stays on the preset default: the row itself is authoritative,
+    // the column just predates RBAC.
+    if (baseError || !base) {
+      throw new Error('capability resolution failed')
+    }
+    role = synqedRoleToPreset(base.display_role)
   }
 
   return effectiveCapabilities(role, override)
