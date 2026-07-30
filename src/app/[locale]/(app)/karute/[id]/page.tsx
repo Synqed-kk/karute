@@ -52,7 +52,10 @@ export default async function KaruteDetailPage({
       // may read every staff's raw recordings (owner/manager). Both independent
       // of the karute, so fan them out in the same wave.
       getCurrentUserStaffId(),
-      can('recordings.viewAll'),
+      // Fail closed on a capability-resolution failure (the resolver throws
+      // post-#652): own-recordings-only view, page still renders — same
+      // absorption as dashboard's can('alerts.manage').
+      can('recordings.viewAll').catch(() => false),
     ])
   if (!karute) notFound()
 

@@ -19,13 +19,15 @@ import {
  * Resolve the signed-in user's effective capabilities, tenant-scoped (the
  * profile id is auth.uid()).
  *
- * Degrades gracefully across the rollout:
- *   - After the RBAC migration: use the rich `permission_role` + `permissions`
- *     (per-staff overrides) columns.
- *   - Before it (or if those columns aren't present yet): derive the preset from
- *     the existing `display_role` (which mirrors the synqed role). The owner
- *     therefore keeps full power either way — applying the migration changes no
- *     one's effective access until someone is explicitly customized.
+ * Failure posture (#652): the ONLY graceful degradation is the genuine
+ * pre-RBAC-migration schema (42703 undefined_column, with a successful
+ * display_role follow-up read) — there, the preset derives from the
+ * authoritative pre-migration row and no override can exist to drop. EVERY
+ * other failure (transient errors, PGRST204 cache misses, a failing follow-up
+ * read, a missing profile row) THROWS — deriving a preset there would either
+ * drop an explicit per-staff override or synthesize access with no
+ * authoritative data. Callers either surface the failure (gates → 403/500) or
+ * absorb it as zero capabilities where a page/scope must keep working.
  */
 export const getMyCapabilities = cache(async (): Promise<Set<Capability>> => {
   const uid = await getCurrentUserStaffId()
@@ -37,7 +39,7 @@ export const getMyCapabilities = cache(async (): Promise<Set<Capability>> => {
  * Effective capabilities for an EXPLICIT staff/profile id — the identity seam
  * shared by the cookie path (getMyCapabilities) and the facade Bearer path,
  * where the id comes from the verified token, not a cookie. Same tenant-scoped
- * profile read; same graceful pre/post-migration fallback.
+ * profile read; same fail-closed posture (see getMyCapabilities above).
  */
 export async function capabilitiesForUser(uid: string): Promise<Set<Capability>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
