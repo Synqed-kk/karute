@@ -15,11 +15,12 @@ import type { AppointmentRow } from '@/actions/appointments'
 //
 // Customer names are NOT baked into the cached rows. The body fetches with an
 // empty name map and getCachedDayAgenda decorates rows AFTER the cache read,
-// from the same 60s customer-list cache the uncached code path uses — so name
-// freshness is byte-for-byte today's behavior, and the body never re-pays the
-// full customer pagination on a cache regeneration (nested unstable_cache
-// bypasses the inner cache's READ path — verified in installed Next 16.2.3,
-// unstable-cache.js isNestedUnstableCache).
+// from the same 60s customer-list cache the uncached code path uses — name
+// freshness is byte-for-byte today's behavior. (The rejected alternative —
+// calling the customer-list cache INSIDE this body — would re-pay the full
+// customer pagination on every regeneration: a nested unstable_cache's READ
+// path is bypassed in installed Next 16.2.3, unstable-cache.js
+// isNestedUnstableCache.)
 //
 // Error envelope, stated honestly (verified against installed Next source):
 //   - COLD miss: a thrown fetch error is never stored (cacheNewResult only
@@ -68,12 +69,15 @@ function fetchDayAgendaRows(
  * 60s per-(business, store, day) cache in the middle, names decorated after
  * the cache read.
  *
- * A null store scope NEVER touches the cache. storeId only resolves null for
- * a zero-store business, a truly floating staff — or a DEGRADED RBAC lookup
- * (getStaffStores swallows core errors to [], dropping the clamp). Memoizing
- * that last case would serve a transient outage's unclamped, business-wide
- * row set to later requests for 60s (blind-round tenancy finding); bypassing
- * keeps degraded requests exactly as live as today's uncached code.
+ * A null store scope NEVER touches the cache. storeId resolves null only when
+ * the active-store cookie is unset AND the primary-store lookup yields
+ * nothing (zero-store business, or a degraded double-failure during a core
+ * outage) — the one case where the fetch runs business-wide. Memoizing it
+ * would serve that unclamped row set to later requests for 60s (blind-round
+ * tenancy finding); bypassing keeps it exactly as live as today's uncached
+ * code. A degraded lookup that still yields a store id keeps its store
+ * filter — the unclamped-STORE-SELECTION residual in resolveStoreScope is
+ * pre-existing and unchanged here (savepoint open item).
  *
  * Errors are swallowed to [] OUT HERE — the cached body throws, so a cold
  * miss during an outage is never stored as an empty agenda.

@@ -46,12 +46,23 @@ function resolveSpec(spec: string, fromFile: string): string | null {
   return null
 }
 
+// Backtick alternative included: `import(\`@/x\`)` is a live idiom in this
+// repo (src/i18n/request.ts) and the string-only regex was proven blind to it
+// by a delta-verify PoC — a facade route using the backtick form walked right
+// past the scan.
 const IMPORT_RE =
-  /(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)/g
+  /(?:import|export)[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|import\(\s*`([^`]+)`\s*\)/g
 
-/** Every file transitively reachable from `entry` via static imports. */
-function reachable(entry: string): Set<string> {
+/** Every file transitively reachable from `entry` via static imports.
+ *  An INTERPOLATED local dynamic import (`import(\`@/x/${y}\`)`) cannot be
+ *  resolved statically — it lands in `unscannable` and the caller must fail
+ *  loud, never skip silently. */
+function reachable(entry: string): {
+  seen: Set<string>
+  unscannable: string[]
+} {
   const seen = new Set<string>()
+  const unscannable: string[] = []
   const stack = [entry]
   while (stack.length) {
     const f = stack.pop()!
@@ -60,13 +71,20 @@ function reachable(entry: string): Set<string> {
     const src = readFileSync(f, 'utf8')
     IMPORT_RE.lastIndex = 0
     for (const m of src.matchAll(IMPORT_RE)) {
-      const spec = m[1] || m[2]
+      const spec = m[1] || m[2] || m[3]
       if (!spec) continue
+      if (
+        spec.includes('${') &&
+        (spec.startsWith('@/') || spec.startsWith('.'))
+      ) {
+        unscannable.push(`${f.replace(process.cwd(), '.')}: import(\`${spec}\`)`)
+        continue
+      }
       const r = resolveSpec(spec, f)
       if (r) stack.push(r)
     }
   }
-  return seen
+  return { seen, unscannable }
 }
 
 describe('web-only caches never reach the facade', () => {
@@ -87,14 +105,29 @@ describe('web-only caches never reach the facade', () => {
       'appointments',
       'page.tsx',
     )
-    expect([...reachable(page)]).toContain(BANNED[0])
+    expect([...reachable(page).seen]).toContain(BANNED[0])
+  })
+
+  it('resolves backtick dynamic imports (the PoC-proven blind spot stays covered)', () => {
+    // Self-check of the regex: a backtick, non-interpolated local specifier
+    // must resolve like the quoted form. Uses the walker's own regex.
+    IMPORT_RE.lastIndex = 0
+    const m = [
+      ...'const x = await import(`@/lib/appointments/day-agenda-cached`)'.matchAll(
+        IMPORT_RE,
+      ),
+    ]
+    expect(m[0]?.[3]).toBe('@/lib/appointments/day-agenda-cached')
   })
 
   it.each(routes.map((r) => [r.replace(process.cwd(), '.'), r]))(
     '%s does not import any web-only cache',
     (_rel, route) => {
-      const graph = reachable(route)
-      expect(BANNED.filter((b) => graph.has(b))).toEqual([])
+      const { seen, unscannable } = reachable(route)
+      // Fail loud on anything the scan cannot follow — a skipped edge is a
+      // hole, not a pass.
+      expect(unscannable).toEqual([])
+      expect(BANNED.filter((b) => seen.has(b))).toEqual([])
     },
   )
 })
