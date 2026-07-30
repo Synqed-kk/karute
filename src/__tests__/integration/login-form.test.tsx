@@ -20,10 +20,15 @@ function tFor(ns: string) {
 
 jest.mock('next-intl', () => ({
   useTranslations: (ns: string) => tFor(ns),
+  // The page wraps itself in a provider pick (client-dictionary split) —
+  // render it transparently here.
+  NextIntlClientProvider: ({ children }: { children: React.ReactNode }) =>
+    children,
 }))
 
 jest.mock('next-intl/server', () => ({
   getTranslations: async (ns: string) => tFor(ns),
+  getMessages: async () => ({ auth: {} }),
 }))
 
 jest.mock('next/navigation', () => ({
