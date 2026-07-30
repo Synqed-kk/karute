@@ -91,6 +91,11 @@ export interface DashboardScreenDeps {
   /** Same PageTiming instance the page's Stage-1 fan-out already used — the
    *  Stage-2 phases below and the final t.end() log line join it. */
   t: PageTiming
+  /** WEB opt-in: keep the 要注目 model call OUT of the render path (serve the
+   *  ai_cache hit, otherwise deterministic lines now + generate after the
+   *  response). Default false so the facade screen route — whose one-shot
+   *  packet has no second render to pick up a late fill — is untouched. */
+  deferAttentionAi?: boolean
 }
 
 export interface DashboardScreen {
@@ -133,6 +138,7 @@ export async function buildDashboardScreen(
     businessId,
     scope,
     t,
+    deferAttentionAi = false,
   } = deps
 
   const now = nowUtc()
@@ -383,6 +389,7 @@ export async function buildDashboardScreen(
       storeId: activeStoreId,
       dateYmd: todayYmd,
       locale,
+      cacheOnly: deferAttentionAi,
     }).catch(() => new Map(attentionInputs.map((i) => [i.clientId, fallbackLine(i)]))),
   )
   const attentionItems: AttentionCardView[] = attentionInputs.map((i) => ({
