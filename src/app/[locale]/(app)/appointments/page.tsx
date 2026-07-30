@@ -77,7 +77,7 @@ export default async function AppointmentsPage({
     monthRangeAppts,
     storeScope,
   ] = await Promise.all([
-    supabase.auth.getUser(),
+    t.phase('auth.getUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('orgSettings', () => getOrgSettings()),
@@ -86,24 +86,30 @@ export default async function AppointmentsPage({
     // thin greyed キャンセル済み tombstones in their original slot. Every other
     // getAppointmentsByDate caller keeps the hidden-by-default contract.
     t.phase('day.appointments', () => getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true })),
-    getBusinessId().catch(() => null),
-    weekRange
-      ? getAppointmentsInRange(
-          weekRange.rangeFrom.toISOString(),
-          weekRange.rangeTo.toISOString(),
-        )
-      : Promise.resolve(null),
-    monthRange
-      ? getAppointmentsInRange(
-          monthRange.rangeFrom.toISOString(),
-          monthRange.rangeTo.toISOString(),
-        )
-      : Promise.resolve(null),
-    resolveStoreScope(),
+    t.phase('businessId', () => getBusinessId().catch(() => null)),
+    t.phase('range.week', () =>
+      weekRange
+        ? getAppointmentsInRange(
+            weekRange.rangeFrom.toISOString(),
+            weekRange.rangeTo.toISOString(),
+          )
+        : Promise.resolve(null),
+    ),
+    t.phase('range.month', () =>
+      monthRange
+        ? getAppointmentsInRange(
+            monthRange.rangeFrom.toISOString(),
+            monthRange.rangeTo.toISOString(),
+          )
+        : Promise.resolve(null),
+    ),
+    t.phase('storeScope', () => resolveStoreScope()),
   ])
 
   const authProfileId = user?.id ?? null
-  const storeStaffIds = await storeStaffIdSet(staffList, storeScope.storeId)
+  const storeStaffIds = await t.phase('storeStaffIds', () =>
+    storeStaffIdSet(staffList, storeScope.storeId),
+  )
 
   // ─────────────────────────────────────────────────────────────
   // STAGE 2 — only enrichCustomers, since it genuinely depends on

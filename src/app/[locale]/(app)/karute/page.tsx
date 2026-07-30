@@ -38,8 +38,8 @@ export default async function KaruteRecordsListPage() {
   // per request in the Vercel logs makes the next round aim at a measurement.
   const t = startTiming('karute')
   const [synqed, scope] = await Promise.all([
-    getSynqedClient(),
-    resolveStoreScope(),
+    t.phase('synqedClient', () => getSynqedClient()),
+    t.phase('storeScope', () => resolveStoreScope()),
   ])
   const activeStore = scope.storeId
   const clamped = scope.allowedStoreIds != null
@@ -74,13 +74,14 @@ export default async function KaruteRecordsListPage() {
       // has pinned a store (a customer "belongs to" a store via events; see
       // listAllCustomers). null when unpinned, or when clamped (the list above
       // is already store-scoped, so its customers ARE the placeholder roster).
-      !clamped && activeStore
+      t.phase('customers.store', () =>
+        !clamped && activeStore
         ? listAllCustomers(synqed, {
             store_id: activeStore,
             sort_by: 'created_at',
             sort_order: 'asc',
           })
-        : Promise.resolve(null),
+        : Promise.resolve(null)),
       t.phase('activeStaffId', () => getCurrentUserStaffId()),
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
@@ -100,7 +101,9 @@ export default async function KaruteRecordsListPage() {
   // store (or floating staff) — the full roster was leaking every branch's
   // staff names into every store's dropdown. Name resolution on rows stays
   // business-wide inside the builder.
-  const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
+  const storeStaffIds = await t.phase('storeStaffIds', () =>
+    storeStaffIdSet(staffList, activeStore),
+  )
   t.end()
 
   const screen = buildSessionsListScreen({
