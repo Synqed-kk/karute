@@ -24,10 +24,10 @@ export default async function AskAIPage({
   // BEFORE the scope-count fan-out below so a denied account never preloads
   // karute/customer/appointment counts. A REJECTED capability resolve is
   // treated as no capabilities → redirect away (this surface has no error
-  // envelope; the API routes return their own 500 instead). The deeper
-  // resolver degrades query failures to the practitioner preset by design
-  // (pre-RBAC-migration grace) — that system-wide posture is Permission v2's
-  // to revisit, not this guard's.
+  // envelope; the API routes return their own 500 instead). The resolver
+  // itself fails closed on post-migration query errors and keeps its graceful
+  // display_role preset only for the pre-migration schema — see
+  // capabilitiesForUser in require-permission.ts (Greptile #652 P1).
   const caps = await getMyCapabilities().catch(() => new Set<Capability>())
   if (!canUseAskAi(caps)) {
     redirect(`/${localeArg}/dashboard`)

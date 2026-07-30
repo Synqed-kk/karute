@@ -63,6 +63,17 @@ export async function capabilitiesForUser(uid: string): Promise<Set<Capability>>
       : synqedRoleToPreset(data.display_role)
     override = (data.permissions as string[] | null) ?? null
   } else {
+    // The graceful fallback exists ONLY for the pre-RBAC-migration schema,
+    // where the permission_role/permissions columns don't exist yet (Postgres
+    // 42703 undefined_column / PostgREST PGRST204 schema-cache miss). Any
+    // OTHER combined-select failure — e.g. a transient DB error post-migration
+    // — must fail CLOSED instead: deriving a preset from display_role would
+    // DROP an explicit per-staff override and could re-grant a capability the
+    // owner deliberately removed (Greptile #652 P1). A missing row without an
+    // error keeps the pre-existing preset path (no override exists to drop).
+    if (error && error.code !== '42703' && error.code !== 'PGRST204') {
+      throw new Error('capability resolution failed')
+    }
     const { data: base } = await service
       .from('profiles')
       .select('display_role')
