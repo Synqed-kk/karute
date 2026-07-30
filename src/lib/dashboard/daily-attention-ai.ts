@@ -37,16 +37,27 @@ export interface AttentionInputItem extends AttentionItem {
 }
 
 /**
- * Cache keys whose deferred fill is already scheduled on THIS instance, so a
- * burst of cold-cache dashboard loads schedules one model call, not one each.
+ * Cache keys whose deferred fill is already scheduled on THIS instance
+ * (key → when it was scheduled), so a burst of cold-cache dashboard loads
+ * schedules one model call, not one each.
+ *
+ * Timestamped, not a plain Set (blind-round finding): a runtime can freeze or
+ * kill the instance after the response but before the deferred fill's
+ * `.finally` runs, and a permanent entry would then short-circuit EVERY later
+ * request for that key to the fallback lines for the instance's whole life —
+ * the cache would never fill again. An entry older than FILL_TTL_MS is
+ * treated as dead and rescheduled; a merely-slow fill that overlaps its
+ * replacement just duplicates one model call, the same ceiling as two
+ * instances racing.
  *
  * ponytail: per-instance, not global — two serverless instances can still
  * duplicate a single fill, exactly as the pre-existing inline path already
- * could. Bounded regardless: entries are removed when the fill settles, and a
- * key only lives as long as one generation. Upgrade path if duplicate fills
- * ever cost real money: a short-lived sentinel row in ai_cache.
+ * could. Bounded regardless: entries are removed when the fill settles or
+ * overwritten on reschedule. Upgrade path if duplicate fills ever cost real
+ * money: a short-lived sentinel row in ai_cache.
  */
-const inFlightFills = new Set<string>()
+const inFlightFills = new Map<string, number>()
+const FILL_TTL_MS = 120_000
 
 const BADGE_LABEL: Record<AttentionItem['badge'], string> = {
   lastOne: 'ticket pack: 1 session left (renewal moment)',
@@ -151,23 +162,32 @@ ${defensivePreamble(locale)}`
       // One in-flight fill per cache key. A cold cache is exactly the moment
       // several staff open the dashboard at once (the morning), and each miss
       // would otherwise schedule its own model call for the identical key.
-      if (inFlightFills.has(fillKey)) return fallback()
+      // An entry past FILL_TTL_MS is a dead fill (instance froze before its
+      // .finally) — reschedule rather than serving fallback forever.
+      const scheduledAt = inFlightFills.get(fillKey)
+      if (scheduledAt !== undefined && Date.now() - scheduledAt < FILL_TTL_MS) {
+        return fallback()
+      }
       try {
         after(() =>
           generate()
-            .catch((err) => {
+            .catch((err: unknown) => {
               // Never silent: a swallowed failure here leaves the cache cold,
               // so every later load pays the miss again and nothing says why.
+              // Metadata only — the OpenAI error body can echo request input,
+              // and this prompt carries customer memos/summaries, so the raw
+              // error object must never reach the logs.
+              const e = err as { name?: string; status?: number; code?: string } | null
               console.warn(
                 '[dashboard] deferred 要注目 line fill failed — ai_cache stays cold:',
-                err,
+                `name=${e?.name ?? 'Error'} status=${e?.status ?? '-'} code=${e?.code ?? '-'}`,
               )
             })
             .finally(() => inFlightFills.delete(fillKey)),
         )
         // Registered only once after() accepted the work, so a throw below
         // can't leave a key stuck marked as in-flight.
-        inFlightFills.add(fillKey)
+        inFlightFills.set(fillKey, Date.now())
         return fallback()
       } catch {
         /* no request scope — generate inline below */

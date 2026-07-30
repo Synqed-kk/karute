@@ -117,18 +117,53 @@ describe('getDailyAttentionLines — cacheOnly (web render path)', () => {
     await scheduled[1]!()
   })
 
-  it('a failed deferred fill is reported, never swallowed silently', async () => {
+  it('a failed deferred fill is reported — metadata only, never the raw error', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-    parse.mockRejectedValue(new Error('openai down'))
+    // An OpenAI-shaped error whose message echoes request input — the exact
+    // thing that must NOT reach the logs (the prompt carries customer memos).
+    const leaky = Object.assign(new Error('Invalid prompt: 田中様の腰痛メモ...'), {
+      status: 400,
+      code: 'invalid_request',
+    })
+    parse.mockRejectedValue(leaky)
 
     await getDailyAttentionLines({ ...base, cacheOnly: true })
     await expect(scheduled[0]!()).resolves.not.toThrow()
 
-    expect(warn).toHaveBeenCalledWith(
-      expect.stringContaining('ai_cache stays cold'),
-      expect.any(Error),
-    )
+    expect(warn).toHaveBeenCalledTimes(1)
+    const logged = warn.mock.calls[0].map(String).join(' ')
+    expect(logged).toContain('ai_cache stays cold')
+    expect(logged).toContain('status=400')
+    // The customer-content-bearing message must be absent from every argument.
+    expect(logged).not.toContain('田中')
     warn.mockRestore()
+  })
+
+  it('a stuck in-flight entry self-heals: past the TTL a new fill is scheduled', async () => {
+    // Instance froze before the deferred fill ran → its .finally never fired
+    // and the key is still registered. Without the TTL every later request
+    // would serve fallback forever and the cache would never fill again.
+    parse.mockResolvedValue({ choices: [{ message: { parsed: AI_LINE } }] })
+    const now = jest.spyOn(Date, 'now')
+
+    now.mockReturnValue(1_000_000)
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    expect(afterSpy).toHaveBeenCalledTimes(1)
+    // The scheduled fill is never run — the "killed instance" scenario.
+
+    // Inside the TTL: still deduped.
+    now.mockReturnValue(1_000_000 + 60_000)
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    expect(afterSpy).toHaveBeenCalledTimes(1)
+
+    // Past the TTL: the dead entry is ignored and a fresh fill is scheduled.
+    now.mockReturnValue(1_000_000 + 130_000)
+    await getDailyAttentionLines({ ...base, cacheOnly: true })
+    expect(afterSpy).toHaveBeenCalledTimes(2)
+
+    // Settle the replacement so module state doesn't leak into other tests.
+    await scheduled[1]!()
+    now.mockRestore()
   })
 
   it('HIT: unchanged — cached lines, nothing deferred, no model call', async () => {
