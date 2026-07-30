@@ -23,14 +23,16 @@ export const COLD_NAMESPACES = [
 
 // Sub-trees of cold namespaces that HOT surfaces read — grafted back into the
 // layout provider so those screens keep working with the namespace removed:
-//   settings.stores                — StoreSwitcher in the (app) shell header
-//   coaching.common/panel/
-//   coaching.staff.monthlyGrowth   — KaruteCoachingPanel on カルテ detail
+//   settings.stores          — StoreSwitcher in the (app) shell header
+//   coaching.common/panel    — KaruteCoachingPanel on カルテ detail
+// (An earlier revision also grafted coaching.staff.monthlyGrowth — a phantom:
+// the walker read it out of a doc comment in ScaffoldHint; its only real
+// consumer is dead code with zero importers. The walker now strips full-line
+// comments, so the closure test proves this list from live code only.)
 export const RETAINED_HOT_PATHS: readonly (readonly string[])[] = [
   ['settings', 'stores'],
   ['coaching', 'common'],
   ['coaching', 'panel'],
-  ['coaching', 'staff', 'monthlyGrowth'],
 ]
 
 // Namespace closure each self-carrying surface serializes for its subtree.

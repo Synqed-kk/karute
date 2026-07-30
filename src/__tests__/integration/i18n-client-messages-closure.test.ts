@@ -57,6 +57,22 @@ function resolveSpec(spec: string, fromFile: string): string | null {
 
 const NS_RE = /(?:useTranslations|getTranslations)\(\s*['"]([^'"]+)['"]/g
 const NS_OBJ_RE = /getTranslations\(\s*\{[^}]*namespace:\s*['"]([^'"]+)['"]/g
+// Every call site the two regexes above can't read — variable namespace
+// (useTranslations(NS)), argless (useTranslations()), computed object form —
+// is a closure the walker can't see. Counted per file and failed LOUD below,
+// mirroring the interpolated-import guard (blind-round counterexample: a
+// variable namespace on a hot page shipped raw keys while this test stayed
+// green).
+const NS_CALL_RE = /(?:useTranslations|getTranslations)\(/g
+
+/** File text with FULL-LINE `//` comments removed. Doc comments are where
+ *  phantom literals live — a commented example call-site in ScaffoldHint
+ *  grafted a dead namespace into the layout payload. Only whole-line
+ *  comments are stripped: trailing-comment stripping would mangle string
+ *  literals containing '//' (URLs). */
+function scanText(f: string): string {
+  return fs.readFileSync(f, 'utf8').replace(/^\s*\/\/.*$/gm, '')
+}
 // THREE independent regexes, not one alternation: a combined pattern's
 // `[^'"]*?` lazy scan spans newlines, so a quoted `from '…'` later in the
 // file would swallow a preceding backtick dynamic import inside its match
@@ -80,10 +96,24 @@ function reachableLiterals(entry: string): Set<string> {
     const f = stack.pop()!
     if (seen.has(f)) continue
     seen.add(f)
-    const s = fs.readFileSync(f, 'utf8')
+    const s = scanText(f)
+    let literalCalls = 0
     for (const re of [NS_RE, NS_OBJ_RE]) {
       re.lastIndex = 0
-      for (const m of s.matchAll(re)) lits.add(m[1])
+      for (const m of s.matchAll(re)) {
+        lits.add(m[1])
+        literalCalls++
+      }
+    }
+    NS_CALL_RE.lastIndex = 0
+    const totalCalls = [...s.matchAll(NS_CALL_RE)].length
+    if (totalCalls !== literalCalls) {
+      throw new Error(
+        `unscannable namespace call in ${f}: ${totalCalls} useTranslations/` +
+          `getTranslations call(s) but only ${literalCalls} readable literal(s) — ` +
+          'a variable/argless/computed namespace hides its closure from this walk; ' +
+          'use a string literal or extend the test',
+      )
     }
     for (const re of [FROM_RE, DYN_RE, DYN_BACKTICK_RE]) {
       re.lastIndex = 0
@@ -223,7 +253,6 @@ describe('toLayoutMessages / pickMessages', () => {
     expect(slim.coaching).toEqual({
       panel: { t: 'x' },
       common: { c: 'y' },
-      staff: { monthlyGrowth: { m: 'z' } },
     })
   })
 
