@@ -52,6 +52,35 @@ describe('QuietRefresh', () => {
     expect(refresh).not.toHaveBeenCalled()
   })
 
+  it('a tab that MOUNTS hidden corrects itself when it becomes visible', () => {
+    // Link opened in a background tab: the mount-time check declines, but the
+    // stale copy must still be corrected the moment the user looks at it —
+    // and only once.
+    setVisibility('hidden')
+    render(<QuietRefresh renderedAt={Date.now() - (FRESH_MS + 60_000)} />)
+    expect(refresh).not.toHaveBeenCalled()
+
+    setVisibility('visible')
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it('removes its visibility listener on unmount', () => {
+    setVisibility('hidden')
+    const { unmount } = render(
+      <QuietRefresh renderedAt={Date.now() - (FRESH_MS + 60_000)} />,
+    )
+    unmount()
+    setVisibility('visible')
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
   it('fires at most once per mount even if the stamp never advances', () => {
     // The refresh-loop guard: a server that came back with an unchanged stamp
     // must not re-trigger the effect forever.

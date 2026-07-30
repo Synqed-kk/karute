@@ -52,12 +52,23 @@ export function QuietRefresh({ renderedAt }: { renderedAt: number }) {
   const refreshed = useRef(false)
 
   useEffect(() => {
-    if (refreshed.current) return
-    if (Date.now() - renderedAt < FRESH_MS) return
-    // A backgrounded tab refreshing serves nobody and still costs a render.
-    if (document.visibilityState === 'hidden') return
-    refreshed.current = true
-    router.refresh()
+    const check = () => {
+      if (refreshed.current) return
+      if (Date.now() - renderedAt < FRESH_MS) return
+      // A backgrounded tab refreshing serves nobody and still costs a render.
+      if (document.visibilityState === 'hidden') return
+      refreshed.current = true
+      router.refresh()
+    }
+    check()
+    // A tab that MOUNTS hidden (link opened in a background tab) must not
+    // forfeit its correction forever — without this listener the effect never
+    // re-runs (deps are stable for a mounted instance), so the stale copy
+    // would sit uncorrected even once the user actually looks at it. The
+    // re-check fires when the tab becomes visible; the refreshed ref still
+    // caps it at one refresh per mount.
+    document.addEventListener('visibilitychange', check)
+    return () => document.removeEventListener('visibilitychange', check)
   }, [renderedAt, router])
 
   return null
