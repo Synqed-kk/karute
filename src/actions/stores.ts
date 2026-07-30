@@ -11,6 +11,7 @@ import { getBusinessId, getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { storeSchema, type StoreInput, STORE_OWNER_DENIAL } from '@/lib/validations/store'
 import { loadEntitlementWithClient } from '@/lib/entitlements'
 import { getMyCapabilities } from '@/lib/auth/require-permission'
+import type { Capability } from '@/lib/auth/permissions'
 import { audit } from '@/lib/audit'
 
 // Explicit-client seam (design-parity packet 12 §B-3 S2 — the P-B pattern):
@@ -248,8 +249,11 @@ export async function setActiveStore(storeId: string): Promise<{ ok: true } | { 
   // RBAC clamp: a branch-restricted staff (no stores.viewAll) may only pin a
   // store they're assigned to — otherwise the cookie would be a back door around
   // the store-scoped reads (lib/auth/store-scope). Cross-store roles and floating
-  // staff (empty staff_stores = works everywhere) are unaffected.
-  const caps = await getMyCapabilities()
+  // staff (empty staff_stores = works everywhere) are unaffected. A failed
+  // capability resolve (the resolver throws post-#652-P1) counts as no
+  // capabilities: the clamp check simply applies — fail closed, never an
+  // unhandled server-action rejection.
+  const caps = await getMyCapabilities().catch(() => new Set<Capability>())
   if (!caps.has('stores.viewAll')) {
     const uid = await getCurrentUserStaffId()
     const allowed = uid ? await getStaffStores(uid) : []

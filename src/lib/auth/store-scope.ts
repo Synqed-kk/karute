@@ -12,6 +12,7 @@
 
 import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
+import type { Capability } from './permissions'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
 import { getActiveStoreId, getPrimaryStoreId, getStaffStores } from '@/actions/stores'
 
@@ -41,8 +42,15 @@ export interface StoreScope {
  *                                  back to their first assigned store.
  */
 export async function resolveStoreScope(): Promise<StoreScope> {
+  // Capability-resolution failure → treat as NO capabilities rather than
+  // rejecting (the resolver fails closed on post-migration query errors since
+  // Greptile #652 P1). Empty caps only ever NARROW this function's result —
+  // viewAll is dropped and the clamp below derives from staff_stores data,
+  // never from caps — so the ~20 read surfaces that consume this scope degrade
+  // to a tighter lens on a transient blip instead of crashing. Capability
+  // GATES (can/requireCapability/route guards) deliberately keep the throw.
   const [caps, activeStore, staffId] = await Promise.all([
-    getMyCapabilities(),
+    getMyCapabilities().catch(() => new Set<Capability>()),
     getActiveStoreId(),
     getCurrentUserStaffId(),
   ])
