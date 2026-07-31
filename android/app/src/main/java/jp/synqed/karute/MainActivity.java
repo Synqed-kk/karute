@@ -136,6 +136,16 @@ public class MainActivity extends BridgeActivity {
     // in onCreate() for why this has to be scheduled there and not in load().
     private static final long SPLASH_CEILING_MS = 6000;
 
+    // Second, separate splash hold (code 6+): the @capacitor/splash-screen
+    // plugin (arrived with the main merge; config launchAutoHide:false) holds
+    // the SAME Android-12 system splash behind its own keep-condition until
+    // the page calls SplashScreen.hide() — indefinitely, no ceiling of its
+    // own (verified in the vendored plugin: autoHide=false never clears
+    // isVisible). src/lib/app-root/splash.ts explicitly relies on a native
+    // failsafe existing ("CookieVC's +8s failsafe covers a missed call") —
+    // that failsafe is iOS-native; this constant is its Android counterpart.
+    private static final long SPLASH_PLUGIN_FAILSAFE_MS = 8000;
+
     // Fix B1: hardware/gesture back navigates the WebView's own history instead
     // of closing the app. This is a remote-shell WebView with no @capacitor/app
     // (or any other) plugin registered to handle it — verified nothing in this
@@ -338,6 +348,19 @@ public class MainActivity extends BridgeActivity {
     private void scheduleSplashRelease() {
         WebView webView = getBridge() == null ? null : getBridge().getWebView();
         if (webView == null) return; // SPLASH_CEILING_MS in onCreate() covers this
+
+        // Failsafe for the PLUGIN's splash hold (see SPLASH_PLUGIN_FAILSAFE_MS):
+        // the hide-call proxy is bridge-injected, so this releases a stuck
+        // splash even when the app bundle itself failed to boot; if the page
+        // already called hide() it no-ops. Purged with everything else by
+        // onDestroy()'s removeCallbacksAndMessages.
+        mainHandler.postDelayed(
+            () -> webView.evaluateJavascript(
+                "window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.SplashScreen"
+                    + " && window.Capacitor.Plugins.SplashScreen.hide()",
+                null),
+            SPLASH_PLUGIN_FAILSAFE_MS);
+
         webView.postVisualStateCallback(0, new WebView.VisualStateCallback() {
             @Override
             public void onComplete(long requestId) {
