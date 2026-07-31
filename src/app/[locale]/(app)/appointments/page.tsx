@@ -5,7 +5,8 @@ import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { AppointmentsView } from '@/components/appointments/AppointmentsView'
 import { getOrgSettings } from '@/actions/org-settings'
-import { getAppointmentsByDate, getAppointmentsInRange } from '@/actions/appointments'
+import { getAppointmentsInRange } from '@/actions/appointments'
+import { getCachedDayAgenda } from '@/lib/appointments/day-agenda-cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
 import { enrichCustomers } from '@/lib/customers/list-enrich'
 import { listAllPackUsage } from '@/lib/packs/store'
@@ -82,7 +83,9 @@ export default async function AppointmentsPage({
     // The agenda is the ONE consumer that wants cancelled rows — rendered as
     // thin greyed キャンセル済み tombstones in their original slot. Every other
     // getAppointmentsByDate caller keeps the hidden-by-default contract.
-    getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true }),
+    // 60s web-only cache; appointment/karute mutations updateTag('dashboard')
+    // so web edits repaint immediately (envelope in day-agenda-cached.ts).
+    getCachedDayAgenda(selectedDateStr),
     getBusinessId().catch(() => null),
     weekRange
       ? getAppointmentsInRange(

@@ -1,7 +1,9 @@
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, getMessages } from 'next-intl/server'
+import { NextIntlClientProvider } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import { ThemeToggle } from '@/components/layout/theme-toggle'
 import { LocaleToggle } from '@/components/layout/locale-toggle'
+import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 
 export default async function LandingPage({
   params,
@@ -12,6 +14,9 @@ export default async function LandingPage({
   const t = await getTranslations('landing')
 
   return (
+    <NextIntlClientProvider
+      messages={pickMessages(await getMessages(), PAGE_PICKS.landing)}
+    >
     <div className="min-h-screen bg-background">
       {/* Top bar — pt clears the iOS status bar / Dynamic Island once
           viewport-fit=cover is active (env inset = 0 in normal browsers, so this
@@ -165,6 +170,7 @@ export default async function LandingPage({
         </div>
       </footer>
     </div>
+    </NextIntlClientProvider>
   )
 }
 

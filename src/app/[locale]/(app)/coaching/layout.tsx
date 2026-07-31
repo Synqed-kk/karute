@@ -10,22 +10,29 @@
 // so a developer can flip between owner / staff renderings
 // from anywhere under /coaching/* without re-mounting.
 
+import { NextIntlClientProvider } from 'next-intl'
+import { getMessages } from 'next-intl/server'
 import { DevPreviewToggle } from '@/components/coaching/redesign/DevPreviewToggle'
 import { CoachingLocked } from '@/components/coaching/redesign/CoachingLocked'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { loadEntitlement } from '@/lib/entitlements'
 import { coachingEntitledForTier } from '@/lib/karute/coaching/access'
+import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 
 export default async function CoachingLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
-  const [staffList, activeStaffId, businessId] = await Promise.all([
+  const [staffList, activeStaffId, businessId, allMessages] = await Promise.all([
     getStaffList(),
     getCurrentUserStaffId(),
     getBusinessId(),
+    getMessages(),
   ])
+  // The layout provider no longer ships the coaching namespace — every
+  // /coaching/* subtree (CoachingLocked included) gets it from this pick.
+  const messages = pickMessages(allMessages, PAGE_PICKS.coaching)
 
   // Per-account paywall for the whole coaching section. Entitled =
   // the plan tier includes coaching OR the business is on the
@@ -45,7 +52,11 @@ export default async function CoachingLayout({
     entitlement.isUnlimited ||
     coachingEntitledForTier(entitlement.tier)
   if (!entitled) {
-    return <CoachingLocked />
+    return (
+      <NextIntlClientProvider messages={messages}>
+        <CoachingLocked />
+      </NextIntlClientProvider>
+    )
   }
 
   const activeStaff = activeStaffId
@@ -57,9 +68,9 @@ export default async function CoachingLayout({
       : 'staff'
 
   return (
-    <>
+    <NextIntlClientProvider messages={messages}>
       {children}
       <DevPreviewToggle realRole={realRole} />
-    </>
+    </NextIntlClientProvider>
   )
 }

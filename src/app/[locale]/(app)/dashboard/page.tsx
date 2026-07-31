@@ -93,6 +93,11 @@ export default async function DashboardPage() {
     businessId,
     scope,
     t,
+    // WEB: the 要注目 model call never blocks this render. Cache hit → same
+    // lines as before; cache miss → deterministic lines now, model runs after
+    // the response so the next load is warm. The facade keeps generating
+    // inline (its one-shot packet has no second render).
+    deferAttentionAi: true,
   })
 
   return (

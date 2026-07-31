@@ -2,6 +2,7 @@ import { NextIntlClientProvider, hasLocale } from 'next-intl'
 import { getMessages } from 'next-intl/server'
 import { notFound } from 'next/navigation'
 import { routing } from '@/i18n/routing'
+import { toLayoutMessages } from '@/i18n/client-messages'
 
 export default async function LocaleLayout({
   children,
@@ -14,7 +15,9 @@ export default async function LocaleLayout({
   if (!hasLocale(routing.locales, locale)) {
     notFound()
   }
-  const messages = await getMessages()
+  // Cold namespaces (settings/coaching/auth/…) don't ship here — the screens
+  // that read them carry their own provider pick (src/i18n/client-messages.ts).
+  const messages = toLayoutMessages(await getMessages())
 
   return (
     <NextIntlClientProvider locale={locale} messages={messages}>
