@@ -42,7 +42,7 @@ export type AmbiguityFlag =
  *  flagged, never guessed). */
 export interface LegacyRightsInput {
   readonly subjectId: string
-  readonly role: string                                  // parsed → PermissionRole, fail-closed to 'custom'-like empty preset
+  readonly role: string                                  // RAW string, report display only — producers parse it fail-closed (parseRoleFailClosed) separately to build effectiveLegacy; mapLegacyRights never reads it
   readonly storedOverride: ReadonlyArray<string> | null  // profiles.permissions verbatim
   readonly effectiveLegacy: ReadonlyArray<string>        // OUTPUT of effectiveCapabilities() — post-chokepoint
   readonly assignedStoreIds: ReadonlyArray<string>       // staff_stores verbatim

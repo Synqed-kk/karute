@@ -24,7 +24,10 @@ import {
  * The token mapping table (contract §2, exhaustive — every legacy token not
  * listed here has NO v2 twin and passes through the shadow untouched).
  * Exported so shadow-compare.ts can invert it for the bidirectional +
- * invention checks without a second copy of the table.
+ * invention checks without a second copy of the table. NOTE: this export is a
+ * disclosed deviation from the contract's literal "single export" label on
+ * this file (§1) — same class as the other "not part of the frozen block"
+ * additions; one shared table beats two drifting copies.
  */
 export const LEGACY_TO_V2_TWINS: Readonly<Record<string, ReadonlyArray<CapabilityV2>>> = {
   'customers.view': ['customer_identity.view', 'karute_records.view'],

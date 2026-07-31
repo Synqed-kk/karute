@@ -25,8 +25,10 @@
 // import a .ts file with no build step, and this repo's TS uses the `@/`
 // tsconfig path alias, which plain Node's resolver doesn't know either.
 //
-// Fix: Node >=22.6 strips TypeScript types NATIVELY (no CLI flag needed on
-// this project's actual runtime — brew node@24, verified locally).
+// Fix: Node strips TypeScript types natively with no CLI flag from 23.6
+// (22.6–23.5 hide it behind --experimental-strip-types — the version gate
+// below enforces the default-on floor; this project's actual runtime is brew
+// node@24, verified locally).
 // `registerSourceLoader()` below installs a ~15-line ESM loader hook
 // (node:module `register()`, stable since Node 20.6) that does exactly two
 // things, both pure stdlib, no new dependency:
@@ -107,15 +109,29 @@ for (const key of ['NEXT_PUBLIC_SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY', 'SYN
 }
 
 // ── --out must be outside the repo worktree (PII posture, contract §3) ────
-// Two-stage check so a refused invocation leaves ZERO side effects in the
-// worktree: (1) refuse on the string-resolved path BEFORE creating anything
-// (mkdir must never plant directories inside the repo), then (2) after mkdir,
-// realpath the now-existing target directory and re-check — the symlink-safe
-// belt, run against the actual final directory the report would land in.
+// Refusal must leave ZERO side effects in the worktree, so the symlink-safe
+// check runs BEFORE anything is created: walk up from the target directory to
+// the nearest ancestor that already EXISTS, realpath it (resolving any
+// symlinked component — a plain string check can't see a link that routes
+// back into the repo), and refuse if that real location is inside the repo.
+// Only then mkdir; a final realpath re-check on the now-existing directory is
+// the belt.
 const outAbs = resolvePath(process.cwd(), outArg)
-const repoRootPre = realpathSync(ROOT)
-if (outAbs === repoRootPre || outAbs.startsWith(repoRootPre + '/')) {
-  fail(`--out must be OUTSIDE the repository worktree (${repoRootPre}). Refusing to write a PII-bearing report under: ${outAbs}`)
+const repoRootReal0 = realpathSync(ROOT)
+let ancestor = dirname(outAbs)
+let ancestorReal
+for (;;) {
+  try {
+    ancestorReal = realpathSync(ancestor)
+    break
+  } catch {
+    const parent = dirname(ancestor)
+    if (parent === ancestor) fail(`Cannot resolve any existing ancestor of --out path: ${outAbs}`)
+    ancestor = parent
+  }
+}
+if (ancestorReal === repoRootReal0 || ancestorReal.startsWith(repoRootReal0 + '/')) {
+  fail(`--out must be OUTSIDE the repository worktree (${repoRootReal0}). Refusing to write a PII-bearing report under: ${outAbs} (nearest existing ancestor resolves to ${ancestorReal})`)
 }
 mkdirSync(dirname(outAbs), { recursive: true })
 const outDirReal = realpathSync(dirname(outAbs))
@@ -155,6 +171,15 @@ if (profilesError) fail(`Reading profiles failed: ${profilesError.message}`)
 // src/lib/auth/store-scope.ts:102-123 (one fetch, bounded by the ≤200
 // roster — no bulk staff-store read exists yet, see the Anthony ask).
 const { staff } = await synqed.staff.list({ page_size: 200 })
+// Same single-page pattern as store-scope.ts:111 — but THIS tool's job is
+// catching migration ambiguity, so a hit on the page cap must not degrade
+// silently: staff beyond the first 200 would have no assignment match and be
+// misreported as floating.
+if (staff.length >= 200) {
+  console.warn(
+    '[migration-report] WARNING: staff.list returned the 200-row page cap — assignments beyond it are UNSEEN and their rows may be falsely flagged floating. Use the bulk staff-stores read (Anthony ask 1) before trusting this report.',
+  )
+}
 const assignments = await Promise.all(
   staff.map(async (s) => ({
     id: s.id,

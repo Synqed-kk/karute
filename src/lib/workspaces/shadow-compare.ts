@@ -106,8 +106,10 @@ export interface MigrationReport {
 }
 
 /** Canonical JSON for hashing: sorted role keys, each capability array
- *  sorted — so key/array reordering never changes the hash. */
-function canonicalRolePresetsJson(presets: Readonly<Record<string, ReadonlyArray<string>>>): string {
+ *  sorted — so key/array reordering never changes the hash. Exported (not
+ *  part of the frozen §1 surface) so the test suite can pin the
+ *  canonicalization invariant directly. */
+export function canonicalRolePresetsJson(presets: Readonly<Record<string, ReadonlyArray<string>>>): string {
   const canonical: Record<string, string[]> = {}
   for (const role of Object.keys(presets).sort()) {
     canonical[role] = [...presets[role]].sort()

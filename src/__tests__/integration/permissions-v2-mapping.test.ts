@@ -4,10 +4,12 @@
  *   - src/lib/workspaces/map-legacy-rights.ts (the faithful mapper)
  *   - src/lib/workspaces/shadow-compare.ts    (bidirectional shadow + report)
  *
- * `effectiveLegacy` fixtures are ALWAYS built by calling the real
- * `effectiveCapabilities()` chokepoint (never hand-typed capability lists),
- * so these fixtures can't drift from the real role presets — and the
- * non-owner recordings.viewAll strip is exercised for real, not assumed.
+ * `effectiveLegacy` fixtures are built by calling the real
+ * `effectiveCapabilities()` chokepoint (via buildInput), so they can't drift
+ * from the real role presets — and the non-owner recordings.viewAll strip is
+ * exercised for real, not assumed. ONE deliberate exception: the determinism
+ * test hand-types its scrambled/canonical inputs, because its subject is the
+ * mapper's set/sort logic under adversarial input shape, not preset fidelity.
  */
 import {
   effectiveCapabilities,
@@ -16,7 +18,11 @@ import {
   type PermissionRole,
 } from '@/lib/auth/permissions'
 import { mapLegacyRights } from '@/lib/workspaces/map-legacy-rights'
-import { compareDecisions, assembleMigrationReport } from '@/lib/workspaces/shadow-compare'
+import {
+  compareDecisions,
+  assembleMigrationReport,
+  canonicalRolePresetsJson,
+} from '@/lib/workspaces/shadow-compare'
 import {
   CAPABILITIES_V2,
   parseRoleFailClosed,
@@ -97,6 +103,9 @@ test.each(PRESET_CASES)('preset $role → exact v2 set + preset provenance', ({ 
   const proposed = mapLegacyRights(input)
   expect(proposed.capabilitiesV2).toEqual(expectedV2)
   expect(proposed.provenance).toBe('preset')
+  // Stated invariant (ProposedStaffRights doc): the legacy mapper never
+  // invents per-store entries — pinned for every role, not assumed.
+  expect(proposed.perStoreCapabilitiesV2).toEqual({})
 })
 
 // ─── 2. Override rows — override wins, unknown tokens dropped + flagged ────
@@ -122,6 +131,16 @@ const OVERRIDE_CASES = [
     storedOverride: ['z.unknown', 'a.unknown', 'a.unknown', 'records.write'],
     expectedV2: ['karute_records.write'],
     expectedDropped: ['a.unknown', 'z.unknown'],
+  },
+  {
+    // A KNOWN legacy token with no v2 twin (billing.manage) is neither
+    // flagged unknown NOR contributes to capabilitiesV2 — the "passes through
+    // the shadow untouched" claim, distinguished from a genuinely unknown token.
+    name: 'known-but-twinless token: not flagged, contributes nothing to v2',
+    role: 'custom',
+    storedOverride: ['customers.view', 'billing.manage'],
+    expectedV2: ['customer_identity.view', 'karute_records.view'],
+    expectedDropped: [],
   },
 ]
 
@@ -188,6 +207,16 @@ const STORE_MODE_CASES = [
     expectStores: [] as string[],
     expectFlag: true,
   },
+  {
+    // Precedence proof: viewAll beats a REAL non-empty assignment (an empty
+    // input can't distinguish "overrides" from "nothing to override").
+    name: 'stores.viewAll + non-empty assignment → still ALL, assignment discarded',
+    role: 'senior',
+    assignedStoreIds: ['store-z', 'store-a'],
+    expectMode: 'ALL' as const,
+    expectStores: [] as string[],
+    expectFlag: false,
+  },
 ]
 
 test.each(STORE_MODE_CASES)('store mode: $name', ({ role, assignedStoreIds, expectMode, expectStores, expectFlag }) => {
@@ -239,6 +268,11 @@ test('report: rows stable-sorted by subjectId, emptyAssignmentAudit is exactly t
 })
 
 // ─── 6. Shadow invariant — bidirectional equivalence, no drift ─────────────
+// Honest scope note: compareDecisions reads the SAME LEGACY_TO_V2_TWINS table
+// the mapper writes from, so these rows prove SELF-CONSISTENCY (union logic vs
+// read-back), not table content. Wrong table CONTENT is caught by the
+// exact-set assertions in sections 1–2, whose expected arrays are
+// hand-computed independently of the table.
 
 const SHADOW_INVARIANT_CASES: ReadonlyArray<{
   subjectId: string
@@ -321,6 +355,23 @@ test('capabilitiesV2 is always in canonical CAPABILITIES_V2 declared order', () 
   expect(proposed.capabilitiesV2).toEqual([...CAPABILITIES_V2])
 })
 
+// ─── 7b. presetHash canonicalization + report default clock ─────────────────
+
+test('presetHash canonicalization: key/array reordering never changes the canonical JSON', () => {
+  const a = canonicalRolePresetsJson({ zeta: ['b.cap', 'a.cap'], alpha: ['x.cap'] })
+  const b = canonicalRolePresetsJson({ alpha: ['x.cap'], zeta: ['a.cap', 'b.cap'] })
+  expect(a).toBe(b)
+  // And two assemblies of the real presets agree with each other.
+  const r1 = assembleMigrationReport('sha-a', [], '2026-01-01T00:00:00.000Z')
+  const r2 = assembleMigrationReport('sha-b', [], '2026-01-02T00:00:00.000Z')
+  expect(r1.presetHash).toBe(r2.presetHash)
+})
+
+test('assembleMigrationReport default clock produces a real ISO timestamp', () => {
+  const report = assembleMigrationReport('sha-default-clock', [])
+  expect(report.generatedAtIso).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/)
+})
+
 // ─── 8. Fail-closed role parse ──────────────────────────────────────────────
 
 test('unknown role string → empty preset behavior, no crash', () => {
@@ -336,19 +387,22 @@ test('unknown role string → empty preset behavior, no crash', () => {
 // Registered last so it runs after every case above (Jest executes tests
 // within one file serially, in declaration order).
 
-const EXPECTED_TOTAL_CASES =
-  PRESET_CASES.length /* 6 */ +
-  OVERRIDE_CASES.length /* 3 */ +
-  1 /* chokepoint parity */ +
-  STORE_MODE_CASES.length /* 4 */ +
-  1 /* storeAccessMode never NONE */ +
-  1 /* report emptyAssignmentAudit + stable sort */ +
-  SHADOW_INVARIANT_CASES.length /* 8 */ +
-  1 /* deliberately-drifted fixture */ +
-  2 /* determinism */ +
-  1 /* unknown role */
+// EXPECTED_TOTAL_CASES is a LITERAL on purpose (fresh-eyes blocker): deriving
+// it from the tables' own .length made the guard self-referential — a table
+// silently losing a row shrank both sides equally and stayed green. With a
+// literal, ANY discovered-case shrinkage (partial or total) fails here, and
+// the table-shape test below says exactly which table moved. Adding a case?
+// Bump the literal — that edit is the review-visible receipt.
 
-test('discovered and executed the full table-driven matrix (guards a silent zero-collection false-positive)', () => {
-  expect(EXPECTED_TOTAL_CASES).toBeGreaterThan(15)
+const EXPECTED_TOTAL_CASES = 30
+
+test('table shapes are pinned (which table changed, when the count guard fires)', () => {
+  expect(PRESET_CASES.length).toBe(6)
+  expect(OVERRIDE_CASES.length).toBe(4)
+  expect(STORE_MODE_CASES.length).toBe(5)
+  expect(SHADOW_INVARIANT_CASES.length).toBe(8)
+})
+
+test('discovered and executed the full table-driven matrix (guards silent case shrinkage)', () => {
   expect(executedCaseCount).toBe(EXPECTED_TOTAL_CASES)
 })
