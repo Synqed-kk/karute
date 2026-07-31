@@ -1,4 +1,5 @@
 import 'server-only'
+import { after } from 'next/server'
 import { z } from 'zod'
 import { zodResponseFormat } from 'openai/helpers/zod'
 import { openai } from '@/lib/openai'
@@ -35,6 +36,29 @@ export interface AttentionInputItem extends AttentionItem {
   lastSummary: string | null
 }
 
+/**
+ * Cache keys whose deferred fill is already scheduled on THIS instance
+ * (key → when it was scheduled), so a burst of cold-cache dashboard loads
+ * schedules one model call, not one each.
+ *
+ * Timestamped, not a plain Set (blind-round finding): a runtime can freeze or
+ * kill the instance after the response but before the deferred fill's
+ * `.finally` runs, and a permanent entry would then short-circuit EVERY later
+ * request for that key to the fallback lines for the instance's whole life —
+ * the cache would never fill again. An entry older than FILL_TTL_MS is
+ * treated as dead and rescheduled; a merely-slow fill that overlaps its
+ * replacement just duplicates one model call, the same ceiling as two
+ * instances racing.
+ *
+ * ponytail: per-instance, not global — two serverless instances can still
+ * duplicate a single fill, exactly as the pre-existing inline path already
+ * could. Bounded regardless: entries are removed when the fill settles or
+ * overwritten on reschedule. Upgrade path if duplicate fills ever cost real
+ * money: a short-lived sentinel row in ai_cache.
+ */
+const inFlightFills = new Map<string, number>()
+const FILL_TTL_MS = 120_000
+
 const BADGE_LABEL: Record<AttentionItem['badge'], string> = {
   lastOne: 'ticket pack: 1 session left (renewal moment)',
   packDone: 'finished their pack and came back (wants to continue)',
@@ -50,8 +74,21 @@ export async function getDailyAttentionLines(params: {
   storeId: string | null
   dateYmd: string
   locale: string
+  /**
+   * WEB opt-in: never block the response on the model call. On an ai_cache HIT
+   * this changes nothing. On a MISS it returns the deterministic fallback lines
+   * immediately and generates AFTER the response is sent (Next's `after()`), so
+   * the cache is warm for the next load instead of the first viewer of the day
+   * per store eating multiple seconds of OpenAI latency inside the render path
+   * (dashboard render blocks on this — 2026-07-30 speed pass).
+   *
+   * Default false: the facade screen route keeps generating inline, because the
+   * native shell has no second render to pick up a late fill — it asks once and
+   * paints what it gets.
+   */
+  cacheOnly?: boolean
 }): Promise<Map<string, string>> {
-  const { items, businessType, businessId, storeId, dateYmd, locale } = params
+  const { items, businessType, businessId, storeId, dateYmd, locale, cacheOnly } = params
   const fallback = () => new Map(items.map((i) => [i.clientId, fallbackLine(i)]))
   if (items.length === 0) return new Map()
   if (!process.env.OPENAI_API_KEY) return fallback()
@@ -114,6 +151,47 @@ ${defensivePreamble(locale)}`
       const parsed = completion.choices[0]?.message?.parsed ?? { lines: [] }
       await setCachedAI('daily_attention', cacheInput, parsed, 1).catch(() => {})
       return parsed
+    }
+    // Cache miss on the web path: hand the model call to `after()` so it runs
+    // once the response is already on its way, and serve the deterministic
+    // lines now. Same idiom as the durable audit write (lib/audit.ts). If
+    // `after()` is unavailable (called outside a request scope), fall through
+    // to the inline generate rather than silently never filling the cache.
+    if (!cached && cacheOnly) {
+      const fillKey = JSON.stringify(cacheInput)
+      // One in-flight fill per cache key. A cold cache is exactly the moment
+      // several staff open the dashboard at once (the morning), and each miss
+      // would otherwise schedule its own model call for the identical key.
+      // An entry past FILL_TTL_MS is a dead fill (instance froze before its
+      // .finally) — reschedule rather than serving fallback forever.
+      const scheduledAt = inFlightFills.get(fillKey)
+      if (scheduledAt !== undefined && Date.now() - scheduledAt < FILL_TTL_MS) {
+        return fallback()
+      }
+      try {
+        after(() =>
+          generate()
+            .catch((err: unknown) => {
+              // Never silent: a swallowed failure here leaves the cache cold,
+              // so every later load pays the miss again and nothing says why.
+              // Metadata only — the OpenAI error body can echo request input,
+              // and this prompt carries customer memos/summaries, so the raw
+              // error object must never reach the logs.
+              const e = err as { name?: string; status?: number; code?: string } | null
+              console.warn(
+                '[dashboard] deferred 要注目 line fill failed — ai_cache stays cold:',
+                `name=${e?.name ?? 'Error'} status=${e?.status ?? '-'} code=${e?.code ?? '-'}`,
+              )
+            })
+            .finally(() => inFlightFills.delete(fillKey)),
+        )
+        // Registered only once after() accepted the work, so a throw below
+        // can't leave a key stuck marked as in-flight.
+        inFlightFills.set(fillKey, Date.now())
+        return fallback()
+      } catch {
+        /* no request scope — generate inline below */
+      }
     }
     const result = cached ?? (await generate())
     const byId = new Map(result.lines.map((l) => [l.customerId, l.line.trim()]))

@@ -1,8 +1,8 @@
 import { startTiming } from '@/lib/perf/timing'
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows } from '@/lib/karute/synqed-records'
-import { listAllCustomers } from '@/lib/customers/list-all'
+import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
@@ -36,10 +36,13 @@ export default async function KaruteRecordsListPage() {
   // all, so the 2026-07-30 speed pass could only measure it from the outside
   // (1.68s hard load) and had to infer the culprit from source. One [perf] line
   // per request in the Vercel logs makes the next round aim at a measurement.
+  // businessId rides along (React cache — free) as the listAllCustomersCached
+  // calls' tenant-isolation cache key below.
   const t = startTiming('karute')
-  const [synqed, scope] = await Promise.all([
+  const [synqed, scope, businessId] = await Promise.all([
     t.phase('synqedClient', () => getSynqedClient()),
     t.phase('storeScope', () => resolveStoreScope()),
+    t.phase('businessId', () => getBusinessId()),
   ])
   const activeStore = scope.storeId
   const clamped = scope.allowedStoreIds != null
@@ -62,13 +65,13 @@ export default async function KaruteRecordsListPage() {
       // loads it SCOPED to their store (no cross-store names/customers leak).
       t.phase('customers.all', () =>
         clamped
-        ? listAllCustomers(synqed, {
+        ? listAllCustomersCached(businessId, {
             store_id: activeStore,
             enforceStore: true,
             sort_by: 'created_at',
             sort_order: 'asc',
           })
-        : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' })),
+        : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' })),
       // Store-scoped customer roster — ONLY to scope the "新規のお客様"
       // placeholder section to the active branch for a CROSS-STORE viewer who
       // has pinned a store (a customer "belongs to" a store via events; see
@@ -76,7 +79,7 @@ export default async function KaruteRecordsListPage() {
       // is already store-scoped, so its customers ARE the placeholder roster).
       t.phase('customers.store', () =>
         !clamped && activeStore
-        ? listAllCustomers(synqed, {
+        ? listAllCustomersCached(businessId, {
             store_id: activeStore,
             sort_by: 'created_at',
             sort_order: 'asc',

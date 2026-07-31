@@ -14,6 +14,7 @@ import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { AskAiScreenDTO } from '@/lib/app-api/ask-ai-dto'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { ASK_AI_REQUIRED_CAPABILITIES } from '@/lib/auth/permissions'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { createServiceClient } from '@/lib/supabase/service'
 
@@ -40,9 +41,11 @@ async function resolveUserName(authUserId: string): Promise<string> {
 // GET — screen read. Reads are not in packet 01's REVOCATION_SENSITIVE_ENDPOINTS,
 // so this takes the local Bearer fast-path (same ruling as customer.read).
 export const GET = facadeHandler('askAi.read', async (ctx) => {
-  // Baseline view capability — the scope counts summarize customer/karute/
-  // booking data, the same data 'customers.view' gates everywhere else.
-  ensureCapability(ctx.identity.capabilities, 'customers.view')
+  // Shared Ask-AI rule (permissions.ts, H0) — the scope counts summarize
+  // customer/karute/booking data; same effective rule as every Ask-AI surface.
+  for (const capability of ASK_AI_REQUIRED_CAPABILITIES) {
+    ensureCapability(ctx.identity.capabilities, capability)
+  }
 
   const synqed = newSynqedClient(ctx.identity.businessId)
   const nowIso = new Date().toISOString()

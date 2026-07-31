@@ -6,6 +6,8 @@ import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
 import { runKaruteChat, parseContextHint, capHistory, type ChatTurn } from '@/lib/ai/karute-chat'
 import { auditWeb } from '@/lib/audit-web'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import { canUseAskAi, type Capability } from '@/lib/auth/permissions'
 
 export const maxDuration = 60
 
@@ -18,6 +20,24 @@ export async function POST(request: Request) {
   } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Shared Ask-AI capability rule (H0) — the facade twin has always enforced
+  // this before any work; this cookie route checked session presence only, so
+  // a same-business account with no capabilities could still draw karute/
+  // customer context through the model. Deny BEFORE the rate-limit consume,
+  // store scope, settings, context and model work; no audit row is emitted on
+  // the denial path (auditWeb only runs on success below). A capability
+  // RESOLUTION failure is this route's own 500 envelope, never a 403 — infra
+  // failure ≠ forbidden (same pinned rule as the quickreserve web route).
+  let caps: Set<Capability>
+  try {
+    caps = await getMyCapabilities()
+  } catch {
+    return NextResponse.json({ error: 'Failed' }, { status: 500 })
+  }
+  if (!canUseAskAi(caps)) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const limited = await enforceAiRateLimit('chat')

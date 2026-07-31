@@ -1,7 +1,9 @@
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, getMessages } from 'next-intl/server'
+import { NextIntlClientProvider } from 'next-intl'
 
 import { getInviteByToken } from '@/actions/invites'
 import { JoinForm } from '@/components/join/JoinForm'
+import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 
 // Staff-invite join page. Lives OUTSIDE the (app) route group so the auth guard
 // in (app)/layout.tsx doesn't redirect an unauthenticated invitee to /login.
@@ -22,6 +24,9 @@ export default async function JoinPage({
   const result = enabled && token ? await getInviteByToken(token) : null
 
   return (
+    <NextIntlClientProvider
+      messages={pickMessages(await getMessages(), PAGE_PICKS.join)}
+    >
     <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-sm p-8 space-y-6">
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -46,6 +51,7 @@ export default async function JoinPage({
         )}
       </div>
     </div>
+    </NextIntlClientProvider>
   )
 }
 

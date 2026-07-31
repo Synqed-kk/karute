@@ -1,3 +1,4 @@
+import { unstable_cache } from 'next/cache'
 import type { SynqedClient } from '@synqed-kk/client'
 import { paginateDedupe } from './paginate'
 
@@ -64,4 +65,73 @@ export async function listAllCustomers(
   // total === customers.length once paged to completion (paginateDedupe stops at
   // the server's reported total); the call sites read `.total` for the header.
   return { customers, total: customers.length }
+}
+
+/**
+ * 60s-cached twin of listAllCustomers for the WEB pages' no-search path — the
+ * 顧客 + カルテ pages re-run the full sequential page-sweep on EVERY click
+ * (2.6s on prod, 2026-07-30 speed pass) even though a search-less list is
+ * identical for every viewer sharing the same business/store/sort lens. Same
+ * 60s + 'customers'-tag precedent as customerListByBusiness (cached.ts). The
+ * web customer CRUD actions bump updateTag('customers') → instant; everything
+ * else rides the 60s TTL: facade (app) mutations (updateTag is banned there —
+ * Server-Action-only, see facade-core-updatetag-ban), packs/appointments/
+ * karute writes that reorder or re-badge the list (they bump 'dashboard'
+ * only), and core-side writers (QR sync cron). Same staleness envelope the
+ * shipped 60s caches already have. WEB-ONLY by design: the
+ * mobile-facade routes keep calling the live listAllCustomers — caching the
+ * installed app's packets is an app-behavior change this lever must not make.
+ *
+ * unstable_cache keys on the callback's EXPLICIT args, so every
+ * result-affecting input — businessId (tenant isolation!), store_id,
+ * enforceStore, sort_by, sort_order — is a positional arg; two tenants/lenses
+ * can never collide on one entry. No `search` parameter on purpose: search is
+ * viewer-interactive, always live.
+ *
+ * unstable_cache callbacks run OUTSIDE request scope, so the request-bound
+ * synqed client can't be closed over — the callback builds its own from env +
+ * the explicit businessId, same idiom as staffStoreAssignmentsByBusiness
+ * (lib/auth/store-scope.ts).
+ */
+const cachedCustomerList = unstable_cache(
+  async (
+    businessId: string,
+    storeId: string | null,
+    enforceStore: boolean,
+    sortBy: NonNullable<ListAllOpts['sort_by']>,
+    sortOrder: NonNullable<ListAllOpts['sort_order']>,
+  ) => {
+    const baseUrl = process.env.SYNQED_CORE_URL
+    const apiKey = process.env.SYNQED_CORE_API_KEY
+    if (!baseUrl || !apiKey) throw new Error('synqed-core env not configured')
+    // Lazy import for the same reason as store-scope.ts — keep the ESM client
+    // out of graphs (and tests) that never reach this path.
+    const { SynqedClient } = await import('@synqed-kk/client')
+    const client = new SynqedClient({ baseUrl, apiKey, businessId })
+    return listAllCustomers(client, {
+      store_id: storeId ?? undefined,
+      enforceStore,
+      sort_by: sortBy,
+      sort_order: sortOrder,
+    })
+  },
+  ['list-all-customers-v1'],
+  { revalidate: 60, tags: ['customers'] },
+)
+
+/**
+ * businessId is REQUIRED (not optional): it is the tenant-isolation half of
+ * the cache key, so every caller must resolve it explicitly rather than risk
+ * an undefined value silently sharing one cache entry across tenants.
+ */
+export async function listAllCustomersCached(
+  businessId: string,
+  {
+    sort_by = 'created_at',
+    sort_order = 'asc',
+    store_id,
+    enforceStore,
+  }: Omit<ListAllOpts, 'search'> = {},
+) {
+  return cachedCustomerList(businessId, store_id ?? null, enforceStore ?? false, sort_by, sort_order)
 }

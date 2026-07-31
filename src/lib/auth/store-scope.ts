@@ -10,6 +10,7 @@
 //
 // Server-only — it reads capabilities + staff_stores via the service/SDK clients.
 
+import { cache } from 'react'
 import { unstable_cache } from 'next/cache'
 import { getMyCapabilities } from './require-permission'
 import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
@@ -39,8 +40,15 @@ export interface StoreScope {
  *   - no viewAll + has stores   → clamped: the cookie picks among the user's own
  *                                  stores; an out-of-scope / unset cookie falls
  *                                  back to their first assigned store.
+ *
+ * React cache(): layout + page + nested loaders resolve the scope ~5× in one
+ * request (measured on the 予約 render, 2026-07-30 speed pass) — for a
+ * branch-restricted staff each call was an uncached staffStores.get roundtrip.
+ * Same per-request dedupe idiom as getMyCapabilities / primaryStoreIdOnce.
+ * setActiveStore never calls this, so the memo can't be primed ahead of its
+ * cookie write; every render pass resolves against the cookie it started with.
  */
-export async function resolveStoreScope(): Promise<StoreScope> {
+export const resolveStoreScope = cache(async (): Promise<StoreScope> => {
   const [caps, activeStore, staffId] = await Promise.all([
     getMyCapabilities(),
     getActiveStoreId(),
@@ -72,7 +80,7 @@ export async function resolveStoreScope(): Promise<StoreScope> {
   const storeId =
     activeStore && allowed.includes(activeStore) ? activeStore : allowed[0]
   return { storeId, viewAll: false, allowedStoreIds: allowed }
-}
+})
 
 // ─── Store-scoped staff PICKER filtering ────────────────────────────────────
 // The 担当 selectors (予約 / 顧客 / カルテ) must only offer staff who work in
