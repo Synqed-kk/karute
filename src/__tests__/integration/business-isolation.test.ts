@@ -17,7 +17,18 @@
 // SSR module graph via createNextIntlPlugin, and a business re-export planted
 // there passed the original two-root walk green). thin/dist is build output —
 // skipped, its bundles carry no unresolved specifiers.
-import { readdirSync, readFileSync, statSync } from 'node:fs'
+//
+// Symlinks are REJECTED, never followed (lstat, not stat): readFileSync and
+// statSync resolve a link transparently, so a link planted at a phone-owned
+// path (thin/util.ts → src/business/leaf.ts) would be scanned as though its
+// Business bytes lived outside territory. The bytes are Business, the label is
+// not, and a sibling's relative `./util` import of it carries no business/
+// segment for BUSINESS_SPECIFIER to match — the content check and the
+// specifier check would BOTH read clean. The repo tracks zero symlinks (git
+// mode 120000), so refusing them outright costs nothing and keeps every path
+// label honest. thin/vite.config.ts denies the resolved path at build time as
+// the second half of this pair.
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const ROOT = process.cwd()
@@ -46,13 +57,22 @@ const BUSINESS_SPECIFIER = [
 
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|mjs|cjs|jsx|js)$/
 
+/** Paths that are symlinks — collected, never followed. Asserted empty below. */
+const symlinks: string[] = []
+
 function walk(dir: string, out: string[]): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
     const rel = full.slice(ROOT.length + 1)
     if (territory.some((p) => rel.startsWith(p))) continue // Business's own files may import Business
     if (rel === 'thin/dist') continue // local build output (untracked)
-    if (statSync(full).isDirectory()) walk(full, out)
+    if (name === 'node_modules') continue // never our source, and a symlink farm
+    const stat = lstatSync(full)
+    if (stat.isSymbolicLink()) {
+      symlinks.push(rel)
+      continue
+    }
+    if (stat.isDirectory()) walk(full, out)
     else if (SOURCE_EXT.test(name)) out.push(full)
   }
   return out
@@ -65,7 +85,16 @@ function rootFiles(): string[] {
   const out: string[] = []
   for (const name of readdirSync(ROOT)) {
     const full = join(ROOT, name)
-    if (!statSync(full).isDirectory() && SOURCE_EXT.test(name)) out.push(full)
+    // Skipped by name BEFORE the symlink check, exactly as walk() does: some
+    // local worktrees symlink node_modules to a sibling checkout, and that is
+    // a dependency-install detail, not a source-attribution problem.
+    if (name === 'node_modules') continue
+    const stat = lstatSync(full)
+    if (stat.isSymbolicLink()) {
+      symlinks.push(name)
+      continue
+    }
+    if (!stat.isDirectory() && SOURCE_EXT.test(name)) out.push(full)
   }
   return out
 }
@@ -98,6 +127,12 @@ describe('Business import isolation (phone-safety lock 3)', () => {
     // Guard of the guard: an empty or misrooted walk must fail loud, never
     // pass vacuously.
     expect(files.length).toBeGreaterThan(200)
+  })
+
+  it('no symlinks in the scanned trees — Business bytes cannot wear a phone-owned path', () => {
+    // Zero tracked symlinks today (git mode 120000). A new one is either a
+    // mistake or the attribution gap described in the header; both want eyes.
+    expect(symlinks).toEqual([])
   })
 
   it('no file outside Business territory imports Business code', () => {
