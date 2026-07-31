@@ -52,3 +52,10 @@
 # workflow file could impersonate the CI check name for the future
 # required-status-check gate.
 /.github/workflows/ @alee046
+# Business isolation guard (phone-safety lock 3) — the machine that fences
+# Business PRs off phone-owned territory. Weakening the fence = weakening the
+# phone guarantee, so the gate scripts + territory config + the import-
+# isolation suite are owner-gated like the audit surface above. (The
+# workflows dir is already owned; these are the pieces outside it.)
+/scripts/business/ @alee046
+/src/__tests__/integration/business-isolation.test.ts @alee046

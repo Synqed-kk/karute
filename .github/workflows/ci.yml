@@ -185,3 +185,37 @@ jobs:
         run: |
           git fetch origin +main:refs/remotes/origin/main --depth=1
           node scripts/audit/check-audit-weakening.mjs
+
+  # ── Business isolation guard — ISOLATED job (phone-safety lock 3) ────────
+  # Fails any PR that touches Business territory (scripts/business/
+  # business-territory.json) AND anything outside it — deny-by-default, so
+  # phone-owned surfaces (thin/, facade routes, shared screens at every
+  # width, messages/, package.json) never need enumerating. Same isolation
+  # philosophy as audit-gates: no npm install, no lifecycle scripts — the
+  # chain is checkout → node on CODEOWNERS-protected scripts + the preinstalled
+  # gh CLI. The PR files API (not a local git diff) supplies the change list:
+  # exact, pagination-safe, and includes previous_filename so a rename can't
+  # smuggle a phone file into territory. The jest import-isolation half
+  # (business-isolation.test.ts) runs in the main ci job's suite.
+  business-guard:
+    name: Business isolation guard
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      # Same SHA pin as every other job (Greptile #635).
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Guard selftest (boundary + rename cases)
+        run: node scripts/business/check-business-isolation.selftest.mjs
+
+      - name: Business PRs touch only Business territory
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' \
+          | node scripts/business/check-business-isolation.mjs
