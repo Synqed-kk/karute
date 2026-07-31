@@ -1,3 +1,4 @@
+import { startTiming } from '@/lib/perf/timing'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows } from '@/lib/karute/synqed-records'
@@ -31,13 +32,17 @@ export default async function KaruteRecordsListPage() {
   // their own store (RBAC). `clamped` = the viewer may see ONLY their store, so
   // the customer name-map + picker are scoped too (no cross-store name leak);
   // cross-store viewers keep them business-wide for walk-in karute creation.
-  // businessId rides along in this wave (React cache — free, getSynqedClient
-  // already resolved it internally) so it's ready as the listAllCustomersCached
+  // Per-phase server timing. カルテ was the one heavy screen with NO timer at
+  // all, so the 2026-07-30 speed pass could only measure it from the outside
+  // (1.68s hard load) and had to infer the culprit from source. One [perf] line
+  // per request in the Vercel logs makes the next round aim at a measurement.
+  // businessId rides along (React cache — free) as the listAllCustomersCached
   // calls' tenant-isolation cache key below.
+  const t = startTiming('karute')
   const [synqed, scope, businessId] = await Promise.all([
-    getSynqedClient(),
-    resolveStoreScope(),
-    getBusinessId(),
+    t.phase('synqedClient', () => getSynqedClient()),
+    t.phase('storeScope', () => resolveStoreScope()),
+    t.phase('businessId', () => getBusinessId()),
   ])
   const activeStore = scope.storeId
   const clamped = scope.allowedStoreIds != null
@@ -51,53 +56,58 @@ export default async function KaruteRecordsListPage() {
     apptList,
     synqedStaff,
   ] = await Promise.all([
-      getStaffList(),
+      t.phase('staffList', () => getStaffList()),
       // Page to completion so カルテ rows + placeholder rows resolve for every
       // customer, not just the first 500 (server clamps page_size at 500). This
       // backs record-name enrichment AND the New カルテ dialog's customer picker.
       // Cross-store viewers load it BUSINESS-WIDE (so names resolve + a karute
       // can be created for another store's walk-in); a branch-restricted staff
       // loads it SCOPED to their store (no cross-store names/customers leak).
-      clamped
+      t.phase('customers.all', () =>
+        clamped
         ? listAllCustomersCached(businessId, {
             store_id: activeStore,
             enforceStore: true,
             sort_by: 'created_at',
             sort_order: 'asc',
           })
-        : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' }),
+        : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' })),
       // Store-scoped customer roster — ONLY to scope the "新規のお客様"
       // placeholder section to the active branch for a CROSS-STORE viewer who
       // has pinned a store (a customer "belongs to" a store via events; see
       // listAllCustomers). null when unpinned, or when clamped (the list above
       // is already store-scoped, so its customers ARE the placeholder roster).
-      !clamped && activeStore
+      t.phase('customers.store', () =>
+        !clamped && activeStore
         ? listAllCustomersCached(businessId, {
             store_id: activeStore,
             sort_by: 'created_at',
             sort_order: 'asc',
           })
-        : Promise.resolve(null),
-      getCurrentUserStaffId(),
+        : Promise.resolve(null)),
+      t.phase('activeStaffId', () => getCurrentUserStaffId()),
       // synqed-core is the sole karute store (the Supabase karute_records table
       // is empty and being dropped). Scoped to the active branch so 代官山
       // karute don't surface under 銀座; the customer PROFILE stays unscoped.
-      listSynqedKaruteRows(synqed, { storeId: activeStore }),
+      t.phase('karuteRows', () => listSynqedKaruteRows(synqed, { storeId: activeStore })),
       // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
       // staff roster — resolve each placeholder customer's 担当 from their
       // booking, translating the synqed staff id into the profile id the
       // color/name maps key on (same boundary translation getAppointmentsByDate
       // does). No from/to filter on purpose: a window keyed on today drops a
       // customer's already-past booking and the stripe goes blank again.
-      synqed.appointments.list({ page_size: 200 }),
-      synqed.staff.list({ page_size: 200 }),
+      t.phase('appointments', () => synqed.appointments.list({ page_size: 200 })),
+      t.phase('synqedStaff', () => synqed.staff.list({ page_size: 200 })),
     ])
 
   // #496 store clamp: the 担当 picker only offers staff assigned to the active
   // store (or floating staff) — the full roster was leaking every branch's
   // staff names into every store's dropdown. Name resolution on rows stays
   // business-wide inside the builder.
-  const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
+  const storeStaffIds = await t.phase('storeStaffIds', () =>
+    storeStaffIdSet(staffList, activeStore),
+  )
+  t.end()
 
   const screen = buildSessionsListScreen({
     staffList,
