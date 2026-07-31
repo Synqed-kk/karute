@@ -14,10 +14,12 @@
 //   spike's docs/INTEGRATION_GUIDE.md Part 8 has the full schema +
 //     edge function contract for the mapper job
 
-import { getTranslations } from 'next-intl/server'
+import { getTranslations, getMessages } from 'next-intl/server'
+import { NextIntlClientProvider } from 'next-intl'
 
 import { ImportPageView } from '@/components/data-import/ImportPageView'
 import type { ImportRecord } from '@/components/data-import/types'
+import { PAGE_PICKS, pickMessages } from '@/i18n/client-messages'
 
 export default async function DataImportPage() {
   const t = await getTranslations('dataImport')
@@ -30,6 +32,9 @@ export default async function DataImportPage() {
   const recentImports: ImportRecord[] = []
 
   return (
+    <NextIntlClientProvider
+      messages={pickMessages(await getMessages(), PAGE_PICKS.dataImport)}
+    >
     <div className="space-y-6">
       {/* Desktop-only title block — MobileHeader already shows
        *  データインポート on mobile, so the page-body heading
@@ -44,5 +49,6 @@ export default async function DataImportPage() {
 
       <ImportPageView recentImports={recentImports} />
     </div>
+    </NextIntlClientProvider>
   )
 }
