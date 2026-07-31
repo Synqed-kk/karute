@@ -126,6 +126,14 @@ describe('availability intersection axes', () => {
     expect(result).toEqual({ kind: 'no_workspace' });
   });
 
+  it('EMPTY grantedWorkspaceIds means NO grants — never "no restriction yet"', () => {
+    // Fail-open trap: an unpopulated grants field must deny everything, not
+    // skip the grant check. (rollout: [] is pinned by row 25; this pins the
+    // sibling axis.)
+    const result = resolve({ snapshot: makeSnapshot({ grantedWorkspaceIds: [] }) });
+    expect(result).toEqual({ kind: 'no_workspace' });
+  });
+
   it('row 6: business_admin without an explicit server grant is removed', () => {
     const result = resolve({
       snapshot: makeSnapshot({
@@ -508,6 +516,83 @@ describe('precedence: direct request → remembered → suggestion → canonical
   );
 });
 
+// ── raw-input exactness and presence (parseWorkspaceToken path) ──────────────
+
+describe('raw request/remembered/suggestion values: exact parse, string-only presence', () => {
+  it('near-miss direct request is denied — no trim/case tolerance on the request path', () => {
+    expect(resolve({ requestedWorkspace: 'Karute_Work' })).toEqual({
+      kind: 'denied',
+      requestedRaw: 'Karute_Work',
+    });
+    expect(resolve({ requestedWorkspace: ' karute_work' })).toEqual({
+      kind: 'denied',
+      requestedRaw: ' karute_work',
+    });
+  });
+
+  it('near-miss remembered value goes stale — no trim/case tolerance on the remembered path', () => {
+    expect(resolve({ rememberedWorkspace: 'FRONT_DESK' })).toEqual({
+      kind: 'resolved_stale_fallback',
+      activeWorkspace: 'karute_work',
+      availableWorkspaces: [...ALL_WORKSPACES],
+      via: 'canonical_default',
+      staleRemembered: 'FRONT_DESK',
+    });
+  });
+
+  it('near-miss landingSuggestion falls through — no trim/case tolerance on the suggestion path', () => {
+    expect(resolve({ snapshot: makeSnapshot({ landingSuggestion: 'Business_Admin' }) })).toEqual({
+      kind: 'resolved',
+      activeWorkspace: 'karute_work',
+      availableWorkspaces: [...ALL_WORKSPACES],
+      via: 'canonical_default',
+    });
+  });
+
+  it('empty-string remembered value goes stale, carrying the raw empty string', () => {
+    expect(resolve({ rememberedWorkspace: '' })).toEqual({
+      kind: 'resolved_stale_fallback',
+      activeWorkspace: 'karute_work',
+      availableWorkspaces: [...ALL_WORKSPACES],
+      via: 'canonical_default',
+      staleRemembered: '',
+    });
+  });
+
+  it('non-string remembered junk is ABSENT — never becomes a stale marker', () => {
+    const input = {
+      snapshot: makeSnapshot(),
+      clientSupport: web,
+      rememberedWorkspace: 42,
+    } as unknown as ResolveInput;
+    // kind 'resolved' (not resolved_stale_fallback) proves the junk value was
+    // treated as absent rather than smuggled into staleRemembered.
+    expect(resolveWorkspace(input)).toEqual({
+      kind: 'resolved',
+      activeWorkspace: 'karute_work',
+      availableWorkspaces: [...ALL_WORKSPACES],
+      via: 'canonical_default',
+    });
+  });
+
+  it('null raw values (URLSearchParams/localStorage "absent") are ABSENT — never denied, never stale', () => {
+    const input = {
+      snapshot: makeSnapshot({ landingSuggestion: 'front_desk' }),
+      clientSupport: web,
+      requestedWorkspace: null,
+      rememberedWorkspace: null,
+    } as unknown as ResolveInput;
+    // kind 'resolved' (not denied, not stale_fallback) proves both nulls were
+    // treated as absent and the flow fell through to the suggestion.
+    expect(resolveWorkspace(input)).toEqual({
+      kind: 'resolved',
+      activeWorkspace: 'front_desk',
+      availableWorkspaces: [...ALL_WORKSPACES],
+      via: 'landing_suggestion',
+    });
+  });
+});
+
 // ── robustness (rows 21–22, 25) ──────────────────────────────────────────────
 
 describe('robustness: permutations, unknown tokens, empty intersection', () => {
@@ -600,6 +685,22 @@ describe('robustness: permutations, unknown tokens, empty intersection', () => {
   it('row 25: empty intersection (rollout empty — restricts, never grants) → no_workspace', () => {
     const result = resolve({ snapshot: makeSnapshot({ rolloutWorkspaceIds: [] }) });
     expect(result).toEqual({ kind: 'no_workspace' });
+  });
+
+  it('near-miss product tokens are NOT entitlements — exact parse only', () => {
+    const result = resolve({
+      snapshot: makeSnapshot({ entitlements: ['karute', 'Reserve', ' KARUTE'] }),
+    });
+    expect(result).toEqual({ kind: 'no_workspace' });
+  });
+
+  it('empty availability + stale remembered returns bare no_workspace — no stale field leaks', () => {
+    const result = resolve({
+      snapshot: makeSnapshot({ entitlements: [] }),
+      rememberedWorkspace: 'karute_work',
+    });
+    expect(result).toEqual({ kind: 'no_workspace' });
+    expect('staleRemembered' in result).toBe(false);
   });
 });
 

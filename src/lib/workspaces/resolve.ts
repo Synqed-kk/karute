@@ -123,8 +123,11 @@ export function resolveWorkspace(input: ResolveInput): WorkspaceResolution {
 
   // Direct request present (ANY string, including empty/garbage): valid AND
   // available resolves; anything else is an explicit denial carrying only the
-  // raw value — no active workspace, no fallback, no preload.
-  if (requestedWorkspace !== undefined) {
+  // raw value — no active workspace, no fallback, no preload. Only strings
+  // count as present: null (what URLSearchParams.get / localStorage.getItem
+  // return for an absent value) and any other non-string are ABSENT, so a
+  // user who simply didn't specify a workspace is never hard-denied.
+  if (typeof requestedWorkspace === 'string') {
     const requested = parseWorkspaceToken(requestedWorkspace);
     if (requested !== null && availableWorkspaces.includes(requested)) {
       return {
@@ -138,9 +141,11 @@ export function resolveWorkspace(input: ResolveInput): WorkspaceResolution {
   }
 
   // Remembered value: valid AND available resolves; malformed/removed/
-  // unavailable marks it stale (telemetry only) and falls through.
+  // unavailable marks it stale (telemetry only) and falls through. Same
+  // string-only presence rule as the direct request — a null from scoped
+  // persistence is absent, not stale.
   let staleRemembered: string | null = null;
-  if (rememberedWorkspace !== undefined) {
+  if (typeof rememberedWorkspace === 'string') {
     const remembered = parseWorkspaceToken(rememberedWorkspace);
     if (remembered !== null && availableWorkspaces.includes(remembered)) {
       return {
