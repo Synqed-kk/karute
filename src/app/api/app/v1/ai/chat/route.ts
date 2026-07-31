@@ -5,12 +5,13 @@
 // stays business-wide. NO plan gate — parity with the web route (chat is
 // rate-limited but not an entitlement-gated feature). Clamp runs BEFORE the
 // rate-limit consume so a store_forbidden request never burns quota (F-A1
-// spirit). Capability customers.view (the context carries customer names);
-// POST → revocation-sensitive (ai.chat).
+// spirit). Capability = the shared Ask-AI rule (permissions.ts, H0) — the
+// context carries customer names; POST → revocation-sensitive (ai.chat).
 
 import { facadeHandler, ok } from '@/lib/app-api/handler'
 import { AppApiError } from '@/lib/app-api/errors'
 import { ensureCapability } from '@/lib/auth/require-permission'
+import { ASK_AI_REQUIRED_CAPABILITIES } from '@/lib/auth/permissions'
 import { newSynqedClient } from '@/lib/synqed/client'
 import { resolveStoreForRequest } from '@/lib/app-api/store-clamp'
 import { orgSettingsWithClient } from '@/actions/org-settings'
@@ -23,7 +24,10 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 export const POST = facadeHandler('ai.chat', async (ctx) => {
-  ensureCapability(ctx.identity.capabilities, 'customers.view')
+  // Same effective rule as the web page + legacy cookie route (H0).
+  for (const capability of ASK_AI_REQUIRED_CAPABILITIES) {
+    ensureCapability(ctx.identity.capabilities, capability)
+  }
 
   let body: unknown
   try {
