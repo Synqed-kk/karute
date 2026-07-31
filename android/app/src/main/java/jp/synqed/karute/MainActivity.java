@@ -217,20 +217,34 @@ public class MainActivity extends BridgeActivity {
             public void onRecordingConfigChanged(List<AudioRecordingConfiguration> configs) {
                 boolean recording = !configs.isEmpty();
                 if (recording == recordingServiceStarted) return;
-                recordingServiceStarted = recording;
                 Intent service = new Intent(MainActivity.this, RecordingForegroundService.class);
                 if (recording) {
                     Log.d(TAG, "recording started — raising mic foreground service");
                     // startForegroundService is the API 26+ contract (the
                     // service has 5s to call startForeground — it does so
                     // immediately); plain startService below that.
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                        startForegroundService(service);
-                    } else {
-                        startService(service);
+                    //
+                    // try/catch: on API 31+ this throws (synchronously) if the
+                    // app isn't foreground at call time. Today capture only
+                    // ever starts from an in-app tap, so this is unreachable —
+                    // but that invariant lives in web code one change away
+                    // from a full app crash mid-session. Degrade instead:
+                    // recording proceeds foreground-only (code-7 behavior)
+                    // and the flag stays false so a later foreground start
+                    // isn't suppressed.
+                    try {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                            startForegroundService(service);
+                        } else {
+                            startService(service);
+                        }
+                        recordingServiceStarted = true;
+                    } catch (Exception e) {
+                        Log.e(TAG, "mic foreground service failed to start — recording continues foreground-only", e);
                     }
                 } else {
                     Log.d(TAG, "recording stopped — dropping mic foreground service");
+                    recordingServiceStarted = false;
                     stopService(service);
                 }
             }
