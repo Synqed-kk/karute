@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 
@@ -101,6 +103,10 @@ export default async function KaruteDetailPage({
   })
 
   return (
+    <>
+      {/* SWR delivery: stamp when the SERVER built this so a stale
+          router-cache copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
     <KaruteDetailView
       karuteId={built.karuteId}
       customerId={built.customerId}
@@ -145,5 +151,6 @@ export default async function KaruteDetailPage({
         </Suspense>
       }
     />
+    </>
   )
 }
