@@ -28,8 +28,8 @@ export function validateThinEnv(env: Record<string, string | undefined>): ThinEn
     )
   }
   // Mode is EXPLICIT — no default (Fable review round 1). A mislabeled probe
-  // binary corrupts the A/B numbers that decide CONTINUE/ABORT; only
-  // capacitor.config.ts may default (dev convenience = today's shipped remote).
+  // binary corrupts the A/B numbers that decide CONTINUE/ABORT.
+  // capacitor.config.ts enforces the same bar (unset throws — 7/31).
   const mode = env.VITE_SHELL_MODE
   if (mode !== 'local' && mode !== 'remote') {
     throw new Error(
