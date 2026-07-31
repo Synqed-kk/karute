@@ -1,8 +1,8 @@
 'use client'
 
-import { Bell } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 import { CustomerSheet } from '@/components/customers/CustomerSheet'
+import { NotificationBell } from '@/components/notifications/NotificationBell'
 
 interface CustomersListHeaderProps {
   total: number
@@ -32,25 +32,13 @@ interface CustomersListHeaderProps {
  * a gap at the sides; padding is re-applied inside the bar for the
  * content inset.
  *
- * Bell icon is a VISUAL-ONLY placeholder — the design spike also
- * shipped it as a stub, so there's no existing implementation to
- * port over. The whole notifications surface is new work:
- *   ANTHONY: this needs end-to-end build-out —
- *     • notifications table (or however you want to model the
- *       data — could also be derived from existing booking /
- *       karute events)
- *     • read API + count query (server) → exposed to a client
- *       hook like `useUnreadNotificationsCount()`
- *     • notifications drawer / popover component
- *     • wire onClick on this button to open the drawer
- *     • mark-read mutation when an item is viewed/clicked
- *     • optional: red count badge overlay on the bell when
- *       unread > 0 (component already has the spot for a
- *       `<span>` absolutely-positioned over the icon)
- *
- *   Pre-merge: feel free to leave it as a placeholder for now —
- *   the visual is what Liam asked for. Notifications can land in
- *   its own PR.
+ * Bell is the shared <NotificationBell> (desktop variant) — the same
+ * component MobileHeader renders, so the desktop + mobile bells can't
+ * diverge. It opens the NotificationsPanel and shows the red unread
+ * badge driven by the v1 derived feed (buildNotificationFeed →
+ * NotificationsProvider). This desktop bar is `hidden md:block`; the
+ * MobileHeader bell is `md:hidden`, so exactly one bell is visible at
+ * any width.
  */
 export function CustomersListHeader({ total, showing, heading }: CustomersListHeaderProps) {
   const t = useTranslations('customers.list')
@@ -78,16 +66,10 @@ export function CustomersListHeader({ total, showing, heading }: CustomersListHe
           <h1 className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             {heading ?? t('heading')}
           </h1>
-          <button
-            type="button"
-            className="absolute right-0 inline-flex h-7 w-7 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            aria-label={t('notifications')}
-            // STUB — click does nothing yet. See the ANTHONY block
-            // in the component docstring above for the full
-            // build-out (the spike also shipped this as a stub).
-          >
-            <Bell size={16} />
-          </button>
+          {/* Shared bell — opens the NotificationsPanel + shows the unread
+           *  badge. `absolute right-0` is applied inside the component so it
+           *  pins to the bar's right edge, same as the old stub. */}
+          <NotificationBell variant="desktop" />
         </div>
       </div>
 

@@ -1,23 +1,44 @@
 'use client'
 
 // 案D's stat header (Liam-approved): the top block of Kitano's hand-maintained
-// 顧客管理 sheet — 予約なし N件(%) · 残り1回 N人 · 未消化 ¥ — transplanted above
+// 顧客管理 sheet — 予約なし N件(%) · 残数 · 未消化 ¥ — transplanted above
 // the list. He pinned these three numbers at the top of his sheet; here they
 // are computed live from the rows already in memory (zero extra queries) and
-// the first two TAP to filter the list to their members (tap again to clear).
+// the tappable ones TAP to filter the list to their members (tap again to clear).
 //
-// Honesty gates: the pack stats (残り1回, 未消化) hide until pack data exists
+// 残数 bits (Liam-approved mock, 7/17, from Kitano's 6/30 ask): the old single
+// 残り1回 stat is now three smaller tappable bits — 残１/残２/残３ N人 — each an
+// exact remaining-count filter. They are a SEPARATE dimension from the status
+// filter (multi-select union), so 残１ × 予約なし composes — the combo the
+// sheet could never answer.
+//
+// Honesty gates: the pack stats (残数, 未消化) hide until pack data exists
 // (pre-import they'd read a confident-but-false 0). 予約なし is real today.
 
 import { useTranslations } from 'next-intl'
+import { burnDeltaPct } from '@/lib/packs/burn'
 import type { CustomerListFilterKey } from './CustomersStatusFilters'
+import { PACK_REMAINING_OPTIONS } from './CustomersStatusFilters'
 
 export interface ListStats {
-  total: number
+  /** UNFILTERED row count — render gate only; must not vanish mid-filter. */
+  globalTotal: number
+  /** Status-dimension scope (staff ∧ 残数 applied) — the 予約なし % denominator. */
+  scopedTotal: number
   noBooking: number
-  packLow: number
+  /** ¥ over the CURRENT view (all dimensions) — the slice's stranded money. */
   unconsumedTotal: number
-  /** Any pack data at all? false pre-import → pack stats hide. */
+  /** 今月消化 ¥ over the CURRENT view — this month-to-date burn (案A). */
+  burnMtd: number
+  /** Previous month, SAME day-window (1st..today's day, clamped) — the ▲%
+   *  base. Part-month vs full-month would always read as a crash. */
+  burnPrev: number
+  /** Burn rows loaded? false → stat hides (core unreachable / pre-1.12). */
+  hasBurnData: boolean
+  /** An unpriceable customer is IN the current view → its sum would be
+   *  partial → hide (honesty gate, view-scoped like the sums). */
+  burnUnpriceable: boolean
+  /** Any pack data at all? false pre-import → pack stats hide. UNFILTERED. */
   hasPackData: boolean
   /** Booking enrichment actually loaded? When the synqed-core env is missing,
    *  enrichment silently returns empty → every row reads 予約なし → the strip
@@ -29,60 +50,177 @@ export function CustomerListStatsStrip({
   stats,
   active,
   onSelect,
+  packCounts,
+  packFilter,
+  onPackToggle,
 }: {
   stats: ListStats
   active: CustomerListFilterKey
   onSelect: (key: CustomerListFilterKey) => void
+  /** Count of customers at exactly n remaining, keyed by PACK_REMAINING_OPTIONS. */
+  packCounts: Record<number, number>
+  packFilter: ReadonlySet<number>
+  onPackToggle: (n: number) => void
 }) {
   const t = useTranslations('customers.list.stats')
-  if (stats.total === 0) return null
+  if (stats.globalTotal === 0) return null
   const showNoBooking = stats.hasBookingData || active === 'noBooking'
-  const showPackLow =
-    (stats.hasPackData && stats.packLow > 0) || active === 'packLow'
-  const showUnconsumed = stats.hasPackData && stats.unconsumedTotal > 0
-  if (!showNoBooking && !showPackLow && !showUnconsumed) return null
-  const pct = Math.round((stats.noBooking / stats.total) * 100)
+  // Group stays visible while any 残n filter is active even if pack data
+  // vanishes — otherwise the only tap-to-clear control disappears mid-use
+  // (same guard the hide-when-zero pills use).
+  const showPackRemaining = stats.hasPackData || packFilter.size > 0
+  const showUnconsumed = stats.hasPackData
+  // 今月消化 (案A, Liam-approved 7/17) — a pack stat, so it shares the pack
+  // honesty gate on top of its own (burn fetch ok + no unpriceable customer
+  // in the current view).
+  const showBurn = stats.hasBurnData && stats.hasPackData && !stats.burnUnpriceable
+  if (!showNoBooking && !showPackRemaining && !showUnconsumed) return null
+  const pct =
+    stats.scopedTotal > 0
+      ? Math.round((stats.noBooking / stats.scopedTotal) * 100)
+      : 0
   const toggle = (key: CustomerListFilterKey) =>
     onSelect(active === key ? 'all' : key)
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-border bg-muted/40 px-3 py-2 text-[11px] tabular-nums">
+      {/* Selected = SOLID amber chip, white text (Liam 7/17: the darker-amber
+       *  + underline state was too easy to miss; a background fill isn't).
+       *  Constant padding on both states so toggling never shifts the row.
+       *  One active language for the whole strip — 予約なし and the 残数 bits
+       *  fill the same way. Red was considered and rejected: in Karute red
+       *  means recording/warnings/無断, not "filter on". */}
+      {/* Layout (Liam 7/17 v3): mobile line 1 = 予約なし alone (the booking
+       *  stat), line 2 = the whole 回数券 story — 残数 bits left, 未消化 ¥
+       *  right. Both lines end-anchored, no floating amount. ≥md it all fits
+       *  one line: 予約なし · bits · 未消化 right. 未消化 is never alone on a
+       *  line: showUnconsumed ⇒ hasPackData ⇒ the bits row renders. */}
       {showNoBooking && (
       <button
         type="button"
+        aria-pressed={active === 'noBooking'}
         onClick={() => toggle('noBooking')}
-        className={`inline-flex items-baseline gap-1 rounded transition-colors ${
+        className={`inline-flex items-baseline gap-1 rounded-full px-2 py-0.5 transition-colors ${
           active === 'noBooking'
-            ? 'font-semibold text-amber-700 underline underline-offset-2 dark:text-amber-300'
+            ? 'bg-amber-700 text-white dark:bg-amber-500 dark:text-amber-950'
             : 'text-amber-700/90 hover:text-amber-700 dark:text-amber-400'
         }`}
       >
         <span className="font-semibold">
           {t('noBooking', { n: stats.noBooking })}
         </span>
-        <span className="text-muted-foreground">({pct}%)</span>
+        {/* Full opacity on the selected chip — /80·/70 alphas measured 3.8:1
+         *  (fail); hierarchy vs the label comes from weight, not opacity. */}
+        <span
+          className={
+            active === 'noBooking' ? 'text-white dark:text-amber-950' : 'text-muted-foreground'
+          }
+        >
+          ({pct}%)
+        </span>
       </button>
       )}
-      {/* Stays visible while ITS filter is active even if the count hits 0 —
-       *  otherwise the only tap-to-clear control vanishes mid-use (same guard
-       *  the hide-when-zero pills use). */}
-      {showPackLow && (
-        <button
-          type="button"
-          onClick={() => toggle('packLow')}
-          className={`rounded font-semibold transition-colors ${
-            active === 'packLow'
-              ? 'text-amber-700 underline underline-offset-2 dark:text-amber-300'
-              : 'text-amber-600/90 hover:text-amber-700 dark:text-amber-400'
-          }`}
-        >
-          {t('packLow', { n: stats.packLow })}
-        </button>
+      {/* 今月消化 (案A) — line-1 right: the month's burn FLOW next to the
+       *  未消化 STOCK below it. Display-only (no list to produce, so no tap —
+       *  the faceted contract applies to controls). ▲ = emerald (the app's
+       *  positive-money color, TicketPackCard); ▼ = muted, NOT red (red means
+       *  recording/warnings/無断 here). % hides when the prev window is ¥0. */}
+      {showBurn && (
+        <span className="ml-auto inline-flex items-baseline gap-1 whitespace-nowrap">
+          <span className="text-muted-foreground">{t('burnLabel')}</span>
+          <span className="font-semibold text-foreground">
+            {t('burnAmount', { amount: stats.burnMtd.toLocaleString('ja-JP') })}
+          </span>
+          {(() => {
+            const delta = burnDeltaPct(stats.burnMtd, stats.burnPrev)
+            if (delta == null) return null
+            return (
+              // aria-label on a role-less span is unreliable ARIA naming —
+              // sr-only text carries the 先月同期比 context instead (same
+              // pattern as VisitHistoryChain), the arrow glyphs stay hidden.
+              // Direction lives in WORDS (増/減), never in a +/- sign: screen
+              // readers at default verbosity skip a bare hyphen-minus, which
+              // would announce ▼12% and ▲12% identically (fleet-verified
+              // against the real next-intl render).
+              <span
+                className={`font-semibold ${
+                  delta > 0
+                    // emerald-700: 5.48:1 on white (600 measured 3.77 — AA
+                    // fail at 11px); dark emerald-400 measures 10.35:1.
+                    ? 'text-emerald-700 dark:text-emerald-400'
+                    : 'text-muted-foreground'
+                }`}
+              >
+                <span aria-hidden="true">
+                  {delta > 0 ? `▲${delta}%` : delta < 0 ? `▼${Math.abs(delta)}%` : '±0%'}
+                </span>
+                <span className="sr-only">
+                  {delta > 0
+                    ? t('burnDeltaAriaUp', { delta })
+                    : delta < 0
+                      ? t('burnDeltaAriaDown', { delta: Math.abs(delta) })
+                      : t('burnDeltaAriaFlat')}
+                </span>
+              </span>
+            )
+          })()}
+        </span>
       )}
-      {showUnconsumed && (
-        <span className="ml-auto font-semibold text-foreground">
-          {t('unconsumed', {
-            amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
-          })}
+      {/* 回数券 row — bits left, 未消化 right, ONE flex line: basis-full
+       *  breaks it under 予約なし on mobile with a single gap-y (a separate
+       *  breaker span formed its own zero-height flex line and doubled the
+       *  gap to 8px — fleet-measured); md:flex-1 lets it share 予約なし's
+       *  line and push 未消化 to the far right. basis-full lives on this
+       *  WRAPPER, not the 予約なし button, so the selected chip's fill hugs
+       *  its text instead of painting the whole line. */}
+      {showPackRemaining && (
+        <span className="flex basis-full items-baseline md:flex-1 md:basis-auto">
+        {/* 残１/残２/残３ — slightly smaller than 予約なし (Liam: "make the
+         *  current one smaller too"); selected = the same solid amber chip as
+         *  予約なし. Inactive counts render in foreground-black (orange = the
+         *  tappable word, black = the number — Liam 7/17); on the filled chip
+         *  both go white. Constant padding both states → no row shift on tap.
+         *  Individual bits never hide at 0 so the row doesn't jump around. */}
+        <span className="inline-flex items-baseline gap-1.5 text-[10px]">
+          {PACK_REMAINING_OPTIONS.map((n) => (
+            <button
+              key={n}
+              type="button"
+              aria-pressed={packFilter.has(n)}
+              onClick={() => onPackToggle(n)}
+              className={`inline-flex items-baseline gap-1 rounded-full px-2 py-0.5 transition-colors ${
+                packFilter.has(n) ? 'bg-amber-700 dark:bg-amber-500' : ''
+              }`}
+            >
+              <span
+                className={`font-semibold ${
+                  packFilter.has(n)
+                    ? 'text-white dark:text-amber-950'
+                    : 'text-amber-600/90 dark:text-amber-400'
+                }`}
+              >
+                {t(`packRemainingLabel${n}`)}
+              </span>
+              <span
+                className={`font-semibold tabular-nums ${
+                  packFilter.has(n) ? 'text-white dark:text-amber-950' : 'text-foreground'
+                }`}
+              >
+                {t('packRemainingCount', { n: packCounts[n] ?? 0 })}
+              </span>
+            </button>
+          ))}
+        </span>
+        {/* 未消化 ¥ — right end of the 回数券 row (v3). View-scoped: the yen
+         *  sum of the CURRENTLY filtered list, so 残１×予約なし reads as "the
+         *  call-list is worth this much". ¥0 renders (it's a real answer for
+         *  a slice), keeping the layout stable. */}
+        {showUnconsumed && (
+          <span className="ml-auto font-semibold text-foreground">
+            {t('unconsumed', {
+              amount: stats.unconsumedTotal.toLocaleString('ja-JP'),
+            })}
+          </span>
+        )}
         </span>
       )}
     </div>

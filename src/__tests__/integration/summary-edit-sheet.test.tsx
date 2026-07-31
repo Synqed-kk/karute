@@ -1,0 +1,373 @@
+/**
+ * @jest-environment jsdom
+ *
+ * Edit-layer W2 summary half (the 詳細記録 pencil): the card's pencil
+ * affordance + the summary-edit sheet's seed/save/no-op/reopen contract, the
+ * record-level history filter, and the #640 keyboard-aware position carried
+ * over from EntryEditSheet. (next-intl mocked to echo keys, per the repo's
+ * tsx-test convention — see entry-edit-sheet.test.tsx.)
+ */
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+
+jest.mock('next-intl', () => ({ useTranslations: () => (key: string) => key, useLocale: () => 'ja' }))
+
+const refresh = jest.fn()
+jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
+
+const updateKaruteDetailSummary = jest.fn()
+const listEntryEditHistory = jest.fn()
+listEntryEditHistory.mockResolvedValue({ edits: [], truncated: false })
+jest.mock('@/actions/karute', () => ({
+  updateKaruteDetailSummary: (...args: unknown[]) => updateKaruteDetailSummary(...args),
+  listEntryEditHistory: (...args: unknown[]) => listEntryEditHistory(...args),
+}))
+
+import { AISummaryCard } from '@/components/karute/redesign/detail/AISummaryCard'
+import { SummaryEditSheet } from '@/components/karute/redesign/detail/SummaryEditSheet'
+
+const RAW = '・肩の張りが続いている\n・次回は2週間後'
+const BULLETS = ['肩の張りが続いている', '次回は2週間後']
+
+beforeEach(() => jest.clearAllMocks())
+
+describe('AISummaryCard — the 詳細記録 pencil', () => {
+  it('renders read-only (no pencil) when the caller predates the pencil props', () => {
+    render(<AISummaryCard sessionDate="d" bullets={BULLETS} />)
+    expect(screen.queryByLabelText('summaryEdit.editButton')).not.toBeInTheDocument()
+  })
+
+  it('quiet pencil for an untouched AI summary; amber only when edited', () => {
+    const { rerender } = render(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={BULLETS}
+        karuteRecordId="kar-1"
+        summaryRaw={RAW}
+        summaryEdited={false}
+      />,
+    )
+    expect(screen.getByLabelText('summaryEdit.editButton')).toHaveClass('text-muted-foreground/40')
+    rerender(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={BULLETS}
+        karuteRecordId="kar-1"
+        summaryRaw={RAW}
+        summaryEdited={true}
+      />,
+    )
+    expect(screen.getByLabelText('summaryEdit.editButton')).toHaveClass('text-amber-600')
+  })
+
+  it('tap → sheet opens seeded with the RAW text (line breaks intact), save writes it', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ ok: true })
+    render(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={BULLETS}
+        karuteRecordId="kar-1"
+        summaryRaw={RAW}
+        summaryEdited={false}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    expect(screen.getByRole('textbox')).toHaveValue(RAW)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・直した行\n・次回は2週間後' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() =>
+      expect(updateKaruteDetailSummary).toHaveBeenCalledWith('kar-1', {
+        content: '・直した行\n・次回は2週間後',
+      }),
+    )
+  })
+
+  it('after a save the card repaints from the override: new bullets, amber pencil, reopen seeds the just-saved text (T7)', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ ok: true })
+    render(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={BULLETS}
+        karuteRecordId="kar-1"
+        summaryRaw={RAW}
+        summaryEdited={false}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・直した行' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(updateKaruteDetailSummary).toHaveBeenCalled())
+    // The props are still the stale server values (no real refetch here) — a
+    // correct repaint must come from the card's override, not the props.
+    await waitFor(() => expect(screen.getByText('直した行')).toBeInTheDocument())
+    expect(screen.queryByText('肩の張りが続いている')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('summaryEdit.editButton')).toHaveClass('text-amber-600')
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('・直した行'))
+    expect(refresh).toHaveBeenCalled()
+  })
+
+  it('the override goes inert the moment props move — a newer server edit is never masked (stale-reopen guard)', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ ok: true })
+    const { rerender } = render(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={BULLETS}
+        karuteRecordId="kar-1"
+        summaryRaw={RAW}
+        summaryEdited={false}
+      />,
+    )
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・自分の編集' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('自分の編集')).toBeInTheDocument())
+    // Server props catch up carrying ANOTHER device's newer edit (≠ the text
+    // this override was based on). A versionless override that never expired
+    // would keep masking it — the basedOn rule must let the props win.
+    rerender(
+      <AISummaryCard
+        sessionDate="d"
+        bullets={['他端末の編集']}
+        karuteRecordId="kar-1"
+        summaryRaw={'・他端末の編集'}
+        summaryEdited={true}
+      />,
+    )
+    expect(screen.getByText('他端末の編集')).toBeInTheDocument()
+    expect(screen.queryByText('自分の編集')).not.toBeInTheDocument()
+    // The reopened sheet must seed the SERVER text, not the dead override.
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    await waitFor(() => expect(screen.getByRole('textbox')).toHaveValue('・他端末の編集'))
+  })
+
+  it('a dead override never resurrects when the server text returns to the pre-save value (ABA)', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ ok: true })
+    const props = {
+      sessionDate: 'd',
+      karuteRecordId: 'kar-1',
+    }
+    const { rerender } = render(
+      <AISummaryCard {...props} bullets={BULLETS} summaryRaw={RAW} summaryEdited={false} />,
+    )
+    // Save RAW → '・自分の編集' (override basedOn = RAW).
+    fireEvent.click(screen.getByLabelText('summaryEdit.editButton'))
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・自分の編集' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('自分の編集')).toBeInTheDocument())
+    // Refresh lands with OUR text — override goes inert.
+    rerender(
+      <AISummaryCard {...props} bullets={['自分の編集']} summaryRaw={'・自分の編集'} summaryEdited={true} />,
+    )
+    // A colleague REVERTS the summary back to the original — props return to
+    // the exact pre-save value. The value-equality rule would match basedOn
+    // again; the tombstone must keep the dead override dead.
+    rerender(
+      <AISummaryCard {...props} bullets={BULLETS} summaryRaw={RAW} summaryEdited={true} />,
+    )
+    await waitFor(() => expect(screen.getByText('肩の張りが続いている')).toBeInTheDocument())
+    expect(screen.queryByText('自分の編集')).not.toBeInTheDocument()
+  })
+})
+
+describe('SummaryEditSheet — save contract', () => {
+  const baseProps = {
+    karuteRecordId: 'kar-1',
+    open: true,
+    onOpenChange: jest.fn(),
+    seed: RAW,
+    edited: false,
+  }
+
+  it('no-op save (nothing changed) closes without calling the action', () => {
+    const onOpenChange = jest.fn()
+    render(<SummaryEditSheet {...baseProps} onOpenChange={onOpenChange} />)
+    fireEvent.click(screen.getByText('save'))
+    expect(updateKaruteDetailSummary).not.toHaveBeenCalled()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('emptied content disables save — the summary can never be blanked from here', () => {
+    render(<SummaryEditSheet {...baseProps} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '   ' } })
+    expect(screen.getByText('save')).toBeDisabled()
+  })
+
+  it('marker-only content disables save (zero bullets = the card would vanish)', () => {
+    render(<SummaryEditSheet {...baseProps} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '・' } })
+    expect(screen.getByText('save')).toBeDisabled()
+  })
+
+  it('an over-4000-char SEED disables save — maxLength only bounds typing, the choke would reject', () => {
+    render(<SummaryEditSheet {...baseProps} seed={'・' + 'あ'.repeat(4100)} />)
+    expect(screen.getByText('save')).toBeDisabled()
+  })
+
+  it('a returned {error} renders the error key and keeps the sheet open', async () => {
+    updateKaruteDetailSummary.mockResolvedValue({ error: 'boom' })
+    const onOpenChange = jest.fn()
+    render(<SummaryEditSheet {...baseProps} onOpenChange={onOpenChange} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('error')).toBeInTheDocument())
+    // The raw server string must never render (sibling convention).
+    expect(screen.queryByText('boom')).not.toBeInTheDocument()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
+
+  it('a THROWING action is caught — sheet shows the error, saving state releases', async () => {
+    updateKaruteDetailSummary.mockRejectedValue(new Error('transport'))
+    render(<SummaryEditSheet {...baseProps} />)
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: 'x' } })
+    fireEvent.click(screen.getByText('save'))
+    await waitFor(() => expect(screen.getByText('error')).toBeInTheDocument())
+    expect(screen.getByText('save')).not.toBeDisabled()
+  })
+})
+
+describe('SummaryEditSheet — record-level history (edited summaries only)', () => {
+  it('does not fetch history for an untouched AI summary', () => {
+    render(
+      <SummaryEditSheet
+        karuteRecordId="kar-1"
+        open={true}
+        onOpenChange={jest.fn()}
+        seed={RAW}
+        edited={false}
+      />,
+    )
+    expect(listEntryEditHistory).not.toHaveBeenCalled()
+  })
+
+  it('fetches for an edited summary and renders ONLY record-level rows (both entry ids null)', async () => {
+    listEntryEditHistory.mockResolvedValue({
+      edits: [
+        // Realistic EDIT row: BOTH ids set. Kills a mutant dropping the
+        // entryIdNew===null clause.
+        {
+          id: 'row-entry',
+          entryIdOld: 'e1',
+          entryIdNew: 'e1',
+          action: 'EDIT',
+          actorName: '田中',
+          contentBefore: 'エントリー前',
+          contentAfter: 'エントリー後',
+          createdAt: '2026-07-29T10:00:00.000Z',
+        },
+        // DELETE-shape row: old set, new null. Kills a mutant dropping the
+        // entryIdOld===null clause — the leak would put a DELETED entry's
+        // content into the summary's 編集履歴 trail.
+        {
+          id: 'row-delete',
+          entryIdOld: 'e9',
+          entryIdNew: null,
+          action: 'DELETE',
+          actorName: '田中',
+          contentBefore: '削除された項目',
+          contentAfter: null,
+          createdAt: '2026-07-29T10:30:00.000Z',
+        },
+        {
+          id: 'row-summary',
+          entryIdOld: null,
+          entryIdNew: null,
+          action: 'EDIT',
+          actorName: '田中',
+          contentBefore: '要約の前',
+          contentAfter: '要約の後',
+          createdAt: '2026-07-29T11:00:00.000Z',
+        },
+      ],
+      truncated: false,
+    })
+    render(
+      <SummaryEditSheet
+        karuteRecordId="kar-1"
+        open={true}
+        onOpenChange={jest.fn()}
+        seed={RAW}
+        edited={true}
+      />,
+    )
+    await waitFor(() => expect(screen.getByText('要約の後')).toBeInTheDocument())
+    expect(screen.getByText('要約の前')).toBeInTheDocument()
+    // Neither the per-entry edit nor the deleted entry's content may leak
+    // into the summary's own trail.
+    expect(screen.queryByText('エントリー後')).not.toBeInTheDocument()
+    expect(screen.queryByText('削除された項目')).not.toBeInTheDocument()
+  })
+})
+
+describe('SummaryEditSheet — keyboard-aware position (#640 carried over)', () => {
+  class FakeViewport extends EventTarget {
+    height = 800
+    offsetTop = 0
+  }
+  let vv: FakeViewport
+
+  const sheet = () => {
+    const el = document.querySelector('[data-slot="sheet-content"]') as HTMLElement | null
+    if (!el) throw new Error('sheet content not mounted')
+    return el
+  }
+
+  beforeEach(() => {
+    vv = new FakeViewport()
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true, writable: true })
+    Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true })
+  })
+  afterEach(() => {
+    // Restore jsdom's real absence — the rest of the file depends on the
+    // guard path (no visualViewport → hook no-ops).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).visualViewport
+  })
+
+  const openSheet = () =>
+    render(
+      <SummaryEditSheet
+        karuteRecordId="kar-1"
+        open={true}
+        onOpenChange={jest.fn()}
+        seed={RAW}
+        edited={false}
+      />,
+    )
+
+  it('lifts the sheet by the keyboard occlusion and caps its height to the visible space', () => {
+    openSheet()
+    act(() => {
+      vv.height = 500
+      vv.dispatchEvent(new Event('resize'))
+    })
+    expect(sheet().style.bottom).toBe('300px')
+    expect(sheet().style.maxHeight).toBe('min(85vh, 500px)')
+    act(() => {
+      vv.height = 800
+      vv.dispatchEvent(new Event('resize'))
+    })
+    expect(sheet().style.bottom).toBe('')
+    expect(sheet().style.maxHeight).toBe('')
+  })
+
+  it('iOS visual-viewport pan (offsetTop) counts toward the occlusion via the scroll listener', () => {
+    openSheet()
+    act(() => {
+      vv.height = 500
+      vv.offsetTop = 100
+      vv.dispatchEvent(new Event('scroll'))
+    })
+    // 800 − 500 − 100: the panned-away top is not keyboard occlusion.
+    expect(sheet().style.bottom).toBe('200px')
+    // The height cap is the VISUAL height, not layout-minus-inset (Greptile
+    // #640) — an inset-derived cap would hide the sheet's top above the pan.
+    expect(sheet().style.maxHeight).toBe('min(85vh, 500px)')
+  })
+
+  it('without visualViewport the sheet keeps its class anchor (guard path)', () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    delete (window as any).visualViewport
+    openSheet()
+    expect(sheet().style.bottom).toBe('')
+  })
+})

@@ -1,22 +1,10 @@
-import {
-  getBusinessId,
-  getCurrentUserStaffId,
-  getStaffList,
-} from '@/lib/staff'
+import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { assignStaffColors } from '@/lib/staff-colors'
-import { listSynqedKaruteRows, mergeKaruteRows } from '@/lib/karute/synqed-records'
+import { listSynqedKaruteRows } from '@/lib/karute/synqed-records'
 import { listAllCustomers } from '@/lib/customers/list-all'
-import {
-  assignSequentialKaruteNumbers,
-  deriveFamilyInitials,
-} from '@/lib/customers/identity'
+import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
+import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
-import type {
-  KaruteAiStatus,
-  KaruteConversionStatus,
-  KaruteListItem,
-} from '@/components/karute/spike-lifted/list/types'
 
 /**
  * カルテ tab — RECORD-CENTRIC list of karute sessions.
@@ -38,47 +26,59 @@ import type {
  * salon-treatment context.
  */
 export default async function KaruteRecordsListPage() {
-  const supabase = await createClient()
-  const businessId = await getBusinessId()
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any
-  const synqed = await getSynqedClient()
-
-  // Booking → staff for placeholder rows. QuickReserve scrapes the 担当 onto
-  // each appointment, but customer.assigned_staff_id (a separate "preferred
-  // staff" field) is never set by the sync — so placeholder stripes were
-  // blank. Derive 担当 from the customer's booking instead. Read the recent
-  // appointment list UNWINDOWED (same as enrichCustomers): a date window keyed
-  // on "today" drops a booking that has already passed (a 5/31 visit viewed on
-  // 6/01), which is exactly why the first attempt still showed blank.
-  const nowMs = new Date().getTime()
+  // Store scope = the view lens for the カルテ list. A cross-store viewer gets
+  // their pinned store (null = all); a branch-restricted staff is clamped to
+  // their own store (RBAC). `clamped` = the viewer may see ONLY their store, so
+  // the customer name-map + picker are scoped too (no cross-store name leak);
+  // cross-store viewers keep them business-wide for walk-in karute creation.
+  const [synqed, scope] = await Promise.all([
+    getSynqedClient(),
+    resolveStoreScope(),
+  ])
+  const activeStore = scope.storeId
+  const clamped = scope.allowedStoreIds != null
 
   const [
-    recordsRes,
     staffList,
     allCustomersList,
+    storeCustomerList,
     currentStaffId,
     synqedKaruteRows,
     apptList,
     synqedStaff,
   ] = await Promise.all([
-      sb
-        .from('karute_records')
-        .select(
-          'id, session_date, created_at, summary, transcript, staff_profile_id, client_id, entries(count)',
-        )
-        .eq('customer_id', businessId)
-        .order('session_date', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .limit(200),
       getStaffList(),
       // Page to completion so カルテ rows + placeholder rows resolve for every
-      // customer, not just the first 500 (server clamps page_size at 500).
-      listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      // customer, not just the first 500 (server clamps page_size at 500). This
+      // backs record-name enrichment AND the New カルテ dialog's customer picker.
+      // Cross-store viewers load it BUSINESS-WIDE (so names resolve + a karute
+      // can be created for another store's walk-in); a branch-restricted staff
+      // loads it SCOPED to their store (no cross-store names/customers leak).
+      clamped
+        ? listAllCustomers(synqed, {
+            store_id: activeStore,
+            enforceStore: true,
+            sort_by: 'created_at',
+            sort_order: 'asc',
+          })
+        : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      // Store-scoped customer roster — ONLY to scope the "新規のお客様"
+      // placeholder section to the active branch for a CROSS-STORE viewer who
+      // has pinned a store (a customer "belongs to" a store via events; see
+      // listAllCustomers). null when unpinned, or when clamped (the list above
+      // is already store-scoped, so its customers ARE the placeholder roster).
+      !clamped && activeStore
+        ? listAllCustomers(synqed, {
+            store_id: activeStore,
+            sort_by: 'created_at',
+            sort_order: 'asc',
+          })
+        : Promise.resolve(null),
       getCurrentUserStaffId(),
-      // synqed-core is the authoritative karute store; the Supabase query above
-      // is effectively empty. Union both so synqed-written karute appear here.
-      listSynqedKaruteRows(synqed),
+      // synqed-core is the sole karute store (the Supabase karute_records table
+      // is empty and being dropped). Scoped to the active branch so 代官山
+      // karute don't surface under 銀座; the customer PROFILE stays unscoped.
+      listSynqedKaruteRows(synqed, { storeId: activeStore }),
       // Recent appointments (UNWINDOWED, like enrichCustomers) + the synqed
       // staff roster — resolve each placeholder customer's 担当 from their
       // booking, translating the synqed staff id into the profile id the
@@ -89,215 +89,31 @@ export default async function KaruteRecordsListPage() {
       synqed.staff.list({ page_size: 200 }),
     ])
 
-  type RecordRow = {
-    id: string
-    session_date: string | null
-    created_at: string
-    summary: string | null
-    transcript: string | null
-    staff_profile_id: string | null
-    client_id: string
-    entries: Array<{ count: number }> | null
-    service?: string | null
-    duration_minutes?: number | null
-  }
+  // #496 store clamp: the 担当 picker only offers staff assigned to the active
+  // store (or floating staff) — the full roster was leaking every branch's
+  // staff names into every store's dropdown. Name resolution on rows stays
+  // business-wide inside the builder.
+  const storeStaffIds = await storeStaffIdSet(staffList, activeStore)
 
-  const records = mergeKaruteRows<RecordRow>(
-    (recordsRes.data ?? []) as RecordRow[],
+  const screen = buildSessionsListScreen({
+    staffList,
+    storeStaffIds,
+    allCustomersList,
+    storeCustomerList,
+    currentStaffId,
     synqedKaruteRows,
-  )
-
-  // Build lookup maps
-  const staffNameById = new Map(
-    staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
-  )
-  // DISTINCT staff colors over the FULL roster — identical map on every
-  // surface, no per-id hash collisions. Resolved into staffColorKey on each
-  // row below so KaruteListRow can render via getStaffColorByKey.
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
-  const customerById = new Map(
-    allCustomersList.customers.map((c) => [c.id, c]),
-  )
-  const karuteNumberByCustomerId = assignSequentialKaruteNumbers(
-    allCustomersList.customers,
-  )
-
-  const recordedCustomerIds = new Set(records.map((r) => r.client_id))
-
-  // ── Booking → staff for placeholder rows ─────────────────────────────
-  // synqed staff id → profile id. Appointments arrive keyed by the synqed
-  // staff id; staffNameById + staffColors key off the profile id (=
-  // synqed staff.user_id). Profile-less synqed staff fall back to their
-  // synqed id — exactly how getStaffList ids them too, so name/color still
-  // resolve. Mirrors the boundary translation in getAppointmentsByDate.
-  const profileByStaffId = new Map(
-    synqedStaff.staff
-      .filter((s): s is typeof s & { user_id: string } => s.user_id != null)
-      .map((s) => [s.id, s.user_id]),
-  )
-
-  // customer id → their booking's staff profile id. Pick the nearest
-  // upcoming booking (the 担当 the customer is about to see); fall back to
-  // the latest in-window booking so a customer whose only slot is earlier
-  // today still resolves to a stylist.
-  const bookingStaffByCustomer = new Map<string, string>()
-  {
-    const apptsByCustomer = new Map<string, typeof apptList.appointments>()
-    for (const a of apptList.appointments) {
-      const arr = apptsByCustomer.get(a.customer_id)
-      if (arr) arr.push(a)
-      else apptsByCustomer.set(a.customer_id, [a])
-    }
-    for (const [cid, appts] of apptsByCustomer) {
-      const sorted = [...appts].sort(
-        (x, y) =>
-          new Date(x.starts_at).getTime() - new Date(y.starts_at).getTime(),
-      )
-      const chosen =
-        sorted.find((a) => new Date(a.starts_at).getTime() >= nowMs) ??
-        sorted[sorted.length - 1]
-      if (chosen) {
-        bookingStaffByCustomer.set(
-          cid,
-          profileByStaffId.get(chosen.staff_id) ?? chosen.staff_id,
-        )
-      }
-    }
-  }
-
-  // Project records into KaruteListItem shape
-  const items: KaruteListItem[] = records.map((r) => {
-    const customer = customerById.get(r.client_id)
-    const customerName = customer?.name ?? '不明'
-    const entryCount = Array.isArray(r.entries)
-      ? (r.entries[0]?.count ?? 0)
-      : 0
-    const isoDate = (r.session_date ?? r.created_at).slice(0, 10)
-    const dt = new Date(`${isoDate}T00:00:00+09:00`)
-    const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
-
-    // Derive AI status from data shape — see types.ts for rationale.
-    let aiStatus: KaruteAiStatus = 'draft'
-    if (r.summary && r.summary.trim().length > 0) aiStatus = 'summarized'
-    else if (r.transcript && r.transcript.trim().length > 0)
-      aiStatus = 'pending'
-
-    // Conversion status — entry count is the best signal we have.
-    const conversionStatus: KaruteConversionStatus =
-      entryCount > 0 ? 'active' : 'provisional'
-
-    return {
-      id: r.id,
-      customerId: r.client_id,
-      customerName,
-      customerInitials: deriveFamilyInitials(customerName),
-      customerKaruteNumber:
-        karuteNumberByCustomerId.get(r.client_id) ?? '#00000',
-      date: isoDate,
-      weekday,
-      // Real fields from synqed-core (2026-06-11 migration). '—' / 0
-      // remain the honest "unset" displays for records that predate the
-      // columns; the row's `duration > 0 && ...` guard hides the
-      // duration line when unknown.
-      service: r.service || '—',
-      duration: r.duration_minutes ?? 0,
-      staffId: r.staff_profile_id,
-      staffColorKey: r.staff_profile_id
-        ? (staffColors.get(r.staff_profile_id)?.key ?? null)
-        : null,
-      staffName: r.staff_profile_id
-        ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
-        : '—',
-      summary: r.summary ?? '',
-      aiStatus,
-      conversionStatus,
-      href: `/karute/${r.id}`,
-    }
+    apptList,
+    synqedStaff,
   })
-
-  // Phase B: synthesize placeholder rows for customers with NO records yet.
-  // Each links to the customer hub (/customers/[id]) — the single canonical
-  // customer page — so a カルテ-list tap and a 顧客-list tap land on the SAME
-  // place. (Previously /karute/customer/[id], a near-duplicate of the hub that
-  // the spike never had — removed for a predictable 2-page nav.)
-  // Sorted newest-customer-first so the most recent signups bubble up.
-  const placeholders: KaruteListItem[] = allCustomersList.customers
-    .filter((c) => !recordedCustomerIds.has(c.id))
-    .sort((a, b) =>
-      (b.created_at ?? '').localeCompare(a.created_at ?? ''),
-    )
-    .map((c) => {
-      const isoDate = (c.created_at ?? new Date().toISOString()).slice(0, 10)
-      const dt = new Date(`${isoDate}T00:00:00+09:00`)
-      const weekday = ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()]
-      // 担当 comes from the customer's booking (QuickReserve scrapes it onto
-      // the appointment). assigned_staff_id is a separate preferred-staff
-      // field the sync never sets — so it was always null here, leaving the
-      // stripe blank and no 担当 on the card. Fall back to it only when the
-      // customer has no booking in the window.
-      const bookingStaffId =
-        bookingStaffByCustomer.get(c.id) ?? c.assigned_staff_id ?? null
-      return {
-        id: `placeholder-${c.id}`,
-        customerId: c.id,
-        customerName: c.name,
-        customerInitials: deriveFamilyInitials(c.name),
-        customerKaruteNumber:
-          karuteNumberByCustomerId.get(c.id) ?? '#00000',
-        date: isoDate,
-        weekday,
-        // ANTHONY: when service + duration columns land on karute_records,
-        // these stay empty for placeholder rows (no session yet). The
-        // string here is the user-facing label shown in lieu of a service.
-        service: 'まだセッションなし',
-        duration: 0,
-        staffId: bookingStaffId,
-        staffColorKey: bookingStaffId
-          ? (staffColors.get(bookingStaffId)?.key ?? null)
-          : null,
-        staffName: bookingStaffId
-          ? (staffNameById.get(bookingStaffId) ?? '—')
-          : '—',
-        summary: '初回セッションを記録すると、ここに表示されます',
-        aiStatus: 'draft',
-        conversionStatus: 'provisional',
-        href: `/customers/${c.id}`,
-        isPlaceholder: true,
-      }
-    })
-
-  // monthCount — records whose session_date falls in the current month
-  const now = new Date()
-  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-  const monthCount = items.filter((i) => i.date.startsWith(monthPrefix)).length
-
-  // Customer combobox source for the NewKaruteDialog. Reuses the same
-  // list we already loaded above for the customer-name lookup map —
-  // no extra round trip. Shape matches the shared CustomerOption
-  // contract from src/components/karute/CustomerCombobox (id + name)
-  // so the dialog plugs straight into the same picker the recording
-  // flow uses.
-  const customerOptions = allCustomersList.customers.map((c) => ({
-    id: c.id,
-    name: c.name,
-  }))
 
   return (
     <KaruteRecordListView
-      items={items}
-      monthCount={monthCount}
-      placeholders={placeholders}
-      staffList={staffList.map((s) => ({
-        id: s.id,
-        name: s.full_name ?? 'Unknown',
-        initials: deriveFamilyInitials(s.full_name ?? ''),
-      }))}
-      currentStaffId={currentStaffId}
-      customerOptions={customerOptions}
+      items={screen.items}
+      monthCount={screen.monthCount}
+      placeholders={screen.placeholders}
+      staffList={screen.staffList}
+      currentStaffId={screen.currentStaffId}
+      customerOptions={screen.customerOptions}
     />
   )
 }
-
-// Local createClient import — avoids re-resolving via the top-level
-// import dance that depends on cookies()
-import { createClient } from '@/lib/supabase/server'

@@ -5,9 +5,11 @@
 // label (what they're called); the Role + toggles are what they can DO. Both
 // save with the single 保存 button.
 //
-// The role section only renders in EDIT mode, behind NEXT_PUBLIC_FEATURE_STAFF_INVITES
-// (the staff-management-v2 flag), and only for non-owner rows — the account owner
-// shows a read-only "full access". Server actions enforce the real gates
+// The role section renders in EDIT mode for non-owner rows — the account owner
+// shows a read-only "full access". It was previously bundled behind
+// NEXT_PUBLIC_FEATURE_STAFF_INVITES, which left the built authority switchboard
+// invisible in production settings (Liam ruling 2026-07-17: expose it; only the
+// invite dialog stays behind that flag). Server actions enforce the real gates
 // (staff.manage, no-owner-edit, no privilege escalation); this UI is convenience.
 
 import { useEffect, useState } from 'react'
@@ -27,7 +29,7 @@ import {
 } from '@/components/ui/dialog'
 import { createStaff, updateStaff } from '@/actions/staff'
 import { getStaffPermissions, setStaffPermissions } from '@/actions/permissions'
-import { listStores, getStaffStore, setStaffStore, type StoreRow } from '@/actions/stores'
+import { getStaffStores, setStaffStores, type StoreRow } from '@/actions/stores'
 import { staffProfileSchema, type StaffProfileInput } from '@/lib/validations/staff'
 import {
   CAPABILITIES,
@@ -36,19 +38,11 @@ import {
   type Capability,
   type PermissionRole,
 } from '@/lib/auth/permissions'
-
-// Store/location assignment shows only when multi-store is enabled + editing.
-const STORES_ENABLED = process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
-
-const POSITION_OPTIONS = [
-  'Stylist', 'Manager', 'Assistant', 'Therapist', 'Esthetician',
-  'Nail Technician', 'Receptionist', 'Teacher', 'Trainer', 'Doctor', 'Nurse', 'Other',
-]
+import { getJobTitles } from '@/lib/staff/job-titles'
 
 // Roles assignable here — never 'owner' (that's the account owner / ownership transfer).
 const ASSIGNABLE_ROLES = PERMISSION_ROLES.filter((r) => r !== 'owner')
 
-const RBAC_ENABLED = process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true'
 
 interface StaffFormProps {
   mode: 'create' | 'edit'
@@ -59,11 +53,28 @@ interface StaffFormProps {
     email?: string
     phone?: string
     avatarUrl?: string
+    /** Roster card with no login attached (StaffMember.unlinked) — the
+     *  authority section renders its honest state instead of fetching
+     *  permissions that deterministically don't exist. */
+    unlinked?: boolean
   }
   onClose: () => void
+  /** business_type + the business's stores — threaded from the caller's own
+   *  server-side fetch (design-parity packet 12 §S4a, T3) instead of this
+   *  form fetching getOrgSettings()/listStores() itself client-side. Both
+   *  optional (a caller that hasn't wired the newer props yet still renders
+   *  with the same defaults this form always had). */
+  businessType?: string
+  stores?: StoreRow[]
+  /** Server-truth override for NEXT_PUBLIC_FEATURE_MULTI_STORE — `prop ??
+   *  env` so web (which never passes this) reads the real env var, byte-for-
+   *  byte unchanged. */
+  featureMultiStore?: boolean
 }
 
-export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
+export function StaffForm({ mode, staff, onClose, businessType, stores, featureMultiStore }: StaffFormProps) {
+  // Store/location assignment shows only when multi-store is enabled + editing.
+  const storesEnabled = featureMultiStore ?? process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true'
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
   const tp = useTranslations('permissions')
@@ -83,28 +94,39 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
     },
   })
 
-  // Authority state — 'off' (flag off / create), 'loading', 'owner' (read-only),
-  // or 'ready' (editable role + toggles).
-  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready'>(
-    RBAC_ENABLED && mode === 'edit' ? 'loading' : 'off',
+  // Authority state — 'off' (create mode), 'loading', 'owner' (read-only),
+  // 'ready' (editable role + toggles), 'error' (load failed — shown, not
+  // hidden), or 'unlinked' (no login attached — permissions don't exist yet,
+  // so we say that instead of fetching a deterministic 404 and telling the
+  // user to retry it).
+  const [permsState, setPermsState] = useState<'off' | 'loading' | 'owner' | 'ready' | 'error' | 'unlinked'>(
+    mode === 'edit' ? (staff?.unlinked ? 'unlinked' : 'loading') : 'off',
   )
   const [role, setRole] = useState<PermissionRole>('practitioner')
   const [caps, setCaps] = useState<Set<Capability>>(new Set())
 
-  // Store/location assignment (multi-store). Loads the business's stores + the
-  // staff's current store on open; saved alongside identity on 保存.
-  const [stores, setStores] = useState<StoreRow[]>([])
-  const [storeId, setStoreId] = useState<string>('')
+  // Store/location assignment (multi-store). The business's store LIST comes
+  // in as a prop now (T3); only the staff's current assignment is still
+  // fetched here (per-staff, edit-target-dependent — the DTO can't carry
+  // every staff member's assignment up front).
+  const [storeIds, setStoreIds] = useState<string[]>([])
+
+  // 役職 options adapt to the salon's business type (a 美容整体 shows 整体師, a
+  // hair salon スタイリスト). businessType arrives as a prop now (T3) — resolved
+  // synchronously at mount, no fetch/loading flicker.
+  const [titles] = useState<string[]>(() => getJobTitles(businessType))
 
   const staffId = staff?.id
 
   useEffect(() => {
-    if (!(RBAC_ENABLED && mode === 'edit' && staffId)) return
+    if (!(mode === 'edit' && staffId) || staff?.unlinked) return
     let cancelled = false
     getStaffPermissions(staffId).then((res) => {
       if (cancelled) return
       if ('error' in res) {
-        setPermsState('off')
+        // Surface the failure instead of silently hiding the authority section —
+        // the identity fields still save fine; only authority editing is down.
+        setPermsState('error')
         return
       }
       if (res.isOwner) {
@@ -118,20 +140,19 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
     return () => {
       cancelled = true
     }
-  }, [mode, staffId])
+  }, [mode, staffId, staff?.unlinked])
 
   useEffect(() => {
-    if (!(STORES_ENABLED && mode === 'edit' && staffId)) return
+    if (!(storesEnabled && mode === 'edit' && staffId)) return
     let cancelled = false
-    void Promise.all([listStores(), getStaffStore(staffId)]).then(([rows, current]) => {
+    void getStaffStores(staffId).then((current) => {
       if (cancelled) return
-      setStores(rows)
-      setStoreId(current ?? '')
+      setStoreIds(current ?? [])
     })
     return () => {
       cancelled = true
     }
-  }, [mode, staffId])
+  }, [storesEnabled, mode, staffId])
 
   function onRoleChange(next: PermissionRole) {
     setRole(next)
@@ -149,10 +170,18 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
   async function onSubmit(data: StaffProfileInput) {
     try {
       if (mode === 'create') {
-        await createStaff(data)
+        const res = await createStaff(data)
+        if (res?.error) {
+          toast.error(res.error)
+          return
+        }
         toast.success(ts('staffAdded'))
       } else if (mode === 'edit' && staff) {
-        await updateStaff(staff.id, data)
+        const res = await updateStaff(staff.id, data)
+        if (res?.error) {
+          toast.error(res.error) // clean, translated message (never the prod digest)
+          return
+        }
         if (permsState === 'ready') {
           const res = await setStaffPermissions(staff.id, role, [...caps])
           if ('error' in res) {
@@ -160,8 +189,8 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
             return
           }
         }
-        if (STORES_ENABLED) {
-          const res = await setStaffStore(staff.id, storeId || null)
+        if (storesEnabled) {
+          const res = await setStaffStores(staff.id, storeIds)
           if ('error' in res) {
             toast.error(res.error)
             return
@@ -215,32 +244,49 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
             )}
           </div>
 
-          {/* 店舗（所属） — which location this staff works at. Multi-store only. */}
-          {STORES_ENABLED && mode === 'edit' && (
+          {/* 所属店舗 — which stores this staff works at. Multi-store, many-to-many:
+           *  check any number; none = works in every store (owner / floating staff). */}
+          {storesEnabled && mode === 'edit' && (
             <div className="flex flex-col gap-1.5">
-              <label htmlFor="staff-store" className="text-sm font-medium">
-                {tStore('assignLabel')}
-              </label>
-              <select
-                id="staff-store"
-                value={storeId}
-                onChange={(e) => setStoreId(e.target.value)}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-              >
-                <option value="">{tStore('unassigned')}</option>
-                {stores.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+              <label className="text-sm font-medium">{tStore('assignLabel')}</label>
+              <p className="text-xs text-muted-foreground">{tStore('assignMultiHint')}</p>
+              <div className="flex flex-col gap-1.5">
+                {(stores ?? []).map((s) => {
+                  const checked = storeIds.includes(s.id)
+                  return (
+                    <label
+                      key={s.id}
+                      className="flex cursor-pointer items-center gap-2.5 rounded-md border border-input px-3 py-2 text-sm transition-colors hover:bg-muted"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) =>
+                          setStoreIds((prev) =>
+                            e.target.checked
+                              ? [...new Set([...prev, s.id])]
+                              : prev.filter((x) => x !== s.id),
+                          )
+                        }
+                        className="size-4 accent-blue-600"
+                      />
+                      <span>{s.name}</span>
+                      {s.isPrimary && (
+                        <span className="ml-auto inline-flex h-5 items-center rounded-full bg-blue-50 px-1.5 text-[10px] font-medium text-blue-800 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-500/20">
+                          {tStore('primaryBadge')}
+                        </span>
+                      )}
+                    </label>
+                  )
+                })}
+              </div>
             </div>
           )}
 
           {/* 役職 (job-title label) */}
           <div className="flex flex-col gap-1.5">
             <label htmlFor="staff-position" className="text-sm font-medium">{ts('position')}</label>
-            <PositionSelect register={register} defaultValue={mode === 'edit' ? staff?.position ?? '' : ''} />
+            <PositionSelect register={register} defaultValue={mode === 'edit' ? staff?.position ?? '' : ''} titles={titles} />
           </div>
 
           {/* Authority — role preset + capability toggles (what they can DO) */}
@@ -254,6 +300,16 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 
               {permsState === 'loading' && (
                 <p className="text-xs text-muted-foreground">{tc('loading')}</p>
+              )}
+
+              {permsState === 'error' && (
+                <p className="text-xs text-red-600 dark:text-red-400">{tp('loadFailed')}</p>
+              )}
+
+              {permsState === 'unlinked' && (
+                <div className="rounded-md border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
+                  {tp('unlinked')}
+                </div>
               )}
 
               {permsState === 'owner' && (
@@ -278,7 +334,11 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
                     <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                       {tp('permissionsLabel')}
                     </p>
-                    {CAPABILITIES.map((c) => (
+                    {/* recordings.viewAll is owner-only (recorder-private) and
+                     *  stripped at resolve time for every other role — showing
+                     *  its toggle here would be a checkbox that never sticks.
+                     *  This form only ever edits non-owner staff. */}
+                    {CAPABILITIES.filter((c) => c !== 'recordings.viewAll').map((c) => (
                       <label key={c} className="flex cursor-pointer items-center justify-between gap-3 text-xs">
                         <span className="text-foreground/90">{tp(`cap_${c.replace('.', '_')}`)}</span>
                         <input
@@ -312,13 +372,15 @@ export function StaffForm({ mode, staff, onClose }: StaffFormProps) {
 function PositionSelect({
   register,
   defaultValue,
+  titles,
 }: {
   register: UseFormRegister<StaffProfileInput>
   defaultValue: string
+  titles: string[]
 }) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
-  const isCustom = defaultValue && !POSITION_OPTIONS.includes(defaultValue)
+  const isCustom = defaultValue && !titles.includes(defaultValue)
   const [showCustom, setShowCustom] = useState(isCustom)
 
   if (showCustom) {
@@ -340,7 +402,7 @@ function PositionSelect({
         className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
       >
         <option value="">{ts('selectPosition')}</option>
-        {POSITION_OPTIONS.map((p) => (
+        {titles.map((p) => (
           <option key={p} value={p}>{p}</option>
         ))}
       </select>

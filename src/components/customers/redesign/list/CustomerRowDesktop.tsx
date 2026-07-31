@@ -5,7 +5,7 @@ import { Link } from '@/i18n/navigation'
 import { cn } from '@/lib/utils'
 import { getStaffColorByKey, type StaffColor } from '@/lib/staff-colors'
 import type { CustomerListRow } from '../types'
-import { STATUS_STYLES } from '../types'
+import { STATUS_STYLES, isRepeatNoShow } from '../types'
 import { AiStatusChipRow } from './AiStatusChipRow'
 
 interface CustomerRowDesktopProps {
@@ -43,17 +43,6 @@ export function CustomerRowDesktop({
       href={`${hrefBase}/${c.id}` as Parameters<typeof Link>[0]['href']}
       className="relative grid grid-cols-[minmax(0,2fr)_130px_110px_120px_160px_60px] items-center gap-3 border-b border-border px-4 py-3 transition-colors hover:bg-muted/30 last:border-b-0"
     >
-      {/* Staff color stripe on left edge — gray fallback when no staff
-       *  is assigned so the accent stays visually present (matches
-       *  spike behavior). Inset from top/bottom lets the row's border-b
-       *  pass through, giving the cut-into-sections look. */}
-      <span
-        aria-hidden
-        className={cn(
-          'absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full',
-          staffColorKey ? staff.stripe : 'bg-border',
-        )}
-      />
 
       {/* Customer */}
       <div className="flex items-center gap-3">
@@ -131,12 +120,19 @@ export function CustomerRowDesktop({
 
       {/* Status — EXCEPTIONS-ONLY (Liam): 継続中 renders no chip so the rare
        *  新規/要フォロー/休眠 pop when scanning. Empty cell = fine. */}
-      <div>
+      <div className="flex flex-wrap items-center gap-1">
         {c.status !== 'on-track' && (
           <span
             className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-medium ${status.bg} ${status.text} ${status.border}`}
           >
             {t(`status.${c.status}`)}
+          </span>
+        )}
+        {/* Repeat no-show — EXCEPTIONS-ONLY (>= 2; a single no-show isn't
+         *  flagged). Amber warning tone, same token as 要フォロー. */}
+        {isRepeatNoShow(c.noShowCount) && (
+          <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+            {t('row.noShowChip', { count: c.noShowCount ?? 0 })}
           </span>
         )}
       </div>

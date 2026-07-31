@@ -76,6 +76,18 @@ interface CustomerProfileViewProps {
    *  Empty until the ticket_packs migration is applied (graceful). */
   packs?: PackWithUsage[]
   lifecycle?: CustomerLifecycle | null
+  /** Org-level 回数券 master switch. Off → the pack card shows only the
+   *  lifecycle row (卒業/離客/口コミ stays — it's customer state, not tickets). */
+  ticketsEnabled?: boolean
+  /** Recording consent — same isConsentCurrent truth the recording gate
+   *  uses. Drives the Privacy tab's revoke row (shown only when granted). */
+  consentGranted?: boolean
+  consentGrantedAtLabel?: string | null
+  /** Tenant staff roster for the edit dialog's 指名スタッフ picker. The thin
+   *  app threads it from the profile-screen DTO (its facade has no
+   *  listAssignableStaff read); web leaves it undefined → CustomerForm
+   *  self-fetches, unchanged. */
+  assignableStaff?: { id: string; name: string }[]
 }
 
 export function CustomerProfileView({
@@ -86,6 +98,10 @@ export function CustomerProfileView({
   packs = [],
   lifecycle = null,
   hasNextBooking = false,
+  ticketsEnabled = true,
+  consentGranted = false,
+  consentGrantedAtLabel = null,
+  assignableStaff,
 }: CustomerProfileViewProps) {
   const router = useRouter()
   const [tab, setTab] = useState<CustomerProfileTab>('memory')
@@ -107,15 +123,16 @@ export function CustomerProfileView({
       </div>
 
       {/* 2. Pending-deletion banner — only renders if this customer
-       *     is inside the 30-day soft-delete window. Banner returns
-       *     null when status.isScheduled is false. */}
+       *     is inside the 30-day soft-delete window (deletedAt set on
+       *     the core row). Banner returns null otherwise. */}
       <CustomerDeletionBanner
         customerId={customer.id}
         customerName={customer.name}
+        deletedAt={customer.deletedAt}
       />
 
       {/* 3. Identity */}
-      <CustomerIdentityCard c={customer} />
+      <CustomerIdentityCard c={customer} assignableStaff={assignableStaff} />
 
       {/* 3a. 来店ペース — how often / when / on-or-off rhythm, the facts the
        *     staff close on. Shown only when there's a signal (real cadence, or a
@@ -139,6 +156,7 @@ export function CustomerProfileView({
         lifecycle={lifecycle}
         hasNextBooking={hasNextBooking}
         avgIntervalDays={customer.visitPace?.avgIntervalDays ?? null}
+        ticketsEnabled={ticketsEnabled}
       />
 
       {/* 3c. AI re-engagement card — sits ABOVE tabs so staff catch
@@ -160,7 +178,7 @@ export function CustomerProfileView({
       <div>
         {tab === 'memory' && (
           <div className="space-y-4 md:space-y-5">
-            <BookingMemoCard memo={customer.bookingMemo} />
+            <BookingMemoCard customerId={customer.id} memo={customer.bookingMemo} />
             <CustomerMemoryCard
               customerName={customer.name}
               customerId={customer.id}
@@ -187,7 +205,15 @@ export function CustomerProfileView({
         {tab === 'photos' && (
           <PhotosTabContent customerId={customer.id} photos={photos} />
         )}
-        {tab === 'privacy' && <PrivacyTabContent customerName={customer.name} />}
+        {tab === 'privacy' && (
+          <PrivacyTabContent
+            customerId={customer.id}
+            customerName={customer.name}
+            consentGranted={consentGranted}
+            consentGrantedAtLabel={consentGrantedAtLabel}
+            deletionScheduled={Boolean(customer.deletedAt)}
+          />
+        )}
       </div>
     </main>
   )

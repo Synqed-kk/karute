@@ -1,4 +1,5 @@
 import type { SessionEntryRowData, SessionEntryTone } from '@synqed-kk/ui'
+import type { EntryCategory } from '@synqed-kk/client'
 import type { KaruteWithRelations } from '@/lib/supabase/karute'
 import type { SessionEntry, SessionCategory } from '@/components/karute/redesign/detail/CurrentSessionCard'
 
@@ -13,6 +14,7 @@ const CATEGORY_TO_TONE: Record<string, SessionEntryTone> = {
   lifestyle: 'condition',
   treatment: 'treatment',
   product: 'product',
+  // synqed-ui's tone enum has no preference/note tones — nearest neighbors.
   preference: 'product',
   next_visit: 'next',
   next: 'next',
@@ -99,8 +101,13 @@ export function karuteEntriesToTimeline(
 export function karuteSummaryToBullets(
   karute: KaruteWithRelations,
 ): string[] {
-  if (!karute.summary) return []
-  const raw = karute.summary
+  return summaryTextToBullets(karute.summary)
+}
+
+/** Raw-text variant of the split above — the 詳細記録 pencil's optimistic
+ *  post-save re-render calls this client-side with the just-saved text. */
+export function summaryTextToBullets(raw: string | null): string[] {
+  if (!raw) return []
   // New format (prompts.ts): bullet lines, each optionally prefixed with ・/•/-.
   // Detect the new format by a bullet marker OR a newline — NOT by line count.
   // That way a SINGLE bullet ("・次回来店：6月29日 16:00") isn't mis-routed to the
@@ -133,9 +140,30 @@ const CATEGORY_TO_SESSION_CATEGORY: Record<string, SessionCategory> = {
   lifestyle: 'lifestyle',
   treatment: 'treatment',
   product: 'product',
-  preference: 'product',
+  // preference gets its OWN chip (好み) — it was shelved under 製品, which
+  // mislabeled correctly-categorized data (pressure prefs shown as a product).
+  preference: 'preference',
   next_visit: 'next',
   next: 'next',
+  // other = facts that fit no drawer; an honest メモ chip instead of silently
+  // masquerading as a 気になる点.
+  other: 'note',
+}
+
+/** Reverse of CATEGORY_TO_SESSION_CATEGORY (edit-layer W2 PR-B) — the DB enum a
+ *  category-chip choice writes back as. The forward map collapses two DB values
+ *  onto one display category (symptom+concern → concern; next_visit+next →
+ *  next); this picks ONE canonical DB value per display chip so an edit-sheet
+ *  category change has a single, deterministic write target. */
+export const SESSION_CATEGORY_TO_ENTRY_CATEGORY: Record<SessionCategory, EntryCategory> = {
+  concern: 'SYMPTOM',
+  condition: 'BODY_AREA',
+  lifestyle: 'LIFESTYLE',
+  treatment: 'TREATMENT',
+  preference: 'PREFERENCE',
+  product: 'PRODUCT',
+  next: 'NEXT_VISIT',
+  note: 'OTHER',
 }
 
 export function karuteEntriesToSessionEntries(
@@ -147,6 +175,9 @@ export function karuteEntriesToSessionEntries(
       category: string
       content: string
       created_at: string
+      author?: SessionEntry['author']
+      version?: number
+      original_ai_content?: string | null
     }>
   }
   return (k.entries ?? []).map((e) => ({
@@ -154,5 +185,8 @@ export function karuteEntriesToSessionEntries(
     category: CATEGORY_TO_SESSION_CATEGORY[e.category] ?? 'concern',
     time: timeOfDay(e.created_at),
     body: e.content,
+    author: e.author,
+    version: e.version,
+    original_ai_content: e.original_ai_content,
   }))
 }

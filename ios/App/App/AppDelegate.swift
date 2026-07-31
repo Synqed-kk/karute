@@ -77,12 +77,14 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
     private static let locales: Set<String> = ["ja", "en"]
 
     override func viewDidLoad() {
+        setupStandardIOSGestures()
         guard
             let store = webView?.configuration.websiteDataStore.httpCookieStore,
             let saved = SessionCookieStore.load(), !saved.isEmpty
         else {
             NSLog("[CookieVC] restore: nothing saved (first launch / logged out) — loading normally")
             super.viewDidLoad()
+            scheduleSplashFailsafe()
             startObservers()
             return
         }
@@ -104,6 +106,7 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
             self.didLoadOnce = true
             NSLog("[CookieVC] restore: loading web")
             super.viewDidLoad()
+            self.scheduleSplashFailsafe()
             self.startObservers()
         }
         // setCookie's completion means the cookie is IN THE STORE — but NOT that
@@ -122,6 +125,66 @@ final class CookieVC: CAPBridgeViewController, WKHTTPCookieStoreObserver {
         // Watchdog: never block the load forever if a setCookie completion is
         // dropped (documented) — a missed completion must not white-screen.
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0, execute: proceed)
+    }
+
+    // Standard iOS behaviors (Liam 7/29): edge-swipe back/forward across the
+    // SPA's pushState history. Status-bar tap → scroll-to-top needs NOTHING
+    // here anymore — the thin shell scrolls the PAGE (root-scroller layout,
+    // thin/shell.tsx), so the WKWebView's own scroller is live and iOS's
+    // native tap machinery just works.
+    //
+    // LOCAL shell mode only. A remote-mode binary (the config's documented
+    // instant-rollback story) serves the live site, whose layout still pins
+    // the page — every native default stays untouched there, and the back
+    // gesture would expose the launch redirect's stale landing//login history
+    // entries. Remote mode keeps today's behavior untouched.
+    private func setupStandardIOSGestures() {
+        guard bridge?.config.serverURL.scheme == "capacitor" else {
+            NSLog("[CookieVC] gesture setup skipped (remote shell mode)")
+            return
+        }
+        webView?.allowsBackForwardNavigationGestures = true
+        // Capacitor hardcodes bounces=false (CAPBridgeViewController.swift:301)
+        // — invisible while the page never scrolled; under the root scroller
+        // it would kill the standard iOS rubber-band feel. Restore it.
+        webView?.scrollView.bounces = true
+
+        // Diagnostic for the first root-scroller device build — DELETE once
+        // the status-bar tap is device-proven. iOS scrolls NOTHING (silently)
+        // when more than one visible scroll view has scrollsToTop enabled; if
+        // this WebKit leaves it enabled on composited inner overflow regions,
+        // the tap stays dead with zero output. One census line in the device
+        // Console explains a dead tap. Log-only: mutates nothing.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 10.0) { [weak self] in
+            guard let webView = self?.webView else { return }
+            var count = 0
+            func walk(_ v: UIView) {
+                if let sv = v as? UIScrollView, sv.scrollsToTop, sv !== webView.scrollView {
+                    count += 1
+                }
+                v.subviews.forEach(walk)
+            }
+            walk(webView)
+            NSLog("[CookieVC] scrollsToTop census: \(count) competitor(s) besides the page scroller")
+        }
+    }
+
+    // Splash failsafe. launchAutoHide=false (capacitor.config.ts) keeps the
+    // launch screen up until the site hydrates and calls SplashScreen.hide()
+    // (the web app's SplashHide component). If that call never comes — site JS
+    // crashed, hydration failed — force-hide through the bridge so nobody is
+    // stranded on the splash. Scheduled where navigation actually STARTS (both
+    // viewDidLoad paths), not at viewDidLoad entry, so the cookie-restore beat
+    // never eats into the 8s page-load budget on slow networks. Ceiling: if the
+    // page never loaded AT ALL there is no JS context to eval into and the
+    // splash stays up — the same terminal state as today's endless white
+    // screen, now branded. (A pure-native hide would need a CAPPluginCall,
+    // which has no public initializer in Cap 8.)
+    private func scheduleSplashFailsafe() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8.0) { [weak self] in
+            NSLog("[CookieVC] splash failsafe (8s) — force-hiding if still up")
+            self?.bridge?.eval(js: "window.Capacitor?.Plugins?.SplashScreen?.hide()")
+        }
     }
 
     private func startObservers() {

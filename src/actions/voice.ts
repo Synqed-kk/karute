@@ -8,26 +8,73 @@
 // (docs/diarization-stack.md bake-off), samples convert to voice embeddings
 // and the raw audio is deleted — every voice saved now starts working in
 // transcription automatically at that moment.
+//
+// Cores below are extracted design-parity packet 12 §S4a (T1's no-twin
+// list) — their ROUTES are S4b (packet T4); nothing here is reachable over
+// the facade yet, but the split is done now so S4b only has to add routes.
 
-import { revalidatePath } from 'next/cache'
+import { revalidatePath, updateTag } from 'next/cache'
+import type { SynqedClient } from '@synqed-kk/client'
 import { createServiceClient } from '@/lib/supabase/service'
-import { getBusinessId } from '@/lib/staff'
-import { getOrgSettings, upsertOrgSettings } from './org-settings'
+import { audit } from '@/lib/audit'
+import { resolveWebActorId } from '@/lib/audit-web'
+import { getBusinessId, getCurrentUserStaffId } from '@/lib/staff'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { getMyCapabilities } from '@/lib/auth/require-permission'
+import type { Capability } from '@/lib/auth/permissions'
+import { orgSettingsWithClient, writeOrgSettingsBlobWithClient } from './org-settings'
 
 const MAX_SAMPLE_BYTES = 3 * 1024 * 1024 // ~15s of opus is well under this
 
-export async function enrollVoiceAction(
+// Explicit-client seam (design-parity packet 12 §S4a — the P-B pattern):
+// every core below takes this instead of resolving org settings from the
+// cookie session, so a future facade route (S4b) can reuse the exact write
+// logic with a Bearer-resolved client.
+type VoiceClient = Pick<SynqedClient, 'orgSettings'>
+
+/** Identity a voice write core needs, explicit instead of cookie-resolved:
+ *  selfUserId + callerCapabilities carry the ownership gate (self OR
+ *  staff.manage — the voice-isolation rule); actorId + source feed the
+ *  moved-in audit row. */
+type VoiceWriteDeps = {
+  selfUserId: string | null
+  callerCapabilities: Set<Capability>
+  actorId: string | null
+  source: 'web' | 'facade'
+  /** PR-M5 piece ④: minted at the web action boundary / read off ctx.meta on
+   *  the facade twin. */
+  requestId?: string
+}
+
+/**
+ * Voice ownership gate (packet 03, gap 2). A staffer may act only on their
+ * OWN voice; owner/manager (`staff.manage`) may act on anyone's. Pure —
+ * takes the already-resolved caller identity instead of looking it up, so
+ * web and a future facade route share the identical rule.
+ */
+function canActOnVoice(targetStaffId: string, deps: VoiceWriteDeps): boolean {
+  return deps.selfUserId === targetStaffId || deps.callerCapabilities.has('staff.manage')
+}
+
+/** Client-threaded core of enrollVoiceAction (design-parity packet 12 §S4a).
+ *  businessId is REQUIRED (it's part of the storage path, not just the audit
+ *  row) — an unresolvable businessId fails closed ({ok:false}), same as the
+ *  pre-split web action's own `if (!businessId) return { ok: false }`. */
+export async function enrollVoiceActionCore(
+  synqed: VoiceClient,
+  businessId: string,
+  deps: VoiceWriteDeps,
   staffId: string,
   formData: FormData,
 ): Promise<{ ok: boolean; enrolledAt?: string }> {
   try {
     const audio = formData.get('audio')
     if (!staffId || !(audio instanceof File)) return { ok: false }
+    if (!canActOnVoice(staffId, deps)) return { ok: false }
     if (audio.size === 0 || audio.size > MAX_SAMPLE_BYTES) return { ok: false }
     if (audio.type && !audio.type.startsWith('audio/')) return { ok: false }
-
-    const businessId = await getBusinessId()
     if (!businessId) return { ok: false }
+
     const samplePath = `voice-enroll/${businessId}/${staffId}.webm`
 
     const supabase = createServiceClient()
@@ -48,7 +95,7 @@ export async function enrollVoiceAction(
       if (refError) refPath = undefined
     }
 
-    const settings = await getOrgSettings()
+    const settings = await orgSettingsWithClient(synqed)
     const enrolledAt = new Date().toISOString()
     const next = {
       ...(settings?.voice_enrollments ?? {}),
@@ -60,21 +107,74 @@ export async function enrollVoiceAction(
         revoked_at: null,
       },
     }
-    const saved = await upsertOrgSettings({ voice_enrollments: next })
-    if (!saved) return { ok: false }
-    revalidatePath('/[locale]/(app)/settings', 'page')
+    const saved = await writeOrgSettingsBlobWithClient(synqed, { voice_enrollments: next })
+    // The blob writer returns { success } | { error }, never a falsy value —
+    // the old `if (!saved)` check was dead, so a failed settings write still
+    // reported ok:true and logged the enrollment. Branch on the real result.
+    if ('error' in saved) return { ok: false }
+    audit({
+      category: 'privacy',
+      action: 'privacy.voice_enroll',
+      severity: 'notice',
+      actorId: deps.actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      requestId: deps.requestId,
+      source: deps.source,
+    })
     return { ok: true, enrolledAt }
   } catch {
     return { ok: false }
   }
 }
 
-/** The delete button — removes the stored sample AND records the revocation
- *  (status + timestamp kept as the audit trail; the audio itself is gone). */
-export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean }> {
+export async function enrollVoiceAction(
+  staffId: string,
+  formData: FormData,
+): Promise<{ ok: boolean; enrolledAt?: string }> {
+  try {
+    const [businessId, synqed, selfUserId, callerCapabilities] = await Promise.all([
+      getBusinessId(),
+      getSynqedClient(),
+      getCurrentUserStaffId(),
+      getMyCapabilities(),
+    ])
+    const actorId = await resolveWebActorId()
+    const result = await enrollVoiceActionCore(
+      synqed,
+      businessId,
+      { selfUserId, callerCapabilities, actorId, source: 'web', requestId: crypto.randomUUID() },
+      staffId,
+      formData,
+    )
+    if (result.ok) {
+      revalidatePath('/[locale]/(app)/settings', 'page')
+      // The blob writer no longer invalidates (updateTag is Server-Action-only
+      // — it lives on action wrappers, never in a core a route can call); the
+      // org-settings invalidation this chain always produced lands here.
+      revalidatePath('/settings')
+      updateTag('org-settings')
+    }
+    return result
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** Client-threaded core of revokeVoiceAction (design-parity packet 12 §S4a).
+ *  See enrollVoiceActionCore's doc comment for the shared client/deps seam. */
+export async function revokeVoiceActionCore(
+  synqed: VoiceClient,
+  businessId: string,
+  deps: VoiceWriteDeps,
+  staffId: string,
+): Promise<{ ok: boolean }> {
   try {
     if (!staffId) return { ok: false }
-    const settings = await getOrgSettings()
+    if (!canActOnVoice(staffId, deps)) return { ok: false }
+    const settings = await orgSettingsWithClient(synqed)
     const current = settings?.voice_enrollments?.[staffId]
     if (!current) return { ok: false }
 
@@ -95,10 +195,52 @@ export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean 
         revoked_at: new Date().toISOString(),
       },
     }
-    const saved = await upsertOrgSettings({ voice_enrollments: next })
-    if (!saved) return { ok: false }
-    revalidatePath('/[locale]/(app)/settings', 'page')
+    const saved = await writeOrgSettingsBlobWithClient(synqed, { voice_enrollments: next })
+    // Same real-result branch as enrollVoiceActionCore (the `!saved` check was dead).
+    if ('error' in saved) return { ok: false }
+    audit({
+      category: 'privacy',
+      action: 'privacy.voice_revoke',
+      severity: 'notice',
+      actorId: deps.actorId,
+      actorType: 'staff',
+      businessId,
+      targetType: 'staff',
+      targetId: staffId,
+      requestId: deps.requestId,
+      source: deps.source,
+    })
     return { ok: true }
+  } catch {
+    return { ok: false }
+  }
+}
+
+/** The delete button — removes the stored sample AND records the revocation
+ *  (status + timestamp kept as the audit trail; the audio itself is gone). */
+export async function revokeVoiceAction(staffId: string): Promise<{ ok: boolean }> {
+  try {
+    const [businessId, synqed, selfUserId, callerCapabilities] = await Promise.all([
+      getBusinessId(),
+      getSynqedClient(),
+      getCurrentUserStaffId(),
+      getMyCapabilities(),
+    ])
+    const actorId = await resolveWebActorId()
+    const result = await revokeVoiceActionCore(
+      synqed,
+      businessId,
+      { selfUserId, callerCapabilities, actorId, source: 'web', requestId: crypto.randomUUID() },
+      staffId,
+    )
+    if (result.ok) {
+      revalidatePath('/[locale]/(app)/settings', 'page')
+      // Same as enrollVoiceAction: the org-settings invalidation moved out of
+      // the blob writer lands on the action wrapper.
+      revalidatePath('/settings')
+      updateTag('org-settings')
+    }
+    return result
   } catch {
     return { ok: false }
   }

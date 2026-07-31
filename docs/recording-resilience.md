@@ -40,11 +40,11 @@ Raising the storage limit does **not** fix any of these — the fix is architect
 - **48 kbps recording** (#170): ~0.36 MB/min, so a 90-min session is ~32 MB —
   under the bucket cap, with negligible STT impact (Opus is clean for speech well
   above ~16 kbps; Deepgram accuracy tracks sample rate, not bitrate).
-- **Overrun nudge + hard auto-stop-and-save** (#171): a toast at ~2h; a hard stop
-  at ~2.5h (~54 MB, < the 60 MB cap) that routes through the normal save path, so a
-  forgotten recording is preserved, not lost.
+- **Overrun nudge + hard auto-stop-and-save** (#171, retuned in 9072ba0): a toast
+  at ~1h40; a hard stop at ~2h (~43 MB, < the real 50 MB cap) that routes through
+  the normal save path, so a forgotten recording is preserved, not lost.
 - **Interim only** — covers an OS-alive recording (phone on the counter). It does
-  **not** save a pocketed/locked phone (T4) and the 2.5h ceiling exists only because
+  **not** save a pocketed/locked phone (T4) and the 2h ceiling exists only because
   capture is still one blob (T1 removes it).
 
 ### T1 — Local-first segmented capture (the real fix)
@@ -86,6 +86,11 @@ reliably (iOS suspends tabs). The answer is **native background audio via Capaci
 ([`CAPACITOR_MIGRATION_PLAN.md`]) — which is also how Plaud's device does it. Live
 streaming transcription (Deepgram websocket) is the alternative end-state (no upload
 at all).
+
+> **✅ Tested (real use):** the iOS `UIBackgroundModes: audio` background-audio
+> path has been confirmed keeping capture alive with the app backgrounded / phone
+> locked. The Capacitor shell holds the mic session; recording no longer dies on
+> tab suspension.
 
 ## What we learned from Plaud (and where the moat actually is)
 
@@ -178,7 +183,7 @@ Why this is bulletproof:
 - **Processing pipeline:** client-side concurrent vs the server-side job queue
   above. Recommend the queue — it's the only one that scales to many beds + survives
   reload. Which queue tech?
-- **T0 thresholds** (2h warn / 2.5h stop) are constants — make them booking-aware
+- **T0 thresholds** (1h40 warn / 2h stop) are constants — make them booking-aware
   (warn at booked-duration + buffer)?
 - **T1 local persistence:** IndexedDB vs OPFS; segment length (~10 min?).
 - **T2 timing:** enrollment gates robust segmented diarization — sequence it with T1.

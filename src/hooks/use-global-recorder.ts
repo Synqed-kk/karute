@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useSyncExternalStore } from 'react'
-import { globalRecorder } from '@/lib/global-recorder'
+import { globalRecorder, type RecordingTarget } from '@/lib/global-recorder'
 
 export function useGlobalRecorder() {
   const subscribe = useCallback(
@@ -26,11 +26,25 @@ export function useGlobalRecorder() {
     overrun: globalRecorder.overrun,
     /** The hard cap auto-stopped + saved the recording (~2.5h). */
     autoStopped: globalRecorder.autoStopped,
-    startRecording: (opts?: { noiseSuppression?: boolean }) =>
+    /** Customer/appointment the live recording is bound to (null when idle). */
+    target: globalRecorder.target,
+    /** Server-minted recording_sessions id for the live/last recording, once
+     *  resolved (null until then, or forever on failure). */
+    recordingSessionId: globalRecorder.recordingSessionId,
+    /** Persisted-take id for the live/last recording (take-store), null when
+     *  idle or persistence is disabled for this take. */
+    takeId: globalRecorder.takeId,
+    startRecording: (opts?: { noiseSuppression?: boolean; target?: RecordingTarget | null }) =>
       globalRecorder.start(opts),
     stopRecording: () => globalRecorder.stop(),
     pauseRecording: () => globalRecorder.pause(),
     resumeRecording: () => globalRecorder.resume(),
-    discardRecording: () => globalRecorder.discard(),
+    /** `keepTake` = pipeline handoff only: the persisted audio stays in
+     *  take-store until the karute record saves (see GlobalRecorder.discard). */
+    discardRecording: (opts?: { keepTake?: boolean }) => globalRecorder.discard(opts),
+    /** Await the recording-session mint briefly at save time (bounded — never
+     *  blocks the save indefinitely). See GlobalRecorder.awaitRecordingSessionId. */
+    awaitRecordingSessionId: (timeoutMs?: number) =>
+      globalRecorder.awaitRecordingSessionId(timeoutMs),
   }
 }

@@ -4,17 +4,19 @@ import { zodResponseFormat } from 'openai/helpers/zod'
 import type { KaruteRecord } from '@synqed-kk/client'
 import { openai } from '@/lib/openai'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
-import { getOrgSettings } from '@/actions/org-settings'
+import { getOrgSettings, orgSettingsWithClient, type OrgSettings } from '@/actions/org-settings'
+import type { SynqedClient } from '@synqed-kk/client'
 import {
   getBusinessAiPersona,
   resolvePersonaTokens,
   clinicalGuardrail,
 } from '@/lib/karute/business-ai-tokens'
-import { getCustomerMemory } from '@/lib/karute/customer-memory'
+import { getCustomerMemory, PASSPORT_CATEGORY } from '@/lib/karute/customer-memory'
 import { backfillMemoryFromTranscripts } from '@/lib/karute/memory-ingest'
-import type { MemoryItem } from '@/lib/karute/memory-types'
-import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { MEMORY_CATEGORIES, type MemoryItem } from '@/lib/karute/memory-types'
+import { defensivePreamble, wrapUntrustedContent, MAX_HISTORY_CHARS } from '@/lib/ai-safety'
 import type { PreSessionBrief } from '@/components/karute/redesign/record/PreSessionBriefCard'
+import { effectiveSummary } from '@/lib/karute/effective-summary'
 
 // The AI generates these fields; the dates / memo / first-visit flag are computed
 // mechanically and merged in. zodResponseFormat enforces the shape on the model.
@@ -25,26 +27,48 @@ const AiBriefSchema = z.object({
   memoAnalysis: z
     .array(z.string())
     .describe(
-      "The AI's READ of the booking memo — NOT a restatement (staff already see the raw memo directly above this). Surface only what a quick skim misses: (a) cautions for today (注意点), ESPECIALLY by cross-referencing a stated symptom against a requested treatment; (b) changes/contradictions — a symptom they stopped or started mentioning, or a want-vs-need mismatch; (c) expectation + communication tone (期待/トーン) ONLY if it changes how staff should act. Each bullet must add insight, never paraphrase. Max 3. Empty array if there is no memo OR the memo is purely operational (e.g. ticket renewal).",
+      "The AI's READ of the booking memo — NOT a restatement (staff already see the raw memo directly above this). Surface only what a quick skim misses: (a) cautions for today (注意点), ESPECIALLY by cross-referencing a stated symptom against a requested treatment; (b) changes/contradictions — a symptom they stopped or started mentioning, or a want-vs-need mismatch; (c) expectation + communication tone (期待/トーン) ONLY if it changes how staff should act. A plain SAFETY fact (surgery, metal, meds, allergy, pressure) belongs in cautions even when the memo states it — here carry only the synthesis on top, never the fact restated. Each bullet must add insight, never paraphrase. Max 3. Empty array if there is no memo OR the memo is purely operational (e.g. ticket renewal).",
     ),
   hooks: z
     .array(z.object({ title: z.string(), body: z.string().nullable() }))
     .describe(
-      'Genuine personal rapport openers ONLY (pets/family/hobbies/travel/life events). Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks — exclude them. A family word alone is not a hook (only when it is about that person’s life/event). Empty if no real small-talk material; never fabricate.',
+      'ADDITIONAL personal rapport topics beyond the one the opener already uses — the opener’s topic must NOT reappear here (if the opener consumed the only topic, return []). Genuine personal material ONLY (pets/family/hobbies/travel/life events); each body is a compact FACT, never a spoken line. Operational/scheduling/payment/booking/package notes and symptoms are NOT hooks. A family word alone is not a hook (only when it is about that person’s life/event). The booking memo is NOT a source (no durable memory + no past records ⇒ []). body must add detail beyond the title, else null. Empty if no real small-talk material; never fabricate.',
     ),
   concerns: z
     .array(z.string())
     .describe(
-      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック = one posture/spine cluster, not four rows); DROP vague catch-alls (体全体の不調). LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
+      "The customer's KEY carried-over concerns + trajectory across the sessions shown (oldest→newest) — HISTORY, never actions: no imperative phrasing, and never restate a todayActions item (the homework/promise re-check lives in todayActions ONLY; here describe the underlying concern's state instead). Keep it USEFUL, not exhaustive: MAX 4 items, most relevant + most recent first, in the business's vocabulary. CONSOLIDATE related concerns into ONE row; DROP vague catch-alls. LEAD with what CHANGED — 改善/悪化/新規 — and tag a direction ONLY when two dated sessions clearly show it. Do NOT put (継続) on every item: an all-継続 list is noise; list a simply-ongoing concern plainly, no tag. Empty if none.",
     ),
   lastProduct: z
     .object({ name: z.string(), reaction: z.string().nullable() })
     .nullable()
-    .describe('The most recent product/service offered + the customer reaction, if any. Null if none.'),
+    .describe('The most recent product/service offered + the customer reaction, if any. The reaction must not repeat the lastWords quote — if the reaction IS that quote, set reaction null. Null if none.'),
   recommendedFocus: z
     .string()
     .nullable()
-    .describe('1-2 sentences: today’s focus, grounded in the concern trajectory + memo, in the business vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.'),
+    .describe('The WHY behind todayActions: 1-2 sentences of rationale/approach (which finding links the actions, what to prioritise and why), in the business vocabulary. Must ADD reasoning the action list cannot carry — NEVER restate, list, or paraphrase todayActions items. It may NAME a concern as an anchor, but must not restate the state/trajectory concerns already carries — bring only the link and the approach. A standing service preference from the durable memory (preferred pressure/style) belongs HERE as part of the approach, never in cautions. Null when there is nothing beyond the actions.'),
+  opener: z
+    .string()
+    .nullable()
+    .describe(
+      "ONE natural spoken first line for the staff to open with — built from the durable-memory personal/talking-point items or the newest personal event in the records (e.g. 「パグちゃん、その後どうですか？」). Warm, short, a question. The topic this line uses is CONSUMED — it must not reappear in hooks. Null when there is no real personal material — NEVER invent or force one.",
+    ),
+  lastWords: z
+    .string()
+    .nullable()
+    .describe(
+      "The customer's OWN memorable words from the LATEST session, ONLY if the latest summary/entries carry a verbatim quote in 『』 or 「」 (e.g. 『人生で一番効いてる』). Copy it exactly, brackets included. Null otherwise — never paraphrase into a fake quote. Null also when the quote is about the opener's topic — the opener owns that moment.",
+    ),
+  cautions: z
+    .array(z.string())
+    .describe(
+      'Safety/service cautions the staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory: safety-relevant history (allergies, medication, past reactions or trouble; clinical items like surgery/metal where applicable), intensity RESTRICTIONS (an intensity that must be avoided or reduced for safety/comfort — a liked/preferred intensity is a preference, never a caution), service anxiety. This field OWNS safety facts — memoAnalysis/concerns must not restate them. Max 3, most critical first, compact (≤40 chars each). Empty when nothing is stated — never infer.',
+    ),
+  todayActions: z
+    .array(z.string())
+    .describe(
+      "Up to 3 imperative actions for TODAY, each ≤30 chars — one grounded action is a complete answer; NEVER pad to fill slots. FIRST actions = the still-open re-entry loops from the sessions shown, per the RE-ENTRY rule (pending test results, homework, promises — e.g. 「MRIの結果を確認」「宿題の実施状況を確認」; a pending medical result outranks homework; an earlier session's loop counts until a later session resolves it) — todayActions is the ONLY field that carries re-entry actions; concerns and recommendedFocus must not repeat them. Then today's focus. An intensity/pace adjustment ONLY when it changes today's plan beyond what cautions already states — an adjustment that merely rephrases a cautions item is a duplicate, drop it. Grounded only; empty if the records give nothing actionable.",
+    ),
 })
 
 type AiBrief = z.infer<typeof AiBriefSchema>
@@ -62,33 +86,90 @@ function formatLastVisit(iso: string, locale: string, now: Date): { date: string
 }
 
 // Build the karute context the model reads — most-recent record's entries (the
-// only one fetched with include_entries) + summaries of the rest.
-function buildContext(records: KaruteRecord[]): string {
+// only one fetched with include_entries) + summaries of the rest. Exported so
+// the content-keyed cache (below) and its tests can prove that an edit/regen
+// changes this exact block, which is what the cache key hashes.
+export function buildContext(records: KaruteRecord[]): string {
   // Oldest → newest so the model reads the timeline chronologically and the
   // "direction" instruction can't invert. Entries attach to whichever record
   // carries them (getCustomerKaruteRecords fetches entries for the most recent).
-  return [...records]
+  const blocks = [...records]
     .reverse()
     .map((r) => {
       const when = r.created_at?.slice(0, 10) ?? ''
-      const summary = r.ai_summary ?? '(no summary)'
+      const summary = effectiveSummary(r) ?? '(no summary)'
       const entries = r.entries?.length
         ? '\n' + r.entries.map((e) => `  [${String(e.category)}] ${e.content}`).join('\n')
         : ''
       return `Session ${when}: ${summary}${entries}`
     })
-    .join('\n\n')
+  // The downstream safety clip keeps the HEAD of the string — which here is
+  // the OLDEST session, so an over-long history would silently lose the tail:
+  // the newest session, the only entries-bearing one and the only place a
+  // loop-closing answer (RE-ENTRY), a lastWords quote, or the latest state can
+  // live. Drop OLDEST whole sessions instead until the block fits the cap.
+  let out = blocks.join('\n\n')
+  let dropped = 0
+  while (blocks.length > 1 && out.length > MAX_HISTORY_CHARS) {
+    blocks.shift()
+    dropped++
+    out = blocks.join('\n\n')
+  }
+  if (dropped > 0) {
+    console.warn(`[ai-brief] karute_history over ${MAX_HISTORY_CHARS} chars — dropped the ${dropped} oldest session(s), kept the newest ${blocks.length}`)
+  }
+  return out
 }
 
 // The customer's durable memory, grouped for the prompt — personal items (with a
 // talking-point flag) feed hooks; body/preference/goal/lifestyle inform concerns.
+// ORDER = truncation policy: the block is length-capped downstream, and the
+// store returns updated_at DESC — which put the OLDEST never-revisited items
+// (the cat from 50 sessions ago) exactly at the cut line. Pinned items (staff's
+// explicit "always remember this") go first, then talking-points, then the
+// rest newest-first; whatever truncation eats is the least load-bearing tail.
 function formatMemory(items: MemoryItem[]): string {
-  return items
+  // Safety-carrying categories (body/preference — the 「肘は避けて」 class)
+  // outrank small-talk: when the cap bites, rapport dies before safety.
+  const rank = (m: MemoryItem) =>
+    m.pinned ? 0 : m.category === 'body' || m.category === 'preference' ? 1 : m.suggestTalkingPoint ? 2 : 3
+  return [...items]
+    .sort((a, b) => rank(a) - rank(b))
     .map(
       (m) =>
-        `[${m.category}${m.suggestTalkingPoint ? '/talking-point' : ''}] ${m.label}${m.detail ? ` — ${m.detail}` : ''}`,
+        `[${m.category}${m.pinned ? '/PINNED' : ''}${m.suggestTalkingPoint ? '/talking-point' : ''}] ${m.label}${m.detail ? ` — ${m.detail}` : ''}`,
     )
     .join('\n')
+}
+
+/** Visit rhythm — pure date math (no AI): days since the last session and the
+ *  customer's usual gap (median of consecutive-session gaps; needs ≥3 dated
+ *  sessions for a meaningful median, else null). Lets the card show
+ *  「3日ぶり・通常週1より早め」 so staff sense an unusual visit before a word
+ *  is spoken. */
+function computeRhythm(
+  records: KaruteRecord[],
+  now: Date,
+): { daysSince: number; usualGapDays: number | null } | null {
+  const dates = records
+    // Guard falsy created_at BEFORE Date(): new Date(null) is the 1970 epoch,
+    // which passes isFinite and would blow up daysSince / the gap median.
+    .filter((r) => !!r.created_at)
+    .map((r) => new Date(r.created_at).getTime())
+    .filter((t) => Number.isFinite(t) && t > 0)
+    .sort((a, b) => b - a)
+  if (dates.length === 0) return null
+  const daysSince = Math.max(0, Math.round((now.getTime() - dates[0]) / 86_400_000))
+  let usualGapDays: number | null = null
+  if (dates.length >= 3) {
+    const gaps = dates
+      .slice(0, -1)
+      .map((t, i) => Math.round((t - dates[i + 1]) / 86_400_000))
+      .filter((g) => g >= 0)
+      .sort((a, b) => a - b)
+    if (gaps.length > 0) usualGapDays = gaps[Math.floor(gaps.length / 2)]
+  }
+  return { daysSince, usualGapDays }
 }
 
 export interface PreSessionBriefResult extends PreSessionBrief {
@@ -103,7 +184,7 @@ export interface PreSessionBriefResult extends PreSessionBrief {
  * 可動域/体組成). Cached 1 day per (customer, memo, locale). Returns null on any
  * failure so the caller falls back to the mechanical brief — never blocks the page.
  */
-export async function getAiPreSessionBrief(params: {
+interface BriefParams {
   customerId: string
   customerName: string
   visitCount: number
@@ -111,7 +192,38 @@ export async function getAiPreSessionBrief(params: {
   reservationMemo: string | null
   locale: string
   now: Date
-}): Promise<PreSessionBriefResult | null> {
+}
+
+/** Web (cookie) entry — resolves org-settings via the cookie path; the backfill
+ *  memory-write side-effect gates via the cookie featureAllowed. */
+export async function getAiPreSessionBrief(
+  params: BriefParams,
+): Promise<PreSessionBriefResult | null> {
+  return computeAiPreSessionBrief(params, () => getOrgSettings().catch(() => null))
+}
+
+/** Facade (Bearer) entry — identity-threaded org-settings on the business-scoped
+ *  client (packet 08 Decision 1). Same generator core; the memory backfill's
+ *  customerMemoryAutoExtract gate goes business-threaded (never a cookie). The
+ *  memory READ/WRITE store is keyed by customerId (service client), so the proven
+ *  customer is its tenancy anchor — no cookie consulted. */
+export async function getAiPreSessionBriefWithClient(
+  synqed: Pick<SynqedClient, 'orgSettings'>,
+  businessId: string,
+  params: BriefParams,
+): Promise<PreSessionBriefResult | null> {
+  return computeAiPreSessionBrief(
+    params,
+    () => orgSettingsWithClient(synqed).catch(() => null),
+    businessId,
+  )
+}
+
+async function computeAiPreSessionBrief(
+  params: BriefParams,
+  resolveOrgSettings: () => Promise<OrgSettings | null>,
+  businessId?: string,
+): Promise<PreSessionBriefResult | null> {
   const { customerId, customerName, visitCount, records, reservationMemo, locale, now } = params
 
   // First visit = no prior karute AND no prior visits anywhere (QR visit_count).
@@ -129,7 +241,7 @@ export async function getAiPreSessionBrief(params: {
   try {
     if (!process.env.OPENAI_API_KEY) return null
 
-    const orgSettings = await getOrgSettings().catch(() => null)
+    const orgSettings = await resolveOrgSettings()
     const persona = getBusinessAiPersona(orgSettings?.business_type)
     const tok = resolvePersonaTokens(persona, locale)
 
@@ -138,25 +250,83 @@ export async function getAiPreSessionBrief(params: {
     // bootstrap it once so an existing customer's brief is personal immediately;
     // thereafter the on-save loop keeps it fresh.
     let memory = await getCustomerMemory(customerId)
-    if (memory.length === 0 && records.some((r) => r.transcript)) {
-      memory = await backfillMemoryFromTranscripts({
-        customerId,
-        transcripts: records.map((r) => r.transcript ?? '').filter(Boolean),
-        locale,
-      })
+    // Trigger on REAL memory only: the same table holds 'passport' rows, and a
+    // customer with a staff-filled passport but zero memory items must still
+    // bootstrap (a passport row alone previously suppressed it forever).
+    const hasRealMemory = memory.some((m) => (MEMORY_CATEGORIES as string[]).includes(m.category))
+    if (!hasRealMemory && records.some((r) => r.transcript)) {
+      // Zero-yield guard (same idea as the customer page's memory-backfill
+      // cache): when a past attempt over these exact records produced no real
+      // memory, don't re-run the LLM walk on every brief render — the mem
+      // cache key is unchanged, so the cached brief gets served anyway and
+      // the walk is pure waste. 1-day TTL; a new record changes the key.
+      const attemptKey = { k: 'brief-membf', c: customerId, t: records.map((r) => r.id) }
+      const attempted = await getCachedAI('memory-backfill', attemptKey).catch(() => null)
+      if (!attempted) {
+        memory = await backfillMemoryFromTranscripts({
+          customerId,
+          businessId,
+          transcripts: records
+            .filter((r) => (r.transcript ?? '').trim())
+            .map((r) => ({ text: r.transcript as string, date: r.created_at ?? null })),
+          locale,
+          // Bounded for the render path (records is already ≤10 here); the
+          // full-depth walk belongs to the explicit 再学習 action.
+          maxChunks: 2,
+        })
+        const stillEmpty = !memory.some((m) =>
+          (MEMORY_CATEGORIES as string[]).includes(m.category),
+        )
+        if (stillEmpty) {
+          await setCachedAI('memory-backfill', attemptKey, { attempted: true }, 1).catch(() => {})
+        }
+      }
     }
+    // Passport (これまで) override rows share the table but are NOT durable
+    // memory: unfiltered they rendered into the prompt as [passport] lines
+    // with raw English field keys, ranked ahead of real memory whenever a
+    // staff-edited row carried pinned, and sat in the cache key (a passport
+    // edit invalidated the brief). Same exclusion memory-adapter applies.
+    // AFTER the bootstrap: backfill returns the full store state, so filtering
+    // earlier would let passport rows sneak back in on the bootstrap path.
+    memory = memory.filter((m) => (m.category as string) !== PASSPORT_CATEGORY)
+
+    // Content-keyed (EDIT-LAYER-DESIGN §4, the ai-outreach.ts pattern): the
+    // EXACT block the model reads (entries + effectiveSummary per record),
+    // not just record ids — an edited/regenerated summary must bust this
+    // cache immediately instead of surviving up to the 1-day TTL. Computed
+    // once and reused by generate() below.
+    const historyBlock = buildContext(records)
 
     const cacheInput = {
       // Bump when the brief prompt changes so stale cached briefs (≤24h) are
-      // invalidated immediately instead of serving the old wording. v5: purge
+      // invalidated immediately instead of serving the old wording. v8: layer
+      // contract — skim (opener/cautions/todayActions) owns today, detail
+      // (hooks/concerns/lastProduct/recommendedFocus) owns history; no fact
+      // appears in two fields. v7: 30-second brief fields. v6: re-entry
+      // ledger (surface last session's promises/homework first). v5: purge
       // briefs poisoned by the QR-sync customer mis-link (a corrected
       // appointment.customer_id must not keep serving a fused brief built from
       // another customer's reservation memo).
-      v: 5,
+      // v10: hooks may not source from the memo + body must add beyond title.
+      // v9: de-bodywork — per-type caution taxonomy + neutral examples.
+      // v13: passport rows filtered from the memory block; history truncation
+      // drops oldest sessions instead of the newest (re-audit fixes).
+      // v14: cautions = restrictions only — a liked intensity/style preference
+      // is barred from the caution box (field bug 2026-07-15: 「強めの圧が好み」
+      // rendered inside 注意（施術前に必ず） next to real safety facts).
+      v: 14,
       c: customerId,
+      // The prompt's opening line reads both (fleet round 7/25): a corrected
+      // name or an incremented visit count (walk-ins bump it with no new
+      // karute) must not serve yesterday's cached brief.
+      name: customerName,
+      visits: visitCount,
       memo,
-      ids: records.map((r) => r.id),
-      mem: memory.map((m) => m.id),
+      history: historyBlock,
+      // Pin state joins the key: pinning re-ranks the block + adds /PINNED —
+      // a cached brief must not survive a pin flip for up to a day.
+      mem: memory.map((m) => `${m.id}${m.pinned ? '!' : ''}`),
       bt: orgSettings?.business_type ?? null,
       locale,
     }
@@ -168,36 +338,62 @@ export async function getAiPreSessionBrief(params: {
       lastVisitDate: lastVisit.date,
       lastVisitAgo: lastVisit.ago,
       reservationMemo: memo,
-      memoAnalysis: ai.memoAnalysis ?? [],
+      memoAnalysis: (ai.memoAnalysis ?? []).slice(0, 3),
       hooks: ai.hooks ?? [],
-      concerns: ai.concerns ?? [],
+      concerns: (ai.concerns ?? []).slice(0, 4),
       lastProduct: ai.lastProduct ?? null,
       recommendedFocus: ai.recommendedFocus ?? null,
+      opener: ai.opener ?? null,
+      lastWords: ai.lastWords ?? null,
+      // Bounds live in the .describe() strings the model reads — enforce them
+      // here too so an over-eager generation can't flood the card (clamp, not
+      // zod .max: a hard schema max would reject the whole parse).
+      cautions: (ai.cautions ?? []).slice(0, 3),
+      todayActions: (ai.todayActions ?? []).slice(0, 3),
+      rhythm: computeRhythm(records, now),
     }
 
     async function generate(): Promise<AiBrief> {
+      // De-bodywork (v9): the caution taxonomy and teaching examples follow
+      // the business's clinical posture — a nail salon never reads 体内金属.
+      const clinical = tok.clinicalPosture !== 'service'
+      const cautionTaxonomy = clinical
+        ? '既往歴・手術歴・体内金属・服用中の薬・アレルギー・痛がった箇所・強さの上限や禁止の指示（「強くしないで」等 — 「強めが好き」等の好みは注意ではない）・サービスへの不安'
+        : 'アレルギー・体質・過去のトラブルや悪い反応・嫌がったこと・サービスへの不安'
+      const synthesisExample = clinical
+        ? 'e.g. memo has 胃の不調 + 内臓調整希望 → 「内臓調整は強度を弱めにして様子を見る」'
+        : 'e.g. the memo pairs a stated sensitivity with a requested service → flag the gentler approach'
+      const clusterExample = clinical
+        ? 'e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say 「姿勢由来の首・肩・腰の張り」 not four rows'
+        : 'related concerns that share one cause belong on one row'
       const langInstruction =
         locale === 'ja' ? '日本語で出力してください。' : 'Respond entirely in English.'
       const system = `You are a ${tok.role} at a ${tok.businessNoun}. Your focus: ${tok.primaryFocus}.
 Before a session you read the customer's booking memo and their past karute (session records), and produce a brief the ${tok.role} can skim in 30 seconds.
 
 Rules:
-- GROUNDING: every item must be backed by the memo or the karute. NEVER invent. An empty array / null is the CORRECT answer when there is nothing real — a fabricated item is harmful.
-- NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses.
+- GROUNDING: every item must be backed by the memo, the karute, or the durable memory block. NEVER invent. An empty array / null is the CORRECT answer when there is nothing real — a fabricated item is harmful.
+- NON-REDUNDANCY: the staff already see the full booking memo directly above this brief. Do NOT restate or paraphrase it. For each candidate bullet ask "could the staff know this just by reading the memo above?" — if yes, DROP it. Output only what a quick read misses. EXCEPTION: a safety fact stated in the memo still goes to cautions — safety is the one thing worth restating.
+- LAYER CONTRACT (no fact appears twice): the card renders two layers. SKIM layer (always visible) = opener + lastWords + cautions + todayActions + memoAnalysis — owns TODAY. DETAIL layer (folded behind a 経過 toggle) = hooks + concerns + lastProduct + recommendedFocus — owns HISTORY & CONTEXT. Ownership when two fields could claim the same fact: a SAFETY fact belongs to cautions ONLY (wherever it was stated); ACTIONS belong to todayActions ONLY; the opener's personal topic may not reappear in hooks or lastWords. TOPIC overlap is NOT duplication — concerns may describe the state of a concern that todayActions checks today, and recommendedFocus may use the opener's topic as clinical rationale; only the same claim in the same framing is a repeat. Before returning, re-read your own output and delete any item in ANY field that restates another field's item.
 - memoAnalysis: the ${tok.role}'s READ of the memo — include only the applicable of these, never forced to fill all:
-    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated symptom against a requested treatment and flag a risk/adjustment (e.g. memo has 胃の不調 + 内臓調整希望 → "内臓調整は強度を弱めから様子を見る"). This is the highest-value bullet — produce it whenever two memo facts interact.
+    (a) 注意点 — cautions for today, especially BY SYNTHESIS: cross-reference a stated concern against a requested service and flag a risk/adjustment (${synthesisExample}). This is the highest-value bullet — produce it whenever two memo facts interact. A plain safety fact goes to cautions, not here — here only the synthesis on top.
     (b) change/contradiction — a symptom newly raised, dropped, or resurfacing vs the karute, or a want-vs-chief-complaint mismatch.
     (c) 期待/トーン — ONLY if it changes how staff should act today (不安げ→先に説明, せっかち→要点から). Skip if not actionable.
   Each bullet must reference a SPECIFIC fact and add insight, not paraphrase. Max 3. If nothing survives the test (trivial or purely-operational memo), return []. Empty if no memo.
-- concerns: the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). Keep it USEFUL, not exhaustive:
+- RE-ENTRY (highest value): the sessions shown may carry 次回 lines — open loops that progress between visits: a pending medical result or appointment the customer mentioned (an MRI, a doctor visit), homework assigned (セルフケア), promises the staff made (「次回は腰を重点的に」「期限を延長します」), deferred proposals, or symptoms to re-check. Scan ALL sessions shown, newest first: an open loop from an EARLIER session still counts when nothing in a LATER session shows it was addressed or resolved — an unasked question must survive a missed session, never die silently. When a later session's content answers it (the result was discussed, the homework reviewed), it is CLOSED — do not re-ask. EACH open loop still open surfaces as its own todayActions item (within the max-3 cap; a pending medical result outranks homework — ${clinical ? 'e.g. 「MRIの結果を確認」 before 「宿題のハムストレッチの実施状況を確認」' : 'e.g. 「検査の結果を確認」 before 「宿題の実施状況を確認」'}), phrased as an action — and ONLY there: concerns and recommendedFocus must not repeat them. Asking 「MRIは行かれましたか？」 unprompted is the "this place remembers me" moment; a promise the staff forgets is trust lost. Only what the records actually say — never invent.
+- opener: ONE natural first line to open the conversation, from the durable memory's personal/talking-point items (pets, family news, trips) or the newest personal event in the records. A short warm question in the customer's context. The topic it uses is CONSUMED as rapport material — it must not reappear in hooks or lastWords (it MAY still inform recommendedFocus as clinical rationale). Null when no genuine material exists — a forced opener is worse than none.
+- lastWords: ONLY a verbatim customer line already quoted in 『』 or 「」 in the latest session's summary/entries, copied exactly, brackets included. Never manufacture a quote. Null when the quote is about the opener's topic — the opener owns that moment.
+- cautions: what staff must know before the session begins, stated ANYWHERE in the memo, the karute, or the durable memory (a memory item like 「手首：体内プレートと釘 — 手術歴」 is a first-class cautions source): ${cautionTaxonomy}. RESTRICTIONS ONLY: a caution is something that harms or distresses the customer if violated — a liked/requested intensity or style (「強めの圧が好み」) is a preference, NOT a caution; it may inform recommendedFocus or concerns but must never appear here. This field OWNS safety facts — no other field may restate one. Max 3, most critical first, ≤40 chars each. Empty when none are stated.
+- todayActions: up to 3 imperative actions (≤30 chars each) the staff executes today — ONE grounded action is a complete answer; never pad to fill slots. FIRST = the still-open re-entry loops per the RE-ENTRY rule above (from ALL sessions shown, not only the latest) when present; then today's focus; then an intensity/pace adjustment ONLY if it changes today's plan beyond what cautions already states (an adjustment that merely rephrases a caution is a duplicate — drop it). This is the ONLY field that carries actions — no other field may restate them.
+- concerns: HISTORY, never actions — the customer's KEY carried-over concerns + their trajectory across the sessions shown (labelled "Session <date>:", oldest→newest). No imperative phrasing; never restate a todayActions item (when homework/a promise re-checks a concern, describe the concern's STATE here — ${clinical ? 'e.g. 「ハムストリングスの張り：前回セルフケア指導」' : 'e.g. 「継続中の悩み：前回アドバイス済み」'} — while the check itself stays in todayActions). Keep it USEFUL, not exhaustive:
     • MAX 4 items. Pick the most clinically relevant + most recent — NOT every complaint ever logged.
-    • CONSOLIDATE related concerns into ONE (e.g. 腰痛・肩甲骨・頸椎・ストレートネック are one posture/spine cluster — say "姿勢由来の首・肩・腰の張り" not four rows). DROP vague catch-alls (体全体の不調).
+    • CONSOLIDATE related concerns into ONE (${clusterExample}). DROP vague catch-alls (「全体的な不調」).
     • LEAD with what CHANGED — 改善 / 悪化 / 新規 are the actionable signal. Tag a direction ONLY when two dated sessions clearly show it.
     • Do NOT put (継続) on every item. A simply-ongoing concern is listed plainly (no tag) — the (継続) tag is only worth showing to contrast with something that changed; an all-(継続) list is noise.
   Most relevant first. Judge only within the sessions shown; never extrapolate. Empty if none.
-- hooks: genuine personal rapport material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
+- hooks: ADDITIONAL personal rapport topics BEYOND the opener — the opener's topic must not reappear here; if the opener consumed the only personal topic, return []. Each body is a compact FACT (「数ヶ月ぶりに再開」), never a spoken line — the opener is the spoken line. Genuine personal material ONLY (pets/family/hobbies/travel/life events) — worth asking about even if the booking were cancelled. PRIMARY SOURCE = the customer's DURABLE MEMORY 'personal' items below (facts that persist across visits — a pet's name, a child's milestone, a trip from an earlier session), preferring items flagged talking-point, plus any new personal detail in the latest session. The booking memo is NEVER a hooks source — its facts sit in the memo box the staff already read; when there is no durable memory AND no past records, hooks MUST be []. Each body must ADD detail beyond its title (context, timing, why it matters) — when there is nothing to add, set body to null; never restate the title in other words. EXCLUDE operational/logistics notes: order of treatment, who is treated first, companions, scheduling, cancellations, payment, packages/回数券, staff assignment, and symptoms/treatments (those belong in concerns/memoAnalysis). A family word alone is not a hook — only when it is about that person's life/event. Empty if there is no real small-talk material — never force one.
 - lastProduct: the most recent product/service offered + the customer's reaction, if present. Null otherwise.
-- recommendedFocus: 1-2 sentences on today's focus, grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. Prioritise newly-raised concerns and any that have stalled or worsened. Null if nothing to suggest.
+- recommendedFocus: the WHY behind todayActions — 1-2 sentences of rationale/approach (which finding links today's actions, what to prioritise and why), grounded in the trajectory + memo, in this ${tok.businessNoun}'s vocabulary. It must ADD reasoning the action list cannot carry; NEVER restate, list, or paraphrase todayActions items. It may NAME a concern as an anchor, but the state/trajectory stays in concerns — bring only the link and the approach. A standing service preference from the durable memory (e.g. a preferred pressure/style) folds in HERE as part of the approach (「強めの圧を好むため〜」) — this field is that preference's home, cautions is not. Null when there is nothing beyond the actions.
 - VOCABULARY: use only this ${tok.businessNoun}'s vocabulary (e.g. ${tok.primaryFocus}); do not borrow another industry's terms (e.g. do not say 施術/"treatment" for a gym). If no domain term fits, use the customer's own words.
 ${tok.typicalConcerns ? `Common concerns at this kind of business: ${tok.typicalConcerns}.` : ''}
 ${clinicalGuardrail(tok.clinicalPosture, locale)}
@@ -211,10 +407,10 @@ ${defensivePreamble(locale)}`
           ? `Booking memo (the customer's / front-desk's own words):\n${wrapUntrustedContent('reservation_memo', memo)}`
           : 'Booking memo: (none)',
         memory.length > 0
-          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed hooks, 'body' items inform concerns; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory))}`
+          ? `Durable memory about this customer (accumulated across visits — 'personal' items feed the opener/hooks; 'body' items inform concerns AND cautions; 'preference' items inform concerns/recommendedFocus ONLY — a preference is never a caution unless the item itself states an avoid-instruction or an adverse reaction; a safety-relevant item (metal, surgery, allergy, an avoid-this-area instruction) belongs in cautions only; /PINNED marks facts staff explicitly locked — never drop those from consideration; weave naturally, do NOT just relist):\n${wrapUntrustedContent('customer_memory', formatMemory(memory), MAX_HISTORY_CHARS)}`
           : 'Durable memory: (none yet)',
         records.length > 0
-          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', buildContext(records))}`
+          ? `Past karute (oldest → newest, last = most recent):\n${wrapUntrustedContent('karute_history', historyBlock, MAX_HISTORY_CHARS)}`
           : 'Past karute: (none recorded in the system yet)',
       ]
 
@@ -234,6 +430,10 @@ ${defensivePreamble(locale)}`
         concerns: [],
         lastProduct: null,
         recommendedFocus: null,
+        opener: null,
+        lastWords: null,
+        cautions: [],
+        todayActions: [],
       }
       await setCachedAI('presession_brief', cacheInput, result, 1).catch(() => {})
       return result

@@ -2,31 +2,30 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import { RefreshCw, Loader2 } from 'lucide-react'
-import type { Entry } from '@/types/ai'
-import {
-  regenerateKaruteEntries,
-  updateKaruteSummary,
-} from '@/actions/regenerate-karute'
+import { regenerateKarute } from '@/actions/regenerate-karute'
 
 interface RegenerateEntriesButtonProps {
   karuteRecordId: string
-  /** The record's stored transcript — re-extraction runs on this. */
-  transcript: string
 }
 
 /**
- * Re-runs the (now business-aware, consolidation-tightened) extraction prompt on
- * a saved karute's transcript and replaces its entries. Two-click confirm — this
- * overwrites the current entries. Entries only (the API can't replace the summary).
+ * Re-runs the (business-aware, consolidation-tightened) extraction + summary on a
+ * saved karute's stored transcript and replaces its entries. Two-click confirm —
+ * regenerates the AI-authored entries only (I1); any staff-edited or hand-added
+ * entry is kept, never deleted. The confirm-step copy says so.
+ *
+ * The whole extract → summarize → apply flow now runs SERVER-side in a single
+ * action (packet 07 Decision 2): the client sends only the id, the server reads
+ * the authoritative transcript, enforces the recording-privacy ACL, and applies
+ * via the integrity cores. No transcript / prompt anchors round-trip through the
+ * client, and the same action serves the mobile facade.
  */
 export function RegenerateEntriesButton({
   karuteRecordId,
-  transcript,
 }: RegenerateEntriesButtonProps) {
   const t = useTranslations('karuteDetail.regenerate')
-  const locale = useLocale()
   const router = useRouter()
   const [confirming, setConfirming] = useState(false)
   const [running, setRunning] = useState(false)
@@ -39,48 +38,11 @@ export function RegenerateEntriesButton({
     setError(null)
     setWarning(null)
     try {
-      // Re-extract entries AND re-summarize, in parallel, on the stored
-      // transcript — both via the same authed routes the recording flow uses
-      // (server-side they apply the business persona + the tightened prompts).
-      // This is the backfill: refresh 本日のセッション (entries) + AI要約 (summary)
-      // together, so improving the prompts upgrades past sessions' data.
-      const [extractRes, summaryRes] = await Promise.all([
-        fetch('/api/ai/extract', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript, locale }),
-        }),
-        fetch('/api/ai/summarize', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ transcript, locale }),
-        }),
-      ])
-
-      if (!extractRes.ok) throw new Error(`extract failed (${extractRes.status})`)
-      const entries =
-        ((await extractRes.json()) as { entries?: Entry[] }).entries ?? []
-      if (entries.length === 0) throw new Error('no entries extracted')
-
-      // Summary is best-effort — never fail the whole regenerate on it.
-      const newSummary = summaryRes.ok
-        ? ((await summaryRes.json()) as { summary?: string }).summary
-        : undefined
-
-      const result = await regenerateKaruteEntries(karuteRecordId, entries)
+      const result = await regenerateKarute(karuteRecordId)
       if (result.error) throw new Error(result.error)
-
-      // Soft caveat — the entries WERE replaced, but some old rows lingered.
-      // Surface it (non-blocking) so staff know a re-run finishes cleanup.
+      // Soft caveat — the entries WERE replaced, but some old rows lingered, OR
+      // the summary refresh failed. Non-blocking so staff know a re-run finishes.
       if (result.warning) setWarning(t('warning'))
-
-      // Refresh the summary too (best-effort — entries already applied). Surface
-      // a soft warning if it fails so staff don't get a silent partial success.
-      if (newSummary?.trim()) {
-        const sumResult = await updateKaruteSummary(karuteRecordId, newSummary)
-        if ('error' in sumResult) setWarning(t('summaryWarning'))
-      }
-
       router.refresh()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'error')

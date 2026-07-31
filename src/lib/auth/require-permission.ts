@@ -4,8 +4,10 @@
 // requireCapability(...) so the UI is never the thing standing between a user
 // and an action.
 
+import { cache } from 'react'
 import { createServiceClient } from '@/lib/supabase/service'
 import { getCurrentUserStaffId } from '@/lib/staff'
+import { AppApiError } from '@/lib/app-api/errors'
 import {
   effectiveCapabilities,
   synqedRoleToPreset,
@@ -25,10 +27,19 @@ import {
  *     therefore keeps full power either way — applying the migration changes no
  *     one's effective access until someone is explicitly customized.
  */
-export async function getMyCapabilities(): Promise<Set<Capability>> {
+export const getMyCapabilities = cache(async (): Promise<Set<Capability>> => {
   const uid = await getCurrentUserStaffId()
   if (!uid) return new Set()
+  return capabilitiesForUser(uid)
+})
 
+/**
+ * Effective capabilities for an EXPLICIT staff/profile id — the identity seam
+ * shared by the cookie path (getMyCapabilities) and the facade Bearer path,
+ * where the id comes from the verified token, not a cookie. Same tenant-scoped
+ * profile read; same graceful pre/post-migration fallback.
+ */
+export async function capabilitiesForUser(uid: string): Promise<Set<Capability>> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const service = createServiceClient() as any
 
@@ -61,6 +72,16 @@ export async function getMyCapabilities(): Promise<Set<Capability>> {
   }
 
   return effectiveCapabilities(role, override)
+}
+
+/** Pure capability guard for a PRE-RESOLVED capability set. The one place the
+ *  "has this capability?" decision is expressed, so the web path (caps from
+ *  getMyCapabilities) and the facade path (caps from the Bearer identity) can
+ *  never drift. Throws so a handler's error mapper turns it into 403. */
+export function ensureCapability(caps: Set<Capability>, capability: Capability): void {
+  if (!caps.has(capability)) {
+    throw new AppApiError('forbidden', `Missing capability: ${capability}`)
+  }
 }
 
 export async function can(capability: Capability): Promise<boolean> {

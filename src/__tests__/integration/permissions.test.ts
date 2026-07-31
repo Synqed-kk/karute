@@ -23,6 +23,31 @@ describe('RBAC permission model', () => {
     expect(m.has('records.delete')).toBe(true)
   })
 
+  it('監査ログ is owner-only by preset: audit.view ships in no role, only as a deliberate per-staff toggle (Liam 7/17)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('audit.view')).toBe(true)
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('audit.view')).toBe(false)
+    }
+  })
+
+  it('audit.view grant flow: an explicit override grants it, the preset alone never does', () => {
+    // The owner ticking 監査ログ in StaffForm stores an override carrying
+    // audit.view — that deliberate grant resolves as-is (viewer grant flow,
+    // replaced the interim resolve-time strip when the viewer shipped).
+    const granted = effectiveCapabilities('manager', [...presetCapabilities('manager'), 'audit.view'])
+    expect(granted.has('audit.view')).toBe(true)
+    // No override → preset only → no audit.view for any non-owner role.
+    expect(effectiveCapabilities('manager', null).has('audit.view')).toBe(false)
+    expect(effectiveCapabilities('owner', null).has('audit.view')).toBe(true)
+  })
+
+  it('raw recordings are recorder-private: only the owner keeps recordings.viewAll (Liam 7/16)', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('recordings.viewAll')).toBe(true)
+    for (const role of ['manager', 'senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(new Set(ROLE_PRESETS[role]).has('recordings.viewAll')).toBe(false)
+    }
+  })
+
   it('practitioner records work but cannot administer', () => {
     const p = new Set(ROLE_PRESETS.practitioner)
     expect(p.has('records.write')).toBe(true)
@@ -44,6 +69,15 @@ describe('RBAC permission model', () => {
     expect(ROLE_PRESETS.custom).toEqual([])
   })
 
+  it('cross-store visibility (stores.viewAll): owner/manager/SV yes, regular staff no', () => {
+    expect(new Set(ROLE_PRESETS.owner).has('stores.viewAll')).toBe(true)
+    expect(new Set(ROLE_PRESETS.manager).has('stores.viewAll')).toBe(true)
+    expect(new Set(ROLE_PRESETS.senior).has('stores.viewAll')).toBe(true)
+    // Branch-restricted by default — they get clamped to their staff_stores.
+    expect(new Set(ROLE_PRESETS.practitioner).has('stores.viewAll')).toBe(false)
+    expect(new Set(ROLE_PRESETS.frontdesk).has('stores.viewAll')).toBe(false)
+  })
+
   it('an explicit override replaces the preset (the toggle mechanism)', () => {
     const caps = effectiveCapabilities('frontdesk', ['billing.manage'])
     expect(can(caps, 'billing.manage')).toBe(true) // granted explicitly
@@ -54,6 +88,24 @@ describe('RBAC permission model', () => {
     const caps = effectiveCapabilities('custom', ['records.write', 'not.a.real.cap'])
     expect(caps.has('records.write' as Capability)).toBe(true)
     expect(caps.size).toBe(1)
+  })
+
+  it('recordings.viewAll strips from every non-owner at resolve time — stale overrides included', () => {
+    // A manager customized BEFORE the recorder-private ruling: their stored
+    // override still carries recordings.viewAll. The preset change alone
+    // can't fix that row — the resolve-time strip must.
+    const stale = [...presetCapabilities('manager'), 'recordings.viewAll']
+    const caps = effectiveCapabilities('manager', stale)
+    expect(caps.has('recordings.viewAll')).toBe(false)
+    // The rest of the override survives untouched.
+    expect(caps.has('staff.manage')).toBe(true)
+    // Owner keeps it (the dev/support key) — preset or explicit override.
+    expect(effectiveCapabilities('owner', null).has('recordings.viewAll')).toBe(true)
+    expect(effectiveCapabilities('owner', ['recordings.viewAll']).has('recordings.viewAll')).toBe(true)
+    // No other role can hold it, even via an explicit grant.
+    for (const role of ['senior', 'practitioner', 'frontdesk', 'custom'] as const) {
+      expect(effectiveCapabilities(role, ['recordings.viewAll']).has('recordings.viewAll')).toBe(false)
+    }
   })
 
   it('a null override falls back to the role preset', () => {

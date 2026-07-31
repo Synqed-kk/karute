@@ -68,3 +68,73 @@ describe('stripQrPrefix', () => {
     expect(stripQrPrefix(undefined)).toBe('')
   })
 })
+
+// ── memoContent (2026-07-03): the brief must never show the QR back-reference
+// as 「ご予約時のメモ」 (Liam's bug report: brief displayed "QR #328091" while
+// the customer's real intake memo existed on customer.notes). ──
+import { memoContent } from '@/lib/sync/qr-notes'
+
+describe('memoContent', () => {
+  it('bare QR tag (no pipe) is plumbing → null', () => {
+    expect(memoContent('QR #328091')).toBeNull()
+  })
+  it('QR tag with empty memo after the pipe → null', () => {
+    expect(memoContent('QR #328091 | ')).toBeNull()
+    expect(memoContent('QR #328091 |')).toBeNull()
+  })
+  it('QR-prefixed real memo → the memo without the tag', () => {
+    expect(memoContent('QR #328091 | 口コミOK お尻硬い')).toBe('口コミOK お尻硬い')
+  })
+  it('plain hand-typed memo passes through', () => {
+    expect(memoContent('腰が痛いので優しめでお願いします')).toBe('腰が痛いので優しめでお願いします')
+  })
+  it('a memo that merely mentions QR mid-string is kept whole', () => {
+    expect(memoContent('前回はQR #99の件で来店')).toBe('前回はQR #99の件で来店')
+  })
+  it('null/empty → null', () => {
+    expect(memoContent(null)).toBeNull()
+    expect(memoContent('   ')).toBeNull()
+  })
+})
+
+// ── parseQrMemo (2026-07-04): the shared ▶key:value parser reused by both the
+// カルテ customer tab (BookingMemoCard) and the pre-session briefing. Pinned here
+// so the format can't drift out from under either surface. Empty values are KEPT
+// (as '') — the briefing omits them at render, the customer tab shows a dash. ──
+import { parseQrMemo } from '@/lib/sync/qr-notes'
+
+describe('parseQrMemo', () => {
+  it('parses ▶key:value segments into label-mapped rows, in order', () => {
+    expect(parseQrMemo('▶症状:肩こり▶ゴール:楽になりたい▶セルフ:ストレッチ')).toEqual([
+      { label: '症状・お悩み', value: '肩こり' },
+      { label: 'ゴール', value: '楽になりたい' },
+      { label: 'セルフケア', value: 'ストレッチ' },
+    ])
+  })
+
+  it('strips the QR back-reference prefix before parsing', () => {
+    expect(parseQrMemo('QR #328091 | ▶症状:肩こり')).toEqual([
+      { label: '症状・お悩み', value: '肩こり' },
+    ])
+  })
+
+  it('keeps empty-value segments as "" (caller decides how to show them)', () => {
+    expect(parseQrMemo('▶症状:肩こり▶quick:')).toEqual([
+      { label: '症状・お悩み', value: '肩こり' },
+      { label: 'quick', value: '' },
+    ])
+  })
+
+  it('maps 参考 to 備考 and accepts a full-width colon', () => {
+    expect(parseQrMemo('▶参考：口コミOK')).toEqual([{ label: '備考', value: '口コミOK' }])
+  })
+
+  it('falls back to the raw key for an unknown key', () => {
+    expect(parseQrMemo('▶体温:36.5')).toEqual([{ label: '体温', value: '36.5' }])
+  })
+
+  it('returns null when there is no ▶ structure (raw-text fallback)', () => {
+    expect(parseQrMemo('腰が痛いので優しめでお願いします')).toBeNull()
+    expect(parseQrMemo('QR #328091 | 口コミOK お尻硬い')).toBeNull()
+  })
+})

@@ -32,6 +32,7 @@ import {
   type StaffFilterEntry,
   type StaffFilterKey,
 } from '@/components/customers/redesign/list/CustomersStaffFilter'
+import { SegmentedFilterBar } from '@/components/customers/redesign/list/SegmentedFilterBar'
 
 import { KaruteListRow } from './KaruteListRow'
 import { NewKaruteDialog } from './NewKaruteDialog'
@@ -322,30 +323,20 @@ export function KaruteRecordListView({
         </label>
       </div>
 
-      {/* Filter chips */}
-      <div className="flex flex-wrap items-center gap-2 pt-3">
-        {FILTER_KEYS.map((key) => {
-          const isActive = filter === key
-          return (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setFilter(key)}
-              className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
-                isActive
-                  ? 'border-foreground bg-foreground text-background'
-                  : 'border-border bg-card text-foreground hover:bg-muted'
-              }`}
-            >
-              <span>{t(`filters.${key}`)}</span>
-              <span
-                className={`tabular-nums ${isActive ? 'text-background/70' : 'text-muted-foreground'}`}
-              >
-                {counts[key]}
-              </span>
-            </button>
-          )
-        })}
+      {/* Filter bar — 案A (Liam, 7/17): same shared segmented control as the
+       *  顧客 list status filter (one design language across list screens).
+       *  flex wrapper so md:w-auto shrinks the bar to content on desktop —
+       *  in a plain block it would stretch the full ~1100px content width. */}
+      <div className="flex pt-3">
+        <SegmentedFilterBar
+          segments={FILTER_KEYS.map((key) => ({
+            key,
+            label: t(`filters.${key}`),
+            count: counts[key],
+          }))}
+          active={filter}
+          onChange={setFilter}
+        />
       </div>
 
       {/* List — date-grouped sections. Sits inside the layout's 16px

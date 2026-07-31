@@ -1,20 +1,47 @@
 import { NextResponse } from 'next/server'
-import { zodResponseFormat } from 'openai/helpers/zod'
-import { SummaryResultSchema } from '@/types/ai'
-import { openai } from '@/lib/openai'
-import { getSummarySystemPrompt } from '@/lib/prompts'
+import { createClient } from '@/lib/supabase/server'
 import { getOrgSettings } from '@/actions/org-settings'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
-import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { featureAllowed } from '@/lib/subscription/feature-gate'
+import { runKaruteSummary } from '@/lib/ai/karute-summarize'
+import { auditWeb } from '@/lib/audit-web'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(request: Request) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('summarize')
-  if (limited) return limited
+  if (limited) {
+    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
+    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
+    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
+    // .catch guards a parse failure on the limiter's own body from escaping
+    // this route's error envelope.
+    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
+      status: 429,
+      headers: limited.headers,
+    })
+  }
+  // Plan gate (P4): AI karute generation is a paid capability. Inert until
+  // billing arms (KARUTE_BILLING_ENFORCEMENT) — see feature-gate.ts.
+  if (!(await featureAllowed('aiKaruteGeneration'))) {
+    return NextResponse.json(
+      { error: 'PLAN_LOCKED', feature: 'aiKaruteGeneration' },
+      { status: 403 },
+    )
+  }
   try {
     const body = await request.json()
-    const { transcript, locale } = body
+    const { transcript, locale, customerName, sessionDate } = body
 
     if (!transcript || typeof transcript !== 'string' || transcript.trim() === '') {
       return NextResponse.json({ error: 'transcript is required' }, { status: 400 })
@@ -22,37 +49,20 @@ export async function POST(request: Request) {
 
     // Business type from synqed-core. (The previous from('organization_settings')
     // read a Supabase table that doesn't exist — it silently failed to the
-    // default, so the summary was never actually business-type-aware.)
+    // default, so the summary was never actually business-type-aware.) The LLM
+    // call itself lives in the shared core (packet 07 §Build 1(ii)).
     const orgSettings = await getOrgSettings().catch(() => null)
-    const businessType = orgSettings?.business_type || 'salon/clinic'
-
-    const systemPrompt = getSummarySystemPrompt(
-      locale ?? 'en',
-      orgSettings?.business_type,
-    )
-
-    const completion = await openai.chat.completions.parse({
-      // gpt-4o (not -mini): the summary is reasoning-heavy (condense narrative,
-      // keep concrete dates) — the spike AI_PROMPTS.md §3 calls for a strong
-      // reasoning model here. DEDICATED env var (not the shared AI_MODEL) so a
-      // system-wide cost setting can't silently revert it. gpt-4o supports
-      // structured outputs.
-      model: process.env.AI_SUMMARIZE_MODEL || 'gpt-4o',
-      temperature: 0.2,
-      messages: [
-        { role: 'system', content: systemPrompt + '\n\n' + defensivePreamble(locale ?? 'en') },
-        {
-          role: 'user',
-          content: `Summarize this ${businessType} session transcript:\n\n${wrapUntrustedContent('transcript', transcript)}`,
-        },
-      ],
-      response_format: zodResponseFormat(SummaryResultSchema, 'summary_result'),
+    const { result, usage } = await runKaruteSummary({
+      transcript,
+      locale: locale ?? 'en',
+      customerName: typeof customerName === 'string' ? customerName : null,
+      sessionDate: typeof sessionDate === 'string' ? sessionDate : null,
+      businessType: orgSettings?.business_type,
     })
-
-    const result = completion.choices[0].message.parsed
-    if (completion.usage) {
-      void reportAiUsage('summarize', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
-    }
+    if (usage) void reportAiUsage('summarize', usage.tokensIn, usage.tokensOut)
+    // 監査ログ Wave W1 (§3.1 ai.* baseline): logged AFTER the summary succeeds,
+    // before the response — ids-only, no transcript/summary content.
+    await auditWeb({ category: 'ai', action: 'ai.summary_generate', requestId: crypto.randomUUID() })
     return NextResponse.json(result)
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

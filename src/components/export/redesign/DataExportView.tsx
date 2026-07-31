@@ -1,6 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { getDataPort } from '@/lib/ports/data-port'
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import {
@@ -47,6 +49,11 @@ export function DataExportView({
   const [filters, setFilters] = useState<Record<string, string[]>>({})
   const [busy, setBusy] = useState(false)
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+  // Thin path only (packet 23): the fetched blob held in state instead of an
+  // object URL, so the done-step affordance can hand it to deliverFile on a
+  // later user gesture (WebKit's share() needs one — see the port's doc).
+  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null)
+  const [delivering, setDelivering] = useState(false)
 
   // Reset format if the new scope doesn't support it
   useEffect(() => {
@@ -62,7 +69,47 @@ export function DataExportView({
     setFilters({})
     setStep('configure')
     setDownloadUrl(null)
+    setPendingBlob(null)
   }, [scope])
+
+  // The FULL request as a key (fresh-eyes rounds 2+3): the pickers stay
+  // tappable while a fetch is in flight and after completion, so a result is
+  // only valid while EVERY parameter that produced it still matches the
+  // screen. Round 2 keyed scope|format only; round 3 caught the worse case —
+  // flip 個人情報をリダクト mid-fetch and the RAW file delivers under a
+  // panel that says redacted. Any param change: (a) drops an in-flight
+  // result, (b) resets a shown done panel — the summary rail always renders
+  // LIVE state, so a held blob must never outlive the state that made it.
+  const requestKey = useMemo(
+    () =>
+      [
+        scope,
+        format,
+        privacy ? '1' : '0',
+        dateRange,
+        // columns order matters (it IS the CSV column order); filters are an
+        // unordered map of unordered sets — sorted + JSON-escaped so neither
+        // rebuild order (round 4) nor a future delimiter-carrying option
+        // value (round 6) can falsely alias two different states.
+        columns.join(','),
+        JSON.stringify(Object.keys(filters).sort().map((k) => [k, [...filters[k]].sort()])),
+      ].join('|'),
+    [scope, format, privacy, dateRange, columns, filters],
+  )
+  const liveExportKey = useRef('')
+  const abortRef = useRef<AbortController | null>(null)
+  useEffect(() => {
+    liveExportKey.current = requestKey
+    setStep((s) => (s === 'configure' ? s : 'configure'))
+    setDownloadUrl(null)
+    setPendingBlob(null)
+    // Abort the abandoned fetch in the CLEANUP (rounds 4+5): it runs both
+    // before the next param-change invocation (round 4's greyed dead-window
+    // fix) AND on unmount (round 5 — navigating away mid-export otherwise
+    // let the fetch finish in the background; on web the auto-deliver then
+    // fired a surprise PII file download onto an unrelated page).
+    return () => abortRef.current?.abort()
+  }, [requestKey])
 
   const activeStep = step === 'done' ? 3 : step === 'preparing' ? 2 : 0
 
@@ -79,6 +126,8 @@ export function DataExportView({
     }
     setBusy(true)
     setStep('preparing')
+    // Hoisted above the try: the catch's staleness check needs it too.
+    const startKey = requestKey
     try {
       const params = new URLSearchParams({
         scope,
@@ -92,20 +141,48 @@ export function DataExportView({
       )
       if (filterPairs.length) params.set('filters', filterPairs.join('&'))
 
-      const res = await fetch(`/api/export?${params.toString()}`)
+      // exportBase seam: web same-origin base vs the shell's facade twin —
+      // the cookie-only web route 401s on the Bearer path (aiBase precedent;
+      // Greptile P1 on #588). Values live on the ports; the seam-coverage
+      // sweep fails any quoted web-path literal in components, comments
+      // included.
+      const ac = new AbortController()
+      abortRef.current = ac
+      const port = getDataPort()
+      const res = await port.apiFetch(`${port.exportBase}?${params.toString()}`, {
+        signal: ac.signal,
+      })
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
       const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      setDownloadUrl(url)
-      setStep('done')
-      // Auto-trigger the download
-      const a = document.createElement('a')
-      a.href = url
-      a.download = fileName
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
+      if (liveExportKey.current !== startKey) {
+        // ANY export parameter changed while this fetch ran — the result no
+        // longer matches the request on screen. Drop it and unstick the
+        // step; they re-tap export.
+        setStep('configure')
+        return
+      }
+      if (port.supportsAutoDeliver) {
+        // Web: current behavior verbatim — a persistent object-URL link/copy
+        // button (ExportSummaryRail's done step) PLUS the auto-triggered
+        // download, now living in the port's deliverFile.
+        setDownloadUrl(URL.createObjectURL(blob))
+        setStep('done')
+        await port.deliverFile(blob, fileName)
+      } else {
+        // Thin: no auto-deliver (no user gesture yet for WebKit's share()) —
+        // hold the blob for the done-step affordance to hand to deliverFile.
+        setPendingBlob(blob)
+        setStep('done')
+      }
     } catch (err) {
+      // An abandoned request (params changed → aborted, or failed after
+      // going stale) must never toast — the user already replaced it
+      // (round 4: the stale-failure toast referred to an export the user
+      // had forgotten about).
+      if ((err as Error)?.name === 'AbortError' || liveExportKey.current !== startKey) {
+        setStep((s) => (s === 'preparing' ? 'configure' : s))
+        return
+      }
       console.error('[export]', err)
       toast.error(t('exportFailed'))
       setStep('configure')
@@ -114,9 +191,31 @@ export function DataExportView({
     }
   }
 
+  async function handleDeliverFile() {
+    // Re-entrancy guard: a second tap while the share sheet is open would
+    // fire a concurrent share() — WebKit rejects it with a non-Abort error,
+    // which would fall through to the clipboard and toast 'copied' while the
+    // first sheet is still up.
+    if (!pendingBlob || delivering) return
+    setDelivering(true)
+    try {
+      const result = await getDataPort().deliverFile(pendingBlob, fileName)
+      if (result === 'copied') toast.message(t('copiedToClipboard'))
+    } catch (err) {
+      console.error('[export]', err)
+      toast.error(t('exportFailed'))
+    } finally {
+      setDelivering(false)
+    }
+  }
+
   function handleReset() {
     setStep('configure')
     setDownloadUrl(null)
+    setPendingBlob(null)
+    // `delivering` deliberately NOT reset: it mirrors an in-flight share
+    // sheet, not this panel — clearing it early would re-arm the button the
+    // re-entrancy guard exists to disable. Its own finally clears it.
   }
 
   return (
@@ -138,6 +237,7 @@ export function DataExportView({
             scopeKey={scope}
             value={format}
             onChange={setFormat}
+            locale={locale}
           />
 
           <ExportColumnsPicker
@@ -145,6 +245,7 @@ export function DataExportView({
             selected={columns}
             onChange={setColumns}
             privacy={privacy}
+            locale={locale}
           />
 
           <ExportFilterPanel
@@ -153,6 +254,7 @@ export function DataExportView({
             onChange={setFilters}
             range={dateRange}
             onRangeChange={setDateRange}
+            locale={locale}
           />
 
           <ExportAdvancedOptions
@@ -189,6 +291,8 @@ export function DataExportView({
             step={step}
             fileName={fileName}
             downloadUrl={downloadUrl}
+            onDeliverFile={handleDeliverFile}
+            delivering={delivering}
             totals={totals}
           />
         </div>
@@ -209,6 +313,8 @@ export function DataExportView({
           step={step}
           fileName={fileName}
           downloadUrl={downloadUrl}
+          onDeliverFile={handleDeliverFile}
+          delivering={delivering}
           totals={totals}
         />
       </div>

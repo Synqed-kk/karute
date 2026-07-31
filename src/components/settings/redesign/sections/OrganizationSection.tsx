@@ -15,39 +15,9 @@ import {
   type OperatingHours,
   type WeekdayKey,
 } from '@/lib/operating-hours'
-import { getBusinessProfile } from '@/lib/welcome/business-types'
-
-// Full business-type list (matches BUSINESS_TYPES in src/lib/welcome/business-types.ts
-// + the persona tokens in src/lib/karute/business-ai-tokens.ts — keep all three in
-// sync). Ordered like the design spike's picker.
-const BUSINESS_TYPES = [
-  { value: 'esthetic_salon', labelEn: '💆 Esthetic Salon', labelJa: '💆 エステサロン' },
-  { value: 'hair_salon', labelEn: '✂️ Hair Salon', labelJa: '✂️ ヘアサロン / 美容室' },
-  { value: 'nail_salon', labelEn: '💅 Nail Salon', labelJa: '💅 ネイルサロン' },
-  { value: 'eyelash_salon', labelEn: '👁️ Eyelash Salon', labelJa: '👁️ まつげサロン' },
-  { value: 'massage', labelEn: '🤲 Massage', labelJa: '🤲 マッサージ' },
-  { value: 'chiropractic', labelEn: '💪 Chiropractic', labelJa: '💪 整体 / カイロプラクティック' },
-  { value: 'beauty_chiropractic', labelEn: '✨ Beauty Chiropractic', labelJa: '✨ 美容整体' },
-  { value: 'acupuncture', labelEn: '🪡 Acupuncture', labelJa: '🪡 鍼灸院' },
-  { value: 'osteopathy', labelEn: '🦴 Osteopathy', labelJa: '🦴 整骨院 / 接骨院' },
-  { value: 'yoga_studio', labelEn: '🧘 Yoga Studio', labelJa: '🧘 ヨガスタジオ' },
-  { value: 'pilates_studio', labelEn: '🤸 Pilates Studio', labelJa: '🤸 ピラティススタジオ' },
-  { value: 'personal_gym', labelEn: '🏋️ Personal Gym', labelJa: '🏋️ パーソナルジム' },
-  { value: 'dental_clinic', labelEn: '🦷 Dental', labelJa: '🦷 歯科医院' },
-  { value: 'medical_clinic', labelEn: '🏥 Medical Clinic', labelJa: '🏥 医療クリニック' },
-  { value: 'dermatology', labelEn: '🧴 Dermatology', labelJa: '🧴 皮膚科' },
-  { value: 'cosmetic_surgery', labelEn: '💉 Cosmetic Surgery', labelJa: '💉 美容外科 / 美容皮膚科' },
-  { value: 'physical_therapy', labelEn: '🦿 Physical Therapy', labelJa: '🦿 理学療法 / リハビリ' },
-  { value: 'foot_care', labelEn: '🦶 Foot Care', labelJa: '🦶 フットケア / リフレクソロジー' },
-  { value: 'relaxation', labelEn: '🛀 Relaxation Salon', labelJa: '🛀 リラクゼーションサロン' },
-  { value: 'aroma', labelEn: '🌿 Aromatherapy', labelJa: '🌿 アロマテラピーサロン' },
-  { value: 'wellness_clinic', labelEn: '🌱 Wellness Clinic', labelJa: '🌱 ウェルネスクリニック' },
-  { value: 'mental_health', labelEn: '🧠 Mental Health', labelJa: '🧠 メンタルヘルス / カウンセリング' },
-  { value: 'veterinary', labelEn: '🐾 Veterinary', labelJa: '🐾 動物病院' },
-  { value: 'pet_grooming', labelEn: '🐩 Pet Grooming', labelJa: '🐩 ペットグルーミング' },
-  { value: 'training_school', labelEn: '🎓 School / Lessons', labelJa: '🎓 スクール / レッスン業' },
-  { value: 'other', labelEn: '🏢 Other', labelJa: '🏢 その他' },
-]
+// Business-type options moved to the shared list in business-types.ts — the org
+// picker and the per-store dialog render the same BUSINESS_TYPE_OPTIONS.
+import { BUSINESS_TYPE_OPTIONS, getBusinessProfile } from '@/lib/welcome/business-types'
 
 const DAY_LABELS: Record<WeekdayKey, { en: string; ja: string }> = {
   mon: { en: 'Mon', ja: '月' },
@@ -135,7 +105,7 @@ export function OrganizationSection({
   )
 
   const profile = orgSettings?.business_type
-    ? getBusinessProfile(orgSettings.business_type)
+    ? getBusinessProfile(orgSettings.business_type, locale === 'ja' ? 'ja' : 'en')
     : null
 
   return (
@@ -207,7 +177,7 @@ export function OrganizationSection({
             }}
             className="w-full rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring appearance-none"
           >
-            {BUSINESS_TYPES.map((bt) => (
+            {BUSINESS_TYPE_OPTIONS.map((bt) => (
               <option key={bt.value} value={bt.value}>
                 {locale === 'ja' ? bt.labelJa : bt.labelEn}
               </option>

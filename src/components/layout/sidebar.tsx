@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { createClient } from '@/lib/supabase/client'
+import { wipeSessionVault } from '@/lib/karute/logout-wipe'
 import { useSession } from '@/providers/session-provider'
 import { useSidebarStyle } from '@/lib/sidebar-style/hooks'
 
@@ -71,18 +72,14 @@ type NavRoute = {
   Icon: () => React.ReactElement
 }
 
-// /coaching + /data-import gated behind feature flags.
+// /data-import stays flag-gated: ImportDropzone.tsx fires
+// `console.info('[dev] Import file selected', …)` on file pick —
+// no upload, no session, no progress. Owner picks a CSV and
+// watches nothing happen. Nav entry hides until uploadImportCsv ships.
 //
-// /coaching: every page in src/app/[locale]/(app)/coaching/ passes
-// `null` to its view component (growth, insights, patterns,
-// modules, transparency). Each renders a ScaffoldHint placeholder.
-// The privacy Layer 1/2/3 badges are decorative — no data to
-// scope. Nav entry hides until the producers ship.
-//
-// /data-import: ImportDropzone.tsx fires `console.info('[dev]
-// Import file selected', …)` on file pick. No upload, no
-// session, no progress. Owner picks a CSV and watches nothing
-// happen. Nav entry hides until uploadImportCsv ships.
+// /coaching is a first-class destination now; the page itself gates
+// its content per-account on the coaching entitlement (unlimited/paid
+// tiers see it, others get an upgrade prompt), so the link always shows.
 //
 // /data-export stays — CSV / JSON exports for customers run for
 // real via the /api/export route (other combinations toast
@@ -93,9 +90,7 @@ const NAV_ROUTES: NavRoute[] = [
   { id: 'appointments', href: '/appointments', labelKey: 'appointments', Icon: CalendarIcon },
   { id: 'customers', href: '/customers', labelKey: 'customers', Icon: UsersIcon },
   { id: 'karute', href: '/karute', labelKey: 'karute', Icon: ClipboardIcon },
-  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
-    ? [{ id: 'coaching' as const, href: '/coaching', labelKey: 'coaching' as const, Icon: GraduationCapIcon }]
-    : []),
+  { id: 'coaching', href: '/coaching', labelKey: 'coaching', Icon: GraduationCapIcon },
   { id: 'askAi', href: '/ask-ai', labelKey: 'askAi', Icon: SparklesIcon },
   ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
     ? [{ id: 'dataImport' as const, href: '/data-import', labelKey: 'dataImport' as const, Icon: ImportIcon }]
@@ -197,12 +192,21 @@ function getInitials(name: string): string {
 function SidebarProfileChip() {
   const session = useSession()
   const t = useTranslations('staff')
+  const tSidebar = useTranslations('sidebar')
   const router = useRouter()
   const [open, setOpen] = useState(false)
 
   const { activeStaff, orgName } = session
 
   async function handleLogout() {
+    // Shared salon device: kill the in-memory recorder/pipeline AND the
+    // stored draft + takes before leaving, or the next staff member inherits
+    // this one's unsaved customer session (see lib/karute/logout-wipe).
+    // Best-effort: a wipe failure (e.g. its dynamic chunk 404s after a
+    // deploy) must NEVER block signOut — an active session left behind is
+    // the worse privacy outcome, and post-signOut the stored vault is
+    // unreadable anyway (owner gates fail closed without a session).
+    await wipeSessionVault().catch(() => {})
     const supabase = createClient()
     await supabase.auth.signOut()
     router.push('/login' as Parameters<typeof router.push>[0])
@@ -262,12 +266,12 @@ function SidebarProfileChip() {
               type="button"
               onClick={() => {
                 setOpen(false)
-                router.push('/settings' as Parameters<typeof router.push>[0])
+                router.push('/profile' as Parameters<typeof router.push>[0])
               }}
               className="flex w-full items-center gap-2.5 px-3 py-2.5 text-[13.5px] text-foreground hover:bg-muted/50 text-left"
             >
               <UserIcon className="size-3.5 text-muted-foreground" />
-              View profile
+              {tSidebar('profile')}
             </button>
             <button
               type="button"

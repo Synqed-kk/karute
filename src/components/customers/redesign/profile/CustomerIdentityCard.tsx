@@ -23,15 +23,18 @@ import {
 import { useTranslations } from 'next-intl'
 import { Link } from '@/i18n/navigation'
 import type { CustomerProfileData } from '../types'
-import { STATUS_STYLES } from '../types'
+import { STATUS_STYLES, isRepeatNoShow } from '../types'
 import { CustomerEditDialog } from './CustomerEditDialog'
 import { SegmentChip } from '@/components/visits/SegmentChip'
 
 interface CustomerIdentityCardProps {
   c: CustomerProfileData
+  /** Passed through to the edit dialog's staff picker (thin app threads the
+   *  roster from the screen DTO; web leaves it undefined → self-fetch). */
+  assignableStaff?: { id: string; name: string }[]
 }
 
-export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
+export function CustomerIdentityCard({ c, assignableStaff }: CustomerIdentityCardProps) {
   const t = useTranslations('customers.list')
   const tProfile = useTranslations('customers.profile')
   const tPace = useTranslations('visits.pace')
@@ -93,6 +96,13 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
               <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-pink-200 bg-pink-50 px-2 py-0.5 text-[11px] font-medium text-pink-700 dark:border-pink-500/20 dark:bg-pink-500/10 dark:text-pink-300">
                 <Cake size={11} />
                 {tProfile('birthdayMonth')}
+              </span>
+            )}
+            {/* Repeat no-show — EXCEPTIONS-ONLY (>= 2; a single no-show isn't
+             *  flagged). Amber warning tone, same token as 要フォロー. */}
+            {isRepeatNoShow(c.noShowCount) && (
+              <span className="inline-flex shrink-0 items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                {t('row.noShowChip', { count: c.noShowCount ?? 0 })}
               </span>
             )}
           </div>
@@ -175,7 +185,7 @@ export function CustomerIdentityCard({ c }: CustomerIdentityCardProps) {
         </div>
 
         {/* Top-right action: the edit pencil. */}
-        <CustomerEditDialog customer={c} />
+        <CustomerEditDialog customer={c} assignableStaff={assignableStaff} />
       </div>
 
       {/* 録音 — round red mic button anchored to the card's BOTTOM-RIGHT. Jumps to

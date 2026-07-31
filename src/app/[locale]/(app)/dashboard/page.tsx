@@ -1,184 +1,119 @@
-import { createClient } from '@/lib/supabase/server'
-import { getLocale, getTranslations } from 'next-intl/server'
-import { getStaffList, getCurrentUserStaffId } from '@/lib/staff'
+import { getLocale } from 'next-intl/server'
+import { getStaffList, getCurrentUserStaffId, getBusinessId } from '@/lib/staff'
 import { getOrgSettings } from '@/actions/org-settings'
 import { DashboardPageView } from '@/components/dashboard/redesign/DashboardPageView'
 import { getDashboardData } from '@/lib/dashboard/cached'
 import { getCachedCustomerList } from '@/lib/customers/cached'
-import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
-import { assignStaffColors } from '@/lib/staff-colors'
-import { getBusinessProfile } from '@/lib/welcome/business-types'
 import { startTiming } from '@/lib/perf/timing'
-import { getPackAlerts } from '@/lib/packs/alerts'
+import { emptyPackAlerts, getPackAlerts } from '@/lib/packs/alerts'
 import { loadUnprocessedVisits } from '@/lib/packs/reconcile'
+import { listAllPackUsage } from '@/lib/packs/store'
 import { can } from '@/lib/auth/require-permission'
-import type { DashboardAppointment, AppointmentStatusKey } from '@/components/dashboard/redesign/TodaysAppointmentsCard'
-import type { DashboardRecentKarute } from '@/components/dashboard/redesign/RecentKaruteCard'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { resolveStoreScope } from '@/lib/auth/store-scope'
+import { buildDashboardScreen } from '@/lib/dashboard/screen'
 
-function pad2(n: number): string {
-  return String(n).padStart(2, '0')
-}
-function hhmm(d: Date): string {
-  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`
-}
-// `deriveKaruteNumber` removed — the local hex-slice produced
-// `#A1B2C` noise that didn't match the real `#00001` sequence used
-// on the karute list + customer profile. Cards here pass
-// `karuteNumber: null` so the conditional render hides the chip
-// rather than showing inconsistent IDs. ANTHONY: thread the real
-// value via the customer list query + `assignSequentialKaruteNumbers`
-// when the dashboard surfaces need this back.
-function formatLongDate(d: Date, locale: string): string {
-  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
-function formatShortDate(d: Date, locale: string): string {
-  return d.toLocaleDateString(locale === 'ja' ? 'ja-JP' : 'en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
+// Param resolution stays here (cookie session); the whole Stage-2 derivation
+// lives in @/lib/dashboard/screen (design-parity P-B-1) — shared verbatim
+// with the facade screen GET (PR 2) so the web page and the binary render
+// from ONE implementation. This file keeps only the cookie-scoped fan-out.
 
 export default async function DashboardPage() {
   const t = startTiming('dashboard')
-  const supabase = await createClient()
+  // RBAC store scope — resolved ONCE, shared by every store-scoped read on
+  // this page (pack alerts, reconcile, pack-usage lens, attention-AI cache
+  // key). Pack data has no store column server-side (#465 family), so the
+  // pack surfaces clamp by store MEMBERSHIP: drop holders outside the
+  // viewer's store-filtered customer list.
+  const storeScopePromise = resolveStoreScope().catch(() => null)
 
   const [
-    {
-      data: { user },
-    },
     staffList,
     activeStaffId,
     dashboard,
     orgSettings,
-    tStatus,
     locale,
     customerList,
     packAlerts,
     reconcile,
     canDismissAlerts,
+    packUsage,
+    businessId,
+    synqed,
   ] = await Promise.all([
-    t.phase('authUser', () => supabase.auth.getUser()),
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
     t.phase('dashboardData', () => getDashboardData()),
     t.phase('orgSettings', () => getOrgSettings()),
-    getTranslations('reservation.status'),
     getLocale(),
     t.phase('customerList', () => getCachedCustomerList()),
     // 離客/upsell alerts — { [], [] } until the ticket_packs migration applies.
-    t.phase('packAlerts', () => getPackAlerts()),
-    t.phase('reconcile', () => loadUnprocessedVisits()),
+    // Fail CLOSED on scope-resolution failure (s === null): empty pack data,
+    // never the unfiltered business-wide read. A RESOLVED scope with storeId
+    // null (no-stores business) keeps the unfiltered behavior.
+    t.phase('packAlerts', () =>
+      storeScopePromise.then((s) =>
+        s ? getPackAlerts(undefined, s.storeId) : emptyPackAlerts(),
+      ),
+    ),
+    t.phase('reconcile', () =>
+      storeScopePromise.then((s) =>
+        s ? loadUnprocessedVisits(s.storeId) : { entries: [], truncated: 0 },
+      ),
+    ),
     // Manager+ only may dismiss (Kitano's rule) — alerts.manage capability.
     can('alerts.manage').catch(() => false),
+    // Per-customer 残回数 — the ticket chips on hero + day flow.
+    t.phase('packUsage', () => listAllPackUsage()),
+    getBusinessId().catch(() => null),
+    // Resolved ONCE here (cookie-scoped) and threaded into the screen builder
+    // as an explicit dep — the moved Stage-2 body no longer reads cookies.
+    getSynqedClient().catch((err) => {
+      console.warn('[dashboard] synqed client init failed:', err)
+      return null
+    }),
   ])
-  t.end()
 
-  // Same canonical karute-number map every other surface (顧客 / 予約 / 録音) uses,
-  // so the dashboard's #00007 matches them.
-  const karuteNumberByClientId = assignSequentialKaruteNumbers(customerList)
+  const scope = await storeScopePromise
 
-  const activeStaff = staffList.find((s) => s.id === activeStaffId)
-  const staffNameById = new Map(staffList.map((s) => [s.id, s.full_name ?? 'Unknown']))
-  // DISTINCT staff-color map from the FULL roster — identical mapping on every
-  // surface (顧客 / 予約 / 録音 / dashboard), no two staff share a color.
-  const staffColors = assignStaffColors(staffList.map((s) => s.id))
-
-  const now = new Date()
-  const appointments: DashboardAppointment[] = dashboard.todayAppointments.map(
-    (a) => {
-      const start = new Date(a.start_time)
-      const isPast = start.getTime() + a.duration_minutes * 60_000 < now.getTime()
-      const hasRecording = !!a.karute_record_id
-      const statusKey: AppointmentStatusKey = hasRecording
-        ? 'completed'
-        : isPast
-          ? 'completed'
-          : 'booked'
-      // i18n via reservation.status — earlier version hardcoded
-      // Japanese literals so EN locale rendered Japanese.
-      const statusLabel =
-        statusKey === 'completed' ? tStatus('completed') : tStatus('booked')
-      return {
-        id: a.id,
-        time: hhmm(start),
-        duration: a.duration_minutes,
-        customerName: a.customers?.name ?? 'Unknown',
-        karuteNumber: karuteNumberByClientId.get(a.client_id) ?? null,
-        // a.title is the customer's booking note — '—' when null instead
-        // of an English literal 'Session' masquerading as real data.
-        service: a.title ?? '—',
-        staffName: staffNameById.get(a.staff_profile_id) ?? 'Unknown',
-        staffColorKey: staffColors.get(a.staff_profile_id)?.key ?? null,
-        statusKey,
-        statusLabel,
-        reservationMemo: a.notes,
-      }
-    },
-  )
-
-  const recentKarute: DashboardRecentKarute[] = dashboard.recentKarute.map(
-    (r) => {
-      const dt = new Date(r.session_date ?? r.created_at)
-      const entryCount = Array.isArray(r.entries)
-        ? (r.entries[0]?.count ?? 0)
-        : 0
-      return {
-        id: r.id,
-        customerName: r.customers?.name ?? 'Unknown',
-        karuteNumber: karuteNumberByClientId.get(r.client_id ?? '') ?? null,
-        sessionDate: formatShortDate(dt, locale),
-        summary: r.summary ?? '—',
-        entryCount,
-        staffName: r.staff_profile_id
-          ? (staffNameById.get(r.staff_profile_id) ?? 'Unknown')
-          : 'Unknown',
-        staffColorKey: r.staff_profile_id
-          ? (staffColors.get(r.staff_profile_id)?.key ?? null)
-          : null,
-      }
-    },
-  )
-
-  const stats = {
-    weeklyRecordings: { value: dashboard.weeklyKaruteCount },
-    todaysCustomers: { value: appointments.length },
-    monthlyKarute: { value: dashboard.monthlyKaruteCount },
-    // Stubbed — rebooking rate needs a returning-customer/total calc that we
-    // haven't wired up yet. Render an em-dash placeholder.
-    rebookingRate: { value: null },
-  }
-
-  const onboardingComplete = Boolean(orgSettings?.setup_completed_at)
-  const businessProfile = orgSettings?.business_type
-    ? getBusinessProfile(orgSettings.business_type)
-    : null
-  // Owner detection from the active staff's display_role. Earlier
-  // hardcoded `true` made every signed-in user see the Crown
-  // "Owner view" badge regardless of role. Now: only renders when
-  // the active staff's display_role is 'owner'.
-  const isOwner =
-    (activeStaff as { display_role?: string | null } | null)?.display_role ===
-    'owner'
+  const screen = await buildDashboardScreen({
+    synqed,
+    locale,
+    staffList,
+    activeStaffId,
+    dashboard,
+    orgSettings,
+    customerList,
+    packAlerts,
+    reconcile,
+    canDismissAlerts,
+    packUsage,
+    businessId,
+    scope,
+    t,
+  })
 
   return (
     <DashboardPageView
-      staffName={activeStaff?.full_name ?? user?.email ?? 'User'}
-      isOwner={isOwner}
-      dateFormatted={formatLongDate(now, locale)}
-      onboardingComplete={onboardingComplete}
-      businessProfile={businessProfile}
-      stats={stats}
-      appointments={appointments}
-      recentKarute={recentKarute}
-      packAlerts={packAlerts}
-      reconcile={reconcile}
-      canDismissAlerts={canDismissAlerts}
+      dateLabel={screen.dateLabel}
+      isOwner={screen.isOwner}
+      onboardingComplete={screen.onboardingComplete}
+      heroSlides={screen.heroSlides}
+      heroTomorrow={screen.heroTomorrow}
+      doneCount={screen.doneCount}
+      karuteTodos={screen.karuteTodos}
+      redeemTodos={screen.redeemTodos}
+      attentionItems={screen.attentionItems}
+      totalToday={screen.totalToday}
+      renewals={screen.renewals}
+      rebooks={screen.rebooks}
+      winbacks={screen.winbacks}
+      tomorrow={screen.tomorrow}
+      packAlerts={screen.packAlerts}
+      reconcile={screen.reconcile}
+      canDismissAlerts={screen.canDismissAlerts}
+      pulse={screen.pulse}
+      ticketsEnabled={screen.ticketsEnabled}
     />
   )
 }

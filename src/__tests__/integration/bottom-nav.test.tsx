@@ -68,6 +68,13 @@ describe('BottomNav center button', () => {
     expect(screen.getByText('pickBooking')).toBeInTheDocument()
   })
 
+  it('keeps the tab bar UNDER z-50 sheet overlays (z-40) so full-screen scrims cover it', () => {
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    const nav = screen.getByRole('navigation', { name: 'Primary navigation' })
+    expect(nav.className).toContain('z-40')
+    expect(nav.className).not.toContain('z-50')
+  })
+
   it('shows the customer name with the JA honorific 様', () => {
     render(<BottomNav nextCustomer={upcoming(30, { customerName: '田中' })} locale="ja" />)
     expect(screen.getByText('田中様')).toBeInTheDocument()

@@ -1,8 +1,9 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { Mic } from 'lucide-react'
 import type { StaffMember } from '@/lib/staff'
+import type { Entitlement } from '@/lib/entitlements'
+import type { StoreRow } from '@/actions/stores'
 import { StaffList } from '@/components/staff/StaffList'
 import { InviteStaffDialog } from './staff/InviteStaffDialog'
 
@@ -10,16 +11,62 @@ interface StaffSectionProps {
   staffList: StaffMember[]
   voiceEnrollments?: Record<string, string | null>
   activeStaffId: string | null
-  isOwner: boolean
+  /** staff.manage capability — add/edit/delete rows (owner + manager, or
+   *  anyone the owner toggled it onto, e.g. an SV). */
+  canManageStaff: boolean
+  /** staff.invite capability — generate /join links. */
+  canInviteStaff: boolean
+  /** Live plan (server-loaded, same object StoresSection gets) — drives the
+   *  staff-cap meter + add/invite lock. Null / disarmed / degraded /
+   *  unlimited → no cap UI at all (today's look, byte-for-byte). */
+  entitlement?: Entitlement | null
+  /** The salon's business_type — threaded from orgSettings (server-fetched
+   *  by the caller) instead of StaffForm fetching it itself client-side
+   *  (design-parity packet 12 §S4a, T3: kills a client re-fetch). */
+  businessType?: string
+  /** The business's stores — threaded from the caller's own fetch (same
+   *  data StoresSection gets) instead of StaffForm fetching it itself
+   *  client-side (T3). */
+  stores?: StoreRow[]
+  /** Server-truth override for NEXT_PUBLIC_FEATURE_STAFF_INVITES (T3) —
+   *  `prop ?? env` so web (which never passes this) is unchanged. */
+  featureStaffInvites?: boolean
+  /** Same, for NEXT_PUBLIC_FEATURE_MULTI_STORE — threaded through to
+   *  StaffForm's store-assignment UI. */
+  featureMultiStore?: boolean
 }
 
 export function StaffSection({
   staffList,
   voiceEnrollments,
   activeStaffId,
-  isOwner,
+  canManageStaff,
+  canInviteStaff,
+  entitlement,
+  businessType,
+  stores,
+  featureStaffInvites,
+  featureMultiStore,
 }: StaffSectionProps) {
   const t = useTranslations('settings')
+  const invitesEnabled =
+    featureStaffInvites ?? process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true'
+
+  // Cap UI only when the walls are ARMED and the plan really is finite —
+  // mirrors the server's staffAddAllowed. (The server also counts pending
+  // brand-new invites, so a 1-off between this meter and the server verdict
+  // is possible; the server wins and the dialog surfaces its copy.)
+  const staffCap =
+    entitlement &&
+    entitlement.enforced &&
+    !entitlement.degraded &&
+    !entitlement.isUnlimited &&
+    typeof entitlement.staffLimit === 'number'
+      ? {
+          limit: entitlement.staffLimit,
+          atLimit: staffList.length >= entitlement.staffLimit,
+        }
+      : null
 
   // No own `<h3>スタッフ管理</h3>` title — the SettingsShell's DrillInView
   // (mobile) and SectionPanel (desktop) already render the section
@@ -34,39 +81,34 @@ export function StaffSection({
         voiceEnrollments={voiceEnrollments}
         activeStaffId={activeStaffId}
         currentUserId={activeStaffId}
-        isOwner={isOwner}
+        canManageStaff={canManageStaff}
+        staffCap={staffCap}
+        businessType={businessType}
+        stores={stores}
+        featureMultiStore={featureMultiStore}
       />
 
-      {/* Invite staff — owner-only, behind the staff-invites flag (off until the
-          tenant-isolation migration lands). Lets the owner generate a /join link
-          so a teammate logs into THIS salon instead of creating their own. */}
-      {isOwner && process.env.NEXT_PUBLIC_FEATURE_STAFF_INVITES === 'true' && (
-        <div className="flex justify-end">
-          <InviteStaffDialog />
+      {/* Invite staff — capability-gated (staff.invite: owner + manager + any
+          custom role the owner toggles it onto), behind the staff-invites flag.
+          Generates a /join link so a teammate logs into THIS salon instead of
+          creating their own. Was owner-only; the UI now matches the server gate
+          (createInvite enforces the same capability). The dialog stays
+          reachable at the cap — RE-invites to existing staff are always
+          allowed (they add nobody); the server rejects only brand-new people
+          and the dialog shows the plan copy. */}
+      {canInviteStaff && invitesEnabled && (
+        <div className="flex flex-col items-end gap-1.5">
+          {staffCap?.atLimit && (
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              {t('staffLimitInviteHint')}
+            </p>
+          )}
+          <InviteStaffDialog
+            staff={staffList.map((s) => ({ id: s.id, full_name: s.full_name, email: s.email }))}
+          />
         </div>
       )}
 
-      <div className="border-t border-border/30 pt-4">
-        <div className="flex items-center justify-between gap-3 rounded-lg border border-dashed border-border/50 bg-card/40 px-4 py-3">
-          <div className="flex items-center gap-2 min-w-0">
-            <Mic className="size-4 text-muted-foreground shrink-0" />
-            <div className="min-w-0">
-              <p className="text-sm font-medium">{t('enrollVoice')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t('voiceEnrollmentSoon')}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            disabled
-            title={t('voiceEnrollmentSoon')}
-            className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground opacity-50 cursor-not-allowed"
-          >
-            {t('enrollVoice')}
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

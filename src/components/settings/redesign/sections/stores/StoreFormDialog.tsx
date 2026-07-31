@@ -19,7 +19,7 @@
 //          phone, is_primary, active, created_at)
 
 import { useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 
 import { Button } from '@/components/ui/button'
 import {
@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { BUSINESS_TYPE_OPTIONS } from '@/lib/welcome/business-types'
 
 import type { Store, StoreFormValues } from './types'
 
@@ -41,12 +42,16 @@ export type StoreFormMode =
 
 interface StoreFormDialogProps {
   mode: StoreFormMode
+  /** The org-level business type — preselected for new stores so the common
+   *  single-vertical case is zero extra taps. */
+  defaultBusinessType: string | null
   onClose: () => void
   onSave: (values: StoreFormValues) => void
 }
 
 export function StoreFormDialog({
   mode,
+  defaultBusinessType,
   onClose,
   onSave,
 }: StoreFormDialogProps) {
@@ -68,6 +73,7 @@ export function StoreFormDialog({
           key={key}
           mode={displayMode}
           isEdit={displayMode.kind === 'edit'}
+          defaultBusinessType={defaultBusinessType}
           onClose={onClose}
           onSave={onSave}
         />
@@ -79,26 +85,37 @@ export function StoreFormDialog({
 function StoreFormDialogBody({
   mode,
   isEdit,
+  defaultBusinessType,
   onClose,
   onSave,
 }: {
   mode: NonNullable<StoreFormMode>
   isEdit: boolean
+  defaultBusinessType: string | null
   onClose: () => void
   onSave: (values: StoreFormValues) => void
 }) {
   const t = useTranslations('settings.stores.form')
+  const locale = useLocale()
 
   const initial = mode.kind === 'edit' ? mode.store : null
   const [name, setName] = useState(initial?.name ?? '')
   const [address, setAddress] = useState(initial?.address ?? '')
   const [phone, setPhone] = useState(initial?.phone ?? '')
+  // Edit prefers the store's own vertical; a pre-column store (businessType
+  // null) and the add flow both start from the org default.
+  const [businessType, setBusinessType] = useState(
+    initial?.businessType ?? defaultBusinessType ?? '',
+  )
   const [saved, setSaved] = useState(false)
 
-  const canSave = name.trim().length > 0 && !saved
+  // Adding requires a vertical; editing tolerates a legacy store whose type was
+  // never set (org onboarded pre-business_type) so a phone fix is never blocked.
+  const canSave =
+    name.trim().length > 0 && (isEdit || businessType.length > 0) && !saved
 
   const handleSave = () => {
-    onSave({ name, address, phone })
+    onSave({ name, address, phone, businessType })
     setSaved(true)
     setTimeout(() => {
       setSaved(false)
@@ -115,6 +132,23 @@ function StoreFormDialogBody({
         </DialogDescription>
       </DialogHeader>
       <div className="space-y-3 py-2">
+        <Field label={t('businessType')}>
+          <select
+            value={businessType}
+            onChange={(e) => setBusinessType(e.target.value)}
+            className="w-full appearance-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+          >
+            {businessType === '' && <option value="">{t('businessTypePlaceholder')}</option>}
+            {BUSINESS_TYPE_OPTIONS.map((bt) => (
+              <option key={bt.value} value={bt.value}>
+                {locale === 'ja' ? bt.labelJa : bt.labelEn}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+            {t('businessTypeHint')}
+          </p>
+        </Field>
         <Field label={t('storeName')}>
           <Input
             value={name}

@@ -1,0 +1,61 @@
+// Pure visibility decisions for the Settings surface, driven by CAPABILITIES
+// (never role names). Kept separate from the React shell so the RBAC gating is
+// unit-testable without rendering 12 section components, and so the same rules
+// can be reused server-side if a section ever needs a hard redirect.
+//
+// These gate what the UI OFFERS. They are NOT the security boundary — the
+// server actions (setActiveStore's store clamp, requireCapability on every
+// mutation, resolveStoreScope on every read) enforce access regardless of what
+// the client renders. This layer stops a restricted user from SEEING another
+// branch's existence / customer counts and from being handed controls that
+// would only fail.
+
+export interface SettingsCaps {
+  isOwner: boolean
+  canViewAllStores: boolean
+  /** owner OR an explicit per-staff audit.view grant (Liam ruling 7/17). */
+  canViewAudit: boolean
+  /** owner OR an explicit per-staff sync.view grant — same posture as
+   *  canViewAudit (Liam ruling 7/24, packet 31; PR-M2 fix round). */
+  canViewSync: boolean
+}
+
+/**
+ * Filter the settings tab list for the viewer.
+ *   - `ownerOnly` tabs (packs / subscription) stay owner-only.
+ *   - The 監査ログ (audit) tab follows the grant: owner always, a manager only
+ *     when the owner ticked audit.view onto them in StaffForm.
+ *   - The 予約同期 (sync) tab follows the sync.view grant, same rule as audit —
+ *     without it every non-owner staff could open the tab and hit a 403 from
+ *     the now-gated sync routes (PR-M2 fix round).
+ *   - The 店舗 (stores) tab requires stores.viewAll: a branch-restricted staff
+ *     can't switch stores (the switch is server-clamped) and the section
+ *     otherwise leaks the other branch + its customer counts.
+ */
+export function visibleSettingsTabs<T extends { id: string; ownerOnly?: boolean }>(
+  tabs: readonly T[],
+  caps: SettingsCaps,
+): T[] {
+  return tabs.filter((tab) => {
+    if (tab.id === 'stores' && !caps.canViewAllStores) return false
+    if (tab.id === 'audit' && !caps.canViewAudit) return false
+    if (tab.id === 'sync' && !caps.canViewSync) return false
+    return !tab.ownerOnly || caps.isOwner
+  })
+}
+
+/**
+ * The staff rows a viewer may see in the staff section. Without staff.manage a
+ * staff member sees only THEMSELVES (their own PIN / voice self-service); the
+ * full roster — names, emails, join dates — is a manage surface. activeStaffId
+ * null (unresolved) → empty, never the full list (fail closed).
+ */
+export function visibleStaffRoster<T extends { id: string }>(
+  staff: readonly T[],
+  activeStaffId: string | null,
+  canManageStaff: boolean,
+): T[] {
+  if (canManageStaff) return [...staff]
+  if (!activeStaffId) return []
+  return staff.filter((s) => s.id === activeStaffId)
+}

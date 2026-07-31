@@ -1,5 +1,6 @@
 import { Entry } from '@/types/ai'
-import { createClient } from '@/lib/supabase/client'
+import { getDataPort } from '@/lib/ports/data-port'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
 import { buildDiarizedTranscript, toSpeakerText } from './diarized'
 
 /**
@@ -14,6 +15,17 @@ export type PipelineResult = {
   transcript: string
   entries: Entry[]
   summary: string
+}
+
+/** Transcription succeeded but recognized no speech (silence / too quiet) —
+ *  the one failure anyone can hit on purpose by recording silence. Typed so
+ *  the UI can show the specific 音声が認識できませんでした message instead of
+ *  raw exception text (which must never reach the screen). */
+export class EmptyTranscriptError extends Error {
+  constructor() {
+    super('Transcription returned an empty transcript.')
+    this.name = 'EmptyTranscriptError'
+  }
 }
 
 /**
@@ -64,53 +76,49 @@ async function fetchWithRetry(fn: () => Promise<Response>): Promise<Response> {
  * Calls onProgress at each stage so UI can show step-by-step progress.
  * Auto-retries each API call once on failure; throws on second failure.
  */
+/** Optional prompt context — anchors the AI to THIS customer (rejects other
+ *  customers' names from phone calls etc.) and to the session date (converts
+ *  「来週」-style relative dates to absolute). Both degrade gracefully. */
+export type PipelineContext = {
+  customerName?: string | null
+  sessionDate?: string | null
+}
+
 export async function runAIPipeline(
   audioBlob: Blob,
   locale: string,
   onProgress: (step: PipelineStep) => void,
+  ctx: PipelineContext = {},
 ): Promise<PipelineResult> {
   // Step 1: Transcription
   onProgress('transcribing')
 
-  // Upload audio to Supabase Storage to bypass Vercel payload limits
-  const supabase = createClient()
-  const fileName = `rec_${Date.now()}.webm`
-
-  const { error: uploadError } = await supabase.storage
-    .from('recordings')
-    .upload(fileName, audioBlob, { upsert: true })
-
-  if (uploadError) {
-    throw new Error(`Upload failed: ${uploadError.message}`)
-  }
-
-  // Get a signed URL (valid 10 min) for the server to download
-  const { data: signedData, error: signError } = await supabase.storage
-    .from('recordings')
-    .createSignedUrl(fileName, 3600)
-
-  if (signError || !signedData?.signedUrl) {
-    throw new Error(`Failed to get signed URL: ${signError?.message}`)
-  }
+  // Upload + transcribe legs go through the recording pipeline PORT (Decision 2):
+  // web = supabase-js upload + /api/ai; thin = a service-minted signed upload URL
+  // + /api/app/v1/ai (no supabase-js in the bundle). The GlobalRecorder /
+  // globalPipeline / draft singletons are unchanged — the seam is HERE only.
+  const recordingPort = getRecordingPipelinePort()
+  const { body: transcribeBody, cleanup } = await recordingPort.prepareTranscription(audioBlob)
 
   const transcribeRes = await fetchWithRetry(() =>
-    fetch('/api/ai/transcribe', {
+    getDataPort().apiFetch(`${recordingPort.aiBase}/transcribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ audioUrl: signedData.signedUrl, locale }),
+      body: JSON.stringify({ ...transcribeBody, locale }),
     }),
   ).catch((err) => {
     throw new Error(`Transcription failed: ${err instanceof Error ? err.message : String(err)}`)
   })
 
-  // Clean up storage after transcription
-  supabase.storage.from('recordings').remove([fileName]).catch(() => {})
+  // Clean up storage after transcription (web removes the object; thin is a
+  // no-op — the facade transcribe route deletes it server-side).
+  cleanup()
 
   const transcribeData = await transcribeRes.json()
   const transcript: string = transcribeData.transcript
 
   if (!transcript) {
-    throw new Error('Transcription returned an empty transcript.')
+    throw new EmptyTranscriptError()
   }
 
   // Stage 0 (docs/diarization-stack.md): use the speaker labels we already
@@ -138,19 +146,29 @@ export async function runAIPipeline(
 
   const [extractRes, summarizeRes] = await Promise.all([
     fetchWithRetry(() =>
-      fetch('/api/ai/extract', {
+      getDataPort().apiFetch(`${recordingPort.aiBase}/extract`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: aiTranscript, locale }),
+        body: JSON.stringify({
+          transcript: aiTranscript,
+          locale,
+          customerName: ctx.customerName ?? null,
+          sessionDate: ctx.sessionDate ?? null,
+        }),
       }),
     ).catch((err) => {
       throw new Error(`Extraction failed: ${err instanceof Error ? err.message : String(err)}`)
     }),
     fetchWithRetry(() =>
-      fetch('/api/ai/summarize', {
+      getDataPort().apiFetch(`${recordingPort.aiBase}/summarize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript: aiTranscript, locale }),
+        body: JSON.stringify({
+          transcript: aiTranscript,
+          locale,
+          customerName: ctx.customerName ?? null,
+          sessionDate: ctx.sessionDate ?? null,
+        }),
       }),
     ).catch((err) => {
       throw new Error(`Summary generation failed: ${err instanceof Error ? err.message : String(err)}`)

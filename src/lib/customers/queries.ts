@@ -16,6 +16,9 @@ export interface ListCustomersOptions {
   sortOrder?: 'asc' | 'desc'
   staffId?: string
   customerType?: string
+  /** Store lens (#465 family). Pass resolveStoreScope().storeId — never a raw
+   *  cookie. When set, the read is server-filtered to that store. */
+  storeId?: string
 }
 
 export interface ListCustomersResult {
@@ -34,9 +37,13 @@ interface FetchArgs {
   pageSize: number
   sortBy: 'name' | 'created_at' | 'updated_at'
   sortOrder: 'asc' | 'desc'
+  storeId?: string
 }
 
-async function fetchCustomers(
+// Exported for the export core (packet 23 fix round): callers that carry their
+// own verified businessId (the Bearer facade) must NEVER re-resolve identity
+// from cookies — they pass it explicitly and bypass listCustomers entirely.
+export async function fetchCustomers(
   businessId: string,
   args: FetchArgs,
 ): Promise<ListCustomersResult> {
@@ -48,6 +55,7 @@ async function fetchCustomers(
   const client = new SynqedClient({ baseUrl, apiKey, businessId })
   const result = await client.customers.list({
     search: args.search,
+    store_id: args.storeId,
     page: args.page,
     page_size: args.pageSize,
     sort_by: args.sortBy,
@@ -95,12 +103,16 @@ export async function listCustomers({
   pageSize = 10,
   sortBy = 'updated_at',
   sortOrder = 'desc',
+  storeId,
 }: ListCustomersOptions = {}): Promise<ListCustomersResult> {
   const isLanding =
     !query?.trim() &&
     page === 1 &&
     sortBy === 'updated_at' &&
-    sortOrder === 'desc'
+    sortOrder === 'desc' &&
+    // The landing cache is keyed business-wide; a store-lensed read must never
+    // be served from (or poison) it.
+    !storeId
 
   if (isLanding) {
     const businessId = await getBusinessId()
@@ -117,6 +129,7 @@ export async function listCustomers({
     pageSize,
     sortBy: sortBy as 'name' | 'created_at' | 'updated_at',
     sortOrder,
+    storeId,
   })
 }
 
@@ -144,10 +157,27 @@ export interface CustomerWithStaff extends Customer {
    *  date exists. Usually NULL (QR sync never persists it); the reconciled
    *  effectiveFirstVisitIso is the primary source. */
   first_visit_at: string | null
+  /** Soft-delete clock (core #51): timestamp = inside the 30-day deletion
+   *  window, null = active. Lists hide scheduled customers; get() does not,
+   *  so the profile page can render the countdown banner. */
+  deleted_at: string | null
+  /** Real per-business chart number (カルテNo) — the numbering fallback when
+   *  the customer is absent from the sequential-number list (soft-deleted). */
+  karute_number: number | null
 }
 
 export async function getCustomer(id: string): Promise<CustomerWithStaff> {
-  const synqed = await getSynqedClient()
+  return getCustomerWithClient(await getSynqedClient(), id)
+}
+
+/** Client-threaded getCustomer — takes an EXPLICIT business-scoped client so the
+ *  facade Bearer path (packet 06) resolves the SAME CustomerWithStaff shape as
+ *  the cookie web path. Tenancy is proven by the business-scoped client: a
+ *  customer in another tenant reads as not-found (the caller maps the throw). */
+export async function getCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+): Promise<CustomerWithStaff> {
   const c = await synqed.customers.get(id)
 
   return {
@@ -173,6 +203,9 @@ export async function getCustomer(id: string): Promise<CustomerWithStaff> {
     // Cast to read it (same pattern as the QR fields above).
     first_visit_at:
       (c as typeof c & { first_visit_at?: string | null }).first_visit_at ?? null,
+    deleted_at: (c as typeof c & { deleted_at?: string | null }).deleted_at ?? null,
+    karute_number:
+      (c as typeof c & { karute_number?: number | null }).karute_number ?? null,
   }
 }
 

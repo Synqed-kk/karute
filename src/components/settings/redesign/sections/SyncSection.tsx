@@ -1,11 +1,13 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+
 import { useEffect, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle2, AlertCircle } from 'lucide-react'
 
 type SyncResponse = {
-  error?: string
+  error?: string | { code?: string; message?: string }
   message?: string
   created?: number
   updated?: number
@@ -19,7 +21,7 @@ type SyncResponse = {
  * "Unexpected token 'I'" and masked the real failure. So: read text first, parse
  * if we can, and ALWAYS surface the HTTP status so the true error is visible.
  */
-async function readSyncResponse(
+export async function readSyncResponse(
   res: Response,
 ): Promise<{ ok: true; data: SyncResponse } | { ok: false; message: string }> {
   const raw = await res.text().catch(() => '')
@@ -30,7 +32,13 @@ async function readSyncResponse(
     /* non-JSON body (e.g. Vercel's plain "Internal Server Error" on a crash) */
   }
   if (!res.ok || data?.error) {
-    const detail = data?.error ?? (raw ? raw.slice(0, 160) : res.statusText)
+    // The 403 body nests the message ({error:{code,message}}); older/other
+    // failures still send error as a plain string — prefer the object's
+    // message when present.
+    const err = data?.error
+    const detail =
+      (typeof err === 'object' && err !== null ? err.message : err) ??
+      (raw ? raw.slice(0, 160) : res.statusText)
     return { ok: false, message: `Error (${res.status}): ${detail}` }
   }
   return { ok: true, data: data ?? {} }
@@ -46,12 +54,17 @@ export function SyncSection() {
   const [lastResult, setLastResult] = useState<string | null>(null)
 
   useEffect(() => {
-    fetch('/api/sync/quickreserve/config')
+    getDataPort().apiFetch('/api/sync/quickreserve/config')
       .then((r) => r.json())
       .then((data) => {
         if (data.username) setUsername(data.username)
         if (data.enabled !== undefined) setEnabled(data.enabled)
-        if (data.lastStatus) setLastResult(data.lastStatus)
+        if (data.lastStatus)
+          setLastResult(
+            data.lastRunAt
+              ? `${data.lastStatus} (${new Date(data.lastRunAt).toLocaleString()})`
+              : data.lastStatus,
+          )
       })
       .catch(() => {})
   }, [])
@@ -59,7 +72,7 @@ export function SyncSection() {
   async function saveConfig() {
     setSyncing(true)
     try {
-      const res = await fetch('/api/sync/quickreserve/config', {
+      const res = await getDataPort().apiFetch('/api/sync/quickreserve/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password, enabled }),
@@ -76,7 +89,7 @@ export function SyncSection() {
     setSyncing(true)
     setLastResult('Syncing...')
     try {
-      const res = await fetch('/api/sync/quickreserve', { method: 'POST' })
+      const res = await getDataPort().apiFetch('/api/sync/quickreserve', { method: 'POST' })
       const parsed = await readSyncResponse(res)
       if (!parsed.ok) {
         setLastResult(parsed.message)

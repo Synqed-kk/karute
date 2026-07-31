@@ -2,13 +2,14 @@
  * Coverage for getDashboardData / dashboardByDay (src/lib/dashboard/cached.ts).
  *
  * All reads now go through synqed-core (the source of truth), so the
- * SynqedClient constructor is mocked. dashboardByDay fans out seven calls in
- * declared order: weekly count, monthly count, today's appointments, today's
- * karute (for the appointment→recording link), recent karute, the tenant
- * customer list (for name resolution), and the staff list (synqed staff.id →
- * profile id translation, PR #179). It shapes them into DashboardData with
- * count + empty-array fallbacks. The synqed client is business-scoped, so there
- * is no longer a profiles→staff-id filter step.
+ * SynqedClient constructor is mocked. dashboardByDay fans out nine calls in
+ * declared order: weekly count, monthly count, rolling-7-day count, today's
+ * appointments, tomorrow's appointments, today's karute (for the
+ * appointment→recording link), recent karute, the tenant customer list (for
+ * name resolution), and the staff list (synqed staff.id → profile id
+ * translation, PR #179). It shapes them into DashboardData with count +
+ * empty-array fallbacks. The synqed client is business-scoped, so there is no
+ * longer a profiles→staff-id filter step.
  *
  * unstable_cache is mocked to a passthrough so the inner fn runs directly;
  * getBusinessId is stubbed.
@@ -33,30 +34,42 @@ jest.mock('next/cache', () => ({
   revalidateTag: jest.fn(),
   updateTag: jest.fn(),
 }))
-
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => BIZ),
+}))
+
+// getDashboardData scopes every read via resolveStoreScope().storeId — the
+// RBAC-clamped store (a branch-restricted staff can't see another branch's day).
+// Default here to the all-stores lens (storeId null) so the existing shaping
+// tests are unaffected; individual tests override it.
+const resolveStoreScopeMock = jest.fn()
+jest.mock('@/lib/auth/store-scope', () => ({
+  resolveStoreScope: () => resolveStoreScopeMock(),
 }))
 
 import { getDashboardData } from '@/lib/dashboard/cached'
 
 // karuteRecords.list is invoked in this order inside the Promise.all:
-// weekly (count) → monthly (count) → today's karute → recent. Stage each.
+// weekly (count) → monthly (count) → rolling 7d (count) → today's karute →
+// recent. Stage each.
 function stageKarute(opts: {
   weekly?: { total: number } | Record<string, never>
   monthly?: { total: number } | Record<string, never>
+  weekly7?: { total: number } | Record<string, never>
   todayKarute?: unknown[]
   recent?: unknown[]
 }) {
   karuteRecords.list
     .mockResolvedValueOnce(opts.weekly ?? { total: 0 })
     .mockResolvedValueOnce(opts.monthly ?? { total: 0 })
+    .mockResolvedValueOnce(opts.weekly7 ?? { total: 0 })
     .mockResolvedValueOnce({ karute_records: opts.todayKarute ?? [] })
     .mockResolvedValueOnce({ karute_records: opts.recent ?? [] })
 }
 
 beforeEach(() => {
   jest.clearAllMocks()
+  resolveStoreScopeMock.mockResolvedValue({ storeId: null, viewAll: true, allowedStoreIds: null })
   appointments.list.mockResolvedValue({ appointments: [] })
   customers.list.mockResolvedValue({ customers: [] })
   staff.list.mockResolvedValue({ staff: [] })
@@ -67,6 +80,7 @@ describe('getDashboardData', () => {
     stageKarute({
       weekly: { total: 7 },
       monthly: { total: 23 },
+      weekly7: { total: 5 },
       todayKarute: [{ id: 'k9', appointment_id: 'a1' }],
       recent: [
         {
@@ -101,6 +115,10 @@ describe('getDashboardData', () => {
 
     expect(result.weeklyKaruteCount).toBe(7)
     expect(result.monthlyKaruteCount).toBe(23)
+    expect(result.weekKaruteCount).toBe(5)
+    // appointments.list is shared by the today + tomorrow fetches in this
+    // staging, so tomorrow mirrors today — shape is what matters here.
+    expect(result.tomorrowAppointments).toHaveLength(1)
     expect(result.todayAppointments).toHaveLength(1)
     expect(result.todayAppointments[0]).toMatchObject({
       id: 'a1',
@@ -137,7 +155,33 @@ describe('getDashboardData', () => {
     const result = await getDashboardData()
 
     expect(result.todayAppointments).toEqual([])
+    expect(result.tomorrowAppointments).toEqual([])
     expect(result.recentKarute).toEqual([])
+  })
+
+  it('scopes every read to the RBAC-clamped store (branch-restricted staff, unset cookie)', async () => {
+    // A Ginza-assigned staff with no store cookie: resolveStoreScope clamps to
+    // their assigned store, NOT the business primary (代官山). Every karute +
+    // appointment read must carry that store_id, or the dashboard leaks the
+    // other branch's day (the Apple-review bug).
+    resolveStoreScopeMock.mockResolvedValue({
+      storeId: 'store-ginza',
+      viewAll: false,
+      allowedStoreIds: ['store-ginza'],
+    })
+    stageKarute({ weekly: { total: 0 }, monthly: { total: 0 } })
+
+    await getDashboardData()
+
+    for (const call of karuteRecords.list.mock.calls) {
+      expect(call[0]).toMatchObject({ store_id: 'store-ginza' })
+    }
+    for (const call of appointments.list.mock.calls) {
+      expect(call[0]).toMatchObject({ store_id: 'store-ginza' })
+    }
+    // Sanity: reads actually happened (the assertions above are not vacuous).
+    expect(karuteRecords.list).toHaveBeenCalled()
+    expect(appointments.list).toHaveBeenCalled()
   })
 
   it('leaves an appointment unlinked when no karute references it', async () => {

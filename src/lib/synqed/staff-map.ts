@@ -45,13 +45,26 @@ const synqedStaffListByBusiness = unstable_cache(
 )
 
 /**
- * Translate a Supabase profile id to its synqed-core staff id.
- * Throws if no link can be established — refusing to fall back to the raw
- * profile id (which would just hand a bad value to the FK and blow up
- * synqed-core's insert with a cryptic message).
+ * Pure lookup: translate a Supabase profile id to its synqed-core staff id,
+ * or null when no synqed record matches. NEVER creates anything — safe for
+ * flows where creating would be wrong (e.g. deleteStaff, where create-on-miss
+ * would mint a record just to delete it). The email-only match still
+ * self-heals user_id on the existing record (a best-effort patch, not a
+ * create), so future lookups hit the O(map) user_id path.
  */
-export async function resolveSynqedStaffId(staffProfileId: string): Promise<string> {
-  const businessId = await getBusinessId()
+export async function lookupSynqedStaffId(
+  staffProfileId: string,
+): Promise<string | null> {
+  return lookupSynqedStaffIdForBusiness(staffProfileId, await getBusinessId())
+}
+
+/** Bearer-safe twin: the caller supplies businessId from its verified token
+ *  identity — this path must never touch the cookie session (getBusinessId).
+ *  Same lookup + self-heal behavior as the cookie helper above. */
+export async function lookupSynqedStaffIdForBusiness(
+  staffProfileId: string,
+  businessId: string,
+): Promise<string | null> {
   const staff = await synqedStaffListByBusiness(businessId)
 
   // Primary: synqed staff.user_id directly set to this profile id.
@@ -63,20 +76,19 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
   const service = createServiceClient()
   const { data: profile } = await service
     .from('profiles')
-    .select('full_name, email')
+    .select('email')
     .eq('id', staffProfileId)
     .maybeSingle()
-  const typedProfile = profile as
-    | { full_name?: string | null; email?: string | null }
-    | null
-  const profileEmail = typedProfile?.email?.toLowerCase()
+  const profileEmail = (
+    profile as { email?: string | null } | null
+  )?.email?.toLowerCase()
   if (profileEmail) {
     const byEmail = staff.find(
       (s) => s.email && s.email.toLowerCase() === profileEmail,
     )
     if (byEmail) {
       // Self-heal: patch the synqed staff record so future lookups hit the
-      // user_id path. Best-effort — booking still proceeds if the patch fails.
+      // user_id path. Best-effort — the caller still proceeds if it fails.
       const baseUrl = process.env.SYNQED_CORE_URL
       const apiKey = process.env.SYNQED_CORE_API_KEY
       if (baseUrl && apiKey) {
@@ -92,11 +104,47 @@ export async function resolveSynqedStaffId(staffProfileId: string): Promise<stri
     }
   }
 
+  return null
+}
+
+/**
+ * Translate a Supabase profile id to its synqed-core staff id, creating the
+ * synqed record on demand when none exists (booking flow: appointments FK to
+ * staff.id, so a record MUST exist before the insert). Throws only if the
+ * profile itself doesn't exist — refusing to fall back to the raw profile id
+ * (which would just hand a bad value to the FK and blow up synqed-core's
+ * insert with a cryptic message). Flows that must not create (delete) use
+ * lookupSynqedStaffId above instead.
+ */
+export async function resolveSynqedStaffId(staffProfileId: string): Promise<string> {
+  return resolveSynqedStaffIdForBusiness(staffProfileId, await getBusinessId())
+}
+
+/** Bearer-safe twin of resolveSynqedStaffId — businessId from the verified
+ *  token, never the cookie session. Same create-on-miss contract. */
+export async function resolveSynqedStaffIdForBusiness(
+  staffProfileId: string,
+  businessId: string,
+): Promise<string> {
+  const found = await lookupSynqedStaffIdForBusiness(staffProfileId, businessId)
+  if (found) return found
+
   // No synqed staff record yet. Staff seeded directly into Supabase profiles
   // (bypassing createStaff, which normally writes both stores) land here, as do
   // owner-imported teammates. Rather than hard-fail the booking, create the
   // synqed record on demand — linked by user_id so future lookups hit the
   // O(map) user_id path. Only refuse if the profile itself doesn't exist.
+  // (Re-fetches the profile for name+email — only reached on the rare
+  // create path, and the roster list above is already unstable_cache'd.)
+  const service = createServiceClient()
+  const { data: profile } = await service
+    .from('profiles')
+    .select('full_name, email')
+    .eq('id', staffProfileId)
+    .maybeSingle()
+  const typedProfile = profile as
+    | { full_name?: string | null; email?: string | null }
+    | null
   if (!typedProfile) {
     throw new Error(
       `Could not link Supabase profile ${staffProfileId} to a synqed-core ` +

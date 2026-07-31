@@ -1,6 +1,12 @@
 import type { EntryCategory } from '@/lib/karute/categories'
 import type { SessionOutcome } from '@/lib/karute/outcome-types'
 
+/** Per-entry edit-save validation message (actions/karute.ts core + its test).
+ *  Lives HERE, not in actions/karute.ts: that file is 'use server', and a
+ *  non-async export there is a next-build error that voids the module's
+ *  exports entirely (broke the ff0255d1 prod deploy). */
+export const ENTRY_CONTENT_INVALID_ERROR = 'Entry content must be 1–4000 characters.'
+
 /**
  * A single entry in a karute record.
  * AI-extracted entries have sourceQuote and confidenceScore.
@@ -52,11 +58,23 @@ export type SaveKaruteInput = {
     content: string
     sourceQuote?: string
     confidenceScore: number
+    /** Provenance (edit-layer Wave 1): true for a staff-edited or hand-added
+     *  entry — core maps this to HUMAN_CREATED/HUMAN_EDITED (the CREATE path
+     *  writes no entry_edits row for it — just the author stamp; the log
+     *  trail starts with a later edit). Undefined/false for an untouched AI
+     *  entry. Only ReviewScreen's save computes this per-entry; other callers
+     *  (autosave) omit it and keep today's always-AI behavior. */
+    isManual?: boolean
   }>
   duration?: number
   appointmentId?: string
   /** Session outcome (the coaching label) chosen at save — best-effort persisted. */
   outcome?: SessionOutcome
+  /** Server-minted recording_sessions id (synqed-core) — forwarded to
+   *  synqed.karuteRecords.create() as recording_session_id so core's
+   *  idempotent-save dedupe (unique FK, PR #38) has something to key on.
+   *  undefined/null when the mint failed or hadn't resolved by save time. */
+  recordingSessionId?: string | null
 }
 
 /**

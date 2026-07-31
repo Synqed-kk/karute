@@ -9,6 +9,7 @@ import { Link, useRouter } from '@/i18n/navigation'
 import { useGlobalPipeline } from '@/hooks/use-global-pipeline'
 import { globalPipeline } from '@/lib/global-pipeline'
 import { saveKaruteRecordInline } from '@/actions/karute'
+import { deleteTake } from '@/lib/karute/take-store'
 import type { EntryCategory } from '@/lib/karute/categories'
 
 /**
@@ -48,6 +49,35 @@ export function ProcessingIndicator() {
     if (autosavedRunRef.current === runId) return
     autosavedRunRef.current = runId
 
+    // Server path (packet 22 B3): the job already wrote the record and the
+    // take (runServerJob's DONE branch already deleted it) — settle with the
+    // SAME toast/hold/reset the in-tab autosave produces below, without the
+    // ctx/result guard or the save call (the server path has no `result`;
+    // runAIPipeline never ran client-side).
+    if (globalPipeline.serverSavedRecordId) {
+      const id = globalPipeline.serverSavedRecordId
+      if (globalPipeline.isCurrentRun(runId)) {
+        toast.success(t('autoSaved'), {
+          action: {
+            label: t('viewSaved'),
+            onClick: () =>
+              router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
+          },
+        })
+      }
+      setDone({ runId, leaving: false })
+      setTimeout(
+        () =>
+          setDone((d) => (d && d.runId === runId ? { ...d, leaving: true } : d)),
+        2000,
+      )
+      setTimeout(() => {
+        globalPipeline.reset(runId)
+        setDone((d) => (d && d.runId === runId ? null : d))
+      }, 2250)
+      return
+    }
+
     const ctx = globalPipeline.context
     const result = globalPipeline.result
     // The state machine only enters 'autosaving' with a customer + outcome; this
@@ -82,21 +112,36 @@ export function ProcessingIndicator() {
         duration: ctx.duration,
         appointmentId: ctx.appointmentId,
         outcome: ctx.outcome,
+        recordingSessionId: ctx.recordingSessionId,
       })
       if ('error' in res) {
         // Never silently lose a take — tell the staff, and drop THIS run to
         // review (no-op if a newer recording already superseded it).
-        toast.error(t('autosaveFailed'))
+        // The toast itself is runId-guarded (F2, packet 12 fix batch): an
+        // unguarded toast.error() here would fire even for a run the staff
+        // has already moved past — including AFTER sign-out, where the
+        // sonner Toaster still lived as an AppRoot sibling and rendered over
+        // LoginScreen. failAutosaveToReview is already self-guarded below.
+        if (globalPipeline.isCurrentRun(runId)) toast.error(t('autosaveFailed'))
         globalPipeline.failAutosaveToReview(runId)
       } else {
+        // The record is saved — the persisted audio has served its purpose.
+        // Unconditional (not runId-guarded): the take must be deleted
+        // regardless of which run is now live, same as before this fix.
+        if (ctx.takeId) void deleteTake(ctx.takeId)
         const id = res.id
-        toast.success(t('autoSaved'), {
-          action: {
-            label: t('viewSaved'),
-            onClick: () =>
-              router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
-          },
-        })
+        // Same runId guard as the error branch above — a late success must
+        // not toast (or offer a `/karute/${id}` action that pushState's the
+        // path) once this run is no longer current.
+        if (globalPipeline.isCurrentRun(runId)) {
+          toast.success(t('autoSaved'), {
+            action: {
+              label: t('viewSaved'),
+              onClick: () =>
+                router.push(`/karute/${id}` as Parameters<typeof router.push>[0]),
+            },
+          })
+        }
         // Hold the 保存済み state ~2s → 200ms fade → THEN reset. reset(runId)
         // stays guarded, so a newer take is never wiped.
         setDone({ runId, leaving: false })

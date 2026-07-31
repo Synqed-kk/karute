@@ -5,6 +5,13 @@
 
 /* Tailwind v4 needs an explicit source for class detection in node_modules */
 @source "../../node_modules/@synqed-kk/ui/dist/**/*.{js,jsx}";
+/* The thin shell builds from thin/ as the Vite root, so src/ is OUTSIDE its
+ * automatic scan — utilities used ONLY by src components (e.g. bottom-nav's
+ * bg-card) silently never emitted in the shell bundle and survived
+ * on accidental overlap with classes the UI package / thin files also use.
+ * Explicit source closes that hole; the Next build already scans src, so this
+ * is a no-op for the web output. */
+@source "../**/*.{ts,tsx}";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
@@ -181,6 +188,37 @@
   }
   html {
     @apply font-sans;
+  }
+}
+
+@layer base {
+  /* iOS/WKWebView auto-zooms a focused field when its computed font-size is
+     < 16px (and does NOT reset on blur — the user must pinch back out). Force
+     >=16px on coarse-pointer (touch) devices for every text-entry control so
+     tapping a login / search / settings field never zooms. Scoped to
+     pointer:coarse so the desktop md:text-sm (14px) look is untouched.
+     !important is required: text-sm/text-xs live in Tailwind's `utilities`
+     cascade layer; an !important declaration here (base layer) wins over their
+     normal declarations regardless of selector specificity. */
+  @media (pointer: coarse) {
+    input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+    textarea,
+    select {
+      font-size: 16px !important;
+    }
+  }
+}
+
+@layer base {
+  /* Radix sheets/dialogs (BookingActionSheet in @synqed-kk/ui) auto-focus
+     their first action button on open; WKWebView then paints its blue focus
+     ring around カルテを見る even though the user never keyboard-navigated.
+     On a touch screen there is no keyboard context — the ring is pure noise.
+     Scoped to pointer:coarse so desktop keyboard users keep focus rings. */
+  @media (pointer: coarse) {
+    [role="dialog"] button:focus {
+      outline: none;
+    }
   }
 }
 

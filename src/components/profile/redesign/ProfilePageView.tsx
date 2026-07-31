@@ -41,6 +41,8 @@ import {
 } from 'lucide-react'
 
 import { createClient } from '@/lib/supabase/client'
+import { wipeSessionVault } from '@/lib/karute/logout-wipe'
+import { WebOnly } from '@/components/shell/WebOnly'
 
 export interface ProfilePageProfile {
   name: string
@@ -83,6 +85,10 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
   async function handleSignOut() {
     setSigningOut(true)
     try {
+      // Shared-device privacy: one wipe for singletons + draft + takes
+      // (see lib/karute/logout-wipe for why the in-memory half matters).
+      // Best-effort — a wipe failure must never block signOut (see sidebar).
+      await wipeSessionVault().catch(() => {})
       const supabase = createClient()
       await supabase.auth.signOut()
       // Locale-prefixed: this page uses next/navigation's router (the language
@@ -209,41 +215,46 @@ export function ProfilePageView({ profile }: ProfilePageViewProps) {
         </div>
       </section>
 
-      {/* Preferences — inline language toggle */}
-      <section className="border-b border-black/5 bg-card p-4 dark:border-white/5 md:rounded-xl md:border-0 md:p-5 md:shadow-[0_1px_2px_rgba(0,0,0,0.04)] md:ring-1 md:ring-black/5 md:dark:shadow-none md:dark:ring-white/5">
-        <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-          {t('preferencesSection')}
-        </h2>
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[14px] text-foreground">{t('languageLabel')}</div>
-          <div className="inline-flex items-center rounded-lg bg-gray-100 p-0.5 ring-1 ring-black/5 dark:bg-white/[0.04] dark:ring-white/10">
-            <button
-              type="button"
-              onClick={() => handleLanguageChange('ja')}
-              className={`inline-flex h-8 items-center rounded-md px-3 text-[13px] font-medium transition-colors ${
-                locale === 'ja'
-                  ? 'bg-card text-foreground shadow-sm dark:ring-1 dark:ring-white/10'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-              aria-pressed={locale === 'ja'}
-            >
-              {t('languageJa')}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleLanguageChange('en')}
-              className={`inline-flex h-8 items-center rounded-md px-3 text-[13px] font-medium transition-colors ${
-                locale === 'en'
-                  ? 'bg-card text-foreground shadow-sm dark:ring-1 dark:ring-white/10'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}
-              aria-pressed={locale === 'en'}
-            >
-              {t('languageEn')}
-            </button>
+      {/* Preferences — inline language toggle. Web-only (WebOnly, the same
+       *  gate the plan-change CTA uses in StoresSection.tsx): the thin shell
+       *  is a single-locale bundle with no second path segment to swap into,
+       *  so the toggle is meaningless there. Web behavior is unchanged. */}
+      <WebOnly>
+        <section className="border-b border-black/5 bg-card p-4 dark:border-white/5 md:rounded-xl md:border-0 md:p-5 md:shadow-[0_1px_2px_rgba(0,0,0,0.04)] md:ring-1 md:ring-black/5 md:dark:shadow-none md:dark:ring-white/5">
+          <h2 className="mb-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            {t('preferencesSection')}
+          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <div className="text-[14px] text-foreground">{t('languageLabel')}</div>
+            <div className="inline-flex items-center rounded-lg bg-gray-100 p-0.5 ring-1 ring-black/5 dark:bg-white/[0.04] dark:ring-white/10">
+              <button
+                type="button"
+                onClick={() => handleLanguageChange('ja')}
+                className={`inline-flex h-8 items-center rounded-md px-3 text-[13px] font-medium transition-colors ${
+                  locale === 'ja'
+                    ? 'bg-card text-foreground shadow-sm dark:ring-1 dark:ring-white/10'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}
+                aria-pressed={locale === 'ja'}
+              >
+                {t('languageJa')}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLanguageChange('en')}
+                className={`inline-flex h-8 items-center rounded-md px-3 text-[13px] font-medium transition-colors ${
+                  locale === 'en'
+                    ? 'bg-card text-foreground shadow-sm dark:ring-1 dark:ring-white/10'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}
+                aria-pressed={locale === 'en'}
+              >
+                {t('languageEn')}
+              </button>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </WebOnly>
 
       {/* Log out */}
       <section className="px-4 md:px-5">

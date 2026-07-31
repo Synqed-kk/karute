@@ -26,7 +26,7 @@
 //   4. Replace the Coming-Soon dialog with the lifted MemoryItemDialog
 //      (separate lift task, ~150 lines)
 
-import { useState } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import {
   Activity,
   Brain,
@@ -36,10 +36,12 @@ import {
   Heart,
   History,
   Leaf,
+  Loader2,
   MessageCircle,
   Pencil,
   Pin,
   Plus,
+  RefreshCw,
   Sparkles,
   Target,
   X,
@@ -61,7 +63,10 @@ import {
   deleteMemoryItemAction,
   toggleMemoryPinAction,
   updateMemoryItemAction,
+  relearnCustomerMemoryAction,
+  upsertPassportFieldAction,
 } from '@/actions/memory'
+import { canUseDevRegen } from '@/actions/dev-tools'
 import {
   EMPTY_MEMORY,
   type CustomerIntake,
@@ -276,6 +281,7 @@ export function CustomerMemoryCard({
           <MemoryTrustBadge
             updatedThisVisit={memory.updatedThisVisit}
             pastSessionCount={pastSessionCount}
+            customerId={memory.customerId}
           />
         </div>
 
@@ -285,7 +291,7 @@ export function CustomerMemoryCard({
          *  day-one. ANTHONY: these fields come from the intake form
          *  (a future flow — see docs/SPIKE_ROADMAP.md). For now they
          *  fall back to whatever's stored on `memory.intake`. */}
-        <IntakeBlock intake={memory.intake} />
+        <IntakeBlock intake={memory.intake} customerId={memory.customerId} />
 
         {/* Talking points block — ALWAYS renders. When AI hasn't
          *  extracted any points yet, shows an inline placeholder
@@ -457,11 +463,40 @@ export function CustomerMemoryCard({
 function MemoryTrustBadge({
   updatedThisVisit,
   pastSessionCount,
+  customerId,
 }: {
   updatedThisVisit: number
   pastSessionCount: number
+  customerId: string
 }) {
   const t = useTranslations('karute.memorySection')
+  const router = useRouter()
+  const [confirming, setConfirming] = useState(false)
+  const [pending, startTransition] = useTransition()
+  // 再学習 is owner-only (dev tool — its cost scales with the customer's whole
+  // session history). Default false = staff see the plain trust chip.
+  const [canRelearn, setCanRelearn] = useState(false)
+  useEffect(() => {
+    let alive = true
+    canUseDevRegen().then((ok) => {
+      if (alive) setCanRelearn(ok)
+    }).catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
+  const relearn = () => {
+    setConfirming(false)
+    startTransition(async () => {
+      const res = await relearnCustomerMemoryAction(customerId)
+      if (!res.ok) {
+        toast.error(t(res.locked ? 'relearnLocked' : 'relearnFailed'))
+        return
+      }
+      toast.success(t('relearnDone', { n: res.items }))
+      router.refresh()
+    })
+  }
 
   // State 1 — post-session: items were just added in today's session.
   // Brightest signal (saturated blue + Sparkles) because this is the
@@ -479,15 +514,54 @@ function MemoryTrustBadge({
   // sessions. Helps staff calibrate how much to trust the items
   // before acting on them. Muted blue (≠ post-session bright blue)
   // so staff can distinguish "fresh from today" vs "long-standing".
+  // State 2 doubles as the 再学習 trigger (Liam, 2026-07-03): the trust chip
+  // names the data source, so tapping it re-learns from that source with the
+  // CURRENT prompt. Two-tap confirm — it discards the AI's unpinned items
+  // (staff-added / pinned / staff-edited always survive).
   if (pastSessionCount > 0) {
+    // Scaffold shells pass customerId='' — render the plain trust chip; the
+    // relearn trigger only exists for a real customer AND an owner viewer
+    // (再学習 = owner-only dev tool, Liam 2026-07-16).
+    if (!customerId || !canRelearn) {
+      return (
+        <span
+          className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15"
+          title={t('sessionsBadgeTooltip')}
+        >
+          <History className="size-2.5" aria-hidden />
+          {t('sessionsBadge', { n: pastSessionCount })}
+        </span>
+      )
+    }
+    if (pending) {
+      return (
+        <span className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15">
+          <Loader2 className="size-2.5 animate-spin" aria-hidden />
+          {t('relearnRunning')}
+        </span>
+      )
+    }
     return (
-      <span
-        className="inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15"
-        title={t('sessionsBadgeTooltip')}
+      <button
+        type="button"
+        onClick={() => (confirming ? relearn() : setConfirming(true))}
+        onBlur={() => setConfirming(false)}
+        title={confirming ? t('relearnConfirmTooltip') : t('sessionsBadgeTooltip')}
+        className={
+          confirming
+            ? 'inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-amber-50 px-2 text-[10px] font-semibold tabular-nums text-amber-800 ring-1 ring-amber-300/70 dark:bg-amber-500/15 dark:text-amber-300 dark:ring-amber-500/25'
+            : 'inline-flex h-5 shrink-0 items-center gap-1 rounded-full bg-blue-50/60 px-2 text-[10px] font-medium tabular-nums text-blue-700/90 ring-1 ring-blue-200/60 transition-colors hover:bg-blue-100/70 dark:bg-blue-500/10 dark:text-blue-300/90 dark:ring-blue-500/15'
+        }
       >
-        <History className="size-2.5" aria-hidden />
-        {t('sessionsBadge', { n: pastSessionCount })}
-      </span>
+        {confirming ? (
+          <RefreshCw className="size-2.5" aria-hidden />
+        ) : (
+          <History className="size-2.5" aria-hidden />
+        )}
+        {confirming
+          ? t('relearnConfirm')
+          : t('sessionsBadge', { n: pastSessionCount })}
+      </button>
     )
   }
 
@@ -512,11 +586,33 @@ function MemoryTrustBadge({
 // ─────────────────────────────────────────────────────────────
 function IntakeBlock({
   intake,
+  customerId,
 }: {
   intake: CustomerIntake | null
+  customerId: string
 }) {
   const t = useTranslations('karute.memorySection.intakeFields')
   const tCard = useTranslations('karute.memorySection')
+
+  // Token-driven passport (2026-07-03): business-type field list, grounded
+  // values with tap-to-see-the-quote, inline staff edit (human overrides are
+  // locked truth). Falls back to the legacy fixed grid for pre-passport data.
+  if (intake?.fields?.length) {
+    return (
+      <div className="mt-2 rounded-lg border border-border/40 bg-muted/20 p-3">
+        <div className="grid grid-cols-1 gap-1.5 text-[11px]">
+          <IntakeField label={t('firstVisit')} value={intake.firstVisitAt} />
+          {intake.fields.map((f) => (
+            <PassportFieldRow key={f.key} field={f} customerId={customerId} />
+          ))}
+        </div>
+        <p className="mt-2 text-[10px] italic text-muted-foreground/70">
+          {tCard('passportHint')}
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div className="mt-2 rounded-lg border border-border/40 bg-muted/20 p-3">
       <div className="grid grid-cols-1 gap-1.5 text-[11px] sm:grid-cols-2">
@@ -528,6 +624,110 @@ function IntakeBlock({
       {!intake && (
         <p className="mt-2 text-[10px] italic text-muted-foreground/70">
           {tCard('intakeEmpty')}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// One passport row: label / value (or honest dash) / quote toggle when the AI
+// grounded it / inline pencil edit writing a staff override (locked truth).
+function PassportFieldRow({
+  field,
+  customerId,
+}: {
+  field: NonNullable<CustomerIntake['fields']>[number]
+  customerId: string
+}) {
+  const t = useTranslations('karute.memorySection')
+  const router = useRouter()
+  const [showQuote, setShowQuote] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(field.value ?? '')
+  const [pending, startTransition] = useTransition()
+
+  const save = () => {
+    const value = draft.trim()
+    if (!value) {
+      setEditing(false)
+      return
+    }
+    startTransition(async () => {
+      const res = await upsertPassportFieldAction({
+        customerId,
+        fieldKey: field.key,
+        value,
+      })
+      setEditing(false)
+      if (res.ok) router.refresh()
+      else toast.error(t('passportSaveFailed'))
+    })
+  }
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="shrink-0 text-muted-foreground">{field.label}</span>
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={60}
+          autoFocus
+          className="min-w-0 flex-1 rounded border border-border bg-card px-1.5 py-0.5 text-[11px] text-foreground"
+        />
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending}
+          className="shrink-0 rounded bg-foreground px-1.5 py-0.5 text-[10px] font-medium text-background disabled:opacity-50"
+        >
+          {pending ? '…' : t('passportSave')}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          className="shrink-0 text-[10px] text-muted-foreground"
+        >
+          {t('passportCancel')}
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-1.5">
+        <span className="shrink-0 text-muted-foreground">{field.label}</span>
+        {field.value ? (
+          <button
+            type="button"
+            onClick={() => field.quote && setShowQuote((v) => !v)}
+            className={`min-w-0 truncate text-left text-foreground/90 ${field.quote ? 'underline decoration-dotted underline-offset-2' : ''}`}
+            title={field.quote ? t('passportQuoteHint') : undefined}
+          >
+            {field.value}
+          </button>
+        ) : (
+          <span className="text-muted-foreground/60">—</span>
+        )}
+        {field.source === 'staff' && (
+          <Pin className="size-2.5 shrink-0 text-amber-500" aria-hidden />
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(field.value ?? '')
+            setEditing(true)
+          }}
+          aria-label={t('passportEdit', { field: field.label })}
+          className="ml-auto shrink-0 text-muted-foreground/60 transition-colors hover:text-foreground"
+        >
+          <Pencil className="size-3" aria-hidden />
+        </button>
+      </div>
+      {showQuote && field.quote && (
+        <p className="mt-0.5 pl-1 text-[10px] text-muted-foreground">
+          「{field.quote}」
         </p>
       )}
     </div>

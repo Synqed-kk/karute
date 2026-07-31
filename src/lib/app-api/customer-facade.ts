@@ -1,0 +1,73 @@
+// Shared helpers for the customer-profile mutation facade (packet 06 batch 3).
+// HTTP-layer concerns only — tenancy proof (for a clean 404 status) and the
+// selfStaffId resolution (the #452 fail-closed posture). The WRITE logic lives
+// in the server-action WithClient cores; these never touch it.
+
+import { AppApiError } from './errors'
+import { getCustomerWithClient } from '@/lib/customers/queries'
+import { getMemoryItemCustomerId } from '@/lib/karute/customer-memory'
+import { staffListByBusinessOrThrow } from '@/lib/staff'
+import { newSynqedClient } from '@/lib/synqed/client'
+
+type ScopedClient = Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'customers'>
+
+/** Prove the customer belongs to this business (the business-scoped client reads
+ *  a cross-tenant id as not-found) → a clean 404 BEFORE any write. Same oracle
+ *  the WithClient cores use, run here so the ROUTE returns the right status. */
+export async function proveCustomerInBusiness(synqed: ScopedClient, id: string): Promise<void> {
+  try {
+    await getCustomerWithClient(synqed, id)
+  } catch {
+    throw new AppApiError('not_found', 'customer not found in this business')
+  }
+}
+
+/** Resolve the memory item's customer and prove tenancy → 404 on a missing or
+ *  cross-tenant item id, before any write. Returns the owning customerId. */
+export async function proveMemoryItemInBusiness(synqed: ScopedClient, itemId: string): Promise<string> {
+  // ONE message for both misses (missing item / cross-tenant item) — distinct
+  // messages let a caller confirm a foreign item id exists (existence oracle,
+  // Fable spot-audit finding; same class the AI相談 review killed).
+  const customerId = await getMemoryItemCustomerId(itemId)
+  if (!customerId) throw new AppApiError('not_found', 'memory item not found in this business')
+  try {
+    await proveCustomerInBusiness(synqed, customerId)
+  } catch {
+    throw new AppApiError('not_found', 'memory item not found in this business')
+  }
+  return customerId
+}
+
+/** Prove a pack belongs to this customer (whose tenancy is proven separately) →
+ *  a clean 404 on a cross-tenant or wrong-customer packId BEFORE any redemption.
+ *  The business-scoped client only lists THIS business's packs for the customer,
+ *  so a packId absent from that list is not reachable here. */
+export async function provePackForCustomer(
+  synqed: Pick<Awaited<ReturnType<typeof newSynqedClient>>, 'packs'>,
+  customerId: string,
+  packId: string,
+): Promise<void> {
+  const { listCustomerPacksWithClient } = await import('@/lib/packs/store')
+  const packs = await listCustomerPacksWithClient(synqed, customerId)
+  if (!packs.some((p) => p.id === packId)) {
+    throw new AppApiError('not_found', 'pack not found for this customer')
+  }
+}
+
+/** Require an Idempotency-Key on an effectful POST (contract §8). Presence is
+ *  enforced here so a client can't omit it; de-duplication itself is a
+ *  backend/store concern (Anthony) not yet built, so the current guarantee is
+ *  AT-LEAST-ONCE — a retried request re-runs.
+ *  ponytail: presence-only; wire a real dedup store here when Anthony ships it. */
+export function requireIdempotencyKey(req: { headers: Headers }): void {
+  const key = req.headers.get('idempotency-key')?.trim()
+  if (!key) throw new AppApiError('validation', 'Idempotency-Key header is required')
+}
+
+/** The acting staff id for a facade write: the verified auth user, ONLY if they
+ *  are a member of the business staff roster (batch-1/2 selfStaffId pattern).
+ *  Returns null when unresolvable — callers that require it fail closed. */
+export async function resolveSelfStaffId(businessId: string, authUserId: string): Promise<string | null> {
+  const staffList = await staffListByBusinessOrThrow(businessId)
+  return staffList.some((s) => s.id === authUserId) ? authUserId : null
+}

@@ -1,16 +1,20 @@
 'use client'
 
+import { getDataPort } from '@/lib/ports/data-port'
+import { getRecordingPipelinePort } from '@/lib/ports/recording-port'
+
 // ⚠️ TEMPORARY BUILD TOOL — remove once historical karute are backfilled with the
 // latest prompts. Re-runs extraction + summary across ALL of a customer's karute
 // in one pass (reusing the per-karute regenerate flow), so improving a prompt can
 // be applied to the whole history without opening each karute. Sequential — one
 // karute at a time — to stay gentle on the AI rate limit.
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useLocale, useTranslations } from 'next-intl'
 import { RefreshCw, Loader2, Check } from 'lucide-react'
 import type { Entry } from '@/types/ai'
+import { canUseDevRegen } from '@/actions/dev-tools'
 import {
   listCustomerKaruteForRegen,
   regenerateKaruteEntries,
@@ -29,6 +33,22 @@ export function RegenerateAllForCustomerButton({
     'idle',
   )
   const [progress, setProgress] = useState({ done: 0, total: 0, failed: 0 })
+  // Owner-only (dev tool): the backing list action ships every raw transcript,
+  // and recordings are recorder-private. Default false = staff never see the
+  // button; the server action refuses on its own regardless. Same gate + shape
+  // as the 再学習 chip in CustomerMemoryCard.
+  const [canRegen, setCanRegen] = useState(false)
+  useEffect(() => {
+    let alive = true
+    canUseDevRegen()
+      .then((ok) => {
+        if (alive) setCanRegen(ok)
+      })
+      .catch(() => {})
+    return () => {
+      alive = false
+    }
+  }, [])
 
   const run = async () => {
     setPhase('running')
@@ -38,13 +58,14 @@ export function RegenerateAllForCustomerButton({
     let failed = 0
     for (const k of list) {
       try {
+        // aiBase seam (F-9d): the facade twins exist — route through them in the shell.
         const [ex, su] = await Promise.all([
-          fetch('/api/ai/extract', {
+          getDataPort().apiFetch(`${getRecordingPipelinePort().aiBase}/extract`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transcript: k.transcript, locale }),
           }),
-          fetch('/api/ai/summarize', {
+          getDataPort().apiFetch(`${getRecordingPipelinePort().aiBase}/summarize`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ transcript: k.transcript, locale }),
@@ -68,6 +89,7 @@ export function RegenerateAllForCustomerButton({
     router.refresh()
   }
 
+  if (!canRegen) return null
   if (phase === 'running') {
     return (
       <div className="inline-flex items-center gap-2 text-[12px] text-muted-foreground">

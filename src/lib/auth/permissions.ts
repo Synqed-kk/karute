@@ -18,10 +18,23 @@ export const CAPABILITIES = [
   'staff.manage',      // remove / demote / change a member's role
   'settings.manage',   // operating hours, services, multi-store, org settings
   'audit.view',        // audit log
+  'sync.view',         // 予約同期 status card (read-only) — owner-only by
+                       // default, deliberate per-staff toggle, same posture
+                       // as audit.view (Liam ruling 7/24, packet 31)
   'data.export',       // export / import customer + karute data
   'records.delete',    // delete customers / karute (destructive)
   'records.write',     // record sessions, create / edit karute
+  'recordings.viewAll',// read EVERY staff's raw transcript/recording (vs. only
+                       // your OWN). OWNER ONLY by default (Liam ruling 7/16:
+                       // recordings are private to whoever recorded them —
+                       // managers included; the owner keeps it as the dev/
+                       // support key). The AI summary + entries stay shared
+                       // regardless.
   'analytics.viewAll', // whole-salon analytics / coaching (vs. own-only)
+  'stores.viewAll',    // see EVERY store's karute + customers (vs. own store only).
+                       // Without it, a staff member is clamped to their
+                       // staff_stores assignment (regular staff = own branch; SV
+                       // + manager + owner = cross-store). See lib/auth/store-scope.
   'alerts.manage',     // dismiss 離客/pack alerts (Kitano's rule: manager+ only —
                        // staff must show the manager they contacted the customer)
   'customers.view',    // baseline — view customers + karute
@@ -47,12 +60,23 @@ const ALL: Capability[] = [...CAPABILITIES]
 export const ROLE_PRESETS: Record<PermissionRole, Capability[]> = {
   // Full control.
   owner: ALL,
-  // Runs the salon — everything EXCEPT money + existential. Manages staff
-  // (Liam's call). No billing, no delete-the-business.
-  manager: ALL.filter((c) => c !== 'billing.manage' && c !== 'business.manage'),
-  // Lead practitioner: does the work + sees whole-salon analytics + exports;
-  // no settings/staff/billing.
-  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'customers.view', 'bookings.manage'],
+  // Runs the salon — everything EXCEPT money + existential + other people's
+  // raw recordings (Liam ruling 7/16: transcripts are recorder-private; the
+  // manager still sees every AI summary/entry). Manages staff (Liam's call).
+  // No billing, no delete-the-business. No 監査ログ by default (Liam ruling
+  // 7/17: owner-only; a specific manager gets it only as a deliberate per-staff
+  // toggle, never as a preset).
+  manager: ALL.filter(
+    (c) =>
+      c !== 'billing.manage' &&
+      c !== 'business.manage' &&
+      c !== 'recordings.viewAll' &&
+      c !== 'audit.view' &&
+      c !== 'sync.view',
+  ),
+  // Lead practitioner / SV (supervisor): does the work + sees whole-salon
+  // analytics + exports + cross-store visibility; no settings/staff/billing.
+  senior: ['records.write', 'records.delete', 'data.export', 'analytics.viewAll', 'stores.viewAll', 'customers.view', 'bookings.manage'],
   // Practitioner: the core service provider.
   practitioner: ['records.write', 'customers.view', 'bookings.manage'],
   // Front desk: books + views, no records, nothing destructive.
@@ -99,7 +123,22 @@ export function effectiveCapabilities(
 ): Set<Capability> {
   const valid = new Set<string>(CAPABILITIES)
   const source = override ?? presetCapabilities(role)
-  return new Set(source.filter((c): c is Capability => valid.has(c)))
+  const caps = new Set(source.filter((c): c is Capability => valid.has(c)))
+  // recordings.viewAll is owner-only (recorder-private ruling, Liam 7/16) and
+  // is enforced HERE, not just in the presets: a per-staff override stored
+  // before the ruling still carries it, and this function is the single
+  // chokepoint every read path (capabilitiesForUser, cookie + Bearer) and the
+  // override WRITE path (setStaffPermissions) pass through. Stripping at
+  // resolve time self-heals stale rows with no data migration.
+  if (role !== 'owner') caps.delete('recordings.viewAll')
+  // audit.view is deliberately NOT stripped here (grant-honoring flow, Liam
+  // ruling 7/17): owner-only by default because no non-owner PRESET carries it;
+  // a stored override carries it only when the owner ticked the toggle in
+  // StaffForm — that explicit per-staff grant is the sanctioned path to 監査ログ.
+  // Stale pre-#528 snapshots can't smuggle it in: overrides are stored only
+  // when they DIFFER from the preset (setStaffPermissions stores null on
+  // preset match) and the toggle UI was feature-flagged off until #528.
+  return caps
 }
 
 export function can(caps: Set<Capability>, capability: Capability): boolean {

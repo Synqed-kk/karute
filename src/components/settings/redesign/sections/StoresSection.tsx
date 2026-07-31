@@ -32,22 +32,26 @@
 // are never capped (is_unlimited / KARUTE_UNLIMITED_BUSINESS_IDS).
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Building2, Check, Crown, MapPin, Pencil, Plus, Users } from 'lucide-react'
 
+import { businessTypeLabel } from '@/lib/welcome/business-types'
+
 import { Button } from '@/components/ui/button'
 import type { OrgSettings } from '@/actions/org-settings'
-import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId } from '@/actions/stores'
+import { listStores, createStore, updateStore, setActiveStore, getActiveStoreId, type StoreRow } from '@/actions/stores'
 import { getEntitlement } from '@/actions/entitlements'
 import type { Entitlement } from '@/lib/entitlements'
+import { WebOnly } from '@/components/shell/WebOnly'
+import { isNativeShell } from '@/lib/platform'
 
 import { AddStoreSubscriptionDialog } from './stores/AddStoreSubscriptionDialog'
 import {
   StoreFormDialog,
   type StoreFormMode,
 } from './stores/StoreFormDialog'
-import { SubscriptionSummaryCard } from './stores/SubscriptionSummaryCard'
+import { PlanComparisonDialog } from './stores/PlanComparisonDialog'
 import type { Store, StoreFormValues } from './stores/types'
 
 interface StoresSectionProps {
@@ -55,13 +59,42 @@ interface StoresSectionProps {
   /** Whether the viewer is an owner. Add/edit affordances are
    *  owner-only; staff get the read-only list. */
   isOwner?: boolean
+  /** Real stores fetched on the server. When present the list renders complete
+   *  on first paint (no placeholder-then-pop-in) and only the entitlement is
+   *  fetched on mount. Absent → fall back to the old full client fetch. */
+  initialStores?: StoreRow[]
+  initialActiveStoreId?: string | null
+  /** Entitlement fetched on the server — the plan row + add-store gate paint
+   *  with the page (no pop-in). Null/absent → client fetch fallback. */
+  initialEntitlement?: Entitlement | null
+}
+
+// StoreRow (synqed-core shape) → the Store the UI renders.
+function mapStoreRows(rows: StoreRow[]): Store[] {
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    address: r.address ?? '',
+    phone: r.phone ?? '',
+    staffCount: r.staffCount,
+    customerCount: r.customerCount,
+    active: r.active,
+    isPrimary: r.isPrimary,
+    businessType: r.businessType,
+  }))
 }
 
 export function StoresSection({
   orgSettings,
   isOwner = false,
+  initialStores,
+  initialActiveStoreId,
+  initialEntitlement,
 }: StoresSectionProps) {
   const t = useTranslations('settings.stores')
+  const locale = useLocale()
+  const tPlan = useTranslations('settings.stores.plan')
+  const tTier = useTranslations('settings.subscription.tierLabels')
 
   // Synthesize a primary store from orgSettings until Anthony's
   // `stores` table lands. Additional stores append to this list
@@ -78,19 +111,42 @@ export function StoresSection({
         customerCount: 0,
         active: true,
         isPrimary: true,
+        businessType: orgSettings.business_type ?? null,
       },
     ]
   }, [orgSettings, t])
 
-  // Seeded primary renders instantly; refresh() replaces it with the real rows
-  // from the `stores` table (lazily creating the 本店 on first load).
-  const [stores, setStores] = useState<Store[]>(seededStores)
-  const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
-  const [formMode, setFormMode] = useState<StoreFormMode>(null)
-  const [entitlement, setEntitlement] = useState<Entitlement | null>(null)
-  const [activeStoreId, setActiveStoreId] = useState<string>(
-    seededStores[0]?.id ?? 'primary',
+  // Server-provided rows render the real list on first paint (no pop-in). Fall
+  // back to the synthesized primary only when the server didn't supply them.
+  const initialMapped = useMemo<Store[]>(
+    () =>
+      initialStores && initialStores.length > 0
+        ? mapStoreRows(initialStores)
+        : seededStores,
+    [initialStores, seededStores],
   )
+
+  const [stores, setStores] = useState<Store[]>(initialMapped)
+  const [subscriptionStepOpen, setSubscriptionStepOpen] = useState(false)
+  const [planDialogOpen, setPlanDialogOpen] = useState(false)
+  const [formMode, setFormMode] = useState<StoreFormMode>(null)
+  const [entitlement, setEntitlement] = useState<Entitlement | null>(initialEntitlement ?? null)
+  const [activeStoreId, setActiveStoreId] = useState<string>(
+    initialActiveStoreId ??
+      initialMapped.find((s) => s.isPrimary)?.id ??
+      initialMapped[0]?.id ??
+      'primary',
+  )
+
+  // App-store safety (see lib/platform.ts): AddStoreSubscriptionDialog is a
+  // purchase surface, aliased to a null render in the thin bundle
+  // (thin/ports/purchase-excluded.tsx) — opening ONLY that dialog left the
+  // add-store button dead in the shell. Effect-set so SSR/web hydration is
+  // byte-identical (same idiom as PlanComparisonGrid.tsx).
+  const [nativeShell, setNativeShell] = useState(false)
+  useEffect(() => {
+    setNativeShell(isNativeShell())
+  }, [])
 
   const refresh = useCallback(async () => {
     const [rows, persisted, ent] = await Promise.all([
@@ -100,16 +156,7 @@ export function StoresSection({
     ])
     setEntitlement(ent)
     if (rows.length === 0) return
-    const mapped: Store[] = rows.map((r) => ({
-      id: r.id,
-      name: r.name,
-      address: r.address ?? '',
-      phone: r.phone ?? '',
-      staffCount: r.staffCount,
-      customerCount: r.customerCount,
-      active: r.active,
-      isPrimary: r.isPrimary,
-    }))
+    const mapped = mapStoreRows(rows)
     setStores(mapped)
     setActiveStoreId((cur) => {
       if (persisted && mapped.some((s) => s.id === persisted)) return persisted
@@ -118,8 +165,22 @@ export function StoresSection({
   }, [])
 
   useEffect(() => {
-    void refresh()
-  }, [refresh])
+    // With server-seeded stores the list is already complete on first paint, so
+    // only the entitlement (add-store gating) needs a client fetch — skip the
+    // store re-list that caused the placeholder-then-pop-in. Without server
+    // data, fall back to the full client refresh.
+    if (initialStores && initialStores.length > 0) {
+      // Server-seeded entitlement → nothing to fetch; the whole section painted
+      // complete with the page. Only fetch when the server pass failed.
+      if (!initialEntitlement) {
+        void getEntitlement()
+          .then(setEntitlement)
+          .catch((e) => console.error('Failed to load store entitlement', e))
+      }
+    } else {
+      void refresh()
+    }
+  }, [refresh, initialStores, initialEntitlement])
 
   // Persist the switch (cookie via setActiveStore). Optimistic, reverts on error.
   const handleSwitch = async (storeId: string) => {
@@ -132,7 +193,13 @@ export function StoresSection({
   }
 
   const handleFormSave = async (values: StoreFormValues) => {
-    const payload = { name: values.name, address: values.address, phone: values.phone }
+    const payload = {
+      name: values.name,
+      address: values.address,
+      phone: values.phone,
+      // '' (legacy edit, type never chosen) → omit, so validation stays clean.
+      business_type: values.businessType || undefined,
+    }
     if (formMode?.kind === 'add') {
       const res = await createStore(payload)
       if ('error' in res) {
@@ -149,9 +216,19 @@ export function StoresSection({
     await refresh()
   }
 
-  // Real plan gate. Default to allowed before the entitlement loads (and for
-  // dev/owner-unlimited accounts) so we never falsely block the add button.
+  // Plan gate. Defaults to allowed before the entitlement loads so the
+  // "limit reached" banner never flashes during the async fetch. (The add
+  // button itself is gated on multiStoreEnabled below, which requires the
+  // entitlement to be loaded — so this `?? true` no longer affects the button.)
   const canAdd = entitlement?.canAddStore ?? true
+
+  // Per-business visibility gate — replaces the old global
+  // NEXT_PUBLIC_FEATURE_MULTI_STORE env flag, so enabling multi-store for one
+  // salon never exposes the add-store flow to every other salon. Scoped to
+  // is_unlimited (dev / owner / comp) for now; the paid 'unlimited' tiers open
+  // up in step 2, once switching the active store actually filters the app
+  // (today that switch is still render-only).
+  const multiStoreEnabled = !!entitlement && entitlement.isUnlimited
 
   return (
     <div className="space-y-4">
@@ -165,17 +242,55 @@ export function StoresSection({
       />
       <StoreFormDialog
         mode={formMode}
+        defaultBusinessType={orgSettings?.business_type ?? null}
         onClose={() => setFormMode(null)}
         onSave={handleFormSave}
       />
+      <PlanComparisonDialog
+        open={planDialogOpen}
+        onClose={() => setPlanDialogOpen(false)}
+        currentTier={entitlement?.tier}
+        isUnlimited={!!entitlement?.isUnlimited}
+      />
 
-      {/* SubscriptionSummaryCard hidden until Stripe wires up — the
-       *  mock seed renders a fake trial banner that misleads owners
-       *  (`tier: 'trial'`, countdown to 2026-06-15). Gated by the
-       *  same NEXT_PUBLIC_FEATURE_SUBSCRIPTION flag that hides the
-       *  subscription tab. */}
-      {process.env.NEXT_PUBLIC_FEATURE_SUBSCRIPTION === 'true' && (
-        <SubscriptionSummaryCard />
+      {/* Plan surface — the plan/paywall lives here in 店舗 (per Liam's
+       *  IA), not a separate settings tab. Shows the REAL current plan
+       *  from the entitlement (or the unlimited-account state), and the
+       *  「プランを見る・変更」 button opens the tier comparison. Owner-only:
+       *  plan changes are an owner action. Replaces the old
+       *  SubscriptionSummaryCard, whose mock seed showed a fake trial
+       *  countdown (tier: 'trial', ended 2026-06-15). */}
+      {isOwner && entitlement && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-card px-4 py-3.5 ring-1 ring-black/5 dark:ring-white/5">
+          <div className="min-w-0">
+            <div className="text-[12px] font-medium text-muted-foreground">
+              {tPlan('label')}
+            </div>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[15px] font-semibold text-foreground">
+              {entitlement.isUnlimited ? (
+                <>
+                  <Crown className="size-4 text-amber-500" aria-hidden />
+                  {tPlan('unlimitedLabel')}
+                </>
+              ) : (
+                tTier(entitlement.tier)
+              )}
+            </div>
+          </div>
+          {/* App-store safety: the plan-change entry point is web-only (the
+              dialog behind it is a purchase surface). WebOnly never SSRs it,
+              so it can't flash in the shell pre-hydration (audit finding).
+              The current-plan STATUS above stays visible everywhere. */}
+          <WebOnly>
+            <Button
+              variant="outline"
+              onClick={() => setPlanDialogOpen(true)}
+              className="h-9 shrink-0"
+            >
+              {tPlan('viewCta')}
+            </Button>
+          </WebOnly>
+        </div>
       )}
 
       {/* Owner permissions banner — only renders for owners */}
@@ -210,15 +325,19 @@ export function StoresSection({
             </p>
           )}
         </div>
-        {/* "+ 店舗を追加" hidden until multi-store ships. Today the
-         *  flow saves to local React useState only — owner adds Store
-         *  B, switches to it, but no other route filters by
-         *  active_store_id (the column doesn't exist yet either).
-         *  Same flag as subscription gating since the two land
-         *  together (additional seats → subscription change). */}
-        {isOwner && process.env.NEXT_PUBLIC_FEATURE_MULTI_STORE === 'true' && (
+        {/* "+ 店舗を追加" — gated per-business via the entitlement (multiStoreEnabled),
+         *  not a global env flag, so enabling it for one salon never exposes the
+         *  flow to others. createStore persists to the real `stores` table and
+         *  re-enforces the plan cap server-side. NOTE: switching the active store
+         *  is still render-only — no route filters by it yet (step 2).
+         *  Native shell: purchase surfaces are web-only by policy (store
+         *  creation itself is service administration, not a purchase) — skip
+         *  the mock billing-confirm step and open StoreFormDialog directly. */}
+        {isOwner && multiStoreEnabled && (
           <Button
-            onClick={() => setSubscriptionStepOpen(true)}
+            onClick={() =>
+              nativeShell ? setFormMode({ kind: 'add' }) : setSubscriptionStepOpen(true)
+            }
             disabled={!canAdd}
             title={!canAdd ? t('limitReached') : undefined}
             className="h-10 gap-1.5 bg-sage-800 text-white hover:bg-sage-900"
@@ -263,6 +382,14 @@ export function StoresSection({
                             {t('activeBadge')}
                           </span>
                         )}
+                        {(() => {
+                          const typeLabel = businessTypeLabel(store.businessType, locale)
+                          return typeLabel ? (
+                            <span className="inline-flex h-5 items-center rounded-full bg-muted px-1.5 text-[10px] font-medium text-foreground/70 ring-1 ring-border/60">
+                              {typeLabel}
+                            </span>
+                          ) : null
+                        })()}
                       </div>
                       {store.address && (
                         <div className="mt-1 flex items-start gap-1 text-[12px] text-muted-foreground">

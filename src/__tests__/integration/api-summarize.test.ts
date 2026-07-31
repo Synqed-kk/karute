@@ -9,10 +9,23 @@ jest.mock('@/lib/ai-rate-limit', () => ({
   estimateCostCents: jest.fn(() => 1),
 }))
 
-// Supabase server client is used for the org-settings lookup. Return a chain
-// stub so .from().select().limit().single() resolves without a real DB.
+// The plan gate pulls entitlements (native-ESM SDK) — stub the boundary like
+// the rate limiter above. Allowed by default; the gate's own behavior is
+// covered in api-extract.test.ts + subscription-enforcement.test.ts.
+jest.mock('@/lib/subscription/feature-gate', () => ({
+  featureAllowed: jest.fn(async () => true),
+}))
+
+// Mutable auth scenario for the fail-fast guard test below (declared before
+// the jest.mock call it's referenced from — see consent-save-gate.test.ts).
+const authScenario: { user: { id: string } | null } = { user: { id: 'user-1' } }
+
+// Supabase server client is used for the auth guard + the org-settings
+// lookup. Return a chain stub so .from().select().limit().single() resolves
+// without a real DB.
 jest.mock('@/lib/supabase/server', () => ({
   createClient: jest.fn(async () => ({
+    auth: { getUser: jest.fn(async () => ({ data: { user: authScenario.user }, error: null })) },
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
       limit: jest.fn().mockReturnThis(),
@@ -41,6 +54,28 @@ import { mockSummaryResult } from './helpers/openai-mocks'
 describe('POST /api/ai/summarize', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    authScenario.user = { id: 'user-1' }
+  })
+
+  it('returns 401 for anonymous callers before the rate limiter runs (fail-fast auth guard)', async () => {
+    authScenario.user = null
+    const { enforceAiRateLimit } = jest.requireMock('@/lib/ai-rate-limit')
+
+    await testApiHandler({
+      appHandler,
+      test: async ({ fetch }) => {
+        const response = await fetch({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ transcript: 'anything', locale: 'ja' }),
+        })
+
+        expect(response.status).toBe(401)
+        const body = await response.json()
+        expect(body.error).toBe('Unauthorized')
+        expect(enforceAiRateLimit).not.toHaveBeenCalled()
+      },
+    })
   })
 
   it('returns summary for valid transcript', async () => {

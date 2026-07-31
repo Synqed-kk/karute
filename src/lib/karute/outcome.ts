@@ -1,5 +1,5 @@
 import 'server-only'
-import { createServiceClient } from '@/lib/supabase/service'
+import { getSynqedClient } from '@/lib/synqed/client'
 import type { Outcome, DeclineReason } from './outcome-types'
 
 interface SetOutcomeParams {
@@ -15,41 +15,58 @@ interface SetOutcomeParams {
  * Record a session's outcome — the coaching training-data label.
  *
  * BEST-EFFORT: returns `{ error }` on failure and NEVER throws, so the karute
- * save (the critical artifact) is never blocked by an outcome-write failure
- * (e.g. before the migration has run). Callers must not gate the save on it.
+ * save (the critical artifact) is never blocked by an outcome-write failure.
+ * Callers must not gate the save on it.
  *
- * TRANSITIONAL backing: the karute_outcomes table. The signature is the stable
- * contract — when synqed-core gains outcome fields, only this body changes.
- * See docs/karute-session-outcome-spec.md.
+ * Backed by synqed-core (`karute_outcomes`), upserted on karute_record_id within
+ * the caller's business. See docs/karute-session-outcome-spec.md.
  */
+/** setKaruteOutcome on an EXPLICIT business-scoped client — the facade Bearer
+ *  path (packet 07 §Build 3). Same best-effort upsert contract (never throws). */
+export async function setKaruteOutcomeWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'karuteOutcomes'>,
+  params: SetOutcomeParams,
+): Promise<{ error?: string }> {
+  const decided = params.status !== 'pending'
+  try {
+    const now = new Date().toISOString()
+    await synqed.karuteOutcomes.upsert({
+      karute_record_id: params.karuteRecordId,
+      customer_id: params.customerId,
+      outcome: params.status,
+      reason: params.status === 'no_deal' ? (params.reason ?? null) : null,
+      is_first_visit: params.isFirstVisit ?? false,
+      decided_by: decided ? (params.decidedBy ?? null) : null,
+      decided_at: decided ? now : null,
+      auto_decided: false,
+    })
+    return {}
+  } catch (err) {
+    console.error('[outcome] setKaruteOutcomeWithClient failed:', err)
+    return { error: err instanceof Error ? err.message : 'outcome write failed' }
+  }
+}
+
 export async function setKaruteOutcome(
   params: SetOutcomeParams,
 ): Promise<{ error?: string }> {
   const decided = params.status !== 'pending'
   try {
-    const supabase = createServiceClient()
+    const synqed = await getSynqedClient()
     const now = new Date().toISOString()
-    const { error } = await supabase.from('karute_outcomes').upsert(
-      {
-        karute_record_id: params.karuteRecordId,
-        customer_id: params.customerId,
-        outcome: params.status,
-        reason: params.status === 'no_deal' ? (params.reason ?? null) : null,
-        is_first_visit: params.isFirstVisit ?? false,
-        decided_by: decided ? (params.decidedBy ?? null) : null,
-        decided_at: decided ? now : null,
-        auto_decided: false,
-        updated_at: now,
-      },
-      { onConflict: 'karute_record_id' },
-    )
-    if (error) {
-      console.error('[outcome] setKaruteOutcome failed:', error.message)
-      return { error: error.message }
-    }
+    await synqed.karuteOutcomes.upsert({
+      karute_record_id: params.karuteRecordId,
+      customer_id: params.customerId,
+      outcome: params.status,
+      reason: params.status === 'no_deal' ? (params.reason ?? null) : null,
+      is_first_visit: params.isFirstVisit ?? false,
+      decided_by: decided ? (params.decidedBy ?? null) : null,
+      decided_at: decided ? now : null,
+      auto_decided: false,
+    })
     return {}
   } catch (err) {
-    console.error('[outcome] setKaruteOutcome threw:', err)
+    console.error('[outcome] setKaruteOutcome failed:', err)
     return { error: err instanceof Error ? err.message : 'outcome write failed' }
   }
 }
@@ -62,19 +79,32 @@ export interface KaruteOutcomeRow {
   auto_decided: boolean
 }
 
+/** Read a session's outcome on an EXPLICIT business-scoped client — the facade
+ *  Bearer path (packet 07). Best-effort null-on-failure, EXACTLY like the cookie
+ *  reader below (product semantics — a missing/failed outcome is "none recorded",
+ *  the pre-ruled exception to the screen GET's must-502 rule). */
+export async function getKaruteOutcomeWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'karuteOutcomes'>,
+  karuteRecordId: string,
+): Promise<KaruteOutcomeRow | null> {
+  try {
+    const o = await synqed.karuteOutcomes.get(karuteRecordId)
+    if (!o) return null
+    return {
+      outcome: o.outcome as Outcome,
+      reason: o.reason as DeclineReason | null,
+      is_first_visit: o.is_first_visit,
+      decided_at: o.decided_at,
+      auto_decided: o.auto_decided,
+    }
+  } catch {
+    return null
+  }
+}
+
 /** Read a session's outcome (null if none recorded). */
 export async function getKaruteOutcome(
   karuteRecordId: string,
 ): Promise<KaruteOutcomeRow | null> {
-  try {
-    const supabase = createServiceClient()
-    const { data } = await supabase
-      .from('karute_outcomes')
-      .select('outcome, reason, is_first_visit, decided_at, auto_decided')
-      .eq('karute_record_id', karuteRecordId)
-      .maybeSingle()
-    return (data as KaruteOutcomeRow | null) ?? null
-  } catch {
-    return null
-  }
+  return getKaruteOutcomeWithClient(await getSynqedClient(), karuteRecordId)
 }

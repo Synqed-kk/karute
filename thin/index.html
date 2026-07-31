@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ja" data-theme="karute">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Karute</title>
+    <style>
+      /* Root-scroller shell (#648): the page is the vertical scroller. The
+         horizontal clamp lives on the true root — not a wrapper — so
+         full-bleed elements (-mx-4) AND portaled dialogs (Base UI portals to
+         <body>) can never widen the document and retrigger WKWebView's
+         shrink-to-fit rescale; root-level overflow is also what makes Base
+         UI's iOS scroll lock target the element that really scrolls.
+         html ONLY, never body: a non-visible overflow on body makes body a
+         scroll container, and position:sticky descendants (MobileHeader) then
+         stick to body's never-scrolling scrollport instead of the page —
+         header silently stops pinning (caught in the sim battery). */
+      html {
+        overflow-x: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/main.tsx"></script>
+  </body>
+</html>

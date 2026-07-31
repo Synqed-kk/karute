@@ -66,7 +66,7 @@ export function AIBodyPredictionCard({ prediction }: AIBodyPredictionCardProps) 
                     : 'text-muted-foreground'
               }
             >
-              {prediction.delta}
+              {t(`delta.${prediction.delta}`)}
             </span>
           </div>
         )}

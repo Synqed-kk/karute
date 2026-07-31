@@ -1,18 +1,42 @@
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { enforceAiRateLimit } from '@/lib/ai-rate-limit'
-import {
-  transcribeUrlWithDeepgram,
-  transcribeWithDeepgram,
-  type DeepgramTranscribeResult,
-} from '@/lib/deepgram'
+import { featureAllowed } from '@/lib/subscription/feature-gate'
 import { getCurrentUserStaffId } from '@/lib/staff'
-import { createServiceClient } from '@/lib/supabase/service'
-import { identifyStaffSegments } from '@/lib/speaker-id/openai'
-import { mapStaffSpeaker } from '@/lib/speaker-id/align'
-import type { OrgSettings } from '@/actions/org-settings'
 import { getOrgSettings } from '@/actions/org-settings'
+import {
+  runTranscription,
+  speakerIdMode,
+  loadStaffReferenceForStaff,
+} from '@/lib/ai/transcribe'
+import { auditWeb } from '@/lib/audit-web'
 
 export const maxDuration = 300
+
+/**
+ * SSRF guard for the JSON path's caller-supplied audioUrl. The only legitimate
+ * value is a Supabase Storage URL on THIS project's host (the caller uploads the
+ * recording there, then passes the signed URL) — both this route and Deepgram
+ * fetch it server-side, so an unrestricted value could reach internal endpoints
+ * or arbitrary hosts. Require https + an exact host match against
+ * NEXT_PUBLIC_SUPABASE_URL. Anything unparseable or off-host is rejected.
+ *
+ * NOTE: the facade twin `/api/app/v1/ai/transcribe` takes a STORAGE PATH (not a
+ * URL) and mints its own signed READ url after a tenant-prefix check, so this
+ * SSRF surface disappears by construction there (packet 08 Decision 2).
+ */
+function isAllowedAudioUrl(raw: unknown): boolean {
+  if (typeof raw !== 'string') return false
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL
+  if (!base) return false
+  try {
+    const u = new URL(raw)
+    const allowedHost = new URL(base).host
+    return u.protocol === 'https:' && u.host === allowedHost
+  } catch {
+    return false
+  }
+}
 
 /**
  * POST /api/ai/transcribe
@@ -23,24 +47,41 @@ export const maxDuration = 300
  *   Storage and is passing us the signed URL). Deepgram fetches the audio
  *   directly from that URL, so we skip the round-trip through this function.
  *
- * Returns:
- * ```
- * {
- *   transcript: string            // plain text — what karute_records persists
- *   durationSec?: number          // audio length per Deepgram metadata
- *   confidence?: number           // alternative-level confidence (0–1)
- *   words?: Array<{ word, start, end, confidence, speaker? }>
- *   paragraphs?: Array<{ speaker, start, end, text }>  // only when diarized
- * }
- * ```
- *
- * The `transcript` field is the only one existing consumers read; the rest
- * are additive and tied to Deepgram's response. Diarization is controlled by
- * org_settings.speaker_diarization (default true).
+ * The Deepgram + speaker-id body lives in the shared core (packet 08 §Build
+ * 1(ii)) so the facade twin can reuse it; this route resolves the diarize toggle
+ * and the caller's OWN voiceprint reference (cookie identity) and delegates.
  */
 export async function POST(request: Request) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('transcribe')
-  if (limited) return limited
+  if (limited) {
+    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
+    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
+    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
+    // .catch guards a parse failure on the limiter's own body from escaping
+    // this route's error envelope.
+    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
+      status: 429,
+      headers: limited.headers,
+    })
+  }
+  // Plan gate (P4): transcription is the front door of AI karute generation —
+  // same key as extract/summarize. Inert until billing arms (see feature-gate.ts).
+  if (!(await featureAllowed('aiKaruteGeneration'))) {
+    return NextResponse.json(
+      { error: 'PLAN_LOCKED', feature: 'aiKaruteGeneration' },
+      { status: 403 },
+    )
+  }
   try {
     const contentType = request.headers.get('content-type') ?? ''
 
@@ -48,48 +89,36 @@ export async function POST(request: Request) {
     // (matches OrgSettings getter default + spike spec).
     const orgSettings = await getOrgSettings().catch(() => null)
     const diarize = orgSettings?.speaker_diarization !== false
+    const businessType = orgSettings?.business_type ?? null
+    const mode = speakerIdMode()
+    // Voice-isolation: the caller's OWN enrollment clip (cookie identity).
+    const reference =
+      mode === 'off'
+        ? null
+        : await loadStaffReferenceForStaff(orgSettings, await getCurrentUserStaffId())
 
     if (contentType.includes('application/json')) {
       const { audioUrl, locale: loc } = await request.json()
       if (!audioUrl) {
         return NextResponse.json({ error: 'No audioUrl provided' }, { status: 400 })
       }
-      const lang = (loc ?? 'ja') === 'en' ? 'en' : 'ja'
-      const mode = speakerIdMode()
-      const ref = mode === 'off' ? null : await loadStaffReference(orgSettings)
-      // Identify needs the bytes; only fetch when the file is within the
-      // engine's 25MB cap (oversize → heuristic-only, logged via absence).
-      let audioBuf: Buffer | null = null
-      if (ref) {
-        try {
-          const head = await fetch(audioUrl, { method: 'HEAD' })
-          const len = Number(head.headers.get('content-length') ?? '0')
-          if (len > 0 && len <= MAX_IDENTIFY_BYTES) {
-            const r = await fetch(audioUrl)
-            audioBuf = Buffer.from(await r.arrayBuffer())
-          }
-        } catch {
-          audioBuf = null
-        }
+      // SSRF guard: only our Supabase Storage host may be fetched (here + by
+      // Deepgram). Blocks internal-endpoint probing and arbitrary fetches.
+      if (!isAllowedAudioUrl(audioUrl)) {
+        return NextResponse.json({ error: 'Invalid audioUrl' }, { status: 400 })
       }
-      const segsPromise =
-        ref && audioBuf
-          ? identifyStaffSegments({
-              audio: audioBuf,
-              audioMimeType: 'audio/webm',
-              referenceClip: ref,
-              language: lang,
-            })
-          : Promise.resolve(null)
-      const result = await transcribeUrlWithDeepgram(audioUrl, {
-        language: lang,
+      const body = await runTranscription({
+        audio: { url: audioUrl },
+        locale: (loc ?? 'ja') === 'en' ? 'en' : 'ja',
         diarize,
+        reference,
+        mode,
+        businessType,
       })
-      const speakerId = alignAndLog(result, await segsPromise, mode)
-      return NextResponse.json({
-        ...serialize(result),
-        ...(speakerId ? { speakerId } : {}),
-      })
+      // 監査ログ Wave W1 (§3.1 ai.* baseline): logged AFTER transcription
+      // succeeds, before the response — ids-only, no transcript content.
+      await auditWeb({ category: 'recording', action: 'recording.transcribe', requestId: crypto.randomUUID() })
+      return NextResponse.json(body)
     }
 
     const formData = await request.formData()
@@ -101,29 +130,16 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await audioFile.arrayBuffer())
     const mimeType = audioFile.type || 'audio/webm'
 
-    const lang = locale === 'en' ? 'en' : 'ja'
-    const mode = speakerIdMode()
-    const ref = mode === 'off' ? null : await loadStaffReference(orgSettings)
-    // Engine call runs CONCURRENTLY with Deepgram — added wall time is
-    // max(0, engine − deepgram), timeout-capped inside the provider.
-    const segsPromise = ref
-      ? identifyStaffSegments({
-          audio: buffer,
-          audioMimeType: mimeType,
-          referenceClip: ref,
-          language: lang,
-        })
-      : Promise.resolve(null)
-    const result = await transcribeWithDeepgram(buffer, {
-      language: lang,
-      mimeType,
+    const body = await runTranscription({
+      audio: { buffer, mimeType },
+      locale: locale === 'en' ? 'en' : 'ja',
       diarize,
+      reference,
+      mode,
+      businessType,
     })
-    const speakerId = alignAndLog(result, await segsPromise, mode)
-    return NextResponse.json({
-      ...serialize(result),
-      ...(speakerId ? { speakerId } : {}),
-    })
+    await auditWeb({ category: 'recording', action: 'recording.transcribe', requestId: crypto.randomUUID() })
+    return NextResponse.json(body)
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error'
     console.error('[/api/ai/transcribe]', message)
@@ -131,91 +147,5 @@ export async function POST(request: Request) {
       { error: 'Transcription failed', detail: message },
       { status: 500 },
     )
-  }
-}
-
-// ── Speaker-id pass (Stage 1, docs/diarization-stack.md) ────────────────────
-// The logged-in staff's enrollment clip rides to the voice-match engine; the
-// aligner maps the result onto Deepgram's speaker ints. SPEAKER_ID_MODE:
-// 'off' | 'shadow' (compute + log, don't act — the default while ja accuracy
-// is unproven) | 'enforce' (the pipeline's role attribution uses it).
-// HARD RULE: any failure here returns null — transcription never blocks.
-
-type SpeakerIdMode = 'off' | 'shadow' | 'enforce'
-
-function speakerIdMode(): SpeakerIdMode {
-  const m = process.env.SPEAKER_ID_MODE
-  return m === 'off' || m === 'enforce' ? m : 'shadow'
-}
-
-const MAX_IDENTIFY_BYTES = 25 * 1024 * 1024
-
-async function loadStaffReference(
-  orgSettings: OrgSettings | null,
-): Promise<Buffer | null> {
-  try {
-    const staffId = await getCurrentUserStaffId()
-    if (!staffId) return null
-    const e = orgSettings?.voice_enrollments?.[staffId]
-    if (!e || e.status !== 'saved' || !e.ref_path) return null
-    const supabase = createServiceClient()
-    const { data, error } = await supabase.storage
-      .from('recordings')
-      .download(e.ref_path)
-    if (error || !data) return null
-    return Buffer.from(await data.arrayBuffer())
-  } catch {
-    return null
-  }
-}
-
-interface SpeakerIdPayload {
-  staffSpeakerIndex: number
-  confidence: number
-  ambiguous: boolean
-  provider: 'openai'
-  mode: SpeakerIdMode
-}
-
-function alignAndLog(
-  result: DeepgramTranscribeResult,
-  segments: Awaited<ReturnType<typeof identifyStaffSegments>>,
-  mode: SpeakerIdMode,
-): SpeakerIdPayload | null {
-  if (!segments) return null
-  const match = mapStaffSpeaker(result.words, segments)
-  if (!match) return null
-  const heuristicStaff = result.paragraphs[0]?.speaker ?? null
-  // The shadow log IS the bake-off benchmark harness — keep it structured.
-  console.log(
-    '[speaker-id]',
-    JSON.stringify({
-      mode,
-      heuristicStaff,
-      voiceprintStaff: match.staffSpeakerIndex,
-      confidence: Number(match.confidence.toFixed(3)),
-      ambiguous: match.ambiguous,
-      agree: heuristicStaff === match.staffSpeakerIndex,
-      durationSec: Math.round(result.durationSec),
-    }),
-  )
-  return {
-    staffSpeakerIndex: match.staffSpeakerIndex,
-    confidence: match.confidence,
-    ambiguous: match.ambiguous,
-    provider: 'openai',
-    mode,
-  }
-}
-
-// Strip empty arrays so the response stays small when Deepgram doesn't
-// return word-level data (which can happen on very short clips).
-function serialize(result: DeepgramTranscribeResult) {
-  return {
-    transcript: result.transcript,
-    durationSec: result.durationSec,
-    confidence: result.confidence,
-    ...(result.words.length ? { words: result.words } : {}),
-    ...(result.paragraphs.length ? { paragraphs: result.paragraphs } : {}),
   }
 }

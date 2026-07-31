@@ -1,28 +1,19 @@
 import { getLocale, getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getOrgSettings } from '@/actions/org-settings'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { CustomersListView } from '@/components/customers/redesign/list/CustomersListView'
-import type { CustomerListRow } from '@/components/customers/redesign/types'
 import {
-  defaultAiPredict,
-  resolveCustomerStatus,
-  customerVisitCount,
   enrichCustomers,
-  effectiveLastVisitIso,
-  formatCompactDate,
-  formatJoinDate,
-  formatLastVisit,
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
-import {
-  assignSequentialKaruteNumbers,
-  deriveFamilyInitials,
-} from '@/lib/customers/identity'
+import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
 import { listAllCustomers } from '@/lib/customers/list-all'
+import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
-import { listAllLifecycles, listAllPackUsage } from '@/lib/packs/store'
-import { daysSince, resolvePackAlert } from '@/lib/packs/resolve'
+import { listAllLifecycles, listAllPackUsage, listBurnRedemptions } from '@/lib/packs/store'
+import { monthlyBurnByCustomer } from '@/lib/packs/burn'
 
 export default async function CustomersPage({
   searchParams,
@@ -33,7 +24,16 @@ export default async function CustomersPage({
   const query = rawQuery ?? ''
 
   const t = startTiming(`customers q="${query}"`)
-  const synqed = await getSynqedClient()
+  // Both are independent — getSynqedClient hits the auth layer while
+  // resolveStoreScope reads capabilities + the active-store cookie; resolve in
+  // parallel. The scope is the view lens for the 顧客 list: a cross-store viewer
+  // gets their pinned store (null = all), a branch-restricted staff is clamped
+  // to their own store (and search stays scoped via enforceStore).
+  const [synqed, scope] = await Promise.all([
+    getSynqedClient(),
+    resolveStoreScope(),
+  ])
+  const enforceStore = scope.allowedStoreIds != null
 
   // Locale + translated relative-time strings, pulled once at page level
   // and threaded into the (synchronous) formatters so JP users see
@@ -44,6 +44,8 @@ export default async function CustomersPage({
     t.phase('customers.list', () =>
       listAllCustomers(synqed, {
         search: query.trim() || undefined,
+        store_id: scope.storeId,
+        enforceStore,
         sort_by: 'updated_at',
         sort_order: 'desc',
       }),
@@ -64,138 +66,63 @@ export default async function CustomersPage({
     monthsAgo: (n) => lvT('monthsAgo', { n }),
   }
 
-  const staffNameById = new Map(
-    staffList.map((s) => [s.id, s.full_name ?? 'Unknown']),
-  )
-
   const customerIds = list.customers.map((c) => c.id)
   // Pack usage + lifecycle load in parallel with the enrichment — both come
   // back as empty maps until the ticket_packs migration applies (graceful).
-  const [enrichment, packUsage, lifecycles] = await Promise.all([
+  const [enrichment, packUsageRaw, lifecycles, orgSettings, burnRows] = await Promise.all([
     t.phase('enrichCustomers', () => enrichCustomers(businessId, customerIds)),
     listAllPackUsage(),
     listAllLifecycles(),
+    getOrgSettings(),
+    listBurnRedemptions(),
   ])
   t.end()
 
-  // Sequential per-tenant karute numbers — sorted by created_at so the
-  // oldest customer gets #00001, etc. Computed in-memory until Anthony
-  // adds the real `customers.karute_number` column. Same helper used on
-  // the profile page so a customer's number is consistent across views.
-  const karuteNumberById = assignSequentialKaruteNumbers(list.customers)
+  // Row adaptation is shared with the facade screen endpoint — moved verbatim
+  // to buildCustomersListScreen (packet 04) so web + mobile derive identical
+  // rows from one source of truth.
+  const screen = buildCustomersListScreen({
+    list,
+    staffList,
+    locale,
+    lastVisitStrings,
+    enrichment,
+    packUsage: packUsageRaw,
+    lifecycles,
+    ticketPacksEnabled: orgSettings?.ticket_packs_enabled ?? true,
+  })
 
-  const rows: CustomerListRow[] = list.customers.map((c) => {
-    const enriched = enrichment.get(c.id)
-    // SDK-skew: local Customer type lags the API's QR fields — cast to read them.
-    const qr = c as typeof c & {
-      is_existing_customer?: boolean
-      visit_count?: number
-      has_ticket_pack?: boolean
-      last_visit_at?: string | null
-    }
-    const lastVisitIso = effectiveLastVisitIso(
-      enriched?.lastVisitIso,
-      qr.last_visit_at,
+  // Clamp the 担当 filter pills to the active store's staff (floating staff
+  // included). Filtered AFTER buildCustomersListScreen so row 担当 names keep
+  // resolving business-wide — only the picker narrows.
+  const storeStaffIds = await storeStaffIdSet(staffList, scope.storeId)
+  const pickerStaff = storeStaffIds
+    ? screen.staffList.filter((s) => storeStaffIds.has(s.id))
+    : screen.staffList
+
+  // 今月消化 per-customer yen — plain Record (RSC boundary: no Maps). null =
+  // core unreachable → hidden everywhere. Unpriceable customers (orphaned
+  // packs) hide the stat only in views that contain them — the view stays
+  // exact, and one store's data problem can't blank the whole business.
+  const burn = burnRows ? monthlyBurnByCustomer(burnRows) : null
+  if (burn && burn.unpricedCustomers.length > 0) {
+    console.warn(
+      `[packs] burn: ${burn.unpricedCustomers.length} customer(s) have unpriceable redemptions (orphaned packs) — 今月消化 hidden where they appear`,
     )
-    const usage = packUsage.get(c.id)
-    const lifecycle = lifecycles.get(c.id)
-    // SINGLE SOURCE: same signals + same resolver the profile/recording/agenda
-    // use, so the badge + 来店 count match everywhere for this customer.
-    // hasTicketPack = QR flag OR a real ticket_packs ledger entry.
-    const hasNextBooking = !!enriched?.nextAppointmentIso
-    const statusSignals = {
-      joinDateIso: c.created_at,
-      lastVisitIso,
-      hasUpcomingBooking: hasNextBooking,
-      isExistingCustomer: qr.is_existing_customer,
-      visitCount: qr.visit_count,
-      karuteCount: enriched?.totalKarute,
-      pastAppointmentCount: enriched?.pastAppointmentCount,
-      hasTicketPack: (qr.has_ticket_pack ?? false) || (usage?.hasActivePack ?? false),
-      // Staff lifecycle decision (卒業/離客) — outranks cadence in the resolver
-      // so closed cases never fake-render as 休眠/要フォロー.
-      lifecycleStatus: lifecycle?.status,
-    }
-    const status = resolveCustomerStatus(statusSignals)
-    const last = formatLastVisit(lastVisitIso, locale, lastVisitStrings)
-    // The displayed 来店 count = the unified visit count (max of QR visits +
-    // recorded karute), not the karute count alone — matches the profile.
-    const totalKarute = customerVisitCount(statusSignals)
-    // 回数券 line + alert — resolvePackAlert is the single source (chopstick);
-    // the dashboard/alert surfaces (P3b) reuse these identical inputs.
-    const packAlert = usage
-      ? resolvePackAlert({
-          remainingTotal: usage.remaining,
-          hasActivePack: usage.hasActivePack,
-          daysSinceLastVisit: daysSince(lastVisitIso),
-          hasNextBooking,
-          lifecycleStatus: lifecycle?.status,
-        })
-      : null
-    return {
-      id: c.id,
-      name: c.name,
-      initials: deriveFamilyInitials(c.name),
-      karuteNumber: karuteNumberById.get(c.id) ?? '#00000',
-      // Stubs — these fields don't exist on the customer record yet.
-      age: null,
-      gender: null,
-      joinDate: formatJoinDate(c.created_at, locale),
-      joinDateIso: c.created_at ?? null,
-      lastVisitDate: last.date,
-      lastVisitAgo: last.ago,
-      lastVisitService: enriched?.lastVisitService ?? null,
-      aiPredict: defaultAiPredict(status),
-      status,
-      preferredStaffId: c.assigned_staff_id ?? null,
-      preferredStaffName: c.assigned_staff_id
-        ? (staffNameById.get(c.assigned_staff_id) ?? null)
-        : null,
-      bookingStaffId: enriched?.bookingStaffId ?? null,
-      bookingStaffName: enriched?.bookingStaffId
-        ? (staffNameById.get(enriched.bookingStaffId) ?? null)
-        : null,
-      totalKarute,
-      phone: c.phone,
-      pack: usage?.hasActivePack
-        ? {
-            remaining: usage.remaining,
-            size: usage.size,
-            unconsumed: usage.unconsumed,
-          }
-        : null,
-      packAlert,
-      // 案1: the list speaks in DAYS (前回 …6日前 / 登録 2日前); the one
-      // calendar date that earns list space is the FUTURE booking, weekday
-      // included (予約 6/15(火)) to match the reservation surfaces.
-      joinAgo: formatLastVisit(c.created_at ?? null, locale, lastVisitStrings)
-        .ago,
-      nextBookingDate: formatCompactDate(
-        enriched?.nextAppointmentIso ?? null,
-        locale,
-        new Date(),
-        { withWeekday: true },
-      ),
-    }
-  })
-
-  // Project the staff roster into the lightweight shape the filter pills
-  // need (id + display name + initials). Initials reuse `deriveInitials`
-  // so the same algorithm runs for both customer avatars and staff pills
-  // — kanji names get a single-char initial, ASCII names get first+last.
-  const staffForFilter = staffList.map((s) => {
-    const name = s.full_name ?? 'Unknown'
-    return { id: s.id, name, initials: deriveFamilyInitials(name) }
-  })
+  }
+  const burnByCustomer = burn?.byCustomer ?? null
+  const burnUnpricedIds = burn?.unpricedCustomers ?? []
 
   return (
     <CustomersListView
-      rows={rows}
-      totalRegistered={list.total}
+      rows={screen.rows}
+      totalRegistered={screen.totalRegistered}
       query={query}
       selfStaffId={activeStaffId}
-      bookingDataAvailable={enrichment.size > 0}
-      staffList={staffForFilter}
+      bookingDataAvailable={screen.bookingDataAvailable}
+      staffList={pickerStaff}
+      burnByCustomer={burnByCustomer}
+      burnUnpricedIds={burnUnpricedIds}
     />
   )
 }

@@ -34,3 +34,66 @@ export function stripQrPrefix(notes: string | null | undefined): string {
   if (!notes) return ''
   return notes.replace(QR_NOTES_PREFIX_RE, '').trim()
 }
+
+/** A bare QR back-reference with NO memo behind it: `QR #123`, `QR #123 |`,
+ *  `QR #123 | ` — the sync writes this when the QuickReserve reservation had
+ *  no memo. Distinct from QR_NOTES_PREFIX_RE, which requires the pipe. */
+const QR_BARE_TAG_RE = /^\s*QR\s*#\d+\s*\|?\s*$/
+
+/**
+ * The HUMAN memo content of a notes field, or null when there is none.
+ * The QR back-reference is sync plumbing — it must never be shown as
+ * 「ご予約時のメモ」 nor fed to the AI as the customer's booking words
+ * (production bug: the brief displayed "QR #328091" as the memo while the
+ * customer's real QuickReserve intake memo sat unused on customer.notes).
+ */
+export function memoContent(notes: string | null | undefined): string | null {
+  if (!notes) return null
+  if (QR_BARE_TAG_RE.test(notes)) return null
+  const stripped = stripQrPrefix(notes)
+  return stripped || null
+}
+
+// ── QuickReserve intake-memo structure ──────────────────────────────────────
+// La Estro's staff type a semi-structured intake into the QR booking memo
+// ("▶症状:… ▶ゴール:… ▶セルフ:…"). Both the カルテ customer tab (BookingMemoCard)
+// and the pre-session briefing (PreSessionBriefCard) parse it into labeled rows,
+// so the parse lives here — single-sourced next to stripQrPrefix, which it uses —
+// and both surfaces stay in lock-step on the format.
+
+/** QR memo keys → display labels. Unknown keys fall back to the raw key. */
+export const QR_MEMO_LABELS: Record<string, string> = {
+  回数: '回数券',
+  症状: '症状・お悩み',
+  既往: '既往歴',
+  ゴール: 'ゴール',
+  セルフ: 'セルフケア',
+  参考: '備考',
+}
+
+export interface QrMemoRow {
+  label: string
+  value: string
+}
+
+/**
+ * Parse "▶key:value▶key:value" (optionally prefixed "QR #id | ") into labeled
+ * rows. Returns null when there's no ▶ structure so the caller can fall back to
+ * rendering the raw text. Segment order is preserved; empty values are KEPT here
+ * (as ''), so each caller decides how to present them — the customer tab shows a
+ * dash, the briefing omits them.
+ */
+export function parseQrMemo(raw: string): QrMemoRow[] | null {
+  const body = stripQrPrefix(raw)
+  if (!body.includes('▶')) return null
+  return body
+    .split('▶')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((seg) => {
+      const m = seg.match(/^([^:：]+)[:：]\s*([\s\S]*)$/)
+      if (!m) return { label: '', value: seg }
+      const key = m[1].trim()
+      return { label: QR_MEMO_LABELS[key] ?? key, value: m[2].trim() }
+    })
+}

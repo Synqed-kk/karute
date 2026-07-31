@@ -50,6 +50,18 @@ describe('StaffSelector (担当トリガー)', () => {
     fireEvent.click(screen.getAllByText('原田 かなみ').at(-1)!)
     expect(calls).toEqual(['all'])
   })
+  it('renders as an anchored dropdown (listbox) and closes on outside tap', () => {
+    render(
+      <div>
+        <span data-testid="outside">outside</span>
+        <StaffSelector staffList={STAFF} selected="all" onChange={() => {}} />
+      </div>,
+    )
+    fireEvent.click(screen.getByText('担当'))
+    expect(screen.getByRole('listbox')).toBeInTheDocument()
+    fireEvent.mouseDown(screen.getByTestId('outside'))
+    expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
+  })
   it('全スタッフ row selects all', () => {
     const calls: string[] = []
     render(<StaffSelector staffList={STAFF} selected="s1" onChange={(n) => calls.push(n)} />)

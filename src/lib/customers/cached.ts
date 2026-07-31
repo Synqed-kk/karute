@@ -21,13 +21,24 @@ export interface CachedCustomerOption {
    *  顧客 list/profile do, instead of mislabeling 回数券 holders as 新規. */
   visitCount: number
   hasTicketPack: boolean
+  /** Real chart number from core. snake_case on purpose: assignSequentialKaruteNumbers
+   *  reads this exact key structurally — carrying it means every cached-list consumer
+   *  (agenda, recording picker, dashboard) shows the real number instead of the
+   *  sort-index fallback (#00370 vs #00374 bug). */
+  karute_number: number | null
 }
 
 // businessId is the cache key — Next includes function args in the key automatically,
 // so each tenant gets its own entry. The static tag lets mutation actions invalidate
 // every tenant's entry with a single revalidateTag('customers') call.
 const customerListByBusiness = unstable_cache(
-  async (businessId: string): Promise<CachedCustomerOption[]> => {
+  // storeId is optional AND part of the cache key (Next keys on args):
+  // undefined = the business-wide list every existing caller gets; a store id =
+  // that store's server-filtered lens (core derives membership from events).
+  async (
+    businessId: string,
+    storeId?: string,
+  ): Promise<CachedCustomerOption[]> => {
     const baseUrl = process.env.SYNQED_CORE_URL
     const apiKey = process.env.SYNQED_CORE_API_KEY
     if (!baseUrl || !apiKey) {
@@ -43,6 +54,7 @@ const customerListByBusiness = unstable_cache(
         page_size: 500,
         sort_by: 'name',
         sort_order: 'asc',
+        store_id: storeId,
       })
       return { items: result.customers, total: result.total }
     })
@@ -54,6 +66,7 @@ const customerListByBusiness = unstable_cache(
         is_existing_customer?: boolean
         visit_count?: number
         has_ticket_pack?: boolean
+        karute_number?: number | null
       }
       return {
         id: c.id,
@@ -62,10 +75,11 @@ const customerListByBusiness = unstable_cache(
         created_at: c.created_at,
         visitCount: qr.visit_count ?? 0,
         hasTicketPack: qr.has_ticket_pack ?? false,
+        karute_number: qr.karute_number ?? null,
       }
     })
   },
-  ['cached-customer-list-v3'],
+  ['cached-customer-list-v4'],
   { revalidate: 60, tags: ['customers'] },
 )
 
@@ -76,4 +90,26 @@ const customerListByBusiness = unstable_cache(
 export async function getCachedCustomerList(): Promise<CachedCustomerOption[]> {
   const businessId = await getBusinessId()
   return customerListByBusiness(businessId)
+}
+
+/**
+ * businessId-EXPLICIT variant — does NOT read auth (cookies), so it's safe to
+ * call from inside an `unstable_cache` body. The notification feed deriver uses
+ * it to cache its enrichment pass per business without an auth read in the
+ * cache context. Same 60s cache + 'customers' tag as `getCachedCustomerList`.
+ *
+ * Pass storeId to get that store's server-filtered lens instead of the
+ * business-wide list (the caller resolves it via resolveStoreScope — never a
+ * raw cookie).
+ */
+export function getCachedCustomerListFor(
+  businessId: string,
+  storeId?: string,
+): Promise<CachedCustomerOption[]> {
+  // Arity matters: unstable_cache keys on the REAL argument array, so passing
+  // an explicit `undefined` would fork a second cache entry for the same
+  // business-wide list that getCachedCustomerList() populates.
+  return storeId === undefined
+    ? customerListByBusiness(businessId)
+    : customerListByBusiness(businessId, storeId)
 }

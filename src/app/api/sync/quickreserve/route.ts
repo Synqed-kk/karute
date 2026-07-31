@@ -1,328 +1,67 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { SynqedClient, SynqedError } from '@synqed-kk/client'
-import { createServiceClient } from '@/lib/supabase/service'
+import { NextResponse } from 'next/server'
 import { getBusinessId } from '@/lib/staff'
-import { qrLogin, qrGetReservations, mapReservation } from '@/lib/quickreserve'
-import { qrAppointmentWrite } from '@/lib/sync/qr-appointment'
-import { resolveByQrIdentity, buildCustomerIndex, candidatesFor, addToIndex } from '@/lib/sync/qr-identity'
-import { paginateDedupe } from '@/lib/customers/paginate'
+import { getSynqedClient } from '@/lib/synqed/client'
+import { auditWeb } from '@/lib/audit-web'
+import { getMyCapabilities, ensureCapability } from '@/lib/auth/require-permission'
+import { errorBody, toAppApiError } from '@/lib/app-api/errors'
 
 export const maxDuration = 300
 
 /**
- * Sync bookings from Quick Reserve into synqed-core (the source of truth the
- * app reads from). Called by Vercel cron (daily) or manually.
+ * Manual "今すぐ同期" — delegates the QuickReserve crawl to synqed-core, which
+ * owns the (encrypted) QR credentials and the reservation→appointment sync
+ * (find-or-create customer by QR id, upsert by reservation id, orphan-cancel).
  *
- * `sync_config` (provider credentials + last-run status) still lives in
- * Supabase — it's config, not customer/booking data. Everything the app
- * actually renders — customers, staff matching, appointments — goes through
- * synqed-core. Writing to the legacy Supabase tables here would land bookings
- * in tables nobody reads post-migration (they'd never show in the UI).
+ * Scheduled syncs are dispatched by core's own cron (every 15 min, per each
+ * tenant's interval + business hours), so karute no longer runs the crawl or
+ * carries a sync cron itself — see synqed-core /v1/sync/cron/dispatch.
+ *
+ * Capability gate + audit row bring this in line with the facade twin
+ * (src/app/api/app/v1/sync/run/route.ts, FACADE_AUDIT_MAP['sync.run']) —
+ * contract §3.1, PR-M2: this business-wide trigger was reachable by ANY
+ * signed-in staff before, ungated and unlogged.
  */
-export async function GET(request: NextRequest) {
-  const authHeader = request.headers.get('authorization')
-  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+export async function POST() {
+  try {
+    await getBusinessId()
+  } catch {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  // Cron only runs when auto-sync is enabled.
-  const syncResult = await runSync({ requireEnabled: true })
-
-  // Also run cleanup on cron
-  try {
-    const cleanupRes = await fetch(new URL('/api/cleanup', request.url))
-    console.log('[Cron] Cleanup:', await cleanupRes.json())
-  } catch {}
-
-  return syncResult
-}
-
-// Manual "Sync now" from Settings runs regardless of the auto-sync toggle —
-// `enabled` only gates the cron, not an explicit user-initiated sync.
-export async function POST() {
-  return runSync({ requireEnabled: false })
-}
-
-async function runSync({ requireEnabled }: { requireEnabled: boolean }) {
-  // sync_config (credentials + run status) stays in Supabase — it's config.
-  const supabase = createServiceClient()
 
   try {
-    let query = supabase
-      .from('sync_config')
-      .select('*')
-      .eq('provider', 'quickreserve')
-    if (requireEnabled) query = query.eq('enabled', true)
-    const { data: config } = await query.single()
+    ensureCapability(await getMyCapabilities(), 'sync.view')
+  } catch (err) {
+    const apiErr = toAppApiError(err)
+    return NextResponse.json(errorBody(apiErr), { status: apiErr.status })
+  }
 
-    if (!config) {
-      return NextResponse.json({
-        message: requireEnabled
-          ? 'QR sync not configured or disabled'
-          : 'QR sync not configured — save your Quick Reserve login first',
-      })
-    }
-
-    // synqed-core is business-scoped, so the sync needs the target business id.
-    // Cron (no user session) must read it from the config row; a manual sync is
-    // initiated by the signed-in owner, so fall back to their business when the
-    // config row carries none. getBusinessId() returns the same id the app reads
-    // with, so synced bookings land in the tenant the UI actually shows.
-    const businessId = config.business_id || (requireEnabled ? null : await getBusinessId())
-    if (!businessId) {
-      return NextResponse.json(
-        { error: 'QR sync requires business_id on sync_config (synqed-core is business-scoped)' },
-        { status: 400 },
-      )
-    }
-    const baseUrl = process.env.SYNQED_CORE_URL
-    const apiKey = process.env.SYNQED_CORE_API_KEY
-    if (!baseUrl || !apiKey) {
-      return NextResponse.json(
-        { error: 'Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY' },
-        { status: 500 },
-      )
-    }
-    const synqed = new SynqedClient({ baseUrl, apiKey, businessId })
-
-    // Login
-    const session = await qrLogin(config.username, config.password_encrypted)
-
-    // Sync window: today + the next SYNC_DAYS_AHEAD days, all in JST. QR's
-    // endpoint and the synqed dedup are both per-day, so we iterate calendar
-    // days rather than one wide range — this also keeps each day's existing-
-    // appointments lookup under synqed's 200-row page cap.
-    const SYNC_DAYS_AHEAD = 14
-    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000)
-    const baseDate = nowJst.toISOString().split('T')[0] // today (JST) as YYYY-MM-DD
-    const baseUtcMidnight = new Date(`${baseDate}T00:00:00Z`).getTime()
-    const dates = Array.from({ length: SYNC_DAYS_AHEAD + 1 }, (_, i) =>
-      new Date(baseUtcMidnight + i * 86400000).toISOString().split('T')[0],
-    )
-
-    const storeSlug = config.base_url || 'la-estro'
-    const storeId = config.store_id || 222
-
-    // synqed staff name → synqed staff id (synqed appointments FK on staff.id).
-    // Fetched once and shared across the whole window.
-    const { staff } = await synqed.staff.list({ page_size: 200 })
-    const staffByName = new Map<string, string>()
-    // synqed staff name → linked Supabase profile id (user_id). 指名 is stored
-    // on Customer.assigned_staff_id, which the app reads as a profile id, so a
-    // staff with no linked profile resolves to null and is skipped (no FK risk).
-    const staffProfileIdByName = new Map<string, string | null>()
-    for (const s of staff) {
-      if (s.name) {
-        staffByName.set(s.name, s.id)
-        staffProfileIdByName.set(s.name, (s as { user_id?: string | null }).user_id ?? null)
-      }
-    }
-
-    // QR staff id → name, accumulated from the schedule itself (every
-    // reservation embeds its assigned Staff), so 指名 needs no separate roster
-    // call. Resolves nominated_staff_id → name → synqed staff → profile id.
-    const qrStaffNameById = new Map<number, string>()
-    const resolveNominatedProfileId = (qrStaffId: number | null): string | null => {
-      if (qrStaffId == null) return null
-      const qrName = qrStaffNameById.get(qrStaffId)
-      if (!qrName) return null
-      for (const [name, profileId] of staffProfileIdByName) {
-        if (name.includes(qrName) || qrName.includes(name)) return profileId
-      }
-      return null
-    }
-
-    // Identity indexes for find-or-create. Paged to COMPLETION (synqed clamps
-    // page_size at 500) so a returning customer beyond the first page is MATCHED,
-    // not re-created — the dup-mint root cause (654 customers, 187 minted in a day).
-    // Indexed by name / exact phone / exact email; resolveByQrIdentity decides and
-    // NEVER matches an ambiguous same-name alone (it creates a recoverable row
-    // rather than mis-attribute one person's visit to another).
-    const existingCustomers = await paginateDedupe(async (page) => {
-      const r = await synqed.customers.list({ page, page_size: 500 })
-      return { items: r.customers, total: r.total }
-    })
-    const customerIndex = buildCustomerIndex(existingCustomers)
-
-    const apptKey = (staffId: string, startsAt: string) =>
-      `${staffId}|${new Date(startsAt).getTime()}`
-
-    let created = 0
-    let updated = 0
-    let skipped = 0
-    // Bookings synqed-core rejected as overlapping an existing slot (409).
-    // Counted + skipped instead of crashing the whole run mid-way.
-    let overlapped = 0
-    let total = 0
-    // Existing customers whose visit_count/is_existing_customer we've already
-    // refreshed this run — keep returning customers' counts current without
-    // re-updating them once per reservation.
-    const refreshedCustomerIds = new Set<string>()
-
-    for (const dateStr of dates) {
-      let reservations
-      try {
-        reservations = await qrGetReservations(session, storeSlug, storeId, dateStr)
-      } catch (err) {
-        // One bad day shouldn't sink the rest of the window; dedup makes a
-        // later re-sync of this day safe.
-        console.error(`[QR Sync] Reservation fetch error for ${dateStr}:`, err)
-        continue
-      }
-      total += reservations.length
-      console.log('[QR Sync] Got', reservations.length, 'reservations for', dateStr)
-
-      // Accumulate QR staff (id → name) from this day's schedule so 指名
-      // (nominated_staff_id) can resolve to a name without a roster call.
-      for (const r of reservations) qrStaffNameById.set(r.Staff.id, r.Staff.name)
-
-      // Existing appointments for this JST day, keyed by staff + start instant so
-      // re-runs update rather than duplicate. Normalize the timestamp to epoch ms
-      // so ISO formatting differences between QR and synqed don't break matching.
-      const dayStartIso = new Date(`${dateStr}T00:00:00+09:00`).toISOString()
-      const dayEndIso = new Date(`${dateStr}T23:59:59+09:00`).toISOString()
-      const { appointments: dayAppts } = await synqed.appointments.list({
-        from: dayStartIso,
-        to: dayEndIso,
-        page_size: 200,
-      })
-      const existingByKey = new Map<string, string>()
-      for (const a of dayAppts) existingByKey.set(apptKey(a.staff_id, a.starts_at), a.id)
-
-      for (const qrRes of reservations) {
-        if (qrRes.deleted) { skipped++; continue }
-
-        const mapped = mapReservation(qrRes)
-
-        // Match staff by name (fuzzy)
-        let staffId: string | null = null
-        for (const [name, id] of staffByName) {
-          if (name.includes(mapped.staffName) || mapped.staffName.includes(name)) {
-            staffId = id
-            break
-          }
-        }
-
-        if (!staffId) {
-          console.log(`[QR Sync] No staff match for: ${mapped.staffName}`)
-          skipped++
-          continue
-        }
-
-        // Resolve identity: QR-id (inert until core delegation) → exact phone →
-        // exact email → unambiguous exact name → create. An ambiguous same-name
-        // with no phone/email confirmer CREATES a recoverable row, never guesses.
-        const resolution = resolveByQrIdentity(candidatesFor(customerIndex, mapped))
-        // Surface the two reasons that warrant a human glance: a phone/email that
-        // point at different people, and an ambiguous same-name that we chose to
-        // CREATE (a recoverable row) rather than mis-merge. Silent in prod otherwise.
-        if (resolution.reason === 'phone-email-conflict' || resolution.reason === 'create-ambiguous-name') {
-          console.warn(
-            `[QR Sync] identity ${resolution.reason}: "${mapped.customerName}" (QR customer ${mapped.qrCustomerId})`,
-          )
-        }
-        let customerId = resolution.customerId
-        if (!customerId) {
-          const cust = await synqed.customers.create({
-            name: mapped.customerName,
-            furigana: mapped.customerKana || null,
-            phone: mapped.customerPhone || null,
-            email: mapped.customerEmail || null,
-            notes: mapped.customerNotes || null,
-            is_existing_customer: mapped.isExistingCustomer,
-            visit_count: mapped.customerVisits ?? 0,
-            // 指名: resolve the QR nominated staff → synqed staff → profile id.
-            // Skipped (null) when there's no nomination or no linked profile.
-            assigned_staff_id: resolveNominatedProfileId(mapped.nominatedStaffQrId),
-          })
-          customerId = cust.id
-          // Register the RETURNED row (server's stored values, not the raw QR
-          // strings) so later reservations in THIS run match it instead of minting
-          // again — and so synqed-core's email-dedup (create with an existing email
-          // returns that customer) is indexed under the real row's fields.
-          addToIndex(customerIndex, cust)
-        } else if (!refreshedCustomerIds.has(customerId)) {
-          // Returning customer — refresh the visit count + status once per run.
-          refreshedCustomerIds.add(customerId)
-          await synqed.customers.update(customerId, {
-            is_existing_customer: mapped.isExistingCustomer,
-            visit_count: mapped.customerVisits ?? 0,
-          })
-        }
-
-        const notes = `QR #${mapped.qrId} | ${mapped.customerNotes?.slice(0, 100) ?? ''}`
-        const key = apptKey(staffId, mapped.startTime)
-        const existingId = existingByKey.get(key)
-        // customer_id is in BOTH payloads — so a slot rebooked by a DIFFERENT
-        // customer re-links to them instead of keeping the stale customer (the
-        // cross-customer leak: 崎本's 12:00 booking rendering under 中川's name).
-        const { update: apptUpdate, create: apptCreate } = qrAppointmentWrite(
-          customerId,
-          staffId,
-          mapped,
-          notes,
-        )
-
-        if (existingId) {
-          await synqed.appointments.update(existingId, apptUpdate)
-          updated++
-          continue
-        }
-
-        try {
-          const appt = await synqed.appointments.create(apptCreate)
-          existingByKey.set(key, appt.id)
-          created++
-        } catch (err) {
-          // synqed-core rejects a booking that overlaps an existing slot with a
-          // 409. Without this guard a single overlap (e.g. two QR therapists the
-          // fuzzy matcher collapsed onto one synqed staff) aborts the entire
-          // sync after it already wrote the earlier bookings — so the run looks
-          // like it fails differently on each retry. Skip the overlap, keep going.
-          if (err instanceof SynqedError && err.status === 409) {
-            console.warn(`[QR Sync] Slot overlap, skipping QR #${mapped.qrId}`)
-            overlapped++
-            continue
-          }
-          throw err
-        }
-      }
-    }
-
-    // Update sync status (Supabase config row)
-    await supabase
-      .from('sync_config')
-      .update({
-        last_sync_at: new Date().toISOString(),
-        last_sync_status: 'success',
-        last_sync_error: null,
-      })
-      .eq('id', config.id)
-
+  const synqed = await getSynqedClient()
+  // PR-M5: one id per request — both 2xx emit paths below carry it (this
+  // route landed with PR-M2 mid-wave; the CP5 scan caught the missing
+  // threading at the M5 rebase, exactly as designed).
+  const requestId = crypto.randomUUID()
+  try {
+    const result = await synqed.sync.runNow('QUICKRESERVE')
+    await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
     return NextResponse.json({
       success: true,
-      from: dates[0],
-      to: dates[dates.length - 1],
-      total,
-      created,
-      updated,
-      skipped,
-      overlapped,
+      ...result,
+      // The settings UI shows "created/updated/skipped"; fold core's two skip
+      // buckets so that line stays meaningful.
+      skipped: result.skipped_no_staff + result.skipped_deleted,
     })
-  } catch (error) {
-    console.error('[QR Sync]', error)
-
-    await supabase
-      .from('sync_config')
-      .update({
-        last_sync_at: new Date().toISOString(),
-        last_sync_status: 'error',
-        last_sync_error: error instanceof Error ? error.message : 'Unknown error',
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'Sync failed'
+    // Not-yet-configured is an expected state (owner hasn't saved their QR login),
+    // not a failure — return a friendly message so the panel doesn't show a red
+    // error, matching the pre-delegation behavior. Still a 2xx → still an
+    // audit row (facade parity: FACADE_AUDIT_MAP fires on any 2xx).
+    if (/config not found|no credentials/i.test(message)) {
+      await auditWeb({ category: 'settings', action: 'settings.sync_run_now', targetType: 'business', requestId })
+      return NextResponse.json({
+        message: 'QR sync not configured — save your Quick Reserve login first.',
       })
-      .eq('provider', 'quickreserve')
-
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Sync failed' },
-      { status: 500 }
-    )
+    }
+    return NextResponse.json({ error: message }, { status: 502 })
   }
 }

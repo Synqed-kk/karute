@@ -97,6 +97,14 @@ async function loadFn() {
   return fn
 }
 
+async function loadLookupFn() {
+  let fn!: typeof import('@/lib/synqed/staff-map').lookupSynqedStaffId
+  await jest.isolateModulesAsync(async () => {
+    fn = (await import('@/lib/synqed/staff-map')).lookupSynqedStaffId
+  })
+  return fn
+}
+
 beforeEach(() => {
   jest.resetModules()
   mockStaff = []
@@ -247,6 +255,43 @@ describe('resolveSynqedStaffId — env validation', () => {
     await expect(resolve('profile-1')).rejects.toThrow(
       /Missing SYNQED_CORE_URL or SYNQED_CORE_API_KEY/,
     )
+  })
+})
+
+// The pure-lookup half of the resolver, split out for flows where
+// create-on-miss would be wrong (deleteStaff — Greptile P1 on PR #374:
+// deleting an unmatched staff must not first CREATE a synqed record).
+// Match paths are shared with resolveSynqedStaffId (covered above); what's
+// pinned here is the contract difference: null on no link, and NEVER create.
+describe('lookupSynqedStaffId — pure lookup, no create', () => {
+  it('returns the user_id-matched staff id (same as the resolver path)', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-A', user_id: 'profile-1', email: 'a@x.com' }],
+    })
+    const lookup = await loadLookupFn()
+    await expect(lookup('profile-1')).resolves.toBe('staff-A')
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('returns null (and creates nothing) when a profile has no synqed link', async () => {
+    mockDeps({
+      staff: [{ id: 'staff-A', user_id: 'other', email: 'other@x.com' }],
+      profileName: 'Unlinked Person',
+      profileEmail: 'unlinked@salon.com',
+    })
+    const lookup = await loadLookupFn()
+    await expect(lookup('profile-unlinked')).resolves.toBeNull()
+    expect(staffCreate).not.toHaveBeenCalled()
+  })
+
+  it('returns null (no throw, no create) when the profile itself does not exist', async () => {
+    mockDeps({
+      staff: [],
+      // profileEmail omitted → the profiles row is null
+    })
+    const lookup = await loadLookupFn()
+    await expect(lookup('profile-missing')).resolves.toBeNull()
+    expect(staffCreate).not.toHaveBeenCalled()
   })
 })
 

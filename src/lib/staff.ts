@@ -3,6 +3,7 @@ import { unstable_cache } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { createServiceClient } from '@/lib/supabase/service'
 import { verifySupabaseJwt, LocalJwtError } from '@/lib/auth/local-jwt'
+import { AppApiError } from '@/lib/app-api/errors'
 
 export interface StaffMember {
   id: string
@@ -14,6 +15,10 @@ export interface StaffMember {
   avatar_url?: string | null
   has_pin: boolean
   created_at: string
+  /** True for a roster card with NO login attached (synqed-only row — its id
+   *  is a core staff id, not an auth uid). Permissions/PIN don't exist for it
+   *  yet; surfaces render the honest unlinked state instead of fetching. */
+  unlinked?: boolean
 }
 
 export interface StaffMemberBasic {
@@ -24,46 +29,11 @@ export interface StaffMemberBasic {
 // Inside unstable_cache there's no request context (no cookies → no RLS),
 // so we use the service-role client and filter by businessId explicitly.
 // The cache key includes businessId so tenants never see each other's data.
-const staffListByBusiness = unstable_cache(
-  async (businessId: string): Promise<StaffMember[]> => {
-    const service = createServiceClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data, error } = await (service as any)
-      .from('profiles')
-      .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
-      .eq('customer_id', businessId)
-      .not('full_name', 'is', null)
-      .not('full_name', 'ilike', '_system_%')
-      .order('full_name', { ascending: true })
-
-    if (error) {
-      console.error('[getStaffList] Supabase error:', error.message)
-      return []
-    }
-
-    const profileStaff = (data ?? []).map(
-      ({
-        pin_hash,
-        customer_id: _customer_id,
-        ...rest
-      }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
-        ...rest,
-        has_pin: !!pin_hash,
-      }),
-    ) as StaffMember[]
-
-    // Owner-created teammates land in synqed-core with user_id=null and have
-    // NO Supabase profile row until they sign up (a profile is auto-created on
-    // signup via the on_auth_user_created trigger; the link is then resolved
-    // in src/lib/synqed/staff-map.ts). Reading profiles alone made those
-    // freshly-added staff invisible in the roster — the "add staff → it
-    // vanishes" bug. Append any synqed-core staff not already represented by a
-    // profile row, matched on the same user_id / email link the staff-map
-    // resolver uses. synqed-core stays the authoritative write target; profiles
-    // remain the canonical id + enrichment source for signed-up staff.
-    const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff)
-    return [...profileStaff, ...synqedOnly]
-  },
+// Exported for the facade (Bearer path), which resolves businessId from the
+// verified token. Plain lib module (NOT 'use server') — exporting this adds
+// no client-invocable action endpoint.
+export const staffListByBusiness = unstable_cache(
+  async (businessId: string): Promise<StaffMember[]> => staffListCore(businessId, false),
   // Staff onboarding is a once-in-a-while admin event, not a per-session
   // thing — every karute mutation that changes a staff row (create/update/
   // delete/avatar upload in src/actions/staff.ts) already calls
@@ -75,6 +45,72 @@ const staffListByBusiness = unstable_cache(
   ['staff-list-v2'],
   { revalidate: 86400, tags: ['staff-list'] },
 )
+
+/**
+ * Throwing sibling of {@link staffListByBusiness} for the BFF facade (packet 05
+ * fix round 1): the SAME read + mapping, but a profiles query error OR a
+ * synqed-core roster fetch failure THROWS instead of resolving []. The facade
+ * must never ship a schema-legal 200 with an empty staffList / 'Unknown' names
+ * because a staff read silently failed — upstream failure is a classified 502
+ * (packet-03 failure contract; listSynqedKaruteRowsOrThrow precedent). Web
+ * callers keep the graceful cached version above, INCLUDING its partial
+ * degradation (synqed-core failure → profiles-only roster) — which is why both
+ * share staffListCore with a flag rather than the graceful one delegating
+ * through a single try/catch (that would collapse profiles-only into []).
+ * Uncached: facade requests pay one DB read each (roster reads are cheap; the
+ * unstable_cache layer stays a web concern).
+ */
+export async function staffListByBusinessOrThrow(
+  businessId: string,
+): Promise<StaffMember[]> {
+  return staffListCore(businessId, true)
+}
+
+/** Shared roster assembly — `orThrow` picks the facade (throwing) or web
+ *  (graceful, degrade-to-partial) failure behavior on BOTH internal reads. */
+async function staffListCore(
+  businessId: string,
+  orThrow: boolean,
+): Promise<StaffMember[]> {
+  const service = createServiceClient()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (service as any)
+    .from('profiles')
+    .select('id, full_name, created_at, display_role, position, email, phone, avatar_url, pin_hash, customer_id')
+    .eq('customer_id', businessId)
+    .not('full_name', 'is', null)
+    .not('full_name', 'ilike', '_system_%')
+    .order('full_name', { ascending: true })
+
+  if (error) {
+    if (orThrow) throw new Error(`staff profiles read failed: ${error.message}`)
+    console.error('[getStaffList] Supabase error:', error.message)
+    return []
+  }
+
+  const profileStaff = (data ?? []).map(
+    ({
+      pin_hash,
+      customer_id: _customer_id,
+      ...rest
+    }: { pin_hash?: string | null; customer_id?: string; [key: string]: unknown }) => ({
+      ...rest,
+      has_pin: !!pin_hash,
+    }),
+  ) as StaffMember[]
+
+  // Owner-created teammates land in synqed-core with user_id=null and have
+  // NO Supabase profile row until they sign up (a profile is auto-created on
+  // signup via the on_auth_user_created trigger; the link is then resolved
+  // in src/lib/synqed/staff-map.ts). Reading profiles alone made those
+  // freshly-added staff invisible in the roster — the "add staff → it
+  // vanishes" bug. Append any synqed-core staff not already represented by a
+  // profile row, matched on the same user_id / email link the staff-map
+  // resolver uses. synqed-core stays the authoritative write target; profiles
+  // remain the canonical id + enrichment source for signed-up staff.
+  const synqedOnly = await synqedStaffWithoutProfile(businessId, profileStaff, orThrow)
+  return [...profileStaff, ...synqedOnly]
+}
 
 /**
  * Returns synqed-core staff that have NO matching Supabase profile row yet —
@@ -91,6 +127,7 @@ const staffListByBusiness = unstable_cache(
 async function synqedStaffWithoutProfile(
   businessId: string,
   profileStaff: StaffMember[],
+  orThrow = false,
 ): Promise<StaffMember[]> {
   const baseUrl = process.env.SYNQED_CORE_URL
   const apiKey = process.env.SYNQED_CORE_API_KEY
@@ -128,8 +165,10 @@ async function synqedStaffWithoutProfile(
         avatar_url: s.avatar_url,
         has_pin: false,
         created_at: s.created_at,
+        unlinked: true,
       })) as StaffMember[]
   } catch (err) {
+    if (orThrow) throw err
     console.error('[getStaffList] synqed-core roster fetch failed:', err)
     return []
   }
@@ -212,8 +251,14 @@ export const getCurrentUserStaffId = cache(async (): Promise<string | null> => {
  * Used to scope inserts so RLS allows them. Reads the legacy
  * `profiles.customer_id` column — the legacy schema still names
  * the business column `customer_id` until the legacy-strip lands.
+ *
+ * Wrapped in React cache() (Fable fix-round finding, 2026-07-27): called
+ * twice per request wherever both getBusinessId() and resolveWebAuditContext()
+ * run (e.g. every booking mutation) — without memoization a transient failure
+ * on the SECOND call silently wrote actor_id:null for a fully-known actor.
+ * Same wrapper as getCurrentUserStaffId/getBusinessId in this file.
  */
-async function resolveUserId(): Promise<string> {
+export const resolveUserId = cache(async (): Promise<string> => {
   const supabase = await createClient()
   const jwtSecret = process.env.SUPABASE_JWT_SECRET
 
@@ -237,20 +282,45 @@ async function resolveUserId(): Promise<string> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) throw new Error('Not authenticated')
   return user.id
-}
+})
 
 // Memoized for the lifetime of a single request via React cache(). Called from
 // many places per page (every Supabase scope check, every synqed client init)
 // so deduping the auth + profile lookup is worth the wrapper.
 export const getBusinessId = cache(async (): Promise<string> => {
-  const userId = await resolveUserId()
+  return businessIdForUser(await resolveUserId())
+})
+
+/**
+ * Resolve a user's business id from an EXPLICIT auth-user id — the identity seam
+ * shared by the cookie path (getBusinessId) and the facade Bearer path. This
+ * INDEXED per-request lookup on the primary key (profiles.id) is also the
+ * authoritative membership gate: a user with no profile row in any business has
+ * no active membership and is rejected fail-closed (NOT the 24h roster cache,
+ * which is unfit for a security gate). Throws when there is no membership.
+ */
+export async function businessIdForUser(userId: string): Promise<string> {
   const service = createServiceClient()
-  const { data } = await service
+  const { data, error } = await service
     .from('profiles')
     .select('customer_id')
     .eq('id', userId)
     .single()
 
-  if (!data?.customer_id) throw new Error('Business profile not found')
+  // Distinguish a genuinely-absent membership from a failed lookup. `.single()`
+  // returns PGRST116 when the row does not exist — that IS "no active
+  // membership" (fail-closed 403). ANY OTHER error is a transient lookup /
+  // connection failure and must NOT masquerade as an absent membership: a mobile
+  // client reads membership_inactive as "you were removed", so surface it as a
+  // retryable upstream failure (502) instead of a false eviction.
+  if (error) {
+    if (error.code === 'PGRST116') {
+      throw new AppApiError('membership_inactive', 'No active business membership for this user')
+    }
+    throw new AppApiError('upstream_unavailable', 'Business membership lookup failed')
+  }
+  if (!data?.customer_id) {
+    throw new AppApiError('membership_inactive', 'No active business membership for this user')
+  }
   return data.customer_id
-})
+}

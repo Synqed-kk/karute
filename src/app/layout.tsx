@@ -1,7 +1,8 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Noto_Sans_JP } from "next/font/google";
 import { Toaster } from "sonner";
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { ColdStartOverlay } from "@/components/shell/ColdStartOverlay";
 import "./globals.css";
 
 const inter = Inter({
@@ -24,6 +25,20 @@ const notoSansJP = Noto_Sans_JP({
 export const metadata: Metadata = {
   title: "Karute",
   description: "AI-assisted digital karute for service businesses",
+};
+
+// `viewport-fit=cover` is what activates env(safe-area-inset-*). The mobile
+// header already pads with `pt-[env(safe-area-inset-top)]` and the bottom nav
+// with `pb-[env(safe-area-inset-bottom)]`, but Next's default viewport meta
+// omits viewport-fit, so those insets resolve to 0 — fine in Safari (its own
+// chrome covers the notch/home-bar) but in a bare WKWebView (the iOS TestFlight
+// shell) the header jams under the notch and the nav under the home indicator.
+// Adding cover is a no-op for normal browser usage and is the standard PWA /
+// standalone-display setup, so it is safe for the production web app too.
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -51,6 +66,22 @@ export default function RootLayout({
           {children}
         </ThemeProvider>
         <Toaster />
+        {/* perf(debug) — flag-gated cold-start overlay, see ColdStartOverlay.
+            Separate from the splash handshake below; does not touch it. */}
+        <ColdStartOverlay />
+        {/* Native-shell splash handshake: drop the shell's launch screen on the
+            FIRST PAINTED FRAME (double requestAnimationFrame after this
+            end-of-body script parses) instead of after hydration — pixels beat
+            interactivity by up to ~1s on slow devices. The SplashScreen proxy
+            is injected into the page by the shell itself; normal browsers bail
+            on the first check. global-error.tsx keeps its own hide call (it
+            replaces this layout entirely when the layout crashes). */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "(function(){if(!window.Capacitor)return;requestAnimationFrame(function(){requestAnimationFrame(function(){var p=window.Capacitor.Plugins;p&&p.SplashScreen&&p.SplashScreen.hide&&p.SplashScreen.hide()})})})();",
+          }}
+        />
       </body>
     </html>
   );

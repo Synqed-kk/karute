@@ -1,13 +1,13 @@
-import { createServiceClient } from '@/lib/supabase/service'
+import { SynqedClient } from '@synqed-kk/client'
 import crypto from 'crypto'
 
 /**
- * Simple AI response cache using Supabase.
+ * Simple AI response cache, backed by synqed-core's global `ai_cache`.
  * Caches by a hash of the input to avoid duplicating expensive AI calls.
  *
- * Uses the service-role client (server-only): ai_cache is internal infra, not
- * per-user data, and it's now RLS-locked with no anon policies, so the
- * authenticated browser client can't reach it. Access is server-side only.
+ * The cache is global infra (not per-business), so it uses a no-business client
+ * against core's API-key-gated, business-optional /v1/ai-cache routes. Every op
+ * is best-effort — a miss/error must never break the caller.
  */
 
 function hashKey(input: unknown): string {
@@ -15,21 +15,23 @@ function hashKey(input: unknown): string {
   return crypto.createHash('sha256').update(str).digest('hex').slice(0, 32)
 }
 
+/** A no-business SynqedClient for the global cache (ai-cache routes don't need
+ *  x-business-id). Returns null if core env isn't configured → caller degrades. */
+function cacheClient(): SynqedClient | null {
+  const baseUrl = process.env.SYNQED_CORE_URL
+  const apiKey = process.env.SYNQED_CORE_API_KEY
+  if (!baseUrl || !apiKey) return null
+  return new SynqedClient({ baseUrl, apiKey, businessId: '' })
+}
+
 export async function getCachedAI(prefix: string, input: unknown): Promise<unknown | null> {
   const key = `${prefix}:${hashKey(input)}`
   try {
-    const supabase = createServiceClient()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data } = await (supabase as any)
-      .from('ai_cache')
-      .select('result')
-      .eq('cache_key', key)
-      .gt('expires_at', new Date().toISOString())
-      .single()
-    return data?.result ?? null
+    const client = cacheClient()
+    if (!client) return null
+    return await client.aiCache.get(key)
   } catch {
-    // Cache is best-effort — a missing ai_cache table or a transient error must
-    // never break the caller. Degrade to a cache miss (the caller recomputes).
+    // Cache is best-effort — degrade to a miss (the caller recomputes).
     return null
   }
 }
@@ -37,18 +39,23 @@ export async function getCachedAI(prefix: string, input: unknown): Promise<unkno
 export async function setCachedAI(prefix: string, input: unknown, result: unknown, ttlDays = 7): Promise<void> {
   const key = `${prefix}:${hashKey(input)}`
   try {
-    const supabase = createServiceClient()
+    const client = cacheClient()
+    if (!client) return
     const expiresAt = new Date(Date.now() + ttlDays * 24 * 60 * 60 * 1000).toISOString()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any)
-      .from('ai_cache')
-      .upsert({
-        cache_key: key,
-        result,
-        expires_at: expiresAt,
-        created_at: new Date().toISOString(),
-      }, { onConflict: 'cache_key' })
+    await client.aiCache.upsert({ cache_key: key, result, expires_at: expiresAt })
   } catch {
-    // Best-effort write — never throw on a missing table / transient error.
+    // Best-effort write — never throw on a transient error.
+  }
+}
+
+/** Delete expired cache entries (cron maintenance). Returns the count deleted. */
+export async function cleanupExpiredAiCache(): Promise<number> {
+  try {
+    const client = cacheClient()
+    if (!client) return 0
+    const { deleted } = await client.aiCache.cleanup()
+    return deleted
+  } catch {
+    return 0
   }
 }

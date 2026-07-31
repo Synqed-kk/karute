@@ -10,6 +10,7 @@ interface ExportFilterPanelProps {
   onChange: (next: Record<string, string[]>) => void
   range: string
   onRangeChange: (next: string) => void
+  locale: string
 }
 
 export function ExportFilterPanel({
@@ -18,9 +19,11 @@ export function ExportFilterPanel({
   onChange,
   range,
   onRangeChange,
+  locale,
 }: ExportFilterPanelProps) {
   const t = useTranslations('dataExport')
   const scope = SCOPES[scopeKey]
+  const isJa = locale === 'ja'
 
   const presets = [
     { key: '7d', label: t('preset7d') },
@@ -122,7 +125,7 @@ export function ExportFilterPanel({
       {scope.filters.map((f) => (
         <div key={f.key} className="mb-4 last:mb-0">
           <div className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-[0.14em] mb-2">
-            {f.label}
+            {isJa ? f.labelJa : f.label}
           </div>
           <div className="flex flex-wrap gap-2">
             {f.options.map((opt) => {

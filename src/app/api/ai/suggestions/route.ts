@@ -1,88 +1,83 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { createClient } from '@/lib/supabase/server'
 import { getCachedAI, setCachedAI } from '@/lib/ai-cache'
 import { getOrgSettings } from '@/actions/org-settings'
-import { personaSystemFragment } from '@/lib/karute/business-ai-tokens'
 import { enforceAiRateLimit, reportAiUsage } from '@/lib/ai-rate-limit'
-import { defensivePreamble, wrapUntrustedContent } from '@/lib/ai-safety'
+import { runKaruteSuggestions } from '@/lib/ai/karute-suggestions'
+import { auditWeb } from '@/lib/audit-web'
 
 export const maxDuration = 60
 
 export async function POST(request: NextRequest) {
+  // Explicit fail-fast auth guard (defense-in-depth). Anon already fails closed
+  // downstream via getBusinessId(), but reject before any rate-limit/data work.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   const limited = await enforceAiRateLimit('suggestions')
-  if (limited) return limited
+  if (limited) {
+    // Rewrapped (not returned directly) so the CP7 audit-writer walker sees a
+    // literal 4xx exit — status is always 429 here (enforceAiRateLimit's only
+    // truthy return); body + headers (incl. Retry-After) preserved as-is. The
+    // .catch guards a parse failure on the limiter's own body from escaping
+    // this route's error envelope.
+    return NextResponse.json(await limited.json().catch(() => ({ error: 'rate_limited' })), {
+      status: 429,
+      headers: limited.headers,
+    })
+  }
   try {
     const { transcript, summary, entries, locale } = await request.json()
 
     if (!transcript && !summary) {
+      // 監査ログ Wave W1 (§3.1 ai.* baseline): a completed request, even with
+      // nothing to suggest from — same parity rule as the facade twin, whose
+      // generic hook fires unconditionally on any 2xx.
+      await auditWeb({ category: 'ai', action: 'ai.suggested_message', requestId: crypto.randomUUID() })
       return NextResponse.json({ suggestions: [] })
     }
 
-    const cacheInput = { transcript: transcript?.slice(0, 500), summary, entries, locale }
+    // Business type from synqed-core (was reading a non-existent Supabase table).
+    // The LLM call itself lives in the shared core (packet 08 §Build 1(iii)).
+    const orgSettings = await getOrgSettings().catch(() => null)
+
+    // Key carries the FULL transcript (getCachedAI hashes the input — the old
+    // 500-char slice only created prefix collisions) + businessType: the prompt
+    // is persona-specific, so one persona must never serve another's cache.
+    // Mirrors the facade twin's key exactly.
+    const cacheInput = {
+      transcript,
+      summary,
+      entries,
+      locale,
+      businessType: orgSettings?.business_type ?? null,
+    }
 
     // Check cache
     const cached = await getCachedAI('suggestions', cacheInput)
     if (cached) {
+      await auditWeb({ category: 'ai', action: 'ai.suggested_message', requestId: crypto.randomUUID() })
       return NextResponse.json(cached)
     }
-
-    const langInstruction = locale === 'ja'
-      ? 'Respond entirely in Japanese.'
-      : 'Respond entirely in English.'
-
-    const context = [
-      transcript ? `Transcript:\n${wrapUntrustedContent('transcript', transcript.slice(0, 2000))}` : '',
-      summary ? `Summary: ${wrapUntrustedContent('summary', summary)}` : '',
-      entries?.length > 0
-        ? `Extracted entries:\n${wrapUntrustedContent('entries', entries.map((e: { category: string; title: string }) => `- [${e.category}] ${e.title}`).join('\n'))}`
-        : '',
-    ].filter(Boolean).join('\n\n')
-
-    // Business type from synqed-core (was reading a non-existent Supabase table).
-    const orgSettings = await getOrgSettings().catch(() => null)
-
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
-    const completion = await openai.chat.completions.create({
-      model: process.env.AI_MODEL || 'gpt-4o-mini',
-      messages: [
-        {
-          role: 'system',
-          content: `${personaSystemFragment(orgSettings?.business_type, locale)}\n\nBased on the session transcript and extracted data, generate 3-5 short, actionable suggestions. These could be:
-- Follow-up actions for the staff
-- Product or treatment recommendations for the customer
-- Things to note for the next visit
-- Potential concerns or opportunities
-
-Return as a JSON array of objects with "text" (the suggestion) and "type" (one of: "follow-up", "recommendation", "note", "concern").
-Example: [{"text": "Schedule a follow-up in 2 weeks to check hair condition", "type": "follow-up"}]
-${langInstruction}
-
-${defensivePreamble(locale)}`,
-        },
-        { role: 'user', content: context },
-      ],
-      temperature: 0.7,
-      max_tokens: 500,
-      response_format: { type: 'json_object' },
+    const { result, usage } = await runKaruteSuggestions({
+      transcript,
+      summary,
+      entries,
+      locale,
+      businessType: orgSettings?.business_type,
     })
+    if (usage) void reportAiUsage('suggestions', usage.tokensIn, usage.tokensOut)
 
-    const raw = completion.choices[0]?.message?.content ?? '{}'
-    if (completion.usage) {
-      void reportAiUsage('suggestions', completion.usage.prompt_tokens ?? 0, completion.usage.completion_tokens ?? 0)
-    }
-    try {
-      const parsed = JSON.parse(raw)
-      const suggestions = Array.isArray(parsed.suggestions) ? parsed.suggestions : Array.isArray(parsed) ? parsed : []
-      const result = { suggestions }
+    // Cache for 7 days
+    await setCachedAI('suggestions', cacheInput, result)
 
-      // Cache for 7 days
-      await setCachedAI('suggestions', cacheInput, result)
-
-      return NextResponse.json(result)
-    } catch {
-      return NextResponse.json({ suggestions: [] })
-    }
+    await auditWeb({ category: 'ai', action: 'ai.suggested_message', requestId: crypto.randomUUID() })
+    return NextResponse.json(result)
   } catch (error) {
     console.error('[/api/ai/suggestions]', error)
     return NextResponse.json({ suggestions: [], error: 'Failed to generate suggestions' }, { status: 500 })

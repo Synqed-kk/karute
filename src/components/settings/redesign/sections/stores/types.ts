@@ -37,10 +37,14 @@ export interface Store {
   /** True for the "本店" (main) store — the first one created on
    *  the account. Only one row per business has this true. */
   isPrimary: boolean
+  /** This location's vertical (BUSINESS_TYPES value) — drives the per-store AI
+   *  persona. Null until core's stores.business_type column backfills it. */
+  businessType: string | null
 }
 
 export interface StoreFormValues {
   name: string
   address: string
   phone: string
+  businessType: string
 }

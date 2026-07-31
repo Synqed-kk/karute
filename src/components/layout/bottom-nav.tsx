@@ -13,6 +13,7 @@ import {
   Sparkles,
   Square,
   Upload,
+  UserRound,
   Users,
   Settings,
   Menu as MenuIcon,
@@ -29,20 +30,22 @@ const PRIMARY: Route[] = [
   { href: '/customers', label: 'customers', icon: Users },
 ]
 
-// /coaching + /data-import gated behind feature flags — same
-// rationale as the desktop sidebar (every coaching page renders
-// ScaffoldHint placeholders; data-import drop zone fires
-// console.info on file pick, no upload).
+// /data-import stays flag-gated — its drop zone only fires
+// console.info on file pick (no real upload yet). Coaching is a
+// first-class destination now; the page itself gates its content
+// per-account on the coaching entitlement (unlimited/paid see it,
+// others get an upgrade prompt), so the nav link is always shown.
 const MENU: Route[] = [
   { href: '/dashboard', label: 'dashboard', icon: Home },
-  ...(process.env.NEXT_PUBLIC_FEATURE_COACHING === 'true'
-    ? [{ href: '/coaching' as const, label: 'coaching', icon: GraduationCap }]
-    : []),
+  { href: '/coaching', label: 'coaching', icon: GraduationCap },
   { href: '/ask-ai', label: 'askAi', icon: Sparkles },
   ...(process.env.NEXT_PUBLIC_FEATURE_DATA_IMPORT === 'true'
     ? [{ href: '/data-import' as const, label: 'dataImport', icon: Upload }]
     : []),
   { href: '/data-export', label: 'dataExport', icon: Download },
+  // Own-account profile (name/role/language/logout). Desktop reaches it via
+  // the sidebar footer dropdown; this menu entry is the ONLY mobile path.
+  { href: '/profile', label: 'profile', icon: UserRound },
   { href: '/settings', label: 'settings', icon: Settings },
 ]
 
@@ -55,6 +58,7 @@ const FALLBACK_LABELS: Record<string, string> = {
   askAi: 'Ask AI',
   dataImport: 'Import',
   dataExport: 'Export',
+  profile: 'Profile',
   settings: 'Settings',
   recording: 'Recording',
   menu: 'Menu',
@@ -138,7 +142,7 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
         />
       )}
       <div
-        className={`fixed inset-x-0 bottom-[80px] z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-2 shadow-2xl transition-all duration-200 ${
+        className={`fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-md rounded-2xl border border-border bg-card p-2 shadow-2xl transition-all duration-200 ${
           menuOpen ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-2 opacity-0'
         }`}
       >
@@ -179,8 +183,15 @@ export function BottomNav({ nextCustomer = null, locale = 'ja' }: BottomNavProps
       {/* Bottom tab bar — sits in the layout flex column so iOS Safari /
           in-app browser chrome can't occlude it. Parent layout uses h-dvh
           so the column fits the visible viewport. */}
+      {/* z-40, deliberately UNDER the z-50 sheet/dialog overlays: a full-screen
+       *  scrim must grey the tab bar too (inline overlays like
+       *  CancelBookingSheet render earlier in the DOM, so an equal z-50 here
+       *  would win the tie and paint the bar OVER the open sheet — in the
+       *  thin shell that buried the sheet's bottom actions behind the bar).
+       *  The メニュー scrim/panel above are z-40 EARLIER siblings, so the bar
+       *  still paints over that scrim and the F-9 sheet geometry is unchanged. */}
       <nav
-        className="z-50 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+        className="z-40 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
         aria-label="Primary navigation"
       >
         <div className="relative mx-auto flex h-16 max-w-screen-sm items-stretch px-2">

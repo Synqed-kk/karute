@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { deleteStaff, uploadStaffAvatar } from '@/actions/staff'
+import type { StoreRow } from '@/actions/stores'
 import { StaffConsentStatusBadge } from '@/components/coaching/redesign/StaffConsentStatusBadge'
 import { StaffForm } from './StaffForm'
 import { PinSetup } from './PinSetup'
@@ -53,6 +54,10 @@ interface StaffMember {
   avatar_url?: string | null
   has_pin?: boolean
   created_at: string
+  /** Roster card with no login attached (lib/staff.ts StaffMember.unlinked)
+   *  — threaded to StaffForm so the authority section renders its honest
+   *  state instead of fetching permissions that can't exist. */
+  unlinked?: boolean
   /** ANTHONY: optional fields the spike tracks but karute schema hasn't
    *  added yet. Voice indicator + consent badge render only when these
    *  exist. */
@@ -83,11 +88,22 @@ interface StaffListProps {
   activeStaffId: string | null
   /** The currently logged-in user's staff profile ID */
   currentUserId?: string | null
-  /** Whether the current user is the account owner */
-  isOwner?: boolean
+  /** staff.manage capability — gates add / edit-any / delete. Was `isOwner`;
+   *  widened to the capability so an SV/manager the owner granted staff.manage
+   *  gets the same controls the server already lets them use. A staff member can
+   *  still edit/set-PIN on THEMSELVES regardless (self === currentUserId). */
+  canManageStaff?: boolean
   /** Server-persisted enrollments (org-settings voice_enrollments, status
    *  'saved'): staff profile id → consent_at ISO. */
   voiceEnrollments?: Record<string, string | null>
+  /** Plan staff cap (armed billing only) — shows the N/M meter and locks the
+   *  add button at the limit. Null → no cap UI (today's rendering). */
+  staffCap?: { limit: number; atLimit: boolean } | null
+  /** Threaded down to StaffForm (design-parity packet 12 §S4a, T3) — see
+   *  StaffSection's doc comments for why these replace two client fetches. */
+  businessType?: string
+  stores?: StoreRow[]
+  featureMultiStore?: boolean
 }
 
 function formatJpDate(dateString: string, locale: 'ja' | 'en'): string {
@@ -112,8 +128,12 @@ export function StaffList({
   staffList,
   activeStaffId,
   currentUserId,
-  isOwner = false,
+  canManageStaff = false,
   voiceEnrollments,
+  staffCap,
+  businessType,
+  stores,
+  featureMultiStore,
 }: StaffListProps) {
   const ts = useTranslations('settings')
   const tc = useTranslations('common')
@@ -141,8 +161,11 @@ export function StaffList({
     )
     if (!confirmed) return
     try {
-      await deleteStaff(staff.id)
+      const res = await deleteStaff(staff.id)
+      if (res?.error) toast.error(res.error) // translated (permission / last-member guard)
     } catch (err) {
+      // deleteStaff no longer throws for user-facing failures; this catches a
+      // transport-level rejection only.
       toast.error(err instanceof Error ? err.message : tStaff('failedToDelete'))
     }
   }
@@ -157,13 +180,27 @@ export function StaffList({
           {ts('staffMembers')}
         </h3>
         <p className="text-xs text-muted-foreground">
-          {ts('staffCountSuffix', { n: staffList.length })}
+          {staffCap
+            ? ts('staffCountWithLimit', {
+                n: staffList.length,
+                limit: staffCap.limit,
+              })
+            : ts('staffCountSuffix', { n: staffList.length })}
         </p>
+        {/* Plan cap reached — the button below locks; the server enforces the
+            same gate (staffAddAllowed), this is just the honest heads-up. */}
+        {staffCap?.atLimit && canManageStaff && (
+          <p className="mt-0.5 text-xs text-amber-700 dark:text-amber-400">
+            {ts('staffLimitHint')}
+          </p>
+        )}
       </div>
-      {isOwner && (
+      {canManageStaff && (
         <Button
           size="sm"
           onClick={() => setShowCreateForm(true)}
+          disabled={staffCap?.atLimit}
+          title={staffCap?.atLimit ? ts('staffLimitHint') : undefined}
           className="inline-flex h-9 items-center gap-1.5"
         >
           <UserPlus className="size-4" aria-hidden />
@@ -185,6 +222,9 @@ export function StaffList({
           <StaffForm
             mode="create"
             onClose={() => setShowCreateForm(false)}
+            businessType={businessType}
+            stores={stores}
+            featureMultiStore={featureMultiStore}
           />
         )}
       </div>
@@ -214,9 +254,14 @@ export function StaffList({
                 key={staff.id}
                 staff={staff}
                 isActive={staff.id === activeStaffId}
-                canEdit={isOwner || staff.id === currentUserId}
-                canDelete={isOwner && staff.display_role !== 'owner'}
-                canSetPin={isOwner || staff.id === currentUserId}
+                // Edit is a MANAGE surface (updateStaff requires staff.manage).
+                // Self-service name/position editing belongs on /profile, not
+                // here — including self led straight to updateStaff's rejection.
+                canEdit={canManageStaff}
+                canDelete={canManageStaff && staff.display_role !== 'owner'}
+                // PIN + voice stay self-service: setStaffPin returns a clean
+                // error contract (no throw) and a staff member manages their own.
+                canSetPin={canManageStaff || staff.id === currentUserId}
                 onEdit={() => setEditingStaff(staff)}
                 onSetPin={() => setPinSetupStaff(staff)}
                 onDelete={() => handleDelete(staff)}
@@ -254,7 +299,13 @@ export function StaffList({
       </div>
 
       {showCreateForm && (
-        <StaffForm mode="create" onClose={() => setShowCreateForm(false)} />
+        <StaffForm
+          mode="create"
+          onClose={() => setShowCreateForm(false)}
+          businessType={businessType}
+          stores={stores}
+          featureMultiStore={featureMultiStore}
+        />
       )}
 
       {editingStaff && (
@@ -267,7 +318,11 @@ export function StaffList({
             email: editingStaff.email ?? '',
             phone: editingStaff.phone ?? '',
             avatarUrl: editingStaff.avatar_url ?? undefined,
+            unlinked: editingStaff.unlinked,
           }}
+          businessType={businessType}
+          stores={stores}
+          featureMultiStore={featureMultiStore}
           onClose={() => setEditingStaff(null)}
         />
       )}

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import {
   SCOPES,
+  GROUP_LABELS_JA,
   defaultColumnsFor,
   type ScopeKey,
 } from '@/lib/export/scopes'
@@ -24,6 +25,7 @@ interface ExportColumnsPickerProps {
   selected: string[]
   onChange: (next: string[]) => void
   privacy: boolean
+  locale: string
 }
 
 export function ExportColumnsPicker({
@@ -31,16 +33,18 @@ export function ExportColumnsPicker({
   selected,
   onChange,
   privacy,
+  locale,
 }: ExportColumnsPickerProps) {
   const t = useTranslations('dataExport')
   const scope = SCOPES[scopeKey]
+  const isJa = locale === 'ja'
   const [expanded, setExpanded] = useState(true)
   const [search, setSearch] = useState('')
 
   const grouped = useMemo(() => {
     const filtered = scope.columns.filter(
       (c) =>
-        c.label.toLowerCase().includes(search.toLowerCase()) ||
+        (isJa ? c.labelJa : c.label).toLowerCase().includes(search.toLowerCase()) ||
         c.key.toLowerCase().includes(search.toLowerCase()),
     )
     const map: Record<string, typeof scope.columns> = {}
@@ -49,7 +53,7 @@ export function ExportColumnsPicker({
       map[c.group].push(c)
     }
     return map
-  }, [scope, search])
+  }, [scope, search, isJa])
 
   function toggle(key: string) {
     const col = scope.columns.find((c) => c.key === key)
@@ -146,7 +150,10 @@ export function ExportColumnsPicker({
                     ? 'bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
                     : 'bg-blue-500/10 border border-blue-500/30 text-blue-700 dark:text-blue-300'
                 }`}
-                title={c.label + (c.pii ? ' · contains PII' : '')}
+                title={
+                  (isJa ? c.labelJa : c.label) +
+                  (c.pii ? (isJa ? ' · 個人情報を含む' : ' · contains PII') : '')
+                }
               >
                 {c.pii &&
                   (privacy ? (
@@ -198,7 +205,7 @@ export function ExportColumnsPicker({
             {Object.entries(grouped).map(([group, cols]) => (
               <div key={group} className="mb-2">
                 <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground mb-1.5">
-                  {group}
+                  {isJa ? (GROUP_LABELS_JA[group] ?? group) : group}
                 </div>
                 <ul className="flex flex-col">
                   {cols.map((col) => {
@@ -236,7 +243,7 @@ export function ExportColumnsPicker({
                             {col.key}
                           </span>
                           <span className="text-[11.5px] text-muted-foreground truncate flex-1">
-                            {col.label}
+                            {isJa ? col.labelJa : col.label}
                           </span>
                           <span className="flex items-center gap-1 shrink-0">
                             {col.required && (

@@ -10,6 +10,8 @@ import { CustomerSearchInput } from './CustomerSearchInput'
 import {
   CustomersStatusFilters,
   applyCustomerFilter,
+  applyPackRemainingFilter,
+  PACK_REMAINING_OPTIONS,
   type CustomerListFilterKey,
   type CustomerListCounts,
 } from './CustomersStatusFilters'
@@ -44,6 +46,18 @@ interface CustomersListViewProps {
   selfStaffId: string | null
   /** Booking enrichment loaded? false → the 予約なし stat hides (honesty gate). */
   bookingDataAvailable?: boolean
+  /**
+   * Per-customer 今月消化 yen (this month-to-date + previous month same
+   * window), keyed by customer id. null = burn data unavailable → the strip
+   * hides the stat (honesty gate — a partial sum must never render).
+   */
+  burnByCustomer?: Record<string, { mtd: number; prev: number }> | null
+  /**
+   * Customers whose in-window burns could not be priced (orphaned packs).
+   * The stat hides in any view that CONTAINS one of them (its sum would be
+   * partial); views without them stay exact.
+   */
+  burnUnpricedIds?: string[]
   /**
    * Full tenant staff roster (id + display name). Fed in from the server
    * page so the staff-filter pills can render every stylist, not just the
@@ -80,6 +94,8 @@ export function CustomersListView({
   selfStaffId,
   staffList,
   bookingDataAvailable = true,
+  burnByCustomer = null,
+  burnUnpricedIds = [],
   karuteContext = false,
   hrefBase = '/customers',
   heading,
@@ -93,7 +109,7 @@ export function CustomersListView({
   const router = useRouter()
   const pathname = usePathname()
   const VALID_FILTERS: CustomerListFilterKey[] = [
-    'all', 'newRecent', 'followup', 'dormant', 'noBooking', 'packLow',
+    'all', 'newRecent', 'followup', 'dormant', 'noBooking',
   ]
   const [statusFilter, setStatusFilter] = useState<CustomerListFilterKey>(() => {
     const f = searchParams.get('f') as CustomerListFilterKey | null
@@ -102,6 +118,23 @@ export function CustomersListView({
   const [staffFilter, setStaffFilter] = useState<StaffFilterKey>(
     () => (searchParams.get('s') as StaffFilterKey | null) ?? 'all',
   )
+  // 残数 chips (?r=1,3) — multi-select union over exact remaining counts.
+  const [packFilter, setPackFilter] = useState<ReadonlySet<number>>(() => {
+    // Legacy ?f=packLow (the pre-redesign 残り1回 stat wrote it) migrates to
+    // the 残１ bit — an old bookmark keeps filtering AND keeps a visible,
+    // tap-to-clear control instead of silently narrowing the list.
+    if (searchParams.get('f') === 'packLow') return new Set([1])
+    const r = searchParams.get('r')
+    if (!r) return new Set()
+    const valid: readonly number[] = PACK_REMAINING_OPTIONS
+    return new Set(r.split(',').map(Number).filter((n) => valid.includes(n)))
+  })
+  const togglePackFilter = (n: number) =>
+    setPackFilter((prev) => {
+      const next = new Set(prev)
+      if (!next.delete(n)) next.add(n)
+      return next
+    })
   const [page, setPage] = useState(() =>
     Math.max(0, (parseInt(searchParams.get('p') ?? '1', 10) || 1) - 1),
   )
@@ -113,16 +146,18 @@ export function CustomersListView({
     else next.delete('f')
     if (staffFilter !== 'all') next.set('s', String(staffFilter))
     else next.delete('s')
+    if (packFilter.size > 0) next.set('r', [...packFilter].sort().join(','))
+    else next.delete('r')
     const qs = next.toString()
     router.replace((pathname + (qs ? `?${qs}` : '')) as never, { scroll: false })
-  }, [page, statusFilter, staffFilter, pathname, router])
+  }, [page, statusFilter, staffFilter, packFilter, pathname, router])
 
   // Reset to page 1 whenever the filter changes — otherwise switching
   // to a smaller result set could leave the viewer stranded on an
   // out-of-range page (or worse, an apparently empty list).
   useEffect(() => {
     setPage(0)
-  }, [statusFilter, staffFilter, query])
+  }, [statusFilter, staffFilter, packFilter, query])
 
   // DISTINCT staff-color map, derived from the FULL tenant roster (the same
   // `staffList` that feeds the staff-filter pills). Computing it once here —
@@ -138,54 +173,115 @@ export function CustomersListView({
   // — the pill number and the filtered list can never disagree. Previously the
   // predicates were hand-duplicated here and had already drifted (the 新規 pill
   // counted by join date alone → 192/192 after the bulk import).
+  // ── Faceted counts (Liam 7/17: every number = "what happens if I tap
+  // this?", nothing frozen at business-wide totals while filters are on).
+  // Convention: a control's count is computed with every OTHER dimension's
+  // active filter applied, but NOT its own dimension — so within a dimension
+  // you always see what switching would give you. The three dimensions are
+  // status (segments + 予約なし), 残数 (bits, multi-select) and staff; the
+  // search query is already applied server-side to `rows`, so every count
+  // inherits it. INVARIANT (pinned by tests): tapping a control with count N
+  // yields exactly N rows, given the other current selections.
+
+  // Match the DISPLAYED 担当: a customer's 指名 (preferredStaffId) if set,
+  // else the staff on their booking (bookingStaffId). Without the fallback
+  // the pills filtered on 指名 only — so QR-synced customers (no 指名, but a
+  // real booking staff) dropped out of every specific-staff filter even
+  // though their card shows that staff as 担当.
+  const staffRows = useMemo(() => {
+    if (staffFilter === 'all') return rows
+    const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
+    if (!targetId) return rows
+    return rows.filter(
+      (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
+    )
+  }, [rows, staffFilter, selfStaffId])
+
+  // Status-dimension counts (segments + 予約なし): staff ∧ 残数 applied.
+  const rowsForStatusCounts = useMemo(
+    () => applyPackRemainingFilter(staffRows, packFilter),
+    [staffRows, packFilter],
+  )
   const counts: CustomerListCounts = useMemo(
     () => ({
-      all: applyCustomerFilter(rows, 'all').length,
-      newRecent: applyCustomerFilter(rows, 'newRecent').length,
+      all: rowsForStatusCounts.length,
+      newRecent: applyCustomerFilter(rowsForStatusCounts, 'newRecent').length,
+      followup: applyCustomerFilter(rowsForStatusCounts, 'followup').length,
+      dormant: applyCustomerFilter(rowsForStatusCounts, 'dormant').length,
+      noBooking: applyCustomerFilter(rowsForStatusCounts, 'noBooking').length,
+    }),
+    [rowsForStatusCounts],
+  )
+  // Existence baseline from the UNFILTERED set: 要フォロー/休眠 segments hide
+  // only when the status doesn't exist at all (pre-import), never because the
+  // current slice happens to hit 0 — otherwise segments would vanish and the
+  // bar would reflow mid-filtering.
+  const baselineCounts = useMemo(
+    () => ({
       followup: applyCustomerFilter(rows, 'followup').length,
       dormant: applyCustomerFilter(rows, 'dormant').length,
-      noBooking: applyCustomerFilter(rows, 'noBooking').length,
-      packLow: applyCustomerFilter(rows, 'packLow').length,
     }),
     [rows],
   )
 
-  // Kitano's sheet-top stats, live from row memory (案D header). The counts
-  // reuse applyCustomerFilter so the strip number and the tapped list can
-  // never disagree; ¥ and hasPackData are simple folds.
+  // 残数-dimension counts (bits): staff ∧ status applied. Buckets are
+  // disjoint, so with multi-select the visible list is exactly the sum of
+  // the selected bits' counts.
+  const rowsForPackCounts = useMemo(
+    () =>
+      applyCustomerFilter(staffRows, statusFilter).map((i) => staffRows[i]),
+    [staffRows, statusFilter],
+  )
+  const packCounts = useMemo(() => {
+    const m: Record<number, number> = {}
+    for (const n of PACK_REMAINING_OPTIONS)
+      m[n] = rowsForPackCounts.filter((r) => r.pack?.remaining === n).length
+    return m
+  }, [rowsForPackCounts])
+
+  // Full view: all three dimensions.
+  const filteredRows = useMemo(
+    () => applyPackRemainingFilter(rowsForPackCounts, packFilter),
+    [rowsForPackCounts, packFilter],
+  )
+
+  // Kitano's sheet-top stats. 未消化 ¥ follows the CURRENT view (the stranded
+  // money in what you're looking at — 残１×予約なし shows the call-list's yen,
+  // not the shop total); the 予約なし % denominator is the status-dimension
+  // scope. globalTotal + the honesty gates stay UNFILTERED — they gate
+  // whether surfaces render at all and must not vanish mid-filter.
   const stats: ListStats = useMemo(
     () => ({
-      total: rows.length,
+      globalTotal: rows.length,
+      scopedTotal: rowsForStatusCounts.length,
       noBooking: counts.noBooking,
-      packLow: counts.packLow,
-      unconsumedTotal: rows.reduce(
+      unconsumedTotal: filteredRows.reduce(
         (sum, r) => sum + (r.pack?.unconsumed ?? 0),
         0,
       ),
+      // 今月消化 follows the same view-scoping rule as 未消化: the yen the
+      // CURRENTLY visible customers burned, so both ¥ figures describe the
+      // same list (faceted-counts contract, #534).
+      burnMtd: burnByCustomer
+        ? filteredRows.reduce((sum, r) => sum + (burnByCustomer[r.id]?.mtd ?? 0), 0)
+        : 0,
+      burnPrev: burnByCustomer
+        ? filteredRows.reduce((sum, r) => sum + (burnByCustomer[r.id]?.prev ?? 0), 0)
+        : 0,
+      hasBurnData: burnByCustomer != null,
+      // View-scoped honesty gate: an unpriceable customer IN this view makes
+      // its sum partial → hide. Out of view, the sum stays exact → show.
+      burnUnpriceable:
+        burnUnpricedIds.length > 0 &&
+        (() => {
+          const unpriced = new Set(burnUnpricedIds)
+          return filteredRows.some((r) => unpriced.has(r.id))
+        })(),
       hasPackData: rows.some((r) => r.pack != null),
       hasBookingData: bookingDataAvailable,
     }),
-    [rows, counts.noBooking, counts.packLow, bookingDataAvailable],
+    [rows, rowsForStatusCounts.length, counts.noBooking, filteredRows, bookingDataAvailable, burnByCustomer, burnUnpricedIds],
   )
-
-  // Filter composition: status filter (existing) AND staff filter (new).
-  // Order doesn't matter for correctness — both are simple predicates.
-  const filteredRows = useMemo(() => {
-    const indices = applyCustomerFilter(rows, statusFilter)
-    const afterStatus = indices.map((i) => rows[i])
-    if (staffFilter === 'all') return afterStatus
-    const targetId = staffFilter === 'self' ? selfStaffId : staffFilter
-    if (!targetId) return afterStatus
-    // Match the DISPLAYED 担当: a customer's 指名 (preferredStaffId) if set,
-    // else the staff on their booking (bookingStaffId). Without the fallback
-    // the pills filtered on 指名 only — so QR-synced customers (no 指名, but a
-    // real booking staff) dropped out of every specific-staff filter even
-    // though their card shows that staff as 担当. The 指名あり *chip* still
-    // counts preferredStaffId only — booked ≠ nominated.
-    return afterStatus.filter(
-      (r) => (r.preferredStaffId ?? r.bookingStaffId) === targetId,
-    )
-  }, [rows, statusFilter, selfStaffId, staffFilter])
 
   // Slice the filtered list into the current page's window. `page` is
   // clamped against the latest filtered length so a stale state can't
@@ -225,21 +321,35 @@ export function CustomersListView({
         stats={stats}
         active={statusFilter}
         onSelect={setStatusFilter}
+        packCounts={packCounts}
+        packFilter={packFilter}
+        onPackToggle={togglePackFilter}
       />
 
       <CustomersStatusFilters
         active={statusFilter}
         onChange={setStatusFilter}
         counts={counts}
+        baselineCounts={baselineCounts}
       />
 
       {filteredRows.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center">
+          {/* Three empty states, not two: a filter that matches nobody must
+           *  NOT show the first-run onboarding copy (「最初の顧客を作成…」)
+           *  while 450 customers exist — it shows "no match, clear filters"
+           *  (reachable via a 0-count 残n bit or an empty staff filter). */}
           <p className="text-sm font-medium text-foreground">
-            {query ? t('noMatch', { query }) : tCustomers('empty.title')}
+            {query
+              ? t('noMatch', { query })
+              : rows.length > 0
+                ? t('filterNoMatch')
+                : tCustomers('empty.title')}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {query ? t('noMatchHint') : tCustomers('empty.description')}
+            {query || rows.length > 0
+              ? t('noMatchHint')
+              : tCustomers('empty.description')}
           </p>
         </div>
       ) : (

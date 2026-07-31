@@ -26,14 +26,17 @@ interface ExportFormatPickerProps {
   scopeKey: ScopeKey
   value: FormatKey
   onChange: (key: FormatKey) => void
+  locale: string
 }
 
 export function ExportFormatPicker({
   scopeKey,
   value,
   onChange,
+  locale,
 }: ExportFormatPickerProps) {
   const t = useTranslations('dataExport')
+  const isJa = locale === 'ja'
 
   return (
     <section>
@@ -60,7 +63,9 @@ export function ExportFormatPicker({
               }`}
               title={
                 !supported
-                  ? t('notAvailableFor', { scope: SCOPES[scopeKey].label })
+                  ? t('notAvailableFor', {
+                      scope: isJa ? SCOPES[scopeKey].labelJa : SCOPES[scopeKey].label,
+                    })
                   : undefined
               }
             >
@@ -78,10 +83,10 @@ export function ExportFormatPicker({
                 )}
               </div>
               <div className="text-[11.5px] text-muted-foreground leading-snug mt-1">
-                {fmt.sub}
+                {isJa ? fmt.subJa : fmt.sub}
               </div>
               <div className="text-[10.5px] text-muted-foreground/70 font-mono mt-0.5">
-                {fmt.meta}
+                {isJa ? fmt.metaJa : fmt.meta}
               </div>
             </button>
           )

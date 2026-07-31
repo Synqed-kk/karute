@@ -4,7 +4,9 @@ import { z } from 'zod'
 import { revalidatePath, updateTag } from 'next/cache'
 import { getTranslations } from 'next-intl/server'
 import { getSynqedClient } from '@/lib/synqed/client'
+import { requireCapability } from '@/lib/auth/require-permission'
 import { RECORDING_CONSENT_POLICY_VERSION } from '@/lib/consent'
+import { auditWeb } from '@/lib/audit-web'
 
 // ---------------------------------------------------------------------------
 // Backend error → user-facing message
@@ -63,6 +65,34 @@ const CustomerFormSchema = z.object({
 })
 
 type CustomerFormInput = z.infer<typeof CustomerFormSchema>
+
+// Strict partial-update schema (packet 03, gap 3). The old partial path forwarded
+// `input as Record<string, unknown>` straight to synqed-core — any caller-supplied
+// key (e.g. tenant/business columns, visit counters) rode through unchecked.
+// `.strict()` REJECTS unknown keys so only these whitelisted, typed fields are
+// ever written on a partial update.
+const PartialCustomerSchema = z
+  .object({
+    name: z.string().min(1, 'Name is required').max(100),
+    furigana: z.string().max(100),
+    phone: z.string().max(20),
+    email: z.string().email('Invalid email address').or(z.literal('')),
+    notes: z.string().max(4000),
+    assigned_staff_id: z.string().max(100),
+    date_of_birth: z.string().max(10),
+    gender: z.string().max(10),
+    occupation: z.string().max(100),
+    member_number: z.string().max(100),
+  })
+  .partial()
+  .strict()
+
+export type PartialCustomerInput = z.infer<typeof PartialCustomerSchema>
+
+// Fields whose '' sentinel means "clear to null" at the core boundary.
+const NULLABLE_PARTIAL_KEYS: (keyof PartialCustomerInput)[] = [
+  'furigana', 'phone', 'email', 'assigned_staff_id', 'date_of_birth', 'gender', 'occupation', 'member_number',
+]
 
 // ---------------------------------------------------------------------------
 // Return type
@@ -129,6 +159,16 @@ export async function createCustomer(input: CustomerFormInput): Promise<ActionRe
     revalidatePath('/customers')
     updateTag('customers')
 
+    // Success only, after the write settles (never on the collision return above).
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.create',
+      targetType: 'customer',
+      targetId: customer.id,
+      severity: 'info',
+      requestId: crypto.randomUUID(),
+    })
+
     return { success: true, id: customer.id, ...(duplicateWarning ? { duplicateWarning } : {}) }
   } catch (err) {
     // Keep the raw error in the server log so Anthony can debug; show
@@ -160,6 +200,17 @@ export async function createQuickCustomer(
     revalidatePath('/customers')
     updateTag('customers')
 
+    // Quick-create is the same customer.create action as the full form
+    // (packet 30 §2) — one create pathway, one action name.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.create',
+      targetType: 'customer',
+      targetId: customer.id,
+      severity: 'info',
+      requestId: crypto.randomUUID(),
+    })
+
     return { success: true, id: customer.id, name: customer.name }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
@@ -189,52 +240,39 @@ export async function listAssignableStaff(): Promise<{ id: string; name: string 
 // updateCustomer
 // ---------------------------------------------------------------------------
 
-export async function updateCustomer(id: string, input: CustomerFormInput | Record<string, unknown>): Promise<ActionResult> {
+/**
+ * Shared update service — takes an EXPLICIT business-scoped client so BOTH the
+ * web server action (cookie identity) AND the facade PATCH handler (Bearer
+ * identity) run the identical strict validation + core write. All input goes
+ * through PartialCustomerSchema.strict(): unknown keys are rejected, never
+ * forwarded (packet 03, gap 3). Presence-guarded so a partial save (e.g. a
+ * booking-memo `{ notes }`) never wipes fields it didn't send.
+ */
+export async function updateCustomerWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  id: string,
+  input: Record<string, unknown>,
+): Promise<ActionResult> {
+  const parsed = PartialCustomerSchema.safeParse(input)
+  if (!parsed.success) {
+    return { success: false, error: parsed.error.issues.map((e) => e.message).join(', ') }
+  }
+  const data = parsed.data
+
+  const patch: Record<string, unknown> = {}
+  for (const [key, value] of Object.entries(data)) {
+    // '' clears a nullable field to null; name/notes pass through as-is.
+    patch[key] = (NULLABLE_PARTIAL_KEYS as string[]).includes(key)
+      ? (value as string) || null
+      : value
+  }
+
   try {
-    const synqed = await getSynqedClient()
-
-    if ('name' in input && typeof input.name === 'string') {
-      const parsed = CustomerFormSchema.safeParse(input)
-      if (!parsed.success) {
-        return {
-          success: false,
-          error: parsed.error.issues.map((e) => e.message).join(', '),
-        }
-      }
-      const { name, furigana, phone, email } = parsed.data
-      await synqed.customers.update(id, {
-        name,
-        furigana: furigana || null,
-        phone: phone || null,
-        email: email || null,
-        ...(('notes' in input && input.notes !== undefined) ? { notes: input.notes as string } : {}),
-        // 指名スタッフ: only touch it when the form actually sent the field, so
-        // partial updates (e.g. booking-memo saves) can't accidentally clear a
-        // customer's assigned stylist. '' → null (指名なし).
-        ...(('assigned_staff_id' in input)
-          ? { assigned_staff_id: (input.assigned_staff_id as string) || null }
-          : {}),
-        // 生年月日 / 性別 — presence-guarded so partial updates don't wipe them.
-        // The edit form seeds current values, so a normal save preserves them.
-        ...(('date_of_birth' in input)
-          ? { date_of_birth: (input.date_of_birth as string) || null }
-          : {}),
-        ...(('gender' in input) ? { gender: (input.gender as string) || null } : {}),
-        ...(('occupation' in input)
-          ? { occupation: (input.occupation as string) || null }
-          : {}),
-        ...(('member_number' in input)
-          ? { member_number: (input.member_number as string) || null }
-          : {}),
-      })
-    } else {
-      // Partial update
-      await synqed.customers.update(id, input as Record<string, unknown>)
-    }
-
-    revalidatePath('/customers')
-    revalidatePath(`/customers/${id}`)
-    updateTag('customers')
+    await synqed.customers.update(id, patch)
+    // No cache invalidation here: updateTag is Server-Action-only (throws from
+    // a Route Handler), and the customer PATCH facade route calls this core
+    // directly — the write would land but the response would report failure.
+    // The web wrapper below owns revalidatePath/updateTag.
     return { success: true, id }
   } catch (err) {
     console.error('[updateCustomer] backend error:', err)
@@ -242,39 +280,131 @@ export async function updateCustomer(id: string, input: CustomerFormInput | Reco
   }
 }
 
-// ---------------------------------------------------------------------------
-// deleteCustomer
-// ---------------------------------------------------------------------------
+export async function updateCustomer(
+  id: string,
+  input: CustomerFormInput | Record<string, unknown>,
+): Promise<ActionResult> {
+  const synqed = await getSynqedClient()
+  const result = await updateCustomerWithClient(synqed, id, input as Record<string, unknown>)
+  if (result.success) {
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    updateTag('customers')
+    // Web-only emit: the facade PATCH pathway already logs customer.edit via
+    // FACADE_AUDIT_MAP ('customer.update' → mutation) — updateCustomerWithClient
+    // is the SHARED core both callers use, so the writer stays here, not there,
+    // to avoid double-logging the facade path.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.edit',
+      targetType: 'customer',
+      targetId: id,
+      severity: 'info',
+      requestId: crypto.randomUUID(),
+    })
+  }
+  return result
+}
 
-export async function deleteCustomer(id: string): Promise<ActionResult> {
+// ---------------------------------------------------------------------------
+// 30-day customer deletion (schedule / cancel) — APPI erasure flow
+// ---------------------------------------------------------------------------
+// The old immediate deleteCustomer action is GONE (it was UI-unreachable, its
+// appointment pre-delete loop is obsolete since core owns the cascade, and as
+// an exported server action it was an unaudited instant-delete bypass of this
+// window). NO hard delete exists anywhere (Liam ruling 2026-07-19: core
+// retains all customer data permanently) — deleted_at only hides the customer
+// from the app; the 30-day window bounds the in-app undo, nothing more.
+
+/** Read deleted_at off an SDK customer row. SDK-skew cast (same pattern as
+ *  first_visit_at in queries.ts): the field shipped in core/SDK 1.13. */
+function customerDeletedAt(c: object): string | null {
+  return (c as { deleted_at?: string | null }).deleted_at ?? null
+}
+
+async function emitDeletionAudit(
+  action: 'privacy.customer_delete_scheduled' | 'privacy.customer_delete_canceled',
+  customerId: string,
+): Promise<void> {
+  // Inline actor/business resolution — auditWeb() arrives with PR #539; this
+  // stays dependency-free of that parked branch.
+  const { audit } = await import('@/lib/audit')
+  const { getCurrentUserStaffId, getBusinessId } = await import('@/lib/staff')
+  audit({
+    category: 'privacy',
+    action,
+    actorId: await getCurrentUserStaffId().catch(() => null),
+    actorType: 'staff',
+    businessId: await getBusinessId().catch(() => null),
+    targetType: 'customer',
+    targetId: customerId,
+    severity: action === 'privacy.customer_delete_scheduled' ? 'warning' : 'notice',
+    requestId: crypto.randomUUID(),
+    source: 'web',
+  })
+}
+
+/** Schedule deletion: sets core deleted_at = now. The customer drops from
+ *  lists (core filters soft-deleted) and the profile banner starts the 30-day
+ *  undo countdown. Data is retained in core forever; day 30 only closes the
+ *  in-app undo. Error strings are codes the client maps to i18n. */
+export async function scheduleCustomerDeletion(id: string): Promise<ActionResult> {
   try {
+    // records.delete — owner / manager / senior only. Mirrors deleteKaruteRecord.
+    await requireCapability('records.delete')
     const synqed = await getSynqedClient()
 
-    // Block deletion if customer has linked karute records
-    const karuteList = await synqed.karuteRecords.list({ customer_id: id, page_size: 1 })
-    if (karuteList.total > 0) {
-      return {
-        success: false,
-        error: `Cannot delete: this customer has ${karuteList.total} karute record${karuteList.total === 1 ? '' : 's'}. Delete them first.`,
-      }
+    // Never restart a running clock: re-scheduling would push the deadline out.
+    const existing = await synqed.customers.get(id)
+    if (customerDeletedAt(existing)) {
+      return { success: false, error: 'already_scheduled' }
     }
 
-    // Delete all appointments for this customer (server lacks cascade).
-    // page_size is capped at 200 server-side; a single customer never has
-    // anywhere near that many appointments, so one page covers it.
-    const apptList = await synqed.appointments.list({ customer_id: id, page_size: 200 })
-    for (const appt of apptList.appointments) {
-      await synqed.appointments.delete(appt.id)
-    }
+    await synqed.customers.update(id, {
+      deleted_at: new Date().toISOString(),
+    } as Parameters<typeof synqed.customers.update>[1])
 
-    await synqed.customers.delete(id)
-
+    await emitDeletionAudit('privacy.customer_delete_scheduled', id)
     revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
     updateTag('customers')
     return { success: true, id }
   } catch (err) {
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return { success: false, error: message }
+    console.error('[scheduleCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
+  }
+}
+
+/** Undo within the window: nulls deleted_at. Rejects once the deadline has
+ *  passed — the sweep may already be destroying records, and a cancel that
+ *  "succeeds" seconds before hard delete would lie to the staff. */
+export async function cancelCustomerDeletion(id: string): Promise<ActionResult> {
+  try {
+    await requireCapability('records.delete')
+    const synqed = await getSynqedClient()
+
+    const existing = await synqed.customers.get(id)
+    const deletedAt = customerDeletedAt(existing)
+    if (!deletedAt) {
+      return { success: false, error: 'not_scheduled' }
+    }
+    const { undoDeadlineMs } = await import('@/lib/customers/deletion')
+    if (Date.now() > undoDeadlineMs(deletedAt)) {
+      return { success: false, error: 'window_expired' }
+    }
+
+    await synqed.customers.update(id, {
+      deleted_at: null,
+    } as Parameters<typeof synqed.customers.update>[1])
+
+    await emitDeletionAudit('privacy.customer_delete_canceled', id)
+    revalidatePath('/customers')
+    revalidatePath(`/customers/${id}`)
+    updateTag('customers')
+    return { success: true, id }
+  } catch (err) {
+    console.error('[cancelCustomerDeletion] error:', err)
+    return { success: false, error: 'failed' }
   }
 }
 
@@ -285,6 +415,18 @@ export async function deleteCustomer(id: string): Promise<ActionResult> {
 export async function listCustomerPhotos(customerId: string) {
   const synqed = await getSynqedClient()
   return synqed.customers.listPhotos(customerId)
+}
+
+/** Photo-upload core — business-scoped client, no cookie. Shared by the web
+ *  action and the facade route (which validates the file at the trust boundary
+ *  BEFORE calling this). Throws on backend failure; callers classify. */
+export async function uploadCustomerPhotoWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  customerId: string,
+  file: File,
+  options: { category?: string; caption?: string } = {},
+) {
+  return synqed.customers.uploadPhoto(customerId, file, options)
 }
 
 export async function uploadCustomerPhoto(
@@ -299,7 +441,7 @@ export async function uploadCustomerPhoto(
 
   try {
     const synqed = await getSynqedClient()
-    const photo = await synqed.customers.uploadPhoto(customerId, file, {
+    const photo = await uploadCustomerPhotoWithClient(synqed, customerId, file, {
       category: typeof category === 'string' ? category : undefined,
       caption: typeof caption === 'string' ? caption : undefined,
     })
@@ -340,6 +482,26 @@ export async function getCustomerConsent(customerId: string) {
   return synqed.customers.getConsent(customerId)
 }
 
+/** Consent-grant core — business-scoped client + a RESOLVED staff id, no cookie.
+ *  Shared by the web action (cookie identity → getCurrentUserStaffId) and the
+ *  facade route (Bearer identity → selfStaffId). policy_version is SERVER-pinned
+ *  here (never client-supplied). Throws on backend failure so each caller
+ *  classifies (web → toast, facade → AppApiError). The #452 fail-closed posture
+ *  (unresolvable staff id) is enforced by the CALLERS before they reach here —
+ *  this core never runs without a staff id. */
+export async function grantCustomerConsentWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  customerId: string,
+  staffId: string,
+  method: 'VERBAL' | 'WRITTEN',
+) {
+  return synqed.customers.grantConsent(customerId, {
+    granted_by_staff_id: staffId,
+    policy_version: RECORDING_CONSENT_POLICY_VERSION,
+    method,
+  })
+}
+
 export async function grantCustomerConsent(
   customerId: string,
   input: { method?: 'VERBAL' | 'WRITTEN' } = {},
@@ -354,13 +516,24 @@ export async function grantCustomerConsent(
   }
   try {
     const synqed = await getSynqedClient()
-    const consent = await synqed.customers.grantConsent(customerId, {
-      granted_by_staff_id: staffId,
-      policy_version: RECORDING_CONSENT_POLICY_VERSION,
-      method: input.method ?? 'VERBAL',
-    })
+    const consent = await grantCustomerConsentWithClient(
+      synqed,
+      customerId,
+      staffId,
+      input.method ?? 'VERBAL',
+    )
     revalidatePath(`/customers/${customerId}`)
     updateTag('customer-consent')
+    // Wave W3: the web twin of the facade customer.consent.grant row (that
+    // side is the generic success hook) — success only, never on the
+    // no-staff/error returns.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.consent_grant',
+      targetType: 'customer',
+      targetId: customerId,
+      requestId: crypto.randomUUID(),
+    })
     return { ok: true as const, consent }
   } catch (err) {
     return {
@@ -368,6 +541,20 @@ export async function grantCustomerConsent(
       error: err instanceof Error ? err.message : 'Unknown error',
     }
   }
+}
+
+/** Consent-revoke core — business-scoped client + a RESOLVED staff id, no cookie.
+ *  Shared by the web action (cookie identity → getCurrentUserStaffId) and the
+ *  facade route (Bearer identity → selfStaffId). Throws on backend failure so
+ *  each caller classifies (web → toast, facade → AppApiError). The #452 posture
+ *  (fail closed on an unresolvable staff id) is enforced by the CALLERS before
+ *  they reach here — this core never runs without a staff id. */
+export async function revokeCustomerConsentWithClient(
+  synqed: Pick<Awaited<ReturnType<typeof getSynqedClient>>, 'customers'>,
+  customerId: string,
+  staffId: string,
+): Promise<void> {
+  await synqed.customers.revokeConsent(customerId, staffId)
 }
 
 export async function revokeCustomerConsent(customerId: string) {
@@ -378,14 +565,21 @@ export async function revokeCustomerConsent(customerId: string) {
   }
   try {
     const synqed = await getSynqedClient()
-    await synqed.customers.revokeConsent(customerId, staffId)
+    await revokeCustomerConsentWithClient(synqed, customerId, staffId)
     revalidatePath(`/customers/${customerId}`)
     updateTag('customer-consent')
+    // Wave W3: the web twin of the facade customer.consent.revoke row.
+    await auditWeb({
+      category: 'customer',
+      action: 'customer.consent_revoke',
+      targetType: 'customer',
+      targetId: customerId,
+      requestId: crypto.randomUUID(),
+    })
     return { ok: true as const }
   } catch (err) {
-    return {
-      ok: false as const,
-      error: err instanceof Error ? err.message : 'Unknown error',
-    }
+    // Same policy as the other mutating actions in this file: never leak a
+    // raw Prisma/synqed-core message into a user-facing toast.
+    return { ok: false as const, error: await translateBackendError(err) }
   }
 }

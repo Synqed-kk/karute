@@ -13,10 +13,25 @@ export async function ingestSessionMemory(params: {
   businessId?: string | null
   transcript: string | null
   locale: string
+  /** Prompt anchors (v3.1) — optional, degrade gracefully. */
+  customerName?: string | null
+  sessionDate?: string | null
 }): Promise<void> {
-  const { customerId, businessId, transcript, locale } = params
+  const { customerId, businessId, transcript, locale, customerName, sessionDate } = params
   if (!transcript || !transcript.trim()) return
   try {
+    // Plan gate (P4): auto-extract is a paid capability once billing arms —
+    // silent skip here (this whole function is best-effort by contract; the
+    // record save it rides on must never fail on a plan check). Manual staff
+    // memory edits live in actions/memory.ts → customer-memory.ts and are
+    // deliberately NOT gated. Dynamic import per this file's header rule.
+    // Identity-threaded when a businessId is present (packet 08 Decision 3 — the
+    // facade save has no cookie); the cookie path is unchanged for web callers.
+    const { featureAllowed, featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
+    const gateOk = businessId
+      ? await featureAllowedForBusiness(businessId, 'customerMemoryAutoExtract')
+      : await featureAllowed('customerMemoryAutoExtract')
+    if (!gateOk) return
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
       await Promise.all([
         import('@/actions/org-settings'),
@@ -34,6 +49,8 @@ export async function ingestSessionMemory(params: {
       existing,
       persona,
       locale,
+      customerName,
+      sessionDate,
     })
     await store.applyMemoryDelta({ customerId, businessId, ops })
   } catch (err) {
@@ -44,13 +61,34 @@ export async function ingestSessionMemory(params: {
 export async function backfillMemoryFromTranscripts(params: {
   customerId: string
   businessId?: string | null
-  transcripts: string[]
+  /** Plain strings keep working (undated — no header injected). Callers that
+   *  have the session row should pass { text, date } so the model gets real
+   *  dates: without them it either omits time anchors (rule 7) or — observed
+   *  in the field 2026-07-15 — imitates dates found in the seeded existing
+   *  items, stamping new facts with another session's month. */
+  transcripts: Array<string | { text: string; date?: string | null }>
   locale: string
+  /** Cap the walk for latency-sensitive callers (page render / brief): chunks
+   *  of newest sessions processed, NOT the full history. The explicit 再学習
+   *  action omits this and gets the full CHUNK_LIMIT depth. */
+  maxChunks?: number
 }): Promise<MemoryItem[]> {
-  const { customerId, businessId, transcripts, locale } = params
-  const usable = transcripts.filter((t) => t && t.trim())
+  const { customerId, businessId, transcripts, locale, maxChunks } = params
+  const usable = transcripts
+    .map((t) => (typeof t === 'string' ? { text: t, date: null as string | null } : { text: t.text, date: t.date ?? null }))
+    .filter((t) => t.text && t.text.trim())
   if (usable.length === 0) return []
   try {
+    // Plan gate (P4): same key + same silent-skip contract as
+    // ingestSessionMemory above. 再学習's user-facing "locked" copy is handled
+    // by its action checking BEFORE the wipe — by the time this runs, allowed.
+    // Identity-threaded when a businessId is present (packet 08 Decision 1 — the
+    // facade brief has no cookie); the cookie path is unchanged for web callers.
+    const { featureAllowed, featureAllowedForBusiness } = await import('@/lib/subscription/feature-gate')
+    const gateOk = businessId
+      ? await featureAllowedForBusiness(businessId, 'customerMemoryAutoExtract')
+      : await featureAllowed('customerMemoryAutoExtract')
+    if (!gateOk) return []
     const [{ getOrgSettings }, { getBusinessAiPersona }, store, { extractCustomerMemory }] =
       await Promise.all([
         import('@/actions/org-settings'),
@@ -60,18 +98,71 @@ export async function backfillMemoryFromTranscripts(params: {
       ])
     const orgSettings = await getOrgSettings().catch(() => null)
     const persona = getBusinessAiPersona(orgSettings?.business_type)
-    const ops = await extractCustomerMemory({
-      // Cap the one-off bootstrap to the most recent few transcripts AND cap each
-      // transcript's length — a single 90-min ASR transcript can be tens of
-      // thousands of chars; 5 uncapped could blow the model context / cost. ~16k
-      // chars (~4k tokens) each × 5 keeps the call bounded.
-      transcripts: usable.slice(0, 5).map((t) => t.slice(0, 16000)),
-      existing: [],
-      persona,
-      locale,
-    })
-    await store.applyMemoryDelta({ customerId, businessId, ops })
-    return store.getCustomerMemory(customerId)
+    // Chunked walk over the history instead of the old silent `.slice(0, 5)`:
+    // that cap made 再学習 and the bootstrap read only 5 sessions ever — a fact
+    // mentioned once in session 6+ of a long history could never enter memory.
+    // Each call stays bounded (5 transcripts × 16k chars ≈ 20k tokens); chunks
+    // run sequentially so each one reconciles against the memory the previous
+    // chunk produced. CHUNK_LIMIT bounds a pathological history's cost — beyond
+    // it we keep the NEWEST sessions and log the drop, never silently.
+    // Seeding `existing` from the store (was hardcoded []) also stops a relearn
+    // from re-adding facts that survive the wipe as staff-owned/pinned rows.
+    // CONTRACT: `transcripts` arrives NEWEST-first — every caller sorts
+    // explicitly before calling (core's list order is not guaranteed):
+    // customers/[id]/page.tsx, ai-brief.ts (getCustomerKaruteRecords sorts),
+    // actions/memory.ts. We keep the newest CHUNK_LIMIT×CHUNK_SIZE sessions
+    // when over the cap (logged, never silent), then process chunks
+    // OLDEST→NEWEST so facts evolve forward the way they happened (the dog is
+    // alive before it passes away, not after).
+    const CHUNK_SIZE = 5
+    const CHUNK_LIMIT = 10 // ponytail: 50 sessions per backfill; a server-side batch job if a real customer exceeds it
+    const chunkCap = Math.min(maxChunks ?? CHUNK_LIMIT, CHUNK_LIMIT)
+    // Date header per transcript (server-generated value, rendered inside the
+    // untrusted wrap): rule 7 converts relative time to absolute only when it
+    // knows the session date — a dateless backfill made the model fabricate
+    // anchors instead. Format-validated like prompt-fragments' anchorLines so
+    // a malformed DB value renders no header at all.
+    // ponytail: header lives inside the untrusted span — transcript text
+    // could theoretically spoof a second date line; ceiling = a wrong month
+    // on a staff-editable memory anchor, strictly better than the fabricated
+    // anchors this replaces. Per-transcript trusted framing if it ever bites.
+    const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})/
+    const withDateHeader = (t: { text: string; date: string | null }) => {
+      const body = t.text.slice(0, 16000)
+      const dm = t.date?.match(DATE_RE)
+      if (!dm || +dm[2] < 1 || +dm[2] > 12 || +dm[3] < 1 || +dm[3] > 31) return body
+      const d = dm[0]
+      return locale === 'ja' ? `【セッション日 ${d}】\n${body}` : `[Session date: ${d}]\n${body}`
+    }
+    let chunks: Array<typeof usable> = []
+    for (let i = 0; i < usable.length; i += CHUNK_SIZE) {
+      chunks.push(usable.slice(i, i + CHUNK_SIZE))
+    }
+    if (chunks.length > chunkCap) {
+      console.warn(
+        `[backfillMemoryFromTranscripts] ${customerId}: ${usable.length} transcripts exceeds the ${chunkCap * CHUNK_SIZE} cap — keeping the newest, dropping ${usable.length - chunkCap * CHUNK_SIZE}`,
+      )
+      chunks = chunks.slice(0, chunkCap)
+    }
+    chunks.reverse()
+    let existing = await store.getCustomerMemory(customerId)
+    for (const chunk of chunks) {
+      const ops = await extractCustomerMemory({
+        // The chunk itself is newest-first (input order) — reverse it so the
+        // model READS oldest→newest too; each transcript carries its session
+        // date as a header when the caller provided one (reading order stays
+        // the chronology signal for undated legacy callers).
+        transcripts: [...chunk].reverse().map(withDateHeader),
+        existing,
+        persona,
+        locale,
+      })
+      if (ops.length > 0) {
+        await store.applyMemoryDelta({ customerId, businessId, ops })
+        existing = await store.getCustomerMemory(customerId)
+      }
+    }
+    return existing
   } catch (err) {
     console.error('[backfillMemoryFromTranscripts] failed:', err)
     return []

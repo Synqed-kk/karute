@@ -3,7 +3,8 @@
  *   - createAppointment maps UI camelCase → API snake_case and computes ends_at
  *   - Overlap (SynqedError 409) surfaces as a friendly user message
  *   - getAppointmentsByDate merges customer names + matches karute_record_id
- *   - deleteAppointment / updateAppointment thin pass-through
+ *   - deleteAppointment / updateAppointment field-shape pass-through (audit
+ *     behavior for both is pinned separately in booking-flow.test.ts)
  */
 
 jest.mock('next/cache', () => ({
@@ -14,6 +15,11 @@ jest.mock('next/cache', () => ({
   // Real one wraps a function with caching — for tests, just return the
   // inner function so it's called directly with no caching layer.
   unstable_cache: jest.fn((fn: (...args: unknown[]) => unknown) => fn),
+}))
+// createAppointment reads the active-store cookie via getActiveStoreId(); no
+// cookie set = all-stores view (store_id omitted from the create call).
+jest.mock('next/headers', () => ({
+  cookies: jest.fn(async () => ({ get: () => undefined })),
 }))
 jest.mock('@/lib/staff', () => ({
   getBusinessId: jest.fn(async () => '00000000-0000-0000-0000-000000000001'),
@@ -57,6 +63,10 @@ const appointments = {
   list: jest.fn(),
   delete: jest.fn(),
   update: jest.fn(),
+  // updateAppointmentCore/deleteAppointmentCore (booking mutations now audit,
+  // Liam ruling 2026-07-26) read this: update()'s return for the audit
+  // target, delete's precondition read before the SDK delete call.
+  get: jest.fn(),
 }
 const karuteRecords = {
   list: jest.fn(),
@@ -64,6 +74,14 @@ const karuteRecords = {
 const staff = {
   list: jest.fn(),
 }
+// deleteAppointmentCore's burn-dedup guard (FIX 8) reads this before every
+// delete — mirrors cancel-appointment.test.ts's packs mock. Signature must
+// accept the arg the wrapper below forwards (kept net-zero on the lint delta).
+const listRecentRedemptions = jest.fn(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async (_since: string): Promise<Array<{ appointment_id: string | null }>> => [],
+)
+const packs = { listRecentRedemptions: (since: string) => listRecentRedemptions(since) }
 
 jest.mock('@/lib/synqed/client', () => ({
   getSynqedClient: jest.fn(async () => ({
@@ -71,6 +89,7 @@ jest.mock('@/lib/synqed/client', () => ({
     appointments,
     karuteRecords,
     staff,
+    packs,
   })),
 }))
 
@@ -215,11 +234,82 @@ describe('Migrated appointment actions', () => {
       const rows = await getAppointmentsByDate('2026-05-10', 0)
       expect(rows).toEqual([])
     })
+
+    it('resolves status_set_by to a display name via the staff list', async () => {
+      appointments.list.mockResolvedValue({
+        appointments: [
+          {
+            id: 'appt-1',
+            staff_id: 'staff-1',
+            customer_id: 'cust-1',
+            starts_at: '2026-05-10T10:00:00.000Z',
+            duration_minutes: 60,
+            title: null,
+            notes: null,
+            created_at: '2026-05-10T00:00:00.000Z',
+            status: 'CANCELLED',
+            source: 'MANUAL',
+            status_set_by: 'staff-1',
+            status_set_at: '2026-05-10T09:00:00.000Z',
+          },
+        ],
+      })
+      cachedCustomerList.length = 0
+      cachedCustomerList.push({ id: 'cust-1', name: '山田' })
+      karuteRecords.list.mockResolvedValue({ karute_records: [] })
+      staff.list.mockResolvedValue({
+        staff: [{ id: 'staff-1', user_id: 'staff-1', name: 'Tanaka Misaki' }],
+      })
+
+      const rows = await getAppointmentsByDate('2026-05-10', 0, { includeCancelled: true })
+
+      expect(rows).toHaveLength(1)
+      expect(rows[0]).toMatchObject({
+        status_set_by_name: 'Tanaka Misaki',
+        status_set_at: '2026-05-10T09:00:00.000Z',
+      })
+    })
+
+    it('leaves status_set_by_name null when status_set_by is absent (sync-cancelled rows)', async () => {
+      appointments.list.mockResolvedValue({
+        appointments: [
+          {
+            id: 'appt-1',
+            staff_id: 'staff-1',
+            customer_id: 'cust-1',
+            starts_at: '2026-05-10T10:00:00.000Z',
+            duration_minutes: 60,
+            title: null,
+            notes: null,
+            created_at: '2026-05-10T00:00:00.000Z',
+            status: 'CANCELLED',
+            source: 'QUICKRESERVE',
+          },
+        ],
+      })
+      cachedCustomerList.length = 0
+      cachedCustomerList.push({ id: 'cust-1', name: '山田' })
+      karuteRecords.list.mockResolvedValue({ karute_records: [] })
+      staff.list.mockResolvedValue({
+        staff: [{ id: 'staff-1', user_id: 'staff-1', name: 'Tanaka Misaki' }],
+      })
+
+      const rows = await getAppointmentsByDate('2026-05-10', 0, { includeCancelled: true })
+
+      expect(rows[0].status_set_by_name).toBeNull()
+      expect(rows[0].status_set_at).toBeNull()
+    })
   })
 
   describe('updateAppointment', () => {
     it('computes ends_at when both startTime and durationMinutes change', async () => {
-      appointments.update.mockResolvedValue(undefined)
+      // updateAppointmentCore now reads the booking first (Fable fix-round
+      // FIX 2 terminal guard) — give it a live row so the update is reached.
+      appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
+      // update()'s return rides the full Appointment row (verified fact: core
+      // always returns customer_id/store_id) — updateAppointmentCore reads
+      // the audit target off it directly.
+      appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', {
         startTime: '2026-05-10T14:00:00.000Z',
@@ -234,7 +324,8 @@ describe('Migrated appointment actions', () => {
     })
 
     it('partial update omits ends_at if only duration changes', async () => {
-      appointments.update.mockResolvedValue(undefined)
+      appointments.get.mockResolvedValue({ status: 'SCHEDULED' })
+      appointments.update.mockResolvedValue({ customer_id: 'cust-1', store_id: 'store-1' })
 
       await updateAppointment('appt-1', { durationMinutes: 45 })
 
@@ -246,7 +337,17 @@ describe('Migrated appointment actions', () => {
 
   describe('deleteAppointment', () => {
     it('forwards to client', async () => {
+      // deleteAppointmentCore reads the row FIRST (delete() itself returns
+      // void) so the audit detail has a customer_id/store_id to point at.
+      // starts_at/created_at feed the burn-dedup guard's window (FIX 8).
+      appointments.get.mockResolvedValue({
+        customer_id: 'cust-1',
+        store_id: 'store-1',
+        starts_at: '2026-07-06T03:00:00.000Z',
+        created_at: '2026-07-06T03:00:00.000Z',
+      })
       appointments.delete.mockResolvedValue(undefined)
+      listRecentRedemptions.mockResolvedValue([])
 
       const result = await deleteAppointment('appt-1')
 

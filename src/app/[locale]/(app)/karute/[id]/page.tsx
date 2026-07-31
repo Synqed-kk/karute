@@ -9,20 +9,24 @@ import {
   PhotoRecordsSkeleton,
 } from '@/components/karute/redesign/detail/PhotoRecordsServer'
 import {
-  karuteToHeader,
-  karuteEntriesToSessionEntries,
-  karuteSummaryToBullets,
-} from '@/lib/adapters/karute-detail'
-import {
   getCustomerContact,
   getCachedCustomerConsent,
 } from '@/lib/customers/customer-detail-cached'
+import {
+  AIBodyPredictionSlot,
+  AISuggestedMessageSlot,
+} from '@/components/karute/redesign/detail/AiInsightSlots'
+import {
+  AIBodyPredictionPreview,
+  AIOutreachPreview,
+} from '@/components/customers/redesign/profile/UpcomingAiFeatures'
 import { getSynqedClient } from '@/lib/synqed/client'
-import { assignSequentialKaruteNumbers } from '@/lib/customers/identity'
+import { getCurrentUserStaffId } from '@/lib/staff'
+import { can } from '@/lib/auth/require-permission'
 import { listAllCustomers } from '@/lib/customers/list-all'
 import { getCustomer } from '@/lib/customers/queries'
-import { computeAge, jpGender } from '@/lib/customers/demographics'
-import { formatJoinDate } from '@/lib/customers/list-enrich'
+import { buildKaruteDetailScreen } from '@/lib/karute/detail-screen'
+import { auditWeb } from '@/lib/audit-web'
 
 interface KaruteDetailPageProps {
   params: Promise<{ id: string; locale: string }>
@@ -35,92 +39,83 @@ export default async function KaruteDetailPage({
 
   // Fetch the karute and the tenant customer list in parallel — the list feeds
   // the sequential karute number (below) and doesn't depend on the karute.
-  const synqed = await getSynqedClient()
-  const [karute, allCustomers, outcome] = await Promise.all([
-    getKaruteRecord(id),
-    // Page to completion so the karute number resolves for an overflow customer.
-    listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
-    getKaruteOutcome(id),
-  ])
+  const synqedPromise = getSynqedClient()
+  const [karute, allCustomers, outcome, viewerStaffId, canViewAllRecordings] =
+    await Promise.all([
+      getKaruteRecord(id),
+      // Page to completion so the karute number resolves for an overflow customer.
+      synqedPromise.then((synqed) =>
+        listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+      ),
+      getKaruteOutcome(id),
+      // Recording-privacy ACL inputs (#4): the viewer's staff id + whether they
+      // may read every staff's raw recordings (owner/manager). Both independent
+      // of the karute, so fan them out in the same wave.
+      getCurrentUserStaffId(),
+      can('recordings.viewAll'),
+    ])
   if (!karute) notFound()
 
-  const customerId =
-    (karute as unknown as { client_id?: string | null }).client_id ?? null
-  const header = karuteToHeader(karute)
-  const sessionEntries = karuteEntriesToSessionEntries(karute)
-  const summaryBullets = karuteSummaryToBullets(karute)
-  const transcript =
-    (karute as unknown as { transcript?: string | null }).transcript ?? null
-  // Sequential per-tenant number from the shared customer list — matches the
-  // karute list and customer profile (#00007). Replaces deriveKaruteNumber(id),
-  // which hex-sliced the karute UUID into an alphanumeric #427C2 that disagreed
-  // with every other surface. Numbers-only, consistent.
-  const karuteNumber = customerId
-    ? (assignSequentialKaruteNumbers(allCustomers.customers).get(customerId) ??
-      '#00000')
-    : '#00000'
+  const customerId = karute.client_id ?? null
 
   // Customer contact + consent are both cached per-customer with their own tag
   // invalidation. Photos are NOT awaited here; they're streamed in via a
   // Suspense boundary below so the shell paints first.
-  let phone: string | null = null
-  let email: string | null = null
-  let consentOnFile = false
-  // Deep-crawl identity for the header (年齢/性別/回数/前回) — the same fields the
-  // customer hub surfaces, so the karute-detail header matches it instead of
-  // showing only name/#/date/contact.
-  let headerExtras: {
-    age: number | null
-    gender: string | null
-    visitNumber: number | null
-    lastVisitDate: string | null
-  } = { age: null, gender: null, visitNumber: null, lastVisitDate: null }
-  if (customerId) {
-    const [contact, consentResult, customer] = await Promise.all([
-      getCustomerContact(customerId),
-      getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
-      getCustomer(customerId).catch(() => null),
-    ])
-    phone = contact.phone
-    email = contact.email
-    consentOnFile = Boolean(consentResult.consent)
-    if (customer) {
-      headerExtras = {
-        age: computeAge(customer.date_of_birth),
-        gender: jpGender(customer.gender),
-        visitNumber: customer.visit_count,
-        lastVisitDate: customer.last_visit_at
-          ? formatJoinDate(customer.last_visit_at, locale)
-          : null,
-      }
-    }
-  }
+  const [contact, consentResult, customer] = customerId
+    ? await Promise.all([
+        getCustomerContact(customerId),
+        getCachedCustomerConsent(customerId).catch(() => ({ consent: null })),
+        getCustomer(customerId).catch(() => null),
+      ])
+    : [null, null, null]
+
+  // Post-fetch assembly is shared with the facade screen GET (packet 07) so web
+  // and thin can never derive a different view-model from the same raw wave.
+  const built = buildKaruteDetailScreen({
+    karute,
+    allCustomers,
+    outcome,
+    viewerStaffId,
+    canViewAllRecordings,
+    contact,
+    consentResult,
+    customer,
+    locale,
+  })
+
+  // Single-record open = a view event (Wave V, web twin of the facade hook's
+  // karute.view — the karute.read row comment in audit.ts is the contract).
+  // Fired AFTER the existence check (a 404 open is not a view — same 7/17
+  // ruling as customer.view) and after assembly so transcript_shown reflects
+  // what THIS render actually ships: false covers both "none exists" and
+  // "ACL-withheld to null". customer_id is the 監査ログ name join (packet 30
+  // §4 karute-row idiom, ids only). Fire-and-forget, never blocks the render
+  // (same web writers' best-effort contract as customers/[id]/page.tsx).
+  void auditWeb({
+    category: 'karute',
+    action: 'karute.view',
+    targetType: 'karute',
+    targetId: id,
+    severity: 'info',
+    detail: { transcript_shown: built.transcript !== null, customer_id: customerId },
+  })
 
   return (
     <KaruteDetailView
-      karuteId={id}
-      customerId={customerId}
-      outcome={outcome}
-      header={{
-        customerName: header.customerName,
-        initials: header.customerInitials,
-        karuteNumber,
-        service: null,
-        sessionDateLong: header.sessionDateLong,
-        staffName: header.staffName === '—' ? null : header.staffName,
-        phone,
-        email,
-        age: headerExtras.age,
-        gender: headerExtras.gender,
-        visitNumber: headerExtras.visitNumber,
-        lastVisitDate: headerExtras.lastVisitDate,
-      }}
-      sessionDateLong={header.sessionDateLong}
-      entries={sessionEntries}
-      summaryBullets={summaryBullets}
-      transcript={transcript}
-      consentOnFile={consentOnFile}
-      transcriptDurationLabel={null}
+      karuteId={built.karuteId}
+      customerId={built.customerId}
+      outcome={built.outcome}
+      header={built.header}
+      sessionDateLong={built.sessionDateLong}
+      sessionDateIso={built.sessionDateIso}
+      entries={built.entries}
+      summaryBullets={built.summaryBullets}
+      summaryRaw={built.summaryRaw}
+      summaryEdited={built.summaryEdited}
+      transcript={built.transcript}
+      consentOnFile={built.consentOnFile}
+      transcriptDurationLabel={built.transcriptDurationLabel}
+      transcriptRestricted={built.transcriptRestricted}
       photosSlot={
         customerId ? (
           <Suspense fallback={<PhotoRecordsSkeleton />}>
@@ -129,8 +124,26 @@ export default async function KaruteDetailPage({
         ) : null
       }
       memory={null}
-      bodyPrediction={null}
-      suggestedMessage={null}
+      bodyPredictionSlot={
+        customerId ? (
+          <Suspense fallback={<AIBodyPredictionPreview />}>
+            <AIBodyPredictionSlot customerId={customerId} locale={locale} />
+          </Suspense>
+        ) : (
+          <AIBodyPredictionPreview />
+        )
+      }
+      suggestedMessageSlot={
+        <Suspense fallback={<AIOutreachPreview />}>
+          <AISuggestedMessageSlot
+            karuteId={id}
+            customerId={customerId}
+            customerName={built.header.customerName}
+            summary={karute.summary ?? null}
+            locale={locale}
+          />
+        </Suspense>
+      }
     />
   )
 }

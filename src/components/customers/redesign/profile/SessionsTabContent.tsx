@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CheckCircle, ChevronDown, Clipboard } from 'lucide-react'
+import { Link } from '@/i18n/navigation'
 import { BADGE_COLORS } from '@/lib/badge-styles'
 
 export interface CustomerSessionEntry {
@@ -140,12 +141,15 @@ function SessionRow({ s }: { s: CustomerSessionEntry }) {
             <p className="mb-2 leading-relaxed text-muted-foreground">{s.summary}</p>
           )}
           {s.karuteId ? (
-            <a
-              href={`/karute/${s.karuteId}`}
+            <Link
+              // next-intl typed routes: a template literal can't match any
+              // static Pathname, so the cast is required (same pattern as
+              // RecentRecordingsCard / DetailBreadcrumb).
+              href={`/karute/${s.karuteId}` as Parameters<typeof Link>[0]['href']}
               className="font-medium text-sky-600 hover:text-sky-500 dark:text-sky-400 dark:hover:text-sky-300"
             >
               {t('openFullKarute')}
-            </a>
+            </Link>
           ) : (
             <span className="text-muted-foreground">{t('noKaruteLinked')}</span>
           )}

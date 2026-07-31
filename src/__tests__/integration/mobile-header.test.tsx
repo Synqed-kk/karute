@@ -13,14 +13,32 @@ const back = jest.fn()
 
 jest.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
-  useRouter: () => ({ back }),
+  useRouter: () => ({ back, refresh: jest.fn() }),
+}))
+// StoreSwitcher (rendered by MobileHeader) imports the @/actions/stores server
+// action, which pulls in the supabase client at module load — that references
+// TextEncoder, absent from the jsdom global. Stub the server actions so the
+// real module never loads (the standard server-dep mock pattern here).
+jest.mock('@/actions/stores', () => ({
+  setActiveStore: jest.fn(async () => ({ ok: true })),
+  clearActiveStore: jest.fn(async () => ({ ok: true })),
 }))
 // useTranslations(ns) -> (key) => key, so titles/labels equal their key.
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
+// The bell badge + panel now live in the shared NotificationBell, which reads
+// the full hooks surface. Mock all of it so MobileHeader renders the real bell
+// (the badge assertions below flow through it) without the context provider.
 jest.mock('@/lib/notifications/hooks', () => ({
   useUnreadCount: () => mockUnread,
+  formatUnreadBadge: (n: number) => (n > 9 ? '9+' : String(n)),
+  useNotificationMutations: () => ({
+    markRead: jest.fn(),
+    markAllRead: jest.fn(),
+    clearAll: jest.fn(),
+    setLastSeen: jest.fn(),
+  }),
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({ state: mockRecState }),
@@ -30,6 +48,8 @@ jest.mock('@/components/notifications/NotificationsPanel', () => ({
 }))
 
 import { MobileHeader } from '@/components/layout/MobileHeader'
+import { StoreSwitcher } from '@/components/layout/StoreSwitcher'
+import type { StoreRow } from '@/actions/stores'
 
 beforeEach(() => {
   mockPathname = '/ja'
@@ -38,50 +58,111 @@ beforeEach(() => {
   back.mockClear()
 })
 
+const storeRow = (id: string, name: string, isPrimary = false): StoreRow => ({
+  id,
+  name,
+  address: null,
+  phone: null,
+  isPrimary,
+  active: true,
+  staffCount: 0,
+  customerCount: 0,
+  businessType: null,
+})
+
+describe('StoreSwitcher branch label (7/26 pill regression)', () => {
+  const daikanyama = storeRow('s1', 'La Estro 代官山', true)
+  const ginza = storeRow('s2', 'La Estro 銀座')
+  const gym = storeRow('s3', 'Test Gym')
+
+  it('strips the shared brand prefix with two related stores', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza]} activeStoreId="s1" />)
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.queryByText('La Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('an unrelated store name must not defeat prefix-stripping for the related pair', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza, gym]} activeStoreId="s1" />)
+    // The regression: with Test Gym added, the pill fell back to the full
+    // "La Estro 代官山" (CSS-clipped to "La Estr…"). The branch label must
+    // survive unrelated additions.
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.queryByText('La Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('a store with no related sibling keeps its full name', () => {
+    render(<StoreSwitcher stores={[daikanyama, ginza, gym]} activeStoreId="s3" />)
+    expect(screen.getByText('Test Gym')).toBeInTheDocument()
+  })
+
+  it('one coincidental shared word is not a brand — nothing strips (Greptile r1 P1)', () => {
+    const belle = storeRow('s4', 'La Belle 渋谷')
+    render(<StoreSwitcher stores={[daikanyama, belle]} activeStoreId="s1" />)
+    // Shared "La" alone must not turn the labels into "Estro 代官山"/"Belle 渋谷".
+    expect(screen.getByText('La Estro 代官山')).toBeInTheDocument()
+    expect(screen.queryByText('Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('a same-first-word unrelated store cannot un-strip the branded pair (Greptile r2)', () => {
+    const belle = storeRow('s4', 'La Belle 渋谷')
+    render(<StoreSwitcher stores={[daikanyama, ginza, belle]} activeStoreId="s1" />)
+    // The pair still strips to 代官山 — pairwise max, not a set minimum.
+    expect(screen.getByText('代官山')).toBeInTheDocument()
+    expect(screen.queryByText('La Estro 代官山')).not.toBeInTheDocument()
+  })
+
+  it('the outsider beside a branded pair keeps its own full name', () => {
+    const belle = storeRow('s4', 'La Belle 渋谷')
+    render(<StoreSwitcher stores={[daikanyama, ginza, belle]} activeStoreId="s4" />)
+    expect(screen.getByText('La Belle 渋谷')).toBeInTheDocument()
+    expect(screen.queryByText('Belle 渋谷')).not.toBeInTheDocument()
+  })
+})
+
 describe('MobileHeader', () => {
   it('shows the dashboard title and no back arrow on a root tab', () => {
     mockPathname = '/ja'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByText('dashboard')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'back' })).not.toBeInTheDocument()
   })
 
   it('shows a back arrow and the mapped title on a sub-route', () => {
     mockPathname = '/ja/settings'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByRole('button', { name: 'back' })).toBeInTheDocument()
     expect(screen.getByText('settings')).toBeInTheDocument()
   })
 
   it('maps locale-prefixed karute route to the karute title', () => {
     mockPathname = '/en/karute/abc123'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByText('karute')).toBeInTheDocument()
   })
 
   it('renders the bell with an unread badge when idle', () => {
     mockUnread = 3
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByRole('button', { name: 'notifications' })).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument()
   })
 
   it('caps the unread badge at 9+', () => {
     mockUnread = 25
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.getByText('9+')).toBeInTheDocument()
   })
 
   it('hides the bell while recording', () => {
     mockRecState = 'recording'
     mockUnread = 5
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.queryByRole('button', { name: 'notifications' })).not.toBeInTheDocument()
   })
 
   it('hides the bell while paused', () => {
     mockRecState = 'paused'
-    render(<MobileHeader />)
+    render(<MobileHeader stores={[]} activeStoreId={null} />)
     expect(screen.queryByRole('button', { name: 'notifications' })).not.toBeInTheDocument()
   })
 })
