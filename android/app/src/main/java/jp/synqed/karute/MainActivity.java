@@ -59,9 +59,13 @@ import org.json.JSONObject;
 // so rebuilding with KARUTE_SHELL_MODE=remote restores shipped code-5
 // behavior unchanged (the rollback story). Upgrading code-5 devices carry
 // remote-origin cookies in the native jar plus an EncryptedSharedPreferences
-// snapshot: local mode reads/writes NEITHER — deliberately left to age out,
-// because clearing them would cost a rollback build one avoidable re-login
-// and they are inert data at rest otherwise.
+// snapshot: local mode CLEARS BOTH on launch. They are dead credentials no
+// legitimate local-mode path ever uses again — but Capacitor's always-on
+// CapacitorHttp/CapacitorCookies core plugins are JS-callable native HTTP
+// paths (no CORS, shared native cookie jar), so a stale sb-* refresh token
+// left in the jar would remain one JS call away from riding to the old
+// origin. Clearing costs a hypothetical rollback build one re-login; keeping
+// live credentials at rest for that convenience is the wrong trade.
 public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "CookiePersist";
@@ -217,6 +221,14 @@ public class MainActivity extends BridgeActivity {
         localMode = CapConfig.loadDefault(this).getServerUrl() == null;
         if (localMode) {
             Log.d(TAG, "local mode: baked bundle, localStorage auth — cookie machinery inert");
+            // Cleanse stale remote-era credentials (see the class comment):
+            // the code-5 sb-* cookies and the encrypted snapshot are dead
+            // data in local mode, but the jar copy stays reachable by
+            // Capacitor's ungated CapacitorHttp/CapacitorCookies plugins —
+            // remove both. Idempotent; local mode uses no cookies at all.
+            CookieManager jar = CookieManager.getInstance();
+            jar.removeAllCookies(ignored -> jar.flush());
+            SessionCookieStore.clear(this);
             super.load();
             scheduleSplashRelease();
             return;
