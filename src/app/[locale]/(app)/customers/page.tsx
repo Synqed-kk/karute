@@ -8,7 +8,7 @@ import {
   type LastVisitStrings,
 } from '@/lib/customers/list-enrich'
 import { buildCustomersListScreen } from '@/lib/customers/screen-rows'
-import { listAllCustomers } from '@/lib/customers/list-all'
+import { listAllCustomers, listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { getBusinessId } from '@/lib/staff'
 import { startTiming } from '@/lib/perf/timing'
@@ -24,35 +24,49 @@ export default async function CustomersPage({
   const query = rawQuery ?? ''
 
   const t = startTiming(`customers q="${query}"`)
-  // Both are independent — getSynqedClient hits the auth layer while
-  // resolveStoreScope reads capabilities + the active-store cookie; resolve in
-  // parallel. The scope is the view lens for the 顧客 list: a cross-store viewer
-  // gets their pinned store (null = all), a branch-restricted staff is clamped
-  // to their own store (and search stays scoped via enforceStore).
-  const [synqed, scope] = await Promise.all([
+  // All three are independent — getSynqedClient hits the auth layer,
+  // resolveStoreScope reads capabilities + the active-store cookie, and
+  // getBusinessId is request-memoized (React cache — free here since
+  // getSynqedClient already resolved it internally). The scope is the view
+  // lens for the 顧客 list: a cross-store viewer gets their pinned store
+  // (null = all), a branch-restricted staff is clamped to their own store
+  // (and search stays scoped via enforceStore). businessId is pulled up here
+  // (rather than in the wave below) so it's ready for the no-search
+  // listAllCustomersCached path, which needs it as the tenant-isolation cache key.
+  const [synqed, scope, businessId] = await Promise.all([
     getSynqedClient(),
     resolveStoreScope(),
+    getBusinessId(),
   ])
   const enforceStore = scope.allowedStoreIds != null
 
   // Locale + translated relative-time strings, pulled once at page level
   // and threaded into the (synchronous) formatters so JP users see
   // "前回 2026年5月24日 (本日)" instead of "Today" / "May 24, 2026".
-  const [list, staffList, activeStaffId, businessId, locale, lvT] = await Promise.all([
+  const search = query.trim() || undefined
+  const [list, staffList, activeStaffId, locale, lvT] = await Promise.all([
     // Page to completion — a tenant past 500 customers would otherwise drop
     // every row past #500 off the list (the server clamps page_size at 500).
+    // Search is viewer-interactive → always the live path; the default
+    // no-search list serves from the 60s 'customers'-tagged cache.
     t.phase('customers.list', () =>
-      listAllCustomers(synqed, {
-        search: query.trim() || undefined,
-        store_id: scope.storeId,
-        enforceStore,
-        sort_by: 'updated_at',
-        sort_order: 'desc',
-      }),
+      search
+        ? listAllCustomers(synqed, {
+            search,
+            store_id: scope.storeId,
+            enforceStore,
+            sort_by: 'updated_at',
+            sort_order: 'desc',
+          })
+        : listAllCustomersCached(businessId, {
+            store_id: scope.storeId,
+            enforceStore,
+            sort_by: 'updated_at',
+            sort_order: 'desc',
+          }),
     ),
     t.phase('staffList', () => getStaffList()),
     t.phase('activeStaffId', () => getCurrentUserStaffId()),
-    t.phase('businessId', () => getBusinessId()),
     getLocale(),
     getTranslations('customers.list.lastVisit'),
   ])

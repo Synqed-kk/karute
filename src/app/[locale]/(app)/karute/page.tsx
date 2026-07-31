@@ -1,7 +1,7 @@
-import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
+import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
 import { listSynqedKaruteRows } from '@/lib/karute/synqed-records'
-import { listAllCustomers } from '@/lib/customers/list-all'
+import { listAllCustomersCached } from '@/lib/customers/list-all'
 import { resolveStoreScope, storeStaffIdSet } from '@/lib/auth/store-scope'
 import { buildSessionsListScreen } from '@/lib/karute/screen-rows'
 import { KaruteRecordListView } from '@/components/karute/spike-lifted/list/KaruteRecordListView'
@@ -31,9 +31,13 @@ export default async function KaruteRecordsListPage() {
   // their own store (RBAC). `clamped` = the viewer may see ONLY their store, so
   // the customer name-map + picker are scoped too (no cross-store name leak);
   // cross-store viewers keep them business-wide for walk-in karute creation.
-  const [synqed, scope] = await Promise.all([
+  // businessId rides along in this wave (React cache — free, getSynqedClient
+  // already resolved it internally) so it's ready as the listAllCustomersCached
+  // calls' tenant-isolation cache key below.
+  const [synqed, scope, businessId] = await Promise.all([
     getSynqedClient(),
     resolveStoreScope(),
+    getBusinessId(),
   ])
   const activeStore = scope.storeId
   const clamped = scope.allowedStoreIds != null
@@ -55,20 +59,20 @@ export default async function KaruteRecordsListPage() {
       // can be created for another store's walk-in); a branch-restricted staff
       // loads it SCOPED to their store (no cross-store names/customers leak).
       clamped
-        ? listAllCustomers(synqed, {
+        ? listAllCustomersCached(businessId, {
             store_id: activeStore,
             enforceStore: true,
             sort_by: 'created_at',
             sort_order: 'asc',
           })
-        : listAllCustomers(synqed, { sort_by: 'created_at', sort_order: 'asc' }),
+        : listAllCustomersCached(businessId, { sort_by: 'created_at', sort_order: 'asc' }),
       // Store-scoped customer roster — ONLY to scope the "新規のお客様"
       // placeholder section to the active branch for a CROSS-STORE viewer who
       // has pinned a store (a customer "belongs to" a store via events; see
       // listAllCustomers). null when unpinned, or when clamped (the list above
       // is already store-scoped, so its customers ARE the placeholder roster).
       !clamped && activeStore
-        ? listAllCustomers(synqed, {
+        ? listAllCustomersCached(businessId, {
             store_id: activeStore,
             sort_by: 'created_at',
             sort_order: 'asc',
