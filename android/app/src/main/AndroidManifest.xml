@@ -38,4 +38,10 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Counseling-session recording (parity with iOS NSMicrophoneUsageDescription).
+         Capacitor's BridgeWebChromeClient requests BOTH of these for a WebView
+         audio-capture request and denies the mic if EITHER is undeclared —
+         RECORD_AUDIO alone is not enough. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
 </manifest>
