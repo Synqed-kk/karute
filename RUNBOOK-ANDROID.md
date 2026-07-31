@@ -185,3 +185,31 @@ same as iPhone 1.1(4.x)). Corrections learned, in build order:
   notes must say "save in-progress work before updating"; Liam confirms no
   tester has unsaved work before upload. Local mode also deliberately clears
   the remote-era cookie jar + snapshot on launch (see MainActivity comments).
+
+### 7/31 night — codes 7+8 (mic permissions + lock-screen recording)
+
+- **Mic-liveness proof method**: `adb shell dumpsys audio | grep silenced:` —
+  the OS's RecordingActivityMonitor states per-session `silenced:true/false`
+  for our own capture. A/B it: build WITHOUT the fix → lock (`keyevent 26`) →
+  flips `silenced:true` in ~10s; build WITH the mic FGS → stays `false`. This
+  is the red-run artifact; screenshots of the timer alone don't prove audio.
+- **FGS liveness**: `dumpsys activity services jp.synqed.karute` →
+  `isForeground=true types=0x00000080`. Raise/drop is logged under the
+  `CookiePersist` tag ("raising/dropping mic foreground service").
+- **Emulator lock/wake**: lock `input keyevent 26`, wake `224`, then swipe up
+  to dismiss keyguard. AVD has no PIN.
+- **Play Console at upload (code 8+)**: TWO forms — Data safety ("Audio files
+  → Voice or sound recordings": Collected, not ephemeral, App functionality,
+  encrypted in transit) AND Foreground service permissions declaration
+  (type microphone, category "Background Audio Access", feature description +
+  demo video link). Missing either is a commonly-reported auto-reject.
+- **POST_NOTIFICATIONS is never requested** (deliberate, 7/31): the 録音中
+  FGS notification is enqueued but withheld on Android 13+; mic keepalive is
+  unaffected (OS green dot shows). If a future build requests notification
+  permission, this notification starts appearing — that's expected, not a bug.
+- **OEM battery killers**: a mic FGS does not stop Xiaomi/Samsung-style
+  app managers from killing the process. Staff-device setup on such phones:
+  disable battery optimization for Karute (dontkillmyapp.com per vendor).
+- **Consent gate lives in web code**: the 録音同意 flow runs before
+  getUserMedia, so the OS mic dialog appears only after consent-taken — this
+  ordering is what satisfies Play's prominent-disclosure rule; don't reorder.
