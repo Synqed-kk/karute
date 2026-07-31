@@ -6,6 +6,7 @@
 // rename smuggling) — not decoration.
 
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { checkIsolation, loadTerritory } from './check-business-isolation.mjs'
@@ -47,4 +48,16 @@ assert.deepEqual(
   ['src/components/dashboard/Old.tsx'],
 )
 
-console.log('✓ business isolation gate selftest: 6 cases green')
+// 7. CLI entrypoint fails closed on empty stdin (verify-round pin: without
+//    this, a refactor of the main block could silently restore the
+//    empty-feed-passes behavior an API flake exploits).
+assert.throws(
+  () =>
+    execFileSync(process.execPath, [join(dirname(fileURLToPath(import.meta.url)), 'check-business-isolation.mjs')], {
+      input: '',
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }),
+  (err) => err.status === 1,
+)
+
+console.log('✓ business isolation gate selftest: 7 cases green')

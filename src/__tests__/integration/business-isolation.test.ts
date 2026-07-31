@@ -76,7 +76,16 @@ function stripFullLineComments(src: string): string {
 }
 
 describe('Business import isolation (phone-safety lock 3)', () => {
-  const files = [...rootFiles(), ...walk(join(ROOT, 'src'), []), ...walk(join(ROOT, 'thin'), [])]
+  // e2e/ + scripts/ never ship (no build config references them) but are
+  // real source — walked so the suite's claim holds literally, not just for
+  // the shipped graph (verify-round finding).
+  const files = [
+    ...rootFiles(),
+    ...walk(join(ROOT, 'src'), []),
+    ...walk(join(ROOT, 'thin'), []),
+    ...walk(join(ROOT, 'e2e'), []),
+    ...walk(join(ROOT, 'scripts'), []),
+  ]
 
   it('territory config is well-formed directory prefixes', () => {
     expect(territory.length).toBeGreaterThan(0)
