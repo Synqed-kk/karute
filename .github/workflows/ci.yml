@@ -225,12 +225,19 @@ jobs:
         # pipefail is load-bearing (blind round): the default step shell is
         # plain `bash -e` — without it a failed gh api call feeds the script
         # empty stdin and the pipeline exits with node's status. The script
-        # ALSO fails closed on empty input; two independent layers. Accepted
-        # residual: the PR files API silently caps at 3000 files — a padding
-        # attack needs a ~3000-file PR, conspicuous at this repo's 50–200 LOC
-        # convention.
+        # ALSO fails closed on empty input; two independent layers. The
+        # changed_files pre-check (Greptile P2): the files endpoint silently
+        # truncates at 3000 entries, so a padded PR could hide an
+        # outside-territory file past the cap — refuse anything near it
+        # outright (a ~3000-file PR is already far outside this repo's
+        # 50–200 LOC convention).
         run: |
           set -eo pipefail
+          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}" --jq '.changed_files')
+          if [ "$changed" -gt 2900 ]; then
+            echo "::error::PR has $changed changed files — beyond the files API's reliable range (3000 cap). Split the PR."
+            exit 1
+          fi
           gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
             --jq '.[] | .filename, (.previous_filename // empty)' \
           | node scripts/business/check-business-isolation.mjs

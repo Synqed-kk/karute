@@ -39,7 +39,9 @@ const IMPORT_FORMS: Array<[string, RegExp]> = [
 // names a business/ path segment relatively.
 const BUSINESS_SPECIFIER = [
   (s: string) => s === '@/business' || s.startsWith('@/business/'),
-  (s: string) => /^\.\.?\/(?:.*\/)?business\//.test(s),
+  // (?:\/|$): an extensionless barrel import (`../business` → src/business/
+  // index.ts) is Business too — Greptile P1 on #662.
+  (s: string) => /^\.\.?\/(?:.*\/)?business(?:\/|$)/.test(s),
 ]
 
 const SOURCE_EXT = /\.(ts|tsx|mts|cts|mjs|cjs|jsx|js)$/
