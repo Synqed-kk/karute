@@ -24,6 +24,7 @@ jest.mock('@/lib/dashboard/daily-attention-ai', () => ({
 import { buildDashboardScreen, type DashboardScreenDeps } from '@/lib/dashboard/screen'
 import { listRecentRedemptionsWithClient } from '@/lib/packs/store'
 import { getCachedCustomerListFor } from '@/lib/customers/cached'
+import { getDailyAttentionLines } from '@/lib/dashboard/daily-attention-ai'
 import type { OrgSettings } from '@/actions/org-settings'
 import type { StaffMember } from '@/lib/staff'
 import type { DashboardTodayAppointment } from '@/lib/dashboard/cached'
@@ -279,6 +280,30 @@ describe('buildDashboardScreen', () => {
       expect(getCachedCustomerListFor).not.toHaveBeenCalled()
       expect(screen.heroSlides.find((s) => s.clientId === 'c-in')?.ticket).toBeNull()
       expect(screen.heroSlides.find((s) => s.clientId === 'c-out')?.ticket).toBeNull()
+    })
+  })
+  // ── 要注目 AI: who is allowed to defer the model call ──────────────
+  //
+  // The web dashboard opts OUT of blocking on OpenAI (deferAttentionAi), but
+  // the facade screen route MUST keep generating inline — the native shell
+  // asks once and paints what it gets, with no second render to pick up a
+  // late cache fill. This is the exact "web change leaked into the facade"
+  // trap that round 1's first draft hit, so the DEFAULT is pinned here, not
+  // just the opt-in.
+  describe('attention-AI defer flag', () => {
+    it('defaults to inline generation — the facade calls it exactly this way', async () => {
+      await buildDashboardScreen(baseDeps())
+      expect(getDailyAttentionLines).toHaveBeenCalledTimes(1)
+      expect(jest.mocked(getDailyAttentionLines).mock.calls[0][0]).toMatchObject({
+        cacheOnly: false,
+      })
+    })
+
+    it('defers only when the caller explicitly opts in (the web page)', async () => {
+      await buildDashboardScreen(baseDeps({ deferAttentionAi: true }))
+      expect(jest.mocked(getDailyAttentionLines).mock.calls[0][0]).toMatchObject({
+        cacheOnly: true,
+      })
     })
   })
 })
