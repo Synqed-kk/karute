@@ -86,8 +86,9 @@ export default async function AppointmentsPage({
     // The agenda is the ONE consumer that wants cancelled rows — rendered as
     // thin greyed キャンセル済み tombstones in their original slot. Every other
     // getAppointmentsByDate caller keeps the hidden-by-default contract.
-<<<<<<< HEAD
-    t.phase('day.appointments', () => getAppointmentsByDate(selectedDateStr, 540, { includeCancelled: true })),
+    // 60s web-only cache; appointment/karute mutations updateTag('dashboard')
+    // so web edits repaint immediately (envelope in day-agenda-cached.ts).
+    t.phase('day.appointments', () => getCachedDayAgenda(selectedDateStr)),
     t.phase('businessId', () => getBusinessId().catch(() => null)),
     t.phase('range.week', () =>
       weekRange
@@ -106,25 +107,6 @@ export default async function AppointmentsPage({
         : Promise.resolve(null),
     ),
     t.phase('storeScope', () => resolveStoreScope()),
-=======
-    // 60s web-only cache; appointment/karute mutations updateTag('dashboard')
-    // so web edits repaint immediately (envelope in day-agenda-cached.ts).
-    getCachedDayAgenda(selectedDateStr),
-    getBusinessId().catch(() => null),
-    weekRange
-      ? getAppointmentsInRange(
-          weekRange.rangeFrom.toISOString(),
-          weekRange.rangeTo.toISOString(),
-        )
-      : Promise.resolve(null),
-    monthRange
-      ? getAppointmentsInRange(
-          monthRange.rangeFrom.toISOString(),
-          monthRange.rangeTo.toISOString(),
-        )
-      : Promise.resolve(null),
-    resolveStoreScope(),
->>>>>>> origin/main
   ])
 
   const authProfileId = user?.id ?? null
