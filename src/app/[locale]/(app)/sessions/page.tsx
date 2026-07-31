@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { getTranslations } from 'next-intl/server'
 import { getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getCachedCustomerList } from '@/lib/customers/cached'
@@ -86,6 +88,10 @@ export default async function SessionsPage({
     : Promise.resolve(null)
 
   return (
+    <>
+      {/* SWR delivery: stamp when the SERVER built this so a stale
+          router-cache copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
     <RecordPageView
       customers={customers}
       locale={locale}
@@ -106,5 +112,6 @@ export default async function SessionsPage({
       noiseSuppression={screen.noiseSuppression}
       currentStaffName={screen.currentStaffName}
     />
+    </>
   )
 }

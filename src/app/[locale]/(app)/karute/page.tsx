@@ -1,3 +1,5 @@
+import { QuietRefresh } from '@/components/perf/QuietRefresh'
+import { renderStamp } from '@/lib/perf/render-stamp'
 import { startTiming } from '@/lib/perf/timing'
 import { getBusinessId, getCurrentUserStaffId, getStaffList } from '@/lib/staff'
 import { getSynqedClient } from '@/lib/synqed/client'
@@ -121,13 +123,19 @@ export default async function KaruteRecordsListPage() {
   })
 
   return (
-    <KaruteRecordListView
-      items={screen.items}
-      monthCount={screen.monthCount}
-      placeholders={screen.placeholders}
-      staffList={screen.staffList}
-      currentStaffId={screen.currentStaffId}
-      customerOptions={screen.customerOptions}
-    />
+    <>
+      {/* SWR delivery: this screen may have been served from the
+          router cache — stamp when the SERVER built it so a stale
+          copy refreshes itself behind the paint. */}
+      <QuietRefresh renderedAt={renderStamp()} />
+      <KaruteRecordListView
+        items={screen.items}
+        monthCount={screen.monthCount}
+        placeholders={screen.placeholders}
+        staffList={screen.staffList}
+        currentStaffId={screen.currentStaffId}
+        customerOptions={screen.customerOptions}
+      />
+    </>
   )
 }

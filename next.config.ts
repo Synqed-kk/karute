@@ -4,7 +4,39 @@ import { withSentryConfig } from '@sentry/nextjs'
 
 const withNextIntl = createNextIntlPlugin('./next-intl.config.ts')
 
-const nextConfig: NextConfig = {}
+const nextConfig: NextConfig = {
+  experimental: {
+    // Router-cache reuse for dynamic screens. Next's default is 0s: every
+    // sidebar hop and 予約 date-arrow press re-runs the full server render
+    // (measured 1.0–2.6s per click on prod, 2026-07-30 speed pass).
+    //
+    // 5 minutes, not 30s: at 30s the screens were still "forgotten" between
+    // normal sidebar loops and every revisit re-paid the full price. The long
+    // window is only honest because <QuietRefresh> ships with it — past 25s a
+    // served copy repaints instantly AND fires one background router.refresh()
+    // that corrects it in place. So the UNCORRECTED staleness ceiling is 25s
+    // (tighter than round 1's 30s), while the INSTANT-paint window is 5min.
+    //
+    // Honest envelope (verified against the installed Next 16.2.3 source,
+    // 2026-07-30 blind round):
+    // - The cache keys on the FULL URL including search params, so 予約's
+    //   date arrows only benefit on REVISITS of an already-seen date; paging
+    //   to a new date is a miss, exactly as before this change.
+    // - A Server Action invalidates the router cache OF THE TAB THAT RAN IT.
+    //   The same tab always reads its own writes live. ANOTHER tab/device can
+    //   be served a copy up to 25s old, after which <QuietRefresh> corrects it
+    //   behind the paint — same envelope as the shell's cached facade packets.
+    // - router.refresh() bumps a GLOBAL cache version (Next has no per-path
+    //   invalidation), so each quiet correction also evicts sibling screens'
+    //   remembered copies. Multi-screen loops with >25s dwell therefore
+    //   alternate instant-stale-corrected paints with plain SSR clicks —
+    //   strictly better than the every-click SSR baseline, never worse.
+    //
+    // Web-only: the native shell renders the Vite thin bundle, which this file
+    // never touches.
+    staleTimes: { dynamic: 300 },
+  },
+}
 
 export default withSentryConfig(withNextIntl(nextConfig), {
   org: process.env.SENTRY_ORG,
