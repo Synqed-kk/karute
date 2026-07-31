@@ -14,6 +14,7 @@ import androidx.core.splashscreen.SplashScreen;
 import androidx.security.crypto.EncryptedSharedPreferences;
 import androidx.security.crypto.MasterKey;
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.CapConfig;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -45,6 +46,22 @@ import org.json.JSONObject;
 // android.webkit.CookieManager.getCookie() cannot see HttpOnly cookies at
 // all. If these cookies were HttpOnly this whole approach would silently
 // capture nothing; they are not, so it works.
+//
+// MARK: - Local mode (code 6+)
+//
+// When the binary is built with KARUTE_SHELL_MODE=local, the baked
+// capacitor.config.json has NO server.url (webDir points at the thin bundle)
+// — detected at runtime as CapConfig.getServerUrl() == null. Everything
+// documented above is REMOTE-mode plumbing: local-mode auth is a bearer-token
+// session in WebView localStorage (thin/auth/session.ts), no sb-* cookies
+// exist, and the app must never navigate to or read the remote origin. The
+// localMode flag makes every remote path inert while leaving the code intact,
+// so rebuilding with KARUTE_SHELL_MODE=remote restores shipped code-5
+// behavior unchanged (the rollback story). Upgrading code-5 devices carry
+// remote-origin cookies in the native jar plus an EncryptedSharedPreferences
+// snapshot: local mode reads/writes NEITHER — deliberately left to age out,
+// because clearing them would cost a rollback build one avoidable re-login
+// and they are inert data at rest otherwise.
 public class MainActivity extends BridgeActivity {
 
     private static final String TAG = "CookiePersist";
@@ -89,6 +106,11 @@ public class MainActivity extends BridgeActivity {
     // of iOS's didRetryAuth. A genuinely dead session must bounce to /login
     // and STAY there, not loop.
     private boolean didRetryAuth = false;
+
+    // Local mode (see the class comment): no server.url in the baked config.
+    // Set once at the top of load(), before any cookie work; guards every
+    // remote-mode path in this file.
+    private boolean localMode = false;
 
     // Audit F3: promoted from a load()-local variable to a field so
     // onDestroy() can cancel everything already queued (watchdog, bounce
@@ -177,6 +199,19 @@ public class MainActivity extends BridgeActivity {
     // CookieVC.viewDidLoad() delays super.viewDidLoad() on iOS.
     @Override
     protected void load() {
+        // Local-mode gate — decided from the BAKED config before any cookie
+        // machinery runs. getBridge() is still null here (BridgeActivity only
+        // constructs the Bridge inside super.load()), so read the config the
+        // same way the Bridge itself will: CapConfig.loadDefault() parses
+        // assets/capacitor.config.json.
+        localMode = CapConfig.loadDefault(this).getServerUrl() == null;
+        if (localMode) {
+            Log.d(TAG, "local mode: baked bundle, localStorage auth — cookie machinery inert");
+            super.load();
+            scheduleSplashRelease();
+            return;
+        }
+
         CookieManager cookieManager = CookieManager.getInstance();
         cookieManager.setAcceptCookie(true);
 
@@ -259,6 +294,10 @@ public class MainActivity extends BridgeActivity {
     // the dashboard, which actually consumes it. /dashboard carries no locale
     // prefix on purpose — next-intl resolves it, same as iOS's dashboardURL.
     private void aimAtDashboard() {
+        // Belt over the load()-branch guard: this is the single gateway to
+        // both remote-origin loadUrl sites (here and checkLoginBounce, which
+        // only this method schedules) — local mode must never reach either.
+        if (localMode) return;
         WebView webView = getBridge() == null ? null : getBridge().getWebView();
         if (webView == null) return;
         webView.loadUrl(SERVER_ORIGIN + "/dashboard");
@@ -361,6 +400,10 @@ public class MainActivity extends BridgeActivity {
     // own, independent of whether our own snapshot exists — so this hook
     // fixes both the batching bug and feeds the belt-and-braces backup.
     private void captureSessionCookies(String reason) {
+        // Local mode has no cookie session to capture — and must never write
+        // a snapshot (captureArmed also stays false in local mode, but that is
+        // incidental; this guard is the explicit contract).
+        if (localMode) return;
         if (!captureArmed) {
             Log.d(TAG, "capture(" + reason + "): skipped — restore not settled");
             return;
