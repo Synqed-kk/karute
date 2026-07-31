@@ -24,6 +24,16 @@
 
         </activity>
 
+        <!-- Code 8: microphone foreground service — keeps WebView audio capture
+             alive when the screen locks (Android mutes mic input for non-visible
+             apps otherwise; iOS side does this via UIBackgroundModes:audio).
+             Started/stopped by MainActivity's AudioRecordingCallback, never
+             exported. The type declaration is REQUIRED on targetSdk 34+. -->
+        <service
+            android:name=".RecordingForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -44,4 +54,9 @@
          RECORD_AUDIO alone is not enough. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <!-- Code 8: both required for RecordingForegroundService — FOREGROUND_SERVICE
+         since API 28, the MICROPHONE-typed variant since API 34. Normal
+         (install-time) permissions, no user prompt. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
 </manifest>

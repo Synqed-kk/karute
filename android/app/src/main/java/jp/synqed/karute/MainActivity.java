@@ -1,7 +1,10 @@
 package jp.synqed.karute;
 
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
+import android.media.AudioRecordingConfiguration;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -17,6 +20,7 @@ import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.CapConfig;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.json.JSONException;
@@ -123,6 +127,19 @@ public class MainActivity extends BridgeActivity {
     // `proceed` is the second half of this protection.
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
+    // Code 8: lock-screen recording. The recording itself is WebView
+    // getUserMedia (shared web code, untouched); the OS mutes mic input for a
+    // non-visible app unless a microphone-type foreground service is running
+    // (see RecordingForegroundService). This callback is the native start/stop
+    // signal that costs zero web-code changes: AudioManager reports recording
+    // configurations for OUR OWN app only (UID-scoped by the platform's
+    // privacy design), so a non-empty list == our WebView capture is live.
+    // Registered for the Activity's whole lifetime — recording can never
+    // outlive the Activity, because the WebView that owns the MediaRecorder
+    // dies with it (enforced in onDestroy by an unconditional stopService).
+    private AudioManager.AudioRecordingCallback recordingCallback;
+    private boolean recordingServiceStarted = false;
+
     // Fix B2: Android 12+ (API 31) auto-dismisses the SYSTEM splash screen on
     // this Activity's first drawn frame — which fires well before the WebView
     // has painted anything — so every cold launch showed a blank white WebView
@@ -187,6 +204,38 @@ public class MainActivity extends BridgeActivity {
         // release point (below) would never run on that path. This ceiling is
         // the only release point that's guaranteed to fire regardless.
         mainHandler.postDelayed(this::releaseSplash, SPLASH_CEILING_MS);
+
+        // Code 8: start/stop the mic foreground service in lockstep with the
+        // app's own audio capture. The service MUST start while the app is
+        // still foregrounded (that's what grants continued while-in-use mic
+        // access after the screen locks) — guaranteed here because capture can
+        // only begin from an in-app tap on 録音開始, and this callback fires on
+        // mainHandler within that same foreground window.
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        recordingCallback = new AudioManager.AudioRecordingCallback() {
+            @Override
+            public void onRecordingConfigChanged(List<AudioRecordingConfiguration> configs) {
+                boolean recording = !configs.isEmpty();
+                if (recording == recordingServiceStarted) return;
+                recordingServiceStarted = recording;
+                Intent service = new Intent(MainActivity.this, RecordingForegroundService.class);
+                if (recording) {
+                    Log.d(TAG, "recording started — raising mic foreground service");
+                    // startForegroundService is the API 26+ contract (the
+                    // service has 5s to call startForeground — it does so
+                    // immediately); plain startService below that.
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                        startForegroundService(service);
+                    } else {
+                        startService(service);
+                    }
+                } else {
+                    Log.d(TAG, "recording stopped — dropping mic foreground service");
+                    stopService(service);
+                }
+            }
+        };
+        audioManager.registerAudioRecordingCallback(recordingCallback, mainHandler);
 
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
             @Override
@@ -425,6 +474,16 @@ public class MainActivity extends BridgeActivity {
     public void onDestroy() {
         super.onDestroy();
         mainHandler.removeCallbacksAndMessages(null);
+        // Code 8: the WebView (and any recording in it) dies with this
+        // Activity, but the unregister below also removes the only stop
+        // signal — so stop the service unconditionally here or a 録音中
+        // notification could outlive the recording it describes.
+        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (recordingCallback != null) {
+            audioManager.unregisterAudioRecordingCallback(recordingCallback);
+        }
+        recordingServiceStarted = false;
+        stopService(new Intent(this, RecordingForegroundService.class));
     }
 
     // Snapshot the sb-* cookies to EncryptedSharedPreferences; clear on
