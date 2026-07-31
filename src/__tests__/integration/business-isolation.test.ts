@@ -12,6 +12,11 @@
 // later import swallow an earlier one); side-effect imports are a real form
 // (`import '@/business/x'` — the #660 blind spot); full-line comments are
 // stripped BEFORE matching (a doc comment once grafted a phantom namespace).
+// Walk covers src/ + thin/ + the REPO ROOT's own source files (blind-round
+// catch, mutation-proven: next-intl.config.ts sits at root, is in the live
+// SSR module graph via createNextIntlPlugin, and a business re-export planted
+// there passed the original two-root walk green). thin/dist is build output —
+// skipped, its bundles carry no unresolved specifiers.
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -37,13 +42,28 @@ const BUSINESS_SPECIFIER = [
   (s: string) => /^\.\.?\/(?:.*\/)?business\//.test(s),
 ]
 
+const SOURCE_EXT = /\.(ts|tsx|mts|cts|mjs|cjs|jsx|js)$/
+
 function walk(dir: string, out: string[]): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name)
     const rel = full.slice(ROOT.length + 1)
     if (territory.some((p) => rel.startsWith(p))) continue // Business's own files may import Business
+    if (rel === 'thin/dist') continue // local build output (untracked)
     if (statSync(full).isDirectory()) walk(full, out)
-    else if (/\.(ts|tsx|mts|mjs)$/.test(name)) out.push(full)
+    else if (SOURCE_EXT.test(name)) out.push(full)
+  }
+  return out
+}
+
+/** Root-level source files only (configs like next-intl.config.ts /
+ *  next.config.ts live in the real build graph); directories are covered by
+ *  their own walks or are not code (node_modules, .next, public, …). */
+function rootFiles(): string[] {
+  const out: string[] = []
+  for (const name of readdirSync(ROOT)) {
+    const full = join(ROOT, name)
+    if (!statSync(full).isDirectory() && SOURCE_EXT.test(name)) out.push(full)
   }
   return out
 }
@@ -56,7 +76,7 @@ function stripFullLineComments(src: string): string {
 }
 
 describe('Business import isolation (phone-safety lock 3)', () => {
-  const files = [...walk(join(ROOT, 'src'), []), ...walk(join(ROOT, 'thin'), [])]
+  const files = [...rootFiles(), ...walk(join(ROOT, 'src'), []), ...walk(join(ROOT, 'thin'), [])]
 
   it('territory config is well-formed directory prefixes', () => {
     expect(territory.length).toBeGreaterThan(0)

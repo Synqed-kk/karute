@@ -209,13 +209,28 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # Same pin + version as the other jobs — without this the job rides
+      # ubuntu-latest's ambient node, which drifts on every image bump.
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '20'
+
       - name: Guard selftest (boundary + rename cases)
         run: node scripts/business/check-business-isolation.selftest.mjs
 
       - name: Business PRs touch only Business territory
         env:
           GH_TOKEN: ${{ github.token }}
+        # pipefail is load-bearing (blind round): the default step shell is
+        # plain `bash -e` — without it a failed gh api call feeds the script
+        # empty stdin and the pipeline exits with node's status. The script
+        # ALSO fails closed on empty input; two independent layers. Accepted
+        # residual: the PR files API silently caps at 3000 files — a padding
+        # attack needs a ~3000-file PR, conspicuous at this repo's 50–200 LOC
+        # convention.
         run: |
-          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+          set -eo pipefail
+          gh api --paginate "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files?per_page=100" \
             --jq '.[] | .filename, (.previous_filename // empty)' \
           | node scripts/business/check-business-isolation.mjs

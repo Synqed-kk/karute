@@ -50,6 +50,13 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
+  if (changed.length === 0) {
+    // Fail closed (blind-round catch): a PR always has ≥1 changed file, so an
+    // empty feed means the API call upstream failed — without this, an API
+    // flake would print "not a Business PR" and pass.
+    console.error('✗ no changed files received on stdin — refusing to pass on an empty feed')
+    process.exit(1)
+  }
   const offenders = checkIsolation(changed, loadTerritory(root))
   if (offenders === null) {
     console.log(`✓ not a Business PR (${changed.length} changed files, none in Business territory)`)
