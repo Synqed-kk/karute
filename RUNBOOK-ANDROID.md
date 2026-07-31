@@ -139,3 +139,49 @@ device-only key-value store" match for this ask; build succeeds cleanly, this
 is an FYI note only. `MainActivity.java` also has a runtime fallback to plain
 `SharedPreferences` if `EncryptedSharedPreferences.create(...)` throws at
 runtime (sandboxed/unusual devices).
+
+## Lessons
+
+### 7/31 — code 6 LOCAL wrap (branch `feat/android-local-bundle`)
+
+This runbook's body describes the REMOTE (cookie) build. The 1.1 code 6 build
+switched Android to the LOCAL baked thin bundle (localStorage bearer auth,
+same as iPhone 1.1(4.x)). Corrections learned, in build order:
+
+- **§1 is stale**: `feat/android-cookie-persist` exists — never re-run its
+  `git switch -c`. New work branches off it (worktree with `-b <new-branch>`;
+  two worktrees on one branch corrupt each other, never `--force`).
+- **§2 vendored tarball = FALLBACK only**: `@capacitor/android` is a plain
+  registry dep in package.json since the main merge — `npx npm@10.8.2 ci`
+  installs it (npm 11 mangles this lockfile; version must equal
+  `@capacitor/core` exactly, lockfile pins it).
+- **§3 mode**: local builds sync with `KARUTE_SHELL_MODE=local`; the mode is
+  explicit everywhere — unset must throw (main-PR fix), never default. An
+  unset var here once produced a remote artifact in a "local" flow with zero
+  errors.
+- **§4 builds only the APK**: Play needs `./gradlew bundleRelease` (AAB); the
+  `assembleRelease` APK is for the emulator only (`adb install` can't take an
+  AAB). Build BOTH.
+- **Never invoke `scripts/shell/release.mjs` for Android** — its only real
+  build path also runs `cap sync ios`, stamps Info.plist, and advances the
+  shared ASC build counter. Hand-extract its thin-build steps (vite build +
+  manifest + hash); reading `.last-build-number` is fine, writing is not.
+- **`cap sync android` dirties tracked wiring files**
+  (`android/app/capacitor.build.gradle`, `android/capacitor.settings.gradle`)
+  when package.json plugins changed — commit them BEFORE the release build so
+  the tip SHA covers everything in the binary.
+- **Local-mode acceptance replaces §5's cookie test**: login on the AVD
+  (test tenant only) → settle ≥5s → HOME → `am force-stop` → PROVE death
+  (`pidof` empty + `ps -A` empty) → `am start` → new PID ≠ old → still
+  authenticated after a 5s hold. `adb logcat -s CookiePersist` shows exactly
+  one line in local mode ("local mode: … cookie machinery inert") — more
+  lines means the mode guard failed. `monkey` is unreliable for launching;
+  use `am start -n jp.synqed.karute/.MainActivity`.
+- **The `karute-test` AVD has Quick Boot ON** — always boot `-no-snapshot`
+  for persistence tests and never restart the emulator mid-test, or a VM
+  snapshot restore can fake (or break) persistence results.
+- **Upgrade data note**: switching origin orphans unsaved local work
+  (IndexedDB takes, localStorage drafts) and forces one re-login. Release
+  notes must say "save in-progress work before updating"; Liam confirms no
+  tester has unsaved work before upload. Local mode also deliberately clears
+  the remote-era cookie jar + snapshot on launch (see MainActivity comments).
