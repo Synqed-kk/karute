@@ -738,10 +738,14 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
-      {/* Session photos — mounted only once there's a bound customer to
-          attach photos to and a live/just-stopped session (packet PR1). */}
-      {boundCustomerId && (live || phase === 'recorded') && (
-        <SessionPhotoCard customerId={boundCustomerId} />
+      {/* Session photos — mounted only for a session BOUND to a customer.
+          Deliberately target-only, never the boundCustomerId fallback: under
+          an anonymous record-anyway take, nextAppointment can resolve to a
+          DIFFERENT customer than the one in the chair, and photos would
+          upload to them (blind-round P1 8/2, same class as the save-binding
+          fix on fix/record-live-target-binding). */}
+      {target?.customerId && (live || phase === 'recorded') && (
+        <SessionPhotoCard customerId={target.customerId} />
       )}
       <div className="flex justify-center">
         <ConsentPill consentDate={consentDate} />
