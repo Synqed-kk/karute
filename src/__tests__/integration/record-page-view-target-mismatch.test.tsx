@@ -18,9 +18,10 @@
  * @/hooks/use-global-recorder mock (this suite's own addition) so a test can
  * bind `target` to a specific customer.
  */
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
+let mockResult: { blob: Blob; mimeType: string; durationMs: number } | null = null
 let mockTarget: {
   customerId: string
   customerName: string
@@ -39,7 +40,7 @@ jest.mock('@/i18n/navigation', () => ({
 jest.mock('@/hooks/use-global-recorder', () => ({
   useGlobalRecorder: () => ({
     state: mockRecState,
-    result: null,
+    result: mockResult,
     error: null,
     stream: null,
     startedAt: mockRecState === 'idle' ? null : Date.now(),
@@ -67,6 +68,26 @@ jest.mock('@/actions/packs', () => ({
   redeemSessionAction: jest.fn(),
   undoRedemptionAction: jest.fn(),
 }))
+// Pipeline mocked so the stop-flow render test can assert what the save hands
+// off (and that no real pipeline work runs in jsdom).
+const mockPipelineStart = jest.fn()
+jest.mock('@/lib/global-pipeline', () => ({
+  globalPipeline: {
+    start: (...args: unknown[]) => mockPipelineStart(...args),
+    retry: jest.fn(),
+    reset: jest.fn(),
+    state: 'idle',
+  },
+}))
+jest.mock('@/hooks/use-global-pipeline', () => ({
+  useGlobalPipeline: () => ({
+    state: 'idle',
+    error: null,
+    start: (...args: unknown[]) => mockPipelineStart(...args),
+    retry: jest.fn(),
+    reset: jest.fn(),
+  }),
+}))
 jest.mock('@synqed-kk/ui', () => {
   // jest.mock factories run before the module's own ES imports are wired up
   // — requiring react here (rather than importing) is the standard idiom
@@ -89,6 +110,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 import {
   RecordPageView,
   resolveSaveBinding,
+  resolveStopFlow,
   type RecordPageNextAppointment,
 } from '@/components/karute/redesign/record/RecordPageView'
 
@@ -160,6 +182,8 @@ const baseProps = {
 beforeEach(() => {
   mockRecState = 'idle'
   mockTarget = null
+  mockResult = null
+  jest.clearAllMocks()
 })
 
 describe('RecordPageView — schedule mismatch guard (field bug 8/2)', () => {
@@ -277,5 +301,63 @@ describe('resolveSaveBinding — the take binds only to what it was recorded aga
     expect(
       resolveSaveBinding({ customerId: 'cust-A', appointmentId: '' }, null, null),
     ).toEqual({ appointmentId: undefined, customerId: 'cust-A' })
+  })
+})
+
+describe('stop flow under mismatch — end-to-end render pin (delta-verify catch 8/2)', () => {
+  it('anonymous recorded take + schedule drift to a 残1 customer: 録音を使用 saves unbound and burns NOTHING', async () => {
+    mockRecState = 'recorded'
+    mockResult = { blob: new Blob(['x']), mimeType: 'audio/webm', durationMs: 5000 }
+    mockTarget = null // anonymous record-anyway take
+    render(
+      <RecordPageView
+        {...baseProps}
+        ticketsEnabled
+        // 残1 pack → outcomeMode 'auto' — the exact wrong-burn scenario.
+        targetPack={{ id: 'pack-B', remaining: 1, size: 6 }}
+        nextAppointment={nextAppointmentFor('cust-B', '富山彩夏')}
+      />,
+    )
+
+    fireEvent.click(screen.getByText('useRecording'))
+
+    await waitFor(() => expect(mockPipelineStart).toHaveBeenCalledTimes(1))
+    // The take hands off UNBOUND — never customer B's ids.
+    expect(mockPipelineStart.mock.calls[0][1]).toMatchObject({
+      appointmentCustomerId: undefined,
+      appointmentId: undefined,
+    })
+    // And customer B's pack was NOT burned.
+    const { redeemSessionAction } = jest.requireMock('@/actions/packs')
+    expect(redeemSessionAction).not.toHaveBeenCalled()
+  })
+})
+
+describe('resolveStopFlow — ticket economics only run against the session\'s own customer', () => {
+  it('tickets off → straight save regardless of mode', () => {
+    expect(
+      resolveStopFlow({ ticketsEnabled: false, canRunOutcome: true, outcomeMode: 'auto' }),
+    ).toBe('save-direct')
+  })
+
+  it('schedule mismatch / anonymous take (canRunOutcome false) → straight save, NEVER auto-burn', () => {
+    expect(
+      resolveStopFlow({ ticketsEnabled: true, canRunOutcome: false, outcomeMode: 'auto' }),
+    ).toBe('save-direct')
+    expect(
+      resolveStopFlow({ ticketsEnabled: true, canRunOutcome: false, outcomeMode: 'conversion' }),
+    ).toBe('save-direct')
+  })
+
+  it('bound + matching schedule: auto mode burns, other modes open the dialog', () => {
+    expect(
+      resolveStopFlow({ ticketsEnabled: true, canRunOutcome: true, outcomeMode: 'auto' }),
+    ).toBe('auto-redeem')
+    expect(
+      resolveStopFlow({ ticketsEnabled: true, canRunOutcome: true, outcomeMode: 'conversion' }),
+    ).toBe('dialog')
+    expect(
+      resolveStopFlow({ ticketsEnabled: true, canRunOutcome: true, outcomeMode: 'repurchase' }),
+    ).toBe('dialog')
   })
 })

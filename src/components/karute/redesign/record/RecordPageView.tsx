@@ -167,6 +167,25 @@ export function resolveSaveBinding(
   }
 }
 
+/**
+ * Which stop flow the 録音を使用 tap runs. Exported for tests.
+ *
+ * Ticket economics (auto-burn / 成約・回数券 dialog) may fire ONLY when the
+ * schedule data they price against belongs to the session's own customer:
+ * under a schedule mismatch (incl. an anonymous take) the pack/outcome data
+ * on screen is another customer's — burning or creating against it is the
+ * money-side of the same misattribution bug (delta-verify catch 8/2). Those
+ * sessions save directly; 成約/回数券 completes later via the profile flows.
+ */
+export function resolveStopFlow(opts: {
+  ticketsEnabled: boolean
+  canRunOutcome: boolean
+  outcomeMode: 'auto' | 'conversion' | 'repurchase'
+}): 'save-direct' | 'auto-redeem' | 'dialog' {
+  if (!opts.ticketsEnabled || !opts.canRunOutcome) return 'save-direct'
+  return opts.outcomeMode === 'auto' ? 'auto-redeem' : 'dialog'
+}
+
 export function RecordPageView({
   customers,
   locale,
@@ -235,6 +254,15 @@ export function RecordPageView({
       nextAppointment &&
       (!target || target.customerId !== nextAppointment.customerId),
   )
+  // Single source of binding for EVERYTHING the stop flow writes — the karute
+  // save AND the pack money mutations (delta-verify catch 8/2: the latter
+  // still rode boundCustomerId's nextAppointment fall-through).
+  const saveBinding = resolveSaveBinding(
+    target,
+    recordingAppointmentId ?? null,
+    recordingCustomerId ?? null,
+  )
+  const canRunOutcome = !scheduleMismatch && Boolean(saveBinding.customerId)
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
   // recording runs unusually long, and tell them when the hard cap auto-saved it.
@@ -444,7 +472,7 @@ export function RecordPageView({
       // `|| undefined`: a walk-in target (customer recorded with no booking)
       // carries id='' — coerce it so the save writes appointment_id null, not ''.
       const { appointmentId: effectiveAppointmentId, customerId: effectiveCustomerId } =
-        resolveSaveBinding(target, recordingAppointmentId ?? null, recordingCustomerId ?? null)
+        saveBinding
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
@@ -573,13 +601,15 @@ export function RecordPageView({
     // pack session (redeemSessionAction has no server-side idempotency), so
     // a double-tap must not fire it twice for one take.
     if (usingRecording.current) return
-    if (targetPack && boundCustomerId) {
+    // saveBinding, never bound*: the burn must hit the session's own customer
+    // (delta-verify catch 8/2 — boundCustomerId falls through to the schedule).
+    if (targetPack && saveBinding.customerId) {
       const from = targetPack.remaining
       void redeemSessionAction({
         packId: targetPack.id,
-        customerId: boundCustomerId,
-        // '' for walk-in targets → null (no booking to link)
-        appointmentId: boundAppointmentId ?? null,
+        customerId: saveBinding.customerId,
+        // undefined for walk-in targets → null (no booking to link)
+        appointmentId: saveBinding.appointmentId ?? null,
       }).then((res) => {
         if (res.ok) {
           toast.success(
@@ -748,14 +778,15 @@ export function RecordPageView({
           variant="default"
           size="md"
           className="flex-1"
-          onClick={() =>
-            // Tickets off: straight save — no burn, no 成約/回数券 dialog.
-            !ticketsEnabled
-              ? handleUseRecording(undefined, true)
-              : outcomeMode === 'auto'
-                ? handleAutoFlow()
-                : setOutcomeOpen(true)
-          }
+          onClick={() => {
+            // Tickets off OR the pack data on screen isn't this session's
+            // customer (mismatch/anonymous): straight save — no burn, no
+            // 成約/回数券 dialog (resolveStopFlow's contract).
+            const flow = resolveStopFlow({ ticketsEnabled, canRunOutcome, outcomeMode })
+            if (flow === 'save-direct') handleUseRecording(undefined, true)
+            else if (flow === 'auto-redeem') handleAutoFlow()
+            else setOutcomeOpen(true)
+          }}
         >
           {t('useRecording')}
         </Button>
@@ -996,12 +1027,12 @@ export function RecordPageView({
           // 成約/購入した with the inline picker filled → the pack is created
           // HERE, at the moment of sale (conservation law: the count-from-N
           // needs an input moment, not a profile errand).
-          if (newPack && boundCustomerId) {
+          if (newPack && saveBinding.customerId) {
             const jstToday = new Date(Date.now() + 9 * 60 * 60 * 1000)
               .toISOString()
               .slice(0, 10)
             void createPackAction({
-              customerId: boundCustomerId,
+              customerId: saveBinding.customerId,
               kind: 'pack',
               packSize: newPack.size,
               unitPrice: newPack.unitPrice,
@@ -1022,11 +1053,11 @@ export function RecordPageView({
           // Redemption records the VISIT (which already happened), so it fires
           // immediately — independent of whether the transcription/save later
           // succeeds. Failure → toast; the profile pack card is the fallback.
-          if (redeemPack && targetPack && boundCustomerId) {
+          if (redeemPack && targetPack && saveBinding.customerId) {
             void redeemSessionAction({
               packId: targetPack.id,
-              customerId: boundCustomerId,
-              appointmentId: boundAppointmentId ?? null,
+              customerId: saveBinding.customerId,
+              appointmentId: saveBinding.appointmentId ?? null,
             }).then((res) => {
               if (res.ok) toast.success(tPacks('redeemDone'))
               else toast.error(tPacks(res.error === 'below_zero' ? 'redeemNoSessionsLeft' : 'redeemFailed'))
@@ -1038,9 +1069,9 @@ export function RecordPageView({
           if (
             outcome.status === 'success' &&
             !newPack &&
-            boundCustomerId
+            saveBinding.customerId
           ) {
-            const customerId = boundCustomerId
+            const customerId = saveBinding.customerId
             toast.success(t('registerNewPackPrompt'), {
               duration: 10_000,
               action: {
