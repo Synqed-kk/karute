@@ -344,7 +344,7 @@ function CenterRecordButton({
   locale: string
 }) {
   const router = useRouter()
-  const { state, startedAt, stopRecording } = useGlobalRecorder()
+  const { state, startedAt, stopRecording, target } = useGlobalRecorder()
   // Live, ticking countdown for the idle sub-label (「あと5分」→「残り5分」→
   // 「まもなく終了」). Only surfaces in the idle branch below.
   const centerHint = useLiveHint(nextCustomer, locale)
@@ -406,7 +406,16 @@ function CenterRecordButton({
           type="button"
           onClick={() => {
             closeMenuIfOpen()
-            router.push('/sessions')
+            // Carry the LIVE-bound customer through — a bare '/sessions' push
+            // let /sessions re-resolve to the next scheduled booking, so a
+            // customer picked via a customer-page mic button got overwritten
+            // by whoever's up next after a navigate-away-and-back (field bug
+            // 8/2: リエム代表's session showed 富山彩夏's briefing mid-recording).
+            router.push(
+              target
+                ? `/sessions?customerId=${encodeURIComponent(target.customerId)}`
+                : '/sessions',
+            )
           }}
           aria-label="録音画面に戻る"
           className="relative -mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 ring-4 ring-background transition-transform active:scale-95"

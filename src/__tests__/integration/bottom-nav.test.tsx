@@ -4,21 +4,32 @@
  * Render coverage for BottomNav (PR #87, replay/12): the center mic-button
  * label/hint that surfaces the staff member's next customer.
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import type { NextCustomerInfo } from '@/lib/appointments/next-customer'
 
 let mockPathname = '/dashboard'
+// Live-target binding coverage (field bug 8/2): mutable so a test can put the
+// center button into "recording, off /sessions" and control what the global
+// recorder singleton is bound to.
+let mockRecState: 'idle' | 'recording' | 'paused' = 'idle'
+let mockTarget: { customerId: string } | null = null
+const push = jest.fn()
 
 jest.mock('@/i18n/navigation', () => ({
   usePathname: () => mockPathname,
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
+  useRouter: () => ({ push, back: jest.fn() }),
   Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
 }))
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
 }))
 jest.mock('@/hooks/use-global-recorder', () => ({
-  useGlobalRecorder: () => ({ state: 'idle', startedAt: null, stopRecording: jest.fn() }),
+  useGlobalRecorder: () => ({
+    state: mockRecState,
+    startedAt: null,
+    stopRecording: jest.fn(),
+    target: mockTarget,
+  }),
 }))
 
 import { BottomNav } from '@/components/layout/bottom-nav'
@@ -56,6 +67,9 @@ function inSession(remaining: number, over: Partial<NextCustomerInfo> = {}): Nex
 
 beforeEach(() => {
   mockPathname = '/dashboard'
+  mockRecState = 'idle'
+  mockTarget = null
+  push.mockClear()
   jest.spyOn(Date, 'now').mockReturnValue(FIXED)
 })
 afterEach(() => {
@@ -118,5 +132,25 @@ describe('BottomNav center button', () => {
     render(<BottomNav nextCustomer={ended} locale="ja" />)
     expect(screen.getByText('田中様')).toBeInTheDocument()
     expect(screen.queryByText(/分|終了|left|min/)).not.toBeInTheDocument()
+  })
+})
+
+describe('BottomNav center button — live target binding (field bug 8/2)', () => {
+  it('carries the recorder\'s bound customerId when tapped while recording off /sessions', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust-A' }
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    fireEvent.click(screen.getByLabelText('録音画面に戻る'))
+    expect(push).toHaveBeenCalledWith('/sessions?customerId=cust-A')
+  })
+
+  it('falls back to bare /sessions when there is no bound target', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'recording'
+    mockTarget = null
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    fireEvent.click(screen.getByLabelText('録音画面に戻る'))
+    expect(push).toHaveBeenCalledWith('/sessions')
   })
 })

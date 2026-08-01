@@ -197,6 +197,13 @@ export function RecordPageView({
   const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
   const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
   const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
+  // Belt & suspenders (field bug 8/2): any entry path that leaves `target`
+  // bound to one customer while `nextAppointment` resolved to another (deep
+  // link, back-nav, stale tab) must never paint that OTHER customer's
+  // schedule-derived sections under a live session.
+  const scheduleMismatch = Boolean(
+    target && nextAppointment && target.customerId !== nextAppointment.customerId,
+  )
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
   // recording runs unusually long, and tell them when the hard cap auto-saved it.
@@ -517,6 +524,7 @@ export function RecordPageView({
   // Slim heads-up: the picked customer is booked under another staff. The
   // record still saves under the signed-in user (currentStaffName).
   const otherStaffBanner =
+    !scheduleMismatch &&
     nextAppointment?.bookedUnderOtherStaff &&
     nextAppointment.staffName &&
     currentStaffName ? (
@@ -863,23 +871,27 @@ export function RecordPageView({
               onSwitchBooking={live ? undefined : handleSwitchBooking}
             />
             {otherStaffBanner}
-            <RepurchaseCueBanner pack={targetPack} />
-            {visitRhythm && (
+            {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
+            {!scheduleMismatch && visitRhythm && (
               <div className="overflow-hidden rounded-2xl border border-border">
                 <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
               </div>
             )}
-            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
-            <Suspense
-              key={nextAppointment?.customerId ?? 'none'}
-              fallback={<BriefLoadingCard />}
-            >
-              <StreamingBriefCard
-                aiBriefPromise={aiBriefPromise}
-                fallbackBrief={brief}
-                customerName={nextAppointment?.customerName ?? null}
-              />
-            </Suspense>
+            {!scheduleMismatch && (
+              <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
+            )}
+            {!scheduleMismatch && (
+              <Suspense
+                key={nextAppointment?.customerId ?? 'none'}
+                fallback={<BriefLoadingCard />}
+              >
+                <StreamingBriefCard
+                  aiBriefPromise={aiBriefPromise}
+                  fallbackBrief={brief}
+                  customerName={nextAppointment?.customerName ?? null}
+                />
+              </Suspense>
+            )}
           </div>
           <div className="self-start">{recorderColumn}</div>
         </div>
@@ -891,23 +903,27 @@ export function RecordPageView({
             onSwitchBooking={live ? undefined : handleSwitchBooking}
           />
           {otherStaffBanner}
-          <RepurchaseCueBanner pack={targetPack} />
-          {visitRhythm && (
+          {!scheduleMismatch && <RepurchaseCueBanner pack={targetPack} />}
+          {!scheduleMismatch && visitRhythm && (
             <div className="overflow-hidden rounded-2xl border border-border">
               <VisitRhythmPanel rhythm={visitRhythm} segment={visitSegment} />
             </div>
           )}
-          <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
-          <Suspense
-            key={nextAppointment?.customerId ?? 'none'}
-            fallback={<BriefLoadingCard />}
-          >
-            <StreamingBriefCard
-              aiBriefPromise={aiBriefPromise}
-              fallbackBrief={brief}
-              customerName={nextAppointment?.customerName ?? null}
-            />
-          </Suspense>
+          {!scheduleMismatch && (
+            <ClosingTacticHint segment={visitSegment} hasTicketPack={targetHasTicketPack} />
+          )}
+          {!scheduleMismatch && (
+            <Suspense
+              key={nextAppointment?.customerId ?? 'none'}
+              fallback={<BriefLoadingCard />}
+            >
+              <StreamingBriefCard
+                aiBriefPromise={aiBriefPromise}
+                fallbackBrief={brief}
+                customerName={nextAppointment?.customerName ?? null}
+              />
+            </Suspense>
+          )}
           <div className="mx-auto w-full max-w-md">{recorderColumn}</div>
         </div>
       )}
