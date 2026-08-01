@@ -2,11 +2,12 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Camera, Columns2, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { Camera, Columns2, Eye, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { uploadCustomerPhoto } from '@/actions/customers'
 import { PhotoCompareView } from './PhotoCompareView'
+import { PhotoPresentationOverlay } from './PhotoPresentationOverlay'
 
 export interface CustomerPhoto {
   id: string
@@ -27,9 +28,9 @@ const CATEGORY_TONE: Record<string, { bg: string; text: string }> = {
   progress: { bg: 'bg-cyan-500/15', text: 'text-cyan-700 dark:text-cyan-300' },
 }
 
-// Exported so PhotoCompareView (restored from the pre-#281 spike lift)
-// can label thumbnails with the same tones instead of redefining the
-// category → color map.
+// Exported so PhotoCompareView / PhotoPresentationOverlay (both restored
+// from the pre-#281 spike lift) can label thumbnails with the same tones
+// instead of redefining the category → color map.
 export const KNOWN_CATEGORIES = ['before', 'after', 'reference', 'progress']
 
 export function toneFor(category: string) {
@@ -49,6 +50,7 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [compareOpen, setCompareOpen] = useState(false)
+  const [presentationOpen, setPresentationOpen] = useState(false)
   const comparableCount = photos.filter((p) => p.signedUrl).length
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
@@ -156,6 +158,14 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
             <Columns2 size={14} />
             <span>{compareOpen ? t('compareExit') : t('compareButton')}</span>
           </button>
+          <button
+            type="button"
+            onClick={() => setPresentationOpen(true)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-muted px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted/70"
+          >
+            <Eye size={14} />
+            <span>{t('presentButton')}</span>
+          </button>
           {uploadControls}
         </div>
       </header>
@@ -198,6 +208,12 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
             )
           })}
         </div>
+      )}
+      {presentationOpen && (
+        <PhotoPresentationOverlay
+          photos={photos}
+          onClose={() => setPresentationOpen(false)}
+        />
       )}
     </section>
   )

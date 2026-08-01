@@ -726,7 +726,11 @@
       "comparePickHintDone": "写真をタップすると選び直せます",
       "compareSideBySide": "並べて表示",
       "compareOverlay": "重ねて表示",
-      "compareOpacity": "不透明度"
+      "compareOpacity": "不透明度",
+      "presentButton": "お客様に見せる",
+      "presentClose": "閉じる",
+      "presentFilterAll": "すべて",
+      "presentBackToGrid": "グリッドに戻る"
     },
     "comingSoon": "対応予定",
     "privacy": {
