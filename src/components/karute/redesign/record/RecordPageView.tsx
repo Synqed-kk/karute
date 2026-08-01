@@ -44,6 +44,7 @@ import {
 import type { PreSessionBriefResult } from '@/lib/karute/ai-brief'
 import { SourceModeChips } from './SourceModeChips'
 import { RecordButtonCard } from './RecordButtonCard'
+import { SessionPhotoCard } from './SessionPhotoCard'
 import { ConsentPill } from './ConsentPill'
 import { RecordingConsentDialog } from './RecordingConsentDialog'
 import {
@@ -737,6 +738,11 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
+      {/* Session photos — mounted only once there's a bound customer to
+          attach photos to and a live/just-stopped session (packet PR1). */}
+      {boundCustomerId && (live || phase === 'recorded') && (
+        <SessionPhotoCard customerId={boundCustomerId} />
+      )}
       <div className="flex justify-center">
         <ConsentPill consentDate={consentDate} />
       </div>

@@ -573,7 +573,7 @@
     "consentStartFlow": "同意取得フローを開始",
     "consentDialogTitle": "録音の同意を取得",
     "consentDialogInstructions": "以下の内容をお客様にお読みください。口頭で同意を得た場合のみ「同意を取得しました」をタップしてください。",
-    "consentScript": "{customerName}様、本日の施術内容を正確に記録し、カルテ作成と品質向上に役立てるため、施術中の会話を録音させていただいてもよろしいでしょうか？録音データはカルテ作成とサービス改善のみに使用されます。",
+    "consentScript": "{customerName}様、本日の施術内容を正確に記録し、カルテ作成と品質向上に役立てるため、施術中の会話の録音と経過写真の撮影・保存をさせていただいてもよろしいでしょうか？録音データと写真はカルテ作成とサービス改善のみに使用されます。",
     "consentConfirmButton": "同意を取得しました",
     "longRecordingWarning": "長時間録音 — 一度停止して新しい録音を開始することをご検討ください",
     "subtitle": "セッションを録音 — AIがカルテを自動生成します。",
@@ -642,6 +642,13 @@
     },
     "consent": {
       "onFile": "同意確認済"
+    },
+    "sessionPhotos": {
+      "title": "セッション写真",
+      "take": "写真を撮る",
+      "count": "{n}枚",
+      "uploadError": "アップロードに失敗しました",
+      "retry": "タップして再試行"
     },
     "recent": {
       "title": "最近の録音",
