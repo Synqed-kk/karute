@@ -170,6 +170,15 @@ describe('BottomNav center button — live target binding (field bug 8/2)', () =
     ).not.toBeNull()
   })
 
+  it('percent-encodes a customerId with URL-special characters', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'recording'
+    mockTarget = { customerId: 'cust A&b#c' }
+    render(<BottomNav nextCustomer={null} locale="ja" />)
+    fireEvent.click(screen.getByLabelText('録音画面に戻る'))
+    expect(push).toHaveBeenCalledWith('/sessions?customerId=cust%20A%26b%23c')
+  })
+
   it('keeps the bare /sessions Link when truly idle', () => {
     mockPathname = '/customers/123'
     mockRecState = 'idle'

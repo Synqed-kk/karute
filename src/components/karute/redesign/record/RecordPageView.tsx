@@ -142,6 +142,31 @@ export interface RecordPageViewProps {
   ticketsEnabled?: boolean
 }
 
+/**
+ * What the save binds the take to. Exported for tests.
+ *
+ * The take may bind ONLY to what it was actually recorded against — the
+ * bound `target`, or the timetable-store ids for the 予約-launched flow.
+ * NEVER to `nextAppointment`: the schedule can drift to a different customer
+ * between start and save (blind-round P1 8/2 — an anonymous record-anyway
+ * take silently attached to the next booking, and a bound walk-in captured
+ * the schedule's appointment id). An anonymous take returns nothing here —
+ * per handleStartAnyway's contract, the save then requires picking a
+ * customer downstream, exactly like the no-schedule case always has.
+ */
+export function resolveSaveBinding(
+  target: { customerId: string; appointmentId: string | null } | null,
+  recordingAppointmentId: string | null,
+  recordingCustomerId: string | null,
+): { appointmentId: string | undefined; customerId: string | undefined } {
+  return {
+    appointmentId: (target?.appointmentId ?? recordingAppointmentId) || undefined,
+    customerId:
+      target?.customerId ??
+      (recordingAppointmentId ? (recordingCustomerId ?? undefined) : undefined),
+  }
+}
+
 export function RecordPageView({
   customers,
   locale,
@@ -197,12 +222,18 @@ export function RecordPageView({
   const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
   const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
   const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
-  // Belt & suspenders (field bug 8/2): any entry path that leaves `target`
-  // bound to one customer while `nextAppointment` resolved to another (deep
-  // link, back-nav, stale tab) must never paint that OTHER customer's
-  // schedule-derived sections under a live session.
+  // Belt & suspenders (field bug 8/2): any entry path that leaves the recorder
+  // in flight for one customer while `nextAppointment` resolved to another
+  // (deep link, back-nav, stale tab) must never paint that OTHER customer's
+  // schedule-derived sections under the session. Covers BOTH a bound target of
+  // a different customer AND an anonymous record-anyway take (target null —
+  // blind-round P1: the page must not masquerade the schedule's customer as
+  // the one being recorded). Keyed on recState, not `live`: pipeline-active
+  // with an idle recorder is the normal post-handoff state and stays unguarded.
   const scheduleMismatch = Boolean(
-    target && nextAppointment && target.customerId !== nextAppointment.customerId,
+    recState !== 'idle' &&
+      nextAppointment &&
+      (!target || target.customerId !== nextAppointment.customerId),
   )
 
   // Runaway-recording safety nets (see global-recorder): nudge the staff when a
@@ -412,11 +443,8 @@ export function RecordPageView({
       // re-prompting at the end.
       // `|| undefined`: a walk-in target (customer recorded with no booking)
       // carries id='' — coerce it so the save writes appointment_id null, not ''.
-      const effectiveAppointmentId =
-        (target?.appointmentId ?? recordingAppointmentId ?? nextAppointment?.id) || undefined
-      const effectiveCustomerId = target?.customerId ?? (recordingAppointmentId
-        ? (recordingCustomerId ?? undefined)
-        : nextAppointment?.customerId)
+      const { appointmentId: effectiveAppointmentId, customerId: effectiveCustomerId } =
+        resolveSaveBinding(target, recordingAppointmentId ?? null, recordingCustomerId ?? null)
       // Recording-session id was minted at start() (in parallel with getUserMedia)
       // — by now (recording has run its full length) it has almost always
       // resolved; this short await only covers the rare case it hasn't yet.
@@ -662,7 +690,12 @@ export function RecordPageView({
   // appointment window — keeps this client component pure for
   // React Compiler). 新規 (isFirstTimeVisit) flows from the brief.
   const targetAppointment: RecordTargetAppointment | null =
-    live && target
+    recState !== 'idle' && !target
+      ? // Anonymous record-anyway take in flight: the card must show its
+        // unbound state — falling through to nextAppointment would claim the
+        // schedule's customer as the one being recorded (blind-round P1 8/2).
+        null
+      : live && target
       ? // While a recording/pipeline is live, the card MUST show the customer
         // the audio is BOUND to — never re-derive from nextAppointment, which
         // can have drifted to today's first booking under the singleton.
@@ -745,9 +778,14 @@ export function RecordPageView({
   const recorderColumn = (
     <div className="flex flex-col gap-3.5">
       {recorderControls}
-      <div className="flex justify-center">
-        <ConsentPill consentDate={consentDate} />
-      </div>
+      {/* consentDate is nextAppointment-derived — under a schedule mismatch it
+          would show the OTHER customer's consent as if it covered this session
+          (blind-round catch, same class as the briefing leak). */}
+      {!scheduleMismatch && (
+        <div className="flex justify-center">
+          <ConsentPill consentDate={consentDate} />
+        </div>
+      )}
       {phase === 'idle' && nextAppointment && consent && !consent.granted && (
         <ConsentCheckCard
           consented={false}
@@ -930,7 +968,9 @@ export function RecordPageView({
 
       <LiveTranscriptCard connected={false} lines={[]} />
 
-      <RecentRecordingsCard recordings={recentRecordings} />
+      {/* recentRecordings is keyed on nextAppointment's customer (names,
+          services, karute numbers) — same mismatch guard as the briefing. */}
+      {!scheduleMismatch && <RecentRecordingsCard recordings={recentRecordings} />}
 
       {/* Mic source + disclosure mode: set-once config, demoted to a quiet strip
           at the very bottom so the record button stays the focus (Liam, 2026-06). */}

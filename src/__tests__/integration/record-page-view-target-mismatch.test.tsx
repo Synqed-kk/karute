@@ -18,7 +18,7 @@
  * @/hooks/use-global-recorder mock (this suite's own addition) so a test can
  * bind `target` to a specific customer.
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 
 let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
 let mockTarget: {
@@ -88,6 +88,7 @@ jest.mock('@/lib/karute/take-store', () => ({
 
 import {
   RecordPageView,
+  resolveSaveBinding,
   type RecordPageNextAppointment,
 } from '@/components/karute/redesign/record/RecordPageView'
 
@@ -130,8 +131,24 @@ const baseProps = {
     opener: 'BRIEF-OPENER-MARKER',
   },
   aiBriefPromise: Promise.resolve(null),
-  recentRecordings: [],
-  consentDate: null,
+  // Marker content so the blind-round P2 gates (recent recordings +
+  // consent pill are nextAppointment-derived too) assert on real output.
+  recentRecordings: [
+    {
+      id: 'rec-1',
+      customerName: 'RECENT-MARKER',
+      initials: 'RM',
+      karuteNumber: null,
+      service: 'カット',
+      date: '2026-08-01',
+      startTime: '10:00',
+      durationLabel: '45分',
+      karuteLinked: false,
+      entryCount: 1,
+      karuteId: null,
+    },
+  ],
+  consentDate: '2026-06-21',
   visitSegment: 'jouren' as const,
   visitRhythm: { daysSince: 10, avgIntervalDays: 7, ratio: 1.4, state: 'slightly-over' as const },
   targetHasTicketPack: true,
@@ -161,6 +178,9 @@ describe('RecordPageView — schedule mismatch guard (field bug 8/2)', () => {
     // RecordingTargetCard STAYS target-aware — the bound customer keeps
     // showing (this guard must not blank the whole page).
     expect(screen.getByText('リエム代表')).toBeInTheDocument()
+    // The recorder controls themselves must survive the guard — hiding the
+    // stop button mid-recording would be worse than the leak (armor lens #2).
+    expect(screen.getByLabelText('stopAria')).toBeInTheDocument()
 
     // Every customer-B (nextAppointment)-derived section must be gone.
     expect(screen.queryByText('otherStaffBooking')).not.toBeInTheDocument()
@@ -169,11 +189,37 @@ describe('RecordPageView — schedule mismatch guard (field bug 8/2)', () => {
     expect(
       container.querySelector('.overflow-hidden.rounded-2xl.border.border-border'),
     ).not.toBeInTheDocument() // VisitRhythmPanel wrapper
-    // Give the Suspense-wrapped brief every chance to have painted before
-    // asserting its absence — the guard removes the whole block, so there's
-    // nothing to await.
-    await Promise.resolve()
-    expect(screen.queryByText('BRIEF-OPENER-MARKER')).not.toBeInTheDocument()
+    expect(screen.queryByText('RECENT-MARKER')).not.toBeInTheDocument() // RecentRecordingsCard
+    expect(screen.queryByText('onFile')).not.toBeInTheDocument() // ConsentPill
+    // The brief must be gone AS A BLOCK: asserting only the resolved text is
+    // vacuous inside one microtask (armor lens #1 — the mutation survived);
+    // the Suspense fallback carries aria-busy, so its absence proves the
+    // guard removed the whole boundary rather than the content just not
+    // having streamed yet.
+    expect(container.querySelector('[aria-busy]')).not.toBeInTheDocument()
+    await waitFor(() =>
+      expect(screen.queryByText('BRIEF-OPENER-MARKER')).not.toBeInTheDocument(),
+    )
+  })
+
+  it('treats an anonymous record-anyway take the same way (target null, recorder live)', () => {
+    mockRecState = 'recording'
+    mockTarget = null // record-anyway: recording is live but bound to nobody
+    const { container } = render(
+      <RecordPageView {...baseProps} nextAppointment={nextAppointmentFor('cust-B', '富山彩夏')} />,
+    )
+
+    // The schedule's customer must not be claimed as the recording target…
+    expect(screen.queryByText('富山彩夏')).not.toBeInTheDocument()
+    // …their schedule-derived sections must not paint…
+    expect(screen.queryByText('otherStaffBooking')).not.toBeInTheDocument()
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+    expect(screen.queryByText('jouren_pack')).not.toBeInTheDocument()
+    expect(screen.queryByText('RECENT-MARKER')).not.toBeInTheDocument()
+    expect(screen.queryByText('onFile')).not.toBeInTheDocument()
+    expect(container.querySelector('[aria-busy]')).not.toBeInTheDocument()
+    // …and the recorder controls stay usable.
+    expect(screen.getByLabelText('stopAria')).toBeInTheDocument()
   })
 
   it('renders them normally when target and nextAppointment agree on the same customer', async () => {
@@ -194,6 +240,42 @@ describe('RecordPageView — schedule mismatch guard (field bug 8/2)', () => {
     expect(
       container.querySelector('.overflow-hidden.rounded-2xl.border.border-border'),
     ).toBeInTheDocument()
+    expect(screen.getByText('RECENT-MARKER')).toBeInTheDocument()
+    expect(screen.getByText('onFile')).toBeInTheDocument()
     await screen.findByText('BRIEF-OPENER-MARKER')
+  })
+})
+
+describe('resolveSaveBinding — the take binds only to what it was recorded against', () => {
+  it('bound target with a booking: both ids from the target', () => {
+    expect(
+      resolveSaveBinding({ customerId: 'cust-A', appointmentId: 'apt-A' }, null, null),
+    ).toEqual({ appointmentId: 'apt-A', customerId: 'cust-A' })
+  })
+
+  it('bound walk-in (appointmentId null): customer from target, NO appointment — never the schedule\'s', () => {
+    expect(
+      resolveSaveBinding({ customerId: 'cust-A', appointmentId: null }, null, null),
+    ).toEqual({ appointmentId: undefined, customerId: 'cust-A' })
+  })
+
+  it('予約-launched flow (timetable store ids, no target)', () => {
+    expect(resolveSaveBinding(null, 'apt-T', 'cust-T')).toEqual({
+      appointmentId: 'apt-T',
+      customerId: 'cust-T',
+    })
+  })
+
+  it('anonymous record-anyway take: binds NOTHING (save requires picking downstream)', () => {
+    expect(resolveSaveBinding(null, null, null)).toEqual({
+      appointmentId: undefined,
+      customerId: undefined,
+    })
+  })
+
+  it('empty-string walk-in appointment id coerces to undefined, not ""', () => {
+    expect(
+      resolveSaveBinding({ customerId: 'cust-A', appointmentId: '' }, null, null),
+    ).toEqual({ appointmentId: undefined, customerId: 'cust-A' })
   })
 })
