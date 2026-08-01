@@ -647,7 +647,7 @@
       "title": "Session photos",
       "take": "Take photo",
       "count": "{n} photos",
-      "uploadError": "Upload failed",
+      "uploadError": "Upload failed. Tap the photo to retry.",
       "retry": "Tap to retry"
     },
     "recent": {
