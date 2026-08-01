@@ -239,7 +239,6 @@ export function RecordPageView({
   // bound customer while recording and the next booking when idle — and can
   // NEVER drift to a different customer on navigation the way nextAppointment does.
   const boundCustomerId = target?.customerId ?? nextAppointment?.customerId
-  const boundAppointmentId = (target?.appointmentId ?? nextAppointment?.id) || undefined
   const boundCustomerName = (live && target ? target.customerName : nextAppointment?.customerName) ?? null
   // Belt & suspenders (field bug 8/2): any entry path that leaves the recorder
   // in flight for one customer while `nextAppointment` resolved to another
