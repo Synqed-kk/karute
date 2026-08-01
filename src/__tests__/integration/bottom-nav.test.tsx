@@ -11,14 +11,18 @@ let mockPathname = '/dashboard'
 // Live-target binding coverage (field bug 8/2): mutable so a test can put the
 // center button into "recording, off /sessions" and control what the global
 // recorder singleton is bound to.
-let mockRecState: 'idle' | 'recording' | 'paused' = 'idle'
+let mockRecState: 'idle' | 'recording' | 'paused' | 'recorded' = 'idle'
 let mockTarget: { customerId: string } | null = null
 const push = jest.fn()
 
 jest.mock('@/i18n/navigation', () => ({
   usePathname: () => mockPathname,
   useRouter: () => ({ push, back: jest.fn() }),
-  Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
+  // href passes through so tests can assert what the Link actually targets
+  // (the live-target binding tests below depend on it).
+  Link: ({ children, href }: { children: React.ReactNode; href?: unknown }) => (
+    <a href={typeof href === 'string' ? href : undefined}>{children}</a>
+  ),
 }))
 jest.mock('next-intl', () => ({
   useTranslations: () => (key: string) => key,
@@ -152,5 +156,25 @@ describe('BottomNav center button — live target binding (field bug 8/2)', () =
     render(<BottomNav nextCustomer={null} locale="ja" />)
     fireEvent.click(screen.getByLabelText('録音画面に戻る'))
     expect(push).toHaveBeenCalledWith('/sessions')
+  })
+
+  it('carries the bound customerId on the idle-branch Link during the stopped-but-unsaved review state', () => {
+    mockPathname = '/customers/123'
+    // 'recorded' renders the idle branch (isActive is recording/paused only)
+    // but target is still bound until discard — the Link must carry it.
+    mockRecState = 'recorded'
+    mockTarget = { customerId: 'cust-A' }
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+    expect(
+      container.querySelector('a[href="/sessions?customerId=cust-A"]'),
+    ).not.toBeNull()
+  })
+
+  it('keeps the bare /sessions Link when truly idle', () => {
+    mockPathname = '/customers/123'
+    mockRecState = 'idle'
+    mockTarget = null
+    const { container } = render(<BottomNav nextCustomer={null} locale="ja" />)
+    expect(container.querySelector('a[href="/sessions"]')).not.toBeNull()
   })
 })

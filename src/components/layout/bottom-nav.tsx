@@ -430,11 +430,18 @@ function CenterRecordButton({
     )
   }
 
-  // Idle → original Link behavior (navigate to /sessions).
+  // Idle → original Link behavior (navigate to /sessions). `target` is still
+  // bound in the stopped-but-unsaved review state (cleared only on discard) —
+  // carry it so re-entry loads the reviewed customer's page, not the next
+  // scheduled booking (same field bug 8/2, review-state variant).
   return (
     <div className="flex flex-1 flex-col items-center justify-start pt-1">
       <Link
-        href={'/sessions' as Parameters<typeof Link>[0]['href']}
+        href={
+          (target
+            ? `/sessions?customerId=${encodeURIComponent(target.customerId)}`
+            : '/sessions') as Parameters<typeof Link>[0]['href']
+        }
         onClick={closeMenuIfOpen}
         className="-mt-3 flex h-11 w-11 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-black/30 ring-4 ring-background transition-transform hover:scale-105 hover:bg-red-500/90"
         aria-label={ariaLabelIdle}
