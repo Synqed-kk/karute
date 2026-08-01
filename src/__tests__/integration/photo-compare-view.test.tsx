@@ -83,4 +83,31 @@ describe('PhotoCompareView', () => {
     fireEvent.click(screen.getByText('並べて表示'))
     expect(screen.queryByRole('slider')).toBeNull()
   })
+
+  it('auto-picks when an upload during compare completes the unique before/after pair', () => {
+    // Mounts with one before and NO after → nothing to auto-pick.
+    const before: CustomerPhoto = {
+      id: 'p-b', signedUrl: 'https://example.com/b.jpg', category: 'before', caption: null,
+    }
+    const ref: CustomerPhoto = {
+      id: 'p-r', signedUrl: 'https://example.com/r.jpg', category: 'reference', caption: null,
+    }
+    const { rerender } = render(<PhotoCompareView photos={[before, ref]} />)
+    expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
+
+    // An upload refreshes the photos prop with the first after — the pair is
+    // now unambiguous and must be picked without a remount (Greptile P2).
+    const after: CustomerPhoto = {
+      id: 'p-a', signedUrl: 'https://example.com/a.jpg', category: 'after', caption: null,
+    }
+    rerender(<PhotoCompareView photos={[before, ref, after]} />)
+    expect(screen.getByText('写真をタップすると選び直せます')).toBeInTheDocument()
+
+    // An explicit deselection is never overridden by an unrelated refresh.
+    fireEvent.click(screen.getAllByLabelText('ビフォー')[0]!)
+    fireEvent.click(screen.getAllByLabelText('アフター')[0]!)
+    expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
+    rerender(<PhotoCompareView photos={[before, ref, after]} />)
+    expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
+  })
 })

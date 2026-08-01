@@ -14,7 +14,7 @@
 // a small tab strip switches between side-by-side and an opacity-
 // blended overlay, exactly like the spike's two compare modes.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Check } from 'lucide-react'
 import { useTranslations } from 'next-intl'
@@ -41,21 +41,29 @@ export function PhotoCompareView({ photos }: PhotoCompareViewProps) {
   const t = useTranslations('customers.photos')
   const pickable = photos.filter((p): p is PickablePhoto => Boolean(p.signedUrl))
 
-  // Preselect only the unambiguous case: exactly one before + one after.
-  // Anything messier (several of either, or neither present) leaves the
-  // picker empty rather than guessing which two the staff member means.
-  const [picked, setPicked] = useState<string[]>(() => {
-    const befores = pickable.filter((p) => p.category === 'before')
-    const afters = pickable.filter((p) => p.category === 'after')
-    if (befores.length === 1 && afters.length === 1) {
-      return [befores[0]!.id, afters[0]!.id]
-    }
-    return []
-  })
+  const [picked, setPicked] = useState<string[]>([])
   const [mode, setMode] = useState<CompareMode>('side')
   const [opacity, setOpacity] = useState(0.5)
 
+  // Preselect only the unambiguous case: exactly one before + one after.
+  // Anything messier (several of either, or neither present) leaves the
+  // picker empty rather than guessing which two the staff member means.
+  // An effect, not a state initializer, so a photo uploaded while compare
+  // stays mounted (router.refresh → new photos prop) still triggers it
+  // (Greptile P2). Auto-pick stops at the first manual tap — an explicit
+  // selection OR deselection is never fought by a later refresh.
+  const touchedRef = useRef(false)
+  useEffect(() => {
+    if (touchedRef.current) return
+    const withUrl = photos.filter((p) => p.signedUrl)
+    const befores = withUrl.filter((p) => p.category === 'before')
+    const afters = withUrl.filter((p) => p.category === 'after')
+    if (befores.length !== 1 || afters.length !== 1) return
+    setPicked([befores[0]!.id, afters[0]!.id])
+  }, [photos])
+
   function togglePick(id: string) {
+    touchedRef.current = true
     setPicked((prev) => {
       if (prev.includes(id)) return prev.filter((x) => x !== id)
       if (prev.length < 2) return [...prev, id]
