@@ -2,10 +2,11 @@
 
 import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Camera, Image as ImageIcon, Loader2 } from 'lucide-react'
+import { Camera, Columns2, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { uploadCustomerPhoto } from '@/actions/customers'
+import { PhotoCompareView } from './PhotoCompareView'
 
 export interface CustomerPhoto {
   id: string
@@ -26,9 +27,12 @@ const CATEGORY_TONE: Record<string, { bg: string; text: string }> = {
   progress: { bg: 'bg-cyan-500/15', text: 'text-cyan-700 dark:text-cyan-300' },
 }
 
-const KNOWN_CATEGORIES = ['before', 'after', 'reference', 'progress']
+// Exported so PhotoCompareView (restored from the pre-#281 spike lift)
+// can label thumbnails with the same tones instead of redefining the
+// category → color map.
+export const KNOWN_CATEGORIES = ['before', 'after', 'reference', 'progress']
 
-function toneFor(category: string) {
+export function toneFor(category: string) {
   return (
     CATEGORY_TONE[category] ?? {
       bg: 'bg-muted',
@@ -44,6 +48,8 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
   const [category, setCategory] = useState('before')
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [compareOpen, setCompareOpen] = useState(false)
+  const comparableCount = photos.filter((p) => p.signedUrl).length
 
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files
@@ -138,44 +144,59 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
         <span className="text-xs tabular-nums text-muted-foreground">
           {t('count', { n: photos.length })}
         </span>
-        <div className="ml-auto">{uploadControls}</div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setCompareOpen((v) => !v)}
+            disabled={comparableCount < 2}
+            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-muted px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted/70 disabled:opacity-40"
+          >
+            <Columns2 size={14} />
+            <span>{compareOpen ? t('compareExit') : t('compareButton')}</span>
+          </button>
+          {uploadControls}
+        </div>
       </header>
       {error && <p className="mb-3 text-xs text-destructive">{error}</p>}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {photos.map((p) => {
-          const tone = toneFor(p.category)
-          const label = KNOWN_CATEGORIES.includes(p.category)
-            ? t(p.category)
-            : p.category
-          return (
-            <div
-              key={p.id}
-              className="flex flex-col gap-2 overflow-hidden rounded-xl border border-border bg-background/40"
-            >
-              <div className="relative aspect-square bg-muted">
-                {p.signedUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={p.signedUrl}
-                    alt={p.caption ?? label}
-                    className="h-full w-full object-cover"
-                  />
-                ) : null}
-                <span
-                  className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${tone.bg} ${tone.text}`}
-                >
-                  {label}
-                </span>
+      {compareOpen ? (
+        <PhotoCompareView photos={photos} />
+      ) : (
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {photos.map((p) => {
+            const tone = toneFor(p.category)
+            const label = KNOWN_CATEGORIES.includes(p.category)
+              ? t(p.category)
+              : p.category
+            return (
+              <div
+                key={p.id}
+                className="flex flex-col gap-2 overflow-hidden rounded-xl border border-border bg-background/40"
+              >
+                <div className="relative aspect-square bg-muted">
+                  {p.signedUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={p.signedUrl}
+                      alt={p.caption ?? label}
+                      className="h-full w-full object-cover"
+                    />
+                  ) : null}
+                  <span
+                    className={`absolute left-2 top-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${tone.bg} ${tone.text}`}
+                  >
+                    {label}
+                  </span>
+                </div>
+                {p.caption && (
+                  <p className="line-clamp-2 px-2 pb-2 text-[11px] text-muted-foreground">
+                    {p.caption}
+                  </p>
+                )}
               </div>
-              {p.caption && (
-                <p className="line-clamp-2 px-2 pb-2 text-[11px] text-muted-foreground">
-                  {p.caption}
-                </p>
-              )}
-            </div>
-          )
-        })}
-      </div>
+            )
+          })}
+        </div>
+      )}
     </section>
   )
 }

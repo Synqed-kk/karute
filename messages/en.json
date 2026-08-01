@@ -719,7 +719,14 @@
       "addPhoto": "Add photo",
       "uploading": "Uploading…",
       "uploadError": "Upload failed. Please try again.",
-      "categoryLabel": "Category"
+      "categoryLabel": "Category",
+      "compareButton": "Compare",
+      "compareExit": "Exit compare",
+      "comparePickHint": "Select two photos to compare",
+      "comparePickHintDone": "Tap a photo to swap the selection",
+      "compareSideBySide": "Side by side",
+      "compareOverlay": "Overlay",
+      "compareOpacity": "Opacity"
     },
     "comingSoon": "Coming soon",
     "privacy": {
