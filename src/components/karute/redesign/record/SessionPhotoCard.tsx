@@ -93,7 +93,7 @@ export function SessionPhotoCard({ customerId }: { customerId: string }) {
               <img src={p.objectUrl} alt="" className="h-full w-full object-cover" />
               {p.status !== 'error' && (
                 <span
-                  className={`absolute right-1 top-1 size-2 rounded-full ${
+                  className={`absolute right-1 top-1 size-2 rounded-full ring-1 ring-white/90 ${
                     p.status === 'uploading' ? 'bg-amber-500' : 'bg-emerald-500'
                   }`}
                 />
