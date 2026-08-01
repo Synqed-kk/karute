@@ -18,7 +18,12 @@ export function SessionPhotoCard({ customerId }: { customerId: string }) {
   const subscribe = useCallback((fn: () => void) => sessionPhotoStore.subscribe(fn), [])
   const getSnapshot = useCallback(() => sessionPhotoStore.photos, [])
   const getServerSnapshot = useCallback(() => sessionPhotoStore.photos, [])
-  const photos = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  const allPhotos = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
+  // Defense-in-depth (blind-round P3): the store can only ever hold one
+  // session's photos today (cleared at idle before any re-bind), but this
+  // card must never render another customer's strip even if that invariant
+  // weakens. Render-body filter — getSnapshot must stay reference-stable.
+  const photos = allPhotos.filter((p) => p.customerId === customerId)
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
