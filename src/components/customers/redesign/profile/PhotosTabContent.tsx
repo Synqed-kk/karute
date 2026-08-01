@@ -148,7 +148,9 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
           <button
             type="button"
             onClick={() => setCompareOpen((v) => !v)}
-            disabled={comparableCount < 2}
+            // Exit must stay tappable even if a refresh drops the photo count
+            // below 2 while compare is open — else staff is stuck in compare.
+            disabled={!compareOpen && comparableCount < 2}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-muted px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted/70 disabled:opacity-40"
           >
             <Columns2 size={14} />

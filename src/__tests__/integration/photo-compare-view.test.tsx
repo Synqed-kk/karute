@@ -56,10 +56,10 @@ describe('PhotoCompareView', () => {
 
     expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
     // The un-pickable photo (no signedUrl) never renders a thumbnail button.
-    expect(screen.queryByLabelText('ビフォー')).toBeNull()
+    expect(screen.queryByLabelText(/ビフォー/)).toBeNull()
 
-    fireEvent.click(screen.getByLabelText('参考'))
-    fireEvent.click(screen.getByLabelText('経過'))
+    fireEvent.click(screen.getByLabelText('参考 1'))
+    fireEvent.click(screen.getByLabelText('経過 2'))
 
     expect(screen.getByText('写真をタップすると選び直せます')).toBeInTheDocument()
     expect(screen.getByText('並べて表示')).toBeInTheDocument()
@@ -70,11 +70,15 @@ describe('PhotoCompareView', () => {
 
   it('overlay slider changes the blended opacity, and toggling back to side removes it', () => {
     render(<PhotoCompareView photos={photos} />)
-    fireEvent.click(screen.getByLabelText('参考'))
-    fireEvent.click(screen.getByLabelText('経過'))
+    fireEvent.click(screen.getByLabelText('参考 1'))
+    fireEvent.click(screen.getByLabelText('経過 2'))
 
     fireEvent.click(screen.getByText('重ねて表示'))
     const slider = screen.getByRole('slider')
+    // Bounds are contract: a mutated max/step would silently break blending.
+    expect(slider).toHaveAttribute('min', '0')
+    expect(slider).toHaveAttribute('max', '1')
+    expect(slider).toHaveAttribute('step', '0.01')
     expect(screen.getByText('50%')).toBeInTheDocument()
 
     fireEvent.change(slider, { target: { value: '0.8' } })
@@ -104,10 +108,46 @@ describe('PhotoCompareView', () => {
     expect(screen.getByText('写真をタップすると選び直せます')).toBeInTheDocument()
 
     // An explicit deselection is never overridden by an unrelated refresh.
-    fireEvent.click(screen.getAllByLabelText('ビフォー')[0]!)
-    fireEvent.click(screen.getAllByLabelText('アフター')[0]!)
+    fireEvent.click(screen.getByLabelText(/^ビフォー/))
+    fireEvent.click(screen.getByLabelText(/^アフター/))
     expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
     rerender(<PhotoCompareView photos={[before, ref, after]} />)
     expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
+  })
+
+  it('rolling pick: a third tap drops the OLDEST pick, keeps the newer one', () => {
+    const three: CustomerPhoto[] = [
+      { id: 'a', signedUrl: 'https://example.com/1.jpg', category: 'progress', caption: null },
+      { id: 'b', signedUrl: 'https://example.com/2.jpg', category: 'progress', caption: null },
+      { id: 'c', signedUrl: 'https://example.com/3.jpg', category: 'progress', caption: null },
+    ]
+    render(<PhotoCompareView photos={three} />)
+    const first = screen.getByLabelText('経過 1')
+    const second = screen.getByLabelText('経過 2')
+    const third = screen.getByLabelText('経過 3')
+
+    fireEvent.click(first)
+    fireEvent.click(second)
+    fireEvent.click(third)
+    expect(first).toHaveAttribute('aria-pressed', 'false')
+    expect(second).toHaveAttribute('aria-pressed', 'true')
+    expect(third).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('prunes a picked photo that a refresh removed (no stale selection)', () => {
+    const a: CustomerPhoto = { id: 'a', signedUrl: 'https://example.com/1.jpg', category: 'progress', caption: null }
+    const b: CustomerPhoto = { id: 'b', signedUrl: 'https://example.com/2.jpg', category: 'progress', caption: null }
+    const c: CustomerPhoto = { id: 'c', signedUrl: 'https://example.com/3.jpg', category: 'progress', caption: null }
+    const { rerender } = render(<PhotoCompareView photos={[a, b, c]} />)
+    fireEvent.click(screen.getByLabelText('経過 1'))
+    fireEvent.click(screen.getByLabelText('経過 2'))
+    expect(screen.getByText('写真をタップすると選び直せます')).toBeInTheDocument()
+
+    // Photo b vanishes (deleted from another session) — its pick must not
+    // linger: picking c should complete a valid pair with a immediately.
+    rerender(<PhotoCompareView photos={[a, c]} />)
+    expect(screen.getByText('比較する写真を2枚選んでください')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('経過 2')) // c is now ordinal 2
+    expect(screen.getByText('写真をタップすると選び直せます')).toBeInTheDocument()
   })
 })

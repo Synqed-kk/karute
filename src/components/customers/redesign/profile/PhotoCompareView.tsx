@@ -54,8 +54,14 @@ export function PhotoCompareView({ photos }: PhotoCompareViewProps) {
   // selection OR deselection is never fought by a later refresh.
   const touchedRef = useRef(false)
   useEffect(() => {
-    if (touchedRef.current) return
     const withUrl = photos.filter((p) => p.signedUrl)
+    // A refresh can remove a picked photo (deletion from another session) —
+    // prune stale ids or the rolling picker evicts the wrong, still-valid pick.
+    setPicked((prev) => {
+      const alive = prev.filter((id) => withUrl.some((p) => p.id === id))
+      return alive.length === prev.length ? prev : alive
+    })
+    if (touchedRef.current) return
     const befores = withUrl.filter((p) => p.category === 'before')
     const afters = withUrl.filter((p) => p.category === 'after')
     if (befores.length !== 1 || afters.length !== 1) return
@@ -114,7 +120,7 @@ export function PhotoCompareView({ photos }: PhotoCompareViewProps) {
       )}
 
       <div className="grid grid-cols-3 gap-2 md:grid-cols-4">
-        {pickable.map((photo) => {
+        {pickable.map((photo, i) => {
           const label = labelFor(t, photo.category)
           const selected = picked.includes(photo.id)
           const tone = toneFor(photo.category)
@@ -123,7 +129,9 @@ export function PhotoCompareView({ photos }: PhotoCompareViewProps) {
               key={photo.id}
               type="button"
               onClick={() => togglePick(photo.id)}
-              aria-label={label}
+              // Ordinal keeps same-category thumbnails distinguishable to a
+              // screen reader (three 経過 photos ≠ one announcement ×3).
+              aria-label={`${label} ${i + 1}`}
               aria-pressed={selected}
               className={`group relative aspect-square overflow-hidden rounded-xl border bg-background/40 transition-colors ${
                 selected ? 'border-sky-500 ring-2 ring-sky-500' : 'border-border'
