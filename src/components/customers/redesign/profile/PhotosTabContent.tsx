@@ -119,10 +119,22 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
     />
   )
 
+  // Rendered in BOTH branches: if a refresh empties `photos` while the
+  // customer is holding the device, the overlay must stay mounted (showing
+  // its own empty state) — the empty-state early return silently swapping
+  // it for staff UI is exactly the leak the privacy contract forbids.
+  const presentation = presentationOpen && (
+    <PhotoPresentationOverlay
+      photos={photos}
+      onClose={() => setPresentationOpen(false)}
+    />
+  )
+
   if (photos.length === 0) {
     return (
       <section className="rounded-2xl border border-dashed border-border bg-card/40 px-6 py-12 text-center shadow-sm md:px-8 md:py-16">
         {hiddenInput}
+        {presentation}
         <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
           <ImageIcon size={18} />
         </div>
@@ -160,7 +172,12 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
           </button>
           <button
             type="button"
-            onClick={() => setPresentationOpen(true)}
+            onClick={() => {
+              // Interlock: compare renders captions (staff-internal) — it
+              // must never sit in the DOM behind the customer-safe overlay.
+              setCompareOpen(false)
+              setPresentationOpen(true)
+            }}
             className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-muted px-3 text-xs font-medium text-foreground transition-colors hover:bg-muted/70"
           >
             <Eye size={14} />
@@ -209,12 +226,7 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
           })}
         </div>
       )}
-      {presentationOpen && (
-        <PhotoPresentationOverlay
-          photos={photos}
-          onClose={() => setPresentationOpen(false)}
-        />
-      )}
+      {presentation}
     </section>
   )
 }
