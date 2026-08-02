@@ -1,13 +1,18 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { Suspense, lazy, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Camera, Columns2, Eye, Image as ImageIcon, Loader2 } from 'lucide-react'
 import { useTranslations } from 'next-intl'
 
 import { uploadCustomerPhoto } from '@/actions/customers'
 import { PhotoCompareView } from './PhotoCompareView'
-import { PhotoPresentationOverlay } from './PhotoPresentationOverlay'
+// Lazy: presentation mode loads on first tap — keeps the overlay out of the
+// initial (thin-budget-gated) bundle; a spinner-frame flash on first open is
+// acceptable for a deliberate full-screen mode switch.
+const PhotoPresentationOverlay = lazy(() =>
+  import('./PhotoPresentationOverlay').then((m) => ({ default: m.PhotoPresentationOverlay })),
+)
 
 export interface CustomerPhoto {
   id: string
@@ -124,10 +129,12 @@ export function PhotosTabContent({ customerId, photos }: PhotosTabContentProps) 
   // its own empty state) — the empty-state early return silently swapping
   // it for staff UI is exactly the leak the privacy contract forbids.
   const presentation = presentationOpen && (
-    <PhotoPresentationOverlay
-      photos={photos}
-      onClose={() => setPresentationOpen(false)}
-    />
+    <Suspense fallback={null}>
+      <PhotoPresentationOverlay
+        photos={photos}
+        onClose={() => setPresentationOpen(false)}
+      />
+    </Suspense>
   )
 
   if (photos.length === 0) {
