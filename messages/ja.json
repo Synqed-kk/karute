@@ -726,15 +726,11 @@
       "comparePickHintDone": "写真をタップすると選び直せます",
       "compareSideBySide": "並べて表示",
       "compareOverlay": "重ねて表示",
-<<<<<<< HEAD
       "compareOpacity": "不透明度",
       "presentButton": "お客様に見せる",
       "presentClose": "閉じる",
       "presentFilterAll": "すべて",
       "presentBackToGrid": "グリッドに戻る"
-=======
-      "compareOpacity": "不透明度"
->>>>>>> origin/main
     },
     "comingSoon": "対応予定",
     "privacy": {
