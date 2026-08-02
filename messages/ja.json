@@ -719,7 +719,14 @@
       "addPhoto": "写真を追加",
       "uploading": "アップロード中…",
       "uploadError": "アップロードに失敗しました。もう一度お試しください。",
-      "categoryLabel": "カテゴリ"
+      "categoryLabel": "カテゴリ",
+      "compareButton": "比較",
+      "compareExit": "比較を終了",
+      "comparePickHint": "比較する写真を2枚選んでください",
+      "comparePickHintDone": "写真をタップすると選び直せます",
+      "compareSideBySide": "並べて表示",
+      "compareOverlay": "重ねて表示",
+      "compareOpacity": "不透明度"
     },
     "comingSoon": "対応予定",
     "privacy": {
