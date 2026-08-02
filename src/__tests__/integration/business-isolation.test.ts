@@ -1,0 +1,154 @@
+// Business import-isolation gate (phone-safety lock 3, clause 2): nothing
+// outside Business territory may import Business code — which makes
+// "Business = new files the thin bundle never imports" a structural fact, not
+// a review promise. The later workspace-switch wiring (Permission v2, Packet
+// 2+) will be a deliberate, owner-reviewed edit to THIS suite, never a quiet
+// import. Complements the CI diff gate (scripts/business/
+// check-business-isolation.mjs); territory list is shared via
+// business-territory.json.
+//
+// Scanner lessons inherited from the #660/#661 guard work: three independent
+// per-form regexes, never one combined alternation (a spanning wildcard let a
+// later import swallow an earlier one); side-effect imports are a real form
+// (`import '@/business/x'` — the #660 blind spot); full-line comments are
+// stripped BEFORE matching (a doc comment once grafted a phantom namespace).
+// Walk covers src/ + thin/ + the REPO ROOT's own source files (blind-round
+// catch, mutation-proven: next-intl.config.ts sits at root, is in the live
+// SSR module graph via createNextIntlPlugin, and a business re-export planted
+// there passed the original two-root walk green). thin/dist is build output —
+// skipped, its bundles carry no unresolved specifiers.
+//
+// Symlinks are REJECTED, never followed (lstat, not stat): readFileSync and
+// statSync resolve a link transparently, so a link planted at a phone-owned
+// path (thin/util.ts → src/business/leaf.ts) would be scanned as though its
+// Business bytes lived outside territory. The bytes are Business, the label is
+// not, and a sibling's relative `./util` import of it carries no business/
+// segment for BUSINESS_SPECIFIER to match — the content check and the
+// specifier check would BOTH read clean. The repo tracks zero symlinks (git
+// mode 120000), so refusing them outright costs nothing and keeps every path
+// label honest. thin/vite.config.ts denies the resolved path at build time as
+// the second half of this pair.
+import { lstatSync, readdirSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
+
+const ROOT = process.cwd()
+const territory: string[] = JSON.parse(
+  readFileSync(join(ROOT, 'scripts/business/business-territory.json'), 'utf8'),
+).territory
+
+// One regex per import form, no cross-form alternation. Every specifier group
+// forbids newlines so a match can never span statements.
+const IMPORT_FORMS: Array<[string, RegExp]> = [
+  ['static from, single-quote', /from\s*'([^'\n]+)'/g],
+  ['static from, double-quote', /from\s*"([^"\n]+)"/g],
+  ['side-effect import', /import\s*['"]([^'"\n]+)['"]/g],
+  ['dynamic import()', /import\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
+  ['require()', /require\s*\(\s*['"`]([^'"`\n]+)['"`]/g],
+]
+
+// A specifier is Business when it resolves under src/business/ (alias) or
+// names a business/ path segment relatively.
+const BUSINESS_SPECIFIER = [
+  (s: string) => s === '@/business' || s.startsWith('@/business/'),
+  // (?:\/|$): an extensionless barrel import (`../business` → src/business/
+  // index.ts) is Business too — Greptile P1 on #662.
+  (s: string) => /^\.\.?\/(?:.*\/)?business(?:\/|$)/.test(s),
+]
+
+const SOURCE_EXT = /\.(ts|tsx|mts|cts|mjs|cjs|jsx|js)$/
+
+/** Paths that are symlinks — collected, never followed. Asserted empty below. */
+const symlinks: string[] = []
+
+function walk(dir: string, out: string[]): string[] {
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name)
+    const rel = full.slice(ROOT.length + 1)
+    if (territory.some((p) => rel.startsWith(p))) continue // Business's own files may import Business
+    if (rel === 'thin/dist') continue // local build output (untracked)
+    if (name === 'node_modules') continue // never our source, and a symlink farm
+    const stat = lstatSync(full)
+    if (stat.isSymbolicLink()) {
+      symlinks.push(rel)
+      continue
+    }
+    if (stat.isDirectory()) walk(full, out)
+    else if (SOURCE_EXT.test(name)) out.push(full)
+  }
+  return out
+}
+
+/** Root-level source files only (configs like next-intl.config.ts /
+ *  next.config.ts live in the real build graph); directories are covered by
+ *  their own walks or are not code (node_modules, .next, public, …). */
+function rootFiles(): string[] {
+  const out: string[] = []
+  for (const name of readdirSync(ROOT)) {
+    const full = join(ROOT, name)
+    // Skipped by name BEFORE the symlink check, exactly as walk() does: some
+    // local worktrees symlink node_modules to a sibling checkout, and that is
+    // a dependency-install detail, not a source-attribution problem.
+    if (name === 'node_modules') continue
+    const stat = lstatSync(full)
+    if (stat.isSymbolicLink()) {
+      symlinks.push(name)
+      continue
+    }
+    if (!stat.isDirectory() && SOURCE_EXT.test(name)) out.push(full)
+  }
+  return out
+}
+
+function stripFullLineComments(src: string): string {
+  return src
+    .split('\n')
+    .filter((l) => !/^\s*\/\//.test(l))
+    .join('\n')
+}
+
+describe('Business import isolation (phone-safety lock 3)', () => {
+  // e2e/ + scripts/ never ship (no build config references them) but are
+  // real source — walked so the suite's claim holds literally, not just for
+  // the shipped graph (verify-round finding).
+  const files = [
+    ...rootFiles(),
+    ...walk(join(ROOT, 'src'), []),
+    ...walk(join(ROOT, 'thin'), []),
+    ...walk(join(ROOT, 'e2e'), []),
+    ...walk(join(ROOT, 'scripts'), []),
+  ]
+
+  it('territory config is well-formed directory prefixes', () => {
+    expect(territory.length).toBeGreaterThan(0)
+    for (const p of territory) expect(p.endsWith('/')).toBe(true)
+  })
+
+  it('finds the shared surface to scan', () => {
+    // Guard of the guard: an empty or misrooted walk must fail loud, never
+    // pass vacuously.
+    expect(files.length).toBeGreaterThan(200)
+  })
+
+  it('no symlinks in the scanned trees — Business bytes cannot wear a phone-owned path', () => {
+    // Zero tracked symlinks today (git mode 120000). A new one is either a
+    // mistake or the attribution gap described in the header; both want eyes.
+    expect(symlinks).toEqual([])
+  })
+
+  it('no file outside Business territory imports Business code', () => {
+    const offenders: string[] = []
+    for (const file of files) {
+      const src = stripFullLineComments(readFileSync(file, 'utf8'))
+      for (const [form, re] of IMPORT_FORMS) {
+        re.lastIndex = 0
+        for (let m = re.exec(src); m; m = re.exec(src)) {
+          const spec = m[1]
+          if (BUSINESS_SPECIFIER.some((test) => test(spec))) {
+            offenders.push(`${file.slice(ROOT.length + 1)} (${form}): ${spec}`)
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+})

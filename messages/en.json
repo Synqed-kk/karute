@@ -726,11 +726,15 @@
       "comparePickHintDone": "Tap a photo to swap the selection",
       "compareSideBySide": "Side by side",
       "compareOverlay": "Overlay",
+<<<<<<< HEAD
       "compareOpacity": "Opacity",
       "presentButton": "Show customer",
       "presentClose": "Close",
       "presentFilterAll": "All",
       "presentBackToGrid": "Back to grid"
+=======
+      "compareOpacity": "Opacity"
+>>>>>>> origin/main
     },
     "comingSoon": "Coming soon",
     "privacy": {

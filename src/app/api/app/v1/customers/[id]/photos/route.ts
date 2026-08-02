@@ -81,7 +81,10 @@ export const POST = facadeHandler<Params>('customer.photo.upload', async (ctx) =
       caption: typeof caption === 'string' ? caption : undefined,
     })
     return ok(ctx, { photo }, 201)
-  } catch {
+  } catch (err) {
+    // logFacadeError only ever logs code+status — the upstream cause must be
+    // named here or the next intermittent 502 is undiagnosable (8/1 field bug).
+    console.error('[customer.photo.upload] upstream cause:', err)
     throw new AppApiError('upstream_unavailable', 'photo upload failed')
   }
 })

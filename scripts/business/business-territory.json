@@ -1,0 +1,10 @@
+{
+  "comment": "SYNQED Business territory — the ONLY paths a Business PR may touch (phone-safety lock 3, deny-by-default). Every entry is a directory prefix and MUST end with '/'. Consumed by check-business-isolation.mjs (CI diff gate) and business-isolation.test.ts (import-isolation gate). Business i18n lives inside src/business/ — messages/*.json is in the thin bundle's dependency graph and stays phone-owned.",
+  "territory": [
+    "src/business/",
+    "src/app/[locale]/(business)/",
+    "src/app/api/business/",
+    "src/__tests__/integration/business/",
+    "e2e/business/"
+  ]
+}

@@ -3,22 +3,26 @@ import type { CapacitorConfig } from '@capacitor/cli';
 // §7 mechanism 1 — build-time env-switched config = the ROLLBACK story.
 //   KARUTE_SHELL_MODE=local  → offline: WebView loads the thin target bundle
 //                              (webDir=thin/dist), zero network for first paint.
-//   KARUTE_SHELL_MODE=remote → (default) WebView loads the LIVE site (current
-//                              behavior). Flip back here to instantly revert a
-//                              bundled binary to the remote shell — no code change.
+//   KARUTE_SHELL_MODE=remote → WebView loads the LIVE site. Flip back here to
+//                              instantly revert a bundled binary to the remote
+//                              shell — no code change.
 // The choice is a single env var read at `cap sync`/build time; nothing about the
 // app code differs between modes.
 //
-// UNSET may default to remote HERE ONLY (dev convenience — identical to today's
-// shipped remote shell). A non-empty typo ('locol') must THROW, never silently
-// build the wrong shell; release.mjs is stricter still (explicit mode required).
+// The mode is EXPLICIT — unset throws, same bar as release.mjs. The old
+// unset→remote dev default was how a "local" Android build could silently come
+// out remote: `cap sync` accepts whatever this file resolves and no later step
+// checks it (Android has no release.mjs equivalent; found 7/31 during the
+// Android code-6 local wrap).
 const rawMode = process.env.KARUTE_SHELL_MODE;
-if (rawMode !== undefined && rawMode !== 'local' && rawMode !== 'remote') {
+if (rawMode !== 'local' && rawMode !== 'remote') {
   throw new Error(
-    `[capacitor] KARUTE_SHELL_MODE must be 'local' or 'remote', got: ${JSON.stringify(rawMode)}`,
+    `[capacitor] KARUTE_SHELL_MODE must be explicitly 'local' or 'remote', got: ${JSON.stringify(rawMode)}. ` +
+      'No default — an unset mode silently builds the wrong shell. ' +
+      'Run e.g. KARUTE_SHELL_MODE=remote npx cap sync <platform>.',
   );
 }
-const SHELL_MODE = rawMode ?? 'remote';
+const SHELL_MODE = rawMode;
 
 const base: CapacitorConfig = {
   appId: 'jp.synqed.karute',

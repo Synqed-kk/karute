@@ -44,8 +44,12 @@ export function LoginScreen() {
     }
   }
 
+  // min-h-dvh, not min-h-full: the thin shell mounts this outside any
+  // height-chained parent, so min-h-full collapses to content height and the
+  // form top-aligns under the status bar (8/1 field bug). Safe-area padding
+  // keeps the centering honest between the notch and the home bar.
   return (
-    <div className="flex min-h-full items-center justify-center bg-background">
+    <div className="flex min-h-dvh items-center justify-center bg-background pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]">
       <div className="w-full max-w-sm space-y-6 p-8">
         <div>
           <h1 className="text-2xl font-semibold">{tCommon('appName')}</h1>
