@@ -48,7 +48,7 @@ const pair: CustomerPhoto[] = [
 ]
 
 describe('PhotosTabContent presentation wiring', () => {
-  it('opening presentation closes compare and inert-isolates the staff DOM behind it', () => {
+  it('opening presentation closes compare and inert-isolates the staff DOM behind it', async () => {
     const { container } = render(<PhotosTabContent customerId="c-1" photos={pair} />)
     fireEvent.click(screen.getByRole('button', { name: '比較' }))
     expect(screen.getByText('写真をタップすると選び直せます')).toBeInTheDocument()
@@ -56,8 +56,8 @@ describe('PhotosTabContent presentation wiring', () => {
     fireEvent.click(screen.getByRole('button', { name: 'お客様に見せる' }))
     // Interlock: the compare picker is unmounted, not just covered.
     expect(screen.queryByText('写真をタップすると選び直せます')).toBeNull()
-    // The overlay is up (portal to document.body).
-    expect(screen.getByLabelText('閉じる')).toBeInTheDocument()
+    // The overlay is up (portal to document.body). Lazy chunk: await it.
+    expect(await screen.findByLabelText('閉じる')).toBeInTheDocument()
     // Base UI modal marks everything outside the portal inert — the staff
     // DOM (grid captions, tab chrome) is out of the accessibility tree and
     // unreachable by focus while the customer holds the device.
@@ -67,10 +67,10 @@ describe('PhotosTabContent presentation wiring', () => {
     expect(popup?.textContent).not.toContain('staff caption')
   })
 
-  it('overlay survives the photos prop emptying while open', () => {
+  it('overlay survives the photos prop emptying while open', async () => {
     const { rerender } = render(<PhotosTabContent customerId="c-1" photos={pair} />)
     fireEvent.click(screen.getByRole('button', { name: 'お客様に見せる' }))
-    expect(screen.getByLabelText('閉じる')).toBeInTheDocument()
+    expect(await screen.findByLabelText('閉じる')).toBeInTheDocument()
 
     rerender(<PhotosTabContent customerId="c-1" photos={[]} />)
     // Still fullscreen in the customer's hands — its own empty state (the
