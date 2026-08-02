@@ -52,7 +52,14 @@ const DIST = 'thin/dist/assets'
 // against the prior 1679.7 KB ceiling (over by 0.2 KB). Genuine
 // new-feature volume, not bloat — same class as every prior raise; the
 // purchase-marker scan below stays the real gate.
-const BUDGET_BYTES = 1_730_000
+// Raised 2026-08-02 at the presentation-mode PR (#669) — the customer-facing
+// fullscreen photo presentation ships (PhotoPresentationOverlay + interlock
+// wiring + present* ja/en strings), measured at 1690.8 KB raw against the
+// prior 1689.5 KB ceiling (over by 1.3 KB). Genuine new-feature volume, not
+// bloat — same class as every prior raise; the purchase-marker scan below
+// stays the real gate. (A lazy-chunk split was tried first and REVERTED: the
+// gate correctly counts total thin JS, so splitting only added overhead.)
+const BUDGET_BYTES = 1_733_000
 
 let dir
 try {
