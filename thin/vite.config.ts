@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+import { realpathSync } from 'node:fs'
 import path from 'node:path'
 
 // Production thin target (PLAN §3, DECIDED = separate thin target). Imports the
@@ -20,6 +21,33 @@ const port = (p: string) => path.resolve(__dirname, 'ports', p)
 
 const ACTIONS_DIR = path.resolve(root, 'src/actions') + path.sep
 const ACTIONS_PORT = port('actions.vite.ts')
+
+// SYNQED Business territory (phone-safety lock 1): Business is open-web only
+// by construction, so NOTHING in the thin bundle may reach it. Unlike
+// src/actions there is no port and never will be — arriving here at all is the
+// bug, so this throws instead of substituting a stub.
+//
+// This is the build-time half of the isolation guard, and the half that judges
+// what actually gets bundled: the CI diff gate reads PR paths and the jest
+// suite reads import specifiers, but rollup resolves to REAL absolute paths.
+// A symlink, alias or relative traversal that lands on Business code is caught
+// here however it was spelled, because the path — not the spelling — is judged.
+const BUSINESS_DIR = path.resolve(root, 'src/business') + path.sep
+
+function isBusinessPath(id: string): boolean {
+  // Drop rollup's query suffixes (?url, ?raw, ?worker) before touching the fs.
+  const file = id.split('?')[0]
+  if (file.startsWith(BUSINESS_DIR)) return true
+  // Vite's default preserveSymlinks:false already hands us real paths; the
+  // realpath re-check keeps the guard honest if that default ever flips.
+  // Virtual modules (\0…) and generated ids have no real path — they throw
+  // here and are correctly judged non-Business.
+  try {
+    return realpathSync(file).startsWith(BUSINESS_DIR)
+  } catch {
+    return false
+  }
+}
 const PURCHASE_PORT = port('purchase-excluded.tsx')
 const PENDING_SECTIONS_PORT = port('pending-sections-excluded.tsx')
 
@@ -98,6 +126,16 @@ function boundaryPlugin(): Plugin {
         skipSelf: true,
       })
       if (!resolved) return null
+
+      // (e) ANY module under src/business/** → LOUD build failure. No port
+      // exists by design; see BUSINESS_DIR above.
+      if (isBusinessPath(resolved.id)) {
+        throw new Error(
+          `[thin boundary] "${source}" imported by ${importer} resolves into SYNQED Business ` +
+            `(${resolved.id}). Business is open-web only — the phone bundle must never reach it. ` +
+            'If this is genuinely shared code, move it OUT of src/business/ in its own non-Business PR.',
+        )
+      }
 
       // (a) ANY module under src/actions/** → the loud facade proxy. Missing
       // named exports then fail the build per-name — correct and desired; names
