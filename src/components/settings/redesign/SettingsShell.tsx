@@ -520,7 +520,7 @@ function TabButton({
       onClick={onClick}
       className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg px-3 h-9 text-xs font-medium transition-colors ${
         active
-          ? 'bg-foreground text-background shadow-sm'
+          ? 'bg-primary/8 text-primary'
           : 'text-muted-foreground hover:text-foreground'
       }`}
     >

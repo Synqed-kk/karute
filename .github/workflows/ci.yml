@@ -170,6 +170,9 @@ jobs:
           node scripts/audit/generate-audit-actions-doc.mjs
           test -z "$(git status --porcelain --ignored -- docs/AUDIT_ACTIONS.md)" || { echo "::error::docs/AUDIT_ACTIONS.md is stale or was deleted — run npm run audit:actions-doc and commit the result"; git status -- docs/AUDIT_ACTIONS.md; git diff -- docs/AUDIT_ACTIONS.md; exit 1; }
 
+      - name: Dark interactive fill guard (R13)
+        run: node scripts/audit/check-dark-interactive.mjs
+
       - name: Audit weakening gate
         # Explicit refspec (contract §8 CP8 hardening): actions/checkout@v4's
         # default shallow clone has no refs/remotes/origin/main until this

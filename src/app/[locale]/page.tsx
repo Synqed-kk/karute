@@ -31,7 +31,7 @@ export default async function LandingPage({
           <ThemeToggle />
           <Link
             href={'/login' as Parameters<typeof Link>[0]['href']}
-            className="rounded-full bg-foreground px-5 py-2 text-sm font-semibold text-background hover:opacity-90 transition-opacity"
+            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground hover:bg-primary-hover transition-colors"
           >
             {t('header.login')}
           </Link>
@@ -40,7 +40,7 @@ export default async function LandingPage({
 
       {/* Hero */}
       <section className="max-w-5xl mx-auto px-6 pt-16 pb-20 text-center">
-        <div className="inline-block rounded-full bg-primary/10 px-4 py-1.5 text-xs font-semibold text-primary mb-6">
+        <div className="inline-block rounded-full bg-primary/8 px-4 py-1.5 text-xs font-semibold text-primary mb-6">
           {t('hero.badge')}
         </div>
         <h1 className="text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] mb-6">
@@ -52,7 +52,7 @@ export default async function LandingPage({
         <div className="flex items-center justify-center gap-4 flex-wrap">
           <Link
             href={'/signup' as Parameters<typeof Link>[0]['href']}
-            className="rounded-full bg-foreground px-8 py-3.5 text-base font-semibold text-background hover:opacity-90 transition-opacity"
+            className="rounded-full bg-primary px-8 py-3.5 text-base font-semibold text-primary-foreground hover:bg-primary-hover transition-colors"
           >
             {t('hero.ctaPrimary')}
           </Link>
@@ -154,7 +154,7 @@ export default async function LandingPage({
         </p>
         <Link
           href={'/signup' as Parameters<typeof Link>[0]['href']}
-          className="inline-block rounded-full bg-foreground px-10 py-4 text-base font-semibold text-background hover:opacity-90 transition-opacity"
+          className="inline-block rounded-full bg-primary px-10 py-4 text-base font-semibold text-primary-foreground hover:bg-primary-hover transition-colors"
         >
           {t('cta.button')}
         </Link>

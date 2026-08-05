@@ -109,7 +109,7 @@ function PageButton({
       aria-label={ariaLabel}
       className={`inline-flex h-7 min-w-7 items-center justify-center rounded-full border px-2 text-xs font-medium tabular-nums transition-colors ${
         active
-          ? 'border-foreground bg-foreground text-background'
+          ? 'border-primary bg-primary/8 text-primary'
           : 'border-border bg-card text-foreground hover:bg-muted'
       }`}
     >

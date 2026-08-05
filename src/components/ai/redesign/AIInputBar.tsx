@@ -46,7 +46,7 @@ export function AIInputBar({ value, onChange, onSend, disabled }: AIInputBarProp
           onClick={onSend}
           disabled={!value.trim() || disabled}
           aria-label={t('sendAria')}
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-foreground text-background transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           <Send size={14} />
         </button>

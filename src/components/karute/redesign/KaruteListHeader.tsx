@@ -33,7 +33,7 @@ export function KaruteListHeader({
       </div>
       <Link
         href="/sessions"
-        className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+        className="inline-flex h-10 items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-colors hover:bg-primary-hover"
       >
         <FilePlus size={16} />
         <span>{t('newKarute')}</span>

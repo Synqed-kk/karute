@@ -109,7 +109,7 @@ export function ProcessingModal({ currentStep, error, onRetry, onCancel }: Proce
               <button
                 type="button"
                 onClick={onRetry}
-                className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
+                className="px-5 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover transition-colors"
               >
                 {tc('retry')}
               </button>

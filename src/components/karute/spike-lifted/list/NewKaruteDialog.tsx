@@ -330,7 +330,7 @@ export function NewKaruteDialog({
           <Button
             onClick={handleSubmit}
             disabled={!canSubmit}
-            className="bg-sage-800 text-white hover:bg-sage-900 disabled:bg-muted disabled:text-muted-foreground"
+            className="disabled:bg-muted disabled:text-muted-foreground"
           >
             {pending ? t('creating') : t('create')}
           </Button>

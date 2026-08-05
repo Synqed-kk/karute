@@ -102,7 +102,7 @@ export function SubscriptionSummaryCard() {
         </div>
         <Link
           href={manageHref}
-          className="inline-flex h-8 shrink-0 items-center rounded-md bg-blue-600 px-3 text-[12px] font-medium text-white transition-colors hover:bg-blue-700"
+          className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
         >
           {t('trialCta')}
         </Link>
@@ -127,7 +127,7 @@ export function SubscriptionSummaryCard() {
         </div>
         <Link
           href={manageHref}
-          className="inline-flex h-8 shrink-0 items-center rounded-md bg-sage-800 px-3 text-[12px] font-medium text-white transition-colors hover:bg-sage-900"
+          className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-3 text-[12px] font-medium text-primary-foreground transition-colors hover:bg-primary-hover"
         >
           {t('freeCta')}
         </Link>

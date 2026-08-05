@@ -42,7 +42,7 @@ export function PipelineErrorCard({
           <button
             type="button"
             onClick={onRetry}
-            className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
           >
             {tc('retry')}
           </button>

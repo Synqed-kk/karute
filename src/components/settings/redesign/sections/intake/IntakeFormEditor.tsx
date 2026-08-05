@@ -278,7 +278,7 @@ function SectionEditor({
         <Button
           onClick={handleAdd}
           disabled={!canSubmit}
-          className="h-9 bg-sage-800 text-white hover:bg-sage-900 disabled:opacity-50"
+          className="h-9 disabled:opacity-50"
         >
           <Plus className="size-3.5" aria-hidden />
           <span className="hidden sm:inline">{t('addButton')}</span>

@@ -38,7 +38,7 @@ export default function AppError({
           <button
             type="button"
             onClick={() => reset()}
-            className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
+            className="inline-flex h-10 w-full items-center justify-center rounded-lg bg-primary text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
           >
             もう一度読み込む
           </button>

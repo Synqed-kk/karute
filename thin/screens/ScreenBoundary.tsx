@@ -342,7 +342,7 @@ export function ScreenError({ message, onRetry }: { message: string; onRetry: ()
       <button
         type="button"
         onClick={onRetry}
-        className="rounded-lg bg-foreground px-5 py-2 text-sm font-semibold text-background"
+        className="rounded-lg bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
       >
         {t('retry')}
       </button>

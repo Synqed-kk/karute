@@ -451,7 +451,7 @@ export function ReviewScreen({
             type="button"
             onClick={handleSubmit(handleSave)}
             disabled={saving || (!appointmentCustomerId && !selectedCustomerId)}
-            className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-50"
+            className="px-6 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary-hover transition-colors disabled:opacity-50"
           >
             {saving ? tc('saving') : tc('save')}
           </button>
